@@ -72,8 +72,7 @@ func TestPendingFlipsPersistence(t *testing.T) {
 	})
 }
 
-// TestDropPendingFlipRecords pins the retire-on-flip path: without it a
-// record outlives the window it describes and a later restart re-arms it.
+// TestDropPendingFlipRecords pins that a retired record can't re-arm a later restart.
 func TestDropPendingFlipRecords(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	seed := []PendingFlip{
@@ -113,8 +112,7 @@ func TestDropPendingFlipRecords(t *testing.T) {
 	}
 }
 
-// TestScanPendingFlips covers the pre-finalize view: the persisted marker plus
-// the enable-* trackers a finalize pass has not consumed yet.
+// TestScanPendingFlips covers the pre-finalize view: marker plus unconsumed trackers.
 func TestScanPendingFlips(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -216,8 +214,7 @@ func TestScanPendingFlips(t *testing.T) {
 	}
 }
 
-// TestLivePendingFlips pins when a record retires: the whole point is that no
-// explicit hook on the flip or the DELETE path has to fire for it to happen.
+// TestLivePendingFlips pins retirement of a record without any explicit hook.
 func TestLivePendingFlips(t *testing.T) {
 	vTrue, vFalse := true, false
 	textProp := func(name string, filterable, searchable *bool, tokenization string) *models.Property {
@@ -309,9 +306,8 @@ func TestLivePendingFlips(t *testing.T) {
 	}
 }
 
-// TestEnsureBucketsAreRemoved_PendingFlipSuppressed pins the (d) hazard at
-// unit level: a canonical bucket for a still-unflipped enable-* migration is
-// indistinguishable from a deleted index without the pending-flip lookup.
+// TestEnsureBucketsAreRemoved_PendingFlipSuppressed pins that a still-unflipped
+// migration's bucket survives the nonexistent-index sweep.
 func TestEnsureBucketsAreRemoved_PendingFlipSuppressed(t *testing.T) {
 	vFalse := false
 

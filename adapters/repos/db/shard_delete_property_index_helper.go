@@ -31,11 +31,10 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 // - tenant was inactive during drop property index operation hence their property buckets may still exist on disk
 // - an error occurred during update property operation and most probably property buckets haven't been removed
 //
-// pendingFlips shields the third case, which looks identical on disk but must
-// be kept: an enable-* migration that swapped its bucket before the schema
-// flip landed (weaviate/0-weaviate-issues#319). That bucket holds the only
-// copy of the migrated data, and the sidecars it was built from are already
-// gone, so removing it here is unrecoverable.
+// pendingFlips shields a third case: an enable-* migration swapped its
+// bucket before the schema flip landed (weaviate/0-weaviate-issues#319).
+// That bucket holds the only copy of the migrated data — its sidecars are
+// already gone, so removing it here is unrecoverable.
 func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropertyIndexes(
 	indexPath, shardName string, class *models.Class, pendingFlips pendingFlipLookup,
 ) error {

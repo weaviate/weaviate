@@ -89,11 +89,10 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		// A property whose enable-* migration swapped but whose schema flag
-		// has not flipped yet is indexed on this shard, even though the live
-		// schema says otherwise. Its value bucket holds the migrated data,
-		// and writes to it emit null/length entries too — see
-		// [Shard.ensureNullLengthBucketsForMigration].
+		// A property whose enable-* migration swapped but whose flag has not
+		// flipped is indexed on this shard even though the live schema says
+		// otherwise; its bucket holds the migrated data and needs
+		// null/length entries too — see [Shard.ensureNullLengthBucketsForMigration].
 		_, forced := s.forcedIndexOverlay(prop.Name)
 		if !inverted.HasAnyInvertedIndex(prop) && !forced {
 			continue

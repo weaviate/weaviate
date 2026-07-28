@@ -22,9 +22,8 @@ import (
 )
 
 // TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost pins
-// weaviate/0-weaviate-issues#319 across a restart: the shard must re-open the
-// promoted canonical bucket and re-arm the force-index overlay from the
-// on-disk migration state, even though the live schema flag is still false.
+// weaviate/0-weaviate-issues#319: a restart must reopen the promoted bucket
+// and re-arm the write overlay before the schema flip lands.
 func TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost(t *testing.T) {
 	const propName = "title"
 	ctx := testCtx()
@@ -64,10 +63,8 @@ func TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost(t *testing.T) {
 }
 
 // TestReindexPostSwapPreFlip_RepeatedRestartsInWindow pins the second-restart
-// hazard. By then the migrated data sits at its canonical bucket name while
-// the schema still calls the property unindexed — the exact shape the
-// nonexistent-index sweep deletes on sight, and the sidecars it was built
-// from are gone, so the deletion is unrecoverable.
+// hazard (weaviate/0-weaviate-issues#319): by then the sidecars are gone, so a
+// bucket wrongly swept as a deleted index is unrecoverable.
 func TestReindexPostSwapPreFlip_RepeatedRestartsInWindow(t *testing.T) {
 	const propName = "title"
 	restartTokens := []string{"resttokena", "resttokenb"}

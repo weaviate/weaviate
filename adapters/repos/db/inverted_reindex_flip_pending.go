@@ -31,16 +31,10 @@ import (
 const pendingFlipFile = "flip_pending.mig"
 
 // PendingFlip records that an enable-* migration already promoted a
-// property's canonical inverted bucket on this shard while the cluster-wide
-// schema flag for that property is still false
-// (weaviate/0-weaviate-issues#319).
-//
-// Nothing else on the node carries that fact across a restart. The live
-// schema says "not indexed", and disk alone is ambiguous: a canonical bucket
-// for an unindexed property is also what a deleted index leaves behind, which
-// [propertyDeleteIndexHelper] removes on sight. Persisting the record is what
-// lets a shard restarting inside the window keep the migrated data, open its
-// bucket, and keep indexing writes into it until the flip lands.
+// property's canonical bucket while the cluster-wide schema flag is still
+// false (weaviate/0-weaviate-issues#319). Nothing else survives a restart:
+// disk alone can't tell that bucket apart from what a deleted index leaves
+// behind, which [propertyDeleteIndexHelper] removes on sight.
 type PendingFlip struct {
 	Prop string `json:"prop"`
 	// IndexType is the canonical inverted-index discriminator,
@@ -91,10 +85,9 @@ func (l pendingFlipLookup) has(propName, indexType string) bool {
 }
 
 // scanPendingFlips reports every swapped-but-not-flipped enable-* migration
-// visible on disk: the persisted records plus the tracker dirs a finalize
-// pass has not consumed yet. Read-only by construction — it never creates
-// .migrations, so it is safe on the pre-finalize path (contrast
-// [fileReindexTracker.init], which MkdirAlls).
+// visible on disk: persisted records plus tracker dirs a finalize pass has
+// not consumed yet. Read-only by construction, so it is safe to call before
+// finalize creates .migrations.
 func scanPendingFlips(lsmPath string, logger logrus.FieldLogger) []PendingFlip {
 	return mergePendingFlips(readPendingFlips(lsmPath, logger), pendingFlipTrackers(lsmPath))
 }
@@ -124,16 +117,12 @@ func readPendingFlips(lsmPath string, logger logrus.FieldLogger) []PendingFlip {
 	return flips
 }
 
-// writePendingFlips replaces the persisted record set. An empty set removes
-// the file, so a shard whose migrations have all converged leaves nothing
-// behind.
-//
-// Write-temp-then-rename keeps a crash from leaving a half-parsed marker, and
-// both the temp file and the directory are fsynced so the record survives a
-// power cut, not merely a process crash. That matters from the second restart
-// onwards: by then [FinalizeCompletedMigrations] has consumed the tracker dir
-// these records are otherwise re-derivable from, leaving this file as the only
-// evidence that the canonical bucket must be kept.
+// writePendingFlips replaces the persisted record set; an empty set removes
+// the file. Write-temp-then-rename plus fsyncing both the temp file and the
+// directory survives a power cut, not just a process crash — from the second
+// restart on, this file is the only evidence that the canonical bucket must
+// be kept, since [FinalizeCompletedMigrations] has already consumed the
+// tracker dir it was derived from.
 func writePendingFlips(lsmPath string, flips []PendingFlip) error {
 	dir := filepath.Join(lsmPath, ".migrations")
 	target := filepath.Join(dir, pendingFlipFile)
@@ -272,8 +261,6 @@ func readRecoveryTargetTokenization(migDir string) string {
 	if err != nil {
 		return ""
 	}
-	// Anonymous shape: only the field we need, mirroring
-	// [readRecoveryPropertyNames].
 	var rec struct {
 		Payload struct {
 			TargetTokenization string `json:"targetTokenization"`
@@ -330,15 +317,13 @@ func livePendingFlips(lsmPath string, flips []PendingFlip, class *models.Class) 
 	return kept
 }
 
-// resolvePendingFlips reconciles the persisted records with what this
-// startup's finalize pass promoted, drops the ones the live schema has caught
-// up with ([livePendingFlips]), persists the rest, and arms the write overlay
-// for them.
+// resolvePendingFlips reconciles persisted records with what this startup's
+// finalize pass promoted, drops records the live schema has caught up with,
+// persists the rest, and arms the write overlay for them.
 //
-// Must run after [FinalizeCompletedMigrations], which produces the
-// promotions, and before bucket loading and [Shard.NotifyReady], so that
-// initPropertyBuckets opens the promoted buckets and no write is ever
-// analyzed under the pre-flip schema.
+// Must run after [FinalizeCompletedMigrations] and before bucket loading /
+// [Shard.NotifyReady], so buckets open and writes are never analyzed under
+// the pre-flip schema.
 func (s *Shard) resolvePendingFlips(promoted []PendingFlip, class *models.Class) []PendingFlip {
 	if class == nil {
 		return nil
@@ -385,7 +370,6 @@ func dropPendingFlipRecords(lsmPath string, props []string, logger logrus.FieldL
 	}
 }
 
-// propertyByName returns the class property with the given name, or nil.
 func propertyByName(class *models.Class, propName string) *models.Property {
 	for _, prop := range class.Properties {
 		if prop != nil && prop.Name == propName {

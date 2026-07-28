@@ -523,10 +523,9 @@ func reindexSuffixForFinalize(namespace string) string {
 }
 
 // finalizeMigrationDir returns the properties whose canonical bucket now
-// holds the migrated data, either because this call renamed the ingest dir
-// onto it or because an earlier pass did and died before clearing the
-// tracker. Callers that need to react to the promotion (see
-// [FinalizeResult]) key off that list.
+// holds the migrated data — either this call renamed the ingest dir onto it,
+// or an earlier pass did and died before clearing the tracker. Callers use
+// this list to react to the promotion (see [FinalizeResult]).
 func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) []string {
 	// Only finalize if both swapped and tidied sentinels exist.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
