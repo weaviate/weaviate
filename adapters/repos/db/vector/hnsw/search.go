@@ -986,8 +986,7 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 				if err != nil {
 					h.logger.
 						WithField("action", "computeLateInteraction").
-						WithError(err).
-						Warnf("could not compute score for docID %d", docID)
+						Warnf("could not compute score for docID %d: %v", docID, err)
 					continue
 				}
 				totalDocVecsRead.Add(int64(nDocVecs))
@@ -1002,16 +1001,17 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 		return nil, nil, err
 	}
 
-	rescoreTook := time.Since(beforeRescore)
-	h.logger.
-		WithField("action", "muvera_rescore_debug").
-		WithField("candidates", len(ids)).
-		WithField("rescore_limit", rescoreLimit).
-		WithField("vectors_per_candidate", vectorsPerCandidate).
-		WithField("total_doc_vecs_read", totalDocVecsRead.Load()).
-		WithField("total_distance_computations", totalDistanceComps.Load()).
-		WithField("rescore_took_ms", rescoreTook.Milliseconds()).
-		Warn("TEMP muvera rescore stats")
+	// muvera_rescore_limit has no externally visible effect other than latency, so
+	// this is the only way an operator can see what a given budget actually cost.
+	h.logger.WithFields(logrus.Fields{
+		"action":                      "muvera_rescore",
+		"candidates":                  len(ids),
+		"rescore_limit":               rescoreLimit,
+		"vectors_per_candidate":       vectorsPerCandidate,
+		"total_doc_vecs_read":         totalDocVecsRead.Load(),
+		"total_distance_computations": totalDistanceComps.Load(),
+		"rescore_took_ms":             time.Since(beforeRescore).Milliseconds(),
+	}).Debug("muvera rescore stats")
 
 	distances := make([]float32, resultsQueue.Len())
 	resultIDs := make([]uint64, resultsQueue.Len())
