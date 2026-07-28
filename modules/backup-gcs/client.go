@@ -48,7 +48,7 @@ type gcsClient struct {
 	counter   atomic.Uint64 // monotonic counter for unique access-check paths within a node
 }
 
-func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
+func storageOptions(ctx context.Context, logger logrus.FieldLogger) ([]option.ClientOption, error) {
 	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
 	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
@@ -63,6 +63,7 @@ func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
 		}
 		opts = append(opts, option.WithCredentials(creds))
 	} else if backupGCSAuthProxyEndpoint != "" {
+		logger.Info("backup-gcs: using auth broker for GCS credentials")
 		opts = append(
 			opts,
 			option.WithTokenSource(
@@ -89,7 +90,7 @@ func projectID() string {
 }
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
-	opts, err := storageOptions(ctx)
+	opts, err := storageOptions(ctx, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +100,12 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 		return nil, errors.Wrap(err, "create client")
 	}
 
-	client.SetRetry(storage.WithBackoff(gax.Backoff{
-		Initial:    2 * time.Second, // Note: the client uses a jitter internally
-		Max:        60 * time.Second,
-		Multiplier: 3,
-	}),
+	client.SetRetry(
+		storage.WithBackoff(gax.Backoff{
+			Initial:    2 * time.Second, // Note: the client uses a jitter internally
+			Max:        60 * time.Second,
+			Multiplier: 3,
+		}),
 		storage.WithPolicy(storage.RetryAlways),
 		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)

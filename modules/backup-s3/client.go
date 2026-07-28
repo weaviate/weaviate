@@ -53,7 +53,7 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 		region = os.Getenv("AWS_DEFAULT_REGION")
 	}
 
-	creds, err := resolveCredentials(config, region)
+	creds, err := resolveCredentials(config, region, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve credentials")
 	}
@@ -69,9 +69,14 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 	return &s3Client{client, config, logger, dataPath, region}, nil
 }
 
-func resolveCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+func resolveCredentials(config *clientConfig, region string, logger logrus.FieldLogger) (*credentials.Credentials, error) {
 	if endpoint := os.Getenv("BACKUP_S3_AUTH_PROXY_ENDPOINT"); endpoint != "" {
-		return credentials.New(awscommon.NewAuthBrokerCredentials(endpoint)), nil
+		broker, err := awscommon.NewAuthBrokerCredentials(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("configure auth broker: %w", err)
+		}
+		logger.Info("backup-s3: using auth broker for AWS credentials")
+		return credentials.New(broker), nil
 	}
 
 	// When a Role ARN is configured, use STS AssumeRole to obtain

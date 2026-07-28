@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -27,8 +28,10 @@ import (
 
 type AuthBrokerCredentials struct {
 	credentials.Expiry
-	endpoint string
-	client   *http.Client
+	endpoint          string
+	identityTokenPath string
+	client            *http.Client
+	tokenTimeout      time.Duration
 }
 
 type AuthBrokerCredentialValue struct {
@@ -38,20 +41,41 @@ type AuthBrokerCredentialValue struct {
 	Expiration      time.Time `json:"expiration"`
 }
 
-const maxRetries = 5
-
-var (
-	httpClientTimeout      = 5 * time.Second
-	ErrRetryableAuthBroker = errors.New("retryable error from auth broker")
+const (
+	httpClientTimeout   = 5 * time.Second
+	defaultTokenTimeout = 30 * time.Second
+	identityFileEnvVar  = "AUTH_PROXY_IDENTITY_FILE"
+	tokenTimeoutEnvVar  = "AUTH_PROXY_TOKEN_TIMEOUT"
 )
 
-func NewAuthBrokerCredentials(endpoint string) *AuthBrokerCredentials {
-	return &AuthBrokerCredentials{
-		endpoint: endpoint,
-		client: &http.Client{
-			Timeout: httpClientTimeout,
-		},
+var ErrRetryableAuthBroker = errors.New("retryable error from auth broker")
+
+func NewAuthBrokerCredentials(endpoint string) (*AuthBrokerCredentials, error) {
+	path := os.Getenv(identityFileEnvVar)
+	if path == "" {
+		return nil, fmt.Errorf("%s not set; auth broker requires identity token file", identityFileEnvVar)
 	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("auth broker identity file %q not readable: %w", path, err)
+	}
+	return &AuthBrokerCredentials{
+		endpoint:          endpoint,
+		identityTokenPath: path,
+		client:            &http.Client{Timeout: httpClientTimeout},
+		tokenTimeout:      resolveTokenTimeout(),
+	}, nil
+}
+
+func resolveTokenTimeout() time.Duration {
+	v, ok := os.LookupEnv(tokenTimeoutEnvVar)
+	if !ok || v == "" {
+		return defaultTokenTimeout
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return defaultTokenTimeout
+	}
+	return d
 }
 
 func (b *AuthBrokerCredentials) Retrieve() (credentials.Value, error) {
@@ -59,10 +83,10 @@ func (b *AuthBrokerCredentials) Retrieve() (credentials.Value, error) {
 }
 
 func (b *AuthBrokerCredentials) RetrieveWithCredContext(_ *credentials.CredContext) (credentials.Value, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), b.tokenTimeout)
 	defer cancel()
 
-	identityToken, err := b.getIdentityToken()
+	identityToken, err := b.readIdentityToken()
 	if err != nil {
 		return credentials.Value{}, err
 	}
@@ -87,13 +111,20 @@ func (b *AuthBrokerCredentials) RetrieveWithCredContext(_ *credentials.CredConte
 
 func (b *AuthBrokerCredentials) fetchCredentialsWithRetry(ctx context.Context, identityToken string) (*AuthBrokerCredentialValue, error) {
 	backoff := gax.Backoff{
-		Initial:    500 * time.Millisecond,
-		Max:        3 * time.Second,
+		Initial:    1 * time.Millisecond,
+		Max:        5 * time.Second,
 		Multiplier: 2,
 	}
 
 	var err error
-	for range maxRetries {
+	for {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if err != nil {
+				return nil, fmt.Errorf("auth broker credentials fetch aborted: %w (last attempt: %w)", ctxErr, err)
+			}
+			return nil, ctxErr
+		}
+
 		var creds *AuthBrokerCredentialValue
 		creds, err = b.fetchCredentials(ctx, identityToken)
 		if err == nil {
@@ -104,18 +135,16 @@ func (b *AuthBrokerCredentials) fetchCredentialsWithRetry(ctx context.Context, i
 			return nil, err
 		}
 
-		if gax.Sleep(ctx, backoff.Pause()) != nil {
-			return nil, err
+		if sleepErr := gax.Sleep(ctx, backoff.Pause()); sleepErr != nil {
+			return nil, fmt.Errorf("auth broker credentials fetch aborted: %w (last attempt: %w)", sleepErr, err)
 		}
 	}
-
-	return nil, err
 }
 
 func (b *AuthBrokerCredentials) fetchCredentials(ctx context.Context, identityToken string) (*AuthBrokerCredentialValue, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to create request to auth broker: %w", ErrRetryableAuthBroker, err)
+		return nil, fmt.Errorf("failed to create request to auth broker: %w", err)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", identityToken))
@@ -124,9 +153,12 @@ func (b *AuthBrokerCredentials) fetchCredentials(ctx context.Context, identityTo
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRetryableAuthBroker, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
-	if resp.StatusCode >= 500 {
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 		return nil, fmt.Errorf("%w: auth broker returned status %d", ErrRetryableAuthBroker, resp.StatusCode)
 	}
 
@@ -139,21 +171,26 @@ func (b *AuthBrokerCredentials) fetchCredentials(ctx context.Context, identityTo
 		return nil, fmt.Errorf("failed to decode auth broker response: %w", err)
 	}
 
+	if creds.AccessKeyID == "" || creds.SecretAccessKey == "" || creds.SessionToken == "" || creds.Expiration.IsZero() {
+		return nil, errors.New("auth broker response missing required fields (access_key_id, secret_access_key, session_token, expiration)")
+	}
+
 	return &creds, nil
 }
 
-func (b *AuthBrokerCredentials) getIdentityToken() (string, error) {
-	path := os.Getenv("AUTH_PROXY_IDENTITY_FILE")
-	if path == "" {
-		return "", errors.New("AUTH_PROXY_IDENTITY_FILE not set; auth broker requires token file")
-	}
-
-	tok, err := os.ReadFile(path)
+func (b *AuthBrokerCredentials) readIdentityToken() (string, error) {
+	tok, err := os.ReadFile(b.identityTokenPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read web identity token from %q: %w", path, err)
+		return "", fmt.Errorf("failed to read web identity token from %q: %w", b.identityTokenPath, err)
 	}
-
-	return strings.TrimSpace(string(tok)), nil
+	// An empty file most likely means we caught kubelet mid-rotation. Fail
+	// clearly at this layer rather than sending "Authorization: Bearer " to
+	// the broker and getting an opaque 401 back.
+	trimmed := strings.TrimSpace(string(tok))
+	if trimmed == "" {
+		return "", fmt.Errorf("web identity token file %q is empty", b.identityTokenPath)
+	}
+	return trimmed, nil
 }
 
 var _ credentials.Provider = (*AuthBrokerCredentials)(nil)

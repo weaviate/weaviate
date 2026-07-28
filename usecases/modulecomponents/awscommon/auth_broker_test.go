@@ -12,6 +12,7 @@
 package awscommon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -133,6 +134,22 @@ func TestFetchCredentialsWithRetryRetriesOnRetryableError(t *testing.T) {
 	assert.Equal(t, 3, attempt)
 }
 
+func TestFetchCredentialsWithRetryAbortsOnContextDeadline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	b := &AuthBrokerCredentials{endpoint: srv.URL, client: srv.Client()}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := b.fetchCredentialsWithRetry(ctx, testIdentityToken)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
 func TestFetchCredentialsWithRetryNoRetryOnNonRetryableError(t *testing.T) {
 	attempt := 0
 
@@ -166,7 +183,8 @@ func TestRetrievePopulatesValueAndExpiry(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b := NewAuthBrokerCredentials(srv.URL)
+	b, err := NewAuthBrokerCredentials(srv.URL)
+	require.NoError(t, err)
 	b.client = srv.Client()
 
 	val, err := b.RetrieveWithCredContext(nil)
@@ -196,10 +214,11 @@ func TestRetrieveRefreshesIdentityTokenFromFile(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b := NewAuthBrokerCredentials(srv.URL)
+	b, err := NewAuthBrokerCredentials(srv.URL)
+	require.NoError(t, err)
 	b.client = srv.Client()
 
-	_, err := b.RetrieveWithCredContext(nil)
+	_, err = b.RetrieveWithCredContext(nil)
 	require.NoError(t, err)
 
 	require.NoError(t, os.WriteFile(path, []byte("token-v2"), 0o600))
@@ -211,11 +230,85 @@ func TestRetrieveRefreshesIdentityTokenFromFile(t *testing.T) {
 	assert.Equal(t, "Bearer token-v2", seen[1])
 }
 
-func TestRetrieveMissingTokenFile(t *testing.T) {
+func TestNewAuthBrokerCredentialsMissingEnvVarFailsFast(t *testing.T) {
 	t.Setenv("AUTH_PROXY_IDENTITY_FILE", "")
 
-	b := NewAuthBrokerCredentials("http://unused")
-	_, err := b.RetrieveWithCredContext(nil)
+	_, err := NewAuthBrokerCredentials("http://unused")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "AUTH_PROXY_IDENTITY_FILE")
+}
+
+func TestRetrieveEmptyIdentityTokenFileFailsClearly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(path, []byte("   \n"), 0o600))
+	t.Setenv("AUTH_PROXY_IDENTITY_FILE", path)
+
+	b, err := NewAuthBrokerCredentials("http://unused")
+	require.NoError(t, err)
+
+	_, err = b.RetrieveWithCredContext(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty")
+}
+
+func TestNewAuthBrokerCredentialsMissingFileFailsFast(t *testing.T) {
+	t.Setenv("AUTH_PROXY_IDENTITY_FILE", filepath.Join(t.TempDir(), "does-not-exist"))
+
+	_, err := NewAuthBrokerCredentials("http://unused")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not readable")
+}
+
+func TestFetchCredentialsRejectsIncompleteResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"empty object", `{}`},
+		{"missing session token", `{"access_key_id":"k","secret_access_key":"s","expiration":"2099-01-01T00:00:00Z"}`},
+		{"zero expiration", `{"access_key_id":"k","secret_access_key":"s","session_token":"t"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				fmt.Fprint(w, tt.body)
+			}))
+			defer srv.Close()
+
+			b := &AuthBrokerCredentials{endpoint: srv.URL, client: srv.Client()}
+			_, err := b.fetchCredentials(t.Context(), testIdentityToken)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "missing required fields")
+			assert.NotErrorIs(t, err, ErrRetryableAuthBroker)
+		})
+	}
+}
+
+func TestFetchCredentialsMalformedURLIsNotRetryable(t *testing.T) {
+	b := &AuthBrokerCredentials{endpoint: "http://\x7f/bad", client: http.DefaultClient}
+
+	_, err := b.fetchCredentials(t.Context(), testIdentityToken)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrRetryableAuthBroker)
+}
+
+func TestResolveTokenTimeout(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{"unset", "", defaultTokenTimeout},
+		{"valid duration", "5s", 5 * time.Second},
+		{"malformed", "not-a-duration", defaultTokenTimeout},
+		{"zero", "0s", defaultTokenTimeout},
+		{"negative", "-1s", defaultTokenTimeout},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AUTH_PROXY_TOKEN_TIMEOUT", tt.value)
+			assert.Equal(t, tt.want, resolveTokenTimeout())
+		})
+	}
 }

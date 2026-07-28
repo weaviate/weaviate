@@ -115,7 +115,7 @@ func TestResolveCredentials_EnvVarsPreferred(t *testing.T) {
 	})
 
 	config := &clientConfig{}
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 
@@ -134,7 +134,7 @@ func TestResolveCredentials_LegacyEnvVarsPreferred(t *testing.T) {
 	})
 
 	config := &clientConfig{}
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 
@@ -176,7 +176,7 @@ func TestResolveCredentials_AuthBrokerEndpointTakesPrecedence(t *testing.T) {
 		RoleARN: "arn:aws:iam::123456789012:role/TestRole",
 	}
 
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 	assert.Equal(t, 0, hits, "broker should not be contacted before first credential use")
@@ -196,6 +196,19 @@ func TestResolveCredentials_AuthBrokerEndpointTakesPrecedence(t *testing.T) {
 	assert.Equal(t, 1, hits, "broker should not be re-hit while credentials are still fresh")
 }
 
+func TestResolveCredentials_AuthBrokerMissingIdentityFileFailsFast(t *testing.T) {
+	// The broker is configured but the IRSA identity file is not — module init
+	// should fail immediately rather than defer the error to the first backup.
+	clearEnvVars(t, []string{"AUTH_PROXY_IDENTITY_FILE"})
+	setEnvVars(t, map[string]string{
+		"BACKUP_S3_AUTH_PROXY_ENDPOINT": "https://broker.example.com/aws",
+	})
+
+	_, err := resolveCredentials(&clientConfig{}, "us-east-1", logrus.New())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AUTH_PROXY_IDENTITY_FILE")
+}
+
 func TestResolveCredentials_RoleARNTriggersAssumeRole(t *testing.T) {
 	// When RoleARN is set, resolveCredentials should attempt STS AssumeRole.
 	// Without valid base credentials or a reachable STS endpoint, this will
@@ -210,7 +223,7 @@ func TestResolveCredentials_RoleARNTriggersAssumeRole(t *testing.T) {
 		ExternalID: "ext-123",
 	}
 
-	_, err := resolveCredentials(config, "us-east-1")
+	_, err := resolveCredentials(config, "us-east-1", logrus.New())
 	// Should fail because no base credentials are available for the STS call
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "IAM credentials for STS AssumeRole")
@@ -230,7 +243,7 @@ func TestResolveCredentials_RoleARNWithEnvCreds(t *testing.T) {
 		ExternalID: "ext-123",
 	}
 
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 }
