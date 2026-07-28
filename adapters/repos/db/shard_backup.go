@@ -47,10 +47,19 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	s.haltForTransferCount++
 
 	defer func() {
-		if err == nil && inactivityTimeout > 0 {
+		if err != nil {
+			return
+		}
+		if inactivityTimeout > 0 {
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
 			s.mayInitInactivityMonitoring()
 		}
+		// A successful halt is liveness, and a stronger signal of it than a file
+		// read. An overlapping consumer otherwise inherits the first consumer's
+		// deadline untouched while the seal steps it just ran consumed wall-clock
+		// time against it, so the monitor could force-resume the shard the moment
+		// the halt returns.
+		s.mayResetInactivityDeadline()
 	}()
 
 	if offloading {

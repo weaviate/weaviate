@@ -188,6 +188,40 @@ func TestShard_HaltForTransferSealsQueueDrainWrites(t *testing.T) {
 		"write performed by the queue drain is missing from the file list — the memtable flush runs before the drain instead of after it")
 }
 
+// The seal steps an overlapping halt runs consume wall-clock time budgeted
+// against an inactivity deadline it never pushed forward, so a successful halt
+// has to count as activity or the monitor force-resumes the shard immediately
+// after it returns and the consumer's first ListBackupFiles fails.
+func TestShard_HaltForTransferExtendsInactivityDeadline(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+	t.Cleanup(func() {
+		_ = idx.drop()
+		_ = os.RemoveAll(idx.Config.RootPath)
+	})
+	s := shd.(*Shard)
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+
+	// Stands in for a halt whose preparation outlasted the remaining budget.
+	s.haltForTransferMux.Lock()
+	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
+	s.haltForTransferMux.Unlock()
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+
+	s.haltForTransferMux.Lock()
+	deadline := s.haltForTransferInactivityDeadline
+	s.haltForTransferMux.Unlock()
+	require.True(t, deadline.After(time.Now()),
+		"an overlapping halt left the deadline in the past — the monitor will force-resume a shard two consumers still hold")
+
+	for s.haltForTransferCount > 0 {
+		require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	}
+}
+
 // A failed halt at count>1 must roll back to the holder's count rather than
 // unhalting the shard the first consumer still holds.
 func TestShard_SharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
