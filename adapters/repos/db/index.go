@@ -3747,6 +3747,19 @@ func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[str
 	return nil
 }
 
+// runInBackground runs f in a goroutine, taking over the shard reference the
+// caller took for it and releasing it once f is done. Errors are logged as
+// failureMsg.
+func (i *Index) runInBackground(shardName, failureMsg string, release func(), f func() error) {
+	enterrors.GoWrapper(func() {
+		defer release()
+
+		if err := f(); err != nil {
+			i.logger.WithField("shard", shardName).Errorf("%s: %v", failureMsg, err)
+		}
+	}, i.logger)
+}
+
 // IMPORTANT:
 // DebugResetVectorIndex is intended to be used for debugging purposes only.
 // It drops the selected vector index, creates a new one, then reindexes it in the background.
@@ -3772,6 +3785,20 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 		return errors.New("vector index is not hnsw")
 	}
 
+	// taken before the reset, otherwise the shard can end up with an emptied
+	// vector index and no reindex to refill it
+	reindexRelease, err := shard.preventShutdown()
+	if err != nil {
+		return err
+	}
+	// without this the reference leaks if the reset fails
+	reindexStarted := false
+	defer func() {
+		if !reindexStarted {
+			reindexRelease()
+		}
+	}()
+
 	// Reset the vector index
 	err = shard.DebugResetVectorIndex(ctx, targetVector)
 	if err != nil {
@@ -3779,13 +3806,10 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	}
 
 	// Reindex in the background
-	enterrors.GoWrapper(func() {
-		err = shard.FillQueue(targetVector, 0)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
-			return
-		}
-	}, i.logger)
+	reindexStarted = true
+	i.runInBackground(shardName, "failed to reindex vector index", reindexRelease, func() error {
+		return shard.FillQueue(targetVector, 0)
+	})
 
 	return nil
 }
@@ -3800,14 +3824,15 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 		return errors.New("shard not found")
 	}
 
+	repairRelease, err := shard.preventShutdown()
+	if err != nil {
+		return err
+	}
+
 	// Repair in the background
-	enterrors.GoWrapper(func() {
-		err := shard.RepairIndex(context.Background(), targetVector)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to repair vector index")
-			return
-		}
-	}, i.logger)
+	i.runInBackground(shardName, "failed to repair vector index", repairRelease, func() error {
+		return shard.RepairIndex(i.closingCtx, targetVector)
+	})
 
 	return nil
 }
@@ -3847,14 +3872,15 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 		return errors.New("shard not found")
 	}
 
-	// Repair in the background
-	enterrors.GoWrapper(func() {
-		err := shard.RequantizeIndex(context.Background(), targetVector)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to requantize vector index")
-			return
-		}
-	}, i.logger)
+	requantizeRelease, err := shard.preventShutdown()
+	if err != nil {
+		return err
+	}
+
+	// Requantize in the background
+	i.runInBackground(shardName, "failed to requantize vector index", requantizeRelease, func() error {
+		return shard.RequantizeIndex(i.closingCtx, targetVector)
+	})
 
 	return nil
 }
