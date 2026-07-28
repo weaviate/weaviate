@@ -114,6 +114,38 @@ func TestBackup_ListFiles(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestBackup_ListFilesMissingCommitLogDir(t *testing.T) {
+	ctx := context.Background()
+
+	dirName := t.TempDir()
+	indexID := "backup-list-files-missing-dir-test"
+
+	idx, err := New(Config{
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		},
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
+	require.Nil(t, err)
+	idx.PostStartup(context.Background())
+
+	// The directory can disappear under a live index (partially initialized
+	// shard, permissions change, operator removal). WalkDir then calls the
+	// callback with a nil DirEntry, and ListFiles is on the replica file-list
+	// path as well as the backup path, so a deref here takes down whichever
+	// touches the shard first.
+	require.NoError(t, os.RemoveAll(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID))))
+
+	var listErr error
+	require.NotPanics(t, func() { _, listErr = idx.ListFiles(ctx, dirName) })
+	require.Error(t, listErr)
+}
+
 func TestBackup_HFreshListFiles(t *testing.T) {
 	ctx := context.Background()
 
