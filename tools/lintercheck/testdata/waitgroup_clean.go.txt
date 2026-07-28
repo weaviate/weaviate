@@ -1,0 +1,14 @@
+package pkg
+
+import "sync"
+
+// The deferred form still matches the raw pattern the linter greps for, so this
+// exercises its defer exclusion rather than merely the absence of a match.
+func Clean() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+	}()
+	wg.Wait()
+}

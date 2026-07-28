@@ -1,0 +1,9 @@
+package errors
+
+import "golang.org/x/sync/errgroup"
+
+// Staged at the one allow-listed path, so this exercises the allow-list rather
+// than merely the absence of any errgroup mention.
+func NewErrorGroupWrapper() *errgroup.Group {
+	return &errgroup.Group{}
+}

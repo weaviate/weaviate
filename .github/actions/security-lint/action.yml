@@ -14,6 +14,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # The scan below reports success identically whether the diff is clean or
+    # the scanner has stopped matching. This proves it still fires first.
+    - name: Positive control for the hidden Unicode scanner
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/selfcheck.sh"
+
     - name: Check PR diff for hidden Unicode
       shell: bash
       # Inputs are passed through env vars — never interpolated into the

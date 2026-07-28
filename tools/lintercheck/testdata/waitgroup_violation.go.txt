@@ -1,0 +1,18 @@
+package pkg
+
+import "sync"
+
+// Known-bad input for tools/linter_waitgroups_done.sh: the counter is
+// decremented inline, so an early return or panic strands the Wait below.
+//
+// Do not spell the flagged call in a comment here; the linter only excludes
+// comment text made of letters, spaces and dots, so a mention would be flagged
+// too and this fixture would stop pinpointing one line.
+func Violation() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		wg.Done()
+	}()
+	wg.Wait()
+}
