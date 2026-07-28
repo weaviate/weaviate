@@ -1338,11 +1338,13 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 func (s *Searcher) desugaredContains(ctx context.Context, operator filters.Operator,
 	class *models.Class, path *filters.Path, operands []filters.Clause, declineReason string,
 ) (*propValuePair, error) {
-	helpers.AnnotateSlowQueryLogAppend(ctx, "contains_desugared", map[string]any{
-		"prop":       string(path.Property),
-		"operator":   operator.Name(),
-		"reason":     declineReason,
-		"num_values": len(operands),
+	helpers.AnnotateSlowQueryLogAppendFunc(ctx, "contains_desugared", func() map[string]any {
+		return map[string]any{
+			"prop":       string(path.Property),
+			"operator":   operator.Name(),
+			"reason":     declineReason,
+			"num_values": len(operands),
+		}
 	})
 
 	children, err := s.extractPropValuePairs(ctx, operands, operator, schema.ClassName(class.Class))

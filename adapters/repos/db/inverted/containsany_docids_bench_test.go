@@ -196,11 +196,15 @@ func (f *containsFixture) sampleValues(size int) (values []string, docIDs []uint
 }
 
 func containsFilter(op filters.Operator, values []string) *filters.LocalFilter {
+	return containsFilterOn(op, benchPropName, schema.DataTypeText, values)
+}
+
+func containsFilterOn(op filters.Operator, prop string, dt schema.DataType, value interface{}) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: op,
-			On:       &filters.Path{Class: className, Property: schema.PropertyName(benchPropName)},
-			Value:    &filters.Value{Value: values, Type: schema.DataTypeText},
+			On:       &filters.Path{Class: className, Property: schema.PropertyName(prop)},
+			Value:    &filters.Value{Value: value, Type: dt},
 		},
 	}
 }
@@ -329,6 +333,14 @@ func (f *containsFixture) resolveDocIDs(t *testing.T, ctx context.Context, filte
 // Contains clauses, so resolving this compound always exercises the per-value
 // path.
 func equalCompoundFilter(op filters.Operator, values []string) *filters.LocalFilter {
+	leafValues := make([]interface{}, len(values))
+	for i, v := range values {
+		leafValues[i] = v
+	}
+	return equalCompoundFilterOn(op, benchPropName, schema.DataTypeText, leafValues)
+}
+
+func equalCompoundFilterOn(op filters.Operator, prop string, dt schema.DataType, values []interface{}) *filters.LocalFilter {
 	compound := filters.OperatorOr
 	if op == filters.ContainsAll {
 		compound = filters.OperatorAnd
@@ -337,8 +349,8 @@ func equalCompoundFilter(op filters.Operator, values []string) *filters.LocalFil
 	for i, v := range values {
 		operands[i] = filters.Clause{
 			Operator: filters.OperatorEqual,
-			On:       &filters.Path{Class: className, Property: schema.PropertyName(benchPropName)},
-			Value:    &filters.Value{Value: v, Type: schema.DataTypeText},
+			On:       &filters.Path{Class: className, Property: schema.PropertyName(prop)},
+			Value:    &filters.Value{Value: v, Type: dt},
 		}
 	}
 	root := &filters.Clause{Operator: compound, Operands: operands}
@@ -372,6 +384,10 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 			[]string{"  " + containsPaddedValue + " ", " " + benchValue(3), containsSharedValues[0]},
 		},
 		{"absent values", []string{"absent_1", "absent_2", benchValue(5)}},
+		// "" and "   " both FIELD-tokenize to the empty-string token — the
+		// degenerate boundary of the one-token-per-value invariant, and a
+		// duplicate key within one batch.
+		{"empty and whitespace-only values", []string{"", "   ", benchValue(5)}},
 	}
 
 	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
@@ -497,32 +513,6 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 	// per family, so differential equality alone would survive an encoding
 	// bug that breaks lookups on both sides.
 	t.Run("int and uuid families end-to-end", func(t *testing.T) {
-		containsOn := func(op filters.Operator, prop string, dt schema.DataType, value interface{}) *filters.LocalFilter {
-			return &filters.LocalFilter{Root: &filters.Clause{
-				Operator: op,
-				On:       &filters.Path{Class: className, Property: schema.PropertyName(prop)},
-				Value:    &filters.Value{Value: value, Type: dt},
-			}}
-		}
-		equalCompoundOn := func(op filters.Operator, prop string, dt schema.DataType, values []interface{}) *filters.LocalFilter {
-			compound := filters.OperatorOr
-			if op == filters.ContainsAll {
-				compound = filters.OperatorAnd
-			}
-			operands := make([]filters.Clause, len(values))
-			for i, v := range values {
-				operands[i] = filters.Clause{
-					Operator: filters.OperatorEqual,
-					On:       &filters.Path{Class: className, Property: schema.PropertyName(prop)},
-					Value:    &filters.Value{Value: v, Type: dt},
-				}
-			}
-			root := &filters.Clause{Operator: compound, Operands: operands}
-			if op == filters.ContainsNone {
-				root = &filters.Clause{Operator: filters.OperatorNot, Operands: []filters.Clause{*root}}
-			}
-			return &filters.LocalFilter{Root: root}
-		}
 		ints := func(vs ...int) []interface{} {
 			out := make([]interface{}, len(vs))
 			for i, v := range vs {
@@ -588,8 +578,8 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				batched := f.resolveDocIDs(t, ctx, containsOn(tc.op, tc.prop, tc.dt, tc.filterValue))
-				desugared := f.resolveDocIDs(t, ctx, equalCompoundOn(tc.op, tc.prop, tc.dt, tc.leafValues))
+				batched := f.resolveDocIDs(t, ctx, containsFilterOn(tc.op, tc.prop, tc.dt, tc.filterValue))
+				desugared := f.resolveDocIDs(t, ctx, equalCompoundFilterOn(tc.op, tc.prop, tc.dt, tc.leafValues))
 				require.Equal(t, desugared, batched,
 					"batched Contains must resolve the same doc IDs as the desugared Equal compound")
 				if tc.exact != nil {

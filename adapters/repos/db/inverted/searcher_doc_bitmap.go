@@ -215,10 +215,10 @@ type containsBatchBucket interface {
 // mergeAllowlistBitmaps folds b into a under op (ContainsAny -> union,
 // ContainsAll -> intersection) and returns the result bitmap plus its release,
 // releasing whichever operand does not become the result. Both operands must
-// be allowlists. It mirrors mergeBitmapsAndOrWithDenyList's
-// swap-for-efficiency: union the smaller bitmap into the larger, intersect
-// the larger into the smaller, to minimize container operations.
-// NumContainers is an O(1) header read.
+// be allowlists. It picks the fold direction the same way
+// mergeBitmapsAndOrWithDenyList does: union the smaller bitmap into the
+// larger, intersect the larger into the smaller, to minimize container
+// operations. NumContainers is an O(1) header read.
 func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 	a *sroar.Bitmap, aRelease func(), b *sroar.Bitmap, bRelease func(),
 ) (*sroar.Bitmap, func(), error) {
@@ -248,12 +248,10 @@ func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 // rows. Package var so benchmarks can sweep it
 // (BenchmarkDocIDs_ContainsAnyAccumulatorGate).
 //
-// The measured crossover is shape-dependent: Go-level, the Accumulator wins
-// from ~16 keys when the result doc IDs are clustered and from ~64-100 when
-// they are spread across the ID space; server-level QA sweeps under
-// concurrent load place it higher (~512). 256 is the conservative middle
-// until those measurements are reconciled — the large-N folds this path
-// exists for sit far above it either way.
+// The crossover is shape-dependent — clustered result doc IDs favor the
+// Accumulator at far fewer keys than doc IDs spread across the ID space —
+// so 256 is deliberately conservative; the large-N folds this path exists
+// for sit far above it either way.
 var containsAnyAccumulatorMinKeys = 256
 
 // docBitmapContainsBatch folds every key in pv.containsValues into a single
@@ -309,14 +307,16 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 		return docBitmap{}, err
 	}
 	took := time.Since(before)
-	helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap", map[string]any{
-		"prop":           pv.prop,
-		"operator":       pv.operator,
-		"took":           took,
-		"took_string":    took.String(),
-		"count":          acc.GetCardinality(),
-		"strategy":       lsmkv.StrategyRoaringSet,
-		"batched_values": len(pv.containsValues),
+	helpers.AnnotateSlowQueryLogAppendFunc(ctx, "build_allow_list_doc_bitmap", func() map[string]any {
+		return map[string]any{
+			"prop":           pv.prop,
+			"operator":       pv.operator.Name(),
+			"took":           took,
+			"took_string":    took.String(),
+			"count":          acc.GetCardinality(),
+			"strategy":       lsmkv.StrategyRoaringSet,
+			"batched_values": len(pv.containsValues),
+		}
 	})
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
 }
@@ -357,7 +357,8 @@ func foldContainsAnyAccumulator(ctx context.Context, b containsBatchBucket,
 // foldContainsIncremental merges rows one key at a time under op: union for
 // ContainsAny (used below containsAnyAccumulatorMinKeys keys, where the
 // Accumulator's staging is not worth its setup), intersection for
-// ContainsAll. The swap-for-efficiency merge keeps the cheaper operand shape.
+// ContainsAll. mergeAllowlistBitmaps picks which operand to fold into by
+// container count, so merge cost tracks the smaller operand.
 //
 // ContainsAll additionally stops as soon as the intersection is empty: no
 // remaining key can change an empty result (the intersection only shrinks),
