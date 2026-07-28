@@ -2847,6 +2847,8 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
 // The returned shard cannot be closed until release is called.
 // release is never nil, including on error, so defer it immediately after the call.
+// The lookup holds shardCreateLocks until the reference is taken, so an unload of
+// the same shard waits for it — for a cold lazy shard that includes loading it.
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
 	shard ShardLike, release func(), err error,
 ) {
@@ -2857,15 +2859,14 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
 	}
 
-	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
-	// the shard
-	func() {
-		i.shardCreateLocks.RLock(shardName)
-		defer i.shardCreateLocks.RUnlock(shardName)
-		shard = i.shards.Load(shardName)
-	}()
+	// make sure same shard is not inited in parallel
+	i.shardCreateLocks.RLock(shardName)
+	shard = i.shards.Load(shardName)
 
 	if shard == nil {
+		// the read lock cannot be upgraded, so release it before taking the write lock
+		i.shardCreateLocks.RUnlock(shardName)
+
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -2891,10 +2892,13 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			}
 			i.shards.Store(shardName, shard)
 		}
+	} else {
+		// keep the read lock until the reference is taken: UnloadLocalShard shuts the
+		// shard down while holding the same lock for write
+		defer i.shardCreateLocks.RUnlock(shardName)
 	}
 
-	// If ensureInit is true, ensure the shard is loaded. For lazy shards, preventShutdown()
-	// will call Load() internally
+	// for lazy shards this loads the shard, whether or not ensureInit was set
 	release, err = shard.preventShutdown()
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)

@@ -611,3 +611,89 @@ func TestPreventShutdownReleaseIsIdempotent(t *testing.T) {
 		require.Equal(t, logrus.ErrorLevel, entry.Level)
 	}
 }
+
+// TestGetOptInitLocalShardAcquiresUnderShardCreateLock asserts that the lookup
+// takes the reference under the same shardCreateLocks it read the shard map
+// under. UnloadLocalShard shuts the shard down while holding that lock for
+// write, so a gap between the two hands the caller a shard that is already gone.
+func TestGetOptInitLocalShardAcquiresUnderShardCreateLock(t *testing.T) {
+	className := "RefCountAcquireUnderLock"
+	shardName := "shard-1"
+
+	tests := []struct {
+		name            string
+		loaded          bool
+		ensureInit      bool
+		acquireErr      error
+		wantErrContains string
+	}{
+		{name: "loaded shard", loaded: true},
+		{
+			name: "reference cannot be taken", loaded: true,
+			acquireErr: errAlreadyShutdown, wantErrContains: "no shutdown",
+		},
+		// the arm that releases the read lock by hand to take the write lock
+		{name: "shard not loaded", ensureInit: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(shardName, models.TenantActivityStatusHOT).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+
+			acquiring := make(chan struct{})
+			unloaded := make(chan struct{})
+			var unloadedWhileAcquiring bool
+
+			var want ShardLike
+			if test.loaded {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Shutdown(mock.Anything).Return(nil).Maybe()
+				shard.EXPECT().preventShutdown().RunAndReturn(func() (func(), error) {
+					close(acquiring)
+					select {
+					case <-unloaded:
+						unloadedWhileAcquiring = true
+					case <-time.After(time.Second):
+					}
+					return func() {}, test.acquireErr
+				})
+				idx.shards.Store(shardName, shard)
+				want = shard
+			} else {
+				// no reference is taken here, so the unload only checks that the
+				// lookup released the read lock before returning
+				close(acquiring)
+			}
+
+			unloadErr := make(chan error, 1)
+			go func() {
+				<-acquiring
+				unloadErr <- idx.UnloadLocalShard(t.Context(), shardName)
+				close(unloaded)
+			}()
+
+			got, release, err := idx.getOptInitLocalShard(t.Context(), shardName, test.ensureInit)
+			defer release()
+			if test.wantErrContains != "" {
+				require.ErrorContains(t, err, test.wantErrContains)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, want, got)
+			}
+			require.False(t, unloadedWhileAcquiring,
+				"the unload must wait for the reference to be taken")
+
+			select {
+			case err := <-unloadErr:
+				require.NoError(t, err, "the lock must be released once the lookup returns")
+			case <-time.After(5 * time.Second):
+				t.Fatal("UnloadLocalShard still blocked: the lookup did not release shardCreateLocks")
+			}
+		})
+	}
+}
