@@ -70,6 +70,12 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 		}
 	}
 
+	if initialParsed.RQ.Enabled && updatedParsed.RQ.Enabled &&
+		initialParsed.RQ.Bits != updatedParsed.RQ.Bits {
+		return errors.Errorf("rq bits is immutable: attempted change from \"%v\" to \"%v\"",
+			initialParsed.RQ.Bits, updatedParsed.RQ.Bits)
+	}
+
 	return nil
 }
 

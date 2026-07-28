@@ -958,6 +958,26 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	return vec
 }
 
+// normalizeVecForInsert normalizes vec for cosine indexes, using a pooled
+// buffer when the vector's lifetime allows it. The normalized vector is only
+// retained beyond the insert by the uncompressed float vector cache; once
+// the index is compressed — a one-way transition — Preload merely encodes
+// the vector, so the buffer can be reused. The returned release func (nil
+// when no pooled buffer was taken) must be called once the insert no longer
+// references the vector.
+func (h *hnsw) normalizeVecForInsert(vec []float32) ([]float32, func()) {
+	if h.distancerProvider.Type() != "cosine-dot" {
+		return vec, nil
+	}
+	if !h.compressed.Load() {
+		return distancer.Normalize(vec), nil
+	}
+	bufPtr := h.pools.normalizeBufs.Get().(*[]float32)
+	normalized := distancer.NormalizeInto(*bufPtr, vec)
+	*bufPtr = normalized
+	return normalized, func() { h.pools.normalizeBufs.Put(bufPtr) }
+}
+
 // normalizeVecInPlace normalizes the vector in-place without allocating.
 // Use this only when the caller owns the vector and doesn't need to preserve
 // the original (e.g., pooled temporary vectors).

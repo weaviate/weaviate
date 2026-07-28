@@ -510,7 +510,7 @@ var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfre
 // Matches DEFAULT_QUANTIZATION values so operators can copy them across.
 // "none" means "uncompressed"; omitting it from the allow-list makes
 // every non-hfresh class require a compression.
-var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
+var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-4", "rq-8", "bq"}
 
 func IsValidRestrictionVectorIndexType(v string) bool {
 	return slices.Contains(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))

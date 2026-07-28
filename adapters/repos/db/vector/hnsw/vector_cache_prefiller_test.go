@@ -116,6 +116,10 @@ func (f *fakeCache) Prefetch(id uint64) {
 	panic("not implemented")
 }
 
+func (f *fakeCache) PrefetchGet(id uint64) []float32 {
+	panic("not implemented")
+}
+
 func (f *fakeCache) Grow(id uint64) {
 	panic("not implemented")
 }
