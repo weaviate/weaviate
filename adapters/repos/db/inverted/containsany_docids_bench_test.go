@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -103,6 +105,40 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	require.NoError(tb, bucket.RoaringSetAddList([]byte(containsPaddedValue), []uint64{containsPaddedDocID}))
 	require.NoError(tb, bucket.FlushAndSwitch())
 
+	// Small int and uuid corpora for the family end-to-end rows: value i maps
+	// to docID i, plus one shared value held by two docs so ContainsAll is
+	// non-empty. Keys are written with the same encoding the analyzer uses
+	// for these property types, which the exact-docs assertions depend on.
+	intBucketName := helpers.BucketFromPropNameLSM(benchIntPropName)
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), intBucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(bufPool),
+	))
+	intBucket := store.Bucket(intBucketName)
+	for i := 0; i < containsFamilyDocs; i++ {
+		key, err := entinverted.LexicographicallySortableInt64(int64(i))
+		require.NoError(tb, err)
+		require.NoError(tb, intBucket.RoaringSetAddList(key, []uint64{uint64(i)}))
+	}
+	sharedIntKey, err := entinverted.LexicographicallySortableInt64(containsSharedInt)
+	require.NoError(tb, err)
+	require.NoError(tb, intBucket.RoaringSetAddList(sharedIntKey, containsFamilySharedDocIDs))
+	require.NoError(tb, intBucket.FlushAndSwitch())
+
+	uuidBucketName := helpers.BucketFromPropNameLSM(benchUUIDPropName)
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), uuidBucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(bufPool),
+	))
+	uuidBucket := store.Bucket(uuidBucketName)
+	for i := 0; i < containsFamilyDocs; i++ {
+		parsed := uuid.MustParse(benchUUIDValue(i))
+		require.NoError(tb, uuidBucket.RoaringSetAddList(parsed[:], []uint64{uint64(i)}))
+	}
+	sharedUUID := uuid.MustParse(containsSharedUUIDValue)
+	require.NoError(tb, uuidBucket.RoaringSetAddList(sharedUUID[:], containsFamilySharedDocIDs))
+	require.NoError(tb, uuidBucket.FlushAndSwitch())
+
 	maxDocID := uint64(numDocs + 1)
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
@@ -124,6 +160,23 @@ const (
 	containsPaddedValue = "padded-value"
 	containsPaddedDocID = uint64(23)
 )
+
+// int and uuid corpora for the family end-to-end rows.
+const (
+	benchIntPropName   = "inverted-without-frequency-roaringset"
+	benchUUIDPropName  = "inverted-uuid-roaringset"
+	containsFamilyDocs = 50
+	containsSharedInt  = 1000
+)
+
+var (
+	containsFamilySharedDocIDs = []uint64{7, 9}
+	containsSharedUUIDValue    = benchUUIDValue(999_999)
+)
+
+func benchUUIDValue(i int) string {
+	return fmt.Sprintf("00000000-0000-0000-0000-%012d", i)
+}
 
 // sampleValues picks `size` values spread evenly across the corpus (strided),
 // so the selection touches the whole keyspace. Deterministic and identical
@@ -350,6 +403,206 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 		require.Equal(t, desugared, batched)
 		require.Equal(t, []uint64{11}, batched,
 			"docID 11 holds its unique value plus every shared value")
+	})
+
+	// A batched ContainsNone resolves to a deny list: a bitmap of the docs to
+	// EXCLUDE, which every parent And/Or/Not merge arm must honor. The rows
+	// above only place Contains at the filter root, where the deny list is
+	// inverted once against the universe, so the merge arms go unexercised.
+	// The membership spot-checks pin the algebra itself, which the
+	// differential alone cannot: both trees feed deny lists through the same
+	// merge arms, so an arm bug would corrupt both sides identically.
+	t.Run("deny-list composition under compound parents", func(t *testing.T) {
+		// exclusion rows: valuesA -> docs {1, 2, 11, 17}, valuesB -> docs {2, 3, 11, 17}
+		valuesA := []string{benchValue(1), benchValue(2), containsSharedValues[0]}
+		valuesB := []string{benchValue(2), benchValue(3), containsSharedValues[1]}
+
+		equalLeaf := func(v string) filters.Clause {
+			return filters.Clause{
+				Operator: filters.OperatorEqual,
+				On:       &filters.Path{Class: className, Property: schema.PropertyName(benchPropName)},
+				Value:    &filters.Value{Value: v, Type: schema.DataTypeText},
+			}
+		}
+		tree := func(op filters.Operator, operands ...filters.Clause) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: op, Operands: operands}}
+		}
+
+		cases := []struct {
+			name        string
+			batched     *filters.LocalFilter
+			desugared   *filters.LocalFilter
+			exact       []uint64
+			contains    []uint64
+			notContains []uint64
+		}{
+			{
+				name:      "And(ContainsNone, Equal)",
+				batched:   tree(filters.OperatorAnd, *containsFilter(filters.ContainsNone, valuesA).Root, equalLeaf(benchValue(3))),
+				desugared: tree(filters.OperatorAnd, *equalCompoundFilter(filters.ContainsNone, valuesA).Root, equalLeaf(benchValue(3))),
+				exact:     []uint64{3},
+			},
+			{
+				name:        "Or(ContainsNone, Equal) re-adds a denied doc",
+				batched:     tree(filters.OperatorOr, *containsFilter(filters.ContainsNone, valuesA).Root, equalLeaf(benchValue(1))),
+				desugared:   tree(filters.OperatorOr, *equalCompoundFilter(filters.ContainsNone, valuesA).Root, equalLeaf(benchValue(1))),
+				contains:    []uint64{1, 3},
+				notContains: []uint64{2, 11, 17},
+			},
+			{
+				name:        "And(ContainsNone, ContainsNone)",
+				batched:     tree(filters.OperatorAnd, *containsFilter(filters.ContainsNone, valuesA).Root, *containsFilter(filters.ContainsNone, valuesB).Root),
+				desugared:   tree(filters.OperatorAnd, *equalCompoundFilter(filters.ContainsNone, valuesA).Root, *equalCompoundFilter(filters.ContainsNone, valuesB).Root),
+				contains:    []uint64{4},
+				notContains: []uint64{1, 2, 3, 11, 17},
+			},
+			{
+				name:        "Or(ContainsNone, ContainsNone) keeps docs denied by only one side",
+				batched:     tree(filters.OperatorOr, *containsFilter(filters.ContainsNone, valuesA).Root, *containsFilter(filters.ContainsNone, valuesB).Root),
+				desugared:   tree(filters.OperatorOr, *equalCompoundFilter(filters.ContainsNone, valuesA).Root, *equalCompoundFilter(filters.ContainsNone, valuesB).Root),
+				contains:    []uint64{1, 3, 4},
+				notContains: []uint64{2, 11, 17},
+			},
+			{
+				name:        "Not(ContainsAny) equals ContainsNone",
+				batched:     tree(filters.OperatorNot, *containsFilter(filters.ContainsAny, valuesA).Root),
+				desugared:   equalCompoundFilter(filters.ContainsNone, valuesA),
+				contains:    []uint64{3},
+				notContains: []uint64{1, 2, 11, 17},
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				batched := f.resolveDocIDs(t, ctx, tc.batched)
+				desugared := f.resolveDocIDs(t, ctx, tc.desugared)
+				require.Equal(t, desugared, batched,
+					"batched deny-list leaf must compose like its desugared reference")
+				if tc.exact != nil {
+					require.Equal(t, tc.exact, batched)
+				}
+				for _, id := range tc.contains {
+					require.Contains(t, batched, id)
+				}
+				for _, id := range tc.notContains {
+					require.NotContains(t, batched, id)
+				}
+			})
+		}
+	})
+
+	// The rows above all read the text FIELD property, so the uuid and
+	// primitive classify arms never cross a real bucket in this test. The
+	// exact-docs assertions matter here: both query paths share one encoder
+	// per family, so differential equality alone would survive an encoding
+	// bug that breaks lookups on both sides.
+	t.Run("int and uuid families end-to-end", func(t *testing.T) {
+		containsOn := func(op filters.Operator, prop string, dt schema.DataType, value interface{}) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: op,
+				On:       &filters.Path{Class: className, Property: schema.PropertyName(prop)},
+				Value:    &filters.Value{Value: value, Type: dt},
+			}}
+		}
+		equalCompoundOn := func(op filters.Operator, prop string, dt schema.DataType, values []interface{}) *filters.LocalFilter {
+			compound := filters.OperatorOr
+			if op == filters.ContainsAll {
+				compound = filters.OperatorAnd
+			}
+			operands := make([]filters.Clause, len(values))
+			for i, v := range values {
+				operands[i] = filters.Clause{
+					Operator: filters.OperatorEqual,
+					On:       &filters.Path{Class: className, Property: schema.PropertyName(prop)},
+					Value:    &filters.Value{Value: v, Type: dt},
+				}
+			}
+			root := &filters.Clause{Operator: compound, Operands: operands}
+			if op == filters.ContainsNone {
+				root = &filters.Clause{Operator: filters.OperatorNot, Operands: []filters.Clause{*root}}
+			}
+			return &filters.LocalFilter{Root: root}
+		}
+		ints := func(vs ...int) []interface{} {
+			out := make([]interface{}, len(vs))
+			for i, v := range vs {
+				out[i] = v
+			}
+			return out
+		}
+
+		cases := []struct {
+			name string
+			prop string
+			dt   schema.DataType
+			op   filters.Operator
+			// filterValue is the Contains filter's value in the typed shape
+			// the extractor accepts; leafValues are the same values as the
+			// per-leaf Equal shape for the desugared reference.
+			filterValue interface{}
+			leafValues  []interface{}
+			exact       []uint64
+			contains    []uint64
+			notContains []uint64
+		}{
+			{
+				name: "int ContainsAny", prop: benchIntPropName, dt: schema.DataTypeInt,
+				op:          filters.ContainsAny,
+				filterValue: []int{1, 2, containsSharedInt}, leafValues: ints(1, 2, containsSharedInt),
+				exact: []uint64{1, 2, 7, 9},
+			},
+			{
+				name: "int ContainsAll", prop: benchIntPropName, dt: schema.DataTypeInt,
+				op:          filters.ContainsAll,
+				filterValue: []int{containsSharedInt, 7}, leafValues: ints(containsSharedInt, 7),
+				exact: []uint64{7},
+			},
+			{
+				name: "int ContainsNone", prop: benchIntPropName, dt: schema.DataTypeInt,
+				op:          filters.ContainsNone,
+				filterValue: []int{1, containsSharedInt}, leafValues: ints(1, containsSharedInt),
+				contains: []uint64{2, 3}, notContains: []uint64{1, 7, 9},
+			},
+			{
+				name: "uuid ContainsAny", prop: benchUUIDPropName, dt: schema.DataTypeText,
+				op:          filters.ContainsAny,
+				filterValue: []interface{}{benchUUIDValue(1), benchUUIDValue(2), containsSharedUUIDValue},
+				leafValues:  []interface{}{benchUUIDValue(1), benchUUIDValue(2), containsSharedUUIDValue},
+				exact:       []uint64{1, 2, 7, 9},
+			},
+			{
+				name: "uuid ContainsAll", prop: benchUUIDPropName, dt: schema.DataTypeText,
+				op:          filters.ContainsAll,
+				filterValue: []interface{}{containsSharedUUIDValue, benchUUIDValue(7)},
+				leafValues:  []interface{}{containsSharedUUIDValue, benchUUIDValue(7)},
+				exact:       []uint64{7},
+			},
+			{
+				name: "uuid ContainsNone", prop: benchUUIDPropName, dt: schema.DataTypeText,
+				op:          filters.ContainsNone,
+				filterValue: []interface{}{benchUUIDValue(1), containsSharedUUIDValue},
+				leafValues:  []interface{}{benchUUIDValue(1), containsSharedUUIDValue},
+				contains:    []uint64{2, 3}, notContains: []uint64{1, 7, 9},
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				batched := f.resolveDocIDs(t, ctx, containsOn(tc.op, tc.prop, tc.dt, tc.filterValue))
+				desugared := f.resolveDocIDs(t, ctx, equalCompoundOn(tc.op, tc.prop, tc.dt, tc.leafValues))
+				require.Equal(t, desugared, batched,
+					"batched Contains must resolve the same doc IDs as the desugared Equal compound")
+				if tc.exact != nil {
+					require.Equal(t, tc.exact, batched)
+				}
+				for _, id := range tc.contains {
+					require.Contains(t, batched, id)
+				}
+				for _, id := range tc.notContains {
+					require.NotContains(t, batched, id)
+				}
+			})
+		}
 	})
 }
 
