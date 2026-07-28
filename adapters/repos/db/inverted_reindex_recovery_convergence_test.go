@@ -236,6 +236,15 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 // recoveryConvergenceCase: drive the shard to a specific on-disk state,
 // then restart with a fresh task and assert post-recovery fingerprint
 // matches the baseline.
+// Post-drive sentinel expectations, named so each case states which phase it
+// halted in instead of repeating the same literal. Values are identical to the
+// literals they replace.
+var (
+	sentinelsAtMerged  = map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false}
+	sentinelsAtSwapped = map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false}
+	sentinelsAtTidied  = map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true}
+)
+
 // driveToMergedState runs the reindex iteration to completion and then
 // runtimePrepare, leaving the tracker in the merged state with the swap not
 // yet run. Returns the tracker and the props prepared.
@@ -351,13 +360,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				driveToMergedState(t, ctx, shard, task)
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   false,
-				"tidied":    false,
-			},
+			expectedPostStateSentinels: sentinelsAtMerged,
 		},
 		// The next two cases are the crash window Phase 2a's batched sentinel
 		// fsync introduces. Phase 2a flips pointers in memory and writes the
@@ -374,13 +377,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 					require.NoError(t, rt.markSwappedPropUnsynced(p))
 				}
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   false,
-				"tidied":    false,
-			},
+			expectedPostStateSentinels: sentinelsAtMerged,
 		},
 		{
 			name: "Phase2a_crash_all_per_prop_sentinels_lost",
@@ -396,13 +393,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 					require.False(t, rt.IsSwappedProp(p))
 				}
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   false,
-				"tidied":    false,
-			},
+			expectedPostStateSentinels: sentinelsAtMerged,
 		},
 		{
 			name: "IsSwapped_synthetic_tidied_sentinel_removed",
@@ -422,13 +413,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				ftr := rt.(*fileReindexTracker)
 				require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   true,
-				"tidied":    false,
-			},
+			expectedPostStateSentinels: sentinelsAtSwapped,
 		},
 		{
 			name: "IsTidied_full_migration",
@@ -442,13 +427,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 					}
 				}
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   true,
-				"tidied":    true,
-			},
+			expectedPostStateSentinels: sentinelsAtTidied,
 		},
 	}
 
