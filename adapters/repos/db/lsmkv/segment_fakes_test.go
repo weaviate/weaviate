@@ -756,6 +756,14 @@ func (c *fakeMapCursor) seek(target []byte) ([]byte, []MapPair, error) {
 	panic("not implemented")
 }
 
-func (f *fakeSegment) underlyingSegment() (*segment, error) {
+func (f *fakeSegment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) hasKeyReplace(key []byte) bool {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {
 	panic("not implemented")
 }

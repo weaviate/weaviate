@@ -77,10 +77,12 @@ type Segment interface {
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
-	// underlyingSegment loads the segment if necessary and returns it, for read
-	// paths that need direct access (e.g. targeted scans slicing mmapped contents).
-	// Unlike the mustLoad-based accessors, a load failure is returned, not panicked.
-	underlyingSegment() (*segment, error)
+	// targeted-scan support (bucket_targeted_scan.go): index walk, newest-wins
+	// key probe, and a byte-range read that is zero-copy in mmap mode and fills
+	// *buf (grown in place as needed) via pread otherwise.
+	scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error
+	hasKeyReplace(key []byte) bool
+	readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() roaringsetrange.InnerReader

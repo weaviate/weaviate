@@ -34,7 +34,7 @@ type TargetedScanEntry struct {
 	// Peek holds the first min(peekSize, ValueSize) bytes of the value.
 	Peek []byte
 
-	seg        *segment // nil for memtable entries
+	seg        Segment // nil for memtable entries
 	valueStart uint64
 	value      []byte // memtable entries only
 	buf        []byte // grow-only scratch for pread-mode ReadRange
@@ -53,24 +53,8 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 	if e.seg == nil {
 		return e.value[from:to], nil
 	}
-	if e.seg.readFromMemory {
-		return e.seg.contents[e.valueStart+from : e.valueStart+to], nil
-	}
-
-	need := to - from
-	if uint64(cap(e.buf)) < need {
-		e.buf = make([]byte, need)
-	}
-	b := e.buf[:need]
-	r, err := e.seg.newNodeReader(nodeOffset{start: e.valueStart + from, end: e.valueStart + to}, "TargetedScanRange")
-	if err != nil {
-		return nil, err
-	}
-	defer r.Release()
-	if _, err := io.ReadFull(r, b); err != nil {
-		return nil, errors.Wrap(err, "targeted scan: read value range")
-	}
-	return b, nil
+	return e.seg.readRange(nodeOffset{start: e.valueStart + from, end: e.valueStart + to},
+		"TargetedScanRange", &e.buf)
 }
 
 // ScanTargetedReplace visits every live entry with merged-cursor visibility but
@@ -114,10 +98,7 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 		hideSets = append(hideSets, collect)
 	}
 
-	tasks, err := buildTargetedScanTasks(segments, parallel)
-	if err != nil {
-		return err
-	}
+	tasks := buildTargetedScanTasks(segments, parallel)
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -128,45 +109,34 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	eg.SetLimit(parallel)
 	for _, task := range tasks {
 		eg.Go(func() error {
-			var entry TargetedScanEntry
-			head := make([]byte, 9+peekSize)
-			return scanTargetedSegmentRange(egCtx, task, peekSize, hideSets, &entry, head, fn)
+			return scanTargetedSegmentRange(egCtx, task, peekSize, hideSets, fn)
 		})
 	}
 	return eg.Wait()
 }
 
 type targetedScanTask struct {
-	seg        *segment
+	seg        Segment
 	start, end []byte // key range [start,end); nil = open-ended
 	// newer holds the segments written after seg, newest first; a key present in
 	// any of them hides seg's row
-	newer []*segment
+	newer []Segment
 }
 
 // buildTargetedScanTasks splits each segment into enough key ranges that the total
 // task count reaches the requested parallelism even when few segments exist.
-func buildTargetedScanTasks(segments []Segment, parallel int) ([]targetedScanTask, error) {
+func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask {
 	if len(segments) == 0 {
-		return nil, nil
+		return nil
 	}
 	rangesPerSeg := (parallel + len(segments) - 1) / len(segments)
 
-	underlying := make([]*segment, len(segments))
-	for i, s := range segments {
-		seg, err := s.underlyingSegment()
-		if err != nil {
-			return nil, errors.Wrap(err, "targeted scan: resolve segment")
-		}
-		underlying[i] = seg
-	}
-
 	var tasks []targetedScanTask
-	for segIdx, seg := range underlying {
+	for segIdx, seg := range segments {
 		// segments arrive oldest to newest; probe newest first
-		var newer []*segment
-		for j := len(underlying) - 1; j > segIdx; j-- {
-			newer = append(newer, underlying[j])
+		var newer []Segment
+		for j := len(segments) - 1; j > segIdx; j-- {
+			newer = append(newer, segments[j])
 		}
 		seeds := [][]byte{}
 		if rangesPerSeg > 1 {
@@ -186,7 +156,7 @@ func buildTargetedScanTasks(segments []Segment, parallel int) ([]targetedScanTas
 		}
 		tasks = append(tasks, targetedScanTask{seg: seg, start: seeds[len(seeds)-1], newer: newer})
 	}
-	return tasks, nil
+	return tasks
 }
 
 // collect receives every key the memtable holds — tombstones included, they hide
@@ -251,12 +221,15 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 }
 
 func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSize int,
-	hideSets []map[string]struct{}, entry *TargetedScanEntry, head []byte,
+	hideSets []map[string]struct{},
 	fn func(e *TargetedScanEntry) error,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	var entry TargetedScanEntry
+	var head []byte // pread-mode scratch for the header+peek read; unused in mmap mode
 
 	const checkContextEveryN = 1024
 	rows := 0
@@ -282,61 +255,34 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 			}
 		}
 
-		var peek []byte
-		var valueLen uint64
-		if task.seg.readFromMemory {
-			node := task.seg.contents[n.Start:n.End]
-			if node[0] != 0 { // tombstone: nothing to serve from this segment
-				return nil
-			}
-			valueLen = binary.LittleEndian.Uint64(node[1:9])
-			if err := checkNodeValueLen(valueLen, n); err != nil {
-				return err
-			}
-			peekLen := uint64(peekSize)
-			if peekLen > valueLen {
-				peekLen = valueLen
-			}
-			peek = node[9 : 9+peekLen]
-		} else {
-			// one buffered read covers the 9-byte node header (tombstone + value
-			// length) plus the value prefix
-			headEnd := n.Start + uint64(9+peekSize)
-			if headEnd > n.End {
-				headEnd = n.End
-			}
-			r, err := task.seg.newNodeReader(nodeOffset{start: n.Start, end: headEnd}, "TargetedScanPeek")
-			if err != nil {
-				return err
-			}
-			defer r.Release()
-
-			if _, err := io.ReadFull(r, head[:9]); err != nil {
-				return errors.Wrap(err, "targeted scan: read node header")
-			}
-			if head[0] != 0 { // tombstone: nothing to serve from this segment
-				return nil
-			}
-			valueLen = binary.LittleEndian.Uint64(head[1:9])
-			if err := checkNodeValueLen(valueLen, n); err != nil {
-				return err
-			}
-			peekLen := uint64(peekSize)
-			if peekLen > valueLen {
-				peekLen = valueLen
-			}
-			if _, err := io.ReadFull(r, head[9:9+peekLen]); err != nil {
-				return errors.Wrap(err, "targeted scan: read value peek")
-			}
-			peek = head[9 : 9+peekLen]
+		// one read covers the 9-byte node header (tombstone + value length) plus
+		// the value prefix
+		headEnd := n.Start + uint64(9+peekSize)
+		if headEnd > n.End {
+			headEnd = n.End
+		}
+		node, err := task.seg.readRange(nodeOffset{start: n.Start, end: headEnd}, "TargetedScanPeek", &head)
+		if err != nil {
+			return err
+		}
+		if node[0] != 0 { // tombstone: nothing to serve from this segment
+			return nil
+		}
+		valueLen := binary.LittleEndian.Uint64(node[1:9])
+		if err := checkNodeValueLen(valueLen, n); err != nil {
+			return err
+		}
+		peekLen := uint64(peekSize)
+		if peekLen > valueLen {
+			peekLen = valueLen
 		}
 
 		entry.ValueSize = valueLen
-		entry.Peek = peek
+		entry.Peek = node[9 : 9+peekLen]
 		entry.seg = task.seg
 		entry.valueStart = n.Start + 9
 		entry.value = nil
-		return fn(entry)
+		return fn(&entry)
 	})
 }
 
@@ -379,10 +325,6 @@ func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) 
 	}
 }
 
-func (s *segment) underlyingSegment() (*segment, error) {
-	return s, nil
-}
-
 // hasKeyReplace: does the segment hold an entry (live or tombstoned) for key,
 // answered from the in-memory bloom filter and index only.
 func (s *segment) hasKeyReplace(key []byte) bool {
@@ -396,11 +338,28 @@ func (s *segment) hasKeyReplace(key []byte) bool {
 	return err == nil
 }
 
-func (s *lazySegment) underlyingSegment() (*segment, error) {
-	if err := s.load(); err != nil {
+// readRange serves the segment bytes in [offset.start, offset.end). In mmap mode
+// the result is a zero-copy slice of the segment contents; otherwise *buf is
+// grown as needed, filled via a single pread, and the result aliases it.
+func (s *segment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {
+	if s.readFromMemory {
+		return s.contents[offset.start:offset.end], nil
+	}
+
+	need := offset.end - offset.start
+	if uint64(cap(*buf)) < need {
+		*buf = make([]byte, need)
+	}
+	b := (*buf)[:need]
+	r, err := s.newNodeReader(offset, operation)
+	if err != nil {
 		return nil, err
 	}
-	return s.segment, nil
+	defer r.Release()
+	if _, err := io.ReadFull(r, b); err != nil {
+		return nil, errors.Wrap(err, "targeted scan: read range")
+	}
+	return b, nil
 }
 
 // EstimatedEntrySize is the average on-disk bytes per net entry across flushed

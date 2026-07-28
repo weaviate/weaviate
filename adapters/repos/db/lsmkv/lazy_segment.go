@@ -309,6 +309,21 @@ func (s *lazySegment) quantileKeys(q int) [][]byte {
 	return s.segment.quantileKeys(q)
 }
 
+func (s *lazySegment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
+	s.mustLoad()
+	return s.segment.scanNodeRanges(start, end, fn)
+}
+
+func (s *lazySegment) hasKeyReplace(key []byte) bool {
+	s.mustLoad()
+	return s.segment.hasKeyReplace(key)
+}
+
+func (s *lazySegment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {
+	s.mustLoad()
+	return s.segment.readRange(offset, operation, buf)
+}
+
 func (s *lazySegment) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	s.mustLoad()
 	return s.segment.ReadOnlyTombstones()
