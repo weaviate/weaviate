@@ -65,6 +65,17 @@ func (f PendingFlip) overlay() inverted.PropertyOverlay {
 	return inverted.PropertyOverlay{}
 }
 
+// satisfiedByLiveSchema reports whether the live property already has the flag
+// (and tokenization) this record forces, i.e. the flip landed here and the
+// record is obsolete.
+//
+// On the record rather than on an overlay: collapsing an overlay to a single
+// boolean is only sound while it carries one forced flag, and a merged entry
+// ([Shard.forceIndexOverlay]) can carry two that land at different times.
+func (f PendingFlip) satisfiedByLiveSchema(prop *models.Property) bool {
+	return forcesNoIndex(unsatisfiedForceIndexOverlay(f.overlay(), prop))
+}
+
 // pendingFlipKey identifies a record by the tuple it is unique on.
 type pendingFlipKey struct {
 	prop      string
@@ -324,7 +335,7 @@ func livePendingFlips(lsmPath string, flips []PendingFlip, class *models.Class) 
 	kept := make([]PendingFlip, 0, len(flips))
 	for _, flip := range flips {
 		prop := propertyByName(class, flip.Prop)
-		if prop == nil || forceOverlaySatisfiedByLiveSchema(flip.overlay(), prop) {
+		if prop == nil || flip.satisfiedByLiveSchema(prop) {
 			continue
 		}
 		bucketName, ok := mainBucketForPropertyIndex(flip.Prop, flip.IndexType)

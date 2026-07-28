@@ -361,6 +361,75 @@ func TestLivePendingFlips(t *testing.T) {
 	}
 }
 
+// TestLivePendingFlips_PerRecordRetirement pins that retirement is decided per
+// record. One property can hold a filterable and a searchable record at once,
+// and the schema catching up with one must leave the other armed.
+func TestLivePendingFlips_PerRecordRetirement(t *testing.T) {
+	vTrue, vFalse := true, false
+	filterable := PendingFlip{Prop: "title", IndexType: "filterable"}
+	searchable := PendingFlip{
+		Prop: "title", IndexType: "searchable",
+		Tokenization: models.PropertyTokenizationField,
+	}
+
+	tests := []struct {
+		name         string
+		filterableOn *bool
+		searchableOn *bool
+		tokenization string
+		want         []PendingFlip
+	}{
+		{
+			name:         "neither flip landed: both records survive",
+			filterableOn: &vFalse,
+			searchableOn: &vFalse,
+			tokenization: models.PropertyTokenizationWord,
+			want:         []PendingFlip{filterable, searchable},
+		},
+		{
+			name:         "searchable landed: filterable survives alone",
+			filterableOn: &vFalse,
+			searchableOn: &vTrue,
+			tokenization: models.PropertyTokenizationField,
+			want:         []PendingFlip{filterable},
+		},
+		{
+			name:         "filterable landed: searchable survives alone",
+			filterableOn: &vTrue,
+			searchableOn: &vFalse,
+			tokenization: models.PropertyTokenizationWord,
+			want:         []PendingFlip{searchable},
+		},
+		{
+			name:         "both landed: nothing survives",
+			filterableOn: &vTrue,
+			searchableOn: &vTrue,
+			tokenization: models.PropertyTokenizationField,
+			want:         []PendingFlip{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsmPath := t.TempDir()
+			for _, flip := range []PendingFlip{filterable, searchable} {
+				bucketName, ok := mainBucketForPropertyIndex(flip.Prop, flip.IndexType)
+				require.True(t, ok)
+				require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, bucketName), 0o777))
+			}
+			class := &models.Class{Class: "Test", Properties: []*models.Property{{
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    tc.tokenization,
+				IndexFilterable: tc.filterableOn,
+				IndexSearchable: tc.searchableOn,
+			}}}
+
+			kept := livePendingFlips(lsmPath, []PendingFlip{filterable, searchable}, class)
+			require.Equal(t, tc.want, kept)
+		})
+	}
+}
+
 // TestEnsureBucketsAreRemoved_PendingFlipSuppressed pins that a still-unflipped
 // migration's bucket survives the nonexistent-index sweep.
 func TestEnsureBucketsAreRemoved_PendingFlipSuppressed(t *testing.T) {

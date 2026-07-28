@@ -1138,13 +1138,6 @@ func unsatisfiedForceIndexOverlay(overlay inverted.PropertyOverlay, prop *models
 	return overlay
 }
 
-// forceOverlaySatisfiedByLiveSchema reports whether the live property already
-// has every flag (and tokenization) the overlay would force — i.e. the
-// schema flip has applied here and the entry is obsolete.
-func forceOverlaySatisfiedByLiveSchema(overlay inverted.PropertyOverlay, prop *models.Property) bool {
-	return forcesNoIndex(unsatisfiedForceIndexOverlay(overlay, prop))
-}
-
 func (s *Shard) tenant() string {
 	// TODO provide better impl
 	if s.index.partitioningEnabled {
