@@ -219,6 +219,8 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	metrics.IncObjectsTtlCount()
 	metrics.IncObjectsTtlRunning()
 
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessTTLDeletion)()
+
 	// count objects deleted per collection
 	objsDeletedCounters := make(DeletedCounters, len(classesWithTTL))
 	colNames := make([]string, 0, len(classesWithTTL))

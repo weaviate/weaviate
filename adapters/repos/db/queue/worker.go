@@ -22,6 +22,7 @@ import (
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -54,6 +55,10 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) do(batch *Batch) (err error) {
+	// Run blocks idle on the channel and only calls do() once a batch arrives,
+	// so this wraps a real async-indexing burst, not idle polling.
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessAsyncIndexing)()
+
 	defer func() {
 		// a panicking task must not kill the worker goroutine: it is never
 		// restarted, and the batch would never be marked done or canceled,

@@ -667,3 +667,9 @@ func TestSaveRecoveryPayload_WritesAndIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `{"task":"x"}`, string(got))
 }
+
+func TestGetSegmentPathsToMove_WalkRootRemoved(t *testing.T) {
+	task := &ShardReindexTaskGeneric{}
+	_, _, err := task.getSegmentPathsToMove(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir())
+	require.ErrorIs(t, err, os.ErrNotExist)
+}

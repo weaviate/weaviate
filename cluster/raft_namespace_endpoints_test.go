@@ -53,6 +53,15 @@ func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 	return srv, ctx, cleanup
 }
 
+// nsStateOf reads a namespace's state, failing the test if it is absent.
+func nsStateOf(t *testing.T, srv *Raft, name string) cmd.NamespaceState {
+	t.Helper()
+	got, err := srv.GetNamespaces(name)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	return got[0].State
+}
+
 func TestRaftNamespaceEndpoints(t *testing.T) {
 	srv, ctx, cleanup := setupRaftForNamespaceTests(t)
 	defer cleanup()
@@ -137,6 +146,83 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 		_, err := srv.ChangeNamespaceState(ctx, "never-existed", cmd.NamespaceStateDeleting)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrNotFound)
+	})
+
+	// The two halves of ChangeNamespaceStateIfUnchanged are pinned
+	// separately: that the pre-read reports the current index, and that a
+	// non-matching index is refused all the way through the apply. On a
+	// single node the calls are serialized, so the read always matches and no
+	// behavioral test can tell a correctly-forwarded index from a hardcoded
+	// unconditional 0 — that one line stays uncovered.
+
+	// stateChangeIndex is the pre-read ChangeNamespaceStateIfUnchanged
+	// conditions on. It must re-read per call: a value cached across the
+	// suspend below would make every later flip propose a stale index.
+	t.Run("stateChangeIndex reports the current index on every call", func(t *testing.T) {
+		seed(t, "cas-read")
+
+		atCreate, err := srv.stateChangeIndex("cas-read")
+		require.NoError(t, err)
+		assert.NotZero(t, atCreate, "a zero index would propose unconditionally")
+
+		version, err := srv.ChangeNamespaceState(ctx, "cas-read", cmd.NamespaceStateSuspended)
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
+
+		atSuspend, err := srv.stateChangeIndex("cas-read")
+		require.NoError(t, err)
+		assert.Greater(t, atSuspend, atCreate, "the read must reflect the flip, not the earlier value")
+	})
+
+	t.Run("stateChangeIndex on missing returns ErrNotFound", func(t *testing.T) {
+		_, err := srv.stateChangeIndex("never-existed")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, usecasesNamespaces.ErrNotFound)
+	})
+
+	// The proposed index has to survive marshalling, the apply dispatch and
+	// the FSM to reach the precondition.
+	t.Run("a stale expected index is refused end to end", func(t *testing.T) {
+		seed(t, "cas-stale")
+		atCreate, err := srv.stateChangeIndex("cas-stale")
+		require.NoError(t, err)
+
+		version, err := srv.ChangeNamespaceStateIfUnchanged(ctx, "cas-stale", cmd.NamespaceStateSuspended)
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
+
+		// Re-propose the same flip carrying the pre-suspend index, the shape
+		// an Execute retry takes after another operator resumed.
+		_, err = srv.changeNamespaceState(ctx, "cas-stale", cmd.NamespaceStateActive, atCreate)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, usecasesNamespaces.ErrStateChangedConcurrently)
+
+		got, err := srv.GetNamespaces("cas-stale")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, cmd.NamespaceStateSuspended, got[0].State, "the refused flip must not apply")
+	})
+
+	t.Run("ChangeNamespaceStateIfUnchanged flips and is reversible", func(t *testing.T) {
+		seed(t, "cas-target")
+
+		version, err := srv.ChangeNamespaceStateIfUnchanged(ctx, "cas-target", cmd.NamespaceStateSuspended)
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
+		assert.Equal(t, cmd.NamespaceStateSuspended, nsStateOf(t, srv, "cas-target"))
+
+		version, err = srv.ChangeNamespaceStateIfUnchanged(ctx, "cas-target", cmd.NamespaceStateActive)
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
+		assert.Equal(t, cmd.NamespaceStateActive, nsStateOf(t, srv, "cas-target"))
+	})
+
+	t.Run("ChangeNamespaceStateIfUnchanged on missing returns ErrNotFound", func(t *testing.T) {
+		before := srv.NamespaceCount()
+		_, err := srv.ChangeNamespaceStateIfUnchanged(ctx, "never-existed", cmd.NamespaceStateSuspended)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, usecasesNamespaces.ErrNotFound)
+		assert.Equal(t, before, srv.NamespaceCount(), "a zero-row pre-read must propose nothing")
 	})
 }
 

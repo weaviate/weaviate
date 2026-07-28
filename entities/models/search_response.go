@@ -37,7 +37,7 @@ type SearchResponse struct {
 
 	// Server-side processing time in milliseconds.
 	// Required: true
-	TookMs *int64 `json:"took_ms"`
+	TookMs *int64 `json:"tookMs"`
 }
 
 // Validate validates this search response
@@ -87,7 +87,7 @@ func (m *SearchResponse) validateResults(formats strfmt.Registry) error {
 
 func (m *SearchResponse) validateTookMs(formats strfmt.Registry) error {
 
-	if err := validate.Required("took_ms", "body", m.TookMs); err != nil {
+	if err := validate.Required("tookMs", "body", m.TookMs); err != nil {
 		return err
 	}
 

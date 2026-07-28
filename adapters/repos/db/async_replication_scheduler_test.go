@@ -1465,14 +1465,16 @@ func TestSchedulerCloseWithConcurrentDispatches(t *testing.T) {
 		require.NoError(t, sched.Register(&Shard{}))
 	}
 
-	// Wait until the dispatcher has placed at least one entry into the worker
-	// pipeline. The shards have nil asyncRepCtx so runEntry returns immediately,
-	// but we must still observe that a dispatch cycle has started before calling
-	// Close() to exercise the concurrent-dispatch code path.
+	// Gate on nextSeq growth: sampling len(workCh)/len(resultCh) misses sends handed off directly to parked receivers.
+	sched.mu.Lock()
+	baseSeq := sched.nextSeq
+	sched.mu.Unlock()
 	require.Eventually(t, func() bool {
-		return len(sched.workCh) > 0 || len(sched.resultCh) > 0
-	}, 200*time.Millisecond, time.Millisecond,
-		"dispatcher did not produce any dispatches within 200ms")
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		return sched.nextSeq > baseSeq
+	}, 5*time.Second, time.Millisecond,
+		"dispatcher did not complete any dispatch round-trip within 5s")
 
 	done := make(chan struct{})
 	go func() {
@@ -1527,14 +1529,16 @@ func TestWorkerDrainsWorkChOnCtxCancel(t *testing.T) {
 		require.NoError(t, sched.Register(s))
 	}
 
-	// Wait until the dispatcher has buffered at least one entry in workCh,
-	// ensuring Close() fires while some items are still in the worker pipeline.
-	// With nil asyncRepCtx, runEntry returns immediately; items cycle quickly,
-	// so we poll until we observe a non-empty buffer rather than sleeping.
+	// Gate on nextSeq growth: sampling len(workCh)/len(resultCh) misses sends handed off directly to parked receivers.
+	sched.mu.Lock()
+	baseSeq := sched.nextSeq
+	sched.mu.Unlock()
 	require.Eventually(t, func() bool {
-		return len(sched.workCh) > 0 || len(sched.resultCh) > 0
-	}, 200*time.Millisecond, time.Millisecond,
-		"dispatcher did not buffer any work items within 200ms")
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		return sched.nextSeq > baseSeq
+	}, 5*time.Second, time.Millisecond,
+		"dispatcher did not complete any dispatch round-trip within 5s")
 
 	// Close cancels the scheduler context. Workers must drain any remaining
 	// buffered workCh items and call Done() for each to keep asyncRepWg balanced.

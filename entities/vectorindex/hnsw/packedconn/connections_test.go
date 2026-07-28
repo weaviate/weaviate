@@ -1343,3 +1343,69 @@ func TestConnections_DataSerialization_MalformedData(t *testing.T) {
 	assert.Len(t, copied.GetLayer(0), 0)
 	assert.Len(t, copied.GetLayer(1), 0)
 }
+
+// NewWithData views the caller's blob per layer instead of copying it. Growing
+// one layer via append must reallocate so it never writes into the blob region
+// an adjacent layer still reads from. Appends stay within the layer's current
+// scheme so they take the in-place append path (the one aliasing would break),
+// not the decode-and-re-encode path which reallocates regardless.
+func TestNewWithData_AppendDoesNotCorruptAdjacentLayer(t *testing.T) {
+	cases := []struct {
+		name        string
+		layers      [][]uint64
+		targetLayer uint8
+		appends     []uint64
+	}{
+		{
+			name:        "2-byte scheme, append to first of two layers",
+			layers:      [][]uint64{{10, 20, 30}, {111, 222, 333, 444}},
+			targetLayer: 0,
+			appends:     []uint64{40, 50, 60, 70, 80},
+		},
+		{
+			name:        "3-byte scheme, append to first of two layers",
+			layers:      [][]uint64{{100000, 200000}, {300000, 400000, 500000}},
+			targetLayer: 0,
+			appends:     []uint64{600000, 700000, 800000, 900000},
+		},
+		{
+			name:        "append to middle of three layers",
+			layers:      [][]uint64{{1, 2}, {100, 200, 300}, {1000, 2000}},
+			targetLayer: 1,
+			appends:     []uint64{111, 222, 333, 444, 555},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := NewWithMaxLayer(uint8(len(tc.layers) - 1))
+			require.NoError(t, err)
+			for i, vals := range tc.layers {
+				c.ReplaceLayer(uint8(i), vals)
+			}
+
+			loaded := NewWithData(c.Data())
+
+			// Round-trip: every layer reads back identically to the source.
+			for i, vals := range tc.layers {
+				require.ElementsMatch(t, vals, loaded.GetLayer(uint8(i)))
+			}
+
+			for _, v := range tc.appends {
+				loaded.InsertAtLayer(v, tc.targetLayer)
+			}
+
+			wantTarget := append(append([]uint64{}, tc.layers[tc.targetLayer]...), tc.appends...)
+			require.ElementsMatch(t, wantTarget, loaded.GetLayer(tc.targetLayer))
+
+			// Growing the target layer must not have corrupted any other layer's
+			// bytes: this fails under two-index slicing (cap to end of blob).
+			for i, vals := range tc.layers {
+				if uint8(i) == tc.targetLayer {
+					continue
+				}
+				require.ElementsMatch(t, vals, loaded.GetLayer(uint8(i)))
+			}
+		})
+	}
+}

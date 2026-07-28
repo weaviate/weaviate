@@ -223,10 +223,10 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("test", func(t *testing.T) {
-			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
+			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
 			require.Nil(t, err)
 
-			vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
+			vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
 			require.Nil(t, err)
 			assert.Equal(t, tt.SearchVectors, vecs)
 			assert.Equal(t, tt.Targets, targets)
@@ -240,7 +240,7 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 				assert.Equal(t, tt.SearchVectors[0], vecsOld)
 				assert.Equal(t, tt.Targets[0], targetsOld)
 
-				vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
+				vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
 				require.Nil(t, err)
 				assert.Equal(t, tt.SearchVectors, vecs)
 				assert.Equal(t, tt.Targets, targets)

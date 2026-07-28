@@ -301,6 +301,16 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	}
 }
 
+// WithRangeableInMemoryDeferred marks a bucket whose in-memory rep was left
+// unbuilt intentionally. Enables a diagnostic log line only; never affects
+// read-path selection.
+func WithRangeableInMemoryDeferred(deferred bool) BucketOption {
+	return func(b *Bucket) error {
+		b.rangeableInMemoryDeferred = deferred
+		return nil
+	}
+}
+
 func WithBitmapBufPool(bufPool roaringset.BitmapBufPool) BucketOption {
 	return func(b *Bucket) error {
 		b.bitmapBufPool = bufPool
