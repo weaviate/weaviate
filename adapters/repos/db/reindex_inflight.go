@@ -33,6 +33,8 @@ var unwiredGateWarnOnce sync.Once
 // and reuses them for every shard. Building the activity lookup costs a
 // cluster-wide RAFT query; resolving it per shard instead of once turned
 // an ordinary precheck into thousands of queries on a multi-tenant node.
+// Lazily, because Backupable runs on every node and one holding none of
+// the requested classes' shards must issue no query at all.
 type reindexGate struct {
 	activityBuilder ShardReindexActivityLookupBuilder
 	cleanupBuilder  CleanupInProgressLookupBuilder
