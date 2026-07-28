@@ -12,6 +12,7 @@
 package db
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,13 +77,77 @@ func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 	}
 }
 
-// Pins: init() must fsync both new directory levels MkdirAll can create
-// (.migrations and its <name> child), not just the immediate parent.
+// Pins: init() must fsync both directory levels MkdirAll can create
+// (<lsm>/.migrations and <lsm> itself), not just the immediate parent.
+//
+// Durability is not observable from the resulting tree — the directories are
+// there whether or not they were fsynced — so each case observes the syscall
+// through its error instead: it strips read permission from exactly one level.
+// diskio.Fsync opens O_RDONLY and fails with EACCES on that level, while
+// MkdirAll needs only write+execute and still creates the tree. Dropping
+// either Fsync call therefore turns the expected error into a nil.
 func TestFileReindexTracker_InitFsyncsNewParentLevels(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based test cannot run as root")
+	}
+
+	// 0o311 is write+execute: enough for MkdirAll to create and traverse,
+	// but not enough for the O_RDONLY open inside diskio.Fsync.
+	const noReadDir = 0o311
+
+	tests := []struct {
+		name string
+		// setup returns the level whose fsync must fail.
+		setup func(t *testing.T, lsmPath string) string
+	}{
+		{
+			name: "child <name> dir created, .migrations level fsynced",
+			setup: func(t *testing.T, lsmPath string) string {
+				migrationsDir := filepath.Join(lsmPath, ".migrations")
+				require.NoError(t, os.Mkdir(migrationsDir, 0o777))
+				require.NoError(t, os.Chmod(migrationsDir, noReadDir))
+				t.Cleanup(func() { _ = os.Chmod(migrationsDir, 0o777) })
+				return migrationsDir
+			},
+		},
+		{
+			name: ".migrations created, <lsm> level fsynced",
+			setup: func(t *testing.T, lsmPath string) string {
+				require.NoError(t, os.Chmod(lsmPath, noReadDir))
+				t.Cleanup(func() { _ = os.Chmod(lsmPath, 0o777) })
+				return lsmPath
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lsmPath := t.TempDir()
+			wantFsyncedDir := test.setup(t, lsmPath)
+
+			tr := NewFileReindexTracker(lsmPath, "test_migration_1", &UuidKeyParser{})
+			err := tr.init()
+
+			// MkdirAll got through, so the error can only come from the fsync.
+			require.DirExists(t, tr.config.migrationPath,
+				"init() must create the tracker dir before fsyncing")
+			require.Error(t, err, "init() must fsync %s and propagate its failure", wantFsyncedDir)
+			require.ErrorIs(t, err, fs.ErrPermission)
+
+			var pathErr *fs.PathError
+			require.ErrorAs(t, err, &pathErr)
+			require.Equal(t, wantFsyncedDir, pathErr.Path,
+				"init() must fsync this level, not just the immediate parent")
+		})
+	}
+}
+
+// Pins: init() creates both levels and stays idempotent over an existing tree.
+func TestFileReindexTracker_InitCreatesTreeIdempotently(t *testing.T) {
 	lsmPath := t.TempDir()
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	require.NoDirExists(t, migrationsDir,
-		".migrations must not pre-exist, so init() must create AND persist it")
+		".migrations must not pre-exist, so init() must create it")
 
 	tr := NewFileReindexTracker(lsmPath, "test_migration_1", &UuidKeyParser{})
 	require.NoError(t, tr.init())
@@ -90,7 +155,6 @@ func TestFileReindexTracker_InitFsyncsNewParentLevels(t *testing.T) {
 	require.DirExists(t, migrationsDir, "init() must create <lsm>/.migrations")
 	require.DirExists(t, tr.config.migrationPath, "init() must create the <name> child dir")
 
-	// Idempotent: a second init() over an existing tree must still succeed.
 	require.NoError(t, tr.init())
 }
 
