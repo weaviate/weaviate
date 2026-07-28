@@ -171,7 +171,8 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 }
 
 // TestBackupable_AllShardsJudgedAgainstOneSnapshot pins that every shard
-// in one precheck is judged against the same DTM snapshot.
+// in one precheck is judged against the same DTM snapshot, not one taken
+// fresh per shard.
 func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	db, classes := newPrecheckGateTestDB(t, 1, 4)
 

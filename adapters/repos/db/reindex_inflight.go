@@ -145,7 +145,7 @@ func (g *reindexGate) logRefusal(collection, shardName, reason, msg string) {
 
 // AnyLiveReindexForShard is the single-shard convenience form of
 // [reindexGate.anyLiveReindexForShard], costing one DTM query per call.
-// Multi-shard callers should build and reuse a gate instead.
+// Multi-shard callers must build one gate and reuse it instead.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return db.newReindexGate().anyLiveReindexForShard(collection, shardName)
 }
