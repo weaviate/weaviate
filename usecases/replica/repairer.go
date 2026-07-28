@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -331,13 +332,26 @@ func (r *repairer) repairExist(ctx context.Context,
 	return !resp.Deleted, gr.Wait()
 }
 
-// repairAll repairs objects when reading them ((use in combination with Finder::GetAll)
+// repairBatchPart brings the replicas that disagree about any of ids up to the
+// most recent version. Repair content is fetched from the replica holding that
+// version; the caller's copy contributes only its update times, because it may
+// be a projected search result. A write carrying no content, such as a delete,
+// is never held up by a fetch.
+//
+// contentIdx must index the vote carrying the caller's copy, and every vote must
+// hold one digest and one count per id, in ids order.
+//
+// resolved[i] reports that the winning version of ids[i] is known, whether it
+// was fetched, already agreed on by every replica, or a delete needing no
+// content. It does not report that the repair writes landed: an object left in
+// doubt is marked instead by decrementing its Count entry on one of the votes.
+// The returned error names the replicas and objects left stale.
 func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
 	votes []Vote,
 	contentIdx int,
-) (_ []*storobj.Object, err error) {
+) (_ []bool, err error) {
 	r.metrics.IncReadRepairCount()
 
 	defer func(start time.Time) {
@@ -348,23 +362,25 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	}(time.Now())
 
 	var (
-		result            = make([]*storobj.Object, len(ids)) // final result
+		result            = make([]*storobj.Object, len(ids)) // content to write
+		resolved          = make([]bool, len(ids))            // per object outcome
 		lastTimes         = make([]iTuple, len(ids))          // most recent times
 		lastDeletionTimes = make([]int64, len(ids))           // most recent deletion times
-		ms                = make([]iTuple, 0, len(ids))       // mismatches
+		ms                = make([]iTuple, 0, len(ids))       // objects whose content is needed
 		cl                = r.client
 		nVotes            = len(votes)
-		// The input objects cannot be used for repair because
-		// their attributes might have been filtered out
-		reFetchSet       = make(map[int]struct{})
-		deletionStrategy = r.getDeletionStrategy()
+		deletionStrategy  = r.getDeletionStrategy()
 	)
 
+	if contentIdx < 0 || contentIdx >= len(votes) {
+		return resolved, fmt.Errorf("no reply identified as the caller's copy among %d replies", len(votes))
+	}
+
 	// find most recent objects
-	for i, x := range votes[contentIdx].FullData {
-		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
+	for i, x := range votes[contentIdx].DigestData {
+		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime, Deleted: x.Deleted}
 		if x.Deleted {
-			lastDeletionTimes[i] = x.UpdateTime()
+			lastDeletionTimes[i] = x.UpdateTime
 		}
 		votes[contentIdx].Count[i] = nVotes // reuse Count[] to check consistency
 	}
@@ -375,7 +391,6 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				if curTime := lastTimes[j].T; x.UpdateTime > curTime {
 					// input object is not up to date
 					lastTimes[j] = iTuple{S: i, O: j, T: x.UpdateTime}
-					reFetchSet[j] = struct{}{} // we need to fetch this object again
 				}
 
 				lastTimes[j].Deleted = lastTimes[j].Deleted || x.Deleted
@@ -389,18 +404,47 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		}
 	}
 
-	// find missing content (diff)
-	for i, p := range votes[contentIdx].FullData {
+	// An object needs content only if some replica disagrees with the winner and
+	// will therefore be written to. Same condition the repair loop below applies.
+	needsContent := make([]bool, len(ids))
+	for _, vote := range votes {
+		for j := range ids {
+			if vote.UpdateTimeAt(j) != lastTimes[j].T {
+				needsContent[j] = true
+			}
+		}
+	}
+
+	for i := range ids {
 		if lastTimes[i].Deleted && lastDeletionTimes[i] == lastTimes[i].T {
+			// the winner is a tombstone, there is no content to propagate
 			continue
 		}
 
-		if _, ok := reFetchSet[i]; ok {
-			ms = append(ms, lastTimes[i])
-		} else {
-			result[i] = p.Object
+		if !needsContent[i] {
+			// every replica already holds the winning version
+			resolved[i] = true
+			continue
 		}
+
+		if lastTimes[i].Deleted {
+			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+				// a tombstone anywhere deletes the live winner, so the pending
+				// write is a delete and the winning outcome is already known
+				resolved[i] = true
+				continue
+			}
+			if deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+				// the conflict is not resolved, so nothing is written
+				continue
+			}
+		}
+
+		ms = append(ms, lastTimes[i])
 	}
+
+	// Collected here since nothing else records why an object stayed stale.
+	var fetchErrs []error
 
 	if len(ms) > 0 { // fetch most recent objects
 		// partition by hostname
@@ -415,10 +459,13 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		}
 		partitions = append(partitions, len(ms))
 
+		// One slot per partition: a failure on one replica must not hide others.
+		fetchErrs = make([]error, len(partitions))
+
 		// concurrent fetches
 		gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
 		start := 0
-		for _, end := range partitions { // fetch diffs
+		for p, end := range partitions { // fetch diffs
 			rid := ms[start].S
 			receiver := votes[rid].Sender
 			query := make([]strfmt.UUID, end-start)
@@ -428,26 +475,47 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			}
 			start := start
 			gr.Go(func() error {
+				n := len(query)
 				resp, err := cl.FullReads(ctx, receiver, r.class, shard, query)
-				for i, n := 0, len(query); i < n; i++ {
-					idx := ms[start-n+i].O
-					if err != nil || lastTimes[idx].T != resp[i].UpdateTime() {
-						votes[rid].Count[idx]--
-					} else {
-						result[idx] = resp[i].Object
+				if err != nil {
+					for i := 0; i < n; i++ {
+						votes[rid].Count[ms[start-n+i].O]--
 					}
+					fetchErrs[p] = fmt.Errorf("read %d object(s) from %s: %w", n, receiver, err)
+					return nil
+				}
+
+				var changed []strfmt.UUID
+				for i := 0; i < n; i++ {
+					idx := ms[start-n+i].O
+					if lastTimes[idx].T != resp[i].UpdateTime() {
+						// the winner moved on between casting its vote and this read
+						votes[rid].Count[idx]--
+						changed = append(changed, query[i])
+						continue
+					}
+					result[idx] = resp[i].Object
+					resolved[idx] = result[idx] != nil
+					if result[idx] == nil {
+						changed = append(changed, query[i])
+					}
+				}
+				if len(changed) > 0 {
+					fetchErrs[p] = fmt.Errorf("%s no longer holds the agreed version of %v: %w",
+						receiver, changed, replicaerrors.ErrConflictObjectChanged)
 				}
 				return nil
 			})
 
 		}
 		if err := gr.Wait(); err != nil {
-			return nil, err
+			return resolved, err
 		}
 	}
 
 	// concurrent repairs
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
+	writeErrs := make([]error, len(votes))
 
 	for rid, vote := range votes {
 		query := make([]*objects.VObject, 0, len(ids)/2)
@@ -455,19 +523,9 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 		for j, x := range lastTimes {
 			deleted := x.Deleted && lastDeletionTimes[j] == x.T
-			if !deleted && result[j] == nil {
-				// latest object could not be fetched
-				continue
-			}
 
 			if x.Deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
-				alreadyDeleted := false
-
-				if rid == contentIdx {
-					alreadyDeleted = vote.BatchReply.FullData[j].Deleted
-				} else {
-					alreadyDeleted = vote.BatchReply.DigestData[j].Deleted
-				}
+				alreadyDeleted := vote.DigestData[j].Deleted
 
 				if alreadyDeleted && lastDeletionTimes[j] == vote.UpdateTimeAt(j) {
 					continue
@@ -487,6 +545,12 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 			if x.Deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 				// note: conflict is not resolved
+				continue
+			}
+
+			if !deleted && result[j] == nil {
+				// only a write carrying content needs the winning object, and it
+				// could not be fetched
 				continue
 			}
 
@@ -543,18 +607,28 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				for _, idx := range m {
 					votes[rid].Count[idx]--
 				}
+				writeErrs[rid] = fmt.Errorf("repair %d object(s) on %s: %w", len(query), receiver, err)
 				return nil
 			}
+			var rejected []string
 			for _, r := range rs {
 				if r.Err != "" {
 					if idx, ok := m[r.ID]; ok {
 						votes[rid].Count[idx]--
+						rejected = append(rejected, r.ID)
 					}
 				}
+			}
+			if len(rejected) > 0 {
+				writeErrs[rid] = fmt.Errorf("%s rejected the repair of %v: %w",
+					receiver, rejected, replicaerrors.ErrConflictObjectChanged)
 			}
 			return nil
 		})
 	}
 
-	return result, gr.Wait()
+	if err := gr.Wait(); err != nil {
+		return resolved, err
+	}
+	return resolved, errors.Join(errors.Join(fetchErrs...), errors.Join(writeErrs...))
 }
