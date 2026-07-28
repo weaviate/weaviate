@@ -88,21 +88,7 @@ func TestRuntimeSwap_Phase2a_BatchedSentinelFsyncRuns(t *testing.T) {
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
-	task.skipSwapOnFinish.Store(true)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	props, err := task.readPropsToReindex(rt)
-	require.NoError(t, err)
-	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+	rt, props := driveToMergedState(t, ctx, shard, task)
 
 	// Strip read permission only once prepare is done, so the sentinel
 	// writes inside the loop still succeed and the trailing fsync is the
@@ -111,7 +97,7 @@ func TestRuntimeSwap_Phase2a_BatchedSentinelFsyncRuns(t *testing.T) {
 	require.NoError(t, os.Chmod(migPath, 0o311))
 	t.Cleanup(func() { _ = os.Chmod(migPath, 0o777) })
 
-	err = task.runtimeSwap(ctx, task.logger, shard, rt, props)
+	err := task.runtimeSwap(ctx, task.logger, shard, rt, props)
 
 	require.Error(t, err, "runtimeSwap must fsync the sentinel dir after Phase 2a and propagate the failure")
 	require.ErrorIs(t, err, fs.ErrPermission)
