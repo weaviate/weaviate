@@ -36,15 +36,15 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 // That bucket holds the only copy of the migrated data — its sidecars are
 // already gone, so removing it here is unrecoverable.
 func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-	indexPath, shardName string, class *models.Class, pendingFlips pendingFlipLookup,
+	indexPath, shardName string, class *models.Class, pendingFlips pendingFlipShield,
 ) error {
 	for _, prop := range class.Properties {
-		if p.isPropertyIndexRemoved(prop.IndexFilterable) && !pendingFlips.has(prop.Name, "filterable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
+		if p.isPropertyIndexRemoved(prop.IndexFilterable) && !pendingFlips.protects(prop.Name, "filterable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for filterable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}
-		if p.isPropertyIndexRemoved(prop.IndexSearchable) && !pendingFlips.has(prop.Name, "searchable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
+		if p.isPropertyIndexRemoved(prop.IndexSearchable) && !pendingFlips.protects(prop.Name, "searchable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for searchable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}

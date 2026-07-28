@@ -473,12 +473,31 @@ func TestEnsureBucketsAreRemoved_PendingFlipSuppressed(t *testing.T) {
 			require.NoError(t, os.MkdirAll(bucketPath, 0o777))
 			require.NoError(t, helper.ensureBucketsAreRemovedForNonExistentPropertyIndexes(
 				indexPath, shardName, class,
-				newPendingFlipLookup([]PendingFlip{{Prop: "title", IndexType: tc.indexType}})))
+				newPendingFlipShield([]PendingFlip{{Prop: "title", IndexType: tc.indexType}})))
 			require.DirExists(t, bucketPath, "a swapped-but-not-flipped bucket must survive")
 
 			require.NoError(t, helper.ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-				indexPath, shardName, class, nil))
+				indexPath, shardName, class, newPendingFlipShield(nil)))
 			require.NoDirExists(t, bucketPath, "without a pending flip the bucket is unused and goes")
 		})
 	}
+}
+
+// The zero-value shield is what a caller that never ran scanPendingFlips holds.
+// It has to read as "everything is protected": the sweep deletes the only copy
+// of a swapped-but-not-flipped migration's data, so "I did not look" must never
+// be indistinguishable from "I looked and found none"
+// (weaviate/0-weaviate-issues#438).
+func TestPendingFlipShield_ZeroValueProtectsEverything(t *testing.T) {
+	var unscanned pendingFlipShield
+	require.True(t, unscanned.protects("title", "filterable"))
+	require.True(t, unscanned.protects("anything", "searchable"))
+
+	scannedEmpty := newPendingFlipShield(nil)
+	require.False(t, scannedEmpty.protects("title", "filterable"),
+		"a completed scan that found nothing must let the sweep run, or the shield would pin every bucket forever")
+
+	scanned := newPendingFlipShield([]PendingFlip{{Prop: "title", IndexType: "filterable"}})
+	require.True(t, scanned.protects("title", "filterable"))
+	require.False(t, scanned.protects("title", "searchable"), "the shield is keyed on the tuple, not the property")
 }

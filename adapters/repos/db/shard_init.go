@@ -72,7 +72,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}).Warn("reindex: flip-pending records unreadable; skipping the nonexistent-property-index sweep " +
 			"so a swapped-but-not-flipped migration cannot lose its bucket")
 	} else if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-		index.path(), shardName, class, newPendingFlipLookup(flips)); err != nil {
+		index.path(), shardName, class, newPendingFlipShield(flips)); err != nil {
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 

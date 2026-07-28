@@ -90,16 +90,31 @@ func (f PendingFlip) key() pendingFlipKey {
 // swapped-but-not-flipped migration on this shard?".
 type pendingFlipLookup map[pendingFlipKey]struct{}
 
-func newPendingFlipLookup(flips []PendingFlip) pendingFlipLookup {
+// pendingFlipShield reports which buckets the nonexistent-property-index sweep
+// must leave alone. Its zero value protects everything: a caller that has not
+// run scanPendingFlips cannot present itself as having looked and found none,
+// which is the only mistake here that costs data (weaviate/0-weaviate-issues#438).
+type pendingFlipShield struct {
+	scanned bool
+	flips   pendingFlipLookup
+}
+
+// newPendingFlipShield records that the scan ran, so an empty result means
+// "provably no pending flip" rather than "never asked".
+func newPendingFlipShield(flips []PendingFlip) pendingFlipShield {
 	out := make(pendingFlipLookup, len(flips))
 	for _, f := range flips {
 		out[f.key()] = struct{}{}
 	}
-	return out
+	return pendingFlipShield{scanned: true, flips: out}
 }
 
-func (l pendingFlipLookup) has(propName, indexType string) bool {
-	_, ok := l[pendingFlipKey{prop: propName, indexType: indexType}]
+// protects reports whether the bucket for (propName, indexType) must be kept.
+func (s pendingFlipShield) protects(propName, indexType string) bool {
+	if !s.scanned {
+		return true
+	}
+	_, ok := s.flips[pendingFlipKey{prop: propName, indexType: indexType}]
 	return ok
 }
 
