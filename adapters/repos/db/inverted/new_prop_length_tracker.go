@@ -165,8 +165,27 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 // perfectly plausible 6.0, so neither the searcher's validity check nor the
 // untrack clamp ever sees anything wrong.
 func (t *JsonShardMetaData) clampCorruptTallies() {
-	for prop, count := range t.data.CountData {
-		if count > 0 && t.data.SumData[prop] >= 0 {
+	props := make(map[string]struct{}, len(t.data.CountData))
+	for prop := range t.data.CountData {
+		props[prop] = struct{}{}
+	}
+	// Union rather than CountData alone: a sum without a count would otherwise
+	// skip the check entirely and later divide into a negative mean, which is
+	// neither NaN nor Inf and so passes every downstream guard.
+	for prop := range t.data.SumData {
+		props[prop] = struct{}{}
+	}
+
+	for prop := range props {
+		count, sum := t.data.CountData[prop], t.data.SumData[prop]
+		if count > 0 && sum >= 0 {
+			continue
+		}
+		// A property whose objects have all been deleted legitimately sits at
+		// zero: nothing removes the key, so this is the routine empty state and
+		// not a corruption. Relaxing the guard above to count >= 0 would cover
+		// it, and would also re-admit (sum>0, count==0), whose mean is +Inf.
+		if count == 0 && sum == 0 {
 			continue
 		}
 		t.logger.Warnf("prop length tally for %q loaded impossible (sum=%d count=%d); resetting to empty",

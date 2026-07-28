@@ -94,24 +94,59 @@ func TestUnTrackProperty_WarnsOncePerProperty(t *testing.T) {
 // A tally can arrive already impossible from an older binary. sum=-12 over
 // count=-2 divides to a plausible 6.0, so nothing downstream can tell it is
 // broken -- it has to be caught at load.
+// Table rather than a single case: relaxing the healthy guard to count >= 0
+// silences the legitimately-empty row and simultaneously re-admits (50,0),
+// whose mean is +Inf. Both directions have to be pinned or the next reader
+// makes that one-character change with the suite still green.
 func TestNewJsonShardMetaData_ClampsInheritedCorruption(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	trackerPath := path.Join(t.TempDir(), "proplengths")
-
-	corrupt := &ShardMetaData{
-		BucketedData: map[string]map[int]int{"title": {}},
-		SumData:      map[string]int{"title": -12},
-		CountData:    map[string]int{"title": -2},
+	tests := []struct {
+		name        string
+		sum, count  int
+		wantClamped bool
+	}{
+		{name: "negative pair divides to a plausible 6.0", sum: -12, count: -2, wantClamped: true},
+		{name: "sum without count is +Inf", sum: 50, count: 0, wantClamped: true},
+		{name: "negative sum", sum: -12, count: 2, wantClamped: true},
+		{name: "negative count", sum: 50, count: -2, wantClamped: true},
+		{name: "healthy is left alone", sum: 50, count: 5, wantClamped: false},
+		{name: "all objects deleted is legal, not corrupt", sum: 0, count: 0, wantClamped: false},
 	}
-	raw, err := json.Marshal(corrupt)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(trackerPath, raw, 0o644))
 
-	tracker, err := NewJsonShardMetaData(trackerPath, logger)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			trackerPath := path.Join(t.TempDir(), "proplengths")
+			raw, err := json.Marshal(&ShardMetaData{
+				BucketedData: map[string]map[int]int{"title": {}},
+				SumData:      map[string]int{"title": tt.sum},
+				CountData:    map[string]int{"title": tt.count},
+			})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(trackerPath, raw, 0o644))
 
-	mean, err := tracker.PropertyMean("title")
-	require.NoError(t, err)
-	require.True(t, math.IsNaN(float64(mean)),
-		"-12/-2 reads as a plausible 6.0; an inherited impossible tally must read as absent instead")
+			tracker, err := NewJsonShardMetaData(trackerPath, logger)
+			require.NoError(t, err)
+			mean, err := tracker.PropertyMean("title")
+			require.NoError(t, err)
+
+			warns := 0
+			for _, e := range hook.AllEntries() {
+				if e.Level == logrus.WarnLevel {
+					warns++
+				}
+			}
+
+			if tt.wantClamped {
+				require.True(t, math.IsNaN(float64(mean)),
+					"an impossible tally must read as absent, not as a mean the searcher will average in")
+				require.Equal(t, 1, warns, "clamping a corrupt tally must say so exactly once")
+				return
+			}
+			require.Equal(t, 0, warns, "a legal tally must not be reported as corrupt")
+			if tt.count > 0 {
+				require.InDelta(t, float64(tt.sum)/float64(tt.count), float64(mean), 0.001,
+					"a healthy tally must survive the load untouched")
+			}
+		})
+	}
 }
