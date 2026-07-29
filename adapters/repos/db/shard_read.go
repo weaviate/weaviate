@@ -540,6 +540,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 				s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit,
 				s.bitmapFactory).
 				WithTokenizationResolver(s.TokenizationFor).
+				WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
@@ -573,6 +574,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
+		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
 			s.index.Config.InvertedSorterDisabled)
 	return objs, nil, err
@@ -898,6 +900,7 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
+		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")

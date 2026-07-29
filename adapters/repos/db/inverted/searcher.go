@@ -81,6 +81,11 @@ type Searcher struct {
 	// use prop.Tokenization directly (tests and callers with no
 	// in-flight migration).
 	tokResolver TokenizationResolver
+	// batchedContainsEnabled gates the batched flat Contains resolution.
+	// Runtime-overridable; nil (the default) means disabled, so the
+	// feature is opt-in and callers that don't wire it keep the
+	// desugared per-value path.
+	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
 // WithTokenizationResolver attaches a [TokenizationResolver] used by query
@@ -96,6 +101,17 @@ type Searcher struct {
 // Pass nil (the default) to use the schema-stored value directly.
 func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 	s.tokResolver = r
+	return s
+}
+
+// WithBatchedContainsEnabled attaches the runtime-overridable gate for the
+// batched flat ContainsAny/ContainsAll/ContainsNone resolution. Returns the
+// receiver for fluent chaining at construction sites.
+//
+// Nil (the default) means disabled: every Contains filter takes the
+// desugared per-value path, so the batched fast path is strictly opt-in.
+func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
+	s.batchedContainsEnabled = v
 	return s
 }
 
@@ -1005,7 +1021,7 @@ const (
 // per-value path instead of the batched fold.
 const (
 	containsDeclineNonContainsOperator  = "non-contains-operator"
-	containsDeclineDisabledByEnv        = "disabled-by-env"
+	containsDeclineNotEnabled           = "not-enabled"
 	containsDeclineMultiSegmentPath     = "multi-segment-path"
 	containsDeclineInternalProperty     = "internal-property"
 	containsDeclineLengthFilter         = "length-filter"
@@ -1043,8 +1059,8 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	if !operator.IsContains() {
 		return nil, containsNotBatchable, containsDeclineNonContainsOperator
 	}
-	if entcfg.BatchedContainsDisabled() {
-		return nil, containsNotBatchable, containsDeclineDisabledByEnv
+	if !s.batchedContainsEnabled.Get() {
+		return nil, containsNotBatchable, containsDeclineNotEnabled
 	}
 
 	props := path.Slice()
