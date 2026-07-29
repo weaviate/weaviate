@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // nextMigrationGeneration returns the per-node generation `N` a new
@@ -401,12 +402,8 @@ func writeRecoveryTidiedSentinels(migDir string) error {
 		if fileExists(p) {
 			continue
 		}
-		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err != nil {
+		if err := diskio.WriteFileSync(p, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644); err != nil {
 			return fmt.Errorf("create %s: %w", name, err)
-		}
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close %s: %w", name, err)
 		}
 	}
 	return nil

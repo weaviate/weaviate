@@ -236,6 +236,39 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 // recoveryConvergenceCase: drive the shard to a specific on-disk state,
 // then restart with a fresh task and assert post-recovery fingerprint
 // matches the baseline.
+// Post-drive sentinel expectations, named so each case states which phase it
+// halted in instead of repeating the same literal. Values are identical to the
+// literals they replace.
+var (
+	sentinelsAtMerged  = map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false}
+	sentinelsAtSwapped = map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false}
+	sentinelsAtTidied  = map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true}
+)
+
+// driveToMergedState runs the reindex iteration to completion and then
+// runtimePrepare, leaving the tracker in the merged state with the swap not
+// yet run. Returns the tracker and the props prepared.
+func driveToMergedState(t *testing.T, ctx context.Context, shard *Shard,
+	task *ShardReindexTaskGeneric,
+) (reindexTracker, []string) {
+	t.Helper()
+	task.skipSwapOnFinish.Store(true)
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	rt, err := task.newReindexTracker(shard.pathLSM())
+	require.NoError(t, err)
+	props, err := task.readPropsToReindex(rt)
+	require.NoError(t, err)
+	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+	return rt, props
+}
+
 type recoveryConvergenceCase struct {
 	name                       string
 	driveToState               func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
@@ -309,20 +342,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				// runtimePrepare writes markPrepended + markMerged in one
 				// atomic method, so we synthesize the IsPrepended-only
 				// state by removing merged.mig post-hoc.
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
-				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+				rt, _ := driveToMergedState(t, ctx, shard, task)
 				ftr := rt.(*fileReindexTracker)
 				mergedPath := filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)
 				require.NoError(t, os.Remove(mergedPath))
@@ -338,28 +358,42 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		{
 			name: "IsMerged_via_runtimePrepare_no_runtimeSwap",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
+				driveToMergedState(t, ctx, shard, task)
+			},
+			expectedPostStateSentinels: sentinelsAtMerged,
+		},
+		// The next two cases are the crash window Phase 2a's batched sentinel
+		// fsync introduces. Phase 2a flips pointers in memory and writes the
+		// per-prop sentinels unsynced, then fsyncs the dir once; it renames
+		// nothing, so a crash anywhere inside it leaves the disk in the merged
+		// state either way. What differs is how many sentinels survived:
+		// per-prop fsyncing (the old shape) kept them, batching can lose all
+		// of them. Both must converge, which is what makes the batching safe.
+		{
+			name: "Phase2a_crash_per_prop_sentinel_survived",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				rt, props := driveToMergedState(t, ctx, shard, task)
+				for _, p := range props {
+					require.NoError(t, rt.markSwappedPropUnsynced(p))
 				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
-				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   false,
-				"tidied":    false,
+			expectedPostStateSentinels: sentinelsAtMerged,
+		},
+		{
+			name: "Phase2a_crash_all_per_prop_sentinels_lost",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				rt, props := driveToMergedState(t, ctx, shard, task)
+
+				// Written, then lost with the un-fsynced dir entry.
+				ftr := rt.(*fileReindexTracker)
+				for _, p := range props {
+					require.NoError(t, rt.markSwappedPropUnsynced(p))
+					require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath,
+						ftr.config.filenameSwapped+"."+p)))
+					require.False(t, rt.IsSwappedProp(p))
+				}
 			},
+			expectedPostStateSentinels: sentinelsAtMerged,
 		},
 		{
 			name: "IsSwapped_synthetic_tidied_sentinel_removed",
@@ -379,13 +413,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				ftr := rt.(*fileReindexTracker)
 				require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   true,
-				"tidied":    false,
-			},
+			expectedPostStateSentinels: sentinelsAtSwapped,
 		},
 		{
 			name: "IsTidied_full_migration",
@@ -399,13 +427,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 					}
 				}
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   true,
-				"tidied":    true,
-			},
+			expectedPostStateSentinels: sentinelsAtTidied,
 		},
 	}
 

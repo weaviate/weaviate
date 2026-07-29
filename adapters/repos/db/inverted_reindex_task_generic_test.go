@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -568,6 +569,103 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
 
 	require.NoError(t, shard.Shutdown(ctx))
+}
+
+// Pins: SaveRecoveryPayload must fsync BOTH directory levels its MkdirAll
+// can create (<lsm>/.migrations and <lsm> itself). Fsyncing only the
+// immediate parent leaves the .migrations entry itself unflushed, so a
+// crash can take the directory payload.mig lives in with it — and the
+// orphan audit then sees no record that this task ever started.
+//
+// Durability leaves no trace in the resulting tree, so each case observes
+// the syscall through its error: it strips read permission from exactly one
+// level. MkdirAll needs only write+execute and still builds the tree, while
+// diskio.Fsync opens O_RDONLY and fails with EACCES on that level. Dropping
+// either Fsync call turns the expected error into a nil.
+func TestSaveRecoveryPayload_FsyncsBothNewParentLevels(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based test cannot run as root")
+	}
+
+	// 0o311 is write+execute: enough for MkdirAll to create and traverse,
+	// but not enough for the O_RDONLY open inside diskio.Fsync.
+	const noReadDir = 0o311
+
+	tests := []struct {
+		name string
+		// setup returns the level whose fsync must fail.
+		setup func(t *testing.T, lsmPath, migrationDirName string) string
+	}{
+		{
+			name: "child <name> dir created, .migrations level fsynced",
+			setup: func(t *testing.T, lsmPath, _ string) string {
+				migrationsDir := filepath.Join(lsmPath, ".migrations")
+				require.NoError(t, os.Mkdir(migrationsDir, 0o777))
+				require.NoError(t, os.Chmod(migrationsDir, noReadDir))
+				t.Cleanup(func() { _ = os.Chmod(migrationsDir, 0o777) })
+				return migrationsDir
+			},
+		},
+		{
+			name: ".migrations created, <lsm> level fsynced",
+			setup: func(t *testing.T, lsmPath, _ string) string {
+				require.NoError(t, os.Chmod(lsmPath, noReadDir))
+				t.Cleanup(func() { _ = os.Chmod(lsmPath, 0o777) })
+				return lsmPath
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lsmPath := t.TempDir()
+			strategy := &testMigrationStrategy{
+				MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
+			}
+			task := newTestTask(logrus.New(), strategy)
+			wantFsyncedDir := test.setup(t, lsmPath, strategy.MigrationDirName())
+
+			err := task.SaveRecoveryPayload(lsmPath, []byte(`{"task":"recovery"}`))
+
+			// MkdirAll got through, so the error can only come from the fsync.
+			require.DirExists(t, task.migrationPath(lsmPath),
+				"SaveRecoveryPayload must create the migration dir before fsyncing")
+			require.Error(t, err,
+				"SaveRecoveryPayload must fsync %s and propagate its failure", wantFsyncedDir)
+			require.ErrorIs(t, err, fs.ErrPermission)
+
+			var pathErr *fs.PathError
+			require.ErrorAs(t, err, &pathErr)
+			require.Equal(t, wantFsyncedDir, pathErr.Path,
+				"SaveRecoveryPayload must fsync this level, not just the immediate parent")
+		})
+	}
+}
+
+// Pins: the happy path still writes the payload, and an unchanged payload
+// short-circuits before any write.
+func TestSaveRecoveryPayload_WritesAndIsIdempotent(t *testing.T) {
+	lsmPath := t.TempDir()
+	strategy := &testMigrationStrategy{
+		MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
+	}
+	task := newTestTask(logrus.New(), strategy)
+	payload := []byte(`{"task":"recovery","version":1}`)
+
+	require.NoError(t, task.SaveRecoveryPayload(lsmPath, payload))
+
+	target := filepath.Join(task.migrationPath(lsmPath), reindexRecoveryPayloadFile)
+	got, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, payload, got)
+
+	// Re-saving identical content is a no-op; re-saving new content overwrites.
+	require.NoError(t, task.SaveRecoveryPayload(lsmPath, payload))
+	require.NoError(t, task.SaveRecoveryPayload(lsmPath, []byte(`{"task":"x"}`)))
+
+	got, err = os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, `{"task":"x"}`, string(got))
 }
 
 func TestGetSegmentPathsToMove_WalkRootRemoved(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/diskio"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -250,16 +251,21 @@ func (m compressedVectorsMigrator) migrationDirectory(lsmDir string) string {
 }
 
 func (m compressedVectorsMigrator) markMigrationDone(lsmDir string) error {
-	if _, err := os.Stat(m.migrationDirectory(lsmDir)); os.IsNotExist(err) {
-		if err := os.Mkdir(m.migrationDirectory(lsmDir), os.FileMode(0o755)); err != nil {
+	migDir := m.migrationDirectory(lsmDir)
+	if _, err := os.Stat(migDir); os.IsNotExist(err) {
+		if err := os.Mkdir(migDir, os.FileMode(0o755)); err != nil {
+			return err
+		}
+		// Make the .migrations dir entry durable before the flag lands.
+		if err := diskio.Fsync(filepath.Dir(migDir)); err != nil {
 			return err
 		}
 	}
-	file, err := os.Create(m.migrationPerformedFlagFile(lsmDir))
-	if err != nil {
+	// Durable write: a lost flag would re-run the migration after power loss.
+	if err := diskio.WriteFileSync(m.migrationPerformedFlagFile(lsmDir), nil,
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
 		return err
 	}
-	defer file.Close()
 	m.logger.Info("migration performed successfully")
 	return nil
 }

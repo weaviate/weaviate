@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -380,7 +381,6 @@ func setupDebugHandlers(appState *state.State) {
 							return fmt.Errorf("shard not found or not ready")
 						}
 						filename := "overrides.mig"
-						// open file for writing
 						filePath := shardPath + ".migrations/searchable_map_to_blockmax/" + filename
 						if clear {
 							err := os.Remove(filePath)
@@ -388,25 +388,23 @@ func setupDebugHandlers(appState *state.State) {
 								return fmt.Errorf("failed to clear %s in shard %s: %w", filename, shardName, err)
 							}
 						}
-						file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-						if err != nil {
-							return fmt.Errorf("failed to open %s in shard %s: %w", filename, shardName, err)
-						}
-						defer file.Close()
 						// get overrides from query params
 						overridesURL := r.URL.Query()
 						overrides := make(map[string][]string)
+						var buf strings.Builder
 						for key, values := range overridesURL {
 							if key == "clear" || key == "collection" || key == "shards" {
 								continue
 							}
 							for _, value := range values {
 								overrides[key] = append(overrides[key], value)
-								_, err := file.WriteString(fmt.Sprintf("%s=%s\n", key, value))
-								if err != nil {
-									return fmt.Errorf("failed to write to %s in shard %s: %w", filename, shardName, err)
-								}
+								buf.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 							}
+						}
+						// fsync the override so a crash can't drop tuning the operator just set.
+						if err := diskio.WriteFileSync(filePath, []byte(buf.String()),
+							os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644); err != nil {
+							return fmt.Errorf("failed to write %s in shard %s: %w", filename, shardName, err)
 						}
 
 						response[shardName] = map[string]interface{}{

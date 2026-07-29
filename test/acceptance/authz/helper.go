@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	"google.golang.org/grpc/metadata"
@@ -221,6 +222,18 @@ func deleteReferencePermissions(from, to, tenant string) []*models.Permission {
 	}
 }
 
+const (
+	// Docker publishes a log line some time after the request that produced it
+	// has already returned, so a single read can miss a line that is still in
+	// flight and hand it to the next drain instead. Drains wait for quiet.
+	authzLogSettle = 500 * time.Millisecond
+	authzLogPoll   = 250 * time.Millisecond
+
+	// An authorize line listing many resources exceeds bufio's 64 KiB default,
+	// which ends the scan early and silently short-counts every later drain.
+	authzLogMaxLine = 4 << 20
+)
+
 type logScanner struct {
 	container testcontainers.Container
 	pos       int
@@ -230,14 +243,35 @@ func newLogScanner(c testcontainers.Container) *logScanner {
 	return &logScanner{container: c}
 }
 
+// GetAuthzLogs returns the authorize lines emitted since the previous call,
+// waiting until the container log has stayed quiet for authzLogSettle so that
+// a straggler is never attributed to whatever runs next.
 func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
 	t.Helper() // produces more accurate error tracebacks
+
+	var collected []string
+	lastNew := time.Now()
+	for time.Since(lastNew) < authzLogSettle {
+		if lines := s.scanNew(t); len(lines) > 0 {
+			collected = append(collected, lines...)
+			lastNew = time.Now()
+		}
+		time.Sleep(authzLogPoll)
+	}
+	return collected
+}
+
+// scanNew is split out so each read closes its own stream; the read cannot be
+// deferred from inside GetAuthzLogs' polling loop.
+func (s *logScanner) scanNew(t *testing.T) []string {
+	t.Helper()
 
 	logs, err := s.container.Logs(context.Background())
 	require.Nil(t, err)
 	defer logs.Close()
 
 	scanner := bufio.NewScanner(logs)
+	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), authzLogMaxLine)
 	currentPosition := 0
 
 	var newLines []string
@@ -251,6 +285,9 @@ func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
 		}
 		currentPosition++
 	}
+	require.NoError(t, scanner.Err())
+	require.GreaterOrEqual(t, currentPosition, s.pos,
+		"container log shrank, the line watermark no longer points where it did")
 
 	s.pos = currentPosition
 

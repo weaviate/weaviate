@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // -----------------------------------------------------------------------------
@@ -52,6 +53,8 @@ type reindexTracker interface {
 	unmarkSwapped() error
 	IsSwappedProp(propName string) bool
 	markSwappedProp(propName string) error
+	markSwappedPropUnsynced(propName string) error
+	syncSentinelDir() error
 	unmarkSwappedProp(propName string) error
 
 	IsTidied() bool
@@ -125,7 +128,17 @@ type fileReindexTrackerConfig struct {
 
 func (t *fileReindexTracker) init() error {
 	mkdir := func() error {
-		return os.MkdirAll(t.config.migrationPath, 0o777)
+		if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
+			return err
+		}
+		// MkdirAll may create both .migrations and its <name> child; a new dir
+		// entry is durable only once its parent is fsynced, so fsync both new
+		// levels' parents or a crash can lose the whole tracker dir.
+		migrationsDir := filepath.Dir(t.config.migrationPath) // <lsm>/.migrations
+		if err := diskio.Fsync(migrationsDir); err != nil {
+			return err
+		}
+		return diskio.Fsync(filepath.Dir(migrationsDir)) // <lsm>
 	}
 
 	if t.mkdirGuard != nil {
@@ -216,7 +229,14 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 		return nil, nil, err
 	}
 
+	// A torn (truncated) checkpoint must not be parsed into a stale resume
+	// key, which would silently skip objects — treat it as no progress.
 	split := strings.Split(string(content), "\n")
+	if len(split) < 4 {
+		t.progressCheckpoint = checkpoint + 1
+		return t.keyParser.FromBytes(nil), nil, nil
+	}
+
 	key, err := t.keyParser.FromString(split[1])
 	if err != nil {
 		return nil, nil, err
@@ -251,8 +271,21 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 
 	progressFileFields := strings.Split(string(progressFile), "\n")
 	if len(progressFileFields) != 4 {
+		// Divergence from GetProgress, which treats the same torn/<4-line
+		// shape as no-progress: that is the resume path and MUST redo safely
+		// rather than error. parseProgressFile is diagnostics only
+		// (GetMigratedCount / the debug status endpoint), so a malformed file
+		// is surfaced as an error instead of being silently reported as zero.
 		err = fmt.Errorf("progress file %s has unexpected format, expected 4 lines, got %d", progressFilePath, len(progressFileFields))
 		return lastProcessedKey, tm, allCount, idxCount, err
+	}
+
+	// A torn write can end after "all N\n" or mid-"idx", leaving the trailing
+	// count field unsplittable — treat as no progress instead of panicking on [1].
+	allField := strings.Split(progressFileFields[2], " ")
+	idxField := strings.Split(progressFileFields[3], " ")
+	if len(allField) < 2 || len(idxField) < 2 {
+		return t.keyParser.FromBytes(nil), time.Time{}, 0, 0, nil
 	}
 
 	tm, err = t.decodeTime(strings.TrimSpace(progressFileFields[0]))
@@ -267,13 +300,13 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
-	allCount, err = strconv.Atoi(strings.Split(progressFileFields[2], " ")[1])
+	allCount, err = strconv.Atoi(allField[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse objects migrated count from %s: %w", progressFilePath, err)
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
-	idxCount, err = strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
+	idxCount, err = strconv.Atoi(idxField[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse index count from %s: %w", progressFilePath, err)
 		return lastProcessedKey, tm, allCount, idxCount, err
@@ -403,6 +436,41 @@ func (t *fileReindexTracker) markSwappedProp(propName string) error {
 	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
 }
 
+// markSwappedPropUnsynced writes the per-prop sentinel without fsyncing it.
+// Phase 2a writes one of these per prop inside a loop with a wall-clock
+// budget, and an fsync per prop blows that budget on a slow disk; the
+// durability is batched into a single [fileReindexTracker.syncSentinelDir]
+// once the loop is done.
+//
+// Safe because IsSwappedProp is existence-only and nothing reads the file's
+// contents, so a directory fsync is the entire requirement — it makes the
+// entry durable even if the (unread) timestamp inside is lost.
+func (t *fileReindexTracker) markSwappedPropUnsynced(propName string) error {
+	return t.createFileUnsynced(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
+}
+
+// syncSentinelDir makes every sentinel written into the migration dir durable
+// in one fsync. Pairs with markSwappedPropUnsynced.
+func (t *fileReindexTracker) syncSentinelDir() error {
+	return diskio.Fsync(t.config.migrationPath)
+}
+
+// createFileUnsynced is createFile minus the fsyncs; the caller is
+// responsible for making the entry durable. See markSwappedPropUnsynced.
+func (t *fileReindexTracker) createFileUnsynced(filename string, content []byte) error {
+	f, err := os.OpenFile(t.filepath(filename), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
+	if err != nil {
+		return err
+	}
+	if len(content) > 0 {
+		if _, err := f.Write(content); err != nil {
+			f.Close()
+			return err
+		}
+	}
+	return f.Close()
+}
+
 func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
 	return t.removeFile(t.config.filenameSwapped + "." + propName)
 }
@@ -444,28 +512,22 @@ func (t *fileReindexTracker) fileExists(filename string) bool {
 	return err == nil
 }
 
+// createFile durably writes a sentinel (fsync file, then parent dir) so a
+// crash can't lose it before the state machine advances.
 func (t *fileReindexTracker) createFile(filename string, content []byte) error {
-	path := t.filepath(filename)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if len(content) > 0 {
-		_, err = file.Write(content)
-		return err
-	}
-	return nil
+	return diskio.WriteFileSync(t.filepath(filename), content,
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
 }
 
+// removeFile fsyncs the parent dir after unlink so the removal survives a crash.
 func (t *fileReindexTracker) removeFile(filename string) error {
 	if err := os.Remove(t.filepath(filename)); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
+		return err
 	}
-	return nil
+	return diskio.Fsync(t.config.migrationPath)
 }
 
 func (t *fileReindexTracker) encodeTimeNow() string {

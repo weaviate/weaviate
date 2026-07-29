@@ -2213,6 +2213,18 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 			return shard.SwapBucketAndSetOverlay(propName, target,
 				func() (*lsmkv.Bucket, error) {
 					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+				},
+				func() error {
+					// Sentinel deferred here so it runs after
+					// tokenizationOverlayMu is released (F1). Written
+					// unsynced: runtimeSwap fsyncs the dir once after the
+					// Phase 2a loop, which has a wall-clock budget an
+					// fsync per prop would blow. Skip if a resumed swap
+					// already wrote it.
+					if rt.IsSwappedProp(propName) {
+						return nil
+					}
+					return rt.markSwappedPropUnsynced(propName)
 				})
 		}
 	}
