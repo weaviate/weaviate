@@ -1024,26 +1024,39 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			)
 		}
 
-		colHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameHnsw)
-		require.NoError(t, err)
-		require.NotNil(t, colHNSW)
-		require.Len(t, colHNSW.Shards, 1)
-		shardHNSW := colHNSW.Shards[0]
-		require.Equal(t, int64(objectCount2+10), shardHNSW.ObjectsCount)
-		require.Len(t, shardHNSW.NamedVectors, 1)
-		vectorHNSW := shardHNSW.NamedVectors[0]
+		// ObjectsStorageBytes is the raw byte size of every file in the shard's
+		// lsm/objects/ directory, so it also counts the full-size .db.tmp that a
+		// flush or compaction writes before renaming it over its inputs. For as
+		// long as that runs the directory holds two complete copies and the
+		// figure doubles. classHnsw is the last tenant reactivated above and the
+		// first one read here, so it has the shortest settling window and is the
+		// shard that gets caught mid-compaction. Poll until both shards report a
+		// settled size instead of comparing a single sample; the 10% tolerance is
+		// unchanged.
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			colHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameHnsw)
+			require.NoError(ct, err)
+			require.NotNil(ct, colHNSW)
+			require.Len(ct, colHNSW.Shards, 1)
+			shardHNSW := colHNSW.Shards[0]
+			require.Len(ct, shardHNSW.NamedVectors, 1)
+			vectorHNSW := shardHNSW.NamedVectors[0]
 
-		colDynamicHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
-		require.NoError(t, err)
-		require.NotNil(t, colDynamicHNSW)
-		shardDynamicHNSW := colDynamicHNSW.Shards[0]
-		require.Equal(t, int64(objectCount2+10), shardDynamicHNSW.ObjectsCount)
-		require.Len(t, shardDynamicHNSW.NamedVectors, 1)
-		vectorDynamicHNSW := shardDynamicHNSW.NamedVectors[0]
+			colDynamicHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
+			require.NoError(ct, err)
+			require.NotNil(ct, colDynamicHNSW)
+			require.Len(ct, colDynamicHNSW.Shards, 1)
+			shardDynamicHNSW := colDynamicHNSW.Shards[0]
+			require.Len(ct, shardDynamicHNSW.NamedVectors, 1)
+			vectorDynamicHNSW := shardDynamicHNSW.NamedVectors[0]
 
-		// there might be some small differences in the object storage due to class
-		require.InDelta(t, shardDynamicHNSW.ObjectsStorageBytes, shardHNSW.ObjectsStorageBytes, float64(shardDynamicHNSW.ObjectsStorageBytes)*0.1)
-		require.Equal(t, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
+			assert.Equal(ct, int64(objectCount2+10), shardHNSW.ObjectsCount)
+			assert.Equal(ct, int64(objectCount2+10), shardDynamicHNSW.ObjectsCount)
+
+			// there might be some small differences in the object storage due to class
+			assert.InDelta(ct, shardDynamicHNSW.ObjectsStorageBytes, shardHNSW.ObjectsStorageBytes, float64(shardDynamicHNSW.ObjectsStorageBytes)*0.1)
+			assert.Equal(ct, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
+		}, 2*time.Minute, 500*time.Millisecond)
 	})
 
 	t.Run("dynamic with RQ", func(t *testing.T) {
