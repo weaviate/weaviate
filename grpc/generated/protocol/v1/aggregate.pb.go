@@ -817,10 +817,13 @@ type AggregateRequest_Aggregation_Text struct {
 	// scanning objects, aborting once more than this many distinct values
 	// are seen — the reply then carries top_occurences_cutoff_exceeded
 	// instead of values. Costs milliseconds for low-cardinality properties
-	// where the object scan costs seconds. Values are the indexed terms:
-	// identical to stored values for untokenized properties, tokens
-	// otherwise. Counts are live per-value document counts. Ignores
-	// filters, search and group_by (unfiltered aggregations only).
+	// where the object scan costs seconds. Works for text, int, number,
+	// boolean, date and uuid properties (and their arrays); the reply
+	// always arrives in the text branch with values rendered as strings.
+	// Text values are the indexed terms: identical to stored values for
+	// untokenized properties, tokens otherwise. Counts are live per-value
+	// document counts. Ignores filters, search and group_by (unfiltered
+	// aggregations only).
 	TopOccurencesCutoff *uint32 `protobuf:"varint,5,opt,name=top_occurences_cutoff,json=topOccurencesCutoff,proto3,oneof" json:"top_occurences_cutoff,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache

@@ -114,6 +114,12 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 		return nil, err
 	}
 
+	// the value list comes from the inverted index for every decodable type;
+	// the reply is text-shaped with values rendered as strings
+	if prop.TopOccurrencesCutoff > 0 && invertedValuesDecodable(dt) {
+		return ua.propertyValuesFromInverted(ctx, prop, dt)
+	}
+
 	switch aggType {
 	case aggregation.PropertyTypeNumerical:
 		switch dt {

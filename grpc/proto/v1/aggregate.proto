@@ -40,10 +40,13 @@ message AggregateRequest {
       // scanning objects, aborting once more than this many distinct values
       // are seen — the reply then carries top_occurences_cutoff_exceeded
       // instead of values. Costs milliseconds for low-cardinality properties
-      // where the object scan costs seconds. Values are the indexed terms:
-      // identical to stored values for untokenized properties, tokens
-      // otherwise. Counts are live per-value document counts. Ignores
-      // filters, search and group_by (unfiltered aggregations only).
+      // where the object scan costs seconds. Works for text, int, number,
+      // boolean, date and uuid properties (and their arrays); the reply
+      // always arrives in the text branch with values rendered as strings.
+      // Text values are the indexed terms: identical to stored values for
+      // untokenized properties, tokens otherwise. Counts are live per-value
+      // document counts. Ignores filters, search and group_by (unfiltered
+      // aggregations only).
       optional uint32 top_occurences_cutoff = 5;
     }
     message Boolean {

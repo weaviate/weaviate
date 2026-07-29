@@ -14,12 +14,16 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -428,27 +432,20 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 	return nil
 }
 
-func (ua unfilteredAggregator) textProperty(ctx context.Context,
-	prop aggregation.ParamProperty,
-) (*aggregation.Property, error) {
-	if prop.TopOccurrencesCutoff > 0 {
-		return ua.textPropertyFromInverted(ctx, prop)
-	}
-	return ua.textPropertyFromObjects(ctx, prop)
-}
-
-// textPropertyFromInverted lists the property's values from its filterable
+// propertyValuesFromInverted lists the property's values from its filterable
 // inverted bucket instead of scanning every object: distinct values are the
 // bucket's keys, live doc counts their bitmaps' cardinalities. The scan stops
 // once more than prop.TopOccurrencesCutoff distinct values are seen — the
 // bloom lower bound skips clearly larger buckets before any cursor work —
-// and reports CutoffExceeded instead of values. The values are the indexed
-// terms, identical to stored values for untokenized properties.
-func (ua unfilteredAggregator) textPropertyFromInverted(ctx context.Context,
-	prop aggregation.ParamProperty,
+// and reports CutoffExceeded instead of values. Keys decode per data type
+// into the value's string form; for text they are the indexed terms,
+// identical to stored values for untokenized properties.
+func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
+	prop aggregation.ParamProperty, dt schema.DataType,
 ) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:            aggregation.PropertyTypeText,
+		SchemaType:      string(dt),
 		TextAggregation: aggregation.Text{},
 	}
 	cutoff := prop.TopOccurrencesCutoff
@@ -456,11 +453,11 @@ func (ua unfilteredAggregator) textPropertyFromInverted(ctx context.Context,
 	b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String()))
 	if b == nil {
 		// no filterable index for this property
-		return ua.textPropertyFromObjects(ctx, prop)
+		return ua.property(ctx, withoutCutoff(prop))
 	}
 	defer release()
 	if b.Strategy() != lsmkv.StrategyRoaringSet {
-		return ua.textPropertyFromObjects(ctx, prop)
+		return ua.property(ctx, withoutCutoff(prop))
 	}
 
 	// clearly above the cutoff: the lower bound alone rejects the property
@@ -489,7 +486,7 @@ func (ua unfilteredAggregator) textPropertyFromInverted(ctx context.Context,
 			out.TextAggregation = aggregation.Text{CutoffExceeded: true}
 			return &out, nil
 		}
-		if err := agg.AddTextCount(string(k), count); err != nil {
+		if err := agg.AddTextCount(decodeInvertedKey(k, dt), count); err != nil {
 			return nil, err
 		}
 	}
@@ -499,7 +496,57 @@ func (ua unfilteredAggregator) textPropertyFromInverted(ctx context.Context,
 	return &out, nil
 }
 
-func (ua unfilteredAggregator) textPropertyFromObjects(ctx context.Context,
+func withoutCutoff(prop aggregation.ParamProperty) aggregation.ParamProperty {
+	prop.TopOccurrencesCutoff = 0
+	return prop
+}
+
+// invertedValuesDecodable reports whether the type's filterable-bucket keys
+// decode back into value strings.
+func invertedValuesDecodable(dt schema.DataType) bool {
+	switch dt {
+	case schema.DataTypeText, schema.DataTypeTextArray,
+		schema.DataTypeInt, schema.DataTypeIntArray,
+		schema.DataTypeNumber, schema.DataTypeNumberArray,
+		schema.DataTypeBoolean, schema.DataTypeBooleanArray,
+		schema.DataTypeDate, schema.DataTypeDateArray,
+		schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		return true
+	default:
+		return false
+	}
+}
+
+// decodeInvertedKey renders a filterable-bucket key as the string form of the
+// property value it indexes. Undecodable keys fall back to their raw bytes.
+func decodeInvertedKey(key []byte, dt schema.DataType) string {
+	switch dt {
+	case schema.DataTypeInt, schema.DataTypeIntArray:
+		if v, err := entinverted.ParseLexicographicallySortableInt64(key); err == nil {
+			return strconv.FormatInt(v, 10)
+		}
+	case schema.DataTypeNumber, schema.DataTypeNumberArray:
+		if v, err := entinverted.ParseLexicographicallySortableFloat64(key); err == nil {
+			return strconv.FormatFloat(v, 'g', -1, 64)
+		}
+	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+		if len(key) == 1 {
+			return strconv.FormatBool(key[0] != 0)
+		}
+	case schema.DataTypeDate, schema.DataTypeDateArray:
+		if v, err := entinverted.ParseLexicographicallySortableInt64(key); err == nil {
+			return time.Unix(0, v).UTC().Format(time.RFC3339Nano)
+		}
+	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		if v, err := uuid.FromBytes(key); err == nil {
+			return v.String()
+		}
+	default:
+	}
+	return string(key)
+}
+
+func (ua unfilteredAggregator) textProperty(ctx context.Context,
 	prop aggregation.ParamProperty,
 ) (*aggregation.Property, error) {
 	out := aggregation.Property{
