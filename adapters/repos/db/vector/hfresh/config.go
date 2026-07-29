@@ -162,11 +162,11 @@ func (h *HFresh) computeMaxPostingSize(dims int) uint32 {
 	return uint32(math.Ceil(float64(maxBytes) / vBytes))
 }
 
-func (h *HFresh) setMaxPostingSize() error {
-	if h.dims == 0 || h.maxPostingSizeKB < ent.MaxPostingSizeKBFloor {
+func (h *HFresh) setMaxPostingSize(dims uint32) error {
+	if dims == 0 || h.maxPostingSizeKB < ent.MaxPostingSizeKBFloor {
 		return errors.New("unable to set max posting size")
 	}
-	h.maxPostingSize = max(h.computeMaxPostingSize(int(h.dims)), maxPostingSizeFloor)
+	h.maxPostingSize = max(h.computeMaxPostingSize(int(dims)), maxPostingSizeFloor)
 	h.minPostingSize = max(h.maxPostingSize/3, minPostingSizeFloor)
 
 	if h.minPostingSize >= h.maxPostingSize {

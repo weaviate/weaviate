@@ -13,6 +13,9 @@ package replication
 
 import (
 	"context"
+	"errors"
+	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
@@ -48,7 +52,7 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start weaviate cluster: %+v", err)
 	if cancel != nil {
 		cancel()
 	}
@@ -57,12 +61,17 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
+			t.Fatalf("failed to terminate test containers: %+v", err)
 		}
 	}
 }
 
 func (suite *ReplicationTestSuite) TearDownSuite() {
+	if suite.T().Failed() && suite.compose != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		suite.compose.DumpWeaviateLogs(ctx, os.Stderr, 300)
+	}
 	if suite.down != nil {
 		suite.down()
 	}
@@ -81,9 +90,11 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	helper.CreateClass(t, paragraphClass)
 
 	var id strfmt.UUID
+	req := getRequest(t, paragraphClass.Class)
+
 	t.Run("get collection sharding state", func(t *testing.T) {
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class), nil)
-		require.Nil(t, err, "failed to get sharding state for collection %s: %v", paragraphClass.Class, err)
+		require.NoError(t, err, "failed to get sharding state for collection %s: %+v", paragraphClass.Class, err)
 		require.NotNil(t, shardingState)
 		require.NotNil(t, shardingState.Payload)
 		require.NotNil(t, shardingState.Payload.ShardingState)
@@ -97,9 +108,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get collection and shard sharding state", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).Shard
+		shard := req.Shard
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
-		require.Nil(t, err, "failed to get sharding state for collection %s and shard %s: %v", paragraphClass.Class, *shard, err)
+		require.NoError(t, err, "failed to get sharding state for collection %s and shard %s: %+v", paragraphClass.Class, *shard, err)
 		require.NotNil(t, shardingState)
 		require.NotNil(t, shardingState.Payload)
 		require.NotNil(t, shardingState.Payload.ShardingState)
@@ -133,8 +144,12 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("create replication operation", func(t *testing.T) {
-		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
-		require.Nil(t, err, "failed to create replication operation %v", err)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), nil)
+		var unprocessableErr *replication.ReplicateUnprocessableEntity
+		if errors.As(err, &unprocessableErr) {
+			t.Logf("replication operation could not be created: %s", unprocessableErr.Payload.Error[0].Message)
+		}
+		require.NoError(t, err, "failed to create replication operation %+v", err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)
 		require.NotNil(t, created.Payload.ID)
@@ -144,7 +159,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	t.Run("get replication operation", func(t *testing.T) {
 		includeHistory := true
 		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id).WithIncludeHistory(&includeHistory), nil)
-		require.Nil(t, err, "failed to get replication operation details %v", err)
+		require.NoError(t, err, "failed to get replication operation details %+v", err)
 		require.NotNil(t, details)
 		require.NotNil(t, details.Payload)
 		require.NotNil(t, details.Payload.ID)
@@ -164,7 +179,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 	t.Run("get replication operation by collection", func(t *testing.T) {
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&paragraphClass.Class), nil)
-		require.Nil(t, err, "failed to list replication operations by collection %v", err)
+		require.NoError(t, err, "failed to list replication operations by collection %+v", err)
 		found := false
 		for _, op := range details.Payload {
 			if op.ID != nil && *op.ID == id {
@@ -176,9 +191,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by collection and shard", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).Shard
+		shard := req.Shard
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
-		require.Nil(t, err, "failed to list replication operations by collection and shard %v", err)
+		require.NoError(t, err, "failed to list replication operations by collection and shard %+v", err)
 		found := false
 		for _, op := range details.Payload {
 			if op.ID != nil && *op.ID == id {
@@ -190,9 +205,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by target node", func(t *testing.T) {
-		nodeID := getRequest(t, paragraphClass.Class).TargetNode
+		nodeID := req.TargetNode
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(nodeID), nil)
-		require.Nil(t, err, "failed to list replication operations by target node %v", err)
+		require.NoError(t, err, "failed to list replication operations by target node %+v", err)
 		found := false
 		for _, op := range details.Payload {
 			if op.ID != nil && *op.ID == id {
@@ -205,14 +220,14 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 	t.Run("get non-existing replication operation", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(strfmt.UUID(uuid.New().String())), nil)
-		require.NotNil(t, err)
+		require.Error(t, err)
 		require.IsType(t, replication.NewReplicationDetailsNotFound(), err)
 	})
 
 	t.Run("list non-existing replication operations by collection", func(t *testing.T) {
 		collection := "non-existing"
 		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection), nil)
-		require.Nil(t, err, "failed to list replication operations by collection %v", err)
+		require.NoError(t, err, "failed to list replication operations by non-existing collection: %+v", err)
 		require.Len(t, res.Payload, 0)
 	})
 
@@ -220,7 +235,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		collection := "non-existing"
 		shard := "non-existing"
 		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection).WithShard(&shard), nil)
-		require.Nil(t, err, "failed to list replication operations by collection and shard %v", err)
+		require.NoError(t, err, "failed to list replication operations by non-existing collection and shard: %+v", err)
 		require.Len(t, res.Payload, 0)
 	})
 
@@ -228,55 +243,60 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		collection := paragraphClass.Class
 		shard := "non-existing"
 		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection).WithShard(&shard), nil)
-		require.Nil(t, err, "failed to list replication operations by collection and shard %v", err)
+		require.NoError(t, err, "failed to list replication operations by collection and non-existing shard: %+v", err)
 		require.Len(t, res.Payload, 0)
 	})
 
 	t.Run("list non-existing replication operations by target node", func(t *testing.T) {
 		nodeID := "non-existing"
 		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(&nodeID), nil)
-		require.Nil(t, err, "failed to list replication operations by target node %v", err)
+		require.NoError(t, err, "failed to list replication operations by target node %+v", err)
 		require.Len(t, res.Payload, 0)
 	})
 
 	t.Run("delete replication operation", func(t *testing.T) {
 		deleted, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
-		require.Nil(t, err, "failed to delete replication operation %v", err)
+		require.NoError(t, err, "failed to delete replication operation %+v", err)
 		require.NotNil(t, deleted)
 	})
 
 	t.Run("wait for replication operation to be deleted", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-			require.NotNil(ct, err)
+			require.Error(ct, err)
 			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
 		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
 	})
 
 	t.Run("create one op and immediately delete all replication ops", func(t *testing.T) {
-		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
-		require.Nil(t, err, "failed to create replication operation %v", err)
+		secondReq := getRequest(t, paragraphClass.Class, *req.TargetNode)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(secondReq), nil)
+		var unprocessableErr *replication.ReplicateUnprocessableEntity
+		if errors.As(err, &unprocessableErr) {
+			t.Logf("replication operation could not be created: %s", unprocessableErr.Payload.Error[0].Message)
+		}
+		require.NoError(t, err, "failed to create replication operation %+v", err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)
 		require.NotNil(t, created.Payload.ID)
 		id = *created.Payload.ID
 
 		deleted, err := helper.Client(t).Replication.DeleteAllReplications(replication.NewDeleteAllReplicationsParams(), nil)
-		require.Nil(t, err, "failed to delete all replication operations %v", err)
+		require.NoError(t, err, "failed to delete all replication operations %+v", err)
 		require.NotNil(t, deleted)
 	})
 
 	t.Run("wait for second replication operation to be deleted", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-			require.NotNil(ct, err)
+			require.Error(ct, err)
 			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
 		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
 	})
 
 	t.Run("assert that there are no replication operations", func(t *testing.T) {
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams(), nil)
-		require.Nil(t, err, "failed to list replication operations %v", err)
+		require.NoError(t, err, "failed to list replication operations %+v", err)
 		require.NotNil(t, details)
 		require.NotNil(t, details.Payload)
 		require.Len(t, details.Payload, 0)
@@ -285,7 +305,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
 		nodes, err := helper.Client(t).Nodes.
 			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
-		require.Nil(t, err, "failed to get nodes for class %s", paragraphClass.Class)
+		require.NoError(t, err, "failed to get nodes for class %s", paragraphClass.Class)
 		for _, node := range nodes.Payload.Nodes {
 			for _, shard := range node.Shards {
 				require.Len(t, shard.AsyncReplicationStatus, 0)
@@ -294,7 +314,12 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 }
 
-func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {
+// getRequest builds a replication request for className: the first node (the
+// nodes endpoint sorts them by name) is the source, its first shard is the
+// shard, and the target is the first other node not listed in
+// excludeTargetNodes. Pass a previous op's target as an exclusion when that op
+// may have already materialized a replica there.
+func getRequest(t *testing.T, className string, excludeTargetNodes ...string) *models.ReplicationReplicateReplicaRequest {
 	verbose := verbosity.OutputVerbose
 	var nodesResp *nodes.NodesGetClassOK
 	var err error
@@ -302,7 +327,7 @@ func getRequest(t *testing.T, className string) *models.ReplicationReplicateRepl
 	// Wait for the class to be fully initialized and propagated across the cluster
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		nodesResp, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
-		assert.Nil(ct, err, "NodesGetClass should succeed")
+		assert.NoError(ct, err, "NodesGetClass should succeed")
 		if err == nil {
 			assert.NotNil(ct, nodesResp, "nodes response should not be nil")
 			if nodesResp != nil && nodesResp.Payload != nil && len(nodesResp.Payload.Nodes) >= 2 {
@@ -311,16 +336,25 @@ func getRequest(t *testing.T, className string) *models.ReplicationReplicateRepl
 		}
 	}, 30*time.Second, 100*time.Millisecond, "class %s should be initialized and available on nodes", className)
 
-	require.NoError(t, err)
+	require.NoError(t, err, "failed to get nodes for class %s: %+v", className, err)
 	require.NotNil(t, nodesResp)
 	require.NotNil(t, nodesResp.Payload)
 	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes), 2, "should have at least 2 nodes")
 	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
 
+	var targetNode string
+	for _, node := range nodesResp.Payload.Nodes[1:] {
+		if !slices.Contains(excludeTargetNodes, node.Name) {
+			targetNode = node.Name
+			break
+		}
+	}
+	require.NotEmpty(t, targetNode, "no eligible target node for class %s excluding %v", className, excludeTargetNodes)
+
 	return &models.ReplicationReplicateReplicaRequest{
 		Collection: &className,
 		SourceNode: &nodesResp.Payload.Nodes[0].Name,
-		TargetNode: &nodesResp.Payload.Nodes[1].Name,
+		TargetNode: &targetNode,
 		Shard:      &nodesResp.Payload.Nodes[0].Shards[0].Name,
 	}
 }

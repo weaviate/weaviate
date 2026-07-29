@@ -66,6 +66,11 @@ func (c *Config) validate() error {
 			"got: %s", c.Function)
 	}
 
+	if c.DesiredCount < 0 {
+		return errors.Errorf("sharding config: desiredCount must not be negative, "+
+			"got: %d", c.DesiredCount)
+	}
+
 	return nil
 }
 

@@ -23,6 +23,34 @@ func IsNumericProperty(prop *models.Property) bool {
 	return ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
 }
 
+// SearchableIndexOn reports whether prop has a searchable index:
+// text/text[] with IndexSearchable on (nil defaults to on). Canonical
+// predicate the upsert/rebuild resolvers diff against; matches the GET
+// status logic.
+func SearchableIndexOn(prop *models.Property) bool {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
+		return false
+	}
+	return prop.IndexSearchable == nil || *prop.IndexSearchable
+}
+
+// FilterableIndexOn reports whether prop has a filterable index: any
+// primitive except blob/geoCoordinates/phoneNumber (and not references),
+// with IndexFilterable on (nil defaults to on).
+func FilterableIndexOn(prop *models.Property) bool {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok {
+		return false // references
+	}
+	switch dt {
+	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
+		return false
+	default:
+		return prop.IndexFilterable == nil || *prop.IndexFilterable
+	}
+}
+
 // ValidateRangeableProperties deliberately does NOT check whether the
 // property currently has a filterable index — the migration sources
 // from the objects bucket and can build a rangeable index regardless.
@@ -67,11 +95,12 @@ func ValidateEnableFilterableProperty(prop *models.Property) error {
 	if !ok {
 		return fmt.Errorf("property %q type %v does not support a filterable index", prop.Name, prop.DataType)
 	}
-	switch dt { //nolint:exhaustive // intentional allow-by-default
+	switch dt {
 	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
 		return fmt.Errorf("property %q type %q does not support a filterable index", prop.Name, dt)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // ValidateRebuildFilterableDataType guards repair-filterable against
@@ -90,11 +119,12 @@ func ValidateRebuildFilterableDataType(prop *models.Property) error {
 	if !ok {
 		return fmt.Errorf("property %q type %v does not support a filterable inverted index; nothing to rebuild", prop.Name, prop.DataType)
 	}
-	switch dt { //nolint:exhaustive // intentional allow-by-default
+	switch dt {
 	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
 		return fmt.Errorf("property %q type %q does not support a filterable inverted index; nothing to rebuild", prop.Name, dt)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // ValidateEnableSearchableProperty also rejects the request if the
@@ -141,7 +171,7 @@ func ValidateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 		return fmt.Errorf("property %q is not a text type; filterable.tokenization only applies to text / text[]", prop.Name)
 	}
 	if prop.IndexFilterable == nil || !*prop.IndexFilterable {
-		return fmt.Errorf("property %q has no filterable index; nothing to retokenize. Enable filterable first via {\"filterable\":{\"enabled\":true}}", prop.Name)
+		return fmt.Errorf("property %q has no filterable index; nothing to retokenize. Enable it first via PUT /v1/schema/{className}/properties/%s/index/filterable with an empty body {}", prop.Name, prop.Name)
 	}
 	if !entschema.IsValidTokenization(targetTokenization) {
 		return fmt.Errorf("invalid tokenization %q", targetTokenization)

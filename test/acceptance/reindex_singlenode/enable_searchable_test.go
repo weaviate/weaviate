@@ -117,11 +117,13 @@ func testEnableSearchable(t *testing.T, restURI string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
+			case <-ticker.C:
 			}
 			ids, err := enableSearchableNameQuerySafe(t, "alpha")
 			queryRuns.Add(1)
@@ -130,14 +132,13 @@ func testEnableSearchable(t *testing.T, restURI string) {
 			} else if !reindexhelpers.IdsMatchUnordered(nameBaseline, ids) {
 				queryFailures.Add(1)
 			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
 	// Submit enable-searchable with tokenization=word so the BM25 queries
 	// below split on whitespace.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, enableSearchableClassName, "description",
-		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, enableSearchableClassName, "description", "searchable",
+		`{"tokenization":"word"}`)
 	t.Logf("submitted enable-searchable task for description: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -155,7 +156,7 @@ func testEnableSearchable(t *testing.T, restURI string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 500*time.Millisecond, "IndexSearchable must be true and Tokenization word after migration")
+	}, 30*time.Second, 50*time.Millisecond, "IndexSearchable must be true and Tokenization word after migration")
 
 	// Functional assertion: BM25 queries against the freshly-built index
 	// must return non-empty, deterministic results.

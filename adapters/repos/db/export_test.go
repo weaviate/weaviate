@@ -13,16 +13,23 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestAssignShardsToNodes(t *testing.T) {
@@ -126,6 +133,222 @@ func newTestIndexForSnapshot(t *testing.T, className string) *Index {
 		logger:           logrus.New(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
 	}
+}
+
+// TestIsAsyncReplicationEnabledOrIrrelevant covers the export gate. The
+// non-terminal-op cases pin a bug class: at RF=1 with a replica movement in
+// flight, BelongsToNodes transiently contains source and target, and the
+// export selector would otherwise route to either via least-loaded scheduling.
+func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
+	disabled := func(v bool) *replication.GlobalConfig {
+		return &replication.GlobalConfig{
+			AsyncReplicationDisabled: configRuntime.NewDynamicValue(v),
+		}
+	}
+
+	shardingState := func(shardNames []string) *sharding.State {
+		st := &sharding.State{Physical: map[string]sharding.Physical{}}
+		for _, name := range shardNames {
+			st.Physical[name] = sharding.Physical{
+				Name:           name,
+				BelongsToNodes: []string{"nodeA"},
+			}
+		}
+		return st
+	}
+
+	const className = "TestClass"
+
+	tests := []struct {
+		name              string
+		replicationFactor int64
+		globalConfig      *replication.GlobalConfig
+		shards            []string
+		shardsWithOps     map[string]bool
+		readErr           error
+		want              bool
+	}{
+		{
+			name:              "RF=1, shards present, no in-flight ops, globally disabled: exportable",
+			replicationFactor: 1,
+			globalConfig:      disabled(true),
+			shards:            []string{"s1", "s2"},
+			shardsWithOps:     nil,
+			want:              true,
+		},
+		{
+			name:              "RF=0, no shards: exportable",
+			replicationFactor: 0,
+			globalConfig:      nil,
+			shards:            nil,
+			want:              true,
+		},
+		{
+			name:              "RF=1, shard with in-flight op, globally disabled: not exportable",
+			replicationFactor: 1,
+			globalConfig:      disabled(true),
+			shards:            []string{"s1"},
+			shardsWithOps:     map[string]bool{"s1": true},
+			want:              false,
+		},
+		{
+			name:              "RF=1, shard with in-flight op, not globally disabled: not exportable",
+			replicationFactor: 1,
+			globalConfig:      disabled(false),
+			shards:            []string{"s1"},
+			shardsWithOps:     map[string]bool{"s1": true},
+			want:              false,
+		},
+		{
+			name:              "RF=1, schema read fails: not exportable",
+			replicationFactor: 1,
+			globalConfig:      nil,
+			readErr:           errors.New("schema unavailable"),
+			want:              false,
+		},
+		{
+			name:              "RF>1 globally disabled: not exportable",
+			replicationFactor: 3,
+			globalConfig:      disabled(true),
+			want:              false,
+		},
+		{
+			name:              "RF>1 not globally disabled: exportable",
+			replicationFactor: 3,
+			globalConfig:      disabled(false),
+			want:              true,
+		},
+		{
+			name:              "RF>1 nil global config: exportable",
+			replicationFactor: 3,
+			globalConfig:      nil,
+			want:              true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := &Index{
+				Config: IndexConfig{
+					ReplicationFactor: tt.replicationFactor,
+					ClassName:         schema.ClassName(className),
+				},
+				globalreplicationConfig: tt.globalConfig,
+				logger:                  logrus.New(),
+			}
+			// Leave readers nil at RF>1 so a regression that newly consults
+			// them surfaces as a nil-pointer panic rather than silently passing.
+			if tt.replicationFactor <= 1 {
+				sr := schemaUC.NewMockSchemaReader(t)
+				call := sr.EXPECT().Read(className, true, mock.Anything)
+				if tt.readErr != nil {
+					call.Return(tt.readErr).Once()
+				} else {
+					call.RunAndReturn(func(_ string, _ bool, r func(*models.Class, *sharding.State) error) error {
+						return r(nil, shardingState(tt.shards))
+					}).Once()
+				}
+				idx.schemaReader = sr
+
+				fsm := replicationTypes.NewMockReplicationFSMReader(t)
+				// Maybe(): the gate short-circuits, so call count is non-deterministic.
+				fsm.EXPECT().
+					HasActiveReplicationForShard(className, mock.Anything).
+					RunAndReturn(func(_, shard string) bool {
+						return tt.shardsWithOps[shard]
+					}).
+					Maybe()
+				idx.replicationFSMReader = fsm
+			}
+			assert.Equal(t, tt.want, idx.IsAsyncReplicationEnabledOrIrrelevant())
+		})
+	}
+}
+
+// TestDBIsAsyncReplicationEnabled verifies the DB-level export gate: a missing
+// index is not exportable, and an existing index delegates to its own
+// IsAsyncReplicationEnabledOrIrrelevant predicate.
+func TestDBIsAsyncReplicationEnabled(t *testing.T) {
+	const className = "TestClass"
+
+	newDB := func(idx *Index) *DB {
+		indices := map[string]*Index{}
+		if idx != nil {
+			indices[indexID(schema.ClassName(className))] = idx
+		}
+		return &DB{indices: indices}
+	}
+
+	t.Run("index not found: not exportable", func(t *testing.T) {
+		db := newDB(nil)
+		assert.False(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
+
+	newIndexAtRF1 := func(t *testing.T, shardsWithOps map[string]bool) *Index {
+		shardNames := []string{"s1"}
+		if len(shardsWithOps) > 0 {
+			shardNames = make([]string, 0, len(shardsWithOps))
+			for name := range shardsWithOps {
+				shardNames = append(shardNames, name)
+			}
+		}
+		physical := map[string]sharding.Physical{}
+		for _, name := range shardNames {
+			physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"nodeA"}}
+		}
+
+		sr := schemaUC.NewMockSchemaReader(t)
+		sr.EXPECT().Read(className, true, mock.Anything).
+			RunAndReturn(func(_ string, _ bool, r func(*models.Class, *sharding.State) error) error {
+				return r(nil, &sharding.State{Physical: physical})
+			}).Once()
+
+		fsm := replicationTypes.NewMockReplicationFSMReader(t)
+		fsm.EXPECT().
+			HasActiveReplicationForShard(className, mock.Anything).
+			RunAndReturn(func(_, shard string) bool { return shardsWithOps[shard] }).
+			Maybe()
+
+		return &Index{
+			Config: IndexConfig{
+				ReplicationFactor: 1,
+				ClassName:         schema.ClassName(className),
+			},
+			logger:               logrus.New(),
+			schemaReader:         sr,
+			replicationFSMReader: fsm,
+		}
+	}
+
+	t.Run("RF=1 index, no shard has non-terminal ops: exportable (irrelevant)", func(t *testing.T) {
+		db := newDB(newIndexAtRF1(t, nil))
+		assert.True(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
+
+	t.Run("RF=1 index, shard mid-movement: NOT exportable", func(t *testing.T) {
+		db := newDB(newIndexAtRF1(t, map[string]bool{"s1": true}))
+		assert.False(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
+
+	t.Run("RF>1 not globally disabled: exportable", func(t *testing.T) {
+		db := newDB(&Index{
+			Config: IndexConfig{ReplicationFactor: 3},
+			globalreplicationConfig: &replication.GlobalConfig{
+				AsyncReplicationDisabled: configRuntime.NewDynamicValue(false),
+			},
+		})
+		assert.True(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
+
+	t.Run("RF>1 with async replication globally disabled: not exportable", func(t *testing.T) {
+		db := newDB(&Index{
+			Config: IndexConfig{ReplicationFactor: 3},
+			globalreplicationConfig: &replication.GlobalConfig{
+				AsyncReplicationDisabled: configRuntime.NewDynamicValue(true),
+			},
+		})
+		assert.False(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
 }
 
 // TestSnapshotShardsForExport_EmptyShardNames asserts that passing an empty

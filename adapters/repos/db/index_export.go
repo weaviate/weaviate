@@ -48,7 +48,17 @@ func (h reindexIndexHandle) ConfigSnapshot() reindex.IndexConfig {
 		MemtablesMaxSizeMB:        h.idx.Config.MemtablesMaxSizeMB,
 		MemtablesMinActiveSeconds: h.idx.Config.MemtablesMinActiveSeconds,
 		MemtablesMaxActiveSeconds: h.idx.Config.MemtablesMaxActiveSeconds,
+		IndexRangeableInMemory:    h.idx.Config.IndexRangeableInMemory,
 	}
+}
+
+// WithCloseRLockGuard forwards to the index's close read guard so the
+// reindex worker can hold a drop off for the duration of fn. Kept as a
+// handle method rather than exporting Index.withCloseRLockGuard: the
+// guard is an internal lifecycle detail, and reindex is its only
+// out-of-package consumer.
+func (h reindexIndexHandle) WithCloseRLockGuard(fn func() error) error {
+	return h.idx.withCloseRLockGuard(fn)
 }
 
 func (h reindexIndexHandle) InvertedIndexConfig() schema.InvertedIndexConfig {

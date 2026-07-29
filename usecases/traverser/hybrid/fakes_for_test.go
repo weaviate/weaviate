@@ -31,7 +31,7 @@ func newFakeSchemaManager() *fakeSchemaManager {
 
 type fakeTargetVectorParamHelper struct{}
 
-func (*fakeTargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error) {
+func (*fakeTargetVectorParamHelper) GetTargetVectorOrDefault(getClass func(string) *models.Class, className string, targetVector []string) ([]string, error) {
 	return targetVector, nil
 }
 
@@ -92,7 +92,7 @@ func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenan
 	return nil, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil

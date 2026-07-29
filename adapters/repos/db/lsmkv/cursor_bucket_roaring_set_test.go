@@ -12,11 +12,13 @@
 package lsmkv
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 func TestRoaringSetCursorConsistentView(t *testing.T) {
@@ -127,4 +129,50 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 		actual[string(k)] = bm.ToArray()
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRoaringSetCursorCtxBudgetEquivalence(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+
+	// overlapping keys force a multi-layer Flatten merge, which is what the
+	// ctx budget caps
+	diskSegments := &SegmentGroup{
+		logger: logger,
+		segments: []Segment{
+			newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+				"key1": bitmapFromSlice([]uint64{1, 3, 5}),
+				"key2": bitmapFromSlice([]uint64{10, 20}),
+			}),
+			newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+				"key1": bitmapFromSlice([]uint64{2, 4, 6}),
+				"key3": bitmapFromSlice([]uint64{30}),
+			}),
+		},
+	}
+	active := newTestMemtableRoaringSet(map[string][]uint64{
+		"key1": {7},
+		"key2": {21},
+	})
+	b := Bucket{active: active, disk: diskSegments, strategy: StrategyRoaringSet}
+
+	scan := func(c CursorRoaringSet) map[string][]uint64 {
+		defer c.Close()
+		out := map[string][]uint64{}
+		for k, bm := c.First(); k != nil; k, bm = c.Next() {
+			out[string(k)] = bm.ToArray()
+		}
+		return out
+	}
+
+	defaultRows := scan(b.CursorRoaringSet())
+
+	// budget-1 must still return byte-identical rows to the unconstrained cursor
+	budget1 := concurrency.CtxWithBudget(context.Background(), 1)
+	budget1Rows := scan(b.CursorRoaringSetCtx(budget1))
+
+	require.Equal(t, defaultRows, budget1Rows)
+	// guard the fixture: key1 must genuinely be a three-layer merge
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6, 7}, defaultRows["key1"])
 }

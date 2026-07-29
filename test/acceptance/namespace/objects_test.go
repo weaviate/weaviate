@@ -25,33 +25,31 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// twoNamespaces brings up customer1+customer2 plus a single namespaced
-// DB user per namespace and returns their API keys. Cleanup is registered.
-func twoNamespaces(t *testing.T) (string, string) {
+// twoNamespaces brings up two unique namespaces plus a single namespaced
+// DB user per namespace and returns the namespace names and their API keys.
+// Cleanup is registered.
+func twoNamespaces(t *testing.T) (ns1, ns2, user1Key, user2Key string) {
 	t.Helper()
-	const (
-		ns1 = "customer1"
-		ns2 = "customer2"
-	)
+	ns1, ns2 = uniqueNS(), uniqueNS()
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
 	t.Cleanup(func() {
 		helper.DeleteNamespace(t, ns1, adminKey)
 		helper.DeleteNamespace(t, ns2, adminKey)
 	})
-	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
-	user2Key := createNamespacedUser(t, "u2", ns2, adminKey)
+	user1Key = createNamespacedUser(t, "u1", ns1, adminKey)
+	user2Key = createNamespacedUser(t, "u2", ns2, adminKey)
 	t.Cleanup(func() {
 		helper.DeleteUser(t, ns1+":u1", adminKey)
 		helper.DeleteUser(t, ns2+":u2", adminKey)
 	})
-	return user1Key, user2Key
+	return ns1, ns2, user1Key, user2Key
 }
 
 // setupClassInBothNamespaces creates a class with a single text "title"
 // property under each user's namespace and registers cleanup of the
 // qualified names.
-func setupClassInBothNamespaces(t *testing.T, name, k1, k2 string) {
+func setupClassInBothNamespaces(t *testing.T, ns1, ns2, name, k1, k2 string) {
 	t.Helper()
 	for _, key := range []string{k1, k2} {
 		helper.CreateClassAuth(t, &models.Class{
@@ -62,14 +60,14 @@ func setupClassInBothNamespaces(t *testing.T, name, k1, k2 string) {
 		}, key)
 	}
 	t.Cleanup(func() {
-		helper.DeleteClassAuth(t, "customer1:"+name, adminKey)
-		helper.DeleteClassAuth(t, "customer2:"+name, adminKey)
+		helper.DeleteClassAuth(t, ns1+":"+name, adminKey)
+		helper.DeleteClassAuth(t, ns2+":"+name, adminKey)
 	})
 }
 
 // setupClassInNs1 creates a class with a single text "title" property under
 // user1Key only and registers cleanup of the qualified name.
-func setupClassInNs1(t *testing.T, name, key string) {
+func setupClassInNs1(t *testing.T, ns1, name, key string) {
 	t.Helper()
 	helper.CreateClassAuth(t, &models.Class{
 		Class: name,
@@ -77,7 +75,7 @@ func setupClassInNs1(t *testing.T, name, key string) {
 			{Name: "title", DataType: []string{"text"}},
 		},
 	}, key)
-	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+name, adminKey) })
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+name, adminKey) })
 }
 
 // seedTwo writes the same UUID under the same short class name in both
@@ -98,7 +96,8 @@ func seedTwo(t *testing.T, class string, id strfmt.UUID, ns1Title, ns2Title, k1,
 // the object REST endpoints (add/get/update/merge/delete/head/list/validate)
 // plus the contract for double-prefix and global-principal access.
 func TestNamespaces_ObjectLifecycle(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	t.Parallel()
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("add and get with short, lowercase class name", func(t *testing.T) {
 		// Submit lowercased on every hop. UppercaseClassName runs before the
@@ -107,10 +106,10 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		const (
 			short      = "e2emovies"
 			shortClass = "E2emovies"
-			qualified1 = "customer1:E2emovies"
-			qualified2 = "customer2:E2emovies"
 		)
-		setupClassInBothNamespaces(t, short, user1Key, user2Key)
+		qualified1 := ns1 + ":" + shortClass
+		qualified2 := ns2 + ":" + shortClass
+		setupClassInBothNamespaces(t, ns1, ns2, short, user1Key, user2Key)
 
 		id := strfmt.UUID("11111111-2222-3333-4444-555555555555")
 		seedTwo(t, short, id, "The Matrix", "Inception", user1Key, user2Key)
@@ -133,7 +132,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 
 	t.Run("update / merge / delete on ns1 leave ns2 untouched", func(t *testing.T) {
 		const class = "MutationTarget"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		id := strfmt.UUID("aaaaaaaa-1111-1111-1111-111111111111")
 		seedTwo(t, class, id, "v1-ns1", "v1-ns2", user1Key, user2Key)
@@ -179,7 +178,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 
 	t.Run("head is namespace-scoped", func(t *testing.T) {
 		const class = "HeadTarget"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		// Insert only in ns1; ns2 has the class but no row.
 		id := strfmt.UUID("cccccccc-3333-3333-3333-333333333333")
@@ -205,7 +204,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 
 	t.Run("query (GET /objects?class=) is namespace-scoped", func(t *testing.T) {
 		const class = "ListTarget"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		id := strfmt.UUID("eeeeeeee-5555-5555-5555-555555555555")
 		seedTwo(t, class, id, "list-ns1", "list-ns2", user1Key, user2Key)
@@ -234,7 +233,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		// Class only in ns1. user1 validates → ok. user2 validates same short
 		// class → unresolved → error.
 		const class = "ValidateTarget"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		id := strfmt.UUID("ffffffff-6666-6666-6666-666666666666")
 		_, err := helper.Client(t).Objects.ObjectsValidate(
@@ -256,7 +255,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 
 	t.Run("namespaced caller submitting :-qualified class on read is rejected as 422", func(t *testing.T) {
 		const class = "DoublePrefix"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			Class:      class,
@@ -267,7 +266,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 
 		// user1 supplying the already-qualified name is rejected by namespace
 		// prefix validation — namespaced callers must use the short name.
-		_, err = helper.GetObjectAuth(t, "customer1:"+class, obj.ID, user1Key)
+		_, err = helper.GetObjectAuth(t, ns1+":"+class, obj.ID, user1Key)
 		require.Error(t, err)
 		var unproc *objects.ObjectsClassGetUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected ObjectsClassGetUnprocessableEntity, got %T: %v", err, err)
@@ -275,7 +274,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 
 	t.Run("global admin reads object via qualified class name", func(t *testing.T) {
 		const class = "AdminQualified"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			Class:      class,
@@ -286,15 +285,15 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 
 		// Admin has no namespace, so Resolve is a no-op and the qualified
 		// name flows through untouched.
-		got, err := helper.GetObjectAuth(t, "customer1:"+class, obj.ID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":"+class, obj.ID, adminKey)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, ns1+":"+class, got.Class)
 		assert.Equal(t, "Tenet", got.Properties.(map[string]any)["title"])
 	})
 
 	t.Run("global admin reading object via short name returns 404", func(t *testing.T) {
 		const class = "AdminShort"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			Class:      class,
@@ -304,7 +303,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		require.NotEmpty(t, obj.ID)
 
 		// Admin → no namespace → Resolve leaves the short name as-is. Storage
-		// only has "customer1:AdminShort" → 404.
+		// only has the qualified "<ns>:AdminShort" → 404.
 		_, err = helper.GetObjectAuth(t, class, obj.ID, adminKey)
 		require.Error(t, err)
 		var nf *objects.ObjectsClassGetNotFound
@@ -315,11 +314,12 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 // TestNamespaces_BatchOperations exercises BatchManager fan-out under
 // namespace resolution.
 func TestNamespaces_BatchOperations(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	t.Parallel()
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("batch insert is namespace-scoped", func(t *testing.T) {
 		const class = "BatchInsert"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		id1 := strfmt.UUID("11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 		id2 := strfmt.UUID("22222222-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
@@ -346,7 +346,7 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 
 	t.Run("batch delete by filter is namespace-scoped", func(t *testing.T) {
 		const class = "BatchDelete"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		id1 := strfmt.UUID("33333333-cccc-cccc-cccc-cccccccccccc")
 		id2 := strfmt.UUID("44444444-dddd-dddd-dddd-dddddddddddd")
@@ -405,12 +405,12 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 			class = "BatchDeleteAlias"
 			alias = "BDAlias"
 		)
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user1Key)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user2Key)
 		t.Cleanup(func() {
-			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
-			helper.DeleteAliasWithAuthz(t, "customer2:"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns2+":"+alias, helper.CreateAuth(adminKey))
 		})
 
 		id1 := strfmt.UUID("55555555-eeee-eeee-eeee-eeeeeeeeeeee")
@@ -468,7 +468,7 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 		// class portion: the qualified name flows through to storage and
 		// matches; the short name does not exist on disk and 422s.
 		const class = "BatchDeleteAdmin"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		id1 := strfmt.UUID("99999999-1111-1111-1111-111111111111")
 		id2 := strfmt.UUID("aaaaaaaa-2222-2222-2222-222222222222")
@@ -500,7 +500,7 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 
 		// Admin with the qualified class name resolves directly to storage.
 		resp, err := helper.Client(t).Batch.BatchObjectsDelete(
-			batch.NewBatchObjectsDeleteParams().WithBody(mkBody("customer1:"+class)),
+			batch.NewBatchObjectsDeleteParams().WithBody(mkBody(ns1+":"+class)),
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
@@ -515,13 +515,17 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 		assert.Equal(t, "keep", got.Properties.(map[string]any)["title"])
 	})
 
-	t.Run("batch delete by reference-path filter is rejected", func(t *testing.T) {
-		// Inner class segments in reference-path filters are caller-supplied
-		// and not auto-qualified. The REST handler rejects path-len > 1
-		// upfront on namespace-enabled clusters; this guards against silent
-		// "class not found" failures downstream.
+	t.Run("batch delete by reference-path filter is validated against the schema", func(t *testing.T) {
+		// Reference-path filters are no longer rejected upfront on NS-enabled
+		// clusters: filterext.Parse qualifies each inner class segment against
+		// the source's namespace and then the filter is validated like any
+		// other. This fixture has no "Other" class, so QualifyRefTarget turns
+		// "Other" into "<ns>:Other" and the downstream schema lookup then
+		// rejects it with "could not find class ..." — proving the qualification
+		// path runs and the removed path-len > 1 upfront guard is gone (any
+		// namespace prefix in the message is stripped before reaching this caller).
 		const class = "BatchDeleteRefPath"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		x := "x"
 		body := &models.BatchDelete{
@@ -539,5 +543,18 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 			helper.CreateAuth(user1Key),
 		)
 		require.Error(t, err)
+		// A malformed where filter is caller input, so the handler returns a 422
+		// (not a 500). The swagger client hides the message behind a pointer in
+		// err.Error(), so read it from the typed payload.
+		var unproc *batch.BatchObjectsDeleteUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected 422 UnprocessableEntity, got %T: %v", err, err)
+		require.NotEmpty(t, unproc.Payload.Error)
+		msg := unproc.Payload.Error[0].Message
+		assert.Contains(t, msg, "could not find class",
+			"must fail in the downstream schema lookup, not the removed upfront rejection")
+		assert.Contains(t, msg, "Other",
+			"the leaf class name (qualified to <ns>:Other and stripped to Other) must appear in the message")
+		assert.NotContains(t, msg, "reference-path filters",
+			"the upfront path-len > 1 rejection no longer exists")
 	})
 }

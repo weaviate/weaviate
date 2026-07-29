@@ -51,7 +51,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -72,7 +72,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -102,6 +102,10 @@ func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string
 }
 
 func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
+	return nil
+}
+
+func (f *fakeDB) ReconcileAsyncReplicationForShard(class string, shard string) error {
 	return nil
 }
 
@@ -318,6 +322,11 @@ func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string
 }
 
 func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) ReconcileAsyncReplicationForShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }

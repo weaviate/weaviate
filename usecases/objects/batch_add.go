@@ -180,7 +180,8 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 
 		objectsPerClass       = make(map[string][]*models.Object)
 		originalIndexPerClass = make(map[string][]int)
-		validator             = validation.New(b.vectorRepo.Exists, b.config, repl)
+		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
+			principal, b.config.Config.Namespaces.Enabled)
 	)
 
 	// validate each object and sort by class (==vectorizer)

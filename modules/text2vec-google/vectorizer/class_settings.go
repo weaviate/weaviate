@@ -27,6 +27,7 @@ const (
 	modelIDProperty     = "modelId"
 	modelProperty       = "model"
 	titleProperty       = "titleProperty"
+	locationProperty    = "location"
 	dimensionsProperty  = "dimensions"
 	taskTypeProperty    = "taskType"
 )
@@ -40,6 +41,7 @@ const (
 	DefaultModel                 = "gemini-embedding-001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaulAIStudioModel          = "gemini-embedding-001"
+	DefaultLocation              = "us-central1"
 	DefaultTaskType              = "RETRIEVAL_QUERY"
 )
 
@@ -127,6 +129,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
+}
+
+func (ic *classSettings) Location() string {
+	return ic.getStringProperty(locationProperty, DefaultLocation)
 }
 
 func (ic *classSettings) Dimensions() *int64 {

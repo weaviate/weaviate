@@ -23,6 +23,39 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         PR_NUMBER: ${{ inputs.pr-number }}
       run: |
-        gh pr diff "$PR_NUMBER" \
-          --repo "$GITHUB_REPOSITORY" \
-          | bash "$GITHUB_ACTION_PATH/linter_hidden_unicode.sh" --stdin
+        set -euo pipefail
+
+        # The diff comes from the paginated files endpoint, not from
+        # `gh pr diff`. `gh pr diff` uses the .diff media type, which
+        # returns HTTP 406 once a PR exceeds 20000 diff lines. Under
+        # `pipefail` that failed the job on PR *size* rather than on a
+        # finding, while the log still read "No hidden Unicode
+        # characters detected" — so a large PR both went unscanned and
+        # blocked CI, with nothing in the output saying so.
+        #
+        # The files endpoint is paginated and has no line cap. Each
+        # element carries that file's `patch` hunks, which is all the
+        # linter reads; prefixing "+++ b/<filename>" reproduces the
+        # file header it tracks.
+        gh api --paginate \
+          "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+          --jq '.[] | {filename, patch}' \
+          | jq -s '.' > "$RUNNER_TEMP/pr_files.json"
+
+        jq -r '.[] | select(.patch != null)
+                   | "+++ b/" + .filename + "\n" + .patch' \
+          "$RUNNER_TEMP/pr_files.json" > "$RUNNER_TEMP/pr.diff"
+
+        # GitHub omits `patch` for binary files, for pure renames, and
+        # for files whose diff is too large to inline. The first two
+        # hold nothing to scan; the third is a genuine blind spot, so
+        # name the files instead of passing silently over them.
+        unscanned=$(jq -r '.[] | select(.patch == null) | .filename' \
+          "$RUNNER_TEMP/pr_files.json")
+        if [ -n "$unscanned" ]; then
+          echo "::warning::No inline patch returned for these files; they were not scanned:"
+          echo "$unscanned" | sed 's/^/  /'
+        fi
+
+        bash "$GITHUB_ACTION_PATH/linter_hidden_unicode.sh" --stdin \
+          < "$RUNNER_TEMP/pr.diff"

@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sync"
 	"time"
@@ -42,9 +43,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type dynUserHandler struct {
@@ -110,19 +113,18 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	allUsers := make([]*apikey.User, 0, len(allDbUsers))
+	allUsers := make([]apikey.UserView, 0, len(allDbUsers))
 	for _, dbUser := range allDbUsers {
 		allUsers = append(allUsers, dbUser)
 	}
 
-	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
+	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
 		ctx,
-		h.logger,
 		principal,
 		allUsers,
 		authorization.READ,
-		func(user *apikey.User) string {
+		func(user apikey.UserView) string {
 			return authorization.Users(user.Id)[0]
 		},
 	)
@@ -133,12 +135,13 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	}
 
 	exposeNamespace := principal != nil && principal.IsGlobalOperator
+	showAPIKeyFirstLetters := isRootUser || h.callerHasAdminRole(principal)
 
 	allDynamicUsers := map[string]struct{}{}
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
-		if isRootUser {
+		if showAPIKeyFirstLetters {
 			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
 		}
 		var lastUsedTime time.Time
@@ -149,7 +152,9 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		if exposeNamespace {
 			namespace = dbUser.Namespace
 		}
-		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
+		// dbUser.Id is the qualified storage key; show the short form to namespaced callers.
+		displayID := namespacing.StripOwnNamespace(principal, dbUser.Id)
+		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
@@ -164,7 +169,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 				// don't overwrite dynamic users with the same name. Can happen after import
 				continue
 			}
-			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
+			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}
@@ -174,22 +179,18 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
-	roles, err := h.dbUsers.GetRolesForUserOrGroup(id, authentication.AuthTypeDb, false)
+func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return response, err
 	}
 
-	roleNames := make([]string, 0, len(roles))
-	for role := range roles {
-		roleNames = append(roleNames, role)
-	}
-
+	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
 	resp := &models.DBUserInfo{
 		Active:             &active,
-		UserID:             &id,
+		UserID:             &displayID,
 		DbUserType:         &userType,
-		Roles:              roleNames,
+		Roles:              h.visibleRoleNames(ctx, principal, roles, own),
 		APIKeyFirstLetters: apiKeyFirstLetter,
 		Namespace:          namespace,
 	}
@@ -204,10 +205,28 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 	return response, nil
 }
 
+// visibleRoleNames returns the role names to expose for a db user, matching the
+// authz role-read paths: a role naming a foreign namespace, an operator-reserved
+// global role, and a role whose permissions the caller does not hold are dropped,
+// and the caller's own namespace prefix is stripped from the rest. A subject
+// reading its own roles keeps them all.
+func (h *dynUserHandler) visibleRoleNames(ctx context.Context, principal *models.Principal, roles map[string][]authorization.Policy, own bool) []string {
+	names := make([]string, 0, len(roles))
+	for roleName, policies := range roles {
+		if !own && !rolevisibility.RoleVisibleToCaller(ctx, h.authorizer, h.namespacesEnabled, principal, roleName, policies) {
+			continue
+		}
+		names = append(names, namespacing.StripOwnNamespace(principal, roleName))
+	}
+	return names
+}
+
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
+	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(internalKey)...); err != nil {
 		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -219,18 +238,19 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	isRootUser := h.isRequestFromRootUser(principal)
 
 	active := true
-	response := &models.DBUserInfo{UserID: &params.UserID, Active: &active}
+	displayID := namespacing.StripOwnNamespace(principal, internalKey)
+	response := &models.DBUserInfo{UserID: &displayID, Active: &active}
 
-	existingDbUsers, err := h.dbUsers.GetUsers(params.UserID)
+	existingDbUsers, err := h.dbUsers.GetUsers(internalKey)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("checking user existence: %w", err)))
 	}
 	var userType string
 	if len(existingDbUsers) > 0 {
-		user := existingDbUsers[params.UserID]
+		user := existingDbUsers[internalKey]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
-		if isRootUser {
+		if isRootUser || h.callerHasAdminRole(principal) {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
 		}
 		if principal != nil && principal.IsGlobalOperator {
@@ -238,32 +258,29 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		}
 
 		if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
-			usersWithTime := h.getLastUsed([]*apikey.User{user})
-			response.LastUsedAt = strfmt.DateTime(usersWithTime[params.UserID])
+			usersWithTime := h.getLastUsed([]apikey.UserView{user})
+			response.LastUsedAt = strfmt.DateTime(usersWithTime[internalKey])
 		}
 		userType = string(models.UserTypeOutputDbUser)
-	} else if isRootUser && h.staticUserExists(params.UserID) {
+	} else if isRootUser && h.staticUserExists(internalKey) {
 		userType = string(models.UserTypeOutputDbEnvUser)
 	} else {
 		return users.NewGetUserInfoNotFound()
 	}
 	response.DbUserType = &userType
 
-	existingRoles, err := h.dbUsers.GetRolesForUserOrGroup(params.UserID, authentication.AuthTypeDb, false)
+	existingRoles, err := h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
 	}
 
-	roles := make([]string, 0, len(existingRoles))
-	for roleName := range existingRoles {
-		roles = append(roles, roleName)
-	}
-	response.Roles = roles
+	own := principal != nil && internalKey == principal.Username && principal.UserType == models.UserTypeInputDb
+	response.Roles = h.visibleRoleNames(ctx, principal, existingRoles, own)
 
 	return users.NewGetUserInfoOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time {
+func (h *dynUserHandler) getLastUsed(users []apikey.UserView) map[string]time.Time {
 	usersWithTime := make(map[string]time.Time, len(users))
 	for _, user := range users {
 		usersWithTime[user.Id] = user.LastUsedAt
@@ -326,50 +343,53 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 	return usersWithTime
 }
 
+// resolveUserKeyForCreate validates the user id and returns the storage key
+// plus the derived namespace ("" when namespaces are disabled).
+func (h *dynUserHandler) resolveUserKeyForCreate(principal *models.Principal, raw string) (key, ns string, err error) {
+	if !h.namespacesEnabled {
+		if err := validateUserName(raw); err != nil {
+			return "", "", err
+		}
+		return raw, "", nil
+	}
+
+	if err := namespacing.ValidateNamespacePrefix(principal, h.namespacesEnabled, raw, "user"); err != nil {
+		return "", "", err
+	}
+
+	if principal == nil || principal.IsGlobalOperator {
+		ns = namespacing.NamespaceFromQualified(raw)
+		if ns == "" {
+			return "", "", errors.New(`a namespace-qualified user name "<namespace>:<user>" is required`)
+		}
+		// Validate the portion after the "<ns>:" prefix.
+		if err := validateUserName(raw[len(ns)+1:]); err != nil {
+			return "", "", err
+		}
+		return raw, ns, nil
+	}
+
+	// Namespaced principal: short name only (a ':' was rejected above).
+	if err := validateUserName(raw); err != nil {
+		return "", "", err
+	}
+	return apikey.MakeUserKey(raw, principal.Namespace), principal.Namespace, nil
+}
+
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if err := validateUserName(params.UserID); err != nil {
+	internalKey, ns, err := h.resolveUserKeyForCreate(principal, params.UserID)
+	if err != nil {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if !h.dbUserEnabled {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
-	}
-
-	// Authorization of namespace-related concerns runs before any 422
-	// validation so an unauthorized caller always sees 403, never leaks
-	// shape-of-request hints via 422 responses.
-	if h.namespacesEnabled && !principal.IsGlobalOperator {
-		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("user management on namespace-enabled clusters is restricted to global operators")))
-	}
-
-	if params.Body.Namespace != "" && !principal.IsGlobalOperator {
-		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only global operators may bind a user to a namespace")))
-	}
-
-	if !h.namespacesEnabled && params.Body.Namespace != "" {
-		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("namespace is not supported: namespaces are not enabled on this cluster")))
-	}
-
-	if h.namespacesEnabled {
-		if params.Body.Namespace == "" {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("namespace is required on namespace-enabled clusters")))
-		}
-		// Fast-path local check before the RAFT round-trip. The apply
-		// path re-validates against authoritative state and surfaces
-		// the same sentinels (mapped below), so the worst case for a
-		// stale local view is a redundant 422.
-		if !h.namespaces.Exists(params.Body.Namespace) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q does not exist", params.Body.Namespace)))
-		}
-		if !h.namespaces.IsActive(params.Body.Namespace) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted", params.Body.Namespace)))
-		}
 	}
 
 	if params.Body.Import != nil && *params.Body.Import && h.namespacesEnabled {
@@ -378,7 +398,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 	if params.Body.Import != nil && *params.Body.Import {
 		if !h.principalIsRootUser(principal.Username) {
-			return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
+			return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
 		}
 
 		if !h.staticUserExists(params.UserID) {
@@ -404,11 +424,11 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 	}
 
-	// internalKey is the storage key. For namespaced users it is
-	// "namespace:userId" so two namespaces can host the same short id without
-	// collision; for unnamespaced users it equals params.UserID. Used for all
-	// downstream conflict checks and persistence.
-	internalKey := apikey.MakeUserKey(params.UserID, params.Body.Namespace)
+	// Skip the RAFT round-trip when the namespace is locally known not to be
+	// active; the apply path re-validates authoritatively.
+	if err := namespaces.RequireActive(h.namespaces, ns); err != nil {
+		return renderCreateUserNamespaceErr(principal, err)
+	}
 
 	if h.staticUserExists(internalKey) {
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user '%v' already exists", params.UserID)))
@@ -434,13 +454,11 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], params.Body.Namespace, time.Now()); err != nil {
-		// Apply-time race: surface a deleted/deleting namespace as 422 so
-		// clients can retry against current state.
-		if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
-		}
-		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
+	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
+		// The namespace changed state between the pre-check above and the
+		// apply. Deleting renders 422 like the pre-check does — the namespace
+		// never returns to active, so the create is not retryable.
+		return renderCreateUserNamespaceErr(principal, fmt.Errorf("creating user: %w", err))
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
@@ -448,8 +466,9 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -457,30 +476,26 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if h.namespacesEnabled && !principal.IsGlobalOperator {
-		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("user management on namespace-enabled clusters is restricted to global operators")))
-	}
-
-	existingUser, err := h.dbUsers.GetUsers(params.UserID)
+	existingUser, err := h.dbUsers.GetUsers(internalKey)
 	if err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("checking user existence: %w", err)))
 	}
 
 	if len(existingUser) == 0 {
-		if h.staticUserExists(params.UserID) {
+		if h.staticUserExists(internalKey) {
 			return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user '%v' is static user", params.UserID)))
 		}
 		return users.NewRotateUserAPIKeyNotFound()
 	}
 
-	oldUserIdentifier := existingUser[params.UserID].InternalIdentifier
+	oldUserIdentifier := existingUser[internalKey].InternalIdentifier
 
 	apiKey, hash, newUserIdentifier, err := h.getApiKey()
 	if err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.dbUsers.RotateKey(ctx, params.UserID, apiKey[:3], hash, oldUserIdentifier, newUserIdentifier); err != nil {
+	if err := h.dbUsers.RotateKey(ctx, internalKey, apiKey[:3], hash, oldUserIdentifier, newUserIdentifier); err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("rotate key: %w", err)))
 	}
 
@@ -516,8 +531,9 @@ func (h *dynUserHandler) getApiKey() (string, string, string, error) {
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Users(params.UserID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Users(internalKey)...); err != nil {
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -525,28 +541,24 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if h.namespacesEnabled && !principal.IsGlobalOperator {
-		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("user management on namespace-enabled clusters is restricted to global operators")))
-	}
-
-	if params.UserID == principal.Username {
+	if internalKey == principal.Username {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot delete its own user %q", params.UserID)))
 	}
 
-	if h.isRootUser(params.UserID) {
+	if h.isRootUser(internalKey) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("cannot delete root user")))
 	}
-	existingUsers, err := h.dbUsers.GetUsers(params.UserID)
+	existingUsers, err := h.dbUsers.GetUsers(internalKey)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 	if len(existingUsers) == 0 {
-		if h.staticUserExists(params.UserID) {
+		if h.staticUserExists(internalKey) {
 			return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user '%v' is static user", params.UserID)))
 		}
 		return users.NewDeleteUserNotFound()
 	}
-	roles, err := h.dbUsers.GetRolesForUserOrGroup(params.UserID, authentication.AuthTypeDb, false)
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -555,12 +567,12 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		for name := range roles {
 			roleNames = append(roleNames, name)
 		}
-		if err := h.dbUsers.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, authentication.AuthTypeDb), roleNames...); err != nil {
+		if err := h.dbUsers.RevokeRolesForUser(conv.UserNameWithTypeFromId(internalKey, authentication.AuthTypeDb), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 	}
 
-	if err := h.dbUsers.DeleteUser(ctx, params.UserID); err != nil {
+	if err := h.dbUsers.DeleteUser(ctx, internalKey); err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 	return users.NewDeleteUserNoContent()
@@ -568,8 +580,9 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 
 func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -577,31 +590,27 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if h.namespacesEnabled && !principal.IsGlobalOperator {
-		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("user management on namespace-enabled clusters is restricted to global operators")))
-	}
-
-	if params.UserID == principal.Username {
+	if internalKey == principal.Username {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot deactivate its own user %q", params.UserID)))
 	}
 
-	if h.isRootUser(params.UserID) {
+	if h.isRootUser(internalKey) {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("cannot deactivate root user")))
 	}
 
-	existingUser, err := h.dbUsers.GetUsers(params.UserID)
+	existingUser, err := h.dbUsers.GetUsers(internalKey)
 	if err != nil {
 		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("checking user existence: %w", err)))
 	}
 
 	if len(existingUser) == 0 {
-		if h.staticUserExists(params.UserID) {
+		if h.staticUserExists(internalKey) {
 			return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user '%v' is static user", params.UserID)))
 		}
 		return users.NewDeactivateUserNotFound()
 	}
 
-	if !existingUser[params.UserID].Active {
+	if !existingUser[internalKey].Active {
 		return users.NewDeactivateUserConflict()
 	}
 
@@ -610,7 +619,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		revokeKey = *params.Body.RevokeKey
 	}
 
-	if err := h.dbUsers.DeactivateUser(ctx, params.UserID, revokeKey); err != nil {
+	if err := h.dbUsers.DeactivateUser(ctx, internalKey, revokeKey); err != nil {
 		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("deactivate user: %w", err)))
 	}
 
@@ -619,7 +628,9 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 
 func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -627,31 +638,27 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if h.namespacesEnabled && !principal.IsGlobalOperator {
-		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("user management on namespace-enabled clusters is restricted to global operators")))
-	}
-
-	if h.isRootUser(params.UserID) {
+	if h.isRootUser(internalKey) {
 		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("cannot activate root user")))
 	}
 
-	existingUser, err := h.dbUsers.GetUsers(params.UserID)
+	existingUser, err := h.dbUsers.GetUsers(internalKey)
 	if err != nil {
 		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("checking user existence: %w", err)))
 	}
 
 	if len(existingUser) == 0 {
-		if h.staticUserExists(params.UserID) {
+		if h.staticUserExists(internalKey) {
 			return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user '%v' is static user", params.UserID)))
 		}
 		return users.NewActivateUserNotFound()
 	}
 
-	if existingUser[params.UserID].Active {
+	if existingUser[internalKey].Active {
 		return users.NewActivateUserConflict()
 	}
 
-	if err := h.dbUsers.ActivateUser(ctx, params.UserID); err != nil {
+	if err := h.dbUsers.ActivateUser(ctx, internalKey); err != nil {
 		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("activate user: %w", err)))
 	}
 
@@ -708,7 +715,36 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 	if principal == nil {
 		return false
 	}
-	return h.rbacConfig.IsRoot(principal.Username, principal.Groups)
+	return h.rbacConfig.IsRootUser(principal.Username, principal.Groups)
+}
+
+// callerHasAdminRole reports whether the principal holds the built-in admin
+// role, directly or through one of its groups. Only consulted on
+// namespace-enabled clusters. A role lookup that errors is treated as non-admin
+// so the api-key hint stays hidden.
+func (h *dynUserHandler) callerHasAdminRole(principal *models.Principal) bool {
+	if principal == nil || !h.namespacesEnabled || !h.rbacConfig.Enabled {
+		return false
+	}
+	authType := authentication.AuthType(principal.UserType)
+	if h.subjectHasAdminRole(principal.Username, authType, false) {
+		return true
+	}
+	for _, group := range principal.Groups {
+		if h.subjectHasAdminRole(group, authType, true) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) subjectHasAdminRole(subject string, authType authentication.AuthType, isGroup bool) bool {
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(subject, authType, isGroup)
+	if err != nil {
+		return false
+	}
+	_, ok := roles[authorization.Admin]
+	return ok
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)
@@ -720,4 +756,31 @@ func validateUserName(name string) error {
 		return fmt.Errorf("'%s' is not a valid user name", name)
 	}
 	return nil
+}
+
+// namespaceErrRendersUnprocessable reports whether err is a namespace-state
+// error the caller should see as a 422 rather than a 500.
+func namespaceErrRendersUnprocessable(err error) bool {
+	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
+	// would otherwise fall through to a 500 instead of a 422.
+	if errors.Is(err, namespaces.ErrNamespaceGone) {
+		return true
+	}
+	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
+	return ok && status == http.StatusUnprocessableEntity
+}
+
+// renderCreateUserNamespaceErr renders err for a caller that must not learn
+// about namespaces. A lifecycle sentinel becomes neutral copy; anything else
+// is a genuine internal failure and keeps its detail.
+func renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
+	msg, lifecycle := namespaces.PublicMessage(err)
+	if !lifecycle {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	public := errors.New(msg)
+	if namespaceErrRendersUnprocessable(err) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
+	}
+	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
 }

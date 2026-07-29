@@ -56,7 +56,7 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 // buildNestedFilterPair encodes the filter value for the given leaf type and
 // returns the corresponding propValuePair(s).
 func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
-	arrayIndices []filnested.ArrayIndex, leaf *models.NestedProperty, class *models.Class,
+	arrayIndices arrayIndices, leaf *models.NestedProperty, class *models.Class,
 ) (*propValuePair, error) {
 	dt := schema.DataType(leaf.DataType[0])
 	switch dt {
@@ -75,7 +75,7 @@ func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, propName, fullP
 // ASCII folding, wildcard handling) was aligned with extractTokenizableProp
 // manually. Consider extracting a shared helper to avoid future divergence.
 func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
-	leaf *models.NestedProperty, arrayIndices []filnested.ArrayIndex, class *models.Class,
+	leaf *models.NestedProperty, arrayIndices arrayIndices, class *models.Class,
 ) (*propValuePair, error) {
 	valueStr, ok := filter.Value.Value.(string)
 	if !ok {
@@ -144,7 +144,7 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, f
 // buildNestedPrimitiveFilterPair handles non-text primitive types (int,
 // number, bool, date and their array variants).
 func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
-	dt schema.DataType, arrayIndices []filnested.ArrayIndex, class *models.Class,
+	dt schema.DataType, arrayIndices arrayIndices, class *models.Class,
 ) (*propValuePair, error) {
 	// Map array types to their scalar equivalent — each array element is stored
 	// individually in the nested bucket, so filtering works the same way.
@@ -189,7 +189,7 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, propNa
 // nested property. relPath is "" for root-level existence (e.g. "addresses IsNull")
 // or the dot-notation sub-path (e.g. "city" for "addresses.city IsNull").
 // arrayIndices carries any arr[N] constraints from the filter path.
-func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPath string, arrayIndices []filnested.ArrayIndex, class *models.Class) (*propValuePair, error) {
+func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPath string, arrayIndices arrayIndices, class *models.Class) (*propValuePair, error) {
 	value, err := s.extractBoolValue(filter.Value.Value)
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull %q: encode bool: %w", propName, err)

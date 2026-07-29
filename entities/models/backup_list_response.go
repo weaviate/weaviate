@@ -100,6 +100,9 @@ type BackupListResponseItems0 struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
+	// The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.
+	IncrementalBaseBackupID string `json:"incremental_base_backup_id,omitempty"`
+
 	// Size of the backup in Gibs
 	Size float64 `json:"size,omitempty"`
 

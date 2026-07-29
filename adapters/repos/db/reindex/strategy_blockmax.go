@@ -96,12 +96,11 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 		propLen := calcPropLen(property.Items)
 		for _, item := range property.Items {
 			pair := shard.PairPropertyWithFrequency(docID, item.TermFrequency, propLen)
@@ -120,12 +119,11 @@ func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) stri
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := shard.DeleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
@@ -139,36 +137,10 @@ func (s *MapToBlockmaxStrategy) PreReindexHook(shard ShardLike, props []string) 
 	shard.MarkSearchableBlockmaxProperties(props...)
 }
 
-// OnMigrationComplete flips the UsingBlockMaxWAND class flag, but only once
-// every searchable bucket on this shard has already been migrated to the
-// target (blockmax) strategy. When a per-property rebuild targets a subset
-// of the class's searchable properties, the remaining properties still use
-// the source (map) strategy and the class-level flag must stay off until
-// they are migrated too — otherwise BM25 queries over the still-map
-// properties would hit the wrong query path.
-//
-// The check is shard-local, which is sufficient because each shard runs its
-// own migration independently and this hook fires after that shard's swap
-// phase has finished. Once the last property on the last shard reaches this
-// hook, the class-level flag is flipped (the flag write itself is a single
-// RAFT entry guarded by an "already set" short-circuit).
-func (s *MapToBlockmaxStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	className := shard.ParentIndex().ClassName().String()
-
-	for name, bucket := range shard.Store().GetBucketsByName() {
-		_, indexType := GetPropNameAndIndexTypeFromBucketName(name)
-		if indexType != IndexTypePropSearchableValue {
-			continue
-		}
-		if bucket.Strategy() == s.SourceStrategy() {
-			// At least one searchable property on this shard still uses the
-			// pre-migration (map) strategy. Defer flipping the class flag
-			// until a subsequent per-property rebuild completes the migration.
-			return nil
-		}
-	}
-
-	return updateToBlockMaxInvertedIndexConfig(ctx, s.SchemaManager, className)
+// OnMigrationComplete: no-op for a semantic migration. Class-level flip
+// happens cluster-wide in flipSemanticMigrationSchema (weaviate/0-weaviate-issues#254).
+func (s *MapToBlockmaxStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	return nil
 }
 
 // calcPropLenInverted computes property length as the sum of term frequencies.

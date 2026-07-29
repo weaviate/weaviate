@@ -8634,6 +8634,240 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 	})
 }
 
+// TestNestedFilteringIsNullInOperatorSubtree covers IsNull / IsNotNull
+// leaves *buried inside an operator subtree* (OR, NOT, or inner AND)
+// under a same-root correlated-AND wrapper. The materialization path
+// (materializeNestedIsNull) is shared with the direct-child path, so
+// composition with sibling value leaves through OR / NOT relies on
+// Phase-3 inheritance: scalars within a parent element share the
+// element's leaf positions, so the IsNull existential bitmap and
+// value-leaf bitmaps live at the same per-element leaf and intersect /
+// union correctly.
+//
+// Six shapes, all evaluated against one shared fixture:
+//
+//  1. OR with IsNull sibling:
+//     AND(cars.make=honda, OR(cars.model=civic, cars.year IS NULL))
+//  2. OR with IsNotNull sibling:
+//     AND(cars.make=honda, OR(cars.model=civic, cars.year IS NOT NULL))
+//  3. NOT(IsNull):
+//     AND(cars.make=honda, NOT(cars.year IS NULL))
+//  4. Inner AND with IsNull:
+//     AND(cars.make=honda, AND(cars.model=civic, cars.year IS NULL))
+//  5. arr[N]-pinned IsNull inside OR:
+//     AND(cars[1].make=honda, OR(cars[1].model=civic, cars[1].year IS NULL))
+//  6. Scalar-array sibling with IsNull in OR:
+//     AND(cars.make=honda, OR(cars.tags=electric, cars.year IS NULL))
+//
+// Sub-test 6 exercises the wide-vs-narrow leaf encoding that earlier
+// analysis verified composes correctly under Phase-3 inheritance.
+func TestNestedFilteringIsNullInOperatorSubtree(t *testing.T) {
+	const nestedClass = "IsNullInOpSubtree"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "model", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "year", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		}},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+	car := func(props map[string]any) map[string]any { return props }
+
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	isNullFilter := func(path string, isNull bool) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+	notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorNot, Operands: []filters.Clause{*inner.Root}}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	d1 := uuid(1) // single car: make+model+year+tags(electric)
+	d2 := uuid(2) // single car: make+model+year (no tags)
+	d3 := uuid(3) // single car: make+model (no year, no tags)
+	d4 := uuid(4) // single car: make+year (no model, no tags)
+	d5 := uuid(5) // single car: make only
+	d6 := uuid(6) // single car: wrong make (ford)
+	d7 := uuid(7) // 2 cars: cars[0]=honda+civic (no year); cars[1]=ford+year
+	d8 := uuid(8) // 2 cars: cars[0]={}; cars[1]=honda+model+year
+	d9 := uuid(9) // 2 cars: cars[0]=honda+model+year; cars[1]={}
+
+	docs := []docDef{
+		{id: d1, props: map[string]any{"cars": asArr(car(map[string]any{"make": "honda", "model": "civic", "year": "2020", "tags": asTextArr("electric")}))}, note: "single car: all fields incl. tags=electric"},
+		{id: d2, props: map[string]any{"cars": asArr(car(map[string]any{"make": "honda", "model": "civic", "year": "2020"}))}, note: "single car: no tags"},
+		{id: d3, props: map[string]any{"cars": asArr(car(map[string]any{"make": "honda", "model": "civic"}))}, note: "single car: no year, no tags"},
+		{id: d4, props: map[string]any{"cars": asArr(car(map[string]any{"make": "honda", "year": "2020"}))}, note: "single car: no model, no tags"},
+		{id: d5, props: map[string]any{"cars": asArr(car(map[string]any{"make": "honda"}))}, note: "single car: make only"},
+		{id: d6, props: map[string]any{"cars": asArr(car(map[string]any{"make": "ford", "model": "civic", "year": "2020"}))}, note: "single car: wrong make"},
+		{id: d7, props: map[string]any{"cars": asArr(
+			car(map[string]any{"make": "honda", "model": "civic"}),
+			car(map[string]any{"make": "ford", "year": "2020"}),
+		)}, note: "2 cars: same-element discriminator"},
+		{id: d8, props: map[string]any{"cars": asArr(
+			car(map[string]any{}),
+			car(map[string]any{"make": "honda", "model": "civic", "year": "2020"}),
+		)}, note: "2 cars: cars[0] empty, cars[1] has all"},
+		{id: d9, props: map[string]any{"cars": asArr(
+			car(map[string]any{"make": "honda", "model": "civic", "year": "2020"}),
+			car(map[string]any{}),
+		)}, note: "2 cars: cars[0] has all, cars[1] empty"},
+	}
+
+	runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("OR_with_IsNull_sibling", func(t *testing.T) {
+		// AND(cars.make=honda, OR(cars.model=civic, cars.year IS NULL))
+		// Per-element: make=honda AND (model=civic OR year missing).
+		// d1: model=civic → match. d2: model=civic → match. d3: model=civic
+		// → match. d4: no model, year present → no. d5: no model, no year
+		// → IsNull → match. d6: wrong make → no. d7: cars[0] honda+civic →
+		// match. d8: cars[1] honda+civic → match. d9: cars[0] match.
+		runScenario(t, andF(
+			valueFilter("cars.make", "honda"),
+			orF(valueFilter("cars.model", "civic"), isNullFilter("cars.year", true)),
+		), []strfmt.UUID{d1, d2, d3, d5, d7, d8, d9})
+	})
+
+	t.Run("OR_with_IsNotNull_sibling", func(t *testing.T) {
+		// AND(cars.make=honda, OR(cars.model=civic, cars.year IS NOT NULL))
+		// Per-element: make=honda AND (model=civic OR year present).
+		// d5 drops (no model, no year). d3 stays (model=civic). Others
+		// same as test 1 except d4 now matches (year present).
+		runScenario(t, andF(
+			valueFilter("cars.make", "honda"),
+			orF(valueFilter("cars.model", "civic"), isNullFilter("cars.year", false)),
+		), []strfmt.UUID{d1, d2, d3, d4, d7, d8, d9})
+	})
+
+	t.Run("NOT_IsNull", func(t *testing.T) {
+		// AND(cars.make=honda, NOT(cars.year IS NULL))
+		// Per-element: make=honda AND year present.
+		// d1, d2, d4 match. d3, d5 drop (no year). d6 wrong make. d7 cars[0]
+		// no year, cars[1] wrong make → no match. d8 cars[1] match. d9
+		// cars[0] match.
+		runScenario(t, andF(
+			valueFilter("cars.make", "honda"),
+			notF(isNullFilter("cars.year", true)),
+		), []strfmt.UUID{d1, d2, d4, d8, d9})
+	})
+
+	t.Run("inner_AND_with_IsNull", func(t *testing.T) {
+		// AND(cars.make=honda, AND(cars.model=civic, cars.year IS NULL))
+		// All three in same element: make=honda, model=civic, year missing.
+		// d3 matches (make+model, no year). d7 cars[0] matches. Others
+		// fail at least one clause.
+		runScenario(t, andF(
+			valueFilter("cars.make", "honda"),
+			andF(valueFilter("cars.model", "civic"), isNullFilter("cars.year", true)),
+		), []strfmt.UUID{d3, d7})
+	})
+
+	t.Run("arrN_pinned_IsNull_inside_OR", func(t *testing.T) {
+		// AND(cars[1].make=honda, OR(cars[1].model=civic, cars[1].year IS NULL))
+		// Pinned to cars[1]. Single-car docs trivially fail. d7 cars[1]=ford
+		// → no match. d8 cars[1]=honda+civic+year → matches (model=civic).
+		// d9 cars[1]={} → no make → no match.
+		runScenario(t, andF(
+			valueFilter("cars[1].make", "honda"),
+			orF(valueFilter("cars[1].model", "civic"), isNullFilter("cars[1].year", true)),
+		), []strfmt.UUID{d8})
+	})
+
+	t.Run("scalar_array_sibling_with_IsNull", func(t *testing.T) {
+		// AND(cars.make=honda, OR(cars.tags=electric, cars.year IS NULL))
+		// Per-element: make=honda AND (tags contains electric OR year
+		// missing). Exercises Phase-3 inheritance: tags=electric leaf is
+		// at the narrow per-element-of-tags-array position, year-existential
+		// is at the wide cars-element position; both still compose via the
+		// shared parent-element encoding.
+		// d1: tags=[electric] → match. d2: no tags, year present → no.
+		// d3: no tags, no year → IsNull → match. d4: no tags, year present
+		// → no. d5: no tags, no year → IsNull → match. d6: wrong make.
+		// d7: cars[0] no year → IsNull → match. d8: cars[1] year=2020, no
+		// tags → no; cars[0] no make → no. d9: cars[0] year=2020, no tags
+		// → no; cars[1] no make → no.
+		runScenario(t, andF(
+			valueFilter("cars.make", "honda"),
+			orF(valueFilter("cars.tags", "electric"), isNullFilter("cars.year", true)),
+		), []strfmt.UUID{d1, d3, d5, d7})
+	})
+}
+
 // TestNestedFilteringIsNullWithArrayIndex covers IsNull / IsNotNull combined
 // with arr[N] in *standalone* form (no AND wrapper). Three shapes:
 //   - addresses[N] IsNull/IsNotNull  → existence of a Nth element in the array

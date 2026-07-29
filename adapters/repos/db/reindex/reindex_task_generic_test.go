@@ -13,6 +13,7 @@ package reindex_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -337,9 +338,10 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 // cover the end-to-end multi-node convergence assertion.
 func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 	tests := []struct {
-		name     string
-		setupRT  func(rt reindex.ReindexTracker)
-		wantPath string
+		name      string
+		setupRT   func(rt reindex.ReindexTracker)
+		setupDisk func(t *testing.T, shard *db.Shard, task *reindex.ShardReindexTaskGeneric)
+		wantPath  string
 	}{
 		{
 			name: "IsTidied/idempotent",
@@ -364,6 +366,22 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			},
 			wantPath: "swapped",
 		},
+		{
+			// pins: recovery re-mark of an already-set O_EXCL swap sentinel must not fail
+			name: "IsMerged/prop_sentinel_preset/recovery_mark_idempotent",
+			setupRT: func(rt reindex.ReindexTracker) {
+				require.NoError(t, rt.MarkStarted(time.Now()))
+				require.NoError(t, rt.MarkReindexed())
+				require.NoError(t, rt.MarkPrepended())
+				require.NoError(t, rt.MarkMerged())
+				require.NoError(t, rt.MarkSwappedProp("title"))
+			},
+			setupDisk: func(t *testing.T, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
+				backupDir := filepath.Join(shard.PathLSM(), task.BackupBucketName("title"))
+				require.NoError(t, os.MkdirAll(backupDir, 0o777))
+			},
+			wantPath: "merged-recovery",
+		},
 	}
 
 	for _, tc := range tests {
@@ -385,6 +403,9 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, rt.SaveProps([]string{"title"}))
 			tc.setupRT(rt)
+			if tc.setupDisk != nil {
+				tc.setupDisk(t, shard, task)
+			}
 
 			// Call RunSwapOnShard — the new dispatch must route through
 			// the recovery branch matching the sentinel state and
@@ -549,4 +570,10 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
 
 	require.NoError(t, shard.Shutdown(ctx))
+}
+
+func TestGetSegmentPathsToMove_WalkRootRemoved(t *testing.T) {
+	task := &reindex.ShardReindexTaskGeneric{}
+	_, _, err := task.GetSegmentPathsToMove(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir())
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

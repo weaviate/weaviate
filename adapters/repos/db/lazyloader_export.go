@@ -88,6 +88,27 @@ func (l *LazyLoadShard) RegisterDeleteFromPropertyValueIndex(cb reindex.OnDelete
 	return l.shard.RegisterDeleteFromPropertyValueIndex(cb)
 }
 
+// RegisterDoubleWriteWithScope loads the shard first, matching the two
+// registrars above: the callback registry it mutates lives on the
+// loaded shard, so there is nothing to arm before a load.
+func (l *LazyLoadShard) RegisterDoubleWriteWithScope(add reindex.OnAddToPropertyValueIndex,
+	del reindex.OnDeleteFromPropertyValueIndex, props []string,
+	overlay map[string]inverted.PropertyOverlay,
+) func() {
+	l.mustLoad()
+	return l.shard.RegisterDoubleWriteWithScope(add, del, props, overlay)
+}
+
+// SwapBucketAndSetOverlay loads the shard first, matching
+// SetTokenizationOverlay below: flip operates on buckets from the
+// shard's store, which only exists once loaded.
+func (l *LazyLoadShard) SwapBucketAndSetOverlay(propName, target string,
+	flip func() (*lsmkv.Bucket, error),
+) (*lsmkv.Bucket, error) {
+	l.mustLoad()
+	return l.shard.SwapBucketAndSetOverlay(propName, target, flip)
+}
+
 func (l *LazyLoadShard) SetFallbackToSearchable(fallback bool) {
 	l.mustLoad()
 	l.shard.SetFallbackToSearchable(fallback)

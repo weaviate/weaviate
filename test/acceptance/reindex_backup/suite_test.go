@@ -15,7 +15,6 @@
 package reindex_backup_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -106,7 +105,7 @@ func TestBackupVsReindexSuite(t *testing.T) {
 		testCancelOnNoInFlightReturns202NoOp(t, compose.GetWeaviate().URI())
 	})
 
-	t.Run("AlgorithmVerbRefusesOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
+	t.Run("AlgorithmVerbNoOpOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
 		testAlgorithmVerb(t, compose.GetWeaviate().URI())
 	})
 
@@ -164,9 +163,9 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 
-	// Without this wait, a small corpus can finish the migration before
-	// the backup HTTP call lands, producing a spurious "backup succeeded".
-	awaitIndexingState(t, restURI, className, "body")
+	// Backup must land while the migration is live.
+	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
+		reindexhelpers.WithTimeout(30*time.Second))
 
 	backupID := "reindex-backup-refuse"
 
@@ -190,13 +189,21 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step")
 
-	// The refusal must not leave a staging dir behind; otherwise a
-	// same-id retry hits checkIfBackupExists's "Status != Cancelled"
-	// rejection.
+	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
+	// "Status != Cancelled"). The 422 fires before any write so none exists;
+	// Eventually is just a defensive settle.
 	container := compose.GetWeaviate().Container()
 	stagingPath := "/tmp/backups/" + backupID
-	code, _, _ := container.Exec(ctx, []string{"test", "-d", stagingPath})
-	assert.NotEqual(t, 0, code,
+	require.Eventually(t, func() bool {
+		code, _, err := container.Exec(ctx, []string{"test", "-d", stagingPath})
+		if err != nil {
+			// A transient exec error tells us nothing about the dir; log it and
+			// keep polling so a persistent failure surfaces in the timeout.
+			t.Logf("exec test -d %s failed: %v", stagingPath, err)
+			return false
+		}
+		return code != 0
+	}, 10*time.Second, 200*time.Millisecond,
 		"refused backup must not leave a staging dir at %s", stagingPath)
 
 	// Wait via the index-status surface (status:"ready") rather than DTM
@@ -289,34 +296,12 @@ func importBodies(t *testing.T, className string, count int) {
 	}
 }
 
-// submitChangeTokenization issues PUT /v1/schema/<class>/indexes/<prop>
-// with {"searchable":{"tokenization":<target>}}, asserts 202, and
-// returns the task id.
+// submitChangeTokenization submits a change-tokenization upsert for
+// <prop>'s searchable index, asserts 202, and returns the task id.
 func submitChangeTokenization(t *testing.T, restURI, collection, property, target string) string {
 	t.Helper()
-	body := fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, target)
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(body)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"index update returned non-202: %s", string(respBody))
-
-	type body202 struct {
-		TaskID string `json:"taskId"`
-		Status string `json:"status"`
-	}
-	var parsed body202
-	require.NoError(t, json.Unmarshal(respBody, &parsed))
-	require.NotEmpty(t, parsed.TaskID, "submit response missing taskId: %s", string(respBody))
-	return parsed.TaskID
+	return reindexhelpers.SubmitIndexUpsert(t, restURI, collection, property, "searchable",
+		fmt.Sprintf(`{"tokenization":%q}`, target))
 }
 
 // testPostRestartOrphanAuditClearsTracker injects an orphan tracker
@@ -372,22 +357,24 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 			filepath.Join(lsmPath, ".migrations", orphanDir),
 		})
 		return code != 0
-	}, 60*time.Second, 500*time.Millisecond,
+	}, 60*time.Second, 50*time.Millisecond,
 		"orphan tracker dir was not cleaned up by the post-bootstrap audit")
 
-	code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
-	assert.NotEqual(t, 0, code,
-		"orphan sidecar bucket dir was not cleaned up; got test -d exit %d", code)
+	// The sidecar dir is removed just after the tracker, so poll instead of
+	// asserting once.
+	require.Eventually(t, func() bool {
+		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
+		return code != 0
+	}, 60*time.Second, 50*time.Millisecond,
+		"orphan sidecar bucket dir was not cleaned up by the post-bootstrap audit")
 
 	assert.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
 		"canonical data must survive the audit")
 }
 
-// testCancelOnNoInFlightReturns202NoOp asserts the M6 contract:
-// PUT {"searchable":{"cancel":true}} with no task targeting the tuple
-// returns 202 Accepted with Status: NO_OP and no TaskID — cancel is
-// idempotent on the "nothing to cancel" path. Matches the singlenode
-// copy of the test in test/acceptance/reindex_singlenode/cancel_test.go.
+// testCancelOnNoInFlightReturns202NoOp: cancel with no task targeting the
+// tuple is idempotent — 202 with Status: NO_OP and no TaskID. Matches the
+// singlenode copy in test/acceptance/reindex_singlenode/cancel_test.go.
 func testCancelOnNoInFlightReturns202NoOp(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_CancelNoTask"
@@ -405,35 +392,19 @@ func testCancelOnNoInFlightReturns202NoOp(t *testing.T, restURI string) {
 	// Defensive: some handlers short-circuit on empty classes.
 	importBodies(t, className, 5)
 
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-	req, err := http.NewRequest(http.MethodPut, url,
-		bytes.NewReader([]byte(`{"searchable":{"cancel":true}}`)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-
-	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
-		"cancel-with-no-task should 202 NO_OP; got %d: %s", resp.StatusCode, string(respBody))
-
-	var result models.IndexUpdateResponse
-	require.NoError(t, json.Unmarshal(respBody, &result),
-		"cancel-no-task response body should decode as IndexUpdateResponse: %s", string(respBody))
+	// CancelIndex fires POST .../index/searchable/cancel and already asserts
+	// 202; here we additionally assert the "nothing to cancel" NO_OP payload.
+	result := reindexhelpers.CancelIndex(t, restURI, className, propName, "searchable")
 	assert.Equal(t, "NO_OP", result.Status,
-		"cancel-no-task should report Status: NO_OP, got body: %s", string(respBody))
+		"cancel-no-task should report Status: NO_OP, got: %+v", result)
 	assert.Empty(t, result.TaskID,
-		"cancel-no-task should not name a TaskID, got body: %s", string(respBody))
+		"cancel-no-task should not name a TaskID, got: %+v", result)
 }
 
-// testAlgorithmVerb asserts that on an already-blockmax class:
-//   - searchable.algorithm:"blockmax" → 400 (already on blockmax)
-//   - searchable.algorithm:"WAND"     → 422 (swagger enum validator)
-//
-// and that neither refusal schedules a DTM task.
+// testAlgorithmVerb asserts that on an already-blockmax class,
+// algorithm:"blockmax" is a 200 NO_OP (idempotent upsert) and
+// algorithm:"WAND" is a 400 (deprecated; rejected by the handler since
+// the field carries no swagger enum). Neither schedules a DTM task.
 func testAlgorithmVerb(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_AlgorithmVerb"
@@ -450,13 +421,11 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 
 	importBodies(t, className, 10)
 
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-
 	// USE_INVERTED_SEARCHABLE=false starts the class on Map (WAND); migrate
-	// it to blockmax via the algorithm verb so the refusal cases below
-	// have an already-blockmax target.
-	preTaskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName,
-		`{"searchable":{"algorithm":"blockmax"}}`)
+	// it to blockmax via the algorithm verb so the cases below have an
+	// already-blockmax target.
+	preTaskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, propName, "searchable",
+		`{"algorithm":"blockmax"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, preTaskID,
 		reindexhelpers.WithTimeout(60*time.Second))
 
@@ -465,34 +434,19 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	preTasksBytes, _ := io.ReadAll(preTasksResp.Body)
 	_ = preTasksResp.Body.Close()
 
-	// algorithm:"blockmax" on already-blockmax → 400.
-	req, err := http.NewRequest(http.MethodPut, url,
-		bytes.NewReader([]byte(`{"searchable":{"algorithm":"blockmax"}}`)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusBadRequest, resp.StatusCode,
-		"algorithm:blockmax on an already-blockmax class must be refused with 400; got %d: %s", resp.StatusCode, string(bodyBytes))
-	assert.Contains(t, string(bodyBytes), "already on blockmax",
-		"400 body must explain the refusal reason")
+	noopResp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, propName, "searchable",
+		`{"algorithm":"blockmax"}`)
+	require.Equalf(t, http.StatusOK, noopResp.StatusCode,
+		"algorithm:blockmax on an already-blockmax class must be a 200 NO_OP; got %d: %s", noopResp.StatusCode, noopResp.Body)
+	assert.Contains(t, noopResp.Body, "NO_OP",
+		"200 body must report Status: NO_OP; got: %s", noopResp.Body)
 
-	// algorithm:"WAND" → 422 (rejected at the swagger enum-validator layer,
-	// which fires before the handler — the schema is enum:["blockmax"]).
-	req, err = http.NewRequest(http.MethodPut, url,
-		bytes.NewReader([]byte(`{"searchable":{"algorithm":"WAND"}}`)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	bodyBytes, _ = io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusUnprocessableEntity, resp.StatusCode,
-		"WAND algorithm must be rejected with 422 at the swagger validator; got %d: %s", resp.StatusCode, string(bodyBytes))
-	assert.Contains(t, string(bodyBytes), "blockmax",
-		"422 body must name the only accepted enum value")
+	wandResp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, propName, "searchable",
+		`{"algorithm":"WAND"}`)
+	require.Equalf(t, http.StatusBadRequest, wandResp.StatusCode,
+		"WAND algorithm must be rejected with 400 by the handler; got %d: %s", wandResp.StatusCode, wandResp.Body)
+	assert.Contains(t, wandResp.Body, "blockmax",
+		"400 body must name the only accepted algorithm target; got: %s", wandResp.Body)
 
 	postTasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	require.NoError(t, err)
@@ -500,7 +454,7 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	postTasksBytes, err := io.ReadAll(postTasksResp.Body)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(preTasksBytes), string(postTasksBytes),
-		"refused submits must not schedule any new DTM task. preTaskID=%s. pre=%s post=%s",
+		"refused/no-op submits must not schedule any new DTM task. preTaskID=%s. pre=%s post=%s",
 		preTaskID, string(preTasksBytes), string(postTasksBytes))
 }
 
@@ -604,23 +558,14 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 
 	importBodies(t, className, 50_000)
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName,
-		`{"searchable":{"tokenization":"lowercase"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, propName, "searchable",
+		`{"tokenization":"lowercase"}`)
 	t.Logf("cancel-cleanup probe task submitted: %s", taskID)
 
 	awaitIndexingState(t, restURI, className, propName)
 
-	cancelURL := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-	req, err := http.NewRequest(http.MethodPut, cancelURL,
-		bytes.NewReader([]byte(`{"searchable":{"cancel":true}}`)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	cancelBody, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
-		"cancel must return 202; got %d: %s", resp.StatusCode, string(cancelBody))
+	// CancelIndex fires POST .../index/searchable/cancel and asserts 202.
+	reindexhelpers.CancelIndex(t, restURI, className, propName, "searchable")
 
 	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
 	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
@@ -629,9 +574,12 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	classPath := fmt.Sprintf("/data/%s", strings.ToLower(className))
 
 	// Poll .migrations/ until every body-related dir is gone (cleanup
-	// runs async on the scheduler tick).
-	deadline := time.Now().Add(30 * time.Second)
-	for {
+	// runs async on the scheduler tick). assert.Eventually drives the poll;
+	// on timeout we t.Fatalf with the last observed survivors so the
+	// diagnostic matches the original (the message args of require.Eventually
+	// are captured up-front, before any survivors are known).
+	var lastMatches string
+	drained := assert.Eventually(t, func() bool {
 		code, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c",
 			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`, migsPath, propName),
@@ -641,16 +589,13 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		if reader != nil {
 			_, _ = io.Copy(out, reader)
 		}
-		matches := strings.TrimSpace(out.String())
+		lastMatches = strings.TrimSpace(out.String())
 		// grep exit 1 (no match) or empty stdout means cleanup is done.
-		if code != 0 || matches == "" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("cancel-cleanup did not remove %s/.migrations/*_%s_* within 30s; survivors:\n%s",
-				lsmPath, propName, matches)
-		}
-		time.Sleep(500 * time.Millisecond)
+		return code != 0 || lastMatches == ""
+	}, 30*time.Second, 50*time.Millisecond)
+	if !drained {
+		t.Fatalf("cancel-cleanup did not remove %s/.migrations/*_%s_* within 30s; survivors:\n%s",
+			lsmPath, propName, lastMatches)
 	}
 
 	// MutationGuard's IsActive() gate (STARTED/PREPARING/SWAPPING only)
@@ -667,11 +612,25 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		delResp.StatusCode, string(delBody))
 	deletedByTest = true
 
-	code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
-	require.NoError(t, execErr)
-	require.Equalf(t, 1, code,
-		"class dir %s must be removed by DELETE; got test -d exit %d",
-		classPath, code)
+	// Class-dir removal is async and lags the DELETE 200 under load;
+	// poll instead of checking once.
+	removed := assert.Eventually(t, func() bool {
+		code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
+		require.NoError(t, execErr)
+		return code == 1 // test -d exit 1 == class dir gone
+	}, 30*time.Second, 50*time.Millisecond)
+	if !removed {
+		_, reader, execErr := container.Exec(ctx, []string{
+			"sh", "-c", fmt.Sprintf("ls -la %s 2>&1", classPath),
+		})
+		require.NoError(t, execErr)
+		out := new(strings.Builder)
+		if reader != nil {
+			_, _ = io.Copy(out, reader)
+		}
+		t.Fatalf("class dir %s must be removed by DELETE within 30s; still present:\n%s",
+			classPath, strings.TrimSpace(out.String()))
+	}
 
 	_ = taskID
 }
@@ -756,12 +715,18 @@ func execInContainer(t *testing.T, ctx context.Context, c testcontainers.Contain
 // regression).
 func awaitIndexingState(t *testing.T, restURI, collection, property string) {
 	t.Helper()
+	// BEST-EFFORT: the transient "indexing" state legitimately may not be
+	// observable on a too-small fixture, so missing it must NOT fail the
+	// test (we only warn on the deadline). A ticker drives the poll at a
+	// 50ms interval; require.Eventually is deliberately NOT used here because
+	// it would turn a tolerable miss into a hard failure.
 	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	observe := func() bool {
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
 		if err != nil {
-			time.Sleep(20 * time.Millisecond)
-			continue
+			return false
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -774,20 +739,31 @@ func awaitIndexingState(t *testing.T, restURI, collection, property string) {
 				} `json:"indexes"`
 			} `json:"properties"`
 		}
-		if err := json.Unmarshal(body, &parsed); err == nil {
-			for _, p := range parsed.Properties {
-				if p.Name != property {
-					continue
-				}
-				for _, idx := range p.Indexes {
-					if idx.Status == "indexing" {
-						t.Logf("observed indexing state for %s/%s (type=%s)", collection, property, idx.Type)
-						return
-					}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return false
+		}
+		for _, p := range parsed.Properties {
+			if p.Name != property {
+				continue
+			}
+			for _, idx := range p.Indexes {
+				if idx.Status == "indexing" {
+					t.Logf("observed indexing state for %s/%s (type=%s)", collection, property, idx.Type)
+					return true
 				}
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		return false
+	}
+	// Check once immediately, then on every tick until the deadline.
+	if observe() {
+		return
+	}
+	for time.Now().Before(deadline) {
+		<-ticker.C
+		if observe() {
+			return
+		}
 	}
 	t.Logf("warning: did not observe indexing state for %s/%s within deadline; migration may have completed too fast for the test fixture", collection, property)
 }

@@ -24,22 +24,12 @@ import (
 )
 
 func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
-	adminUser := "admin-user"
-	adminKey := "admin-key"
-	adminAuth := helper.CreateAuth(adminKey)
+	adminAuth := helper.CreateAuth(sharedRootKey)
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUpWithSettings(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{customUser: customKey},
-		nil,
-		false,
-		map[string]string{"ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT": "true"},
-		false,
-		false,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	className := "AuthzDeletePropertyIndex"
@@ -58,7 +48,7 @@ func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
 			},
 		},
 	}
-	helper.CreateClassAuth(t, c, adminKey)
+	helper.CreateClassAuth(t, c, sharedRootKey)
 	defer deleteObjectClass(t, className, adminAuth)
 
 	deletePropertyIndex := func(propertyName, indexName, key string) error {
@@ -85,10 +75,10 @@ func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(className).Permission(),
 			},
 		}
-		helper.CreateRole(t, adminKey, role)
-		defer helper.DeleteRole(t, adminKey, roleName)
-		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-		defer helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
+		helper.CreateRole(t, sharedRootKey, role)
+		defer helper.DeleteRole(t, sharedRootKey, roleName)
+		helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
+		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
 
 		err := deletePropertyIndex(propName, "filterable", customKey)
 		require.NotNil(t, err)
@@ -96,35 +86,40 @@ func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
 		require.True(t, errors.As(err, &forbidden))
 	})
 
-	t.Run("succeed to delete filterable index with update_collections permission", func(t *testing.T) {
-		roleName := "updateCollections"
+	// DELETE per-property index rewrites indexed data, so it demands Collections
+	// data+metadata (symmetric with PUT/rebuild/cancel); update_collections
+	// alone no longer authorizes it.
+	t.Run("succeed to delete filterable index with update_collections + update_data permission", func(t *testing.T) {
+		roleName := "updateCollectionsAndData"
 		role := &models.Role{
 			Name: &roleName,
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(className).Permission(),
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className).Permission(),
 			},
 		}
-		helper.CreateRole(t, adminKey, role)
-		defer helper.DeleteRole(t, adminKey, roleName)
-		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-		defer helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
+		helper.CreateRole(t, sharedRootKey, role)
+		defer helper.DeleteRole(t, sharedRootKey, roleName)
+		helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
+		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
 
 		err := deletePropertyIndex(propName, "filterable", customKey)
 		require.Nil(t, err)
 	})
 
-	t.Run("succeed to delete searchable index with update_collections permission", func(t *testing.T) {
-		roleName := "updateCollections"
+	t.Run("succeed to delete searchable index with update_collections + update_data permission", func(t *testing.T) {
+		roleName := "updateCollectionsAndData"
 		role := &models.Role{
 			Name: &roleName,
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(className).Permission(),
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className).Permission(),
 			},
 		}
-		helper.CreateRole(t, adminKey, role)
-		defer helper.DeleteRole(t, adminKey, roleName)
-		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-		defer helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
+		helper.CreateRole(t, sharedRootKey, role)
+		defer helper.DeleteRole(t, sharedRootKey, roleName)
+		helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
+		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
 
 		err := deletePropertyIndex(propName, "searchable", customKey)
 		require.Nil(t, err)

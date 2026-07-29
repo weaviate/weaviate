@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -46,11 +47,22 @@ type reindexSubmitLockProvider interface {
 	SubmitLockFor(collection, property string) *sync.Mutex
 }
 
+// reindexDeleteMarkerRecorder records accepted property-index DELETEs so the
+// GET-indexes handler can suppress the finalize-window bleed. Interface form
+// (not the concrete *state.ReindexDeleteMarkers) keeps schemaHandlers
+// testable without the full appState graph.
+type reindexDeleteMarkerRecorder interface {
+	Record(collection, property, indexType string)
+}
+
 type schemaHandlers struct {
-	manager             *schemaUC.Manager
-	metricRequestsTotal restApiRequestsTotal
-	reindexSubmitLocks  reindexSubmitLockProvider
-	reindexService      *reindexusecase.Service
+	manager              *schemaUC.Manager
+	authorizer           authorization.Authorizer
+	metricRequestsTotal  restApiRequestsTotal
+	reindexSubmitLocks   reindexSubmitLockProvider
+	reindexService       *reindexusecase.Service
+	reindexDeleteMarkers reindexDeleteMarkerRecorder
+	namespacesEnabled    bool
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -189,11 +201,35 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
+	// Conflict check and submit lock key on the qualified class (the reindex-task
+	// key); the manager delete call qualifies internally, so it gets the raw name.
+	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+	if qErr != nil {
+		s.metricRequestsTotal.logError(params.ClassName, qErr)
+		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, qErr))
+	}
+
+	// Authorize BEFORE the conflict pre-flight: it can leak "a task is in
+	// flight" to an unprivileged caller, and DeleteClassPropertyIndex only
+	// authorizes deep in its own body. Collections (data+metadata): dropping
+	// an index rewrites data, not just metadata.
+	if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
+		authorization.Collections(qualifiedClass)...); err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		}
+		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
+
 	// Serialize with the reindex-submit REST handler on the same
 	// (collection, property) tuple. Without this lock, a parallel
-	// PUT /v1/schema/{class}/indexes/{prop} (which submits a reindex
-	// task) and this DELETE (which drops the canonical bucket) race
-	// at the RAFT serializer: if DELETE's UpdateProperty commits
+	// PUT /v1/schema/{class}/properties/{prop}/index/{indexType} (which
+	// submits a reindex task) and this DELETE (which drops the canonical
+	// bucket) race at the RAFT serializer: if DELETE's UpdateProperty commits
 	// before the reindex's DistributedTaskAdd, the apply-time
 	// MutationGuard cannot reject DELETE because no task is in-flight
 	// yet, the bucket is dropped, and the reindex worker then fails
@@ -206,7 +242,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// nil-safe: reindexSubmitLocks is wired in production but may be
 	// nil in unit tests that construct schemaHandlers directly.
 	if s.reindexSubmitLocks != nil {
-		lock := s.reindexSubmitLocks.SubmitLockFor(params.ClassName, params.PropertyName)
+		lock := s.reindexSubmitLocks.SubmitLockFor(qualifiedClass, params.PropertyName)
 		lock.Lock()
 		defer lock.Unlock()
 	}
@@ -218,13 +254,21 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// UpdateProperty apply ([MutationGuard]) still closes the
 	// multi-node race that this per-node check cannot — they are
 	// complementary, not redundant.
-	if conflict := s.reindexService.PropertyMutationConflict(ctx, params.ClassName, params.PropertyName); conflict != "" {
+	if conflict := s.reindexService.PropertyMutationConflict(ctx, qualifiedClass, params.PropertyName); conflict != "" {
 		s.metricRequestsTotal.logError(params.ClassName, fmt.Errorf("reindex conflict: %s", conflict))
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
 	}
 
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, params.IndexName)
+	// Normalize the `rangeable` alias to `rangeFilters` for the schema
+	// manager; other values pass through unchanged so DELETE stays
+	// byte-compatible with GA v1.36.
+	indexName := params.IndexName
+	if indexName == "rangeable" {
+		indexName = "rangeFilters"
+	}
+
+	wrote, err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -235,6 +279,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
+	}
+
+	// Only record the marker on a real RAFT write: a node-local no-op (flag
+	// already off) never hit RAFT, so marking it would suppress a lagging
+	// follower's legitimate report before its FSM applies the flip.
+	if wrote {
+		s.reindexDeleteMarkers.Record(qualifiedClass, params.PropertyName, indexName)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
@@ -277,12 +328,12 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
+			return schema.NewSchemaDumpInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	payload := dbSchema.Objects
-	if principal != nil && principal.Namespace != "" && payload != nil && len(payload.Classes) > 0 {
+	if namespacing.ConfinedNamespace(principal) != "" && payload != nil && len(payload.Classes) > 0 {
 		stripped := make([]*models.Class, len(payload.Classes))
 		for i, c := range payload.Classes {
 			stripped[i] = namespacing.StripClassResponse(principal, c)
@@ -314,8 +365,11 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
+		case errors.Is(err, schemaUC.ErrNotFound):
 			return schema.NewSchemaObjectsShardsGetNotFound().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		default:
+			return schema.NewSchemaObjectsShardsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
@@ -331,15 +385,19 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.UpdateShardStatus(
-		ctx, principal, params.ClassName, params.ShardName, params.Body.Status)
+		ctx, principal, params.ClassName, params.ShardName, params.Body.Status,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsGetForbidden().
+			return schema.NewSchemaObjectsShardsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		case errors.Is(err, schemaUC.ErrNotFound):
+			return schema.NewSchemaObjectsShardsUpdateNotFound().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
@@ -355,7 +413,8 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.AddTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
@@ -381,7 +440,8 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	updatedTenants, err := s.manager.UpdateTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -403,7 +463,8 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	err := s.manager.DeleteTenants(
-		ctx, principal, params.ClassName, params.Tenants)
+		ctx, principal, params.ClassName, params.Tenants,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -491,15 +552,19 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 		}
 	}
 
+	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexService *reindexusecase.Service, reindexSubmitLocks reindexSubmitLockProvider) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexService *reindexusecase.Service, reindexSubmitLocks reindexSubmitLockProvider, reindexDeleteMarkers reindexDeleteMarkerRecorder, namespacesEnabled bool) {
 	h := &schemaHandlers{
-		manager:             manager,
-		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
-		reindexService:      reindexService,
-		reindexSubmitLocks:  reindexSubmitLocks,
+		manager:              manager,
+		authorizer:           authorizer,
+		metricRequestsTotal:  newSchemaRequestsTotal(metrics, logger),
+		reindexService:       reindexService,
+		reindexSubmitLocks:   reindexSubmitLocks,
+		reindexDeleteMarkers: reindexDeleteMarkers,
+		namespacesEnabled:    namespacesEnabled,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

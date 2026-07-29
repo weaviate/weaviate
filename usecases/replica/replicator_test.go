@@ -901,8 +901,8 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 	}
 	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
 	schemaGetterMock := schema.NewMockSchemaGetter(f.t)
-	schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, class string, tenant string) (map[string]string, error) {
+	schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 			return map[string]string{
 				tenant: models.TenantActivityStatusHOT,
 			}, nil
@@ -941,11 +941,11 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 		}).Maybe()
 
 	replicationFsmMock.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+		func(collection string, shard string, shardReplicasLocation []string) []string {
 			if replicas, ok := f.Shard2replicas[shard]; ok {
-				return replicas, []string{}
+				return replicas
 			}
-			return shardReplicasLocation, []string{}
+			return shardReplicasLocation
 		}).Maybe()
 
 	return clusterRouter.NewBuilder(f.CLS, f.isMultiTenant, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()

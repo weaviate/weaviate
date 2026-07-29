@@ -109,12 +109,11 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
@@ -147,12 +146,11 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {

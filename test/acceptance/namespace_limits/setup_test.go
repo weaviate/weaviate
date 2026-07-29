@@ -17,8 +17,10 @@ package namespace_limits
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,12 +31,22 @@ import (
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 const (
 	adminUser, adminKey = "admin-user", "admin-key"
 	objectCap           = 10
 )
+
+// nsCounter backs uniqueNS. Tests must not hardcode namespace names: a shared
+// compose runs every test against one cluster, so reused names collide.
+var nsCounter atomic.Int64
+
+// uniqueNS returns a process-unique, validator-legal namespace name.
+func uniqueNS() string {
+	return fmt.Sprintf("ns%d", nsCounter.Add(1))
+}
 
 var sharedCompose *docker.DockerCompose
 
@@ -44,7 +56,9 @@ func TestMain(m *testing.M) {
 
 	compose, err := docker.New().
 		WithApiKey().
+		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).
+		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
 		WithWeaviateEnv("MAXIMUM_ALLOWED_OBJECTS_COUNT", strconv.Itoa(objectCap)).
@@ -63,21 +77,27 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	// On failure, dump every node's logs so the leader side is visible.
+	if code != 0 {
+		sharedCompose.DumpWeaviateLogs(ctx, os.Stderr, 300)
+	}
+
 	if err := sharedCompose.Terminate(ctx); err != nil {
 		panic(errors.Wrap(err, "failed to terminate shared compose"))
 	}
 	os.Exit(code)
 }
 
-// createNamespacedUser creates a namespaced DB user and waits for the
-// apikey to be recognized by the follower the test client talks to.
+// createNamespacedUser creates a namespaced DB user, waits for the apikey to be
+// recognized by the follower the test client talks to, and grants the built-in
+// admin role so the user can act within its namespace under mandatory RBAC.
 func createNamespacedUser(t *testing.T, userID, ns string) string {
 	t.Helper()
 
 	var apikey string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: ns}),
+			users.NewCreateUserParams().WithUserID(ns+":"+userID).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		if !assert.NoError(c, err) {
@@ -94,6 +114,18 @@ func createNamespacedUser(t *testing.T, userID, ns string) string {
 			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
 		assert.NoError(c, err)
 	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
+
+	// Mandatory RBAC: grant the built-in admin so the namespaced user can create
+	// classes and write objects. The quota chokepoint is orthogonal to RBAC and
+	// still fires. DeleteUser revokes all bindings on cleanup.
+	helper.AssignRoleToUser(t, adminKey, authorization.Admin, ns+":"+userID)
+
+	// AssignRoleToUser returns once the leader applies the binding; the follower
+	// the test client talks to may still be replicating it. Tests that create a
+	// class immediately after this helper would otherwise race that replication
+	// and get a spurious create_collections 403, so wait until the role is
+	// locally visible before returning.
+	helper.WaitForOwnRole(t, apikey, authorization.Admin)
 
 	return apikey
 }

@@ -31,7 +31,7 @@ var (
 )
 
 func TestValidationReferencesInObject(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
 
 	class := &models.Class{
 		Class: "From",
@@ -55,7 +55,7 @@ func TestValidationReferencesInObject(t *testing.T) {
 }
 
 func TestValidationReference(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
 
 	cref := &models.SingleRef{Beacon: strfmt.URI(BEACON + "To/" + UuidUpper)}
 	ref, err := validator.ValidateSingleRef(cref)

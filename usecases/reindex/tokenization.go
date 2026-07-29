@@ -13,25 +13,23 @@ package reindex
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	dbreindex "github.com/weaviate/weaviate/adapters/repos/db/reindex"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// SearchableBucketStrategyReader returns "" when no searchable bucket
-// exists. The reindex service uses the strategy string to decide which
-// kind of retokenize sub-task to schedule.
-type SearchableBucketStrategyReader interface {
-	SearchableBucketStrategy(className entschema.ClassName, propName string) (strategy string)
-}
-
 // ValidateTokenizationChange is distinct from
-// [ValidateFilterableTokenizationChange]: this one REQUIRES a
-// searchable bucket.
+// [ValidateFilterableTokenizationChange]: this one covers the coupled
+// searchable+filterable retokenize and returns the bucket strategy the
+// migration must preserve.
 func ValidateTokenizationChange(
-	bucketReader SearchableBucketStrategyReader,
 	class *models.Class,
-	collection, propName, targetTokenization string,
+	propName, targetTokenization string,
+	reindexTasks []*distributedtask.Task,
 ) (bucketStrategy string, err error) {
 	var targetProp *models.Property
 	for _, p := range class.Properties {
@@ -57,9 +55,34 @@ func ValidateTokenizationChange(
 		return "", fmt.Errorf("property %q already uses tokenization %q", propName, targetTokenization)
 	}
 
-	bucketStrategy = bucketReader.SearchableBucketStrategy(entschema.ClassName(collection), propName)
-	if bucketStrategy == "" {
-		return "", fmt.Errorf("searchable bucket not found for property %q", propName)
+	// change-tokenization preserves the bucket's existing strategy, derived from
+	// RAFT-consistent state (durable stamp, else class flag/task list) — the
+	// stamp keeps a stamped-blockmax property on StrategyInverted after its task
+	// ages out.
+	return lsmkv.DefaultSearchableStrategy(
+		dbreindex.SearchablePropertyIsBlockmax(class, propName, reindexTasks)), nil
+}
+
+// NormalizeSearchableAlgorithm canonicalises algorithm to
+// "wand"/"blockmax", accepting aliases like "block-max"/"bmw"
+// (case-insensitive). Returns "" for anything else, so the dispatcher's
+// allowlist treats a new algorithm as a missing case, not silent
+// acceptance.
+func NormalizeSearchableAlgorithm(s string) string {
+	// Strip surrounding whitespace before any other transform — a body
+	// like {"algorithm":" blockmax "} should not be rejected on a stray
+	// space.
+	trimmed := strings.TrimSpace(s)
+	lower := strings.ToLower(trimmed)
+	// Strip ASCII separators that callers sometimes inject (e.g.
+	// "block-max", "block_max"). Done after lowercasing so the set is
+	// minimal.
+	stripped := strings.ReplaceAll(strings.ReplaceAll(lower, "-", ""), "_", "")
+	switch stripped {
+	case "blockmax", "blockmaxwand", "bmw":
+		return models.IndexStatusAlgorithmBlockmax
+	case "wand":
+		return models.IndexStatusAlgorithmWand
 	}
-	return bucketStrategy, nil
+	return ""
 }

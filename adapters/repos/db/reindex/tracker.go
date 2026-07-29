@@ -101,6 +101,12 @@ type FileReindexTracker struct {
 	progressCheckpoint int
 	keyParser          indexKeyParser
 	Config             fileReindexTrackerConfig
+
+	// mkdirGuard, when non-nil (expected: IndexLike.WithCloseRLockGuard),
+	// wraps init()'s MkdirAll so it cannot re-create a class dir
+	// Index.drop just renamed away; context.Canceled means the index is
+	// closing.
+	mkdirGuard func(func() error) error
 }
 
 type fileReindexTrackerConfig struct {
@@ -121,10 +127,14 @@ type fileReindexTrackerConfig struct {
 }
 
 func (t *FileReindexTracker) init() error {
-	if err := os.MkdirAll(t.Config.MigrationPath, 0o777); err != nil {
-		return err
+	mkdir := func() error {
+		return os.MkdirAll(t.Config.MigrationPath, 0o777)
 	}
-	return nil
+
+	if t.mkdirGuard != nil {
+		return t.mkdirGuard(mkdir)
+	}
+	return mkdir()
 }
 
 func (t *FileReindexTracker) HasStartCondition() bool {
@@ -513,7 +523,7 @@ func (t *FileReindexTracker) GetStatusStrings() (status string, message string, 
 	if !t.IsStarted() {
 		status = "not started"
 		message = "reindexing not started"
-		action = "use PUT /v1/schema/{collection}/indexes/{property} API to trigger reindex"
+		action = "use PUT /v1/schema/{collection}/properties/{property}/index/{indexType} API to trigger reindex"
 		if t.HasStartCondition() {
 			message = "reindexing will start on next restart"
 			action = "restart"

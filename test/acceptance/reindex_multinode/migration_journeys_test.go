@@ -74,7 +74,7 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 	const totalObjects = 10_000
 
 	trueVal := true
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:            "path",
 			DataType:        []string{"text"},
@@ -134,48 +134,55 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 
 	// === Step 4: change-tokenization to FIELD.
 	uri1 := restURIOf(compose, 1)
-	task1 := reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-		`{"searchable":{"tokenization":"field"}}`)
+	task1 := reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("change-tokenization → field: task=%s", task1)
 	reindexhelpers.AwaitReindexFinished(t, uri1, task1, reindexhelpers.WithTimeout(180*time.Second))
-	time.Sleep(3 * time.Second)
+	// FINISHED is leader-read; gate on local schema before the next PUT.
+	reindexhelpers.AwaitTokenizationVisible(t, uri1, className, "path", "field")
 
 	// === Step 5: every replica must serve the FIELD count.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		uri := restURIOf(compose, nodeIdx)
-		got, err := equalCount(uri, className, "path", queryToken)
-		require.NoError(t, err)
-		require.Equal(t, expectedFieldCount, got,
-			"post-FIELD-tok node %d = %d (expected %d)",
-			nodeIdx, got, expectedFieldCount)
-	}
+	// AwaitReindexFinished only confirms node-1; poll all replicas (50ms)
+	// until each converges instead of a fixed settle — a node that never
+	// converges fails here loudly.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", queryToken)
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedFieldCount, got,
+				"post-FIELD-tok node %d = %d (expected %d)",
+				nodeIdx, got, expectedFieldCount)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 
 	// === Step 6: change-tokenization back to WORD.
-	task2 := reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-		`{"searchable":{"tokenization":"word"}}`)
+	task2 := reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
+		`{"tokenization":"word"}`)
 	t.Logf("change-tokenization → word (round-trip): task=%s", task2)
 	reindexhelpers.AwaitReindexFinished(t, uri1, task2, reindexhelpers.WithTimeout(180*time.Second))
-	time.Sleep(3 * time.Second)
 
 	// === Step 7: every replica must serve the WORD baseline again.
-	// The degenerate "path=1" shape from the original production
-	// reproduction (Phase 5) would surface as `got=1` here — the
-	// assertion captures it via both the exact-count check and the
-	// "must be > N/2" defense-in-depth check.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		uri := restURIOf(compose, nodeIdx)
-		got, err := equalCount(uri, className, "path", queryToken)
-		assert.NoError(t, err)
-		assert.Equalf(t, expectedWordCount, got,
-			"GH #212 Issue F regression: round-trip WORD count on node %d = %d (expected %d) "+
-				"— back-to-back change-tokenization broke the searchable bucket",
-			nodeIdx, got, expectedWordCount)
-		assert.Greaterf(t, got, expectedWordCount/2,
-			"GH #212 Issue F degenerate-count regression: node %d returned %d (less than half of %d). "+
-				"This is the Phase-5 `path=1`-shape failure — the round-trip migration left the bucket "+
-				"with effectively no data even though the task reached FINISHED",
-			nodeIdx, got, expectedWordCount)
-	}
+	// AwaitReindexFinished only confirms node-1; poll all replicas (50ms)
+	// until convergence instead of a fixed settle. The degenerate "path=1"
+	// shape from the original production reproduction (Phase 5) would surface
+	// as `got=1` — captured via both the exact-count check and the
+	// "must be > N/2" defense-in-depth check; a round-trip that never
+	// reconverges fails the poll loudly.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", queryToken)
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedWordCount, got,
+				"GH #212 Issue F regression: round-trip WORD count on node %d = %d (expected %d) "+
+					"— back-to-back change-tokenization broke the searchable bucket",
+				nodeIdx, got, expectedWordCount)
+			assert.Greaterf(c, got, expectedWordCount/2,
+				"GH #212 Issue F degenerate-count regression: node %d returned %d (less than half of %d). "+
+					"This is the Phase-5 `path=1`-shape failure — the round-trip migration left the bucket "+
+					"with effectively no data even though the task reached FINISHED",
+				nodeIdx, got, expectedWordCount)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 
 	// LB-side 3-call stability for the round-trip state.
 	for i := 0; i < 3; i++ {
@@ -245,7 +252,7 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 	)
 
 	trueVal, falseVal := true, false
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:              "price",
 			DataType:          []string{"int"},
@@ -304,25 +311,26 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri, className, "price",
-				`{"rangeable":{"enabled":true}}`)
+			tp = reindexhelpers.SubmitIndexUpsert(t, uri, className, "price", "rangeFilters",
+				`{}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri, className, "category",
-				`{"filterable":{"enabled":true}}`)
+			tc = reindexhelpers.SubmitIndexUpsert(t, uri, className, "category", "filterable",
+				`{}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
-				`{"searchable":{"tokenization":"field"}}`)
+			tk = reindexhelpers.SubmitIndexUpsert(t, uri, className, "path", "searchable",
+				`{"tokenization":"field"}`)
 		}()
 		wg.Wait()
 		reindexhelpers.AwaitReindexFinished(t, uri, tp, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tc, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tk, reindexhelpers.WithTimeout(180*time.Second))
+		// FINISHED is leader-read; gate on local schema before the next PUT.
+		reindexhelpers.AwaitTokenizationVisible(t, uri, className, "path", "field")
 	}
-	time.Sleep(2 * time.Second)
 
 	// Repeated journey: rebuild + tokenization round-trip, N times. The
 	// path tokenization alternates field↔word; price+category use
@@ -343,24 +351,23 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri, className, "price",
-				`{"rangeable":{"rebuild":true}}`)
+			tp = reindexhelpers.RebuildIndex(t, uri, className, "price", "rangeFilters")
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri, className, "category",
-				`{"filterable":{"rebuild":true}}`)
+			tc = reindexhelpers.RebuildIndex(t, uri, className, "category", "filterable")
 		}()
 		go func() {
 			defer wg.Done()
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
-				fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, nextTok))
+			tk = reindexhelpers.SubmitIndexUpsert(t, uri, className, "path", "searchable",
+				fmt.Sprintf(`{"tokenization":%q}`, nextTok))
 		}()
 		wg.Wait()
 		reindexhelpers.AwaitReindexFinished(t, uri, tp, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tc, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tk, reindexhelpers.WithTimeout(180*time.Second))
-		time.Sleep(2 * time.Second)
+		// FINISHED is leader-read; gate on local schema before the next PUT.
+		reindexhelpers.AwaitTokenizationVisible(t, uri, className, "path", nextTok)
 	}
 
 	// After preRestartCycles cycles, the path tokenization is:
@@ -399,11 +406,32 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 	t.Log("rolling restart cluster")
 	rollingRestartCluster(ctx, t, compose)
 
-	// Settle: testcontainers reallocates ports across stop+start, so
-	// re-resolve URIs on every use below. Give shard-init time to
-	// finalize the deferred migration dirs (FinalizeCompletedMigrations
-	// + bucket loading).
-	time.Sleep(5 * time.Second)
+	// Poll until every replica converges on all three migrated props, then
+	// run the histogram below as a post-convergence stability check.
+	// rollingRestartCluster only waits for /ready; a restarted node may
+	// still be loading buckets (FinalizeCompletedMigrations). Polling the
+	// real per-replica condition (50ms) instead of a fixed settle means a
+	// node that never converges fails loudly. testcontainers reallocates
+	// ports across stop+start, so restURIOf re-resolves on every call.
+	require.Eventually(t, func() bool {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			uri := restURIOf(compose, nodeIdx)
+			gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
+			if err != nil || gotPrice != expectedPriceCount {
+				return false
+			}
+			gotCat, err := equalCount(uri, className, "category", categories[0])
+			if err != nil || gotCat != expectedCatCount {
+				return false
+			}
+			gotPath, err := equalCount(uri, className, "path", paths[0])
+			if err != nil || gotPath != expectedPathCount {
+				return false
+			}
+		}
+		return true
+	}, 60*time.Second, 50*time.Millisecond,
+		"per-replica counts never converged on all 3 replicas after rolling restart")
 
 	// === Headline assertion: per-replica histogram.
 	//

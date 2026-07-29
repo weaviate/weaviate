@@ -69,9 +69,10 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	defer shard.Shutdown(ctx)
 
 	// Simulate the SWAPPING window: set overlay to TARGET (field).
-	// Production sets this in maybeSetTokenizationOverlayPreSwap; the
-	// schema's prop.Tokenization stays at SOURCE (word) until the
-	// cluster-wide flip lands.
+	// Production sets this per prop, atomically with the bucket-pointer
+	// flip, via the onPropSwapped hook wired by
+	// maybeWirePerPropOverlaySet; the schema's prop.Tokenization stays at
+	// SOURCE (word) until the cluster-wide flip lands.
 	shard.SetTokenizationOverlay(propName, models.PropertyTokenizationField)
 
 	// Issue a PUT during the overlay-active window. With field

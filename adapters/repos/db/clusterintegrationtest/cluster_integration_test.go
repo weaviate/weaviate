@@ -73,8 +73,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		overallShardState := multiShardState(numberOfNodes)
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
-				name:        fmt.Sprintf("node-%d", i),
-				objectCount: numberOfObjects / len(overallShardState.Physical),
+				name: fmt.Sprintf("node-%d", i),
 			}
 
 			nodes = append(nodes, node)
@@ -210,8 +209,16 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				ClassName: distributedClass,
 			}, []string{""}, []models.Vector{query})
 			assert.Nil(t, err)
-			for i, obj := range res {
-				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
+			// Compare as a set, not by position: each shard runs its own
+			// approximate HNSW search and the merged result at the K-th
+			// boundary is not guaranteed to match the brute-force order.
+			expectedIDs := make(map[strfmt.UUID]struct{}, len(res))
+			for i := 0; i < len(res); i++ {
+				expectedIDs[groundTruth[i].ID] = struct{}{}
+			}
+			for _, obj := range res {
+				_, ok := expectedIDs[obj.ID]
+				assert.True(t, ok, fmt.Sprintf("unexpected id %s in results", obj.ID))
 			}
 		}
 
@@ -361,9 +368,6 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 
 		logger, _ := test.NewNullLogger()
-		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
-		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{
 			Groups: []aggregation.Group{
@@ -373,7 +377,13 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			},
 		}
 
-		assert.Equal(t, expectedResult, res)
+		// Aggregate from every node so each shard is counted both in-process
+		// (the aggregating node's own shard) and over the network (every other).
+		for i := range nodes {
+			res, err := nodes[i].repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
+			require.Nil(t, err)
+			assert.Equal(t, expectedResult, res, "aggregate count from %s", nodes[i].name)
+		}
 	})
 
 	t.Run("modify an object using patch", func(t *testing.T) {

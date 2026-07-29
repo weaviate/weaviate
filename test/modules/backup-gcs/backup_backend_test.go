@@ -28,6 +28,7 @@ import (
 	mod "github.com/weaviate/weaviate/modules/backup-gcs"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Environment variable names for GCS module configuration
@@ -89,6 +90,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := gcs.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -182,6 +184,7 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := gcs.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -234,6 +237,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: dataDir})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err = gcs.Init(testCtx, params)
 		require.Nil(t, err)
 

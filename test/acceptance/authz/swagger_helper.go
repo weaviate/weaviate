@@ -78,10 +78,6 @@ func (c *collector) collectEndpoints() ([]endpoint, error) {
 				continue
 			}
 
-			if !strings.Contains(path, "group") || method != "POST" {
-				continue
-			}
-
 			var requestBodyData []byte
 			for _, param := range operation.Parameters {
 				if param.In == "body" && param.Schema != nil {

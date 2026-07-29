@@ -12,33 +12,16 @@
 package test
 
 import (
-	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func Test_AliasesAPI_Backup(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithBackendFilesystem().
-		WithWeaviate().
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
-
+func testAliasesAPIBackup(t *testing.T) {
 	// Three options for the test:
 	// 1. full: backup and restore collection after deleting both collection and the alias, will pass as of 1.32
 	// 2. overwrite: backup and restore after deleting the collection but not the alias, should pass only if "overwrite option is set"
@@ -69,15 +52,15 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				}{
 					{
 						name:  books.DefaultClassName,
-						alias: &models.Alias{Alias: "BookAlias", Class: books.DefaultClassName},
+						alias: &models.Alias{Alias: "BackupBookAlias", Class: books.DefaultClassName},
 					},
 					{
 						name:  books.DefaultClassName,
-						alias: &models.Alias{Alias: "BookAliasToBeDeleted", Class: books.DefaultClassName},
+						alias: &models.Alias{Alias: "BackupBookAliasToBeDeleted", Class: books.DefaultClassName},
 					},
 					{
 						name:  books.DefaultClassName,
-						alias: &models.Alias{Alias: "BookAliasOverwrite", Class: books.DefaultClassName},
+						alias: &models.Alias{Alias: "BackupBookAliasOverwrite", Class: books.DefaultClassName},
 					},
 				}
 				for _, tt := range tests {
@@ -105,17 +88,15 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 					helper.DeleteAlias(t, alias.Alias)
 				}
 				helper.DeleteClass(t, books.DefaultClassName)
+				helper.DeleteClass(t, "Books2")
 			}()
 
 			t.Run("delete alias", func(t *testing.T) {
 				checkAliasesCount := func(t *testing.T, count int) {
-					resp := helper.GetAliases(t, nil)
-					require.NotNil(t, resp)
-					require.NotEmpty(t, resp.Aliases)
-					require.Equal(t, count, len(resp.Aliases))
+					require.Equal(t, count, countAliasesWithPrefix(t, "Backup"))
 				}
 				checkAliasesCount(t, 3)
-				helper.DeleteAlias(t, "BookAliasToBeDeleted")
+				helper.DeleteAlias(t, "BackupBookAliasToBeDeleted")
 				checkAliasesCount(t, 2)
 			})
 
@@ -131,7 +112,7 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 
 			if tt.option == "overwrite" {
 				t.Run("reassign BookAliasOverwrite from Books to Books2 class", func(t *testing.T) {
-					alias := helper.GetAlias(t, "BookAliasOverwrite")
+					alias := helper.GetAlias(t, "BackupBookAliasOverwrite")
 					assert.Equal(t, "Books", alias.Class)
 					// create Books2 class
 					books2Class := books.ClassModel2VecVectorizerWithName("Books2")
@@ -140,7 +121,7 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 						helper.CreateObject(t, book)
 						helper.AssertGetObjectEventually(t, book.Class, book.ID)
 					}
-					helper.UpdateAlias(t, "BookAliasOverwrite", "Books2")
+					helper.UpdateAlias(t, "BackupBookAliasOverwrite", "Books2")
 				})
 			}
 
@@ -150,20 +131,18 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 
 			if tt.option != "overwrite" {
 				t.Run("delete alias", func(t *testing.T) {
-					helper.DeleteAlias(t, "BookAlias")
-					helper.DeleteAlias(t, "BookAliasOverwrite")
+					helper.DeleteAlias(t, "BackupBookAlias")
+					helper.DeleteAlias(t, "BackupBookAliasOverwrite")
 				})
 
 				t.Run("check alias count after deletion", func(t *testing.T) {
-					resp := helper.GetAliases(t, nil)
-					require.NotNil(t, resp)
-					require.Empty(t, resp.Aliases)
+					require.Equal(t, 0, countAliasesWithPrefix(t, "Backup"))
 				})
 			}
 
 			if tt.option == "overwrite" {
 				t.Run("check BookAliasOverwrite alias that it points to Books2 before restore", func(t *testing.T) {
-					alias := helper.GetAlias(t, "BookAliasOverwrite")
+					alias := helper.GetAlias(t, "BackupBookAliasOverwrite")
 					assert.Equal(t, "Books2", alias.Class)
 				})
 			}
@@ -186,17 +165,11 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 			})
 
 			t.Run("check alias count after restore", func(t *testing.T) {
-				checkAliasesCount := func(t *testing.T, count int) {
-					resp := helper.GetAliases(t, nil)
-					require.NotNil(t, resp)
-					require.NotEmpty(t, resp.Aliases)
-					require.Equal(t, count, len(resp.Aliases))
-				}
-				checkAliasesCount(t, 2)
+				require.Equal(t, 2, countAliasesWithPrefix(t, "Backup"))
 			})
 
 			t.Run("check BookAliasOverwrite alias that it points to Books", func(t *testing.T) {
-				alias := helper.GetAlias(t, "BookAliasOverwrite")
+				alias := helper.GetAlias(t, "BackupBookAliasOverwrite")
 				assert.Equal(t, books.DefaultClassName, alias.Class)
 			})
 		})

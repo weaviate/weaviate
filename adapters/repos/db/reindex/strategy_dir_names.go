@@ -141,6 +141,21 @@ func ParseMigrationDirName(name string) (prefix string, generation int, ok bool)
 	return name[:idx], gen, true
 }
 
+// ClassLevelMigrationDirForIndexType returns the class-level strategy's
+// migration dir prefix for an indexType. Excluded from deletion in
+// [MigrationDirsForPropertyIndex], but its completed gens must still feed
+// the preserve set in CleanStalePartialReindexState: their sidecars are live.
+func ClassLevelMigrationDirForIndexType(indexType string) (string, bool) {
+	switch indexType {
+	case "filterable":
+		return MigrationDirFilterableRoaringsetRefresh, true
+	case "searchable":
+		return MigrationDirSearchableMapToBlockmax, true
+	default:
+		return "", false
+	}
+}
+
 // MigrationDirsForPropertyIndex returns the per-property migration
 // directory names that — if marked tidied on disk — would lie after the
 // given (propName, indexType) bucket has been removed. Called from

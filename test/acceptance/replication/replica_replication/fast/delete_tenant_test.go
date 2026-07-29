@@ -188,7 +188,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 func getMTRequest(t *testing.T, className, tenant string) *models.ReplicationReplicateReplicaRequest {
 	verbosity := verbosity.OutputVerbose
 	nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbosity).WithClassName(className), nil)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get nodes for class: %+v", err)
 
 	// find node with tenant
 	sourceNode := ""

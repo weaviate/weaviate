@@ -33,10 +33,34 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins that a
+// stamped-blockmax property derives StrategyInverted, not StrategyMapCollection,
+// after its migration task ages out.
+func TestValidateTokenizationChange_StampedBlockmaxKeepsInverted(t *testing.T) {
+	tr := true
+	class := &models.Class{
+		Class:               "C",
+		InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: false}, // partial: flag never flipped
+		Properties: []*models.Property{{
+			Name:               "text",
+			DataType:           []string{"text"},
+			Tokenization:       models.PropertyTokenizationWord,
+			IndexSearchable:    &tr,
+			SearchableBlockmax: &tr, // durably stamped blockmax
+		}},
+	}
+	// nil task list == the FINISHED migration task has aged out of the DTM.
+	strategy, err := ValidateTokenizationChange(class, "text", models.PropertyTokenizationWhitespace, nil)
+	require.NoError(t, err)
+	require.Equal(t, lsmkv.StrategyInverted, strategy,
+		"stamped-blockmax property must keep StrategyInverted after its migration task ages out")
+}
 
 // -----------------------------------------------------------------------------
 // propsOverlap — property-scope correctness, including prefix-similar names.
@@ -480,40 +504,6 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 	})
 }
 
-func TestRequestedCancel(t *testing.T) {
-	t.Run("none", func(t *testing.T) {
-		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
-			Searchable: &models.IndexUpdateSearchable{Enabled: true},
-		})
-		require.False(t, ok)
-		require.Empty(t, typ)
-	})
-
-	t.Run("searchable.cancel", func(t *testing.T) {
-		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
-			Searchable: &models.IndexUpdateSearchable{Cancel: true},
-		})
-		require.True(t, ok)
-		require.Equal(t, "searchable", typ)
-	})
-
-	t.Run("filterable.cancel", func(t *testing.T) {
-		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
-			Filterable: &models.IndexUpdateFilterable{Cancel: true},
-		})
-		require.True(t, ok)
-		require.Equal(t, "filterable", typ)
-	})
-
-	t.Run("rangeable.cancel", func(t *testing.T) {
-		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
-			Rangeable: &models.IndexUpdateRangeable{Cancel: true},
-		})
-		require.True(t, ok)
-		require.Equal(t, "rangeable", typ)
-	})
-}
-
 func TestMigrationTypeTargetsIndex(t *testing.T) {
 	cases := []struct {
 		mt          reindex.ReindexMigrationType
@@ -815,9 +805,10 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown reindex.ReindexMigrationType so a future type cannot silently
-// bypass the conflict check.
+// TouchesSearchable / TouchesFilterable: an unknown (peer-written) type must
+// not panic (forward-compat) — it fails safe by conservatively touching the
+// bucket. Exhaustiveness is enforced by
+// reindex.TestReindexBucketEffect_Exhaustive.
 // -----------------------------------------------------------------------------
 
 func TestTouchesSearchable(t *testing.T) {
@@ -858,233 +849,57 @@ func TestTouchesFilterable(t *testing.T) {
 	}
 }
 
-func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { reindex.TouchesSearchable(reindex.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesSearchable_FailsSafeOnUnknownType(t *testing.T) {
+	var got bool
+	require.NotPanics(t, func() { got = reindex.TouchesSearchable(reindex.ReindexMigrationType("phantom")) },
+		"an unknown (peer-written) type must not panic on the forward-compat hot path")
+	require.True(t, got, "an unknown type must conservatively be treated as touching searchable")
 }
 
-func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { reindex.TouchesFilterable(reindex.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
-}
-
-// -----------------------------------------------------------------------------
-// ValidateBodyExclusivity — switch-shadow guard.
-//
-// updateIndex dispatches on a Go switch where the FIRST truthy arm wins.
-// Without this guard, a body with two groups (e.g. searchable.rebuild AND
-// filterable.rebuild) or two verbs in one group (e.g. searchable.enabled AND
-// searchable.rebuild) would silently run one and drop the other. These cases
-// pin the rejection.
-// -----------------------------------------------------------------------------
-
-func TestValidateBodyExclusivity(t *testing.T) {
-	cases := []struct {
-		name    string
-		body    *models.IndexUpdateRequest
-		wantErr string // empty = accept; substring = reject and assert substring in error
-	}{
-		// --- nil body -----------------------------------------------------------
-		{
-			name:    "nil body rejected",
-			body:    nil,
-			wantErr: "request body required",
-		},
-
-		// --- valid: exactly one verb in one group ------------------------------
-		{
-			name: "valid: searchable.rebuild only",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
-			},
-		},
-		{
-			name: "valid: searchable.enabled with tokenization (one verb)",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Enabled: true, Tokenization: "word"},
-			},
-		},
-		{
-			name: "valid: searchable.tokenization alone (change-tokenization)",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Tokenization: "word"},
-			},
-		},
-		{
-			name: "valid: filterable.enabled only",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Enabled: true},
-			},
-		},
-		{
-			name: "valid: filterable.rebuild only",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Rebuild: true},
-			},
-		},
-		{
-			name: "valid: rangeable.enabled only",
-			body: &models.IndexUpdateRequest{
-				Rangeable: &models.IndexUpdateRangeable{Enabled: true},
-			},
-		},
-
-		// --- zero verbs --------------------------------------------------------
-		{
-			name:    "reject: empty body (all groups nil)",
-			body:    &models.IndexUpdateRequest{},
-			wantErr: "no actionable change",
-		},
-		{
-			name: "reject: searchable present but no verb set",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{},
-			},
-			wantErr: "no actionable change",
-		},
-		{
-			name: "reject: filterable present but no verb set",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{},
-			},
-			wantErr: "no actionable change",
-		},
-		{
-			name: "reject: rangeable present but enabled=false",
-			body: &models.IndexUpdateRequest{
-				Rangeable: &models.IndexUpdateRangeable{Enabled: false},
-			},
-			wantErr: "no actionable change",
-		},
-
-		// --- multiple groups ---------------------------------------------------
-		{
-			name: "reject: searchable.rebuild + filterable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
-				Filterable: &models.IndexUpdateFilterable{Rebuild: true},
-			},
-			wantErr: "multiple index groups",
-		},
-		{
-			name: "reject: searchable.rebuild + rangeable.enabled",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
-				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
-			},
-			wantErr: "multiple index groups",
-		},
-		{
-			name: "reject: filterable.enabled + rangeable.enabled",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Enabled: true},
-				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
-			},
-			wantErr: "multiple index groups",
-		},
-		{
-			name: "reject: all three groups set",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Enabled: true, Tokenization: "word"},
-				Filterable: &models.IndexUpdateFilterable{Enabled: true},
-				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
-			},
-			wantErr: "multiple index groups",
-		},
-
-		// --- multiple verbs within one group -----------------------------------
-		{
-			name: "reject: searchable.enabled + searchable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Enabled: true, Rebuild: true, Tokenization: "word"},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: searchable.rebuild + searchable.tokenization (without enabled)",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true, Tokenization: "word"},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: filterable.enabled + filterable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Enabled: true, Rebuild: true},
-			},
-			wantErr: "conflicting fields in filterable",
-		},
-
-		// --- algorithm verb ----------------------------------------------------
-		{
-			name: "valid: searchable.algorithm alone",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax"},
-			},
-		},
-		{
-			name: "reject: searchable.algorithm + searchable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Rebuild: true},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: searchable.algorithm + searchable.tokenization",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Tokenization: "word"},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: searchable.algorithm + searchable.enabled",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Enabled: true},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := ValidateBodyExclusivity(tc.body)
-			if tc.wantErr == "" {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErr)
-			}
-		})
-	}
+func TestTouchesFilterable_FailsSafeOnUnknownType(t *testing.T) {
+	var got bool
+	require.NotPanics(t, func() { got = reindex.TouchesFilterable(reindex.ReindexMigrationType("phantom")) },
+		"an unknown (peer-written) type must not panic on the forward-compat hot path")
+	require.True(t, got, "an unknown type must conservatively be treated as touching filterable")
 }
 
 func TestNormalizeSearchableAlgorithm(t *testing.T) {
 	cases := []struct {
-		in   string
-		want string
+		name  string
+		input string
+		want  string
 	}{
-		{"BlockMaxWAND", "BlockMaxWAND"},
-		{"blockmax", "BlockMaxWAND"},
-		{"blockmaxwand", "BlockMaxWAND"},
-		{"bmw", "BlockMaxWAND"},
-		{"block_max_wand", "BlockMaxWAND"},
-		{"BLOCK_MAX_WAND", "BlockMaxWAND"},
-		{"BMW", "BlockMaxWAND"},
-		{"WAND", ""},
-		{"wand", ""},
-		{"", ""},
-		{"FastForward", ""},
-		{"blockMaxWAND-v2", ""},
+		// blockmax — canonical spelling and case variants
+		{"canonical blockmax", "blockmax", models.IndexStatusAlgorithmBlockmax},
+		{"titlecase Blockmax", "Blockmax", models.IndexStatusAlgorithmBlockmax},
+		{"uppercase BLOCKMAX", "BLOCKMAX", models.IndexStatusAlgorithmBlockmax},
+		{"hyphenated block-max", "block-max", models.IndexStatusAlgorithmBlockmax},
+		{"underscored block_max", "block_max", models.IndexStatusAlgorithmBlockmax},
+		{"verbose blockmaxwand", "blockmaxwand", models.IndexStatusAlgorithmBlockmax},
+		{"verbose BlockMaxWAND", "BlockMaxWAND", models.IndexStatusAlgorithmBlockmax},
+		{"acronym bmw", "bmw", models.IndexStatusAlgorithmBlockmax},
+		{"with surrounding whitespace", " blockmax ", models.IndexStatusAlgorithmBlockmax},
+
+		// wand — canonical and case variants
+		{"canonical wand", "wand", models.IndexStatusAlgorithmWand},
+		{"uppercase WAND", "WAND", models.IndexStatusAlgorithmWand},
+		{"mixed case Wand", "Wand", models.IndexStatusAlgorithmWand},
+
+		// unknown — every other input must canonicalise to "" so the
+		// dispatcher's switch lands on default → 400.
+		{"empty string", "", ""},
+		{"unknown algo", "fancy-new-algo", ""},
+		{"prefix-only", "block", ""},
+		{"suffix-only", "max", ""},
+		// "blockwand" is NOT a recognised alias — only blockmax variants
+		// and bare wand canonicalise. Surfaces the "alias set is closed"
+		// contract.
+		{"blockwand not an alias", "blockwand", ""},
 	}
+
 	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			require.Equal(t, tc.want, NormalizeSearchableAlgorithm(tc.in))
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, NormalizeSearchableAlgorithm(tc.input))
 		})
 	}
 }

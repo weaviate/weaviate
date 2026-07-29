@@ -28,6 +28,7 @@ import (
 	mod "github.com/weaviate/weaviate/modules/backup-s3"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Environment variable names for S3 module configuration
@@ -101,6 +102,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := s3.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -195,6 +197,7 @@ func moduleLevelCopyObjects(t *testing.T, override bool, containerName, override
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := s3.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -235,6 +238,7 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: dataDir})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err = s3.Init(testCtx, params)
 		require.Nil(t, err)
 

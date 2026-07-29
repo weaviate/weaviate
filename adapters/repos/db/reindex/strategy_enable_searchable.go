@@ -86,13 +86,21 @@ func (s *EnableSearchableStrategy) ShouldProcessProperty(property *inverted.Prop
 func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) OnAddToPropertyValueIndex {
-	return blockmaxSearchableAddCallback(bucketNamer, propsByName)
+	var swapFallbackNamer func(string) string
+	if forTargetStrategy {
+		swapFallbackNamer = s.SourceBucketName
+	}
+	return blockmaxSearchableAddCallback(bucketNamer, propsByName, swapFallbackNamer)
 }
 
 func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) OnDeleteFromPropertyValueIndex {
-	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName)
+	var swapFallbackNamer func(string) string
+	if forTargetStrategy {
+		swapFallbackNamer = s.SourceBucketName
+	}
+	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName, swapFallbackNamer)
 }
 
 // PreReindexHook creates empty blockmax searchable buckets for the targeted

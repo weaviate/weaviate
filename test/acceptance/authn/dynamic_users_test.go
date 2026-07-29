@@ -24,30 +24,26 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestCreateUser(t *testing.T) {
-	adminKey := "admin-key"
-	adminUser := "admin-user"
-
-	otherUser := "custom-user"
-	otherKey := "custom-key"
-
-	otherUser2 := "custom-user2"
-	otherKey2 := "custom-key2"
-
-	otherUser3 := "custom-user3"
-	otherKey3 := "custom-key3"
-
-	otherUser4 := "custom-user4"
-	otherKey4 := "custom-key4"
-
-	otherUser5 := "custom-user5"
-	otherKey5 := "custom-key5"
+// TestDynamicUsers boots a single Weaviate container shared across the dynamic
+// user suites. The RBAC config is a superset: the admin key is a root user so
+// the non-RBAC suites' admin operations still work. Each suite uses a disjoint
+// set of user names so they don't clobber each other on the shared instance.
+func TestDynamicUsers(t *testing.T) {
+	adminUser, adminKey := "admin-user", "admin-key"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).WithUserApiKey(otherUser3, otherKey3).WithUserApiKey(otherUser4, otherKey4).WithUserApiKey(otherUser5, otherKey5).
+		WithApiKey().
+		WithUserApiKey(adminUser, adminKey).
+		WithUserApiKey("custom-user", "custom-key").
+		WithUserApiKey("custom-user2", "custom-key2").
+		WithUserApiKey("custom-user3", "custom-key3").
+		WithUserApiKey("custom-user4", "custom-key4").
+		WithUserApiKey("custom-user5", "custom-key5").
+		WithUserApiKey("static-user", "static-key").
 		WithDbUsers().
 		WithRBAC().WithRbacRoots(adminUser).
 		Start(ctx)
@@ -58,11 +54,34 @@ func TestCreateUser(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 		cancel()
 	}()
+
+	t.Run("create_user", testCreateUser)
+	t.Run("with_static_user", testWithStaticUser)
+	t.Run("suspend_and_activate", testSuspendAndActivate)
+}
+
+func testCreateUser(t *testing.T) {
+	adminKey := "admin-key"
+
+	otherUser := "custom-user"
+	otherKey := "custom-key"
+
+	otherUser2 := "custom-user2"
+
+	otherUser3 := "custom-user3"
+	otherKey3 := "custom-key3"
+
+	otherUser4 := "custom-user4"
+	otherKey4 := "custom-key4"
+
+	otherUser5 := "custom-user5"
+	otherKey5 := "custom-key5"
+
 	userName := "CreateUserTestUser"
 
-	t.Run("namespace on NS-disabled cluster rejects", func(t *testing.T) {
+	t.Run("qualified name on NS-disabled cluster rejects", func(t *testing.T) {
 		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(userName).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID("ns1:"+userName).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -231,26 +250,12 @@ func TestCreateUser(t *testing.T) {
 	})
 }
 
-func TestWithStaticUser(t *testing.T) {
+func testWithStaticUser(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
-
-	otherKey := "custom-key"
-	otherUser := "custom-user"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithDbUsers().Start(ctx)
-	require.Nil(t, err)
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
+	staticUser := "static-user"
 
 	t.Run("create with existing static user name", func(t *testing.T) {
-		resp, err := helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		resp, err := helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(staticUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
 		var parsed *users.CreateUserConflict
@@ -258,7 +263,7 @@ func TestWithStaticUser(t *testing.T) {
 	})
 
 	t.Run("delete existing static user name", func(t *testing.T) {
-		resp, err := helper.Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		resp, err := helper.Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(staticUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
 		var parsed *users.DeleteUserUnprocessableEntity
@@ -266,7 +271,7 @@ func TestWithStaticUser(t *testing.T) {
 	})
 
 	t.Run("rotate existing static user name", func(t *testing.T) {
-		resp, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		resp, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(staticUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
 		var parsed *users.RotateUserAPIKeyUnprocessableEntity
@@ -274,21 +279,8 @@ func TestWithStaticUser(t *testing.T) {
 	})
 }
 
-func TestSuspendAndActivate(t *testing.T) {
+func testSuspendAndActivate(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().Start(ctx)
-	require.Nil(t, err)
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
 
 	dynamicUser := "dynamic-user"
 
@@ -390,8 +382,10 @@ func TestCreateUser_Namespaces(t *testing.T) {
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// NS clusters require RBAC; adminUser is the root that creates namespaces and
+	// namespaced DB users.
 	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).
+		WithApiKey().WithRBAC().WithUserApiKey(adminUser, adminKey).WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
 		Start(ctx)
@@ -416,7 +410,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		helper.DeleteUser(t, fullKey, adminKey)
 
 		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID(fullKey).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
@@ -452,9 +446,40 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	})
 
+	t.Run("empty namespace prefix rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(":u-empty-ns").WithBody(users.CreateUserBody{}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("empty user part rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID("ns1:").WithBody(users.CreateUserBody{}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("multi-colon name rejected", func(t *testing.T) {
+		// First ':' is the ns separator; "user:extra" then fails the user-name regex.
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID("ns1:user:extra").WithBody(users.CreateUserBody{}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
 	t.Run("unknown namespace rejects", func(t *testing.T) {
 		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("u-unknown").WithBody(users.CreateUserBody{Namespace: "ns404"}),
+			users.NewCreateUserParams().WithUserID("ns404:u-unknown").WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -462,9 +487,10 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	})
 
-	t.Run("import of existing key on NS-enabled cluster rejects", func(t *testing.T) {
+	t.Run("import on NS-enabled cluster rejects", func(t *testing.T) {
+		imp := true
 		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(adminUser).WithBody(users.CreateUserBody{Import: new(true), Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID("ns1:"+adminUser).WithBody(users.CreateUserBody{Import: &imp}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -472,16 +498,13 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	})
 
-	t.Run("non-operator cannot bind a user to a namespace", func(t *testing.T) {
-		// RBAC is off, so the namespaced DB user u1 reaches the handler unconditionally.
-		// The 403 here proves the handler-level IsGlobalOperator check is the ceiling.
-		const (
-			callerID  = "u1"
-			callerKey = "ns1:u1" // operator-facing form
-		)
+	t.Run("namespaced caller is confined to its own namespace", func(t *testing.T) {
+		// A namespaced caller's short-name create lands in its own namespace —
+		// u1 (ns1) cannot create into ns2.
+		const callerKey = "ns1:u1" // operator-facing form
 		helper.DeleteUser(t, callerKey, adminKey)
 		createResp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(callerID).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID(callerKey).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
@@ -489,12 +512,27 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		callerApiKey := *createResp.Payload.Apikey
 		t.Cleanup(func() { helper.DeleteUser(t, callerKey, adminKey) })
 
+		// Grant the namespaced admin role so the caller has CreateUsers
+		// within ns1. Without RBAC the handler-level operator gate is gone,
+		// so creates need an actual permission.
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, callerKey)
+		helper.WaitForOwnRole(t, callerApiKey, authorization.Admin)
+
 		_, err = helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("u2").WithBody(users.CreateUserBody{Namespace: "ns2"}),
+			users.NewCreateUserParams().WithUserID("u2").WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(callerApiKey),
 		)
+		require.NoError(t, err)
+		t.Cleanup(func() { helper.DeleteUser(t, "ns1:u2", adminKey) })
+
+		got := helper.GetUser(t, "ns1:u2", adminKey)
+		require.Equal(t, "ns1", got.Namespace)
+		_, err = helper.Client(t).Users.GetUserInfo(
+			users.NewGetUserInfoParams().WithUserID("ns2:u2"),
+			helper.CreateAuth(adminKey),
+		)
 		require.Error(t, err)
-		var forbidden *users.CreateUserForbidden
-		require.True(t, errors.As(err, &forbidden), "expected CreateUserForbidden, got %T: %v", err, err)
+		var notFound *users.GetUserInfoNotFound
+		require.True(t, errors.As(err, &notFound), "expected ns2:u2 to not exist, got %T: %v", err, err)
 	})
 }

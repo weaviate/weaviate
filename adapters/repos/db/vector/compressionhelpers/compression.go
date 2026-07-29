@@ -14,6 +14,7 @@ package compressionhelpers
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"runtime"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -40,8 +42,20 @@ const (
 )
 
 type CompressorDistancer interface {
+	BatchCompressorDistancer
 	DistanceToNode(id uint64) (float32, error)
 	DistanceToFloat(vec []float32) (float32, error)
+}
+
+// BatchCompressorDistancer computes distances from the (implicit) query to a
+// batch of stored codes, fetching each code once and overlapping prefetch
+// hints with the distance kernels.
+//
+// Concurrency contract: DistancesToNodes reuses a scratch buffer owned by the
+// distancer and is therefore NOT safe for concurrent use — it must only be
+// called by the single search goroutine that owns the distancer.
+type BatchCompressorDistancer interface {
+	DistancesToNodes(ids []uint64, dists []float32) []error
 }
 
 type ReturnDistancerFn func()
@@ -140,11 +154,22 @@ func (compressor *quantizedVectorsCompressor[T]) Len() int32 {
 	return compressor.cache.Len()
 }
 
+// compressedBucket is nil mid-teardown (Store.Shutdown clears the registry
+// before draining, and async compress/prefill goroutines can outlive the
+// shard); callers treat nil as "shard is gone, skip".
+func (compressor *quantizedVectorsCompressor[T]) compressedBucket() *lsmkv.Bucket {
+	return compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector))
+}
+
 func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id uint64) {
 	compressor.cache.Delete(ctx, id)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	if err := compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Delete(idBytes); err != nil {
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return
+	}
+	if err := bucket.Delete(idBytes); err != nil {
 		compressor.logger.WithFields(logrus.Fields{
 			"action": "compressor_delete",
 			"id":     id,
@@ -157,7 +182,11 @@ func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []flo
 	compressedVector := compressor.quantizer.Encode(vector)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return
+	}
+	bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressedVector)
 }
@@ -167,11 +196,15 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 	for i, vector := range vecs {
 		compressedVectors[i] = compressor.quantizer.Encode(vector)
 	}
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return
+	}
 	maxID := ids[0]
 	for i, id := range ids {
 		idBytes := make([]byte, 8)
 		compressor.storeId(idBytes, id)
-		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
+		bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
 		if id > maxID {
 			maxID = id
 		}
@@ -184,7 +217,11 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadPassage(id, docID, relat
 	compressedVector := compressor.quantizer.Encode(vec)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return
+	}
+	bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.PreloadPassage(id, docID, relativeID, compressedVector)
 }
@@ -238,7 +275,10 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	bucket := compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector))
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return nil, lsmkv.ErrAlreadyClosed
+	}
 	compressedVector, err := bucket.Get(idBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Getting vector for id")
@@ -255,6 +295,11 @@ func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx co
 
 // recoverCompressedVector fetches the raw vector, encodes it, and persists
 // it to the compressed bucket so future reads don't need recovery.
+// Write-back is a cache-fill optimization: if the bucket is read-only (e.g.
+// shard temporarily READONLY during UpdateVectorIndexConfigs, resource
+// pressure, or backup), the persist is skipped and the encoded vector is
+// returned. A future read will re-encode if the bucket is still empty for
+// this id, which is acceptable for this rare path.
 func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 	ctx context.Context, id uint64, idBytes []byte, bucket *lsmkv.Bucket,
 ) ([]T, error) {
@@ -267,6 +312,14 @@ func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 	}
 	compressed := compressor.quantizer.Encode(rawVec)
 	if err := bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressed)); err != nil {
+		if stderrors.Is(err, storagestate.ErrStatusReadOnly) {
+			compressor.logger.WithFields(logrus.Fields{
+				"action":        "recover_compressed_vector",
+				"target_vector": compressor.targetVector,
+				"id":            id,
+			}).Debugf("skip write-back to compressed bucket: store is read-only: %v", err)
+			return compressed, nil
+		}
 		return nil, errors.Wrap(err, "recoverCompressedVector: persisting recovered vector")
 	}
 	return compressed, nil
@@ -342,8 +395,11 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache(ctx context.Contex
 	maxID := uint64(0)
 	vecs := make([]VecAndID[T], 0, 10_000)
 
-	it := NewParallelIterator(
-		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)),
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return
+	}
+	it := NewParallelIterator(bucket,
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
 	vecsCh, abortedCh := it.IterateAll(ctx)
@@ -397,8 +453,11 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(ctx context.C
 	maxID := uint64(0)
 	vecs := make([]VecAndID[T], 0, 10_000)
 
-	it := NewParallelIterator(
-		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)),
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return
+	}
+	it := NewParallelIterator(bucket,
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
 	vecsCh, abortedCh := it.IterateAll(ctx)
@@ -843,6 +902,24 @@ func NewRQCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
+	case 4:
+		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+			0, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -862,7 +939,7 @@ func NewRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -907,6 +984,27 @@ func RestoreRQCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
+	case 4:
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		if err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+			0, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {
@@ -929,7 +1027,7 @@ func RestoreRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -969,6 +1067,24 @@ func NewRQMultiCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
+	case 4:
+		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
+			0, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -988,7 +1104,7 @@ func NewRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -1033,6 +1149,27 @@ func RestoreRQMultiCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
+	case 4:
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		if err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
+			0, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {
@@ -1055,7 +1192,7 @@ func RestoreRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -1063,6 +1200,11 @@ func RestoreRQMultiCompressor(
 type quantizedCompressorDistancer[T byte | uint64] struct {
 	compressor *quantizedVectorsCompressor[T]
 	distancer  quantizerDistancer[T]
+
+	// vecs is the scratch buffer of DistancesToNodes. It makes that method
+	// unsafe for concurrent use; the search layer owning this distancer calls
+	// it from a single goroutine.
+	vecs [][]T
 }
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (float32, error) {
@@ -1076,6 +1218,48 @@ func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (flo
 	}
 	return distancer.distancer.Distance(compressedVector)
 }
+
+// DistancesToNodes implements BatchCompressorDistancer. Cache misses fall
+// back to the loading DistanceToNode path per id, so error semantics match
+// calling DistanceToNode for each id individually.
+func (distancer *quantizedCompressorDistancer[T]) DistancesToNodes(ids []uint64, dists []float32) []error {
+	if cap(distancer.vecs) < len(ids) {
+		distancer.vecs = make([][]T, len(ids))
+	}
+	vecs := distancer.vecs[:len(ids)]
+	// Fetch and hint each code prefetchAhead iterations before the distance
+	// kernel consumes it, instead of prefetching the whole batch up front.
+	// A full batch of hints (~25 cache lines per 8-bit d1536 code, dozens
+	// of codes) far exceeds the core's outstanding-miss capacity, so
+	// up-front hints past the first few codes get dropped and demand-missed
+	// anyway; fetching ahead inside the loop also overlaps the cache's
+	// pointer chase with the current distance computation.
+	for i := range min(prefetchAhead, len(ids)) {
+		vecs[i] = distancer.compressor.cache.PrefetchGet(ids[i])
+	}
+	var errs []error
+	for i, id := range ids {
+		if next := i + prefetchAhead; next < len(ids) {
+			vecs[next] = distancer.compressor.cache.PrefetchGet(ids[next])
+		}
+		var err error
+		if len(vecs[i]) == 0 {
+			dists[i], err = distancer.DistanceToNode(id)
+		} else {
+			dists[i], err = distancer.distancer.Distance(vecs[i])
+		}
+		if err != nil {
+			if errs == nil {
+				errs = make([]error, len(ids))
+			}
+			errs[i] = err
+		}
+		vecs[i] = nil
+	}
+	return errs
+}
+
+const prefetchAhead = 4
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToFloat(vector []float32) (float32, error) {
 	return distancer.distancer.DistanceToFloat(vector)

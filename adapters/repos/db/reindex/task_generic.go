@@ -40,14 +40,10 @@
 // ------------------------------------------------------------
 // Implemented by [ShardReindexTaskGeneric.runtimeSwap].
 //
-// 2a — tight loop, microseconds: per property, call
-// store.SwapBucketPointer(mainName, ingestName) followed by
-// rt.markSwappedProp(propName). The tight loop bounds the per-shard
-// "mixed-state" subwindow (some props swapped, others not) to a few
-// microseconds total. Queries during this subwindow that hit
-// not-yet-swapped props would tokenize input with the new value
-// against an old-tokenized bucket — wrong — so the subwindow MUST
-// stay microseconds.
+// 2a — tight loop, MUST stay microseconds: a query hitting a
+// not-yet-swapped prop tokenizes new-analyzer input against the old
+// bucket. The [onPropSwapped] overlay hook fires per-flip (not once up
+// front) so the overlay≠bucket exposure stays one in-memory map write.
 //
 // 2b — post-atomic inline tidy (slow but correctness-safe):
 // oldMainBucket.Shutdown(ctx) + os.Rename(oldMainDir, backupDir) per
@@ -126,6 +122,7 @@ package reindex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -144,6 +141,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // ShardReindexTaskGeneric is a strategy-parameterized implementation of
@@ -200,6 +198,47 @@ type ShardReindexTaskGeneric struct {
 	// [processOneSwapPropFn] — defaults to the [processOneTidyProp]
 	// method; tests substitute a wrapper.
 	ProcessOneTidyPropFn func(propIdx int, propName, lsmPath string) error
+
+	// registerDoubleWriteCallbacksFn dispatches OnAfterLsmInit's ingest-window
+	// double-write registration. Defaults to [RegisterDoubleWriteCallbacks] in
+	// [NewShardReindexTaskGeneric]; tests wrap it to drive a write into the
+	// markStarted→register window the production ordering must not lose
+	// (weaviate/weaviate#11688). Always set — no test-only branch runs in
+	// production.
+	registerDoubleWriteCallbacksFn func(shard ShardLike, props []string,
+		bucketNamer func(string) string, forTargetStrategy bool) func()
+
+	// onPropSwapped runs inside the Phase 2a tight loop right after each
+	// bucket-pointer flip, so a query never observes overlay≠bucket for
+	// longer than one in-memory map write. Runs on the swap goroutine, so
+	// SetTokenizationOverlay's own lock is enough. Wired only for
+	// tokenization-changing migrations.
+	//
+	// Only the recovery/resume path still uses this; the live Phase-2a loop
+	// routes through swapPropAtomic when wired.
+	onPropSwapped func(propName string)
+
+	// swapPropAtomic, when non-nil, runs the Phase-2a per-prop flip AND the
+	// overlay set as ONE critical section (Shard.SwapBucketAndSetOverlay).
+	// nil = legacy two-step flip + onPropSwapped. Returns the displaced
+	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
+	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, rt ReindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
+
+	// trackerMkdirGuard yields the close-lock guard serializing a reindex
+	// tracker's init() MkdirAll against a concurrent Index.drop (see
+	// newReindexTrackerGuarded). Defaults to IndexLike.WithCloseRLockGuard in
+	// NewShardReindexTaskGeneric; the drain-rematerialize test wraps it to
+	// interpose a barrier at the exact pre-MkdirAll point that makes the
+	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
+	// branch runs in production.
+	trackerMkdirGuard func(shard ShardLike) func(func() error) error
+
+	// rebuildRangeableRepFn dispatches [rebuildRangeableInMemoryReps]'s
+	// per-prop bucket rebuild; defaults to
+	// [lsmkv.Bucket.RebuildRangeableSegmentInMemory], tests substitute a
+	// failure-injecting wrapper. Always set - no test-only branch runs in
+	// production.
+	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 }
 
 // Test-only public surface — keep external use minimal.
@@ -231,6 +270,13 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	}
 	t.ProcessOneSwapPropFn = t.ProcessOneSwapProp
 	t.ProcessOneTidyPropFn = t.ProcessOneTidyProp
+	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
+		return shard.ParentIndex().WithCloseRLockGuard
+	}
+	t.registerDoubleWriteCallbacksFn = t.RegisterDoubleWriteCallbacks
+	t.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
+		return b.RebuildRangeableSegmentInMemory(ctx)
+	}
 	return t
 }
 
@@ -359,7 +405,12 @@ func (t *ShardReindexTaskGeneric) RunShardLifecycle(ctx context.Context, shard S
 		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
 
-	if err := t.OnAfterLsmInit(ctx, concreteShard); err != nil {
+	// context.Canceled means the index is closing — propagate unwrapped so
+	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
+	if err := t.onAfterLsmInitGuarded(ctx, concreteShard); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
 		return fmt.Errorf("after LSM init: %w", err)
 	}
 
@@ -412,21 +463,11 @@ func (t *ShardReindexTaskGeneric) RunShardLifecycle(ctx context.Context, shard S
 // consistent with ongoing writes). Callbacks are disabled only at
 // the end of [runtimeSwap] after the atomic pointer flip.
 func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.enterDTMPhase(ctx, shard, "RunPrepareOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-
-	logger := t.Logger.WithFields(map[string]any{
-		"collection": concreteShard.ParentIndex().ClassName().String(),
-		"shard":      concreteShard.Name(),
-		"method":     "RunPrepareOnShard",
-	})
-
-	rt, err := t.NewReindexTracker(concreteShard.PathLSM())
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	// Idempotent fast-path: already merged means prep was already
 	// completed (either by an earlier call in this process or by a
@@ -434,27 +475,6 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	if rt.IsMerged() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
 		return nil
-	}
-
-	// Re-entry path: state-on-disk vs state-in-RAFT race (mirrors the
-	// same check in RunSwapOnShard). If we land here with state
-	// "started but not reindexed", resume the iteration before
-	// preparing.
-	if !rt.IsReindexed() {
-		if !rt.IsStarted() {
-			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
-		}
-		logger.Info("RunPrepareOnShard: state not yet reindexed on disk; resuming iteration before prep")
-		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
-			return fmt.Errorf("resume iteration before prep: %w", err)
-		}
-		rt, err = t.NewReindexTracker(concreteShard.PathLSM())
-		if err != nil {
-			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
-		}
-		if !rt.IsReindexed() {
-			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
-		}
 	}
 
 	props, err := t.ReadPropsToReindex(rt)
@@ -470,6 +490,64 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 
 	return t.RuntimePrepare(ctx, logger, shard, rt, props)
+}
+
+// dtmPhaseEntry is the shared entry state of the DTM-scheduler-driven phase
+// callbacks (RunPrepareOnShard / RunSwapOnShard).
+type dtmPhaseEntry struct {
+	shard  ShardLike
+	logger logrus.FieldLogger
+	rt     ReindexTracker
+}
+
+// enterDTMPhase unwraps the shard, opens the guarded tracker (DTM callbacks
+// run under no closeLock; see newReindexTrackerGuarded), and — if on-disk
+// state trails RAFT ("started but not reindexed" after a rolling restart) —
+// resumes the iteration before returning.
+func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return nil, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+
+	logger := t.Logger.WithFields(map[string]any{
+		"collection": concreteShard.ParentIndex().ClassName().String(),
+		"shard":      concreteShard.Name(),
+		"method":     method,
+	})
+
+	rt, err := t.newReindexTrackerGuarded(concreteShard)
+	if err != nil {
+		return nil, fmt.Errorf("creating reindex tracker: %w", err)
+	}
+
+	// MUST stay ahead of the iteration-resume ladder below: merged implies
+	// the iteration completed, so on a torn sentinel state (IsMerged &&
+	// !IsReindexed) resuming would re-run the iteration against an
+	// already-merged migration. Both callers handle merged downstream.
+	if rt.IsMerged() {
+		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
+	}
+
+	if !rt.IsReindexed() {
+		if !rt.IsStarted() {
+			// Shouldn't happen via OnGroupCompleted (units are node-assigned).
+			return nil, fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
+		}
+		logger.Info(method + ": state not yet reindexed on disk; resuming iteration")
+		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
+			return nil, fmt.Errorf("resume iteration: %w", err)
+		}
+		rt, err = t.newReindexTrackerGuarded(concreteShard)
+		if err != nil {
+			return nil, fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
+		}
+		if !rt.IsReindexed() {
+			return nil, fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
+		}
+	}
+
+	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
 }
 
 // RunSwapOnShard runs the swap+tidy+OnMigrationComplete phase.
@@ -520,70 +598,11 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 // swapped their buckets — producing the cluster-wide schema↔bucket
 // inversion this dispatch is here to prevent.
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.enterDTMPhase(ctx, shard, "RunSwapOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-
-	logger := t.Logger.WithFields(map[string]any{
-		"collection": concreteShard.ParentIndex().ClassName().String(),
-		"shard":      concreteShard.Name(),
-		"method":     "RunSwapOnShard",
-	})
-
-	rt, err := t.NewReindexTracker(concreteShard.PathLSM())
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
-
-	// State-on-disk vs state-in-RAFT race: a rolling restart that
-	// landed inside the FINALIZING window can leave a node with the
-	// unit's terminal state replicated in RAFT (the unit-completion
-	// record landed before the crash) but the on-disk markReindexed
-	// sentinel lost (file write didn't persist before SIGTERM, or the
-	// race went the other way and the iteration was still running when
-	// RAFT replicated some OTHER node's vote that flipped the group to
-	// FINALIZING). The recovered task's [OnAfterLsmInit] (fired at
-	// shard init by [shardReindexerV3RecoveryOnly]) only loads buckets
-	// — it does NOT run the iteration. The iteration lives in
-	// [OnAfterLsmInitAsync], which the recovery-only reindexer
-	// intentionally no-ops.
-	//
-	// If we land here with state "started but not reindexed", we need
-	// to resume the iteration before swapping. Calling
-	// [RunReindexOnlyOnShard] is the right entry point: it runs
-	// OnAfterLsmInit (idempotent for already-loaded buckets) and then
-	// loops OnAfterLsmInitAsync until the iteration terminates and
-	// markReindexed fires. After the call returns, we re-read the
-	// tracker and continue with the sentinel-aware swap dispatch.
-	//
-	// This is the local repro path where the iteration didn't reach
-	// markReindexed but the scheduler still scheduled the swap (e.g.
-	// rolling restart caught the unit mid-iteration).
-	if !rt.IsReindexed() {
-		if !rt.IsStarted() {
-			// Migration never started on this shard. This shouldn't
-			// happen via OnGroupCompleted (the scheduler only invokes
-			// this for units that were assigned to this node), but
-			// surface it cleanly rather than silently completing.
-			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
-		}
-		logger.Info("RunSwapOnShard: state not yet reindexed on disk; resuming iteration before swap")
-		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
-			return fmt.Errorf("resume iteration before swap: %w", err)
-		}
-		// Re-read tracker. The iteration should have set IsReindexed
-		// (and possibly more — runtimeSwap MAY have run inline if
-		// skipSwapOnFinish was somehow not honored, though it's set in
-		// runShardLifecycle).
-		rt, err = t.NewReindexTracker(concreteShard.PathLSM())
-		if err != nil {
-			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
-		}
-		if !rt.IsReindexed() {
-			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
-		}
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	props, err := t.ReadPropsToReindex(rt)
 	if err != nil {
@@ -626,7 +645,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		//    RunPrepareOnShard first): ingest buckets are loaded in
 		//    the LSM store. Do the in-memory atomic SwapBucketPointer
 		//    via [runtimeSwap]. Disk rename is deferred to next
-		//    startup via OnBeforeLsmInit's recoverRuntimeSwapBuckets.
+		//    startup via [FinalizeCompletedMigrations].
 		//  - **Recovery fallback**: ingest buckets are NOT loaded.
 		//    In practice this is rare — post-restart, OnBeforeLsmInit's
 		//    IsMerged && !IsSwapped branch typically does the disk
@@ -793,11 +812,89 @@ func (t *ShardReindexTaskGeneric) FinalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt ReindexTracker, props []string,
 ) error {
+	// Ordering contract: rebuild must run and be checked before
+	// OnMigrationComplete (see runtimeSwap for the full reasoning).
+	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+		return err
+	}
 	if err := t.Strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 	t.TrimOlderGenerationsLocked(logger, shard, rt, props)
 	logger.Info("RunSwapOnShard: recovery path complete")
+	return nil
+}
+
+// rebuildRangeableInMemoryReps restores the INDEX_RANGEABLE_IN_MEMORY
+// contract for buckets promoted by a reindex swap: ingest buckets open
+// without an in-memory rep, so without this they'd serve range reads from
+// disk until the next open. Idempotent.
+//
+// A rebuild failure degrades to disk serving (WARN-and-continue) instead of
+// failing the migration: data work (prepend, swap, tidy) has already
+// committed, disk serving is always correct, and only the in-memory
+// acceleration is deferred to next restart. Every degrade still logs at
+// ERROR and increments a metric so it stays visible.
+//
+// context.Canceled is the one error this function still returns, so
+// [runPerUnitPhase]'s errors.Is(context.Canceled) check keeps routing to
+// the transient ack path instead of a permanent FAILED or false FINISHED.
+func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, props []string,
+) error {
+	if t.Strategy.TargetStrategy() != lsmkv.StrategyRoaringSetRange ||
+		!shard.ParentIndex().ConfigSnapshot().IndexRangeableInMemory {
+		return nil
+	}
+
+	store := shard.Store()
+	className := shard.ParentIndex().ClassName().String()
+	shardName := shard.Name()
+	for _, propName := range props {
+		bucketName := t.Strategy.SourceBucketName(propName)
+
+		bucket := store.Bucket(bucketName)
+		if bucket == nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// Missing buckets have legitimate transient causes (shutdown
+				// draining, a property dropped mid-migration); only treat this
+				// as a hard failure once we know the caller isn't shutting down.
+				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w", propName, ctxErr)
+			}
+			err := fmt.Errorf(
+				"rangeable index for property %q could not be activated for in-memory "+
+					"serving: bucket %q not found post-swap, rebuild the index to repair it",
+				propName, bucketName,
+			)
+			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
+			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
+			continue
+		}
+
+		started := time.Now()
+		if err := t.rebuildRangeableRepFn(ctx, bucket); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// Wrap ctxErr too: it guarantees errors.Is(context.Canceled)
+				// works even if the underlying err doesn't itself wrap
+				// ctx.Err(); err is kept for diagnostics.
+				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w: %w", propName, ctxErr, err)
+			}
+			wrapped := fmt.Errorf(
+				"rangeable index for property %q built and data intact, but could not be "+
+					"activated for in-memory serving: %w, rebuild the index to repair it",
+				propName, err,
+			)
+			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
+			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
+			continue
+		}
+		if bucket.RangeableServesFromMemory() {
+			logger.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"took":   time.Since(started).String(),
+			}).Info("rangeable in-memory index built at migration finalize; serving range queries from memory")
+		}
+	}
 	return nil
 }
 
@@ -808,29 +905,45 @@ func unwrapShard(ctx context.Context, shard ShardLike) (ShardLike, error) {
 	return shard.Unwrap(ctx)
 }
 
-func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard ShardLike) (err error) {
-	collectionName := shard.ParentIndex().ClassName().String()
-	shardName := shard.Name()
+// logPhase builds the per-invocation logger and the finished-lifecycle
+// callback shared by the LSM-init hooks. context.Canceled logs at Debug —
+// the scheduler already logs the cancelled unit.
+func (t *ShardReindexTaskGeneric) logPhase(collectionName, shardName, method string,
+) (logrus.FieldLogger, func(started time.Time, err error)) {
 	logger := t.Logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shardName,
-		"method":     "OnBeforeLsmInit",
+		"method":     method,
 	})
 	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
+	done := func(started time.Time, err error) {
+		logger := logger.WithField("took", time.Since(started))
+		switch {
+		case err == nil:
 			logger.Info("finished")
+		case errors.Is(err, context.Canceled):
+			logger.Debugf("finished after cancellation: %v", err)
+		default:
+			logger.Errorf("finished with error: %v", err)
 		}
-	}(time.Now())
+	}
+	return logger, done
+}
+
+func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard ShardLike) (err error) {
+	collectionName := shard.ParentIndex().ClassName().String()
+	shardName := shard.Name()
+	logger, done := t.logPhase(collectionName, shardName, "OnBeforeLsmInit")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	if !t.IsShardSelected(collectionName, shardName) {
 		logger.Debug("different collection/shard selected. nothing to do")
 		return nil
 	}
 
+	// Deliberately unguarded: only reachable from shard init, where some
+	// routes hold closeLock.RLock — a nested RLock would deadlock against a
+	// queued drop() writer (see newReindexTrackerGuarded).
 	rt, err := t.NewReindexTracker(shard.PathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
@@ -1037,23 +1150,35 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard Sha
 	return nil
 }
 
-func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard ShardLike) (err error) {
+// OnAfterLsmInit is the shard-init entry into the after-LSM-init hook. It
+// uses the plain tracker because some NewShard routes hold closeLock.RLock
+// (see newReindexTrackerGuarded); DTM-driven callers MUST use
+// onAfterLsmInitGuarded instead.
+func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard ShardLike) error {
+	return t.onAfterLsmInitWithTracker(ctx, shard, func(s ShardLike) (ReindexTracker, error) {
+		return t.NewReindexTracker(s.PathLSM())
+	})
+}
+
+// onAfterLsmInitGuarded is the DTM-route entry into the after-LSM-init hook:
+// scheduler/worker goroutines hold no closeLock, so the tracker init must be
+// guarded against a concurrent Index.drop. Returns context.Canceled
+// unwrapped when the index is closing (clean stop).
+func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, shard ShardLike) error {
+	return t.onAfterLsmInitWithTracker(ctx, shard, func(s ShardLike) (ReindexTracker, error) {
+		return t.newReindexTrackerGuarded(s)
+	})
+}
+
+// onAfterLsmInitWithTracker is the shared body of OnAfterLsmInit /
+// onAfterLsmInitGuarded; newTracker selects the plain or guarded factory.
+func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context, shard ShardLike,
+	newTracker func(ShardLike) (ReindexTracker, error),
+) (err error) {
 	collectionName := shard.ParentIndex().ClassName().String()
 	shardName := shard.Name()
-	logger := t.Logger.WithFields(map[string]any{
-		"collection": collectionName,
-		"shard":      shardName,
-		"method":     "OnAfterLsmInit",
-	})
-	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
-			logger.Info("finished")
-		}
-	}(time.Now())
+	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInit")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	// skip shard only if not started or rollback requested
 	// otherwise double writes have to be enabled if migration was already started
@@ -1064,8 +1189,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard Shar
 		return nil
 	}
 
-	rt, err := t.NewReindexTracker(shard.PathLSM())
+	rt, err := newTracker(shard)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Guarded route: return unwrapped so callers can errors.Is on it.
+			logger.Debug("index is closing, stopping after-LSM-init hook")
+			return err
+		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return err
 	}
@@ -1099,12 +1229,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard Shar
 		return nil
 	}
 
-	if !isStarted {
-		if err = rt.MarkStarted(time.Now()); err != nil {
-			err = fmt.Errorf("marking reindex started: %w", err)
-			return err
-		}
-	}
+	// MarkStarted is deferred until after the double-write callbacks are
+	// registered below — capturing it earlier opens a lost-write gap
+	// (weaviate/weaviate#11688).
 
 	// Torn-state recovery: if rt.IsReindexed() is true but the reindex
 	// bucket dirs that markReindexed() must have populated are missing on
@@ -1191,30 +1318,53 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard Shar
 			err = fmt.Errorf("starting ingest buckets:%w", err)
 			return err
 		}
-		t.RegisterDoubleWriteCallbacks(shard, props, t.IngestBucketName, true)
+		disableJustRegistered := t.registerDoubleWriteCallbacksFn(shard, props, t.IngestBucketName, true)
+
+		// Captured only after callbacks are live, so every write the iterator
+		// skips (LastUpdateTimeUnix >= reindexStarted) is guaranteed mirrored
+		// into ingest. Ceiled up one ms: LastUpdateTimeUnix has ms resolution
+		// and the skip predicate is `<`, so a write sharing the truncated ms
+		// could otherwise land before registration. Overlap writes converge
+		// because reindex segments precede ingest in merge order and writes
+		// are per-key idempotent.
+		if !isStarted {
+			startedAt := time.Now().Truncate(time.Millisecond).Add(time.Millisecond)
+			if err = rt.MarkStarted(startedAt); err != nil {
+				// Disable only the pair registered above; the task may hold
+				// live registrations for other shards.
+				disableJustRegistered()
+				err = fmt.Errorf("marking reindex started: %w", err)
+				return err
+			}
+		}
 	}
 
 	return nil
+}
+
+// newReindexTrackerGuarded serializes the tracker's init()-time MkdirAll
+// against Index.drop: DTM-driven callers hold no closeLock, and an unguarded
+// MkdirAll would re-create the class dir a concurrent DELETE just renamed
+// away. context.Canceled means the index is closing (clean stop).
+//
+// The shard-init hooks MUST keep the plain factory: some NewShard routes
+// hold closeLock.RLock, and a nested RLock (sync.RWMutex is non-reentrant)
+// deadlocks against a queued drop() writer.
+func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (ReindexTracker, error) {
+	rt := NewFileReindexTracker(shard.PathLSM(), t.Strategy.MigrationDirName(), t.KeyParser)
+	rt.mkdirGuard = t.trackerMkdirGuard(shard)
+	if err := rt.init(); err != nil {
+		return nil, err
+	}
+	return rt, nil
 }
 
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.ParentIndex().ClassName().String()
 	shardName := shard.Name()
-	logger := t.Logger.WithFields(map[string]any{
-		"collection": collectionName,
-		"shard":      shardName,
-		"method":     "OnAfterLsmInitAsync",
-	})
-	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
-			logger.Info("finished")
-		}
-	}(time.Now())
+	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInitAsync")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	zerotime := time.Time{}
 
@@ -1223,8 +1373,14 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
-	rt, err := t.NewReindexTracker(shard.PathLSM())
+	// Guarded: a cancelled worker re-enters here with no ctx check before the
+	// tracker's MkdirAll (see newReindexTrackerGuarded).
+	rt, err := t.newReindexTrackerGuarded(shard)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Debug("index is closing, stopping reindex drain")
+			return zerotime, false, err
+		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return zerotime, false, err
 	}
@@ -1299,6 +1455,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 					shard.Name(), propName, bucketName)
 				return zerotime, false, err
 			}
+		}
+		// Same ordering contract as runtimeSwap (see there for reasoning):
+		// this re-entry branch must recheck the rebuild too, or a retry
+		// could flip the schema without it ever succeeding.
+		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+			return zerotime, false, err
 		}
 		err = t.Strategy.OnMigrationComplete(ctx, shard)
 		if err != nil {
@@ -1712,11 +1874,11 @@ func (t *ShardReindexTaskGeneric) RuntimeSwap(ctx context.Context,
 	// Always disable the double-write callbacks registered by this task
 	// instance, regardless of whether the swap completes successfully.
 	//
-	// On the happy path this runs after the in-memory pointer flip:
-	// the main bucket pointer has already been swapped, so any callback
-	// invocations between markSwappedProp and this defer would have been
-	// harmless redundant writes (the ingest bucket is reachable under
-	// both the main and ingest names).
+	// On the happy path this runs after the in-memory pointer flip. Callbacks
+	// stay armed until this defer, so a live write in between still fires
+	// them; [resolveDoubleWriteBucket] falls back to the canonical name once
+	// SwapBucketPointer deletes the ingest-name entry, landing the mirror
+	// write in the surviving bucket instead of dereferencing nil.
 	//
 	// On an error path this is the load-bearing case: without it,
 	// callbacks would keep firing against buckets that may be mid-swap,
@@ -1751,14 +1913,30 @@ func (t *ShardReindexTaskGeneric) RuntimeSwap(ctx context.Context,
 	// shut-down) bucket — never the LIVE ingest bucket whose dir stays
 	// at ingest_<gen> until next-restart recovery does the ingest→main
 	// rename safely (no in-memory state at that point).
-	// processOneSwapPropFn dispatches to processOneSwapProp by default;
+	// ProcessOneSwapPropFn dispatches to ProcessOneSwapProp by default;
 	// the per-prop body returns (nil, nil) for props whose per-prop
 	// sentinel is already on disk — recovery idempotency.
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
-		oldMainBucket, err := t.ProcessOneSwapPropFn(ctx, store, rt, propIdx, propName)
-		if err != nil {
-			return err
+		var (
+			oldMainBucket *lsmkv.Bucket
+			err           error
+		)
+		if t.swapPropAtomic != nil {
+			oldMainBucket, err = t.swapPropAtomic(ctx, store, rt, propIdx, propName)
+			if err != nil {
+				return err
+			}
+		} else {
+			oldMainBucket, err = t.ProcessOneSwapPropFn(ctx, store, rt, propIdx, propName)
+			if err != nil {
+				return err
+			}
+			// Fire even when ProcessOneSwapPropFn no-ops an already-swapped
+			// prop (sentinel on disk), so a resumed swap re-establishes the overlay.
+			if t.onPropSwapped != nil {
+				t.onPropSwapped(propName)
+			}
 		}
 		if oldMainBucket != nil {
 			oldMainBuckets[propName] = oldMainBucket
@@ -1805,14 +1983,27 @@ func (t *ShardReindexTaskGeneric) RuntimeSwap(ctx context.Context,
 	// markTidied signals that all on-disk cleanup that can be done inline
 	// has been done. The LIVE bucket's dir (ingest_<gen>) is still at its
 	// pre-swap name — that rename to the canonical name is deferred to
-	// next-restart recovery (OnBeforeLsmInit → recoverRuntimeSwapBuckets)
-	// because renaming a dir whose buckets are mmap'd by the in-memory
-	// store would corrupt the segment registry. At restart time, nothing
-	// has loaded that dir yet, so the rename is safe.
+	// next startup via [FinalizeCompletedMigrations], because renaming a
+	// dir whose buckets are mmap'd by the in-memory store would corrupt
+	// the segment registry. At restart time, nothing has loaded that dir
+	// yet, so the rename is safe.
 	if err := rt.MarkTidied(); err != nil {
 		return fmt.Errorf("marking tidied: %w", err)
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
+
+	// Ordering contract: rebuild must be checked before OnMigrationComplete.
+	//
+	// Unlike the semantic-migration family ([IsSemanticMigration]),
+	// FilterableToRangeableStrategy.OnMigrationComplete is not gated by
+	// task-terminal status - it RAFT-commits IndexRangeFilters=true
+	// unconditionally the first time any shard's swap reaches this line.
+	// Skipping the check would advertise range-query support while this
+	// shard still falls back to disk (or a corrupt segment parsed as empty
+	// - see [rebuildRangeableInMemoryReps]).
+	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+		return err
+	}
 
 	// OnMigrationComplete: no-op for semantic migrations (the cluster-
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
@@ -2075,6 +2266,9 @@ func (t *ShardReindexTaskGeneric) GetSegmentPathsToMove(bucketPathSrc, bucketPat
 	needsRecover := false
 
 	err := filepath.WalkDir(bucketPathSrc, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 		if d.IsDir() {
 			return nil
 		}
@@ -2185,8 +2379,16 @@ func (t *ShardReindexTaskGeneric) RecoverRuntimeSwapBuckets(ctx context.Context,
 				propName, mainExists, backupExists, ingestExists)
 		}
 
-		if err := rt.MarkSwappedProp(propName); err != nil {
-			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+		// MarkSwappedProp creates with O_EXCL; a mid-FINALIZING restart may
+		// have already set the sentinel.
+		if !rt.IsSwappedProp(propName) {
+			if err := rt.MarkSwappedProp(propName); err != nil {
+				return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+			}
+		}
+		// Recovery re-establishes the overlay for the same reason as the happy path.
+		if t.onPropSwapped != nil {
+			t.onPropSwapped(propName)
 		}
 	}
 
@@ -2332,7 +2534,21 @@ func (t *ShardReindexTaskGeneric) LoadIngestBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 	keepLevelCompaction, keepTombstones bool,
 ) error {
-	bucketOpts := t.BucketOptions(shard, t.Strategy.TargetStrategy(), keepLevelCompaction, keepTombstones, t.Config.MemtableOptFactor)
+	strategy := t.Strategy.TargetStrategy()
+	bucketOpts := t.BucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.Config.MemtableOptFactor)
+
+	// Only the ingest bucket becomes the main bucket post-swap; reindex/backup
+	// buckets are torn down and never serve reads.
+	if strategy == lsmkv.StrategyRoaringSetRange && shard.ParentIndex().ConfigSnapshot().IndexRangeableInMemory {
+		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
+		logger.WithField("props", props).Info(
+			"rangeable properties are serving from disk during reindex ingest; " +
+				"in-memory acceleration is restored automatically when the migration " +
+				"finalizes. A node restart, shard reload, or tenant reactivation only " +
+				"repairs this if that automatic rebuild fails.",
+		)
+	}
+
 	return t.LoadBuckets(ctx, logger, shard, props, t.IngestBucketName, bucketOpts)
 }
 
@@ -2462,22 +2678,39 @@ func DirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// RegisterDoubleWriteCallbacks arms the strategy's add/delete mirror callbacks
+// for [DisableCallbacks]. The returned func disables only this call's pair
+// (idempotent), for failure paths that must not touch other shards'
+// registrations.
 func (t *ShardReindexTaskGeneric) RegisterDoubleWriteCallbacks(shard ShardLike, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
-) {
+) func() {
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
 	}
 
-	disableAdd := shard.RegisterAddToPropertyValueIndex(
-		t.Strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy))
-	disableDelete := shard.RegisterDeleteFromPropertyValueIndex(
-		t.Strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy))
+	addCb := t.Strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy)
+	delCb := t.Strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy)
+
+	var disable func()
+	if forTargetStrategy {
+		// Ingest window: arm the scope atomically with the callbacks, or a
+		// concurrent write gets source-tokenized into the ingest bucket
+		// (weaviate/0-weaviate-issues#298).
+		disable = shard.RegisterDoubleWriteWithScope(addCb, delCb, props, t.Strategy.AnalyzerOverlay(props))
+	} else {
+		// Backup window: mirror source-analyzed writes as-is; no scope.
+		disableAdd := shard.RegisterAddToPropertyValueIndex(addCb)
+		disableDelete := shard.RegisterDeleteFromPropertyValueIndex(delCb)
+		disable = func() { disableAdd(); disableDelete() }
+	}
 
 	t.CallbackDisableFuncsMu.Lock()
-	t.CallbackDisableFuncs = append(t.CallbackDisableFuncs, disableAdd, disableDelete)
+	t.CallbackDisableFuncs = append(t.CallbackDisableFuncs, disable)
 	t.CallbackDisableFuncsMu.Unlock()
+
+	return disable
 }
 
 // DisableCallbacks calls all stored callback disable functions collected
@@ -2497,7 +2730,8 @@ func (t *ShardReindexTaskGeneric) BucketOptions(shard ShardLike, strategy string
 ) []lsmkv.BucketOption {
 	cfg := shard.ParentIndex().ConfigSnapshot()
 
-	return shard.MakeDefaultBucketOptions(strategy,
+	opts := shard.MakeDefaultBucketOptions(
+		strategy,
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
 		// overwrite DynamicMemtableSizing
@@ -2508,6 +2742,15 @@ func (t *ShardReindexTaskGeneric) BucketOptions(shard ShardLike, strategy string
 			memtableOptFactor*cfg.MemtablesMaxActiveSeconds,
 		),
 	)
+
+	// Override: RoaringSetRange ingest buckets never keep an in-memory rep.
+	// PrependSegmentsFromBucket can't rebuild it, so a kept rep would serve
+	// stale/empty range results until the next clean bucket open.
+	if strategy == lsmkv.StrategyRoaringSetRange {
+		opts = append(opts, lsmkv.WithKeepSegmentsInMemory(false))
+	}
+
+	return opts
 }
 
 // -----------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -171,18 +172,18 @@ func ParseCommonUsageConfig(config *config.Config) error {
 	}
 	config.Usage.PolicyVersion = runtime.NewDynamicValue(policyVersion)
 
-	// Parse shard jitter interval environment variable
-	shardJitterInterval := DefaultShardJitterInterval
-	if v := os.Getenv("USAGE_SHARD_JITTER_INTERVAL"); v != "" {
-		duration, err := time.ParseDuration(v)
+	// Parse shard concurrency environment variable
+	shardConcurrency := DefaultShardConcurrency
+	if v := os.Getenv("USAGE_SHARD_CONCURRENCY"); v != "" {
+		parsed, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("invalid %s: %w", "USAGE_SHARD_JITTER_INTERVAL", err)
+			return fmt.Errorf("invalid %s: %w", "USAGE_SHARD_CONCURRENCY", err)
 		}
-		shardJitterInterval = duration
-	} else if config.Usage.ShardJitterInterval != nil {
-		shardJitterInterval = config.Usage.ShardJitterInterval.Get()
+		shardConcurrency = parsed
+	} else if config.Usage.ShardConcurrency != nil {
+		shardConcurrency = config.Usage.ShardConcurrency.Get()
 	}
-	config.Usage.ShardJitterInterval = runtime.NewDynamicValue(shardJitterInterval)
+	config.Usage.ShardConcurrency = runtime.NewDynamicValue(shardConcurrency)
 
 	// Parse verify permissions setting
 	verifyPermissions := false

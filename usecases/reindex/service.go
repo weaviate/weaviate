@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -25,13 +24,12 @@ import (
 	"github.com/sirupsen/logrus"
 	dbreindex "github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Service orchestrates the reindex submit / cancel lifecycle. HTTP
-// handlers should authorize, parse params, call into the Service, and
-// map [errors.Is]-matched sentinels in [errors.go] to HTTP status
-// codes. No business logic should live in the handler itself.
+// Service owns the reindex read-side status merge, the cancel
+// lifecycle, and the schema-mutation conflict pre-flight. HTTP handlers
+// should authorize, parse params, call into the Service, and map
+// [errors.Is]-matched sentinels in errors.go to HTTP status codes.
 type Service struct {
 	deps   Deps
 	logger logrus.FieldLogger
@@ -47,23 +45,10 @@ func New(deps Deps, logger logrus.FieldLogger) *Service {
 	return &Service{deps: deps, logger: logger}
 }
 
-// SubmitRequest is the parsed-and-authorized intent for one
-// PUT /v1/schema/{class}/indexes/{prop}. The handler builds this from
-// HTTP params + body and hands it to the service.
-type SubmitRequest struct {
-	Collection   string
-	PropertyName string
-	Body         *models.IndexUpdateRequest
-	Tenants      []string
-	// Principal is opaque to the service — kept only so the audit log
-	// can record who submitted.
-	PrincipalUsername string
-}
-
 // SubmitResult is the service-level outcome surfaced back to the
-// handler. TaskID is the DTM task identifier; Status is "STARTED" on
-// successful submit, "CANCELLED" on a cancel verb, [StatusNoOp] for
-// the idempotent "nothing to cancel" answer (empty TaskID).
+// handler. TaskID is the DTM task identifier; Status is "CANCELLED" on
+// a cancel that hit an in-flight task, [StatusNoOp] for the idempotent
+// "nothing to cancel" answer (empty TaskID).
 type SubmitResult struct {
 	TaskID string
 	Status string
@@ -74,271 +59,44 @@ type SubmitResult struct {
 // 404; clients assert this exact string.
 const StatusNoOp = "NO_OP"
 
-// Submit returns a sentinel error (see errors.go) the handler maps to
-// an HTTP status.
-//
-// Cancel verbs are routed to [Service.Cancel] internally so handlers
-// can call a single entry point per HTTP method.
-func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, error) {
-	body := req.Body
-	if err := ValidateBodyExclusivity(body); err != nil {
-		return SubmitResult{}, errors.Join(ErrBadRequest, err)
-	}
-
-	if cancelIndexType, cancelling := RequestedCancel(body); cancelling {
-		return s.Cancel(ctx, req.Collection, req.PropertyName, cancelIndexType, req.PrincipalUsername)
-	}
-
-	propLock := s.deps.SubmitLocks.SubmitLockFor(req.Collection, req.PropertyName)
-	propLock.Lock()
-	defer propLock.Unlock()
-
-	class := s.deps.SchemaManager.ReadOnlyClass(req.Collection)
-	if class == nil {
-		return SubmitResult{}, fmt.Errorf("%w: collection %q", ErrNotFound, req.Collection)
-	}
-	var targetProp *models.Property
-	for _, p := range class.Properties {
-		if p.Name == req.PropertyName {
-			targetProp = p
-			break
-		}
-	}
-	if targetProp == nil {
-		return SubmitResult{}, fmt.Errorf("%w: property %q", ErrNotFound, req.PropertyName)
-	}
-
-	migrationType, properties, targetTok, bucketStrategy, err := s.dispatchMigration(body, class, req.Collection, req.PropertyName, targetProp)
-	if err != nil {
-		return SubmitResult{}, err
-	}
-
-	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
-	semantic := dbreindex.IsSemanticMigration(migrationType)
-
-	if !isMT && len(req.Tenants) > 0 {
-		return SubmitResult{}, fmt.Errorf("%w: tenants parameter is only valid for multi-tenant collections", ErrBadRequest)
-	}
-	if semantic && len(req.Tenants) > 0 {
-		return SubmitResult{}, fmt.Errorf("%w: tenants parameter cannot be used with semantic migrations (change-tokenization); all tenants must be targeted", ErrBadRequest)
-	}
-
-	if isMT && len(req.Tenants) > 0 {
-		if err := ValidateTenants(ctx, s.deps.DB, req.Collection, req.Tenants); err != nil {
-			return SubmitResult{}, errors.Join(ErrBadRequest, err)
-		}
-	}
-
-	var shardOwnership map[string][]string
-	if isMT {
-		shardOwnership, err = s.deps.DB.ShardReplicaOwnershipForMT(ctx, req.Collection, req.Tenants)
-	} else {
-		shardOwnership, err = s.deps.DB.ShardReplicaOwnership(ctx, req.Collection)
-	}
-	if err != nil {
-		return SubmitResult{}, fmt.Errorf("getting shard ownership: %w", err)
-	}
-	if len(shardOwnership) == 0 {
-		return SubmitResult{}, fmt.Errorf("%w: collection has no shards", ErrBadRequest)
-	}
-
-	unitIDs, unitToShard, unitToNode := BuildUnitMaps(shardOwnership)
-
-	// Capture the property's tokenization at submit-time so a
-	// post-restart FSM-replay of an older task can't override a newer
-	// task's already-applied schema flip. See OriginalTokenization on
-	// ReindexTaskPayload for the full rationale.
-	var originalTok string
-	if migrationType == dbreindex.ReindexTypeChangeTokenization ||
-		migrationType == dbreindex.ReindexTypeChangeTokenizationFilterable ||
-		migrationType == dbreindex.ReindexTypeEnableSearchable {
-		originalTok = targetProp.Tokenization
-	}
-
-	payload := dbreindex.ReindexTaskPayload{
-		MigrationType:        migrationType,
-		Collection:           req.Collection,
-		Properties:           properties,
-		TargetTokenization:   targetTok,
-		OriginalTokenization: originalTok,
-		BucketStrategy:       bucketStrategy,
-		Tenants:              req.Tenants,
-		UnitToNode:           unitToNode,
-		UnitToShard:          unitToShard,
-	}
-
-	// Human-readable task ID: "Collection:migration-type:property:ab3f".
-	suffix := shortRandomSuffix()
-	taskID := fmt.Sprintf("%s:%s:%s", req.Collection, migrationType, suffix)
-	if len(properties) > 0 {
-		taskID = fmt.Sprintf("%s:%s:%s:%s", req.Collection, migrationType, properties[0], suffix)
-	}
-
-	if s.deps.Cluster == nil {
-		return SubmitResult{}, fmt.Errorf("%w: cluster service unavailable", ErrServiceUnavailable)
-	}
-
-	tasks, listErr := s.deps.Cluster.ListDistributedTasks(ctx)
-	if listErr == nil {
-		reason, checkErr := CheckReindexConflict(req.Collection, migrationType, properties, tasks[dbreindex.ReindexNamespace])
-		if checkErr != nil {
-			return SubmitResult{}, errors.Join(ErrServiceUnavailable, checkErr)
-		}
-		if reason != "" {
-			return SubmitResult{}, fmt.Errorf("%w: %s", ErrConflict, reason)
-		}
-		if inflight := CountStartedTasksForCollection(req.Collection, tasks[dbreindex.ReindexNamespace]); inflight >= MaxConcurrentReindexPerCollection {
-			return SubmitResult{}, fmt.Errorf("%w: collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
-				ErrServiceUnavailable, req.Collection, inflight, MaxConcurrentReindexPerCollection)
-		}
-	}
-
-	// Defense in depth against the CANCEL→retry silent failure
-	// (same Sev 1 family as DELETE→re-enable): if a previous
-	// cancelled run left stale .migrations/<dir>/started.mig +
-	// __reindex/__ingest sidecars on disk, the new task would resume
-	// against them and finish in <1s with a 50-entry no-op, flipping
-	// the schema flag while reporting success against an empty bucket.
-	if indexTypesForCleanup, indexTypeKnown := IndexTypesFromMigrationType(migrationType); indexTypeKnown {
-		for _, it := range indexTypesForCleanup {
-			if err := s.deps.DB.CleanStalePartialReindexState(ctx, req.Collection, req.PropertyName, it); err != nil {
-				s.logger.WithFields(logrus.Fields{
-					"collection":     req.Collection,
-					"property":       req.PropertyName,
-					"migration_type": migrationType,
-					"index_type":     it,
-				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
-			}
-		}
-	}
-
-	if isMT && semantic {
-		unitSpecs := BuildUnitSpecs(shardOwnership)
-		if err := s.deps.Cluster.AddDistributedTaskWithGroupsBarrier(
-			ctx, dbreindex.ReindexNamespace, taskID, payload, unitSpecs, semantic,
-		); err != nil {
-			return SubmitResult{}, fmt.Errorf("submitting task: %w", err)
-		}
-	} else {
-		if err := s.deps.Cluster.AddDistributedTaskWithBarrier(
-			ctx, dbreindex.ReindexNamespace, taskID, payload, unitIDs, semantic,
-		); err != nil {
-			return SubmitResult{}, fmt.Errorf("submitting task: %w", err)
-		}
-	}
-
-	s.logger.WithFields(logrus.Fields{
-		"audit_event":    "reindex_task_submitted",
-		"taskID":         taskID,
-		"collection":     req.Collection,
-		"property":       req.PropertyName,
-		"migration_type": migrationType,
-		"principal":      req.PrincipalUsername,
-	}).Info("reindex provider: submitted task")
-
-	return SubmitResult{TaskID: taskID, Status: "STARTED"}, nil
-}
-
-func (s *Service) dispatchMigration(
-	body *models.IndexUpdateRequest,
-	class *models.Class,
-	collection, propertyName string,
-	targetProp *models.Property,
-) (migrationType dbreindex.ReindexMigrationType, properties []string, targetTok, bucketStrategy string, err error) {
-	switch {
-	// enable-searchable must be matched BEFORE change-tokenization: an
-	// enable request carries tokenization in the same body, but a
-	// property that has no searchable index yet cannot have its
-	// tokenization "changed" — ValidateTokenizationChange would fail
-	// looking for a non-existent searchable bucket.
-	case body.Searchable != nil && body.Searchable.Enabled:
-		targetTok = body.Searchable.Tokenization
-		if err := ValidateEnableSearchableProperty(targetProp, targetTok); err != nil {
-			return "", nil, "", "", errors.Join(ErrBadRequest, err)
-		}
-		return dbreindex.ReindexTypeEnableSearchable, []string{propertyName}, targetTok, "", nil
-
-	case body.Searchable != nil && body.Searchable.Tokenization != "":
-		targetTok = body.Searchable.Tokenization
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return "", nil, "", "", fmt.Errorf("%w: property %q has no searchable index; use {\"filterable\":{\"tokenization\":...}} to retokenize the filterable bucket, or {\"searchable\":{\"enabled\":true,\"tokenization\":...}} to add a searchable index",
-				ErrBadRequest, propertyName)
-		}
-		bucketStrategy, err := ValidateTokenizationChange(s.deps.DB, class, collection, propertyName, targetTok)
-		if err != nil {
-			return "", nil, "", "", errors.Join(ErrBadRequest, err)
-		}
-		return dbreindex.ReindexTypeChangeTokenization, []string{propertyName}, targetTok, bucketStrategy, nil
-
-	case body.Filterable != nil && body.Filterable.Tokenization != "":
-		targetTok = body.Filterable.Tokenization
-		if err := ValidateFilterableTokenizationChange(targetProp, targetTok); err != nil {
-			return "", nil, "", "", errors.Join(ErrBadRequest, err)
-		}
-		return dbreindex.ReindexTypeChangeTokenizationFilterable, []string{propertyName}, targetTok, "", nil
-
-	case body.Searchable != nil && body.Searchable.Rebuild:
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return "", nil, "", "", fmt.Errorf("%w: property %q has no searchable index", ErrBadRequest, propertyName)
-		}
-		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return "", nil, "", "", fmt.Errorf("%w: cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first", ErrBadRequest)
-		}
-		return dbreindex.ReindexTypeRebuildSearchable, []string{propertyName}, "", "", nil
-
-	case body.Searchable != nil && body.Searchable.Algorithm != "":
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return "", nil, "", "", fmt.Errorf("%w: property %q has no searchable index", ErrBadRequest, propertyName)
-		}
-		if normalised := NormalizeSearchableAlgorithm(body.Searchable.Algorithm); normalised == "" {
-			return "", nil, "", "", fmt.Errorf("%w: unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
-				ErrBadRequest, body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)
-		}
-		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return "", nil, "", "", fmt.Errorf("%w: searchable index is already on blockmax", ErrBadRequest)
-		}
-		return dbreindex.ReindexTypeChangeAlgorithm, []string{propertyName}, "", "", nil
-
-	case body.Filterable != nil && body.Filterable.Enabled:
-		if err := ValidateEnableFilterableProperty(targetProp); err != nil {
-			return "", nil, "", "", errors.Join(ErrBadRequest, err)
-		}
-		return dbreindex.ReindexTypeEnableFilterable, []string{propertyName}, "", "", nil
-
-	case body.Filterable != nil && body.Filterable.Rebuild:
-		if targetProp.IndexFilterable != nil && !*targetProp.IndexFilterable {
-			return "", nil, "", "", fmt.Errorf("%w: property %q does not have a filterable index", ErrBadRequest, propertyName)
-		}
-		if err := ValidateRebuildFilterableDataType(targetProp); err != nil {
-			return "", nil, "", "", errors.Join(ErrBadRequest, err)
-		}
-		return dbreindex.ReindexTypeRepairFilterable, []string{propertyName}, "", "", nil
-
-	case body.Rangeable != nil && body.Rangeable.Enabled:
-		props := []string{propertyName}
-		if err := ValidateRangeableProperties(class, props); err != nil {
-			return "", nil, "", "", errors.Join(ErrBadRequest, err)
-		}
-		return dbreindex.ReindexTypeEnableRangeable, props, "", "", nil
-
-	case body.Rangeable != nil && body.Rangeable.Rebuild:
-		if err := ValidateRebuildRangeableProperty(targetProp); err != nil {
-			return "", nil, "", "", errors.Join(ErrBadRequest, err)
-		}
-		return dbreindex.ReindexTypeRepairRangeable, []string{propertyName}, "", "", nil
-	}
-
-	// Should be unreachable: ValidateBodyExclusivity rejects empty
-	// bodies. Defensive — the verb list mirrors the one in
-	// ValidateBodyExclusivity.
-	return "", nil, "", "", fmt.Errorf("%w: no actionable change detected", ErrBadRequest)
-}
+// StatusCancelled is the wire status for a cancel that reached an
+// in-flight task.
+const StatusCancelled = "CANCELLED"
 
 // reindexCancelDrainTimeout caps how long Cancel waits for the local
 // reindex goroutine to exit before falling back to "let the next
-// submit clean up".
+// submit clean up". 10s matches the DTM scheduler's analogous waits.
 const reindexCancelDrainTimeout = 10 * time.Second
 
+// FindCancelTargetTask returns the in-flight (STARTED/PREPARING/
+// SWAPPING) reindex task matching (collection, propertyName,
+// indexType), or nil. A non-STARTED match is still a cancel target;
+// the FSM turns "not running" into a NO_OP, not an error.
+func FindCancelTargetTask(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, dbreindex.ReindexTaskPayload) {
+	task, payload, _ := FirstActiveReindexTask(tasks, DecodeSkip, func(p dbreindex.ReindexTaskPayload) bool {
+		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propertyName) {
+			return false
+		}
+		matches, _ := MigrationTypeTargetsIndex(p.MigrationType, indexType)
+		return matches
+	})
+	return task, payload
+}
+
+// Cancel finds the in-flight reindex task targeting (collection,
+// propertyName, indexType) and asks DTM to cancel it.
+//
+// Idempotent: the caller is expected to have already verified that the
+// (collection, property) tuple exists (a missing class or property is
+// the handler's 404). So "no task in flight" returns
+// SubmitResult{Status: StatusNoOp} with an empty TaskID, which the
+// handler renders as 202 — NOT a 404. A target the FSM reports as no
+// longer running ([distributedtask.ErrTaskNotRunning]) is the same
+// idempotent NO_OP rather than a 500.
+//
+// Returns [ErrServiceUnavailable] when the cluster service is not
+// wired; every other error is an unexpected failure the handler maps
+// to 500.
 func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexType, principalUsername string) (SubmitResult, error) {
 	if s.deps.Cluster == nil {
 		return SubmitResult{}, fmt.Errorf("%w: cluster service unavailable; cannot cancel reindex task", ErrServiceUnavailable)
@@ -349,42 +107,38 @@ func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexTyp
 		return SubmitResult{}, fmt.Errorf("listing tasks: %w", err)
 	}
 
-	var target *distributedtask.Task
-	var targetPayload dbreindex.ReindexTaskPayload
-	for _, task := range tasks[dbreindex.ReindexNamespace] {
-		if task.Status != distributedtask.TaskStatusStarted {
-			continue
-		}
-		var payload dbreindex.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		if !strings.EqualFold(payload.Collection, collection) {
-			continue
-		}
-		if !slices.Contains(payload.Properties, propertyName) {
-			continue
-		}
-		if matches, _ := MigrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
-			continue
-		}
-		target = task
-		targetPayload = payload
-		break
-	}
+	target, targetPayload := FindCancelTargetTask(tasks[dbreindex.ReindexNamespace], collection, propertyName, indexType)
 
 	if target == nil {
 		// M6 contract: cancel is idempotent. Nothing in flight → 202 with
 		// Status: NO_OP and no TaskID, NOT a 404. 404 stays reserved for
-		// "collection or property does not exist" (caught above this branch).
-		// Pinned by TestBackupVsReindexSuite/CancelOnNoInFlightReturns202NoOp
-		// and TestSingleNode_ReindexSuite/CancelReindex/CancelWhenNoTaskInFlight.
+		// "collection or property does not exist" (the handler's job).
+		s.logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_task_cancel_noop",
+			"collection":  collection,
+			"property":    propertyName,
+			"index_type":  indexType,
+			"principal":   principalUsername,
+		}).Info("cancel: no in-flight task to cancel; returning NO_OP")
 		return SubmitResult{Status: StatusNoOp}, nil
 	}
 
 	if err := s.deps.Cluster.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
+		// A PREPARING/SWAPPING or already-completed target makes the FSM
+		// reject with ErrTaskNotRunning: nothing to cancel, so NO_OP, not 500.
+		if errors.Is(err, distributedtask.ErrTaskNotRunning) {
+			s.logger.WithFields(logrus.Fields{
+				"audit_event": "reindex_task_cancel_noop",
+				"collection":  collection,
+				"property":    propertyName,
+				"index_type":  indexType,
+				"taskID":      target.ID,
+				"principal":   principalUsername,
+			}).Info("cancel: task no longer running; returning NO_OP")
+			return SubmitResult{Status: StatusNoOp}, nil
+		}
 		return SubmitResult{}, fmt.Errorf("cancelling task: %w", err)
 	}
 
@@ -409,6 +163,17 @@ func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexTyp
 				"index_type": indexType,
 			}).Errorf("cancel: timed out waiting for local reindex goroutine to drain (%v); skipping inline cleanup — next submit will retry", drainErr)
 		} else {
+			s.logger.WithFields(logrus.Fields{
+				"taskID":     target.ID,
+				"collection": collection,
+				"property":   propertyName,
+				"index_type": indexType,
+			}).Info("cancel: drain complete, running on-disk cleanup")
+			// Wipe the sidecars and migration directories for every
+			// indexType this migration touches — change-tokenization
+			// spawns both a searchable and a filterable strategy under
+			// one task, so cleaning only the URL's indexType leaves the
+			// sibling orphaned.
 			indexTypesToClean, known := IndexTypesFromMigrationType(targetPayload.MigrationType)
 			if !known || len(indexTypesToClean) == 0 {
 				indexTypesToClean = []string{indexType}
@@ -446,21 +211,22 @@ func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexTyp
 	}
 
 	s.logger.WithFields(logrus.Fields{
-		"audit_event": "reindex_task_cancelled",
-		"taskID":      target.ID,
-		"collection":  collection,
-		"property":    propertyName,
-		"index_type":  indexType,
-		"principal":   principalUsername,
+		"audit_event":    "reindex_task_cancelled",
+		"taskID":         target.ID,
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"migration_type": targetPayload.MigrationType,
+		"principal":      principalUsername,
 	}).Info("reindex provider: cancelled task")
 
-	return SubmitResult{TaskID: target.ID, Status: "CANCELLED"}, nil
+	return SubmitResult{TaskID: target.ID, Status: StatusCancelled}, nil
 }
 
-// shortRandomSuffix deduplicates otherwise identical task IDs submitted
+// ShortRandomSuffix deduplicates otherwise identical task IDs submitted
 // back-to-back.
-func shortRandomSuffix() string {
-	b := make([]byte, 2)
+func ShortRandomSuffix() string {
+	b := make([]byte, 2) // 4 hex chars
 	if _, err := rand.Read(b); err != nil {
 		return "0000"
 	}

@@ -14,6 +14,7 @@ package reindex
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -28,6 +29,16 @@ type Deps struct {
 	SchemaManager SchemaManager
 	Provider      ReindexProviderOps
 	SubmitLocks   SubmitLocker
+	// DeleteMarkers lets [Service.CollectionStatus] suppress the
+	// finalize-window "indexing@100%" bleed for a just-deleted index.
+	// Node-local and best-effort; nil disables the suppression.
+	DeleteMarkers DeleteMarkerReader
+}
+
+// DeleteMarkerReader reports when a property-index DELETE was last
+// accepted on this node. *state.ReindexDeleteMarkers satisfies it.
+type DeleteMarkerReader interface {
+	LastDeleted(collection, property, indexType string) time.Time
 }
 
 // SubmitLocker hands out per-(collection, property) mutexes. The
@@ -52,7 +63,6 @@ type ClusterService interface {
 // method is small.
 type DatabaseOps interface {
 	ShardOwnershipReader
-	SearchableBucketStrategyReader
 	CleanStalePartialReindexState(ctx context.Context, collection, propName, indexType string) error
 }
 

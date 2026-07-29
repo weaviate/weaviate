@@ -55,9 +55,17 @@ func (v *Validator) vector(ctx context.Context, class *models.Class,
 
 	var incomingTargetVectors []string
 	for name := range incomingObject.Vectors {
-		_, ok := class.VectorConfig[name]
+		cfg, ok := class.VectorConfig[name]
 		if !ok {
 			return fmt.Errorf("collection %v does not have configuration for vector %s", class.Class, name)
+		}
+		// Reject dropped ("none"-marked) targets here, on the node receiving the
+		// request: the shard-level reject runs on the owner node, whose schema
+		// view can trail this node's during the drop's finalize propagation —
+		// without this check a write can slip through that window and persist
+		// vector bytes no cleanup will ever remove.
+		if modelsext.IsVectorIndexDropped(cfg) {
+			return fmt.Errorf("vector index for %s was dropped; writes targeting it are rejected", name)
 		}
 
 		incomingTargetVectors = append(incomingTargetVectors, name)

@@ -153,6 +153,32 @@ func (m *Manager) CheckTenantMutation(className string, tenants []string) error 
 	})
 }
 
+// CheckVectorConfigRemoval consults every registered [SchemaMutationDetector]
+// that also implements [VectorConfigRemovalGate]. Called from the schema FSM's
+// UpdateClass apply; a non-nil error rejects the update. Same RAFT-determinism
+// contract as [Manager.CheckClassMutation].
+func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors []string) error {
+	if len(removedVectors) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for namespace, detector := range m.schemaMutationDetectors {
+		gate, ok := detector.(VectorConfigRemovalGate)
+		if !ok {
+			continue
+		}
+		var existing []*Task
+		for _, t := range m.tasks[namespace] {
+			existing = append(existing, t)
+		}
+		if err := gate.CheckVectorConfigRemoval(className, removedVectors, existing); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
 // CheckClassMutation / CheckTenantMutation. Walks every registered
 // [SchemaMutationDetector], hands it the namespace-scoped task list,
@@ -307,7 +333,10 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			existing = append(existing, t)
 		}
 		if err := cd.CheckConflict(r.Payload, existing); err != nil {
-			return fmt.Errorf("task %s/%s conflicts with existing task: %w", r.Namespace, r.Id, err)
+			// Wrap the permanent-rejection sentinel (see [ErrTaskConflict]) so
+			// the REST submit path classifies this as 409, not 500.
+			return wrapPermanent(ErrTaskConflict,
+				fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
 		}
 	}
 
@@ -687,6 +716,53 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	// FinalizedAtUnixMillis on the request is left in place for forensic
 	// purposes (visible in RAFT logs) but not stored on the Task.
 	task.Status = TaskStatusFinished
+	m.notifySchedulerWithLock()
+	return nil
+}
+
+// MarkTaskFailed transitions SWAPPING → FAILED when a node's
+// [UnitAwareProvider.OnTaskCompleted] returns a terminal error, so a
+// swallowed cutover failure can't leave the task FINISHED with an
+// un-flipped schema (weaviate/0-weaviate-issues#297).
+//
+// Idempotent at the FSM layer: the first commit wins; a later call on an
+// already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
+// is refused. FinishedAt stays at the AllUnitsTerminal moment.
+func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
+	var r api.MarkTaskFailedRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal mark task failed request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	switch task.Status {
+	case TaskStatusFailed:
+		// Idempotent: another node's MarkTaskFailed already committed.
+		return nil
+	case TaskStatusSwapping:
+	default:
+		// FINISHED / CANCELLED / STARTED — refuse so a stale command can't
+		// overwrite a terminal status a peer (or the operator) committed.
+		return wrapPermanent(ErrTaskNotInFinalizingState,
+			fmt.Sprintf("task %s/%s/%d cannot be failed from status %s",
+				r.Namespace, r.Id, task.Version, task.Status))
+	}
+
+	task.Status = TaskStatusFailed
+	if r.Error != "" {
+		if task.Error != "" {
+			task.Error = task.Error + "; " + r.Error
+		} else {
+			task.Error = r.Error
+		}
+	}
 	m.notifySchedulerWithLock()
 	return nil
 }

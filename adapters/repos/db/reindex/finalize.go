@@ -117,10 +117,42 @@ func MaxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 // [MigrationDirsForPropertyIndex] for the (propName, indexType) tuple.
 func CompletedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 	out := map[int]bool{}
+	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+		out[gen] = true
+	})
+	return out
+}
+
+// CompletedMigrationSidecarSuffixes returns the gen-suffixed sidecar dir
+// suffixes (e.g. "__roaringset_ingest_2") owned by completed-but-deferred
+// migrations matching `prefixes`. Keying by (suffix-base, gen) instead of
+// bare gen stops one strategy's completed gen from shielding — or failing
+// to shield — a different strategy's sidecar at the same gen (issue #295).
+func CompletedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[string]bool {
+	out := map[string]bool{}
+	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+		suffixes := MigrationSuffixes(base)
+		if suffixes == nil {
+			return
+		}
+		tail := GenSuffix(gen)
+		out[suffixes.IngestSuffix+tail] = true
+		out[suffixes.BackupSuffix+tail] = true
+		if rs := ReindexSuffixForFinalize(base); rs != "" {
+			out[rs+tail] = true
+		}
+	})
+	return out
+}
+
+// forEachCompletedMigration invokes fn for every tracker dir under
+// lsmPath/.migrations matching `prefixes` that carries tidied.mig or
+// merged.mig (completed in-process, awaiting next-restart finalize).
+func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base string, gen int)) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		return out
+		return
 	}
 	prefixSet := map[string]bool{}
 	for _, p := range prefixes {
@@ -139,10 +171,9 @@ func CompletedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 		}
 		dirPath := filepath.Join(migrationsDir, entry.Name())
 		if FileExistsInDir(dirPath, "tidied.mig") || FileExistsInDir(dirPath, "merged.mig") {
-			out[gen] = true
+			fn(base, gen)
 		}
 	}
-	return out
 }
 
 // FileExistsInDir is a small helper for [CompletedMigrationGens]; returns

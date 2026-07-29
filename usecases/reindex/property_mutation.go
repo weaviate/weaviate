@@ -37,7 +37,7 @@ import (
 // error would be worse than the rare doubled-RAFT-then-rejected
 // pattern.
 func (s *Service) PropertyMutationConflict(ctx context.Context, className, propertyName string) string {
-	if s.deps.Cluster == nil {
+	if s == nil || s.deps.Cluster == nil {
 		return ""
 	}
 	tasksByNamespace, err := s.deps.Cluster.ListDistributedTasks(ctx)
@@ -57,10 +57,18 @@ func (s *Service) PropertyMutationConflict(ctx context.Context, className, prope
 			// Unparseable payload in flight is a hard reject reason on
 			// the apply side; mirror that here so the REST caller
 			// doesn't get a spurious "ok-then-FAILED" two-step.
+			//
+			// This fires BEFORE the collection filter, so task.ID may name a
+			// namespace the caller can't see (StripErrorMessage strips only the
+			// caller's own). Log it server-side instead.
+			if s.logger != nil {
+				s.logger.WithField("task_id", task.ID).
+					Errorf("refusing property mutation on %s.%s: in-flight reindex task has an unparseable payload: %v", className, propertyName, err)
+			}
 			return fmt.Sprintf(
-				"in-flight reindex task %q has unparseable payload; "+
-					"refusing property mutation on %s.%s until the task "+
-					"is inspected", task.ID, className, propertyName)
+				"an in-flight reindex task has an unparseable payload; "+
+					"refusing property mutation on %s.%s until an operator "+
+					"inspects the task store", className, propertyName)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue

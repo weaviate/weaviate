@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -60,12 +61,18 @@ type compactorReplace struct {
 	// that writeDirectly does not need a second O(N) scan over the keys.
 	primaryIndexSize int64
 	secIndexSizes    []int64
+
+	// valueTransformer, when set, rewrites each non-tombstone value before it is
+	// written to the merged segment (e.g. to strip a dropped vector). nil means
+	// no active edit operation, in which case values pass through untouched.
+	valueTransformer valueTransformer
 }
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplaceReusable, level, secondaryIndexCount uint16,
 	cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	valueTransformer valueTransformer,
 ) *compactorReplace {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -95,10 +102,11 @@ func newCompactorReplace(w io.WriteSeeker,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,
 		secIndexSizes:            secIndexSizes,
+		valueTransformer:         valueTransformer,
 	}
 }
 
-func (c *compactorReplace) do() error {
+func (c *compactorReplace) do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return fmt.Errorf("init: %w", err)
 	}
@@ -108,7 +116,7 @@ func (c *compactorReplace) do() error {
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
-	kis, err := c.writeKeys(segmentFile)
+	kis, err := c.writeKeys(ctx, segmentFile)
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
 	}
@@ -154,7 +162,7 @@ func (c *compactorReplace) init() error {
 	return nil
 }
 
-func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (c *compactorReplace) writeKeys(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	res1, err1 := c.c1.first()
 	res2, err2 := c.c2.first()
 
@@ -163,7 +171,13 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 
 	kis := make([]segmentindex.Key, 0, c.c1.keyCount()+c.c2.keyCount())
 
-	for {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("merge keys: %w", err)
+			}
+		}
+
 		var key1, key2 []byte
 		if res1 != nil {
 			key1 = res1.primaryKey
@@ -250,6 +264,17 @@ func (c *compactorReplace) accumulateIndexSizes(ki segmentindex.Key) {
 func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 	offset int, key, value []byte, secondaryKeys [][]byte, tombstone bool,
 ) (segmentindex.Key, error) {
+	// Rewrite live values through the active edit transformer before they hit
+	// the merged segment. Tombstones and empty payloads carry nothing to
+	// transform, so they are skipped.
+	if c.valueTransformer != nil && !tombstone && len(value) > 0 {
+		transformed, err := c.valueTransformer(value)
+		if err != nil {
+			return segmentindex.Key{}, fmt.Errorf("transform value: %w", err)
+		}
+		value = transformed
+	}
+
 	// Copy key bytes into stable arena memory. The reusable cursor reuses its
 	// internal buffers on every next() call, so ki.Key / ki.SecondaryKeys stored
 	// in the kis slice would otherwise be corrupted on the next iteration.

@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"testing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -24,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -32,6 +32,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -74,11 +75,31 @@ func (f *IndexFixture) StoreShard(name string, shard ShardLike) {
 
 func (f *IndexFixture) Logger() logrus.FieldLogger { return f.Index.logger }
 
+// Drop runs the production class-DELETE path (beginClose + rename the
+// class dir away). Sibling test packages cannot reach Index.drop, and
+// DB.DeleteIndex is not a substitute here: the fixture builds its index
+// directly rather than registering it, so DeleteIndex finds nothing and
+// returns nil without dropping anything.
+func (f *IndexFixture) Drop() error { return f.Index.drop() }
+
 // BuildIndexFixture wires up a single-shard (or single-tenant)
 // [*Index] backed by a tmpdir-rooted [*DB]; cleanup runs via
 // [t.TempDir]. Exposed for sibling-package tests that can't reach
 // db's unexported fields.
-func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts) *IndexFixture {
+// TB is the subset of *testing.T this fixture needs. Declared locally so
+// package db's production build does not import "testing"; *testing.T
+// satisfies it, and Errorf+FailNow are what testify's require calls
+// through. Widen it only when a call site here actually needs more.
+type TB interface {
+	Helper()
+	TempDir() string
+	Cleanup(func())
+	Logf(format string, args ...any)
+	Errorf(format string, args ...any)
+	FailNow()
+}
+
+func BuildIndexFixture(t TB, ctx context.Context, opts IndexFixtureOpts) *IndexFixture {
 	t.Helper()
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -108,7 +129,12 @@ func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	// Shard.AnyActiveMovement (consulted on the scheduler goroutine when the
+	// vector index is ready for compression) reads this. Without a stub the
+	// unexpected call would FailNow → runtime.Goexit on the scheduler goroutine,
+	// leaking the queue's scheduled gauge and hanging DiskQueue.Pause forever.
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
@@ -119,6 +145,7 @@ func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts)
 		MaxImportGoroutinesFactor: 1,
 		EnableLazyLoadShards:      func() *bool { b := true; return &b }(),
 		AsyncIndexingEnabled:      opts.WithAsyncIndexingEnabled,
+		HaltForTransferTimeout:    config.DefaultHaltForTransferTimeout,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -189,11 +216,12 @@ func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts)
 
 	idx := &Index{
 		Config: IndexConfig{
-			EnableLazyLoadShards: true,
-			RootPath:             tmpDir,
-			ClassName:            schema.ClassName(opts.Class.Class),
-			QueryMaximumResults:  maxResults,
-			ReplicationFactor:    1,
+			EnableLazyLoadShards:   true,
+			RootPath:               tmpDir,
+			ClassName:              schema.ClassName(opts.Class.Class),
+			QueryMaximumResults:    maxResults,
+			ReplicationFactor:      1,
+			HaltForTransferTimeout: config.DefaultHaltForTransferTimeout,
 		},
 		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
@@ -212,6 +240,7 @@ func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts)
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         reindex.NewShardReindexerV3Noop(),
+		bitmapBufPool:          roaringset.NewBitmapBufPoolNoop(),
 		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,

@@ -452,13 +452,11 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 	clsA := articles.ArticlesClass()
 	clsA.ReplicationConfig = &models.ReplicationConfig{
-		Factor:       3,
-		AsyncEnabled: true,
+		Factor: 3,
 	}
 	clsP := articles.ParagraphsClass()
 	clsP.ReplicationConfig = &models.ReplicationConfig{
-		Factor:       3,
-		AsyncEnabled: true,
+		Factor: 3,
 	}
 
 	setupClasses := func() func() {

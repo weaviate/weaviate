@@ -69,15 +69,23 @@ func (s *RebuildSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket
 func (s *RebuildSearchableStrategy) ShouldProcessProperty(_ *inverted.Property) bool { return true }
 
 func (s *RebuildSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, _ bool,
+	propsByName map[string]struct{}, forTargetStrategy bool,
 ) OnAddToPropertyValueIndex {
-	return blockmaxSearchableAddCallback(bucketNamer, propsByName)
+	var swapFallbackNamer func(string) string
+	if forTargetStrategy {
+		swapFallbackNamer = s.SourceBucketName
+	}
+	return blockmaxSearchableAddCallback(bucketNamer, propsByName, swapFallbackNamer)
 }
 
 func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, _ bool,
+	propsByName map[string]struct{}, forTargetStrategy bool,
 ) OnDeleteFromPropertyValueIndex {
-	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName)
+	var swapFallbackNamer func(string) string
+	if forTargetStrategy {
+		swapFallbackNamer = s.SourceBucketName
+	}
+	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName, swapFallbackNamer)
 }
 
 // PreReindexHook is a no-op — the target BlockMax bucket already exists
@@ -85,7 +93,7 @@ func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) 
 func (s *RebuildSearchableStrategy) PreReindexHook(_ ShardLike, _ []string) {}
 
 // AnalyzerOverlay returns nil — rebuild MUST NOT change tokenization
-// (that's a separate verb: {searchable:{tokenization:X}}).
+// (that's a separate operation: PUT .../index/searchable {"tokenization":X}).
 func (s *RebuildSearchableStrategy) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
 	return nil
 }

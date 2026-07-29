@@ -83,8 +83,8 @@ func TestRestorBQ_Integration(t *testing.T) {
 		Logger:           logger,
 		DistanceProvider: distancer,
 		AllocChecker:     memwatch.NewDummyMonitor(),
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(dirName, indexID, logger, noopCallback)
+		MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(dirName, indexID, logger, noopCallback, opts...)
 		},
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			vec := vectors[int(id)]
@@ -167,6 +167,18 @@ func TestRestoreQuantization_Integration(t *testing.T) {
 			indexID:             "restore-quantization-test",
 		},
 		{
+			name: "RQ_4bit",
+			setupConfig: func(uc *hnswent.UserConfig) {
+				uc.RQ = hnswent.RQConfig{
+					Enabled: true,
+					Bits:    4,
+				}
+			},
+			expectedDims:        int32(dimensions),
+			expectedCompression: true,
+			indexID:             "restore-quantization-test",
+		},
+		{
 			name: "RQ_8bit",
 			setupConfig: func(uc *hnswent.UserConfig) {
 				uc.RQ = hnswent.RQConfig{
@@ -214,8 +226,8 @@ func TestRestoreQuantization_Integration(t *testing.T) {
 				ID:               tt.indexID,
 				Logger:           logger,
 				DistanceProvider: distancer,
-				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-					return hnsw.NewCommitLogger(dirName, tt.indexID, logger, noopCallback)
+				MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+					return hnsw.NewCommitLogger(dirName, tt.indexID, logger, noopCallback, opts...)
 				},
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					if int(id) >= len(vectors) {

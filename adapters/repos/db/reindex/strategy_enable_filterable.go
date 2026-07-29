@@ -96,12 +96,11 @@ func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) stri
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — it's false on the target
 		// property until OnMigrationComplete flips it.
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := shard.AddToPropertySetBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
@@ -115,12 +114,11 @@ func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) OnDeleteFromPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := shard.DeleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)

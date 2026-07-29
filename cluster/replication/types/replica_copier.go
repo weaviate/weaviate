@@ -14,6 +14,7 @@ package types
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -21,10 +22,13 @@ import (
 // ReplicaCopier see cluster/replication/copier.Copier
 type ReplicaCopier interface {
 	// CopyReplicaFiles see cluster/replication/copier.Copier.CopyReplicaFiles
-	CopyReplicaFiles(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
+	CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
 
 	// LoadLocalShard see cluster/replication/copier.Copier.LoadLocalShard
 	LoadLocalShard(ctx context.Context, collectionName, shardName string) error
+
+	// DropLocalShard see cluster/replication/copier.Copier.DropLocalShard
+	DropLocalShard(ctx context.Context, collectionName, shardName string) error
 
 	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
 	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error
@@ -42,7 +46,7 @@ type ReplicaCopier interface {
 	AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error)
 
 	// StartChangeCapture see cluster/replication/copier.Copier.StartChangeCapture
-	StartChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error
+	StartChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string, schemaVersion uint64) error
 
 	// TailAndApply see cluster/replication/copier.Copier.TailAndApply
 	TailAndApply(ctx context.Context, srcNodeId, indexName, shardName, opID string, untilLSN uint64) (lastAppliedLSN uint64, err error)
@@ -55,4 +59,8 @@ type ReplicaCopier interface {
 
 	// StopChangeCapture see cluster/replication/copier.Copier.StopChangeCapture
 	StopChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error
+
+	// ReleaseReplicaSnapshot is the cancellation-path cleanup for snapshots
+	// that escaped the CopyReplicaFiles release defer. Idempotent.
+	ReleaseReplicaSnapshot(ctx context.Context, srcNodeId, indexName, opID string) error
 }

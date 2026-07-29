@@ -167,6 +167,11 @@ func MergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		return
 	}
 
+	// Surface the driving task's ID on every task-driven entry; absent on
+	// a plain "ready" entry. A coupled searchable+filterable migration is
+	// one task, so both entries carry the same taskId.
+	idx.TaskID = best.ID
+
 	switch bestPayload.MigrationType {
 	case reindex.ReindexTypeEnableSearchable:
 		if bestPayload.TargetTokenization != "" {

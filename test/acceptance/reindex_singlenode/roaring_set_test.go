@@ -99,11 +99,13 @@ func testRoaringSetRefresh(t *testing.T, restURI string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
+			case <-ticker.C:
 			}
 			for i, bl := range roaringSetBaselines {
 				ids, err := roaringSetQuerySafe(t, roaringSetFilterQueries[i].where)
@@ -114,11 +116,10 @@ func testRoaringSetRefresh(t *testing.T, restURI string) {
 					queryFailures.Add(1)
 				}
 			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, roaringSetClassName, "category", `{"filterable":{"rebuild":true}}`)
+	taskID := reindexhelpers.RebuildIndex(t, restURI, roaringSetClassName, "category", "filterable")
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, roaringSetClassName, "category", "filterable")

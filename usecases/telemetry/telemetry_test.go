@@ -31,19 +31,25 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/config"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+)
+
+const (
+	testLangchainHeader = "langchain/0.3.0"
+	testMyIntegration   = "my-integration"
 )
 
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t, withClientTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 100,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
+			sm.EXPECT().GetSchemaSkipAuth().Return(
 				schema.Schema{
 					Objects: &models.Schema{Classes: []*models.Class{
 						{
@@ -151,14 +157,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t, withClientTracker(), withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
+			sm.EXPECT().GetSchemaSkipAuth().Return(
 				schema.Schema{
 					Objects: &models.Schema{Classes: []*models.Class{
 						{
@@ -198,6 +204,18 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			trackClientRequest(t, tel, "typescript", "weaviate-client-typescript/1.0.0")
 			trackClientRequest(t, tel, "go", "weaviate-client-go/1.0.0")
 			trackClientRequest(t, tel, "csharp", "weaviate-client-csharp/1.0.0")
+			// Track integrations to populate ClientIntegrationUsage
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "langchain", "0.2.0")
+
+			// Trackers process events asynchronously; wait for the integration
+			// counter to settle before the synchronous GetAndReset inside
+			// buildPayload reads it.
+			require.Eventually(t, func() bool {
+				snapshot := tel.integrationTracker.Get()
+				return snapshot["llamaindex"]["0.10.5"] == 2 && snapshot["langchain"]["0.2.0"] == 1
+			}, time.Second, 10*time.Millisecond)
 
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
 			assert.Nil(t, err)
@@ -224,15 +242,21 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeGo]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeCSharp])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeCSharp]["1.0.0"])
+			// UPDATE payloads should include integration usage data
+			assert.NotNil(t, payload.ClientIntegrationUsage)
+			assert.Equal(t, int64(2), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["langchain"]["0.2.0"])
 			// Verify tracker was reset after GetAndReset
 			currentCounts := tel.clientTracker.Get()
 			assert.Empty(t, currentCounts)
+			assert.Empty(t, tel.integrationTracker.Get())
 			assert.Nil(t, payload.CloudProvider)
 			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t, withClientTracker(), withIntegrationTracker())
+			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -245,6 +269,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
 			trackClientRequest(t, tel, "java", "weaviate-client-java/1.0.0")
 			trackClientRequest(t, tel, "typescript", "weaviate-client-typescript/1.0.0")
+			// Track integrations before terminate
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "dspy", "0.1.0")
+
+			require.Eventually(t, func() bool {
+				snapshot := tel.integrationTracker.Get()
+				return snapshot["llamaindex"]["0.10.5"] == 1 && snapshot["dspy"]["0.1.0"] == 1
+			}, time.Second, 10*time.Millisecond)
 
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, err)
@@ -263,19 +295,25 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
+			// TERMINATE payloads should include integration usage data
+			assert.NotNil(t, payload.ClientIntegrationUsage)
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["dspy"]["0.1.0"])
+			// Verify integration tracker was reset after GetAndReset
+			assert.Empty(t, tel.integrationTracker.Get())
 			assert.Nil(t, payload.CloudProvider)
 			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on update with no client usage", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter(t)
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
+			sm.EXPECT().GetSchemaSkipAuth().Return(
 				schema.Schema{
 					Objects: &models.Schema{Classes: []*models.Class{}},
 				})
@@ -289,7 +327,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 	t.Run("failure path", func(t *testing.T) {
 		t.Run("fail to get node status", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter(t)
+			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(nil)
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
@@ -298,7 +337,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("fail to get node status stats", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter(t)
+			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(&models.NodeStatus{})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
@@ -328,8 +368,9 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	opts := []telemetryOpt{
 		withConsumerURL(consumerURL),
 		withPushInterval(100 * time.Millisecond),
+		withClientTracker(),
 	}
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -338,7 +379,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 			},
 		})
 
-	sm.On("GetSchemaSkipAuth").Return(
+	sm.EXPECT().GetSchemaSkipAuth().Return(
 		schema.Schema{
 			Objects: &models.Schema{Classes: []*models.Class{
 				{
@@ -438,14 +479,14 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 
 func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	t.Run("on init with cloud info present", func(t *testing.T) {
-		tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
 					ObjectCount: 100,
 				},
 			})
-		sm.On("GetSchemaSkipAuth").Return(
+		sm.EXPECT().GetSchemaSkipAuth().Return(
 			schema.Schema{
 				Objects: &models.Schema{Classes: []*models.Class{
 					{
@@ -478,7 +519,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	})
 
 	t.Run("on update with only cloud provider present", func(t *testing.T) {
-		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
+		sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -503,7 +545,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	})
 
 	t.Run("on terminate with empty cloud info", func(t *testing.T) {
-		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
+		sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -530,7 +573,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 	server := httptest.NewServer(&gcpTestConsumer{t})
 	defer server.Close()
-	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newGCPCloudInfo(server.URL))
+	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newGCPCloudInfo(server.URL))
+	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -557,7 +601,8 @@ func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 	server := httptest.NewServer(&awsTestConsumer{t})
 	defer server.Close()
-	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newAWSCloudInfo(server.URL))
+	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newAWSCloudInfo(server.URL))
+	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -596,33 +641,61 @@ func withPushInterval(interval time.Duration) telemetryOpt {
 	}
 }
 
-func newTestTelemeter(opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+// withIntegrationTracker attaches a freshly-spawned IntegrationTracker so tests
+// that drive buildPayload can exercise the ClientIntegrationUsage field. Needed
+// because the default test telemeter is constructed with telemetryEnabled=false,
+// which skips IntegrationTracker creation to avoid a goroutine leak in disabled
+// deployments.
+func withIntegrationTracker() telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.integrationTracker = NewIntegrationTracker(tel.logger)
+	}
+}
+
+// withClientTracker attaches a freshly-spawned ClientTracker so tests that
+// drive buildPayload or directly invoke clientTracker.Track can exercise the
+// ClientUsage field. Needed because the default test telemeter is constructed
+// with telemetryEnabled=false, which skips ClientTracker creation to avoid a
+// goroutine leak in disabled deployments.
+func withClientTracker() telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.clientTracker = NewClientTracker(tel.logger)
+	}
+}
+
+func newTestTelemeter(t *testing.T, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter,
 ) {
 	sg := &fakeNodesStatusGetter{}
-	sm := &fakeSchemaManager{}
+	sm := schemaUC.NewMockSchemaGetter(t)
+	// Mirror the previous hand-written fake's default: a single node unless a
+	// test overrides it, so nodeCount assertions stay at 1 by default.
+	sm.EXPECT().Nodes().Return([]string{"node1"}).Maybe()
 	logger, _ := test.NewNullLogger()
-	// Pass empty url/duration to use defaults
-	tel := New(sg, sm, logger, "", 0, false)
+	// stubClusterID returns a fixed id so payloads carry clusterId in tests.
+	stubClusterID := func() string {
+		return "00000000-0000-7000-0000-000000000001"
+	}
+	tel := New(sg, sm, logger, "", 0, false, Config{ClusterID: stubClusterID})
 	for _, opt := range opts {
 		opt(tel)
 	}
 	return tel, sg, sm
 }
 
-func newTestTelemeterWithCloudInfo(opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager, *fakeCloudInfoProvider,
+func newTestTelemeterWithCloudInfo(t *testing.T, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter, *fakeCloudInfoProvider,
 ) {
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 	ci := &fakeCloudInfoProvider{}
 	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
 	return tel, sg, sm, ci
 }
 
-func newTestTelemeterWithCustomCloudInfo(ci cloudInfoProvider, opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+func newTestTelemeterWithCustomCloudInfo(t *testing.T, ci cloudInfoProvider, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter,
 ) {
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
 	return tel, sg, sm
 }
@@ -763,6 +836,7 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // trackClientRequest is a helper function to simulate a client request
 func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent string) {
+	require.NotNil(t, tel.clientTracker, "telemeter must be built with withClientTracker()")
 	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
 	if userAgent != "" {
 		req.Header.Set("User-Agent", userAgent)
@@ -781,6 +855,13 @@ func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent stri
 		req.Header.Set("X-Weaviate-Client", "weaviate-client-csharp/1.0.0")
 	}
 	tel.clientTracker.Track(req)
+}
+
+func trackIntegrationRequest(t *testing.T, tel *Telemeter, name, version string) {
+	require.NotNil(t, tel.integrationTracker, "telemeter must be built with withIntegrationTracker()")
+	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+	req.Header.Set("X-Weaviate-Client-Integration", name+"/"+version)
+	tel.integrationTracker.Track(req)
 }
 
 func TestClientTracker(t *testing.T) {
@@ -925,33 +1006,214 @@ func TestClientTracker(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewClientTracker(logger)
 
-		// Track some requests
 		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
 		pythonReq.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
 		tracker.Track(pythonReq)
 
-		// Verify we can get counts before stop
-		counts := tracker.Get()
-		assert.NotNil(t, counts)
-
-		// Stop the tracker
-		tracker.Stop()
-
-		// Get and GetAndReset should return nil after stop (not block forever)
-		assert.Nil(t, tracker.Get())
-		assert.Nil(t, tracker.GetAndReset())
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
 	})
 
 	t.Run("double Stop does not panic", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewClientTracker(logger)
+		testMapTrackerDoubleStop(t, tracker.inner)
+	})
+}
 
-		// Should not panic when called multiple times
-		assert.NotPanics(t, func() {
-			tracker.Stop()
-			tracker.Stop()
-			tracker.Stop()
+func TestIntegrationTracker(t *testing.T) {
+	t.Run("track and get integration counts", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		langchainReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		langchainReq.Header.Set(integrationHeaderKey, testLangchainHeader)
+
+		llamaIndexReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		llamaIndexReq.Header.Set(integrationHeaderKey, "llama-index/0.10.0")
+
+		tracker.Track(langchainReq)
+		tracker.Track(langchainReq)
+		tracker.Track(llamaIndexReq)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(2), counts["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts["llama-index"]["0.10.0"])
+
+		// Counts preserved after Get
+		counts2 := tracker.Get()
+		assert.Equal(t, int64(2), counts2["langchain"]["0.3.0"])
+
+		// GetAndReset returns and clears
+		counts3 := tracker.GetAndReset()
+		assert.Equal(t, int64(2), counts3["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts3["llama-index"]["0.10.0"])
+
+		counts4 := tracker.Get()
+		assert.Empty(t, counts4)
+	})
+
+	t.Run("accepts arbitrary integration names", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, "anydatahere/0.3.0")
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts["anydatahere"]["0.3.0"])
+	})
+
+	t.Run("drops events beyond maxIntegrationKeys distinct names", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		for i := 0; i < maxIntegrationKeys+10; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			req.Header.Set(integrationHeaderKey, fmt.Sprintf("integration-%d/1.0.0", i))
+			tracker.Track(req)
+		}
+
+		assert.Eventually(t, func() bool {
+			counts := tracker.Get()
+			return len(counts) == maxIntegrationKeys
+		}, time.Second, 10*time.Millisecond)
+	})
+
+	t.Run("drops events beyond maxIntegrationVersions per name", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		for i := 0; i < maxIntegrationVersions+10; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			req.Header.Set(integrationHeaderKey, fmt.Sprintf("langchain/%d.0.0", i))
+			tracker.Track(req)
+		}
+
+		assert.Eventually(t, func() bool {
+			counts := tracker.Get()
+			return len(counts["langchain"]) == maxIntegrationVersions
+		}, time.Second, 10*time.Millisecond)
+	})
+
+	t.Run("skips empty header", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		tracker.Track(req) // no header set
+
+		counts := tracker.Get()
+		assert.Empty(t, counts)
+	})
+
+	t.Run("tracks integration name only when no version provided", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, testMyIntegration)
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts[testMyIntegration]["unknown"])
+	})
+
+	t.Run("Get and GetAndReset return nil after Stop", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, testLangchainHeader)
+		tracker.Track(req)
+
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
+	})
+
+	t.Run("double Stop does not panic", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		testMapTrackerDoubleStop(t, tracker.inner)
+	})
+}
+
+func TestIdentifyIntegration(t *testing.T) {
+	testCases := []struct {
+		name            string
+		header          string
+		expectedName    string
+		expectedVersion string
+	}{
+		{
+			name:            "name and version",
+			header:          testLangchainHeader,
+			expectedName:    "langchain",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:            "arbitrary integration name",
+			header:          "anydatahere/0.3.0",
+			expectedName:    "anydatahere",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:         "name only (no version)",
+			header:       testMyIntegration,
+			expectedName: testMyIntegration,
+		},
+		{
+			name: "empty header",
+		},
+		{
+			name:   "whitespace only",
+			header: "   ",
+		},
+		{
+			name:            "header exceeding max length is truncated",
+			header:          strings.Repeat("a", maxClientHeaderLen+10) + "/1.0.0",
+			expectedName:    strings.Repeat("a", maxClientHeaderLen),
+			expectedVersion: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			if tc.header != "" {
+				req.Header.Set(integrationHeaderKey, tc.header)
+			}
+			name, version := identifyIntegration(req)
+			assert.Equal(t, tc.expectedName, name)
+			assert.Equal(t, tc.expectedVersion, version)
 		})
+	}
+}
+
+// testMapTrackerStopBehavior verifies that get and getAndReset return nil
+// after the tracker has been stopped. Uses the inner mapTracker directly
+// since this test file is in the same package.
+func testMapTrackerStopBehavior[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	inner.stop()
+	assert.Nil(t, inner.get())
+	assert.Nil(t, inner.getAndReset())
+}
+
+// testMapTrackerDoubleStop verifies that calling stop multiple times does not panic.
+func testMapTrackerDoubleStop[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	assert.NotPanics(t, func() {
+		inner.stop()
+		inner.stop()
+		inner.stop()
 	})
 }
 

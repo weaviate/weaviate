@@ -173,12 +173,17 @@ func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs helpers.Al
 	it := docIDs.Iterator()
 	defer it.Stop()
 
+	// Reused across iterations and grown to fit the largest object. Safe to reuse
+	// because createFromBytes copies every sort-key value out (string(...)) before
+	// the next lookup overwrites the buffer; it retains no slice into objData.
+	var lsmBuf []byte
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := h.bucket.GetBySecondary(ctx, 0, docIDBytes)
+		objData, newBuf, err := h.bucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, lsmBuf)
 		if err != nil {
 			return nil, errors.Wrapf(err, "lsm sorter - could not get obj by doc id %d", docID)
 		}
+		lsmBuf = newBuf
 		if objData == nil {
 			continue
 		}
@@ -196,12 +201,16 @@ func (h *lsmSorterHelper) getSortedDocIDsAndDistances(ctx context.Context, docID
 	sorter := newInsertSorter(h.comparator, h.limit)
 	docIDBytes := make([]byte, 8)
 
+	// See getSortedDocIDs: reuse is safe because createFromBytesWithPayload copies
+	// the sort-key values out and retains no slice into objData.
+	var lsmBuf []byte
 	for i, docID := range docIDs {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := h.bucket.GetBySecondary(ctx, 0, docIDBytes)
+		objData, newBuf, err := h.bucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, lsmBuf)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "lsm sorter - could not get obj by doc id %d", docID)
 		}
+		lsmBuf = newBuf
 		if objData == nil {
 			continue
 		}

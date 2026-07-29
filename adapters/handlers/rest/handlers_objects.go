@@ -404,6 +404,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
 			return objects.NewObjectsClassPutForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
+		} else if errors.As(err, &uco.ErrNotFound{}) {
+			return objects.NewObjectsClassPutNotFound()
 		} else {
 			return objects.NewObjectsClassPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
@@ -527,6 +529,9 @@ func (h *objectHandlers) addObjectReference(
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.NotFound():
 			return objects.NewObjectsClassReferencesCreateNotFound()
+		case objErr.Gone():
+			return objects.NewObjectsClassReferencesCreateGone().
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
@@ -572,6 +577,9 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.NotFound():
 			return objects.NewObjectsClassReferencesPutNotFound()
+		case objErr.Gone():
+			return objects.NewObjectsClassReferencesPutGone().
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
@@ -616,6 +624,9 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case uco.StatusNotFound:
 			return objects.NewObjectsClassReferencesDeleteNotFound()
+		case uco.StatusGone:
+			return objects.NewObjectsClassReferencesDeleteGone().
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case uco.StatusBadRequest:
 			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
@@ -847,6 +858,9 @@ func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *mode
 		// ignore return unchanged
 		return ref
 	}
+	// Defensive: beacons are written short, but strip here so a stray qualified
+	// class doesn't leak into the Href URL.
+	parsed.Class = namespacing.StripQualification(parsed.Class)
 	href := fmt.Sprintf("%s/v1/objects/%s/%s", h.config.Origin, parsed.Class, parsed.TargetID)
 	if parsed.Class == "" {
 		href = fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID)
@@ -922,6 +936,11 @@ func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModul
 		}
 		if prop == "vector" {
 			out.Vector = true
+			// Named vectors too: the remote-shard result marshaling
+			// (storobj.MarshalBinaryOptional) strips target vectors unless this is
+			// set, so without it a cluster LIST returns nil Vectors for objects on
+			// remote shards while a single-node LIST returns them.
+			out.IncludeAllTargetVectors = true
 			continue
 		}
 		if includeModuleParams && modulesProvider != nil {

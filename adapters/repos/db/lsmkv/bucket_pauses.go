@@ -21,13 +21,31 @@ func (b *Bucket) doStartPauseTimer() {
 	if monitoring.GetMetrics().Group {
 		label = "n/a"
 	}
-	if metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(label); err == nil {
-		b.pauseTimer = prometheus.NewTimer(metric)
+	b.pauseTimerMu.Lock()
+	defer b.pauseTimerMu.Unlock()
+	b.pauseTimerCount++
+	if b.pauseTimerCount > 1 {
+		return
 	}
+	metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(label)
+	if err != nil {
+		return
+	}
+	b.pauseTimer = prometheus.NewTimer(metric)
 }
 
 func (b *Bucket) doStopPauseTimer() {
+	b.pauseTimerMu.Lock()
+	defer b.pauseTimerMu.Unlock()
+	if b.pauseTimerCount == 0 {
+		return
+	}
+	b.pauseTimerCount--
+	if b.pauseTimerCount > 0 {
+		return
+	}
 	if b.pauseTimer != nil {
 		b.pauseTimer.ObserveDuration()
+		b.pauseTimer = nil
 	}
 }

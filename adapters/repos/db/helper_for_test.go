@@ -13,8 +13,11 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -37,6 +40,19 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+// seedShardObjectCounter writes a non-zero index counter to disk for a shard so
+// that at startup it reads as non-empty and is loaded as a raw *Shard rather than
+// deferred as a *LazyLoadShard. Use it in multi-tenant tests that populate a tenant
+// and then need the underlying *Shard, mirroring a tenant that already holds data.
+func seedShardObjectCounter(t *testing.T, rootPath, className, shardName string) {
+	t.Helper()
+	dir := filepath.Join(rootPath, indexID(schema.ClassName(className)), shardName)
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], 1)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), buf[:], 0o644))
+}
 
 func parkingGaragesSchema() schema.Schema {
 	return schema.Schema{
@@ -269,7 +285,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()

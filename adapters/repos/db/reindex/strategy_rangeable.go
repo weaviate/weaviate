@@ -121,12 +121,11 @@ func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string)
 		// IndexFilterable=false, and we still need to populate the
 		// rangeable bucket from the live write. Scope is enforced via
 		// propsByName.
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := shard.AddToPropertyRangeBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("adding rangeable prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
@@ -141,12 +140,11 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 ) OnDeleteFromPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — see MakeAddCallback.
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.Store().Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := shard.DeleteFromPropertyRangeBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("deleting rangeable prop '%s' from bucket '%s': %w", item.Data, bucketName, err)

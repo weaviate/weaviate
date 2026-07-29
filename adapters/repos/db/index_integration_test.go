@@ -68,7 +68,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	indexFilesAfterDelete, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
-	assert.Equal(t, 6, len(indexFilesBeforeDelete))
+	assert.Equal(t, 5, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
 }
 
@@ -93,9 +93,9 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
-	assert.Equal(t, 6, len(indexFilesBeforeDelete))
+	assert.Equal(t, 5, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 6, len(indexFilesAfterRecreate))
+	assert.Equal(t, 5, len(indexFilesAfterRecreate))
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -148,8 +148,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
-			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
@@ -236,6 +235,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	})
 	require.Nil(t, err)
 
+	// A cold shard materializes its directory at load, not on add-property;
+	// force-load it before comparing on-disk files.
+	require.NoError(t, index.LoadLocalShard(context.TODO(), shardName, false))
+
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
@@ -279,9 +282,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 99, afterVectorConfig.EF)
 
-	assert.Equal(t, 6, len(indexFilesBeforeDelete))
+	assert.Equal(t, 5, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 6, len(indexFilesAfterRecreate))
+	assert.Equal(t, 5, len(indexFilesAfterRecreate))
 	assert.Equal(t, indexFilesBeforeDelete, indexFilesAfterRecreate)
 	assert.NotNil(t, beforeDeleteObj1)
 	assert.NotNil(t, beforeDeleteObj2)
@@ -384,8 +387,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
-			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
@@ -582,8 +584,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
-			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{

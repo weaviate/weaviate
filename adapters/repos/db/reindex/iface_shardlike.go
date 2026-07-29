@@ -56,6 +56,21 @@ type ShardLike interface {
 	RegisterAddToPropertyValueIndex(cb OnAddToPropertyValueIndex) func()
 	RegisterDeleteFromPropertyValueIndex(cb OnDeleteFromPropertyValueIndex) func()
 
+	// RegisterDoubleWriteWithScope arms both callbacks and their
+	// property scope in one step, so an ingest landing mid-registration
+	// cannot see a half-armed registry (weaviate/weaviate#11688).
+	// Returns the same kind of disable closure as the two registrars
+	// above.
+	RegisterDoubleWriteWithScope(add OnAddToPropertyValueIndex, del OnDeleteFromPropertyValueIndex,
+		props []string, overlay map[string]inverted.PropertyOverlay) func()
+
+	// SwapBucketAndSetOverlay runs the Phase-2a bucket-pointer flip and
+	// the overlay set as one critical section, so a query never observes
+	// overlay != bucket. flip performs the pointer swap and returns the
+	// displaced bucket, which Phase-2b then drains.
+	SwapBucketAndSetOverlay(propName, target string,
+		flip func() (*lsmkv.Bucket, error)) (*lsmkv.Bucket, error)
+
 	SetFallbackToSearchable(fallback bool)
 	SetRangeableLocallyReady(prop string, ready bool)
 	MarkSearchableBlockmaxProperties(propNames ...string)
@@ -94,6 +109,12 @@ type IndexLike interface {
 	ForEachLoadedShard(fn func(name string, shard ShardLike) error) error
 	RefuseIfReindexInFlight(shardName string) error
 	WithDropLock(fn func())
+
+	// WithCloseRLockGuard runs fn under the index's close read guard so
+	// a concurrent drop cannot tear the index down mid-operation.
+	// Returns context.Canceled if the index is already closing, in
+	// which case fn does not run.
+	WithCloseRLockGuard(fn func() error) error
 	GetSchema() SchemaGetter
 	InvertedIndexConfig() schema.InvertedIndexConfig
 }
@@ -111,6 +132,7 @@ type IndexConfig struct {
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
+	IndexRangeableInMemory    bool
 }
 
 // SchemaGetter is the subset of schemaUC.SchemaGetter reindex

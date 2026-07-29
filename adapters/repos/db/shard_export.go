@@ -92,6 +92,25 @@ func (s *Shard) RegisterDeleteFromPropertyValueIndex(cb reindex.OnDeleteFromProp
 	})
 }
 
+// RegisterDoubleWriteWithScope installs both double-write callbacks
+// and their property scope under a single mutation, so an ingest that
+// lands mid-registration cannot observe one callback armed without the
+// other (weaviate/weaviate#11688). Returns a disable closure, like the
+// two single-callback registrars above.
+func (s *Shard) RegisterDoubleWriteWithScope(add reindex.OnAddToPropertyValueIndex,
+	del reindex.OnDeleteFromPropertyValueIndex, props []string,
+	overlay map[string]inverted.PropertyOverlay,
+) func() {
+	return s.registerDoubleWriteWithScope(
+		func(shard *Shard, docID uint64, property *inverted.Property) error {
+			return add(shard, docID, property)
+		},
+		func(shard *Shard, docID uint64, property *inverted.Property) error {
+			return del(shard, docID, property)
+		},
+		props, overlay)
+}
+
 func (s *Shard) SetFallbackToSearchable(fallback bool) {
 	s.setFallbackToSearchable(fallback)
 }

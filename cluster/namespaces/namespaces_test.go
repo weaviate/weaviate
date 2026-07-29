@@ -13,6 +13,7 @@ package namespaces
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -24,25 +25,34 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
+// mExists reports whether the namespace is present in any state.
+func mExists(m *Manager, name string) bool {
+	_, ok := m.GetNamespace(name)
+	return ok
+}
+
 func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, logger)
+	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, nil, logger)
 }
 
-func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister) *Manager {
+func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister, rbac RBACNamespaceLister) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewManager(usecasesNamespaces.NewController(logger), schema, dynusers, logger)
+	return NewManager(usecasesNamespaces.NewController(logger), schema, dynusers, rbac, logger)
 }
 
 func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.AddNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}}})
+	payload, err := json.Marshal(cmd.AddNamespaceRequest{
+		Namespace: cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}},
+		Version:   cmd.NamespaceLatestCommandPolicyVersion,
+	})
 	require.NoError(t, err)
-	return &cmd.ApplyRequest{SubCommand: payload}
+	return &cmd.ApplyRequest{SubCommand: payload, Version: createIndex}
 }
 
 func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
@@ -52,11 +62,28 @@ func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
 
-func changeStateCmd(t *testing.T, name string, target cmd.NamespaceState) *cmd.ApplyRequest {
+// createIndex and seedIndex are the RAFT indexes the seed helper records at
+// create and at the flip; flipIndex is the one the test under it passes. All
+// distinct so an assertion cannot confuse them.
+const (
+	createIndex uint64 = 1
+	seedIndex   uint64 = 2
+	flipIndex   uint64 = 42
+)
+
+// changeStateCmd fills both Version fields the way the real call path does:
+// the sub-command carries the command policy version, the outer request
+// carries the RAFT log index. expectedIndex of 0 applies unconditionally.
+func changeStateCmd(t *testing.T, name string, target cmd.NamespaceState, raftIndex, expectedIndex uint64) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.ChangeNamespaceStateRequest{Name: name, TargetState: target})
+	payload, err := json.Marshal(cmd.ChangeNamespaceStateRequest{
+		Name:                     name,
+		TargetState:              target,
+		Version:                  cmd.NamespaceLatestCommandPolicyVersion,
+		ExpectedStateChangeIndex: expectedIndex,
+	})
 	require.NoError(t, err)
-	return &cmd.ApplyRequest{SubCommand: payload}
+	return &cmd.ApplyRequest{SubCommand: payload, Version: raftIndex}
 }
 
 func removeEntityCmd(t *testing.T, name string) *cmd.ApplyRequest {
@@ -74,9 +101,14 @@ func seedNamespace(t *testing.T, m *Manager, name string, seedState cmd.Namespac
 		return
 	}
 	require.NoError(t, m.Add(addCmd(t, name)))
-	if seedState == cmd.NamespaceStateDeleting {
-		require.NoError(t, m.ChangeState(changeStateCmd(t, name, cmd.NamespaceStateDeleting)))
+	if seedState == cmd.NamespaceStateActive {
+		return
 	}
+	if seedState == cmd.NamespaceStateResuming {
+		// resuming is only reachable from suspended.
+		require.NoError(t, m.ChangeState(changeStateCmd(t, name, cmd.NamespaceStateSuspended, seedIndex, 0)))
+	}
+	require.NoError(t, m.ChangeState(changeStateCmd(t, name, seedState, seedIndex, 0)))
 }
 
 func TestNewManager_RequiredArgsPanic(t *testing.T) {
@@ -94,7 +126,7 @@ func TestNewManager_RequiredArgsPanic(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Panics(t, func() {
-				NewManager(tc.controller, tc.schema, nil, logger)
+				NewManager(tc.controller, tc.schema, nil, nil, logger)
 			})
 		})
 	}
@@ -108,16 +140,26 @@ func TestManager_Add(t *testing.T) {
 
 func TestManager_ChangeState(t *testing.T) {
 	tests := []struct {
-		name      string
-		seedState cmd.NamespaceState // empty = no namespace exists
-		target    cmd.NamespaceState
-		wantErr   error
+		name          string
+		seedState     cmd.NamespaceState // empty = no namespace exists
+		target        cmd.NamespaceState
+		expectedIndex uint64 // 0 = unconditional
+		wantErr       error
 	}{
 		{name: "active -> deleting flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateDeleting},
 		{name: "active -> active is idempotent", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateActive},
 		{name: "deleting -> deleting is idempotent", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateDeleting},
 		{name: "deleting -> active is forbidden", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateActive, wantErr: usecasesNamespaces.ErrInvalidStateTransition},
 		{name: "missing namespace returns ErrNotFound", target: cmd.NamespaceStateDeleting, wantErr: usecasesNamespaces.ErrNotFound},
+		// The exhaustive from x to table lives on the controller; these rows
+		// carry each state's wire spelling through the JSON sub-command.
+		{name: "active -> suspended flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateSuspended},
+		{name: "suspended -> resuming flips state", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateResuming},
+		{name: "resuming -> active flips state", seedState: cmd.NamespaceStateResuming, target: cmd.NamespaceStateActive},
+		// The expected index must survive the sub-command round-trip; the
+		// controller owns the exhaustive precondition table.
+		{name: "matching expected index flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateSuspended, expectedIndex: createIndex},
+		{name: "stale expected index is refused", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateActive, expectedIndex: createIndex, wantErr: usecasesNamespaces.ErrStateChangedConcurrently},
 	}
 
 	for _, tc := range tests {
@@ -125,17 +167,39 @@ func TestManager_ChangeState(t *testing.T) {
 			m := newTestManager(t)
 			seedNamespace(t, m, "customer1", tc.seedState)
 
-			err := m.ChangeState(changeStateCmd(t, "customer1", tc.target))
+			err := m.ChangeState(changeStateCmd(t, "customer1", tc.target, flipIndex, tc.expectedIndex))
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.True(t, m.Exists("customer1"))
-			assert.Equal(t, tc.target == cmd.NamespaceStateActive, m.IsActive("customer1"))
+
+			ns, ok := m.GetNamespace("customer1")
+			require.True(t, ok)
+			assert.Equal(t, tc.target, ns.State)
+			if tc.target == tc.seedState {
+				assert.Equal(t, seededIndex(tc.seedState), ns.StateChangeIndex,
+					"same-state re-apply must leave the recorded index alone")
+				return
+			}
+			assert.Equal(t, flipIndex, ns.StateChangeIndex,
+				"the recorded index must come from the outer request, not the sub-command's policy version")
 		})
 	}
+}
+
+// seededIndex is the index seedNamespace leaves on a namespace: an active
+// namespace still carries its create index, every other seed state is
+// reached by a flip recorded at seedIndex.
+func seededIndex(seedState cmd.NamespaceState) uint64 {
+	if seedState == "" {
+		return 0
+	}
+	if seedState == cmd.NamespaceStateActive {
+		return createIndex
+	}
+	return seedIndex
 }
 
 func TestManager_RemoveEntity(t *testing.T) {
@@ -161,7 +225,7 @@ func TestManager_RemoveEntity(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.False(t, m.Exists("customer1"))
+			assert.False(t, mExists(m, "customer1"))
 		})
 	}
 }
@@ -177,32 +241,45 @@ func (s stubLeftovers) ClassesInNamespace(string) ([]string, error) { return s.c
 func (s stubLeftovers) AliasesInNamespace(string) []string          { return s.aliases }
 func (s stubLeftovers) UsersInNamespace(string) []string            { return s.users }
 
+// stubRBACRows reports a fixed count of surviving RBAC rows (or an error).
+type stubRBACRows struct {
+	count int
+	err   error
+}
+
+func (s stubRBACRows) CountNamespaceLocalRBAC(string) (int, error) { return s.count, s.err }
+
 func TestManager_RemoveEntity_Leftovers(t *testing.T) {
+	errCount := errors.New("rbac count failed")
 	tests := []struct {
 		name      string
 		leftovers stubLeftovers
+		rbac      RBACNamespaceLister
 		wantErr   error
 	}{
 		{name: "no leftovers removes the entity", leftovers: stubLeftovers{}},
 		{name: "leftover class blocks", leftovers: stubLeftovers{classes: []string{"customer1:Foo"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
 		{name: "leftover alias blocks", leftovers: stubLeftovers{aliases: []string{"customer1:Bar"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
 		{name: "leftover user blocks", leftovers: stubLeftovers{users: []string{"u1"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
+		{name: "leftover RBAC row blocks", rbac: stubRBACRows{count: 1}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
+		{name: "RBAC count error blocks removal", rbac: stubRBACRows{err: errCount}, wantErr: errCount},
+		{name: "no RBAC rows removes the entity", rbac: stubRBACRows{count: 0}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers)
+			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers, tc.rbac)
 			require.NoError(t, m.Add(addCmd(t, "customer1")))
-			require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting)))
+			require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting, seedIndex, 0)))
 
 			err := m.RemoveEntity(removeEntityCmd(t, "customer1"))
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
-				assert.True(t, m.Exists("customer1"), "namespace must remain when leftovers block removal")
+				assert.True(t, mExists(m, "customer1"), "namespace must remain when leftovers block removal")
 				return
 			}
 			require.NoError(t, err)
-			assert.False(t, m.Exists("customer1"))
+			assert.False(t, mExists(m, "customer1"))
 		})
 	}
 }
@@ -260,20 +337,6 @@ func TestManager_Update(t *testing.T) {
 			assert.Equal(t, tc.wantHomeNode, got[0].Primary())
 		})
 	}
-}
-
-func TestManager_ExistsAndIsActiveProxies(t *testing.T) {
-	m := newTestManager(t)
-	require.NoError(t, m.Add(addCmd(t, "customer1")))
-
-	assert.True(t, m.Exists("customer1"))
-	assert.True(t, m.IsActive("customer1"))
-	assert.False(t, m.Exists("never-existed"))
-	assert.False(t, m.IsActive("never-existed"))
-
-	require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting)))
-	assert.True(t, m.Exists("customer1"))
-	assert.False(t, m.IsActive("customer1"))
 }
 
 func TestManager_Get(t *testing.T) {

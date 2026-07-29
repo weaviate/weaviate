@@ -76,22 +76,28 @@ func (bfs *parallelBFS) parse(offset uint64, level int) {
 	}
 	rw := byteops.NewReadWriter(bfs.dt.data)
 	rw.Position = offset
-	keyLen := rw.ReadUint32()
-	nodeKeyBuffer := make([]byte, int(keyLen))
-	_, err := rw.CopyBytesFromBuffer(uint64(keyLen), nodeKeyBuffer)
+	keyLen := uint64(rw.ReadUint32())
+	// a corrupt keyLen would read past the buffer. Skipping the node loses one
+	// quantile, which only makes cursors less evenly distributed; the same node is
+	// reported as an error during normal .Get() operations.
+	if keyLen > uint64(len(bfs.dt.data))-rw.Position {
+		return
+	}
+
+	nodeKeyBuffer := make([]byte, keyLen)
+	_, err := rw.CopyBytesFromBuffer(keyLen, nodeKeyBuffer)
 	if err != nil {
-		// no special handling other than skipping this node. If the key could not
-		// be read correctly, we have much bigger problems worrying about quantile
-		// keys for cursor efficiency. This error is handled during normal .Get()
-		// operations. It is not worth changing the signature of quantile keys just
-		// to return this one error. We could also consider explicitly panic'ing
-		// here, so this error does not get lost.
 		return
 	}
 
 	bfs.keysDiscovered = append(bfs.keysDiscovered, nodeKeyBuffer)
 
 	if level+1 > bfs.maxDepth {
+		return
+	}
+
+	// a truncated node has no child pointers to descend into
+	if uint64(len(bfs.dt.data))-rw.Position < 4*8 {
 		return
 	}
 

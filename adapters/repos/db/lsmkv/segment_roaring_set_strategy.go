@@ -15,7 +15,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -60,7 +59,7 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 	return out, func() { releaseAdd(); releaseDel() }, nil
 }
 
-func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyRoaringSet); err != nil {
 		return err
@@ -91,8 +90,8 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 	}
 
 	input.Additions.
-		AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
-		OrConc(sn.Additions(), concurrency.SROAR_MERGE)
+		AndNotConc(sn.Deletions(), maxConc).
+		OrConc(sn.Additions(), maxConc)
 	return nil
 }
 
