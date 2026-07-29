@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sync"
 	"time"
@@ -134,12 +135,13 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	}
 
 	exposeNamespace := principal != nil && principal.IsGlobalOperator
+	showAPIKeyFirstLetters := isRootUser || h.callerHasAdminRole(principal)
 
 	allDynamicUsers := map[string]struct{}{}
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
-		if isRootUser {
+		if showAPIKeyFirstLetters {
 			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
 		}
 		var lastUsedTime time.Time
@@ -248,7 +250,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		user := existingDbUsers[internalKey]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
-		if isRootUser {
+		if isRootUser || h.callerHasAdminRole(principal) {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
 		}
 		if principal != nil && principal.IsGlobalOperator {
@@ -422,15 +424,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 	}
 
-	// Skip the RAFT round-trip when the namespace is locally known missing or
-	// deleting; the apply path re-validates authoritatively.
-	if ns != "" {
-		if !h.namespaces.Exists(ns) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q does not exist", ns)))
-		}
-		if !h.namespaces.IsActive(ns) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted", ns)))
-		}
+	// Skip the RAFT round-trip when the namespace is locally known not to be
+	// active; the apply path re-validates authoritatively.
+	if err := namespaces.RequireActive(h.namespaces, ns); err != nil {
+		return renderCreateUserNamespaceErr(principal, err)
 	}
 
 	if h.staticUserExists(internalKey) {
@@ -458,12 +455,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
-		// Apply-time race: surface a deleted/deleting namespace as 422 so
-		// clients can retry against current state.
-		if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
-		}
-		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
+		// The namespace changed state between the pre-check above and the
+		// apply. Deleting renders 422 like the pre-check does — the namespace
+		// never returns to active, so the create is not retryable.
+		return renderCreateUserNamespaceErr(principal, fmt.Errorf("creating user: %w", err))
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
@@ -723,6 +718,35 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 	return h.rbacConfig.IsRootUser(principal.Username, principal.Groups)
 }
 
+// callerHasAdminRole reports whether the principal holds the built-in admin
+// role, directly or through one of its groups. Only consulted on
+// namespace-enabled clusters. A role lookup that errors is treated as non-admin
+// so the api-key hint stays hidden.
+func (h *dynUserHandler) callerHasAdminRole(principal *models.Principal) bool {
+	if principal == nil || !h.namespacesEnabled || !h.rbacConfig.Enabled {
+		return false
+	}
+	authType := authentication.AuthType(principal.UserType)
+	if h.subjectHasAdminRole(principal.Username, authType, false) {
+		return true
+	}
+	for _, group := range principal.Groups {
+		if h.subjectHasAdminRole(group, authType, true) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) subjectHasAdminRole(subject string, authType authentication.AuthType, isGroup bool) bool {
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(subject, authType, isGroup)
+	if err != nil {
+		return false
+	}
+	_, ok := roles[authorization.Admin]
+	return ok
+}
+
 // validateRoleName validates that this string is a valid role name (format wise)
 func validateUserName(name string) error {
 	if len(name) > apikey.UserNameMaxLength {
@@ -732,4 +756,31 @@ func validateUserName(name string) error {
 		return fmt.Errorf("'%s' is not a valid user name", name)
 	}
 	return nil
+}
+
+// namespaceErrRendersUnprocessable reports whether err is a namespace-state
+// error the caller should see as a 422 rather than a 500.
+func namespaceErrRendersUnprocessable(err error) bool {
+	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
+	// would otherwise fall through to a 500 instead of a 422.
+	if errors.Is(err, namespaces.ErrNamespaceGone) {
+		return true
+	}
+	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
+	return ok && status == http.StatusUnprocessableEntity
+}
+
+// renderCreateUserNamespaceErr renders err for a caller that must not learn
+// about namespaces. A lifecycle sentinel becomes neutral copy; anything else
+// is a genuine internal failure and keeps its detail.
+func renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
+	msg, lifecycle := namespaces.PublicMessage(err)
+	if !lifecycle {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	public := errors.New(msg)
+	if namespaceErrRendersUnprocessable(err) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
+	}
+	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
 }

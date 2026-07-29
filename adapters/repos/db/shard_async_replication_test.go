@@ -223,7 +223,7 @@ func (s *Shard) propagateWithinRangeForTest(t *testing.T, ctx context.Context,
 // TestObjectsToPropagateWithinRange covers the scanning and filtering logic
 // inside objectsToPropagateWithinRange. Tests use well-known UUIDs so that
 // batch ordering is deterministic. Flushing is not required for visibility:
-// ObjectDigestsInRange uses bucket.Cursor(), which includes memtables.
+// ObjectDigestsInRange uses a merged bucket cursor, which includes memtables.
 func TestObjectsToPropagateWithinRange(t *testing.T) {
 	ctx := context.Background()
 	const class = "PropagateRangeTest"
@@ -770,8 +770,7 @@ func TestInitScanPopulatesHashtree(t *testing.T) {
 	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
 	s := concreteShard(t, sl)
 
-	// Objects must be flushed to disk before enabling async replication:
-	// initHashtree only scans on-disk segments (no memtables).
+	// Flush to disk so this exercises the on-disk pass of the init scan.
 	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
 	}
@@ -790,6 +789,203 @@ func TestInitScanPopulatesHashtree(t *testing.T) {
 		"hashtree root must be non-zero: on-disk objects must have been registered by init scan")
 
 	require.NoError(t, s.disableAsyncReplication(context.Background()))
+}
+
+// buildInitScanRoot applies layout to a fresh shard, enables async replication, and returns the init-scan root.
+func buildInitScanRoot(t *testing.T, ctx context.Context, class string, layout func(sl ShardLike, s *Shard)) hashtree.Digest {
+	t.Helper()
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	layout(sl, s)
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+	s.asyncReplicationRWMux.RLock()
+	root := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	return root
+}
+
+// TestInitScanHashtreeConsistency asserts the init scan folds each live UUID once regardless of physical layout (identical logical state ⇒ identical root).
+func TestInitScanHashtreeConsistency(t *testing.T) {
+	ctx := context.Background()
+
+	// empty tree has a non-zero Merkle root, so this is the "no live objects" oracle, not Digest{}
+	emptyRoot := buildInitScanRoot(t, ctx, "InitScanEmpty", func(sl ShardLike, s *Shard) {})
+
+	// testObjWithTime has nil Properties, so every re-put allocates a new docID (docID-changed straddle)
+	t.Run("docIDChangedUpdateStraddlingMemtableAndDisk", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanDocIDChange", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDocIDChange", uuidMid, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDocIDChange", uuidMid, tsFarPast+1)))
+		})
+		want := buildInitScanRoot(t, ctx, "InitScanDocIDChangeRef", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDocIDChangeRef", uuidMid, tsFarPast+1)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		require.Equal(t, want, got)
+	})
+
+	t.Run("memtableOnlyTombstoneOverDiskValue", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanTombstone", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanTombstone", uuidMid, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.DeleteObject(ctx, uuidMid, time.Now()))
+		})
+		require.Equal(t, emptyRoot, got, "deleted object must not be resurrected by the init scan")
+	})
+
+	t.Run("diskOnlyTombstoneWithLiveSibling", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanDiskTombstone", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDiskTombstone", uuidMid, tsFarPast)))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDiskTombstone", uuidHigh, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.DeleteObject(ctx, uuidMid, time.Now()))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		want := buildInitScanRoot(t, ctx, "InitScanDiskTombstoneRef", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDiskTombstoneRef", uuidHigh, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		require.Equal(t, want, got, "flushed tombstone must not resurrect the deleted object")
+		require.NotEqual(t, emptyRoot, got, "the live sibling must still be folded")
+	})
+
+	t.Run("multiUpdateChainAcrossLayers", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanChain", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanChain", uuidMid, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanChain", uuidMid, tsFarPast+1)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanChain", uuidMid, tsFarPast+2)))
+		})
+		want := buildInitScanRoot(t, ctx, "InitScanChainRef", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanChainRef", uuidMid, tsFarPast+2)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		require.Equal(t, want, got)
+	})
+
+	t.Run("updateThenDeleteStraddling", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanUpdDel", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanUpdDel", uuidMid, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanUpdDel", uuidMid, tsFarPast+1)))
+			require.NoError(t, sl.DeleteObject(ctx, uuidMid, time.Now()))
+		})
+		require.Equal(t, emptyRoot, got)
+	})
+
+	t.Run("deleteThenReinsertStraddling", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanDelReins", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDelReins", uuidMid, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.DeleteObject(ctx, uuidMid, time.Now()))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDelReins", uuidMid, tsFarPast+2)))
+		})
+		want := buildInitScanRoot(t, ctx, "InitScanDelReinsRef", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDelReinsRef", uuidMid, tsFarPast+2)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		require.Equal(t, want, got)
+	})
+
+	t.Run("memtableOnlyObjectNeverFlushed", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanMemOnly", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanMemOnly", uuidMid, tsFarPast)))
+		})
+		want := buildInitScanRoot(t, ctx, "InitScanMemOnlyRef", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanMemOnlyRef", uuidMid, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		require.Equal(t, want, got)
+		require.NotEqual(t, emptyRoot, got, "memtable object must be folded")
+	})
+
+	t.Run("multipleUUIDsCollidingToOneLeaf", func(t *testing.T) {
+		// uuidLow and uuidMid share leaf 0 at height 1 (top bit 0); mix layouts.
+		got := buildInitScanRoot(t, ctx, "InitScanCollide", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanCollide", uuidLow, tsFarPast)))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanCollide", uuidMid, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanCollide", uuidLow, tsFarPast+1)))
+			require.NoError(t, sl.DeleteObject(ctx, uuidMid, time.Now()))
+		})
+		want := buildInitScanRoot(t, ctx, "InitScanCollideRef", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanCollideRef", uuidLow, tsFarPast+1)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		require.Equal(t, want, got)
+	})
+}
+
+// TestInitScanHashtreeConcurrentWrites (-race) checks a concurrently-built root matches a serial rebuild; writers start after enable() to avoid the out-of-scope enable-transition race.
+func TestInitScanHashtreeConcurrentWrites(t *testing.T) {
+	ctx := context.Background()
+	const class = "InitScanConcurrent"
+	const n = 240
+	const writers = 4
+
+	uuids := make([]strfmt.UUID, n)
+	for i := range uuids {
+		prefix := "0"
+		if i%2 == 1 {
+			prefix = "f" // spread across both leaves at height 1
+		}
+		uuids[i] = strfmt.UUID(fmt.Sprintf("%s0000000-0000-0000-0000-%012d", prefix, i+1))
+	}
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+
+	// seed: half on disk, half in memtable so the scan straddles layers
+	for i := 0; i < n; i++ {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuids[i], tsFarPast)))
+		if i == n/2 {
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		}
+	}
+
+	// enable before writers so none observes hashtree==nil at the barrier
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+
+	var wg sync.WaitGroup
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := w; i < n; i += writers {
+				switch i % 4 {
+				case 0:
+					assert.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuids[i], tsFarPast+5)))
+				case 1:
+					assert.NoError(t, sl.DeleteObject(ctx, uuids[i], time.Now()))
+				case 2:
+					assert.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuids[i], tsFarPast+5)))
+					assert.NoError(t, s.store.FlushMemtables(ctx)) // force flushes concurrent with the scan
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	awaitHashtreeInitialized(t, s)
+
+	s.asyncReplicationRWMux.RLock()
+	concurrentRoot := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+
+	// clean serial rebuild over the frozen final state
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+	s.asyncReplicationRWMux.RLock()
+	rebuiltRoot := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	require.Equal(t, rebuiltRoot, concurrentRoot,
+		"root built concurrently with writes must match a clean serial rebuild of the final state")
 }
 
 // ─── propagateObjects ─────────────────────────────────────────────────────────

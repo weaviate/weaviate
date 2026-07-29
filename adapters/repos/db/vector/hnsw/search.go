@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -241,15 +242,27 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
-	if h.compressed.Load() {
+	compressed := h.compressed.Load()
+	var batchDistancer compressionhelpers.BatchCompressorDistancer
+	if compressed {
 		if compressorDistancer == nil {
 			var returnFn compressionhelpers.ReturnDistancerFn
 			compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
 			defer returnFn()
 		}
+		batchDistancer = compressorDistancer
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
+		fbd := h.pools.floatBatchDistancers.Get().(*floatBatchDistancer)
+		fbd.h, fbd.distancer = h, floatDistancer
+		defer func() {
+			fbd.distancer = nil
+			h.pools.floatBatchDistancers.Put(fbd)
+		}()
+		batchDistancer = fbd
 	}
+	distSlice := h.pools.tempVectors.Get(8 * h.maximumConnectionsLayerZero)
+	defer h.pools.tempVectors.Put(distSlice)
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
@@ -257,7 +270,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	var worstResultDistance float32
 	var err error
-	if h.compressed.Load() {
+	if compressed {
 		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, compressorDistancer)
 	} else {
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
@@ -382,7 +395,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								}
 							} else {
 								var docID uint64
-								if h.compressed.Load() {
+								if compressed {
 									docID, _ = h.compressor.GetKeys(nodeId)
 								} else {
 									docID, _ = h.cache.GetKeys(nodeId)
@@ -428,7 +441,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								}
 							} else {
 								var docID uint64
-								if h.compressed.Load() {
+								if compressed {
 									docID, _ = h.compressor.GetKeys(expId)
 								} else {
 									docID, _ = h.cache.GetKeys(expId)
@@ -451,16 +464,15 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 		candidateNode.Unlock()
 
+		unvisited := connectionsReusable[:0]
 		for _, neighborID := range connectionsReusable {
 			if visited.CheckAndVisit(neighborID) {
-				// skip if we've already visited this neighbor
 				continue
 			}
-
 			if strategy == RRE && level == 0 {
 				if isMultivec {
 					var docID uint64
-					if h.compressed.Load() {
+					if compressed {
 						docID, _ = h.compressor.GetKeys(neighborID)
 					} else {
 						docID, _ = h.cache.GetKeys(neighborID)
@@ -472,12 +484,21 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					continue
 				}
 			}
-			var distance float32
+			unvisited = append(unvisited, neighborID)
+		}
+
+		if cap(distSlice.Slice) < len(unvisited) {
+			distSlice.Mem = make([]float32, len(unvisited))
+			distSlice.Slice = distSlice.Mem
+		}
+		neighborDists := distSlice.Slice[:len(unvisited)]
+		neighborErrs := batchDistancer.DistancesToNodes(unvisited, neighborDists)
+
+		for i, neighborID := range unvisited {
+			distance := neighborDists[i]
 			var err error
-			if h.compressed.Load() {
-				distance, err = compressorDistancer.DistanceToNode(neighborID)
-			} else {
-				distance, err = h.distanceToFloatNode(floatDistancer, neighborID)
+			if neighborErrs != nil {
+				err = neighborErrs[i]
 			}
 			if err != nil {
 				var e storobj.ErrNotFound
@@ -500,7 +521,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					// ignore items not on the list
 					if isMultivec {
 						var docID uint64
-						if h.compressed.Load() {
+						if compressed {
 							docID, _ = h.compressor.GetKeys(neighborID)
 						} else {
 							docID, _ = h.cache.GetKeys(neighborID)
@@ -518,12 +539,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				}
 
 				results.Insert(neighborID, distance)
-
-				if h.compressed.Load() {
-					h.compressor.Prefetch(candidates.Top().ID)
-				} else {
-					h.cache.Prefetch(candidates.Top().ID)
-				}
 
 				// +1 because we have added one node size calculating the len
 				if results.Len() > ef {
@@ -664,7 +679,7 @@ func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concret
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNodeWithView")
+			h.handleDeletedNode(nodeID, "distanceFromBytesToFloatNodeWithView")
 			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
@@ -691,6 +706,44 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 	return dist, nil
 }
 
+const floatPrefetchAhead = 4
+
+type floatBatchDistancer struct {
+	h         *hnsw
+	distancer distancer.Distancer
+	vecs      [][]float32
+}
+
+func (b *floatBatchDistancer) DistancesToNodes(ids []uint64, dists []float32) []error {
+	if cap(b.vecs) < len(ids) {
+		b.vecs = make([][]float32, len(ids))
+	}
+	vecs := b.vecs[:len(ids)]
+	for i := range min(floatPrefetchAhead, len(ids)) {
+		vecs[i] = b.h.cache.PrefetchGet(ids[i])
+	}
+	var errs []error
+	for i, id := range ids {
+		if next := i + floatPrefetchAhead; next < len(ids) {
+			vecs[next] = b.h.cache.PrefetchGet(ids[next])
+		}
+		var err error
+		if len(vecs[i]) == 0 {
+			dists[i], err = b.h.distanceToFloatNode(b.distancer, id)
+		} else {
+			dists[i], err = b.distancer.Distance(vecs[i])
+		}
+		if err != nil {
+			if errs == nil {
+				errs = make([]error, len(ids))
+			}
+			errs[i] = err
+		}
+		vecs[i] = nil
+	}
+	return errs
+}
+
 // the underlying object seems to have been deleted, to recover from
 // this situation let's add a tombstone to the deleted object, so it
 // will be cleaned up and skip this candidate in the current search
@@ -707,6 +760,94 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 		WithField("node_id", docID).
 		Debugf("found a deleted node (%d) without a tombstone, "+
 			"tombstone was added", docID)
+}
+
+// handleDeletedDocID tombstones the nodes behind a store-reported docID: for
+// non-muvera multivector indexes docIDs are a different id space than node
+// ids and map to one or more vec ids
+func (h *hnsw) handleDeletedDocID(docID uint64, operation string) {
+	if !h.multivector.Load() || h.muvera.Load() {
+		h.handleDeletedNode(docID, operation)
+		return
+	}
+	h.RLock()
+	vecIDs := append([]uint64{}, h.docIDVectors[docID]...)
+	h.RUnlock()
+	for _, vecID := range vecIDs {
+		h.handleDeletedNode(vecID, operation)
+	}
+}
+
+// handleDeletedDocOfNode tombstones a dead node and, for non-muvera
+// multivector indexes, its doc's sibling vec ids — the store fetches whole
+// docs, so a dead vec usually means the entire doc is gone. Each sibling is
+// probed first and only tombstoned if it is really gone: a live doc can carry
+// a phantom vec slot (e.g. after snapshot corruption), and the mapping is only
+// trusted if the sibling list contains the probed node. Must not be called
+// while holding sharded node locks.
+func (h *hnsw) handleDeletedDocOfNode(nodeID uint64, operation string) {
+	h.handleDeletedNode(nodeID, operation)
+	if !h.multivector.Load() || h.muvera.Load() {
+		return
+	}
+	var docID uint64
+	if h.compressed.Load() {
+		docID, _ = h.compressor.GetKeys(nodeID)
+	} else {
+		docID, _ = h.cache.GetKeys(nodeID)
+	}
+	h.RLock()
+	siblings := append([]uint64{}, h.docIDVectors[docID]...)
+	h.RUnlock()
+	if !slices.Contains(siblings, nodeID) {
+		return
+	}
+	for _, sibling := range siblings {
+		if sibling == nodeID || h.hasTombstone(sibling) {
+			continue
+		}
+		var err error
+		if h.compressed.Load() {
+			_, err = h.compressor.NewDistancerFromID(sibling)
+		} else {
+			_, err = h.vectorForID(context.Background(), sibling)
+		}
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(sibling, operation)
+		}
+	}
+}
+
+// entrypointDistWithRepair returns a usable search entrypoint and its distance
+// to the query vector, repairing dead (nil or deleted-in-store) entrypoints.
+// Terminates: each iteration either succeeds or rules out another dead node.
+// Returns errNoUsableEntrypoint if no usable node remains.
+func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
+	distancer compressionhelpers.CompressorDistancer, entryPointID uint64,
+	searchVec []float32,
+) (uint64, float32, error) {
+	for {
+		if h.nodeByID(entryPointID) != nil {
+			dist, err := h.distToNode(distancer, entryPointID, searchVec)
+			if err == nil {
+				return entryPointID, dist, nil
+			}
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
+			}
+			h.handleDeletedDocOfNode(entryPointID, "entrypointDistWithRepair")
+		}
+		if err := ctx.Err(); err != nil {
+			return 0, 0, err
+		}
+		newEp, err := h.repairGlobalEntrypoint(entryPointID, helpers.NewAllowList(entryPointID))
+		if err != nil {
+			return 0, 0, err
+		}
+		entryPointID = newEp
+	}
 }
 
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
@@ -731,15 +872,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+	entryPointID, entryPointDistance, err := h.entrypointDistWithRepair(ctx, compressorDistancer,
+		entryPointID, searchVec)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "knnSearchByVector")
-			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		if errors.Is(err, errNoUsableEntrypoint) {
+			return nil, nil, nil
 		}
-		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
+		return nil, nil, errors.Wrap(err, "knn search")
 	}
 
 	// stop at layer 1, not 0!
@@ -1076,12 +1215,15 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 		}
 	}
 
+	const minRescorePerWorker = 4
+	workers := max(1, min((len(ids)+minRescorePerWorker-1)/minRescorePerWorker, h.rescoreConcurrency))
+
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
+	for workerID := 0; workerID < workers; workerID++ {
 		workerID := workerID
 
 		eg.Go(func() error {
-			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+			for idPos := workerID; idPos < len(ids); idPos += workers {
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("rescore: %w", err)
 				}

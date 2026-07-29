@@ -73,6 +73,9 @@ type PrometheusMetrics struct {
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
+	// Reindex metrics
+	RangeableInMemoryRebuildDegraded *prometheus.CounterVec
+
 	// Backup/Restore metrics
 	BackupRestoreDurations            *prometheus.SummaryVec
 	BackupStoreDurations              *prometheus.SummaryVec
@@ -178,6 +181,8 @@ type PrometheusMetrics struct {
 	ModuleExternalError              *prometheus.CounterVec
 	ModuleCallError                  *prometheus.CounterVec
 	ModuleBatchError                 *prometheus.CounterVec
+
+	ModuleExternalRequestResends prometheus.Counter
 
 	// Checksum metrics
 	ChecksumValidationDuration prometheus.Summary
@@ -348,6 +353,7 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
 	pm.StartupDiskIO.DeletePartialMatch(labels)
+	pm.RangeableInMemoryRebuildDegraded.DeletePartialMatch(labels)
 	return nil
 }
 
@@ -579,6 +585,12 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "mmap_proc_maps",
 			Help: "Number of entries in /proc/self/maps",
 		}),
+
+		// Reindex metrics
+		RangeableInMemoryRebuildDegraded: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "rangeable_inmemory_rebuild_degraded_total",
+			Help: "Number of times the rangeable in-memory rebuild at reindex finalize degraded to disk serving instead of activating in-memory acceleration",
+		}, []string{"class_name", "shard_name", "property"}),
 
 		// Queue metrics
 		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -935,6 +947,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_module_batch_error_total",
 			Help: "Number of batch errors",
 		}, []string{"operation", "class_name"}),
+		ModuleExternalRequestResends: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_module_request_resends_total",
+			Help: "Number of module requests to external APIs sent again after their connection broke",
+		}),
 
 		// Checksum metrics
 		ChecksumValidationDuration: promauto.NewSummary(prometheus.SummaryOpts{
@@ -1014,6 +1030,14 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 	}
 
 	return nil
+}
+
+func (m *PrometheusMetrics) IncRangeableInMemoryRebuildDegraded(className, shardName, propName string) {
+	m.RangeableInMemoryRebuildDegraded.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"property":   propName,
+	}).Inc()
 }
 
 // --- Objects TTL: main ---

@@ -146,6 +146,30 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testReindexAPIValidation(t, restURI)
 	})
 
+	// --- Subtest 8b: GA API surface contract ---
+	// Pins declarative-upsert idempotency (200 NO_OP), the
+	// rangeable→rangeFilters write-path alias + canonical status output, the
+	// POST rebuild/cancel sub-resources, and removal of the old
+	// PUT /indexes/{prop} route.
+	t.Run("GAApiSurface", func(t *testing.T) {
+		testGAApiSurface(t, restURI)
+	})
+
+	// --- Subtest 8c: per-property blockmax NO_OP + honest per-prop status ---
+	// On a multi-searchable-property class the class-wide blockmax flip is
+	// deferred; a property that already migrated must NO_OP a repeat PUT, be
+	// rebuildable, and report algorithm=blockmax in status.
+	t.Run("PerPropertyBlockmaxNoOp", func(t *testing.T) {
+		testPerPropertyBlockmaxNoOp(t, restURI)
+	})
+
+	// --- Subtest 8d: post-DELETE synthetic entry suppression ---
+	// After a DELETE, GET /indexes must not synthesize a finalize-window
+	// "indexing@100%" entry for the just-deleted index.
+	t.Run("PostDeleteNoSyntheticEntry", func(t *testing.T) {
+		testPostDeleteNoSyntheticEntry(t, restURI)
+	})
+
 	// --- Subtest 9: Cancel verb ---
 	t.Run("CancelReindex", func(t *testing.T) {
 		testCancelReindex(t, restURI)
@@ -177,46 +201,31 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	})
 
 	// --- Subtest 12b: change-tokenization on filterable-only ---
-	// Frontend repro 2026-05-14: PUT {searchable:{tokenization:X}} on a
-	// filterable-only text property 400'd with "searchable bucket not
-	// found" and no alternative shape. The fix adds {filterable:{tokenization:X}}.
+	// PUT .../index/searchable on a filterable-only property must not 400
+	// with no alternative; PUT .../index/filterable covers it.
 	t.Run("ChangeTokenizationFilterable", func(t *testing.T) {
 		testChangeTokenizationFilterable(t, restURI)
 	})
 
 	// --- Subtest 13: DELETE→re-enable repeated 3x ---
-	// Frontend repro 2026-05-14: after 3 enable→DELETE cycles on the same
-	// property the 3rd enable finishes in 1.6s and the schema flag never
-	// flips. Same Sev 1 family as DeleteThenReEnable but with state that
-	// accumulates only past the first cycle. Pinning this here ensures
-	// stale on-disk state never re-introduces the multi-round shape.
+	// Pins that stale on-disk state doesn't accumulate past the first
+	// cycle: cycle 3 must not short-circuit with the schema flag unflipped.
 	t.Run("DeleteThenReEnableMultiCycle", func(t *testing.T) {
 		testDeleteThenReEnableMultiCycle(t, restURI)
 	})
 
 	// --- Subtest 13b: GET /indexes bleed after DELETE→re-enable cycles ---
-	// Frontend repro 2026-05-14 (https://github.com/weaviate/weaviate/issues/10675): after multiple
-	// enable→DELETE cycles on the same property, GET /indexes shows a
-	// phantom "indexing(1)" entry for the deleted index, "carrying over
-	// from the previous FINISHED task". mergeReindexStatus's
-	// finalize-window override reclassifies a stale FINISHED task as
-	// "still finalizing" because it only gates on flagOn==false, not on
-	// whether the swap that flipped the flag for THIS task has already
-	// completed and been undone by DELETE.
+	// (weaviate/weaviate#10675) Pins that mergeReindexStatus's finalize-window
+	// override doesn't resurrect a phantom "indexing" entry for an index
+	// already DELETEd after its FINISHED task.
 	t.Run("DeleteThenReEnableIndexingBleed", func(t *testing.T) {
 		testDeleteThenReEnableIndexingBleed(t, restURI)
 	})
 
 	// --- Subtest 13c: cycle-3 short-circuit after DELETE→re-enable ---
-	// Frontend repro 2026-05-14 #10675: cycle 3's reindex finishes in
-	// 1.6s while cycles 1 and 2 took 60-75s on the same dataset.
-	// Combined with the schema flag never flipping to true on this
-	// cycle, the silent-failure family is: iteration short-circuited
-	// against stale on-disk or in-memory state, bucket is empty, BM25
-	// errors with "indexSearchable not enabled". This test uses 500
-	// objects so a short-circuit is unambiguously distinguishable from
-	// a "fast because tiny dataset" cycle. Pins both the duration
-	// ratio AND the BM25 hit count.
+	// (weaviate/weaviate#10675) Pins that cycle 3 doesn't short-circuit
+	// against stale state: duration must match cycles 1-2, and the BM25 hit
+	// count must match a fully-rebuilt bucket, not an empty one.
 	t.Run("DeleteThenReEnableShortCircuit", func(t *testing.T) {
 		testDeleteThenReEnableShortCircuit(t, restURI)
 	})
@@ -318,7 +327,7 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 // Shared helpers
 // =============================================================================
 //
-// HTTP-level reindex helpers (SubmitIndexUpdate, AwaitReindexFinished, etc.)
+// HTTP-level reindex helpers (SubmitIndexUpsert, AwaitReindexFinished, etc.)
 // live in test/acceptance/helpers/reindex and are used as
 // `reindexhelpers.XYZ`. The helpers below are package-local because they
 // reach into single-node–specific surfaces (LSM directory listing on a

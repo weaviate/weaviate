@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -32,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -659,7 +659,7 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	s, release, err := idx.getOrInitShard(ctx, shard)
+	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
@@ -669,8 +669,8 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
 
-	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard))
+	if err := idx.ensureShardLocallyReady(s); err != nil {
+		return nil, err
 	}
 
 	var result []types.RepairResponse
@@ -841,6 +841,19 @@ type ChangeLogReplayEntry struct {
 	Payload []byte
 }
 
+type changeLogReplayCtxKey struct{}
+
+// withChangeLogReplay marks a write as change-log replay so putObjectLSM/DeleteObject
+// drop it when the local object is newer (atomic under the docIdLock).
+func withChangeLogReplay(ctx context.Context) context.Context {
+	return context.WithValue(ctx, changeLogReplayCtxKey{}, true)
+}
+
+func fromChangeLogReplay(ctx context.Context) bool {
+	v, _ := ctx.Value(changeLogReplayCtxKey{}).(bool)
+	return v
+}
+
 // OverwriteObjectsFromChangeLog replays entries under pure LWW by
 // LastUpdateTimeUnixMilli — no StaleUpdateTime conflicts and no
 // DeletionStrategy, unlike OverwriteObjects. Entries MUST be in LSN order;
@@ -852,6 +865,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	if len(updates) == 0 {
 		return nil
 	}
+	debugEnabled := idx.debugLoggingEnabled()
+
+	ctx = withChangeLogReplay(ctx)
 
 	s, release, err := idx.getOrInitShard(ctx, shard)
 	if err != nil {
@@ -868,6 +884,8 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	}
 	pending := map[strfmt.UUID]pendingPut{}
 
+	var appliedPuts, appliedDeletes []strfmt.UUID
+
 	flushPending := func() error {
 		if len(pending) == 0 {
 			return nil
@@ -882,6 +900,11 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 				return fmt.Errorf("replay put batch: %w", e)
 			}
 		}
+		if debugEnabled {
+			for _, o := range objs {
+				appliedPuts = append(appliedPuts, o.ID())
+			}
+		}
 		clear(pending)
 		return nil
 	}
@@ -892,31 +915,15 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		}
 		u := &updates[i]
 
-		var currUpdateTime int64
-		localObj, err := s.ObjectDigestErrDeleted(ctx, u.ID)
-		switch {
-		case err == nil:
-			currUpdateTime = localObj.UpdateTime
-		case errors.Is(err, lsmkv.Deleted):
-			var errDeleted lsmkv.ErrDeleted
-			if errors.As(err, &errDeleted) {
-				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
-			}
-		case errors.Is(err, lsmkv.NotFound):
-		default:
-			return fmt.Errorf("read local digest for %s: %w", u.ID, err)
-		}
-
-		if currUpdateTime > u.LastUpdateTimeUnixMilli {
-			continue
-		}
-
 		if u.IsDelete {
 			if err := flushPending(); err != nil {
 				return err
 			}
 			if err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli)); err != nil {
 				return fmt.Errorf("replay delete for %s: %w", u.ID, err)
+			}
+			if debugEnabled {
+				appliedDeletes = append(appliedDeletes, u.ID)
 			}
 			continue
 		}
@@ -940,7 +947,17 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		pending[u.ID] = pendingPut{decoded: decoded, ts: u.LastUpdateTimeUnixMilli}
 	}
 
-	return flushPending()
+	if err := flushPending(); err != nil {
+		return err
+	}
+	idx.logger.WithFields(logrus.Fields{
+		"action":          "change_capture_log",
+		"shard":           shard,
+		"entries":         len(updates),
+		"puts_applied":    appliedPuts,
+		"deletes_applied": appliedDeletes,
+	}).Debug("change-capture log replay batch applied")
+	return nil
 }
 
 func (i *Index) DigestObjects(ctx context.Context,
@@ -956,8 +973,8 @@ func (i *Index) DigestObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
 
-	if s.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(s); err != nil {
+		return nil, err
 	}
 
 	multiIDs := make([]multi.Identifier, len(ids))
@@ -1122,8 +1139,8 @@ func (i *Index) FetchObject(ctx context.Context,
 		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return replica.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return replica.Replica{}, err
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
@@ -1168,8 +1185,8 @@ func (i *Index) FetchObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, err
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))

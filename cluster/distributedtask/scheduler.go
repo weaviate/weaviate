@@ -60,7 +60,16 @@ type taskSchedulerState struct {
 	preparationAckEmitted            bool
 	postCompletionGroupErrors        map[string]error
 	preparationCompletionGroupErrors map[string]error
+	// completedCallbackAttempts counts transient OnTaskCompleted failures on
+	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
+	// retrying and fails the task (weaviate/0-weaviate-issues#297).
+	completedCallbackAttempts int
 }
+
+// maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
+// the SWAPPING path before the task is FAILED. [ErrTaskCompletionPermanent]
+// failures bypass this and fail on the first attempt.
+const maxCompletedCallbackAttempts = 5
 
 // Scheduler is the component which is responsible for polling the active tasks in the cluster (via the Manager)
 // and making sure that the tasks are running on the local node.
@@ -592,14 +601,10 @@ func (s *Scheduler) tick() {
 				// SWAPPING path wait until every node has acked: the schema
 				// flip can't commit while any replica's swap is undetermined.
 				//
-				// Snapshot/process/commit: snapshot the "should fire" decision
-				// (and set completedCallbackFired pre-callback) under s.mu;
-				// drop s.mu for the single OnTaskCompleted call; re-acquire
-				// on the way out. There is no per-result commit beyond the
-				// pre-set fired mark — OnTaskCompleted's failure mode is
-				// handled by the MarkDistributedTaskFinalized rollback
-				// (it clears completedCallbackFired so the next tick retries).
-				s.runCompletedCallbackPhase(desc, task, suProvider, effectiveStatus)
+				// A non-nil OnTaskCompleted error on the SWAPPING path withholds
+				// FINISHED and retries or fails the task; see
+				// runCompletedCallbackPhase (weaviate/0-weaviate-issues#297).
+				s.runCompletedCallbackPhase(namespace, desc, task, suProvider, effectiveStatus)
 			}
 		}
 
@@ -1042,15 +1047,18 @@ func (s *Scheduler) runSwapPhase(
 // runCompletedCallbackPhase fires OnTaskCompleted for a single task in
 // Phase 2 (SWAPPING/FAILED/FINISHED/CANCELLED).
 //
-// Owns its own lock lifecycle: acquires s.mu to decide eligibility +
-// set completedCallbackFired pre-callback, releases for the slow
-// callback, returns. No commit step needed — the pre-set fired mark
-// records the attempt; OnTaskCompleted's failure mode is handled by the
-// MarkDistributedTaskFinalized rollback (it clears completedCallbackFired
-// so the next tick retries). Providers implementing
-// [UnitAwareProvider.OnTaskCompleted] MUST be safe to invoke more than
-// once per task — see the "Idempotency contract" note at the rollback site.
+// Owns its own lock lifecycle: acquires s.mu to decide eligibility and set
+// completedCallbackFired pre-callback, releases for the slow callback, then
+// re-acquires to react to its error. [UnitAwareProvider.OnTaskCompleted]
+// implementations MUST tolerate being invoked more than once per task —
+// see the "Idempotency contract" note at the rollback site.
+//
+// SWAPPING-path error handling (weaviate/0-weaviate-issues#297): a non-nil
+// error withholds FINISHED and retries next tick; [ErrTaskCompletionPermanent]
+// or exhausting [maxCompletedCallbackAttempts] fails the task instead.
+// Terminal-status errors are best-effort cleanup and never reopen the task.
 func (s *Scheduler) runCompletedCallbackPhase(
+	namespace string,
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
@@ -1086,7 +1094,59 @@ func (s *Scheduler) runCompletedCallbackPhase(
 
 	// Fire OnTaskCompleted without the lock. See the "Idempotency contract"
 	// note at the matching rollback site in runFinalizePhase.
-	suProvider.OnTaskCompleted(task)
+	cbErr := suProvider.OnTaskCompleted(task)
+	if cbErr == nil {
+		return
+	}
+
+	// Only the SWAPPING cutover retries/fails; a terminal-status error is
+	// best-effort cleanup — leave the fired mark set so it doesn't re-fire.
+	if effectiveStatus != TaskStatusSwapping {
+		s.loggerWithTask(namespace, desc).
+			Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", effectiveStatus, cbErr)
+		return
+	}
+
+	// Clear the fired mark so the next tick re-fires; a permanent error fails
+	// now, a transient one only once the retry budget is exhausted.
+	failMsg := func() string {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		state := s.perTaskStateLocked(desc)
+		if state == nil {
+			// Local cleanup deleted the entry between callback and commit —
+			// nothing to record or retry.
+			return ""
+		}
+		state.completedCallbackFired = false
+		state.completedCallbackAttempts++
+		permanent := errors.Is(cbErr, ErrTaskCompletionPermanent)
+		if permanent || state.completedCallbackAttempts >= maxCompletedCallbackAttempts {
+			return cbErr.Error()
+		}
+		s.loggerWithTask(namespace, desc).
+			Warnf("OnTaskCompleted failed (attempt %d/%d); withholding finalize, will retry next tick: %v",
+				state.completedCallbackAttempts, maxCompletedCallbackAttempts, cbErr)
+		return ""
+	}()
+	if failMsg == "" {
+		return
+	}
+
+	// Fired mark stays cleared so a failed MarkDistributedTaskFailed call
+	// retries next tick (idempotent at the FSM layer).
+	if s.taskFinalizer == nil {
+		return
+	}
+	if err := s.taskFinalizer.MarkDistributedTaskFailed(
+		context.Background(), namespace, task.ID, task.Version, failMsg,
+	); err != nil {
+		s.loggerWithTask(namespace, desc).
+			Warnf("failed to mark distributed task failed after OnTaskCompleted error; will retry on next tick: %v", err)
+		return
+	}
+	s.loggerWithTask(namespace, desc).
+		Errorf("distributed task transitioned to FAILED: OnTaskCompleted did not succeed: %s", failMsg)
 }
 
 // finalizeWork captures one finalize-phase task identity. Populated under
@@ -1151,12 +1211,8 @@ func (s *Scheduler) runFinalizePhase(
 		}
 		s.loggerWithTask(namespace, w.desc).
 			Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
-		// TODO(scheduler): clearing completedCallbackFired here causes
-		// OnTaskCompleted to re-fire on the next tick. Safe today because
-		// the reindex provider's OnTaskCompleted is idempotent, but
-		// [UnitAwareProvider.OnTaskCompleted] (in types.go) doesn't yet
-		// declare the requirement. See the matching "Idempotency contract"
-		// note in [Scheduler.runCompletedCallbackPhase].
+		// Clearing completedCallbackFired re-fires OnTaskCompleted next tick;
+		// safe now that [UnitAwareProvider.OnTaskCompleted] requires idempotency.
 		if providerIsUnitAware {
 			if rollbackState := s.perTaskStateLocked(w.desc); rollbackState != nil {
 				rollbackState.completedCallbackFired = false

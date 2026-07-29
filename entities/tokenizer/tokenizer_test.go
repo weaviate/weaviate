@@ -12,12 +12,37 @@
 package tokenizer
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// TestThrottleCapacity pins the throttle sizing against bad
+// TOKENIZER_CONCURRENCY_COUNT values: 0 would make the first tokenization
+// deadlock on a capacity-0 channel and make panics on a negative value, so
+// both must fall back like an unset variable.
+func TestThrottleCapacity(t *testing.T) {
+	fallback := runtime.GOMAXPROCS(0)
+	tests := []struct {
+		name string
+		env  string
+		want int
+	}{
+		{"unset", "", fallback},
+		{"valid positive", "3", 3},
+		{"zero", "0", fallback},
+		{"negative", "-2", fallback},
+		{"non-numeric", "many", fallback},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, throttleCapacity(tt.env))
+		})
+	}
+}
 
 func TestTokenizeParallel(t *testing.T) {
 	t.Setenv("USE_GSE", "true")

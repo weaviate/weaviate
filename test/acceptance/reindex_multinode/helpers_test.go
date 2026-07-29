@@ -20,9 +20,11 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
@@ -897,10 +899,13 @@ func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expecte
 				s.nodeID, s.count, lo, hi)
 		default:
 			c.Partial++
-			if c.FirstPartial.IsZero() {
+			// min/max by timestamp, not arrival order: per-node probe goroutines interleave.
+			if c.FirstPartial.IsZero() || s.t.Before(c.FirstPartial) {
 				c.FirstPartial = s.t
 			}
-			c.LastPartial = s.t
+			if s.t.After(c.LastPartial) {
+				c.LastPartial = s.t
+			}
 			t.Logf("partial @ +%v node=%d count=%d (baseline=%d, post=%d)",
 				s.t.Sub(migrationStart).Round(time.Millisecond),
 				s.nodeID, s.count, baseline, expectedAfter)
@@ -937,4 +942,102 @@ func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAf
 		}
 	}
 	return late
+}
+
+// awaitRangeCountSettledNoFallback polls until the range count converges,
+// then asserts the disk-fallback WARN never appeared in the container logs.
+func awaitRangeCountSettledNoFallback(
+	ctx context.Context, t *testing.T,
+	container interface {
+		Logs(context.Context) (io.ReadCloser, error)
+	},
+	restURI, className string, lo, hi, expected int,
+	countFailMsgFmt string, countFailArg interface{},
+	warnFailMsg string,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c, e := rangeCount(restURI, className, "score", lo, hi)
+		return e == nil && c == expected
+	}, 60*time.Second, 200*time.Millisecond, countFailMsgFmt, countFailArg)
+
+	for i := 0; i < 5; i++ {
+		_, _ = rangeCount(restURI, className, "score", lo, hi)
+	}
+	time.Sleep(2 * time.Second) // let the container flush stdout
+
+	assert.Zero(t, countInLogs(ctx, t, container, fallbackWARNSubstr), warnFailMsg)
+}
+
+// rangeCountProbeCounters aggregates the results of a background polling
+// loop started by startRangeCountPolling.
+type rangeCountProbeCounters struct {
+	wrongCounts atomic.Int64
+	queryRuns   atomic.Int64
+	queryErrors atomic.Int64
+}
+
+// startRangeCountPolling launches one goroutine per node, firing a
+// range-count query every 50ms until stopCh closes. onWrong/onError run
+// concurrently and must be goroutine-safe.
+func startRangeCountPolling(
+	compose *docker.DockerCompose, className string, lo, hi, expected, nodeCount int,
+	onWrong func(nodeIdx, got int), onError func(nodeIdx int, err error),
+) (counters *rangeCountProbeCounters, stopCh chan struct{}, wg *sync.WaitGroup) {
+	counters = &rangeCountProbeCounters{}
+	stopCh = make(chan struct{})
+	wg = &sync.WaitGroup{}
+	for nodeIdx := 1; nodeIdx <= nodeCount; nodeIdx++ {
+		wg.Add(1)
+		uri := restURIOf(compose, nodeIdx)
+		idx := nodeIdx
+		go func() {
+			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopCh:
+					return
+				case <-ticker.C:
+				}
+				count, err := rangeCount(uri, className, "score", lo, hi)
+				counters.queryRuns.Add(1)
+				if err != nil {
+					counters.queryErrors.Add(1)
+					if onError != nil {
+						onError(idx, err)
+					}
+					continue
+				}
+				if count != expected {
+					counters.wrongCounts.Add(1)
+					if onWrong != nil {
+						onWrong(idx, count)
+					}
+				}
+			}
+		}()
+	}
+	return counters, stopCh, wg
+}
+
+// Pins a false positive: out-of-order partial timestamps must not regress LastPartial.
+func TestClassifyProbeSamples_OutOfOrderPartials(t *testing.T) {
+	start := time.Now()
+	samples := []probeSample{
+		{t: start.Add(2092 * time.Millisecond), nodeID: 1, count: 970}, // partial, arrives first
+		{t: start.Add(1990 * time.Millisecond), nodeID: 3, count: 970}, // partial, earlier timestamp
+		{t: start.Add(3 * time.Second), nodeID: 2, count: 0},           // post
+	}
+	c := classifyProbeSamples(t, samples, 1500, 0, start)
+
+	require.Equal(t, 2, c.Partial)
+	require.Equal(t, start.Add(1990*time.Millisecond), c.FirstPartial, "FirstPartial must be the earliest timestamp")
+	require.Equal(t, start.Add(2092*time.Millisecond), c.LastPartial, "LastPartial must be the latest timestamp")
+	require.False(t, c.LastPartial.Before(c.FirstPartial), "window must never be negative")
+
+	// with a correct anchor no partial can post-date it
+	anchor := c.LastPartial.Add(100 * time.Millisecond)
+	require.Zero(t, countLatePartials(t, samples, 1500, 0, anchor, start))
 }

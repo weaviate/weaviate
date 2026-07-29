@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -912,6 +913,45 @@ func TestReplicationOverwriteObjectsConcurrent(t *testing.T) {
 
 	for i, err := range errs {
 		require.NoErrorf(t, err, "goroutine %d failed", i)
+	}
+}
+
+func TestReplicationOverwriteObjectsNoRetry(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	input := []*objects.VObject{
+		{
+			LatestObject:    &models.Object{ID: UUID1, Class: "C1", LastUpdateTimeUnix: now.UnixMilli()},
+			StaleUpdateTime: now.UnixMilli(),
+		},
+	}
+
+	cases := []struct {
+		name string
+		code int
+	}{
+		{name: "service unavailable", code: http.StatusServiceUnavailable},
+		{name: "internal server error", code: http.StatusInternalServerError},
+		{name: "too many requests", code: http.StatusTooManyRequests},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				http.Error(w, "boom", tc.code)
+			}))
+			defer server.Close()
+
+			c := newReplicationClient(t, server.Client())
+			_, err := c.OverwriteObjects(context.Background(), server.URL[7:], "C1", "S1", input)
+			require.Error(t, err)
+			assert.Equal(t, int32(1), calls.Load(), "OverwriteObjects must not retry on %d", tc.code)
+		})
 	}
 }
 

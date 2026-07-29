@@ -18,25 +18,18 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 type SegmentReader struct {
-	cursor      SegmentCursor
-	concurrency int
-}
-
-func NewSegmentReader(cursor *GaplessSegmentCursor) *SegmentReader {
-	return NewSegmentReaderConcurrent(cursor, 1)
+	cursor SegmentCursor
 }
 
 // TODO aliszka:roaringrange add buf pool?
-func NewSegmentReaderConcurrent(cursor *GaplessSegmentCursor, concurrency int) *SegmentReader {
-	return &SegmentReader{
-		cursor:      cursor,
-		concurrency: concurrency,
-	}
+func NewSegmentReader(cursor *GaplessSegmentCursor) *SegmentReader {
+	return &SegmentReader{cursor: cursor}
 }
 
 func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters.Operator,
@@ -45,29 +38,32 @@ func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters
 		return roaringset.BitmapLayer{}, noopRelease, err
 	}
 
+	// conc is the per-query merge budget, threaded through every read/merge helper below.
+	conc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
 	switch operator {
 	case filters.OperatorEqual:
-		bm, err := r.readEqual(ctx, value)
+		bm, err := r.readEqual(ctx, value, conc)
 		return bm, noopRelease, err
 
 	case filters.OperatorNotEqual:
-		bm, err := r.readNotEqual(ctx, value)
+		bm, err := r.readNotEqual(ctx, value, conc)
 		return bm, noopRelease, err
 
 	case filters.OperatorLessThan:
-		bm, err := r.readLessThan(ctx, value)
+		bm, err := r.readLessThan(ctx, value, conc)
 		return bm, noopRelease, err
 
 	case filters.OperatorLessThanEqual:
-		bm, err := r.readLessThanEqual(ctx, value)
+		bm, err := r.readLessThanEqual(ctx, value, conc)
 		return bm, noopRelease, err
 
 	case filters.OperatorGreaterThan:
-		bm, err := r.readGreaterThan(ctx, value)
+		bm, err := r.readGreaterThan(ctx, value, conc)
 		return bm, noopRelease, err
 
 	case filters.OperatorGreaterThanEqual:
-		bm, err := r.readGreaterThanEqual(ctx, value)
+		bm, err := r.readGreaterThanEqual(ctx, value, conc)
 		return bm, noopRelease, err
 
 	default:
@@ -108,13 +104,13 @@ func (r *SegmentReader) firstLayer() (roaringset.BitmapLayer, bool) {
 	}, true
 }
 
-func (r *SegmentReader) readEqual(ctx context.Context, value uint64,
+func (r *SegmentReader) readEqual(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
 	if value == 0 {
-		return r.readLessThanEqual(ctx, value)
+		return r.readLessThanEqual(ctx, value, conc)
 	}
 	if value == math.MaxUint64 {
-		return r.readGreaterThanEqual(ctx, value)
+		return r.readGreaterThanEqual(ctx, value, conc)
 	}
 
 	firstLayer, ok := r.firstLayer()
@@ -122,7 +118,7 @@ func (r *SegmentReader) readEqual(ctx context.Context, value uint64,
 		return firstLayer, nil
 	}
 
-	eq, err := r.mergeBetween(ctx, value, value+1, firstLayer.Additions)
+	eq, err := r.mergeBetween(ctx, value, value+1, firstLayer.Additions, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -133,13 +129,13 @@ func (r *SegmentReader) readEqual(ctx context.Context, value uint64,
 	}, nil
 }
 
-func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64,
+func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
 	if value == 0 {
-		return r.readGreaterThan(ctx, value)
+		return r.readGreaterThan(ctx, value, conc)
 	}
 	if value == math.MaxUint64 {
-		return r.readLessThan(ctx, value)
+		return r.readLessThan(ctx, value, conc)
 	}
 
 	firstLayer, ok := r.firstLayer()
@@ -148,19 +144,19 @@ func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64,
 	}
 
 	neq := firstLayer.Additions.Clone()
-	eq, err := r.mergeBetween(ctx, value, value+1, firstLayer.Additions)
+	eq, err := r.mergeBetween(ctx, value, value+1, firstLayer.Additions, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
 
-	neq.AndNotConc(eq, r.concurrency)
+	neq.AndNotConc(eq, conc)
 	return roaringset.BitmapLayer{
 		Additions: neq,
 		Deletions: firstLayer.Deletions,
 	}, nil
 }
 
-func (r *SegmentReader) readLessThan(ctx context.Context, value uint64,
+func (r *SegmentReader) readLessThan(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
 	firstLayer, ok := r.firstLayer()
 	if !ok {
@@ -176,19 +172,19 @@ func (r *SegmentReader) readLessThan(ctx context.Context, value uint64,
 	}
 
 	lt := firstLayer.Additions.Clone()
-	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions)
+	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
 
-	lt.AndNotConc(gte, r.concurrency)
+	lt.AndNotConc(gte, conc)
 	return roaringset.BitmapLayer{
 		Additions: lt,
 		Deletions: firstLayer.Deletions,
 	}, nil
 }
 
-func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64,
+func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
 	firstLayer, ok := r.firstLayer()
 	if !ok {
@@ -201,19 +197,19 @@ func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64,
 	}
 
 	lte := firstLayer.Additions.Clone()
-	gte1, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions)
+	gte1, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
 
-	lte.AndNotConc(gte1, r.concurrency)
+	lte.AndNotConc(gte1, conc)
 	return roaringset.BitmapLayer{
 		Additions: lte,
 		Deletions: firstLayer.Deletions,
 	}, nil
 }
 
-func (r *SegmentReader) readGreaterThan(ctx context.Context, value uint64,
+func (r *SegmentReader) readGreaterThan(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
 	firstLayer, ok := r.firstLayer()
 	if !ok {
@@ -228,7 +224,7 @@ func (r *SegmentReader) readGreaterThan(ctx context.Context, value uint64,
 		}, nil
 	}
 
-	gte1, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions)
+	gte1, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -239,7 +235,7 @@ func (r *SegmentReader) readGreaterThan(ctx context.Context, value uint64,
 	}, nil
 }
 
-func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64,
+func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
 	firstLayer, ok := r.firstLayer()
 	if !ok {
@@ -251,7 +247,7 @@ func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64,
 		return firstLayer, nil
 	}
 
-	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions)
+	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -263,7 +259,7 @@ func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64,
 }
 
 func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
-	all *sroar.Bitmap,
+	all *sroar.Bitmap, conc int,
 ) (*sroar.Bitmap, error) {
 	ANDed := false
 	result := all
@@ -285,9 +281,9 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 
 		if value&(1<<(bit-1)) != 0 {
 			ANDed = true
-			result.AndConc(layer.Additions, r.concurrency)
+			result.AndConc(layer.Additions, conc)
 		} else if ANDed {
-			result.OrConc(layer.Additions, r.concurrency)
+			result.OrConc(layer.Additions, conc)
 		}
 	}
 
@@ -299,7 +295,7 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 }
 
 func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxExc uint64,
-	all *sroar.Bitmap,
+	all *sroar.Bitmap, conc int,
 ) (*sroar.Bitmap, error) {
 	ANDedMin := false
 	ANDedMax := false
@@ -325,20 +321,20 @@ func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxE
 
 		if valueMinInc&b != 0 {
 			ANDedMin = true
-			resultMin.AndConc(layer.Additions, r.concurrency)
+			resultMin.AndConc(layer.Additions, conc)
 		} else if ANDedMin {
-			resultMin.OrConc(layer.Additions, r.concurrency)
+			resultMin.OrConc(layer.Additions, conc)
 		}
 
 		if valueMaxExc&b != 0 {
 			ANDedMax = true
-			resultMax.AndConc(layer.Additions, r.concurrency)
+			resultMax.AndConc(layer.Additions, conc)
 		} else if ANDedMax {
-			resultMax.OrConc(layer.Additions, r.concurrency)
+			resultMax.OrConc(layer.Additions, conc)
 		}
 	}
 
-	resultMin.AndNotConc(resultMax, r.concurrency)
+	resultMin.AndNotConc(resultMax, conc)
 
 	return resultMin, nil
 }

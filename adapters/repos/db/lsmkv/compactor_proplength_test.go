@@ -113,11 +113,14 @@ func TestInvertedNaNPropLength(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	// every doc was deleted, so compaction reclaims all property lengths and the
+	// avgdl denominator drops to the (empty) live set — not the pre-#311 behavior
+	// that kept counting deleted docs (avg=1, count=size).
 	avg, sum = bucket.disk.GetAveragePropertyLength()
 	bavg, _ = bucket.GetAveragePropertyLength()
-	require.Equal(t, 1.0, avg)
-	require.Equal(t, 1.0, bavg)
-	require.Equal(t, uint64(size), sum)
+	require.Equal(t, 0.0, avg)
+	require.Equal(t, 0.0, bavg)
+	require.Equal(t, uint64(0), sum)
 
 	t.Run("re-init bucket after compact", func(t *testing.T) {
 		bucket.Shutdown(t.Context())
@@ -131,11 +134,13 @@ func TestInvertedNaNPropLength(t *testing.T) {
 		bucket = b
 	})
 
+	// the reclaimed avgdl survives a restart: init recomputes it from the merged
+	// segment's stored scalar, which now holds only the live (empty) set.
 	avg, sum = bucket.disk.GetAveragePropertyLength()
 	bavg, _ = bucket.GetAveragePropertyLength()
-	require.Equal(t, 1.0, avg)
-	require.Equal(t, 1.0, bavg)
-	require.Equal(t, uint64(size), sum)
+	require.Equal(t, 0.0, avg)
+	require.Equal(t, 0.0, bavg)
+	require.Equal(t, uint64(0), sum)
 
 	// verify that all prior writes are still correct
 	kvs, err = bucket.MapList(ctx, key)

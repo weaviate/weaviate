@@ -659,6 +659,16 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
+			name: "named_with_rq_4bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 4
+				return cfg
+			},
+			expectSegments: (dimensionsPerVector / 2) * objectCount,
+		},
+		{
 			name: "named_with_rq_1bit",
 			namedVectorConfig: func() enthnsw.UserConfig {
 				cfg := enthnsw.NewDefaultUserConfig()
@@ -847,6 +857,18 @@ func TestGetDimensionCategory(t *testing.T) {
 			expectedCategory: DimensionCategoryRQ,
 			expectedSegments: 0,
 			expectedBits:     1,
+		},
+		{
+			name: "HNSW with RQ-4 enabled",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: false},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: true, Bits: 4},
+			},
+			expectedCategory: DimensionCategoryRQ,
+			expectedSegments: 0,
+			expectedBits:     4,
 		},
 		{
 			name: "HNSW with RQ-8 enabled",

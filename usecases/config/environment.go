@@ -754,6 +754,13 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("BACKUP_MAX_INDIVIDUAL_FILES",
+		DefaultBackupMaxIndividualFiles,
+		parser.ValidateIntGreaterThan0,
+		func(val *configRuntime.DynamicValue[int]) { config.Backup.MaxIndividualFiles = val }); err != nil {
+		return err
+	}
+
 	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
 		config.Backup.SkipAccessCheck = true
 	}
@@ -1008,6 +1015,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
+	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1362,7 +1370,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if err = parsePositiveInt(
+	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
+	// fully on the stamp version: a pre-stamp node still derives blockmax truth
+	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
+	if err = parseNonNegativeInt(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
@@ -1867,7 +1878,7 @@ const (
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
-	DefaultAsyncReplicationSchedulerWorkers    = 3
+	DefaultAsyncReplicationSchedulerWorkers    = 1
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
 	// scaleDownCh) are all sized relative to this value; exceeding it requires
@@ -1877,7 +1888,7 @@ const (
 	DefaultAsyncReplicationHashtreeInitConcurrency = 10
 	// Root pre-filter batch size: cluster-wide cap on same-collection hashtree roots
 	// compared per batched RPC. 1 disables it; <= 0 falls back to the default.
-	DefaultAsyncReplicationRootPrefilterBatchSize = 512
+	DefaultAsyncReplicationRootPrefilterBatchSize = 128
 	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
 	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
 	DefaultMaximumAllowedObjectsCount             = -1 // unlimited

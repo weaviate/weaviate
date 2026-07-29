@@ -43,6 +43,8 @@ var (
 	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
 	// ErrAsyncReplicationNotActive maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
+	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.
+	ErrAsyncCheckpointCutoffInPast = errors.New("checkpoint cutoff is not in this node's future")
 	// MsgCLevel consistency level cannot be achieved
 	MsgCLevel = "cannot achieve consistency level"
 
@@ -98,7 +100,7 @@ func NewFinder(className string,
 	l logrus.FieldLogger,
 	getDeletionStrategy func() string,
 ) *Finder {
-	cl := FinderClient{client}
+	cl := FinderClient{cl: client, log: l}
 	return &Finder{
 		router:       router,
 		nodeResolver: nodeResolver,
@@ -248,7 +250,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range clusterObjectByShard(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part)
+			err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
 				f.log.WithField("op", "check_shard_consistency").
 					WithField("shard", part.Shard).Error(err)
@@ -306,37 +308,41 @@ func (f *Finder) NodeObject(ctx context.Context,
 }
 
 // checkShardConsistency checks consistency for a set of objects belonging to a shard
-// It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
 	batch ShardPart,
-) ([]*storobj.Object, error) {
+) error {
 	var (
-		c         = NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
-		shard     = batch.Shard
-		data, ids = batch.Extract() // extract from current content
+		c            = NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
+		shard        = batch.Shard
+		digests, ids = batch.Digests()
 	)
-	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
-		if fullRead { // we already have the content
-			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
-		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
-			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+	op := func(ctx context.Context, host string, isCallerCopy bool) (BatchReply, error) {
+		if isCallerCopy { // we already know the update times of this copy
+			return BatchReply{Sender: host, IsLocal: true, DigestData: digests}, nil
 		}
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
+		return BatchReply{Sender: host, DigestData: xs}, err
 	}
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", replicaerrors.NewNotEnoughReplicasError(err))
+		return fmt.Errorf("pull shard: %w", replicaerrors.NewNotEnoughReplicasError(err))
 	}
-	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
-	return result.Value, result.Err
+	return <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 }
 
 type ShardDifferenceReader struct {
 	TargetNodeName    string
 	TargetNodeAddress string
 	RangeReader       hashtree.AggregatedHashTreeRangeReader
+}
+
+// localReadRoutingPlan resolves shardName's replicas from local schema only: no leader query, no implicit tenant activation. All async-replication resolution must use this.
+func (f *Finder) localReadRoutingPlan(shardName string) (types.ReadRoutingPlan, error) {
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	options.LocalOnly = true
+	return f.router.BuildReadRoutingPlan(options)
 }
 
 // CollectShardDifferences collects the differences between the local node and the target nodes.
@@ -348,8 +354,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -495,8 +500,7 @@ func (f *Finder) CompareDigests(ctx context.Context,
 // targetHostAddrsForShard resolves a shard's remote replica host addresses
 // (excluding the local node), mirroring CollectShardDifferences.
 func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -699,8 +703,7 @@ type AsyncCheckpointShardStatus struct {
 }
 
 func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []string) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, nil
 	}

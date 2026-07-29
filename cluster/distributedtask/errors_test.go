@@ -36,6 +36,7 @@ func TestWrapPermanent_ErrorsIsClassification(t *testing.T) {
 		{"task-not-exist", ErrTaskDoesNotExist},
 		{"unit-already-terminal", ErrUnitAlreadyTerminal},
 		{"unit-wrong-node", ErrUnitWrongNode},
+		{"task-conflict", ErrTaskConflict},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,6 +109,7 @@ func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
 		{"task-not-exist", ErrTaskDoesNotExist},
 		{"unit-already-terminal", ErrUnitAlreadyTerminal},
 		{"unit-wrong-node", ErrUnitWrongNode},
+		{"task-conflict", ErrTaskConflict},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

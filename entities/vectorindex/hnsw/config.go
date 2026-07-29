@@ -357,6 +357,10 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 		hnswConfig.RQ.Enabled = true
 		hnswConfig.RQ.Bits = 1
 		hnswConfig.RQ.RescoreLimit = DefaultBRQRescoreLimit
+	case "rq-4":
+		hnswConfig.RQ.Enabled = true
+		hnswConfig.RQ.Bits = 4
+		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "rq-8":
 		hnswConfig.RQ.Enabled = true
 		hnswConfig.RQ.Bits = 8

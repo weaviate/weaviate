@@ -72,6 +72,10 @@ const (
 	// single RAFT commit cuts the entire cluster over from the
 	// previous-generation bucket to the next.
 	PropertyFieldBucketGeneration = "bucketGeneration"
+	// PropertyFieldSearchableBlockmax is the fieldmask tag for the internal
+	// SearchableBlockmax stamp, set true at a searchable migration's cutover so
+	// per-property blockmax truth survives the completed-task list ageing out.
+	PropertyFieldSearchableBlockmax = "searchableBlockmax"
 )
 
 type UpdatePropertyRequest struct {

@@ -37,10 +37,11 @@ import (
 // setup_test.go; the same MinIO bucket also backs export.
 const s3Backend = "s3"
 
-// waitBackupCreated issues root's backup-create for a class, retrying only
-// while the coordinator's local precheck transiently 422s during cluster
-// bring-up (the 422 rejects before any staging, so the same ID is safe to
-// resend). Any other error fails the test immediately.
+// waitBackupCreated issues root's backup-create for a class, retrying while it
+// 422s. The coordinator runs one backup at a time cluster-wide, so a parallel
+// test's backup makes create reject with "already in progress". The 422 rejects
+// before any staging, so the same ID is safe to resend. Any other error fails
+// the test immediately.
 func waitBackupCreated(t *testing.T, className, backupID string) *backups.BackupsCreateOK {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -55,7 +56,7 @@ func waitBackupCreated(t *testing.T, className, backupID string) *backups.Backup
 		require.Truef(t, errors.As(err, &unproc),
 			"root backup-create failed with non-transient error: %T: %v", err, err)
 		require.Falsef(t, time.Now().After(deadline),
-			"root backup-create still 422 after 30s: %v", err)
+			"root backup-create still 422 after 30s: %s", unproc.Payload.Error[0].Message)
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -292,10 +293,8 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 		// The ID carries a unique suffix so reruns against the shared, persisted
 		// bucket don't collide.
 		backupID := fmt.Sprintf("cr-root-backup-%s-%d", ns1, time.Now().UnixNano())
-		ok, err := helper.CreateBackupWithAuthz(
-			t, helper.DefaultBackupConfig(), ownClass, s3Backend, backupID,
-			helper.CreateAuth(adminKey))
-		require.NoError(t, err)
+		// Waits out a parallel test holding the cluster-wide single-backup slot.
+		ok := waitBackupCreated(t, ownClass, backupID)
 		require.NotNil(t, ok.Payload)
 		require.Contains(t, ok.Payload.Classes, ownClass)
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))

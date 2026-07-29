@@ -41,20 +41,6 @@ type fakeNamespacesExister struct {
 	defaultHomeNode string
 }
 
-func (f fakeNamespacesExister) Exists(name string) bool {
-	if _, ok := f.byName[name]; ok {
-		return true
-	}
-	return f.defaultHomeNode != ""
-}
-
-func (f fakeNamespacesExister) IsActive(name string) bool {
-	if ns, ok := f.byName[name]; ok {
-		return ns.State == cmd.NamespaceStateActive
-	}
-	return f.defaultHomeNode != ""
-}
-
 func (f fakeNamespacesExister) GetNamespace(name string) (cmd.Namespace, bool) {
 	if ns, ok := f.byName[name]; ok {
 		return ns, true

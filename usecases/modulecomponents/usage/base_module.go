@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -55,6 +57,9 @@ type BaseModule struct {
 	// mu mutex to protect shared fields to run concurrently the collection and upload
 	// to avoid interval overlap for the tickers
 	mu sync.RWMutex
+	// collectionsInFlight counts running collection cycles to detect ticks
+	// overlapping a report that takes longer than the collection interval
+	collectionsInFlight atomic.Int32
 }
 
 // NewBaseModule creates a new base module instance
@@ -211,12 +216,7 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			}).Debug("collection ticker fired - starting collection cycle")
 
 			enterrors.GoWrapper(func() {
-				if err := b.collectAndUploadUsage(ctx); err != nil {
-					b.logger.WithError(err).Error("Failed to collect and upload usage data")
-					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
-				} else {
-					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
-				}
+				b.runCollectAndUpload(ctx)
 			}, b.logger)
 
 			// save last push date
@@ -239,6 +239,24 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			b.logger.Info("stop signal received - stopping periodic collection")
 			return
 		}
+	}
+}
+
+// runCollectAndUpload runs one collection cycle. Overlapping cycles are
+// allowed but logged, as they indicate reports taking longer than the
+// collection interval.
+func (b *BaseModule) runCollectAndUpload(ctx context.Context) {
+	if inFlight := b.collectionsInFlight.Add(1); inFlight > 1 {
+		b.logger.Warnf("starting a usage collection cycle while %d previous cycle(s) are still running: usage report generation takes longer than the collection interval", inFlight-1)
+	}
+	defer b.collectionsInFlight.Add(-1)
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessUsageCollection)()
+	if err := b.collectAndUploadUsage(ctx); err != nil {
+		b.logger.Errorf("Failed to collect and upload usage data: %v", err)
+		b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
+	} else {
+		b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
 	}
 }
 
