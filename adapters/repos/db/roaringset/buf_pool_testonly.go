@@ -47,12 +47,28 @@ func (p *BitmapBufPoolTrackingForTests) Get(minCap int) (buf []byte, put func())
 	}
 }
 
+// getWithBitmap returns a fresh struct rather than a pooled one, so a bitmap
+// used after its release keeps reading the zeroed buffer (visible as wrong
+// values) instead of silently aliasing a reused struct.
+func (p *BitmapBufPoolTrackingForTests) getWithBitmap(minCap int) (buf []byte, bm *sroar.Bitmap, put func()) {
+	buf, put = p.Get(minCap)
+	return buf, &sroar.Bitmap{}, put
+}
+
 func (p *BitmapBufPoolTrackingForTests) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	return cloneToBuf(p, bm)
 }
 
 func (p *BitmapBufPoolTrackingForTests) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
 	return cloneBytesToBuf(p, src)
+}
+
+func (p *BitmapBufPoolTrackingForTests) CloneBytesToBufBounded(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytesToBufBounded(p, src)
+}
+
+func (p *BitmapBufPoolTrackingForTests) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return accumulatorToBuf(p, acc)
 }
 
 // Outstanding returns the number of buffers that have been allocated but not

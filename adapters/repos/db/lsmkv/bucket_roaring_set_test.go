@@ -242,6 +242,160 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	})
 }
 
+// TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet proves the new
+// batched-read primitive returns byte-identical results to the per-key
+// RoaringSetGet entry point, whether the key is present across several
+// on-disk segments plus the active memtable, or absent entirely, and that a
+// single GetConsistentView() call serves every RoaringSetGetFromView read.
+func TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	tmpDir := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	// never auto-flush; flush explicitly so the key spans several disk
+	// segments plus a final write left in the active memtable
+	b.SetMemtableThreshold(1e9)
+
+	keyA := []byte("key-a")
+	keyB := []byte("key-b")
+	keyMissing := []byte("key-missing")
+
+	require.NoError(t, b.RoaringSetAddList(keyA, []uint64{1, 2, 3}))
+	require.NoError(t, b.RoaringSetAddList(keyB, []uint64{10, 20}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	require.NoError(t, b.RoaringSetAddList(keyA, []uint64{4, 5}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	// left in the active memtable, unflushed
+	require.NoError(t, b.RoaringSetAddList(keyA, []uint64{6}))
+
+	wantA, releaseWantA, err := b.RoaringSetGet(ctx, keyA)
+	require.NoError(t, err)
+	arrWantA := append([]uint64(nil), wantA.ToArray()...)
+	releaseWantA()
+
+	wantB, releaseWantB, err := b.RoaringSetGet(ctx, keyB)
+	require.NoError(t, err)
+	arrWantB := append([]uint64(nil), wantB.ToArray()...)
+	releaseWantB()
+
+	wantMissing, releaseWantMissing, err := b.RoaringSetGet(ctx, keyMissing)
+	require.NoError(t, err)
+	arrWantMissing := append([]uint64(nil), wantMissing.ToArray()...)
+	releaseWantMissing()
+	require.Empty(t, arrWantMissing, "absent key must resolve to an empty, non-nil bitmap")
+
+	// one shared view serves all three RoaringSetGetFromView reads below
+	view := b.GetConsistentView()
+
+	gotA, releaseA, err := b.RoaringSetGetFromView(ctx, view, keyA)
+	require.NoError(t, err)
+	require.Equal(t, arrWantA, gotA.ToArray())
+	releaseA()
+
+	gotB, releaseB, err := b.RoaringSetGetFromView(ctx, view, keyB)
+	require.NoError(t, err)
+	require.Equal(t, arrWantB, gotB.ToArray())
+	releaseB()
+
+	gotMissing, releaseMissing, err := b.RoaringSetGetFromView(ctx, view, keyMissing)
+	require.NoError(t, err)
+	require.NotNil(t, gotMissing)
+	require.Empty(t, gotMissing.ToArray())
+	releaseMissing()
+
+	view.ReleaseView()
+}
+
+// TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch pins the view
+// stability that justifies the caller-held-view API: reads through a view
+// taken before a FlushAndSwitch must keep resolving without error (the
+// flushed-away memtable stays readable through the held reference) and keep
+// returning the pre-switch state — writes landing in the new active memtable
+// must stay invisible. A fresh RoaringSetGet sees the post-switch write,
+// proving the view pinned state rather than the two paths coincidentally
+// agreeing.
+// (A view is not a write snapshot: writes before the switch go to the old
+// active memtable the view references, so only post-switch invisibility is
+// asserted.)
+func TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	b.SetMemtableThreshold(1e9) // flush only via the explicit switch below
+
+	key := []byte("key")
+
+	// one disk segment plus unflushed state in the active memtable, so the
+	// view references both layer kinds when taken
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{1, 2, 3}))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{4}))
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	before, releaseBefore, err := b.RoaringSetGetFromView(ctx, view, key)
+	require.NoError(t, err)
+	arrBefore := append([]uint64(nil), before.ToArray()...)
+	releaseBefore()
+	require.Equal(t, []uint64{1, 2, 3, 4}, arrBefore)
+
+	// flush the memtable the view references, then write past the view
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{5}))
+
+	after, releaseAfter, err := b.RoaringSetGetFromView(ctx, view, key)
+	require.NoError(t, err)
+	require.Equal(t, arrBefore, after.ToArray(),
+		"view read must keep returning the pre-switch state")
+	releaseAfter()
+
+	fresh, releaseFresh, err := b.RoaringSetGet(ctx, key)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, fresh.ToArray(),
+		"a fresh read must see the post-switch write the view cannot")
+	releaseFresh()
+}
+
+// TestBucket_RoaringSetGetFromView_WrongStrategy pins the strategy guard: a
+// view read on a non-roaringset bucket must error before touching the view
+// at all (a zero view makes that observable — reaching the memtable read
+// would nil-panic), and the returned release must be safe to call. The
+// deeper layers reject the wrong strategy too, so without the guard the
+// error would only surface after the disk descent.
+func TestBucket_RoaringSetGetFromView_WrongStrategy(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	bm, release, err := b.RoaringSetGetFromView(ctx, BucketConsistentView{}, []byte("key"))
+	require.Error(t, err)
+	require.Nil(t, bm)
+	require.NotNil(t, release)
+	release()
+}
+
 // TestBucket_RoaringSet_DeleteThenReaddAcrossSegments is a read-path regression
 // test for roaringset reads with tombstones spread across multiple disk segments
 // plus the active memtable, including a doc deleted in one segment and re-added
