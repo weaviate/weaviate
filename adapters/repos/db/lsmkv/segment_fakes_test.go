@@ -245,6 +245,10 @@ func (f *fakeSegment) getBloomFilter() *bloom.BloomFilter {
 	return nil
 }
 
+func (f *fakeSegment) getKeysSorted() [][]byte {
+	panic("not implemented")
+}
+
 func (f *fakeSegment) isLoaded() bool {
 	panic("not implemented")
 }

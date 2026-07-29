@@ -21,6 +21,51 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
+func TestDispatchableProperties(t *testing.T) {
+	card := aggregation.ParamProperty{Name: "card", ApproximateCardinality: true}
+	cardAndCount := aggregation.ParamProperty{
+		Name: "cardAndCount", ApproximateCardinality: true,
+		Aggregators: []aggregation.Aggregator{{Type: "count"}},
+	}
+	count := aggregation.ParamProperty{Name: "count", Aggregators: []aggregation.Aggregator{{Type: "count"}}}
+	bare := aggregation.ParamProperty{Name: "bare"}
+
+	tests := []struct {
+		name string
+		in   []aggregation.ParamProperty
+		out  []aggregation.ParamProperty
+	}{
+		{
+			name: "cardinality-only property dropped",
+			in:   []aggregation.ParamProperty{card, count},
+			out:  []aggregation.ParamProperty{count},
+		},
+		{
+			name: "cardinality alongside aggregators stays",
+			in:   []aggregation.ParamProperty{cardAndCount, count},
+			out:  []aggregation.ParamProperty{cardAndCount, count},
+		},
+		{
+			// a sibling without aggregators still aggregates by type, exactly as
+			// it would in a request with no cardinality flag anywhere
+			name: "bare sibling stays",
+			in:   []aggregation.ParamProperty{card, bare},
+			out:  []aggregation.ParamProperty{bare},
+		},
+		{
+			name: "no cardinality: all pass through",
+			in:   []aggregation.ParamProperty{count, bare},
+			out:  []aggregation.ParamProperty{count, bare},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.out, dispatchableProperties(tt.in))
+		})
+	}
+}
+
 func TestValidateCardinalityOnlyProperties(t *testing.T) {
 	class := &models.Class{
 		Class: "MyClass",

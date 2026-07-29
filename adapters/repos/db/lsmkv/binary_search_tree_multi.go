@@ -76,6 +76,30 @@ func (t *binarySearchTreeMulti) flattenInOrder() []*binarySearchNodeMulti {
 	return t.root.flattenInOrder()
 }
 
+// keysInOrder returns the keys ascending, aliasing the nodes' keys and
+// skipping the value copies flattenInOrder makes.
+func (t *binarySearchTreeMulti) keysInOrder() [][]byte {
+	if t.root == nil {
+		return nil
+	}
+
+	return t.root.appendKeysInOrder(make([][]byte, 0, t.root.subtreeSize()))
+}
+
+func (n *binarySearchNodeMulti) appendKeysInOrder(dst [][]byte) [][]byte {
+	if n == nil {
+		return dst
+	}
+	if n.left != nil {
+		dst = n.left.appendKeysInOrder(dst)
+	}
+	dst = append(dst, n.key)
+	if n.right != nil {
+		dst = n.right.appendKeysInOrder(dst)
+	}
+	return dst
+}
+
 type binarySearchNodeMulti struct {
 	key         []byte
 	values      []value

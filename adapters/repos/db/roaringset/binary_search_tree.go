@@ -66,6 +66,30 @@ func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
 	return t.root.flattenInOrder()
 }
 
+// KeysInOrder returns the keys ascending, aliasing the nodes' keys and
+// skipping the bitmap cloning FlattenInOrder does.
+func (t *BinarySearchTree) KeysInOrder() [][]byte {
+	if t.root == nil {
+		return nil
+	}
+
+	return t.root.appendKeysInOrder(nil)
+}
+
+func (n *BinarySearchNode) appendKeysInOrder(dst [][]byte) [][]byte {
+	if n == nil {
+		return dst
+	}
+	if n.left != nil {
+		dst = n.left.appendKeysInOrder(dst)
+	}
+	dst = append(dst, n.Key)
+	if n.right != nil {
+		dst = n.right.appendKeysInOrder(dst)
+	}
+	return dst
+}
+
 type BinarySearchNode struct {
 	Key         []byte
 	Value       BitmapLayer

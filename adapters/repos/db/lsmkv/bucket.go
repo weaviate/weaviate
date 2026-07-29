@@ -2813,10 +2813,10 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 }
 
 // GetKeysCount estimates the bucket's distinct key count, taking the best of
-// the counts it can derive: the memtables, which are counted exactly, the disk
-// segments' bloom filters, and — when the memtables fit into the disk filter's
-// geometry — the union of the two. All are lower bounds, so the largest is the
-// tightest.
+// the counts it can derive: the exactly counted keys of the memtables and of
+// the small disk segments that carry no bloom filter, the remaining segments'
+// unioned filters, and — while the union has room left — the filter with the
+// exact keys added in. All are lower bounds, so the largest is the tightest.
 //
 // All layers come from one pinned view, so a flush in flight cannot drop the
 // keys of a memtable it moves.
@@ -2828,35 +2828,32 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	memKeys, err := collectMemtableKeys(view)
+	exact, err := collectMemtableKeys(view)
 	if err != nil {
 		return 0, err
 	}
 
-	diskBloom := combineBloomFilters(view.Disk)
-	if diskBloom == nil {
-		return memKeys.distinct(), nil
-	}
+	diskBloom := combineBloomFilters(view.Disk, &exact)
 
-	best := diskBloom.ApproximatedSize()
-	if memKeys.total == 0 {
+	best := exact.distinct()
+	if diskBloom == nil {
 		return best, nil
 	}
-	if exact := memKeys.distinct(); exact > best {
-		best = exact
+	if est := diskBloom.ApproximatedSize(); est > best {
+		best = est
+	}
+	if exact.total == 0 {
+		return best, nil
 	}
 
-	// Merge only accepts filters of identical geometry, and a segment's is fixed
-	// by its own key count, so the memtable keys go into a filter built to match.
-	// Overfilling it costs accuracy gradually and then all at once: past full
-	// saturation ApproximatedSize evaluates ln(0) and overflows to MaxUint32.
-	// Hence the union only competes when it has room left and actually wins.
-	//
-	// diskBloom is a copy owned by this call, and its own estimate is already in
-	// best, so it can be merged into in place.
-	shared := bloom.New(diskBloom.Cap(), diskBloom.K())
-	memKeys.addTo(shared)
-	if err := diskBloom.Merge(shared); err == nil && !bloomSaturated(diskBloom) {
+	// The exact keys go straight into the disk filter to estimate the union:
+	// diskBloom is a copy owned by this call, and its own estimate is already
+	// in best. Overfilling it costs accuracy gradually and then all at once —
+	// at full saturation ApproximatedSize evaluates ln(0), whose uint32
+	// conversion is platform-defined — so the union only competes while there
+	// is room left.
+	exact.addTo(diskBloom)
+	if !bloomSaturated(diskBloom) {
 		if est := diskBloom.ApproximatedSize(); est > best {
 			best = est
 		}
@@ -2865,61 +2862,82 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 	return best, nil
 }
 
-// memtableKeys holds the keys of a view's memtables, so counting them and
-// feeding them to a filter does not read them twice.
-type memtableKeys struct {
-	sets  [2][][]byte
-	count int
+// exactKeys holds key sets counted exactly rather than estimated: the view's
+// memtables and any disk segments too small to carry a bloom filter. Each set
+// is sorted ascending and holds each key once. Collected once, so counting
+// the keys and feeding them to a filter does not read them twice.
+type exactKeys struct {
+	sets  [][][]byte
 	total int
 }
 
-func collectMemtableKeys(view BucketConsistentView) (memtableKeys, error) {
+func (ek *exactKeys) add(set [][]byte) {
+	if len(set) == 0 {
+		return
+	}
+	ek.sets = append(ek.sets, set)
+	ek.total += len(set)
+}
+
+func collectMemtableKeys(view BucketConsistentView) (exactKeys, error) {
 	memtables, count := viewMemtables(view)
 
-	mk := memtableKeys{count: count}
+	var ek exactKeys
 	for i := range count {
 		keys, err := memtables[i].GetKeys()
 		if err != nil {
-			return memtableKeys{}, err
+			return exactKeys{}, err
 		}
-		mk.sets[i] = keys
-		mk.total += len(keys)
+		ek.add(keys)
 	}
-	return mk, nil
+	return ek, nil
 }
 
-func (mk memtableKeys) addTo(keysBloom *bloom.BloomFilter) {
-	for i := range mk.count {
-		for _, key := range mk.sets[i] {
+func (ek exactKeys) addTo(keysBloom *bloom.BloomFilter) {
+	for _, set := range ek.sets {
+		for _, key := range set {
 			keysBloom.Add(key)
 		}
 	}
 }
 
-// distinct counts the memtables' keys exactly. Each memtable already holds one
-// node per key, and a bucket has at most two, so the only duplicates possible
-// are keys written again after a switch — which a merge of the two sorted key
-// lists removes without a sketch.
-func (mk memtableKeys) distinct() uint32 {
-	if mk.count < 2 {
-		return uint32(mk.total)
+// distinct counts the collected keys exactly: a k-way merge of the sorted
+// sets removes the duplicates keys written again after a memtable switch or
+// flush leave across layers — no sketch needed.
+func (ek exactKeys) distinct() uint32 {
+	switch len(ek.sets) {
+	case 0:
+		return 0
+	case 1:
+		return uint32(len(ek.sets[0]))
 	}
 
-	active, flushing := mk.sets[0], mk.sets[1]
-	shared := 0
-	for i, j := 0, 0; i < len(active) && j < len(flushing); {
-		switch bytes.Compare(active[i], flushing[j]) {
-		case 0:
-			shared++
-			i++
-			j++
-		case -1:
-			i++
-		default:
-			j++
+	heads := make([]int, len(ek.sets))
+	distinct := uint32(0)
+	for {
+		var (
+			minKey []byte
+			found  bool
+		)
+		for i, set := range ek.sets {
+			if heads[i] == len(set) {
+				continue
+			}
+			if head := set[heads[i]]; !found || bytes.Compare(head, minKey) < 0 {
+				minKey = head
+				found = true
+			}
+		}
+		if !found {
+			return distinct
+		}
+		distinct++
+		for i, set := range ek.sets {
+			if heads[i] < len(set) && bytes.Equal(set[heads[i]], minKey) {
+				heads[i]++
+			}
 		}
 	}
-	return uint32(mk.total - shared)
 }
 
 func bloomSaturated(keysBloom *bloom.BloomFilter) bool {

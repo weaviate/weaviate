@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -159,32 +160,79 @@ func (s *segment) getBloomFilter() *bloom.BloomFilter {
 	return s.bloomFilter
 }
 
-// combineBloomFilters unions the filters of segments the caller has pinned (see
-// getConsistentViewOfSegments), or returns nil if none carries one. Loads any
-// lazily loaded segment it touches. The result is always a copy, never a
-// segment's own filter, so the caller is free to mutate it.
-func combineBloomFilters(segments []Segment) *bloom.BloomFilter {
-	var combined *bloom.BloomFilter
+// getKeysSorted returns the primary index's keys ascending. The keys alias the
+// segment's data, so they are valid only while the segment is pinned. Meant
+// for small in-memory segments that carry no bloom filter; on a large segment
+// it touches every index node.
+func (s *segment) getKeysSorted() [][]byte {
+	keys := make([][]byte, 0, s.index.KeyCount())
+	s.index.ForEachKey(func(key []byte) {
+		keys = append(keys, key)
+	})
+	slices.SortFunc(keys, bytes.Compare)
+	return keys
+}
+
+// combineBloomFilters unions the pinned segments' filters per (m, k) geometry
+// — Merge rejects anything else — and returns the candidate with the largest
+// estimate: normally a union, or a single segment's filter when its
+// geometry's union saturated. Nil if no segment carries a filter. The result
+// is always an unsaturated copy: safe to mutate, and safe to call
+// ApproximatedSize on, which at full saturation evaluates ln(0) with a
+// platform-defined uint32 result. Segments without a filter (small files read
+// fully into memory) have their keys collected into exact instead, so they
+// are counted, not estimated. Loads any lazily loaded segment it touches.
+func combineBloomFilters(segments []Segment, exact *exactKeys) *bloom.BloomFilter {
+	type geometry struct{ m, k uint }
+	var (
+		unions           map[geometry]*bloom.BloomFilter
+		largestSingle    *bloom.BloomFilter
+		largestSingleEst uint32
+	)
 	for _, seg := range segments {
 		bf := seg.getBloomFilter()
 		if bf == nil {
+			exact.add(seg.getKeysSorted())
 			continue
 		}
-		if combined == nil {
-			combined = bf.Copy()
+		if bloomSaturated(bf) {
+			// sized for its own key count (~50% fill), so this cannot happen;
+			// skip rather than poison a union
 			continue
 		}
-		if err := combined.Merge(bf); err != nil {
-			// filters sized from different key counts have incompatible geometry
-			// (m, k); keep the larger so the result is at least the biggest
-			// single segment's distinct-key count
-			if bf.ApproximatedSize() > combined.ApproximatedSize() {
-				combined = bf.Copy()
+		if est := bf.ApproximatedSize(); largestSingle == nil || est > largestSingleEst {
+			largestSingle, largestSingleEst = bf, est
+		}
+		g := geometry{m: bf.Cap(), k: bf.K()}
+		if u, ok := unions[g]; ok {
+			_ = u.Merge(bf) // equal geometry, cannot fail
+		} else {
+			if unions == nil {
+				unions = map[geometry]*bloom.BloomFilter{}
 			}
+			unions[g] = bf.Copy()
 		}
 	}
 
-	return combined
+	var (
+		best    *bloom.BloomFilter
+		bestEst uint32
+	)
+	for _, u := range unions {
+		if bloomSaturated(u) {
+			continue
+		}
+		if est := u.ApproximatedSize(); best == nil || est > bestEst {
+			best, bestEst = u, est
+		}
+	}
+	// An unsaturated union bounds its own members, but not another geometry's:
+	// when the largest filter's union saturated, a small surviving union must
+	// not displace the larger single-filter bound.
+	if largestSingle != nil && (best == nil || largestSingleEst > bestEst) {
+		return largestSingle.Copy()
+	}
+	return best
 }
 
 func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList map[string]int64) error {

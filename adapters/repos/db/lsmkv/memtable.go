@@ -804,48 +804,25 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 	return result
 }
 
+// GetKeys returns the memtable's keys ascending. The slices alias the nodes'
+// keys, which are never mutated in place; no node values are copied.
 func (m *Memtable) GetKeys() ([][]byte, error) {
 	m.RLock()
 	defer m.RUnlock()
 	if m.primaryIndex != nil && m.primaryIndex.root != nil {
-		iterator := m.primaryIndex.flattenInOrder()
-		keys := make([][]byte, 0, len(iterator))
-		for _, node := range iterator {
-			keys = append(keys, node.key)
-		}
-		return keys, nil
+		return m.primaryIndex.keysInOrder(), nil
 	}
 	if m.key != nil && m.key.root != nil {
-		iterator := m.key.flattenInOrder()
-		keys := make([][]byte, 0, len(iterator))
-		for _, node := range iterator {
-			keys = append(keys, node.key)
-		}
-		return keys, nil
+		return m.key.keysInOrder(), nil
 	}
 	if m.keyMulti != nil && m.keyMulti.root != nil {
-		iterator := m.keyMulti.flattenInOrder()
-		keys := make([][]byte, 0, len(iterator))
-		for _, node := range iterator {
-			keys = append(keys, node.key)
-		}
-		return keys, nil
+		return m.keyMulti.keysInOrder(), nil
 	}
 	if m.keyMap != nil && m.keyMap.root != nil {
-		iterator := m.keyMap.flattenInOrder()
-		keys := make([][]byte, 0, len(iterator))
-		for _, node := range iterator {
-			keys = append(keys, node.key)
-		}
-		return keys, nil
+		return m.keyMap.keysInOrder(), nil
 	}
 	if m.roaringSet != nil {
-		iterator := m.roaringSet.FlattenInOrder()
-		keys := make([][]byte, 0, len(iterator))
-		for _, node := range iterator {
-			keys = append(keys, node.Key)
-		}
-		return keys, nil
+		return m.roaringSet.KeysInOrder(), nil
 	}
 
 	return [][]byte{}, nil

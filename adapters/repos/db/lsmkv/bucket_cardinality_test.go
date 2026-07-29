@@ -64,6 +64,40 @@ func TestMemtableKeysDistinct(t *testing.T) {
 	}
 }
 
+// exactKeys generalizes beyond the two memtables: bloom-less disk segments add
+// more sorted sets. Cross-set duplicates must count once.
+func TestExactKeysDistinct(t *testing.T) {
+	keyRange := func(start, end int) [][]byte {
+		set := make([][]byte, 0, end-start)
+		for i := start; i < end; i++ {
+			set = append(set, []byte(fmt.Sprintf("value-%06d", i)))
+		}
+		return set
+	}
+
+	tests := []struct {
+		name     string
+		sets     [][][]byte
+		distinct uint32
+	}{
+		{name: "no sets", distinct: 0},
+		{name: "three disjoint", sets: [][][]byte{keyRange(0, 100), keyRange(100, 200), keyRange(200, 300)}, distinct: 300},
+		{name: "three identical", sets: [][][]byte{keyRange(0, 100), keyRange(0, 100), keyRange(0, 100)}, distinct: 100},
+		{name: "staggered overlap", sets: [][][]byte{keyRange(0, 100), keyRange(50, 150), keyRange(100, 200)}, distinct: 200},
+		{name: "empty set among sets", sets: [][][]byte{keyRange(0, 100), nil, keyRange(50, 150)}, distinct: 150},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ek exactKeys
+			for _, set := range tt.sets {
+				ek.add(set)
+			}
+			assert.Equal(t, tt.distinct, ek.distinct())
+		})
+	}
+}
+
 // newPopulatedMemtable returns a roaringset memtable holding keys value-<i> for
 // i in [start, end).
 func newPopulatedMemtable(t *testing.T, start, end int) *Memtable {

@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // TestBucketPropertyCardinality exercises Bucket.GetKeysCount on a roaringset
@@ -125,11 +126,92 @@ func TestBucketPropertyCardinality(t *testing.T) {
 		addDistinctKeys(t, b, 100, 5000)
 
 		// the disk filter holds ~1400 bits for its 100 keys; feeding it the
-		// memtable's 4900 sets every one and overflows ApproximatedSize to
-		// MaxUint32, so the two layers are estimated apart and compared
+		// memtable's 4900 sets every one, making its estimate unusable, so the
+		// two layers are estimated apart and compared
 		est, err := b.GetKeysCount()
 		require.NoError(t, err)
 		assertWithinPct(t, 4900, float64(est), 5)
+	})
+
+	t.Run("many equal-sized disjoint segments: saturated union falls back to a sane bound", func(t *testing.T) {
+		b := newCardinalityBucket(ctx, t, t.TempDir())
+		defer b.Shutdown(ctx)
+
+		// 40 same-geometry filters of 500 disjoint keys each saturate their
+		// union: every bit set, so its ApproximatedSize evaluates ln(0) with a
+		// platform-defined uint32 result. The estimate must fall back to a
+		// sound lower bound — a single segment's worth at minimum — and never
+		// report the garbage value.
+		const segs, perSeg = 40, 500
+		for i := 0; i < segs; i++ {
+			addDistinctKeys(t, b, i*perSeg, (i+1)*perSeg)
+			require.NoError(t, b.FlushAndSwitch())
+		}
+		require.Equal(t, segs, b.disk.Len())
+
+		est, err := b.GetKeysCount()
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, est, uint32(perSeg*95/100))
+		require.LessOrEqual(t, est, uint32(segs*perSeg*105/100))
+
+		// a differently-sized segment forms its own tiny unsaturated union; it
+		// must not displace the saturated geometry's largest-member bound
+		addDistinctKeys(t, b, segs*perSeg, segs*perSeg+100)
+		require.NoError(t, b.FlushAndSwitch())
+
+		est, err = b.GetKeysCount()
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, est, uint32(perSeg*95/100))
+		require.LessOrEqual(t, est, uint32((segs*perSeg+100)*105/100))
+	})
+
+	t.Run("segments below the mmap threshold: no bloom filters, keys counted exactly", func(t *testing.T) {
+		// with an alloc checker present, segments this small are read fully
+		// into memory and carry no bloom filter — the production default
+		b := newCardinalityBucket(ctx, t, t.TempDir(),
+			WithAllocChecker(memwatch.NewDummyMonitor()),
+			WithMinMMapSize(1<<20))
+		defer b.Shutdown(ctx)
+
+		addDistinctKeys(t, b, 0, 300)
+		require.NoError(t, b.FlushAndSwitch())
+		addDistinctKeys(t, b, 200, 500) // overlaps the first segment by 100
+		require.NoError(t, b.FlushAndSwitch())
+		require.Equal(t, 2, b.disk.Len())
+		for i, seg := range b.disk.segments {
+			require.Nilf(t, seg.getBloomFilter(),
+				"segment %d must carry no bloom filter for this test to cover the exact path", i)
+		}
+
+		est, err := b.GetKeysCount()
+		require.NoError(t, err)
+		require.Equal(t, uint32(500), est)
+
+		addDistinctKeys(t, b, 400, 600) // memtable overlaps the second segment
+		est, err = b.GetKeysCount()
+		require.NoError(t, err)
+		require.Equal(t, uint32(600), est)
+	})
+
+	t.Run("bloom and bloom-less segments mixed: exact keys join the union", func(t *testing.T) {
+		b := newCardinalityBucket(ctx, t, t.TempDir(),
+			WithAllocChecker(memwatch.NewDummyMonitor()),
+			WithMinMMapSize(32<<10))
+		defer b.Shutdown(ctx)
+
+		addDistinctKeys(t, b, 0, 20000) // above the threshold: mmap'd, with filter
+		require.NoError(t, b.FlushAndSwitch())
+		addDistinctKeys(t, b, 20000, 20100) // below it: in memory, no filter
+		require.NoError(t, b.FlushAndSwitch())
+		require.Equal(t, 2, b.disk.Len())
+		require.NotNil(t, b.disk.segments[0].getBloomFilter(),
+			"large segment expected to carry a bloom filter")
+		require.Nil(t, b.disk.segments[1].getBloomFilter(),
+			"small segment expected to carry no bloom filter")
+
+		est, err := b.GetKeysCount()
+		require.NoError(t, err)
+		assertWithinPct(t, 20100, float64(est), 5)
 	})
 
 	// Lazy loading is the production default but only applies to segments read

@@ -129,14 +129,7 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 		return a.dispatch(ctx, a.params.Properties)
 	}
 
-	// the bloom estimate needs no object scan, so keep a cardinality-only
-	// property out of the aggregation entirely
-	normal := make([]aggregation.ParamProperty, 0, len(a.params.Properties))
-	for _, p := range a.params.Properties {
-		if len(p.Aggregators) > 0 {
-			normal = append(normal, p)
-		}
-	}
+	normal := dispatchableProperties(a.params.Properties)
 
 	if err := a.validateCardinalityOnlyProperties(); err != nil {
 		return nil, err
@@ -151,6 +144,20 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 		a.addApproximateCardinalities(res)
 	}
 	return res, nil
+}
+
+// dispatchableProperties drops cardinality-only properties: the bloom
+// estimate needs no object scan. A property that requested no cardinality
+// stays in even without aggregators, as it would without the flag on its
+// siblings.
+func dispatchableProperties(props []aggregation.ParamProperty) []aggregation.ParamProperty {
+	normal := make([]aggregation.ParamProperty, 0, len(props))
+	for _, p := range props {
+		if len(p.Aggregators) > 0 || !p.ApproximateCardinality {
+			normal = append(normal, p)
+		}
+	}
+	return normal
 }
 
 func (a *Aggregator) dispatch(ctx context.Context, props []aggregation.ParamProperty) (*aggregation.Result, error) {
