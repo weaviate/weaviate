@@ -49,11 +49,10 @@ type reindexGate struct {
 	cleanup  CleanupInProgressLookup
 }
 
-// String stops fmt reflecting over the gate's internals. The gate travels
-// through ShardLike methods, and the mockery-generated mock formats every
-// argument it receives to build match diagnostics — an unsynchronised read
-// of the fields below that races a concurrent resolve on the hardlink
-// backup path. The internals have no useful string form anyway.
+// String keeps fmt from reflecting over the fields below, which a
+// concurrent resolve is writing. Nothing formats a gate today, so this is
+// prophylactic: the type travels through ShardLike, and a %v added later
+// anywhere on that path would race the shard loop sharing the gate.
 func (g *reindexGate) String() string { return "reindexGate" }
 
 // newReindexGate captures the installed lookup builders under the audit
