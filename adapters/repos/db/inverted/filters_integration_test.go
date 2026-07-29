@@ -1309,6 +1309,13 @@ func createSchema() *schema.Schema {
 							IndexRangeFilters: &vFalse,
 						},
 						{
+							Name:              "inverted-uuid-roaringset",
+							DataType:          schema.DataTypeUUID.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
 							Name:              "inverted-roaringsetrange-on-disk",
 							DataType:          schema.DataTypeInt.PropString(),
 							IndexFilterable:   &vFalse,
