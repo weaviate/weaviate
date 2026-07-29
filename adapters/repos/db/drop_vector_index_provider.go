@@ -446,13 +446,13 @@ func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtas
 		return false // unparseable records cannot feed coverage inheritance
 	}
 	// Mirror EpochCoveredShards exactly: completed (SWAPPING/FINISHED)
-	// records feed their full CoveredShards; a FAILED record feeds its
-	// COMPLETED units — expiring either while the marker is pending would
-	// erase load-bearing coverage and force a full re-clean. FAILED records
+	// records feed their full CoveredShards; a FAILED or CANCELLED record
+	// feeds its COMPLETED units — expiring either while the marker is pending
+	// would erase load-bearing coverage and force a full re-clean. Records
 	// with no completed units feed nothing; TTL takes them.
 	switch {
 	case task.Status.IsCompleted():
-	case task.Status == distributedtask.TaskStatusFailed && len(CompletedUnitShards(task, payload)) > 0:
+	case terminalWithPartialWork(task.Status) && len(CompletedUnitShards(task, payload)) > 0:
 	default:
 		return false
 	}

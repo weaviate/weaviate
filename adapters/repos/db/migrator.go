@@ -345,9 +345,8 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
-	if err := shardLike.Shutdown(ctx); err != nil {
+	if err := shutdownOrRestoreShard(ctx, &idx.shards, shard, shardLike, idx.logger); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
-			restoreShardIfStillAlive(&idx.shards, shard, shardLike)
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
 		idx.logger.WithField("shard", shardLike.Name()).Debug("was already shut or dropped")
@@ -716,15 +715,10 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 				m.logger.WithField("shard", name).Debug("starting shutdown")
 
-				if err := shard.Shutdown(ctx); err != nil {
+				if err := shutdownOrRestoreShard(ctx, &idx.shards, name, shard, idx.logger); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
-						restoreShardIfStillAlive(&idx.shards, name, shard)
-						idx.logger.
-							WithField("action", "shard_shutdown").
-							WithField("shard", shard.ID()).
-							Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
 						ec.Add(err)
 					}
 				}

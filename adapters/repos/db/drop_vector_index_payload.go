@@ -147,7 +147,8 @@ func ActiveDropCovers(tasks []*distributedtask.Task, collection, targetVector st
 
 // EpochCoveredShards unions the shards proven cleaned for one drop epoch over
 // the given records: a completed (SWAPPING/FINISHED) matching task vouches its
-// full CoveredShards; a FAILED one vouches only its COMPLETED units. THE single
+// full CoveredShards; a FAILED or CANCELLED one vouches only its COMPLETED
+// units. THE single
 // implementation of the inheritance rule — the enqueuer composes claims with it
 // and the AddTask-apply guard re-proves them with it (see
 // TestEnqueuerGuardConsistency). Unparseable records are skipped (fail-open,
@@ -155,7 +156,7 @@ func ActiveDropCovers(tasks []*distributedtask.Task, collection, targetVector st
 func EpochCoveredShards(tasks []*distributedtask.Task, collection string, targets []string, epoch string) map[string]struct{} {
 	covered := map[string]struct{}{}
 	for _, task := range tasks {
-		if !task.Status.IsCompleted() && task.Status != distributedtask.TaskStatusFailed {
+		if !task.Status.IsCompleted() && !terminalWithPartialWork(task.Status) {
 			continue
 		}
 		p, err := decodeDropVectorIndexPayload(task.Payload)
@@ -167,7 +168,7 @@ func EpochCoveredShards(tasks []*distributedtask.Task, collection string, target
 			p.DropEpochID != epoch {
 			continue
 		}
-		if task.Status == distributedtask.TaskStatusFailed {
+		if terminalWithPartialWork(task.Status) {
 			for _, shard := range CompletedUnitShards(task, p) {
 				covered[shard] = struct{}{}
 			}
@@ -178,6 +179,15 @@ func EpochCoveredShards(tasks []*distributedtask.Task, collection string, target
 		}
 	}
 	return covered
+}
+
+// terminalWithPartialWork matches the two terminal states a round can reach
+// with part of its shards durably drained: FAILED (one bad unit fails the
+// round) and CANCELLED (operator CancelTask mid-round). Both credit their
+// COMPLETED units — discarding an operator-cancelled round's finished work
+// would re-pay its full re-clean I/O, exactly like the FAILED case.
+func terminalWithPartialWork(s distributedtask.TaskStatus) bool {
+	return s == distributedtask.TaskStatusFailed || s == distributedtask.TaskStatusCancelled
 }
 
 // ShardsNotCovered returns the shards absent from covered, sorted.

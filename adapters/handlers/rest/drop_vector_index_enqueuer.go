@@ -247,7 +247,7 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(
 	}
 	// One shared implementation with the AddTask-apply guard that re-proves
 	// these claims (db.EpochCoveredShards): completed tasks vouch their full
-	// CoveredShards; a FAILED round vouches only its COMPLETED units — a
+	// CoveredShards; a FAILED or CANCELLED round vouches only its COMPLETED units — a
 	// deactivated tenant fails a whole round, and discarding its finished
 	// work would make MT-scale convergence improbable.
 	covered := db.EpochCoveredShards(tasks[db.DropVectorIndexNamespace], collection, targets, newest.DropEpochID)

@@ -1261,6 +1261,17 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 			}()},
 		},
 		{
+			name:    "claim provable from a CANCELLED round's completed units",
+			payload: payload("E1", []string{"s1"}),
+			tasks: []*distributedtask.Task{func() *distributedtask.Task {
+				task := record("t1", "E1", distributedtask.TaskStatusCancelled, []string{"s1"}, nil, "v1")
+				task.Units = map[string]*distributedtask.Unit{
+					"s1__u0": {Status: distributedtask.UnitStatusCompleted},
+				}
+				return task
+			}()},
+		},
+		{
 			name:    "a FAILED round's non-completed units do not vouch",
 			payload: payload("E1", []string{"s1"}),
 			tasks: []*distributedtask.Task{func() *distributedtask.Task {
@@ -1563,6 +1574,13 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 	})
 	require.True(t, p.ShouldRetainCompletedTask(failedWithUnit),
 		"failed-round completed-unit coverage is load-bearing and must not expire")
+	cancelledWithUnit := dropTask(distributedtask.TaskStatusCancelled, map[string]*distributedtask.Unit{
+		"u1": {Status: distributedtask.UnitStatusCompleted},
+	})
+	require.True(t, p.ShouldRetainCompletedTask(cancelledWithUnit),
+		"an operator-cancelled round's completed units feed coverage the same as a FAILED round's")
+	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusCancelled, nil)),
+		"a CANCELLED record with no completed units feeds nothing; TTL applies")
 
 	// Marker finalized (entry re-created live): nothing left to protect.
 	p.sharding = &fakeShardingReader{

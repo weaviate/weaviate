@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -71,6 +72,12 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		// this retry to make sure it's retried in case
 		// the performShutdown() returned shard still in use
 		lastAttemptErr = s.performShutdown(ctx)
+		if errors.Is(lastAttemptErr, errTeardownFailed) {
+			// Sticky: no amount of retrying un-tears the shard, and callers
+			// hold shardCreateLocks across this call — fail immediately
+			// instead of burning the full backoff window.
+			return backoff.Permanent(lastAttemptErr)
+		}
 		return lastAttemptErr
 	}, backoff.WithContext(backoff.WithMaxRetries(
 		// this will try with max 2 seconds could be configurable later on
@@ -91,6 +98,24 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		// shutdown is the designed eventual-shutdown contract
 		// (TestShardShutdownWhenIdleEventually pins it).
 		s.shutdownRequested.Store(false)
+	}
+	return err
+}
+
+// shutdownOrRestoreShard closes a shard already removed from the shard map
+// and, when the close fails with the instance still live, puts it back —
+// leaving a live instance out of the map lets a later (re)load double-open
+// the directory. Callers hold the shard's create lock and classify
+// errAlreadyShutdown themselves (terminal, not a failure).
+func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, shard ShardLike, logger logrus.FieldLogger) error {
+	err := shard.Shutdown(ctx)
+	if err == nil || errors.Is(err, errAlreadyShutdown) {
+		return err
+	}
+	if restoreShardIfStillAlive(shards, name, shard) {
+		logger.WithField("action", "shard_shutdown").
+			WithField("shard", name).
+			Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
 	}
 	return err
 }
@@ -149,7 +174,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.shut.Load() {
 		s.shutdownRequested.Store(false)
 		if s.teardownErr != nil {
-			return fmt.Errorf("previous shutdown attempt failed mid-teardown: %w", s.teardownErr)
+			return fmt.Errorf("%w: %w", errTeardownFailed, s.teardownErr)
 		}
 		s.index.logger.
 			WithField("action", "shutdown").

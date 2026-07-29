@@ -126,11 +126,15 @@ func TestShutdown_RequestFlagAfterFailure(t *testing.T) {
 		s.teardownErr = errors.New("bucket close failed")
 		s.shutdownRequested.Store(true)
 
+		start := time.Now()
 		err := s.Shutdown(context.Background())
 		require.Error(t, err)
+		require.ErrorIs(t, err, errTeardownFailed)
 		require.NotErrorIs(t, err, errShardStillInUse)
 		require.False(t, s.shutdownRequested.Load(),
 			"an abort with no pending release must disarm the deferred shutdown")
+		require.Less(t, time.Since(start), time.Second,
+			"a sticky teardown error must fail fast, not burn the retry backoff under shardCreateLocks")
 	})
 }
 

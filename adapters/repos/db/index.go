@@ -2978,12 +2978,8 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 		return nil // shard was not found, nothing to unload
 	}
 
-	if err := shardLike.Shutdown(ctx); err != nil {
-		if !errors.Is(err, errAlreadyShutdown) {
-			restoreShardIfStillAlive(&i.shards, shardName, shardLike)
-			return errors.Wrapf(err, "shutdown shard %q", shardName)
-		}
-		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)
+	if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shardLike, i.logger); err != nil {
+		return errors.Wrapf(err, "shutdown shard %q", shardName)
 	}
 
 	return nil

@@ -66,6 +66,7 @@ var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
 	errShutdownInProgress = errors.New("shard shutdown in progress")
 	errShardStillInUse    = errors.New("shard still in use")
+	errTeardownFailed     = errors.New("previous shutdown attempt failed mid-teardown")
 )
 
 type ShardLike interface {
