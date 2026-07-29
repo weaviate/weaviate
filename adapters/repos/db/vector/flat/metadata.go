@@ -353,7 +353,9 @@ func (index *flat) persistRQData() error {
 func (index *flat) serializeRQ1Data() (*RQ1Data, error) {
 	// Use a custom commit logger to capture the BRQ data
 	captureLogger := &dataCaptureLogger{}
-	index.quantizer.PersistCompression(captureLogger)
+	if err := index.quantizer.PersistCompression(captureLogger); err != nil {
+		return nil, err
+	}
 
 	if captureLogger.brqData == nil {
 		return nil, errors.New("no BRQ data captured from quantizer")
@@ -381,7 +383,9 @@ func (index *flat) serializeRQ1Data() (*RQ1Data, error) {
 func (index *flat) serializeRQ8Data() (*RQ8Data, error) {
 	// Use a custom commit logger to capture the RQ data
 	captureLogger := &dataCaptureLogger{}
-	index.quantizer.PersistCompression(captureLogger)
+	if err := index.quantizer.PersistCompression(captureLogger); err != nil {
+		return nil, err
+	}
 
 	if captureLogger.rqData == nil {
 		return nil, errors.New("no RQ data captured from quantizer")

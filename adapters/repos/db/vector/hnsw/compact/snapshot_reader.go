@@ -322,6 +322,16 @@ func (r *SnapshotReader) readPQData(reader io.Reader, res *ent.DeserializationRe
 		pqData.Encoders = append(pqData.Encoders, encoder)
 	}
 
+	// Only keep compression enabled for a complete codebook
+	if verr := pqData.Valid(); verr != nil {
+		if r.logger != nil {
+			r.logger.WithField("action", "hnsw_skip_incomplete_pq_codebook").
+				Warnf("skipping incomplete PQ codebook from snapshot, compression will be retried: %v", verr)
+		}
+		res.SetCompressed(false)
+		return nil
+	}
+
 	res.SetCompressionPQData(pqData)
 	return nil
 }

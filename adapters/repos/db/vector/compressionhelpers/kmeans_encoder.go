@@ -92,6 +92,21 @@ func (m *KMeansEncoder) Centroid(i byte) []float32 {
 	return m.centers[i]
 }
 
+func (m *KMeansEncoder) Valid(ks, subDim int) error {
+	if m == nil {
+		return fmt.Errorf("kmeans encoder is nil")
+	}
+	if len(m.centers) != ks {
+		return fmt.Errorf("has %d centroids, expected %d", len(m.centers), ks)
+	}
+	for i, c := range m.centers {
+		if len(c) != subDim {
+			return fmt.Errorf("centroid %d has length %d, expected %d", i, len(c), subDim)
+		}
+	}
+	return nil
+}
+
 func (m *KMeansEncoder) Add(x []float32) {
 	// Only here to satisfy the PQEncoder interface.
 }
