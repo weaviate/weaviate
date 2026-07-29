@@ -251,11 +251,12 @@ func (a *Aggregator) approximateCardinality(name schema.PropertyName) (*uint32, 
 		lastErr error
 	)
 	for _, bn := range bucketNames {
-		b := a.store.Bucket(bn)
+		b, release := a.store.AcquireBucketForRead(bn)
 		if b == nil {
 			continue
 		}
 		est, err := b.GetKeysCount()
+		release()
 		if err != nil {
 			lastErr = err
 			continue
