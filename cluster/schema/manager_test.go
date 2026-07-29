@@ -869,6 +869,50 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 0, guard.called, "no dropped entry removed → gate not consulted")
 	})
+
+	mkMaskedRequest := func(updated *models.Class, fields ...string) *cmd.ApplyRequest {
+		sub, err := json.Marshal(&cmd.UpdateClassRequest{
+			Class: updated, State: nil, FieldsToUpdate: fields,
+		})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			Class:      "C",
+			Version:    2,
+			SubCommand: sub,
+		}
+	}
+
+	t.Run("masked update that does not target VectorConfig must not consult the gate", func(t *testing.T) {
+		// The BlockMax flag flip sends FieldsToUpdate=[invertedIndexConfig] and
+		// carries no VectorConfig at all. Diffing the stored class against that
+		// empty map reads as "every dropped entry removed", which would trip the
+		// gate — the exact cascade the mask exists to prevent.
+		parsed := &models.Class{
+			Class:               "C",
+			InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true},
+		}
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard, parsed)
+
+		err := sm.UpdateClass(mkMaskedRequest(parsed, cmd.ClassFieldInvertedIndexConfig), "test-node", true, false)
+		require.NoError(t, err,
+			"an inverted-only masked update removes no vector config and must not be rejected by the gate")
+		require.Equal(t, 0, guard.called,
+			"mask does not list vectorConfig → gate must not be consulted")
+	})
+
+	t.Run("masked update that does target VectorConfig still consults the gate", func(t *testing.T) {
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw}}
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("cleanup task not FINISHED")}
+		sm := newSM(guard, parsed)
+
+		err := sm.UpdateClass(mkMaskedRequest(parsed, cmd.ClassFieldVectorConfig), "test-node", true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cleanup task not FINISHED")
+		require.Equal(t, 1, guard.called, "mask lists vectorConfig → gate must still run")
+		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+	})
 }
 
 // TestSchemaManager_DeleteTenants_MutationGuard pins the tenant-level
