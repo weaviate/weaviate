@@ -50,12 +50,12 @@ func writeIdx(t *testing.T, bucket *lsmkv.Bucket, path string, elemIdx int, posi
 	require.NoError(t, bucket.RoaringSetAddList(invnested.IdxKey(path, elemIdx), positions))
 }
 
-// newTrackingPool returns a BitmapBufPoolTracking that asserts at test cleanup
+// newTrackingPool returns a BitmapBufPoolTrackingForTests that asserts at test cleanup
 // time that every leased buffer has been returned. Detects pool-buffer leaks
 // in the recursive executor.
-func newTrackingPool(t *testing.T) *roaringset.BitmapBufPoolTracking {
+func newTrackingPool(t *testing.T) *roaringset.BitmapBufPoolTrackingForTests {
 	t.Helper()
-	pool := roaringset.NewBitmapBufPoolTracking()
+	pool := roaringset.NewBitmapBufPoolTrackingForTests()
 	t.Cleanup(func() {
 		if n := pool.Outstanding(); n != 0 {
 			t.Errorf("pool: %d bitmap buffer(s) not released", n)
