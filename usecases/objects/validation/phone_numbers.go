@@ -23,6 +23,15 @@ import (
 
 func parsePhoneNumber(input, defaultCountry string) (*models.PhoneNumber, error) {
 	defaultCountry = strings.ToUpper(defaultCountry)
+
+	// phonenumbers.Parse ignores defaultCountry when the input is already in
+	// international format, so an invalid region code (e.g. "ZZ", the library's
+	// UNKNOWN_REGION) would otherwise be accepted and stored silently. Reject a
+	// non-empty defaultCountry that is not a known ISO 3166-1 alpha-2 region.
+	if defaultCountry != "" && phonenumbers.GetCountryCodeForRegion(defaultCountry) == 0 {
+		return nil, fmt.Errorf("invalid phone number: invalid defaultCountry %q - use a valid ISO 3166-1 alpha-2 country code", defaultCountry)
+	}
+
 	num, err := phonenumbers.Parse(input, defaultCountry)
 	if err != nil {
 		switch {

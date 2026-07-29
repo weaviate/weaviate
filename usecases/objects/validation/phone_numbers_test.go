@@ -105,6 +105,15 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				"but required if the number is in national format, use ISO 3166-1 alpha-2"),
 		},
 		{
+			name: "with invalid defaultCountry",
+			phone: map[string]interface{}{
+				"input":          "+491711234567",
+				"defaultCountry": "ZZ",
+			},
+			expectedErr: fmt.Errorf("invalid phoneNumber property 'phone' on class 'Person': " +
+				"invalid phone number: invalid defaultCountry \"ZZ\" - use a valid ISO 3166-1 alpha-2 country code"),
+		},
+		{
 			name: "with national number and country uppercased",
 			phone: map[string]interface{}{
 				"input":          "01711234567",
