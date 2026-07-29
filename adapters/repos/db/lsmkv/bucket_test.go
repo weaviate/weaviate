@@ -237,7 +237,8 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 	b := Bucket{
 		// by using an empty segment group for the disk portion, we can test the
 		// memtable portion in isolation
-		disk: &SegmentGroup{},
+		disk:   &SegmentGroup{},
+		logger: nullLogger(),
 	}
 
 	tests := []struct {
@@ -890,6 +891,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyReplace,
+		logger:   nullLogger(),
 	}
 
 	// validate initial data before making any changes
@@ -1025,6 +1027,7 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 			segments: []Segment{},
 		},
 		strategy: StrategyReplace,
+		logger:   nullLogger(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
@@ -1103,6 +1106,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyRoaringSet,
+		logger:   nullLogger(),
 	}
 
 	// validate initial data before making any changes
@@ -1201,6 +1205,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSet,
+		logger:   nullLogger(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
@@ -1268,6 +1273,7 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyRoaringSetRange,
+		logger:   nullLogger(),
 	}
 
 	// validate initial data before making any changes
@@ -1361,6 +1367,7 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo(t *testing
 		strategy:                   StrategyRoaringSetRange,
 		keepMergedSegmentsInMemory: true,
 		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+		logger:                     nullLogger(),
 	}
 
 	// validate initial data before making any changes
@@ -1438,6 +1445,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSetRange,
+		logger:   nullLogger(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
@@ -1499,6 +1507,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		strategy:                   StrategyRoaringSetRange,
 		keepMergedSegmentsInMemory: true,
 		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+		logger:                     nullLogger(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
@@ -1559,6 +1568,7 @@ func TestBucketRoaringSetStrategyConsistentViewInMemo(t *testing.T) {
 		strategy:                   StrategyRoaringSet,
 		keepMergedSegmentsInMemory: true,
 		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+		logger:                     nullLogger(),
 	}
 
 	assertKey := func(expected []uint64) {
@@ -1613,6 +1623,7 @@ func TestBucketRoaringSetStrategyWriteVsFlushInMemo(t *testing.T) {
 		strategy:                   StrategyRoaringSet,
 		keepMergedSegmentsInMemory: true,
 		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+		logger:                     nullLogger(),
 	}
 
 	assertKey := func(expected []uint64) {
@@ -1676,6 +1687,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategySetCollection,
+		logger:   nullLogger(),
 	}
 
 	// Sanity via Bucket API
@@ -1774,6 +1786,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 			segments: []Segment{},
 		},
 		strategy: StrategySetCollection,
+		logger:   nullLogger(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
@@ -1840,6 +1853,7 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
 	}
 
 	// Sanity via Bucket API
@@ -1959,6 +1973,7 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
 	}
 
 	// Sanity via Bucket API
@@ -2067,6 +2082,7 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 			segments: []Segment{},
 		},
 		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
@@ -2239,6 +2255,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 			segments: []Segment{},
 		},
 		strategy: StrategyInverted,
+		logger:   nullLogger(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
@@ -2294,6 +2311,13 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 		},
 	}
 	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, view.Disk[0], expected))
+}
+
+// Every Bucket needs a logger: the Get path logs unconditionally once a read
+// crosses 100ms, so a bucket without one panics under load.
+func nullLogger() logrus.FieldLogger {
+	log, _ := test.NewNullLogger()
+	return log
 }
 
 type testMemtable struct {

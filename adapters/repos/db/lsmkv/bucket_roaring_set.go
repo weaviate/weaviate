@@ -154,9 +154,7 @@ func (b *Bucket) roaringSetGetFromConsistentViewInMemo(
 		b.flushLock.RLock()
 		defer b.flushLock.RUnlock()
 
-		// logger nil-guard: test buckets are built as bare literals without one,
-		// mirroring GetConsistentView
-		if took := time.Since(beforeFlushLock); took > 100*time.Millisecond && b.logger != nil {
+		if took := time.Since(beforeFlushLock); took > 100*time.Millisecond {
 			b.logger.WithFields(logrus.Fields{
 				"duration": took,
 				"action":   "lsm_bucket_get_acquire_flush_lock",
