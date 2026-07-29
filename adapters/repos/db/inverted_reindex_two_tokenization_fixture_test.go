@@ -111,6 +111,40 @@ func setupTwoTokenizationShard(t *testing.T, ctx context.Context, className stri
 	}
 }
 
+// wireSimplifiedFieldToWordSwapTask builds a ShardReindexTaskGeneric whose
+// processOneSwapPropFn is the simplified field→word flip shared by
+// TestAtomicOverlaySwap_BM25NeverSeesZeroCount and
+// TestAtomicOverlaySwap_SentinelFsyncFailure_OverlayStaysConsistentWithBucket:
+// it redirects the FIELD prop's bucket pointer to the WORD bucket via the
+// production SwapBucketPointer call directly, without a full
+// runtimePrepare/ingest-bucket dance. maybeWirePerPropOverlaySet is applied
+// for the resulting single-prop tokenization-change payload before return.
+func wireSimplifiedFieldToWordSwapTask(t *testing.T, fx *twoTokenizationFixture) *ShardReindexTaskGeneric {
+	t.Helper()
+	task := NewRuntimeSearchableRetokenizeTask(
+		fx.idx.logger, fx.fieldProp, models.PropertyTokenizationWord,
+		fx.className, lsmkv.StrategyInverted, fx.className, 1,
+	)
+	fieldBucketName := helpers.BucketSearchableFromPropNameLSM(fx.fieldProp)
+	wordBucketName := helpers.BucketSearchableFromPropNameLSM(fx.wordProp)
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
+		_ reindexTracker, _ int, _ string,
+	) (*lsmkv.Bucket, error) {
+		return store.SwapBucketPointer(ctx, fieldBucketName, wordBucketName)
+	}
+
+	payload := &ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         fx.className,
+		Properties:         []string{fx.fieldProp},
+		TargetTokenization: models.PropertyTokenizationWord,
+	}
+	require.True(t, maybeWirePerPropOverlaySet(fx.shard, payload, []*ShardReindexTaskGeneric{task}),
+		"overlay wiring must be active for a tokenization-changing migration")
+
+	return task
+}
+
 func buildTwoTokenizationClass(className, fieldProp, wordProp string) *models.Class {
 	vFalse := false
 	vTrue := true
