@@ -77,7 +77,7 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 			Logger:           logger,
 			DistanceProvider: dp,
 			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
-				return hnsw.NewCommitLogger(root, indexID, logger, noopCallback)
+				return hnsw.NewCommitLogger(root, indexID, logger, noopCallback, opts...)
 			},
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				vec := vectors[int(id)]
