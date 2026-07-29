@@ -33,7 +33,11 @@ import (
 // The preparation work (pausing compaction, flushing memtables, readying vector indexes and queues)
 // is additionally bounded by `HaltForTransferTimeout`, independent of `inactivityTimeout`;
 // a zeroed `HaltForTransferTimeout` implies no bound.
-func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
+//
+// The reindex gate is caller-supplied so a backup halting M shards resolves
+// one cluster-wide DTM query for the set rather than one per shard. Offload
+// callers skip the gate entirely and pass nil.
+func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate *reindexGate) (err error) {
 	innerCtx := ctx
 	if timeout := s.index.Config.HaltForTransferTimeout; timeout > 0 {
 		var cancel context.CancelFunc
@@ -48,7 +52,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// leave the counter incremented; the error path would not run a
 	// matching resume.
 	if !offloading {
-		if blockedErr := s.index.refuseIfReindexInFlight(s.name, s.index.newReindexGate()); blockedErr != nil {
+		if blockedErr := s.index.refuseIfReindexInFlight(s.name, gate); blockedErr != nil {
 			return blockedErr
 		}
 		if busy, reason := s.structuralVectorOpInFlight(); busy {
@@ -262,8 +266,8 @@ func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (ke
 // a staging directory, then immediately resumes compaction. This minimizes the
 // compaction pause to just the time needed for enumeration and hardlink creation
 // (typically 2-5s), rather than blocking for the entire upload duration.
-func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
-	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate *reindexGate) ([]string, error) {
+	if err := s.HaltForTransfer(ctx, false, 0, gate); err != nil {
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
 	defer s.resumeMaintenanceCycles(ctx)

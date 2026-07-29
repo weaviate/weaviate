@@ -402,7 +402,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	i.shardCreateLocks.Unlock(name)
 	shardCreateLocksHeld = false
 
-	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot, gate)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
 	}
@@ -580,7 +580,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 	// Active path => halt compaction (stays paused until ReleaseBackup).
 	// backupLock.Lock is released on return (unlockOnReturn=true).
-	if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
+	if err := shard.HaltForTransfer(ctx, false, 0, gate); err != nil {
 		return nil, fmt.Errorf("halt shard %v for backup: %w", name, err)
 	}
 

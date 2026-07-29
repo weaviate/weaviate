@@ -590,11 +590,11 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	return nil
 }
 
-func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate *reindexGate) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
+	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout, gate)
 }
 
 // Skips Load: a never-loaded shard can't be halted, so there's no timer.
@@ -614,11 +614,11 @@ func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDe
 	return l.shard.ListBackupFiles(ctx, ret)
 }
 
-func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate *reindexGate) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot, gate)
 }
 
 func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {

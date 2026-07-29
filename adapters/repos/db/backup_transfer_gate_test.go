@@ -15,9 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -140,46 +143,174 @@ func TestColdTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 	}
 }
 
-// TestHotTransfer_BuildsReindexLookupOncePerShardSet is INTENTIONALLY RED.
+// TestHotTransfer_BuildsReindexLookupOncePerShardSet pins that a backup of
+// hot shards resolves the reindex gate once for the whole set.
 //
-// It pins the last per-shard gate site: [Shard.HaltForTransfer] still calls
-// newReindexGate per shard, so a backup of M hot shards issues M
-// cluster-wide RAFT queries. On the hardlink path those are fanned out at
-// GOMAXPROCS concurrency by descriptorWithHardlinks, so the load shape at
-// the leader is worse than M sequential queries.
+// Hot shards reach the gate through Shard.HaltForTransfer, which the loop
+// cannot hoist on their behalf — it can only hand every shard the same gate.
+// So the property is gate *identity* across the set: resolution sits behind
+// sync.Once, so one gate for M shards is one cluster-wide DTM query for M
+// shards. The build count follows from that and is asserted too, since it is
+// the number the amplification was measured in.
 //
-// Closing it means adding a gate parameter to HaltForTransfer, which is on
-// the ShardLike interface with seven non-test call sites — a materially
-// bigger change than this PR, deliberately left to
-// weaviate/0-weaviate-issues#425. Committed failing rather than left
-// untracked.
-//
-// The gate is consulted before HaltForTransfer does any work, so a refusing
-// gate drives each shard with no store, no vector index and no disk. Driving
-// the real descriptorWithHardlinks loop over real hot shards yields the same
-// two numbers: its hoisted gate resolves lazily, so an all-hot shard set
-// never resolves it and every query still comes from HaltForTransfer.
+// On the hardlink path the loop runs under eg.SetLimit(_NUMCPU), so before
+// the hoist these were M queries fanned out at GOMAXPROCS against the leader,
+// a worse shape than M sequential ones.
 func TestHotTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
+	const shards = 12
+
+	tests := []struct {
+		name string
+		// expectGateConsumer wires the interface method that receives the
+		// gate on this path, mirroring what the real Shard does with it.
+		expectGateConsumer func(m *MockShardLike, shardName string, idx *Index, record func(*reindexGate))
+		run                func(ctx context.Context, idx *Index, desc *backup.ClassDescriptor) error
+	}{
+		{
+			name: "hardlinks",
+			expectGateConsumer: func(m *MockShardLike, shardName string, idx *Index, record func(*reindexGate)) {
+				m.EXPECT().preventShutdown().Return(func() {}, nil)
+				m.EXPECT().
+					CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, gate *reindexGate) ([]string, error) {
+						record(gate)
+						sd.Name = shardName
+						sd.Node = "node1"
+						return []string{}, nil
+					})
+			},
+			run: func(ctx context.Context, idx *Index, desc *backup.ClassDescriptor) error {
+				return idx.descriptorWithHardlinks(ctx, "hot-gate-backup", desc, nil)
+			},
+		},
+		{
+			name: "without hardlinks",
+			expectGateConsumer: func(m *MockShardLike, shardName string, idx *Index, record func(*reindexGate)) {
+				m.EXPECT().
+					HaltForTransfer(mock.Anything, false, mock.Anything, mock.Anything).
+					RunAndReturn(func(_ context.Context, _ bool, _ time.Duration, gate *reindexGate) error {
+						record(gate)
+						return nil
+					})
+				m.EXPECT().
+					ListBackupFiles(mock.Anything, mock.Anything).
+					RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor) ([]string, error) {
+						sd.Name = shardName
+						sd.Node = "node1"
+						return []string{}, nil
+					})
+			},
+			run: func(ctx context.Context, idx *Index, desc *backup.ClassDescriptor) error {
+				return idx.descriptorWithoutHardlinks(ctx, "hot-gate-backup", desc, nil)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			className := "HotTransferGateClass"
+
+			builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(shards))
+			for s := 0; s < shards; s++ {
+				builder.AddTenant(hotGateShardName(s), models.TenantActivityStatusHOT)
+			}
+			idx := newDescriptorTestIndex(t, rootDir, className, builder.Build())
+
+			var builds atomic.Int64
+			db := &DB{}
+			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+				builds.Add(1)
+				return func(string, string) bool { return false }
+			})
+			idx.db = db
+
+			var mu sync.Mutex
+			var seen []*reindexGate
+			record := func(g *reindexGate) {
+				mu.Lock()
+				defer mu.Unlock()
+				seen = append(seen, g)
+			}
+
+			for s := 0; s < shards; s++ {
+				name := hotGateShardName(s)
+				mockShard := NewMockShardLike(t)
+				tc.expectGateConsumer(mockShard, name, idx, record)
+				idx.shards.Store(name, mockShard)
+			}
+
+			var desc backup.ClassDescriptor
+			require.NoError(t, tc.run(context.Background(), idx, &desc))
+			require.Len(t, desc.Shards, shards,
+				"every hot shard must have been walked, or the counts below mean nothing")
+
+			require.Len(t, seen, shards, "every shard must have been handed a gate")
+			distinct := map[*reindexGate]struct{}{}
+			for i, g := range seen {
+				require.NotNilf(t, g, "shard %d was handed a nil gate", i)
+				distinct[g] = struct{}{}
+			}
+			require.Lenf(t, distinct, 1,
+				"one backup must hand the same gate to all %d hot shards, got %d distinct gates",
+				shards, len(distinct))
+
+			// Resolving every gate the backup handed out counts the DTM
+			// queries it costs: one per distinct gate, since resolution is
+			// behind sync.Once. Done here rather than inside the mock because
+			// testify reflects over its arguments to build mismatch messages,
+			// and that read races the concurrent resolve on the hardlink path.
+			for _, g := range seen {
+				g.anyLiveReindexForShard(className, "any-shard")
+			}
+
+			require.Equalf(t, int64(1), builds.Load(),
+				"one backup must cost one ListDistributedTasks query for all %d hot shards, got %d",
+				shards, builds.Load())
+		})
+	}
+}
+
+func hotGateShardName(i int) string {
+	return fmt.Sprintf("hot-tenant-%d", i)
+}
+
+// TestHotTransfer_FailClosedRefusesEveryShard pins that sharing one gate does
+// not soften the fail-closed contract: when the DTM query fails, every shard
+// is refused, not only the one that happened to resolve the gate.
+//
+// Uses real Shards, since the refusal lives inside Shard.HaltForTransfer. It
+// returns at the gate before touching the store, so no fixture is needed
+// beyond the index back-reference and a name.
+func TestHotTransfer_FailClosedRefusesEveryShard(t *testing.T) {
 	const shards = 12
 
 	var builds atomic.Int64
 	db := &DB{}
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
 		builds.Add(1)
+		// Mirrors the configure_api.go fallback when ListDistributedTasks
+		// fails: refuse everything until DTM is reachable.
 		return func(string, string) bool { return true }
 	})
-	idx := &Index{db: db, Config: IndexConfig{ClassName: "HotTransferGateClass"}}
+	idx := &Index{db: db, Config: IndexConfig{ClassName: "HotFailClosedClass"}}
 
-	// One backup pass over one index's hot shards.
+	// One backup, one gate, as the transfer loops now hand it out.
+	gate := idx.newReindexGate()
+
+	refused := 0
 	for s := 0; s < shards; s++ {
-		shard := &Shard{index: idx, name: fmt.Sprintf("hot-shard-%d", s)}
-		require.Error(t, shard.HaltForTransfer(context.Background(), false, 0),
-			"the refusing gate must stop the halt before it does any work")
+		shard := &Shard{index: idx, name: hotGateShardName(s)}
+		if errors.Is(shard.HaltForTransfer(context.Background(), false, 0, gate),
+			backup.ErrBackupBlockedByInFlightReindex) {
+			refused++
+		}
 	}
 
-	require.Equalf(t, int64(1), builds.Load(),
-		"one backup must resolve the reindex gate once for all %d hot shards, got %d",
-		shards, builds.Load())
+	require.Equalf(t, shards, refused,
+		"a failed DTM query must refuse all %d shards, not only the first", shards)
+	require.Equal(t, int64(1), builds.Load(),
+		"and must still cost exactly one query")
 }
 
 // TestColdTransfer_PopulatedShardsReachTheGate separates "the gate was

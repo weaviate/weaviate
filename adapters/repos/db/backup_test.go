@@ -786,8 +786,8 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
 		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
-			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ *reindexGate) ([]string, error) {
 				sd.Name = name
 				sd.Node = "node1"
 				return files, nil
@@ -866,8 +866,8 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 		close(releaseCalled)
 	}, nil)
 	mockShard.EXPECT().
-		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ *reindexGate) ([]string, error) {
 			sd.Name = shardName
 			sd.Node = "node1"
 			close(snapshotStarted)
@@ -959,8 +959,8 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}
 			}, nil)
 			mockShard.EXPECT().
-				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ *reindexGate) ([]string, error) {
 					if tt.snapshotErr != nil {
 						return nil, tt.snapshotErr
 					}

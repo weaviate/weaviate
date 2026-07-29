@@ -78,7 +78,8 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	// Halt-for-duration fallback: shard stays halted until Release; segments
 	// are served from the live shard root in this mode. The inactivity timeout
 	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
-	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
+	// One shard per replica movement, so a gate of its own is not amplified.
+	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout, i.newReindexGate()); err != nil {
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 		return nil, fmt.Errorf("halt shard %q for transfer: %w", shardName, err)
 	}

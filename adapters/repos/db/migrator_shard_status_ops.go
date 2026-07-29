@@ -122,7 +122,8 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			defer idx.shardCreateLocks.Unlock(name)
 
 			if shard != nil {
-				if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
+				// nil gate: offloading skips the reindex check entirely.
+				if err := shard.HaltForTransfer(ctx, true, 0, nil); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "halt_for_transfer",
 						"error":  err,

@@ -80,7 +80,7 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 			putSharedHaltObject(t, index, obj1, 0)
 
 			// op A: first halt, never resumed — count stays 1, holds the shard.
-			require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+			require.NoError(t, shard.HaltForTransfer(ctx, false, 0, nil))
 			defer func() { _ = shard.resumeMaintenanceCycles(ctx) }()
 
 			var openOps []string
@@ -130,14 +130,14 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	ctx := context.Background()
 
 	// op A holds the shard.
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0, nil))
 
 	// op B's second halt seals with an already-cancelled context; at count>1 the
 	// pause steps are gated out, so only the seal steps run and FlushMemtables
 	// (cyclemanager Deactivate) returns ctx.Err() deterministically.
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	require.Error(t, shard.HaltForTransfer(cancelledCtx, false, 0))
+	require.Error(t, shard.HaltForTransfer(cancelledCtx, false, 0, nil))
 
 	shard.haltForTransferMux.Lock()
 	require.Equal(t, 1, shard.haltForTransferCount,

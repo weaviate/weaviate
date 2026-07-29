@@ -724,9 +724,9 @@ func (_c *MockShardLike_CreateAsyncCheckpoint_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// CreateBackupSnapshot provides a mock function with given fields: ctx, sd, stagingRoot
-func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
-	ret := _m.Called(ctx, sd, stagingRoot)
+// CreateBackupSnapshot provides a mock function with given fields: ctx, sd, stagingRoot, gate
+func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate *reindexGate) ([]string, error) {
+	ret := _m.Called(ctx, sd, stagingRoot, gate)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateBackupSnapshot")
@@ -734,19 +734,19 @@ func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.Sh
 
 	var r0 []string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string) ([]string, error)); ok {
-		return rf(ctx, sd, stagingRoot)
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string, *reindexGate) ([]string, error)); ok {
+		return rf(ctx, sd, stagingRoot, gate)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string) []string); ok {
-		r0 = rf(ctx, sd, stagingRoot)
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string, *reindexGate) []string); ok {
+		r0 = rf(ctx, sd, stagingRoot, gate)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *backup.ShardDescriptor, string) error); ok {
-		r1 = rf(ctx, sd, stagingRoot)
+	if rf, ok := ret.Get(1).(func(context.Context, *backup.ShardDescriptor, string, *reindexGate) error); ok {
+		r1 = rf(ctx, sd, stagingRoot, gate)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -763,13 +763,14 @@ type MockShardLike_CreateBackupSnapshot_Call struct {
 //   - ctx context.Context
 //   - sd *backup.ShardDescriptor
 //   - stagingRoot string
-func (_e *MockShardLike_Expecter) CreateBackupSnapshot(ctx interface{}, sd interface{}, stagingRoot interface{}) *MockShardLike_CreateBackupSnapshot_Call {
-	return &MockShardLike_CreateBackupSnapshot_Call{Call: _e.mock.On("CreateBackupSnapshot", ctx, sd, stagingRoot)}
+//   - gate *reindexGate
+func (_e *MockShardLike_Expecter) CreateBackupSnapshot(ctx interface{}, sd interface{}, stagingRoot interface{}, gate interface{}) *MockShardLike_CreateBackupSnapshot_Call {
+	return &MockShardLike_CreateBackupSnapshot_Call{Call: _e.mock.On("CreateBackupSnapshot", ctx, sd, stagingRoot, gate)}
 }
 
-func (_c *MockShardLike_CreateBackupSnapshot_Call) Run(run func(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string)) *MockShardLike_CreateBackupSnapshot_Call {
+func (_c *MockShardLike_CreateBackupSnapshot_Call) Run(run func(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate *reindexGate)) *MockShardLike_CreateBackupSnapshot_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*backup.ShardDescriptor), args[2].(string))
+		run(args[0].(context.Context), args[1].(*backup.ShardDescriptor), args[2].(string), args[3].(*reindexGate))
 	})
 	return _c
 }
@@ -779,7 +780,7 @@ func (_c *MockShardLike_CreateBackupSnapshot_Call) Return(_a0 []string, _a1 erro
 	return _c
 }
 
-func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, string) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
+func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, string, *reindexGate) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1981,17 +1982,17 @@ func (_c *MockShardLike_GetVectorIndexQueue_Call) RunAndReturn(run func(string) 
 	return _c
 }
 
-// HaltForTransfer provides a mock function with given fields: ctx, offloading, inactivityTimeout
-func (_m *MockShardLike) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
-	ret := _m.Called(ctx, offloading, inactivityTimeout)
+// HaltForTransfer provides a mock function with given fields: ctx, offloading, inactivityTimeout, gate
+func (_m *MockShardLike) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate *reindexGate) error {
+	ret := _m.Called(ctx, offloading, inactivityTimeout, gate)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HaltForTransfer")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, bool, time.Duration) error); ok {
-		r0 = rf(ctx, offloading, inactivityTimeout)
+	if rf, ok := ret.Get(0).(func(context.Context, bool, time.Duration, *reindexGate) error); ok {
+		r0 = rf(ctx, offloading, inactivityTimeout, gate)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -2008,13 +2009,14 @@ type MockShardLike_HaltForTransfer_Call struct {
 //   - ctx context.Context
 //   - offloading bool
 //   - inactivityTimeout time.Duration
-func (_e *MockShardLike_Expecter) HaltForTransfer(ctx interface{}, offloading interface{}, inactivityTimeout interface{}) *MockShardLike_HaltForTransfer_Call {
-	return &MockShardLike_HaltForTransfer_Call{Call: _e.mock.On("HaltForTransfer", ctx, offloading, inactivityTimeout)}
+//   - gate *reindexGate
+func (_e *MockShardLike_Expecter) HaltForTransfer(ctx interface{}, offloading interface{}, inactivityTimeout interface{}, gate interface{}) *MockShardLike_HaltForTransfer_Call {
+	return &MockShardLike_HaltForTransfer_Call{Call: _e.mock.On("HaltForTransfer", ctx, offloading, inactivityTimeout, gate)}
 }
 
-func (_c *MockShardLike_HaltForTransfer_Call) Run(run func(ctx context.Context, offloading bool, inactivityTimeout time.Duration)) *MockShardLike_HaltForTransfer_Call {
+func (_c *MockShardLike_HaltForTransfer_Call) Run(run func(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate *reindexGate)) *MockShardLike_HaltForTransfer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(bool), args[2].(time.Duration))
+		run(args[0].(context.Context), args[1].(bool), args[2].(time.Duration), args[3].(*reindexGate))
 	})
 	return _c
 }
@@ -2024,7 +2026,7 @@ func (_c *MockShardLike_HaltForTransfer_Call) Return(_a0 error) *MockShardLike_H
 	return _c
 }
 
-func (_c *MockShardLike_HaltForTransfer_Call) RunAndReturn(run func(context.Context, bool, time.Duration) error) *MockShardLike_HaltForTransfer_Call {
+func (_c *MockShardLike_HaltForTransfer_Call) RunAndReturn(run func(context.Context, bool, time.Duration, *reindexGate) error) *MockShardLike_HaltForTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }

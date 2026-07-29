@@ -102,13 +102,16 @@ type ShardLike interface {
 	CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
-	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
+	// HaltForTransfer consults the backup reindex gate unless offloading.
+	// Multi-shard callers pass one gate for the whole set; single-shard
+	// callers build their own. A nil gate is treated as "build one".
+	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate *reindexGate) error
 	// MayResetTransferInactivityTimer counts external transfer activity
 	// against the halt watchdog. No-op on unhalted shards.
 	MayResetTransferInactivityTimer()
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate *reindexGate) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
 	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
