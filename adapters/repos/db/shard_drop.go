@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // IMPORTANT:
@@ -90,33 +91,52 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	// queues need to be closed first to make sure they are not writing anymore
 	// to their associated vector index, as they might still be using the store
 	// and other resources we are about to drop.
-	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Drop(ctx); err != nil {
-			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
-		}
+	//
+	// Each drop is its own disk round-trip and a shard can carry many named
+	// vectors, so run them concurrently. The closures take their own err: the
+	// outer one is this function's named return, and writing it from several
+	// goroutines would be a data race.
+	queueEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	queueEg.SetLimit(_NUMCPU)
+
+	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		queueEg.Go(func() error {
+			if err := queue.Drop(ctx); err != nil {
+				return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
+			}
+			return nil
+		})
 		return nil
 	})
-	if err != nil {
+
+	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		queueEg.Go(func() error {
+			if err := queue.Drop(ctx); err != nil {
+				return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
+			}
+			return nil
+		})
+		return nil
+	})
+
+	if err = queueEg.Wait(); err != nil {
 		return err
 	}
 
-	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
-		if err = queue.Drop(ctx); err != nil {
-			return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
+	indexEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	indexEg.SetLimit(_NUMCPU)
 
-	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.Drop(ctx, keepFiles); err != nil {
-			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
-		}
+	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		indexEg.Go(func() error {
+			if err := index.Drop(ctx, keepFiles); err != nil {
+				return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
+			}
+			return nil
+		})
 		return nil
 	})
-	if err != nil {
+
+	if err = indexEg.Wait(); err != nil {
 		return err
 	}
 

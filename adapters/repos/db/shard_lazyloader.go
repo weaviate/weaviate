@@ -124,8 +124,12 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if phase := l.lifecycle.phase(); phase != shardLive {
-		return fmt.Errorf("load shard %q: %s: %w", l.shardOpts.name, phase, errAlreadyShutdown)
+	// Only a completed teardown is terminal. While one is merely pending the
+	// shard may still be in use and the teardown may yet fail, and the inner
+	// shard's own lifecycle gives the caller a more precise answer than this
+	// wrapper can.
+	if l.lifecycle.phase() == shardClosed {
+		return fmt.Errorf("load shard %q: %w", l.shardOpts.name, errAlreadyShutdown)
 	}
 	if l.loaded {
 		return nil
@@ -518,6 +522,7 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		// decrement unloaded shard count since this shard is being deleted
 		l.shardOpts.promMetrics.DeleteUnloadedShard()
 
+		l.lifecycle.claimTeardown(shardDropping)
 		return nil
 	}
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -95,7 +96,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.mayStopInactivityMonitoring()
 	s.haltForTransferMux.Unlock()
 
-	ec := errorcompounder.New()
+	// Safe: the teardown below collects errors from parallel goroutines.
+	ec := errorcompounder.NewSafe()
 
 	err = s.GetPropertyLengthTracker().Close()
 	ec.AddWrapf(err, "close prop length tracker")
@@ -112,51 +114,77 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	s.mayStopAsyncReplication()
 
+	// A shard can carry many named vectors, and each flush and close is its own
+	// disk round-trip; run them concurrently. Errors go to ec rather than the
+	// group, so one failing queue does not skip the rest.
+	//
+	// Note the closures use their own err: the outer one is this function's named
+	// return, and writing it from several goroutines would be a data race.
+	queueEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	queueEg.SetLimit(_NUMCPU)
+
 	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Flush(); err != nil {
-			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
-		}
+		queueEg.Go(func() error {
+			if err := queue.Flush(); err != nil {
+				ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
+			}
 
-		if err = queue.Close(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
-		}
+			if err := queue.Close(ctx); err != nil {
+				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
+			}
 
+			return nil
+		})
 		return nil
 	})
 
 	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
-		if err = queue.Flush(); err != nil {
-			ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
-		}
+		queueEg.Go(func() error {
+			if err := queue.Flush(); err != nil {
+				ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
+			}
 
-		if err = queue.Close(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
-		}
+			if err := queue.Close(ctx); err != nil {
+				ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
+			}
 
+			return nil
+		})
 		return nil
 	})
+
+	// Every queue must be closed before any vector index is torn down: a queue
+	// still draining writes into the index it feeds.
+	_ = queueEg.Wait()
 
 	s.propertyIndicesLock.RLock()
 	err = s.propertyIndices.ShutdownGeoIndices(ctx)
 	s.propertyIndicesLock.RUnlock()
 	ec.AddWrapf(err, "shutdown geo property indices")
 
+	indexEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	indexEg.SetLimit(_NUMCPU)
+
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		// to ensure that all commitlog entries are written to disk.
-		// otherwise in some cases the tombstone cleanup process'
-		// 'RemoveTombstone' entry is not picked up on restarts
-		// resulting in perpetually attempting to remove a tombstone
-		// which doesn't actually exist anymore
-		if err = index.Flush(); err != nil {
-			ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
-		}
+		indexEg.Go(func() error {
+			// to ensure that all commitlog entries are written to disk.
+			// otherwise in some cases the tombstone cleanup process'
+			// 'RemoveTombstone' entry is not picked up on restarts
+			// resulting in perpetually attempting to remove a tombstone
+			// which doesn't actually exist anymore
+			if err := index.Flush(); err != nil {
+				ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
+			}
 
-		if err = index.Shutdown(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
-		}
+			if err := index.Shutdown(ctx); err != nil {
+				ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
+			}
 
+			return nil
+		})
 		return nil
 	})
+	_ = indexEg.Wait()
 
 	if s.store != nil {
 		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
