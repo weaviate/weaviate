@@ -97,6 +97,7 @@ func dumpWindowStart(lines []string, tail, ceiling int) int {
 func (d *DockerCompose) Terminate(ctx context.Context) error {
 	var errs error
 	for _, c := range d.containers {
+		deregisterMetricsTarget(d.netOctet, c.name)
 		if err := testcontainers.TerminateContainer(c.container, testcontainers.StopContext(ctx)); err != nil {
 			errs = errors.Wrapf(err, "cannot terminate: %v", c.name)
 		}
@@ -124,6 +125,7 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 func (d *DockerCompose) TerminateContainer(ctx context.Context, container string) error {
 	for idx, c := range d.containers {
 		if c.name == container {
+			deregisterMetricsTarget(d.netOctet, c.name)
 			if err := testcontainers.TerminateContainer(c.container, testcontainers.StopContext(ctx)); err != nil {
 				return fmt.Errorf("cannot stop %q: %w", c.name, err)
 			}
