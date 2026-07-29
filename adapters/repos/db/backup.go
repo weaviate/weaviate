@@ -521,41 +521,51 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		}
 	}()
 
-	var shard ShardLike
-	var sd backup.ShardDescriptor
-	var err error
-	if err := func() error {
-		// Acquire shardCreateLocks to atomically check shard state and protect
-		// inactive shards. This prevents concurrent activation from racing.
-		i.shardCreateLocks.Lock(name)
-		defer i.shardCreateLocks.Unlock(name)
-		shard = i.shards.Load(name)
+	// Acquire shardCreateLocks to atomically check shard state and protect
+	// inactive shards. This prevents concurrent activation from racing.
+	i.shardCreateLocks.Lock(name)
+	shardCreateLocksHeld := true
+	defer func() {
+		if shardCreateLocksHeld {
+			i.shardCreateLocks.Unlock(name)
+		}
+	}()
 
-		if shard == nil {
-			// Not in shardMap => back up from disk if directory exists.
-			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
+	var sd backup.ShardDescriptor
+
+	shard := i.shards.Load(name)
+
+	if shard == nil {
+		// Not in shardMap => back up from disk if directory exists.
+		// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
+		i.backupProtectedShards.Store(name, struct{}{})
+		unlockOnReturn = false
+		if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr); err != nil {
+			return nil, err
+		}
+		return &sd, nil
+	}
+
+	// For unloaded LazyLoadShards, block concurrent loading so we can safely
+	// read files from disk. See backupShardWithHardlinks for details.
+	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		releaseBlock := lazyShard.blockLoading()
+		if !lazyShard.loaded {
+			// Shard is in the map but not loaded; protect and keep lock held.
+			defer releaseBlock()
 			i.backupProtectedShards.Store(name, struct{}{})
 			unlockOnReturn = false
-			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
-		}
-
-		// For unloaded LazyLoadShards, block concurrent loading so we can safely
-		// read files from disk. See backupShardWithHardlinks for details.
-		if lazyShard, ok := shard.(*LazyLoadShard); ok {
-			releaseBlock := lazyShard.blockLoading()
-			defer releaseBlock()
-			if !lazyShard.loaded {
-				// Shard is in the map but not loaded; protect and keep lock held.
-				i.backupProtectedShards.Store(name, struct{}{})
-				unlockOnReturn = false
-				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
+			if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr); err != nil {
+				return nil, err
 			}
+			return &sd, nil
 		}
-
-		return nil
-	}(); err != nil {
-		return nil, err
+		// Shard is already loaded => release immediately and use the active path.
+		releaseBlock()
 	}
+
+	i.shardCreateLocks.Unlock(name)
+	shardCreateLocksHeld = false
 
 	// Active path => halt compaction (stays paused until ReleaseBackup).
 	// backupLock.Lock is released on return (unlockOnReturn=true).

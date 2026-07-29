@@ -557,6 +557,66 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
 }
 
+// TestBackupShardWithoutHardlinks_InactiveShardSkipsActivePath pins that an
+// inactive shard returns the descriptor it read from disk rather than
+// continuing into the active path below it.
+//
+// The two cases fail differently, so each is asserted on its own symptom: a
+// shard absent from the shard map is a nil ShardLike, and a LazyLoadShard is
+// not, so the first crashes and the second force-loads the shard and re-lists
+// it over the descriptor already filled from disk.
+func TestBackupShardWithoutHardlinks_InactiveShardSkipsActivePath(t *testing.T) {
+	className := "TestClass"
+	shardName := "cold-tenant"
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		// setup populates the shard map and returns the case-specific
+		// assertion to run once the backup has returned.
+		setup func(idx *Index) func(t *testing.T)
+	}{
+		{
+			name: "absent from the shard map",
+			setup: func(idx *Index) func(t *testing.T) {
+				return func(t *testing.T) {}
+			},
+		},
+		{
+			name: "in the shard map but not loaded",
+			setup: func(idx *Index) func(t *testing.T) {
+				lazy := &LazyLoadShard{}
+				idx.shards.Store(shardName, lazy)
+				return func(t *testing.T) {
+					assert.False(t, lazy.loaded,
+						"backing up an inactive shard must not force it to load")
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(shardName, models.TenantActivityStatusCOLD).
+				WithReplicationFactor(1).
+				Build()
+
+			idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+			createColdShardFiles(t, rootDir, className, shardName)
+			assertCase := tc.setup(idx)
+
+			sd, err := idx.backupShardWithoutHardlinks(ctx, shardName, nil)
+			require.NoError(t, err)
+			require.NotNil(t, sd)
+			assert.Equal(t, shardName, sd.Name)
+			assert.NotEmpty(t, sd.Files, "descriptor must keep the files read from disk")
+			assertCase(t)
+		})
+	}
+}
+
 func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	rootDir := t.TempDir()
 	className := "TestClass"
