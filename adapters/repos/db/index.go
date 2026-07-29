@@ -3543,6 +3543,11 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (models.Shar
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s: resolve replicas", shardName)
 		}
+		if len(replicas) == 0 {
+			// A shard with no replicas would otherwise be reported with an
+			// empty status, which pollers would wait on forever.
+			return nil, fmt.Errorf("shard %s: sharding state lists no replicas", shardName)
+		}
 
 		statuses := make([]string, len(replicas))
 		queueSizes := make([]int64, len(replicas))
