@@ -1030,9 +1030,15 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		// long as that runs the directory holds two complete copies and the
 		// figure doubles. classHnsw is the last tenant reactivated above and the
 		// first one read here, so it has the shortest settling window and is the
-		// shard that gets caught mid-compaction. Poll until both shards report a
-		// settled size instead of comparing a single sample; the 10% tolerance is
-		// unchanged.
+		// shard that gets caught mid-compaction.
+		//
+		// That doubling is real behaviour of the usage API, not a test artefact:
+		// nothing in the usage path filters .tmp or .wal, so /debug/usage really
+		// does report up to twice the durable object storage while a flush or
+		// compaction is in flight. Whether it should is a product question for
+		// the usage API owners. This test only tolerates it, by polling until
+		// both shards report a settled size instead of comparing a single
+		// sample. The 10% tolerance is unchanged.
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			colHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameHnsw)
 			require.NoError(ct, err)
