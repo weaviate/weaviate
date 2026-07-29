@@ -13,6 +13,9 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -20,6 +23,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
+)
+
+// ErrRangeableRepUnpopulatedAfterRebuild is returned by
+// RebuildRangeableSegmentInMemory when the rebuilt rep is empty but disk
+// segments exist; publication is refused and the bucket keeps serving from
+// disk.
+var ErrRangeableRepUnpopulatedAfterRebuild = errors.New(
+	"rangeable in-memory rebuild produced an empty representation while disk segments " +
+		"exist; leaving disk-serving in place",
 )
 
 func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {
@@ -55,16 +67,69 @@ type ReaderRoaringSetRange interface {
 	Close()
 }
 
+// rangeableServesFromMemory reports whether range reads serve from the
+// in-memory rep. Both operands are safe to read unlocked: keepSegmentsInMemory
+// is immutable after open, rangeableRepRebuilt is atomic.
+func (b *Bucket) rangeableServesFromMemory() bool {
+	return b.keepSegmentsInMemory || b.rangeableRepRebuilt.Load()
+}
+
+// RangeableServesFromMemory exports rangeableServesFromMemory so
+// out-of-package callers (e.g. reindex finalize logging) can report which
+// path is actually serving.
+func (b *Bucket) RangeableServesFromMemory() bool {
+	return b.rangeableServesFromMemory()
+}
+
 func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
+	// A rep published via RebuildRangeableSegmentInMemory was already
+	// validated at install time against this same discriminant, so a reader
+	// can trust it unconditionally here without a per-read check.
+	if b.rangeableRepRebuilt.Load() {
+		return b.readerRoaringSetRangeFromSegmentInMemo()
+	}
+
 	if b.keepSegmentsInMemory {
+		// Boot-time population has no install-time gate, so this path still
+		// needs the per-read check; checking emptiness first keeps the hot
+		// path to one IsUnpopulated() call under the rep's RLock.
+		if b.disk.roaringSetRangeSegmentInMemory.IsUnpopulated() {
+			if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
+				b.rangeableFallbackWarnOnce.Do(func() {
+					b.logger.WithField("bucket", b.dir).Warnf(
+						"rangeable in-memory index is empty but %d disk segment(s) exist; "+
+							"serving from disk instead. Results may be incorrect if those "+
+							"segments are corrupt or unreadable; rebuild the index to "+
+							"repair it.", n,
+					)
+				})
+				// Benign TOCTOU: the rep only empties via mass-delete, and the
+				// disk path is a correct superset either way.
+				return b.readerRoaringSetRangeFromSegments()
+			}
+		}
 		return b.readerRoaringSetRangeFromSegmentInMemo()
 	}
 	return b.readerRoaringSetRangeFromSegments()
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
+	// Deferred marker: emit the disk-serving diagnostic once per bucket-open;
+	// never affects read-path selection.
+	if b.rangeableInMemoryDeferred {
+		b.rangeableDeferredLogOnce.Do(func() {
+			b.logger.WithField("bucket", b.dir).Info(
+				"rangeable property serving range queries from disk; in-memory " +
+					"serving is restored automatically when the migration finalizes. " +
+					"If it persists after the migration has finished, the finalize " +
+					"rebuild failed; rebuild the index or reload the shard to " +
+					"repair it.",
+			)
+		})
+	}
+
 	view := b.GetConsistentView()
 
 	readers := make([]roaringsetrange.InnerReader, len(view.Disk))
@@ -107,4 +172,70 @@ func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange 
 	readers = append(readers, active.newRoaringSetRangeReader())
 
 	return roaringsetrange.NewCombinedReader(readers, release, concurrency.SROAR_MERGE, b.logger)
+}
+
+// RebuildRangeableSegmentInMemory builds the in-memory rep from disk
+// segments and switches range reads to in-memory serving, without a bucket
+// reopen. No-op if already serving from memory. Not safe for concurrent
+// self-invocation; the single finalize call site guarantees this.
+//
+// Locking order:
+//  1. Compaction is paused so the segment set can only grow via tail flush
+//     appends; a concurrent compaction could reorder add/delete layers and
+//     corrupt the merge.
+//  2. The bulk merge runs without flushLock so writes/flushes stay unblocked.
+//  3. Under flushLock, segments flushed during the merge are caught up, the
+//     rep is published, and the serving flag is set - so a racing flush
+//     either merges before us or sees the flag after, never losing a write.
+func (b *Bucket) RebuildRangeableSegmentInMemory(ctx context.Context) error {
+	if err := CheckStrategyRoaringSetRange(b.strategy); err != nil {
+		return err
+	}
+	if b.rangeableServesFromMemory() {
+		return nil
+	}
+
+	// Ref-counted at the bucket level so a concurrent snapshot, digest scan,
+	// or rebuild shares one pause instead of racing to resume under each
+	// other. A failed pause leaves the count where it started, so
+	// compaction is never left disabled.
+	if err := b.pauseCompaction(ctx); err != nil {
+		return fmt.Errorf("pause compaction for rangeable in-memory rebuild: %w", err)
+	}
+	defer func() {
+		if resumeErr := b.resumeCompaction(context.Background()); resumeErr != nil {
+			b.logger.Errorf("resume compaction after rangeable in-memory rebuild: %v", resumeErr)
+		}
+	}()
+
+	rep, alreadyMerged, releaseBuilt, err := b.disk.buildRoaringSetRangeRep(ctx)
+	if err != nil {
+		return fmt.Errorf("build rangeable in-memory rep: %w", err)
+	}
+
+	b.flushLock.Lock()
+	defer b.flushLock.Unlock()
+
+	if err := b.disk.installRoaringSetRangeRep(rep, alreadyMerged, releaseBuilt); err != nil {
+		return fmt.Errorf("install rangeable in-memory rep: %w", err)
+	}
+
+	// Gate publication on the same discriminant the per-read path uses,
+	// evaluated once here: a rep that folds empty while disk segments exist
+	// isn't trustworthy, so refuse to publish rather than advertise
+	// memory-serving for a rep that doesn't mirror disk.
+	if rep.IsUnpopulated() {
+		if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
+			b.logger.WithField("bucket", b.dir).Warnf(
+				"rangeable in-memory rebuild produced an empty representation while "+
+					"%d disk segment(s) exist; leaving disk-serving in place instead of "+
+					"activating in-memory acceleration. May indicate mass deletion or a "+
+					"rep-population gap.", n,
+			)
+			return fmt.Errorf("%w (bucket=%s)", ErrRangeableRepUnpopulatedAfterRebuild, filepath.Base(b.dir))
+		}
+	}
+
+	b.rangeableRepRebuilt.Store(true)
+	return nil
 }

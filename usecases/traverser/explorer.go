@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -108,6 +109,8 @@ type hybridSearcher interface {
 	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
+	DiversifyResults(ctx context.Context, selection *searchparams.Selection,
+		className, targetVector string, results []search.Result, relevanceFromDist bool) ([]search.Result, error)
 }
 
 // NewExplorer with search and connector repo
@@ -153,8 +156,9 @@ func (e *Explorer) GetClass(ctx context.Context,
 	// a default of QueryBoostDefaultDepth. Capped at QueryMaximumResults.
 	// We also zero the offset so boost sees all top candidates from position 0;
 	// the original offset/limit are stored on the Boost struct and applied
-	// after boost re-sorts.
-	if params.Boost != nil && params.Boost.Weight > 0 {
+	// after boost re-sorts. Under MMR the fetch/overfetch is owned by the MMR path.
+	mmrActive := params.Selection != nil && params.Selection.MMR != nil
+	if params.Boost != nil && params.Boost.Weight > 0 && !mmrActive {
 		params.Boost.OriginalOffset = params.Pagination.Offset
 		params.Boost.OriginalLimit = params.Pagination.Limit
 
@@ -237,7 +241,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		if errors.As(err, &e) {
 			return nil, e
 		}
-		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
 	res = e.applyBoostIfNeeded(res, params.Boost, false)
@@ -245,7 +249,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
 		if err != nil {
-			return nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, fmt.Errorf("explorer: get class: extend: %w", err)
 		}
 	}
 
@@ -264,13 +268,46 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 ) ([]search.Result, models.Vector, error) {
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
+		return nil, nil, fmt.Errorf("explorer: get class: vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 	}
 
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass,
 		params.ClassName, targetVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+		return nil, nil, fmt.Errorf("explorer: get class: validate target vector: %w", err)
+	}
+
+	// MMR is terminal and per-window: fetch deep enough to reach offset+limit, boost
+	// re-ranks it, MMR diversifies the [offset:offset+limit] relevance window, then
+	// returns its top MMR.Limit. offset advances by limit, so windows are disjoint.
+	mmr := params.Selection != nil && params.Selection.MMR != nil
+	var (
+		mmrTargetVector     string
+		mmrOffset, mmrLimit int
+		mmrPool             int
+		stripVector         string
+		stripDefaultVector  bool
+	)
+	if mmr {
+		if len(targetVectors) > 0 {
+			mmrTargetVector = targetVectors[0]
+		}
+		mmrOffset = params.Pagination.Offset
+		mmrLimit = int(params.Selection.MMR.Limit)
+		mmrPool = params.Pagination.Limit
+
+		pool := *params.Pagination
+		pool.Offset = 0
+		pool.Limit = e.mmrFetchDepth(params.Boost, mmrOffset+mmrPool)
+		params.Pagination = &pool
+
+		if mmrTargetVector == "" {
+			stripDefaultVector = !params.AdditionalProperties.Vector
+			params.AdditionalProperties.Vector = true
+		} else if !slices.Contains(params.AdditionalProperties.Vectors, mmrTargetVector) {
+			stripVector = mmrTargetVector
+			params.AdditionalProperties.Vectors = withVectorTarget(params.AdditionalProperties.Vectors, mmrTargetVector)
+		}
 	}
 
 	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
@@ -278,10 +315,86 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
 	}
 
+	if mmr {
+		// Diversify only the [offset:offset+limit] relevance window, then keep its top
+		// MMR.Limit. The window already consumes the offset, so the page is the prefix.
+		res = e.paginateResults(res, mmrOffset, mmrPool)
+		relevanceFromDist := params.Boost == nil || params.Boost.Weight <= 0
+		res, err = e.searcher.DiversifyResults(ctx, params.Selection, params.ClassName, mmrTargetVector, res, relevanceFromDist)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "explorer: get class: diversify results")
+		}
+		res = e.paginateResults(res, 0, mmrLimit)
+		if stripDefaultVector || stripVector != "" {
+			for i := range res {
+				if stripDefaultVector {
+					res[i].Vector = nil
+				}
+				if stripVector != "" {
+					delete(res[i].Vectors, stripVector)
+				}
+			}
+		}
+
+		// Module extension (rerankers) runs after MMR — skipped in searchForTargets
+		// under MMR — so rerankers re-sort the diversified page, matching the
+		// hybrid path where ListExploreAdditionalExtend follows selection.
+		if e.modulesProvider != nil {
+			var searchVector models.Vector
+			if len(searchVectors) > 0 {
+				searchVector = searchVectors[0]
+			}
+			res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
+				params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
+			if err != nil {
+				return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			}
+		}
+	}
+
 	if len(searchVectors) > 0 {
 		return res, searchVectors[0], nil
 	}
 	return res, []float32{}, nil
+}
+
+// mmrFetchDepth returns how deep to fetch before MMR. It must reach at least windowEnd
+// (offset+limit) so the [offset:offset+limit] window is populated; when boost is active it
+// fetches Boost.Depth deep (so boost re-ranks that deep), floored at windowEnd.
+func (e *Explorer) mmrFetchDepth(boost *filters.Boost, windowEnd int) int {
+	if boost == nil || boost.Weight <= 0 {
+		return windowEnd
+	}
+	depth := boost.Depth
+	if depth == 0 {
+		depth = e.config.QueryBoostDefaultDepth
+	}
+	if depth > int(e.config.QueryMaximumResults) {
+		depth = int(e.config.QueryMaximumResults)
+	}
+	if depth < windowEnd {
+		depth = windowEnd
+	}
+	return depth
+}
+
+// paginateResults returns the [offset:offset+limit] window of res; limit <= 0
+// means no upper bound.
+func (e *Explorer) paginateResults(res []search.Result, offset, limit int) []search.Result {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(res) {
+		return []search.Result{}
+	}
+	if limit <= 0 {
+		return res[offset:]
+	}
+	end := offset + limit
+	if end > len(res) {
+		end = len(res)
+	}
+	return res[offset:end]
 }
 
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
@@ -301,7 +414,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
-				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
+				return fmt.Errorf("explorer: get class: vectorize search vector: %w", enterrors.NewErrQueryVectorization(err))
 			}
 			searchVectors[i] = vec
 			return nil
@@ -322,7 +435,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -337,7 +450,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, nil, errors.Errorf("grouper: %v", err)
+			return nil, nil, fmt.Errorf("grouper: %w", err)
 		}
 
 		res = grouped
@@ -350,12 +463,15 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	}
 
 	// This operation cannot be performed with hybrid search.
-	// In case of hybrid it needs to be done later with combined results from vector and keyword search
-	if e.modulesProvider != nil && params.HybridSearch == nil {
+	// In case of hybrid it needs to be done later with combined results from vector and keyword search.
+	// Under MMR it runs after diversification (in getClassVectorSearch), so rerankers
+	// re-sort the final page on both the vector and the hybrid path.
+	mmrActive := params.Selection != nil && params.Selection.MMR != nil
+	if e.modulesProvider != nil && params.HybridSearch == nil && !mmrActive {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil, fmt.Errorf("explorer: get class: extend: %w", err)
 		}
 	}
 	e.trackUsageGet(res, params)
@@ -438,19 +554,23 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, errors.Errorf("grouper: %v", err)
+			return nil, fmt.Errorf("grouper: %w", err)
 		}
 
 		res = grouped
 	}
 
-	res = e.applyBoostIfNeeded(res, params.Boost, false)
+	// Under hybrid + MMR, boost already ran inside the selection fn before MMR.
+	hybridMMR := params.HybridSearch != nil && params.Selection != nil && params.Selection.MMR != nil
+	if !hybridMMR {
+		res = e.applyBoostIfNeeded(res, params.Boost, false)
+	}
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, params.ModuleParams)
 		if err != nil {
-			return nil, errors.Errorf("explorer: list class: extend: %v", err)
+			return nil, fmt.Errorf("explorer: list class: extend: %w", err)
 		}
 	}
 
@@ -495,7 +615,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 		keep, err := e.keepObjectsWithTTL(params, res, searchStartTime)
 		if err != nil {
-			return nil, errors.Errorf("object ttl filtering: %v", err)
+			return nil, fmt.Errorf("object ttl filtering: %w", err)
 		}
 		if !keep {
 			continue
@@ -534,7 +654,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 				targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
 				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
 				if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
-					return nil, errors.Errorf("additional: %s for class: %v", err, params.ClassName)
+					return nil, fmt.Errorf("additional: %w for class: %v", err, params.ClassName)
 				}
 
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
@@ -684,12 +804,12 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 
 	vector, targetVector, err := e.vectorFromExploreParams(ctx, params)
 	if err != nil {
-		return nil, errors.Errorf("vectorize params: %v", err)
+		return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 	}
 
 	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
 	if err != nil {
-		return nil, errors.Errorf("vector search: %v", err)
+		return nil, fmt.Errorf("vector search: %w", err)
 	}
 
 	e.trackUsageExplore(res, params)
@@ -699,7 +819,7 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 		item.Beacon = crossref.NewLocalhost(item.ClassName, item.ID).String()
 		err = e.appendResultsIfSimilarityThresholdMet(item, &results, params)
 		if err != nil {
-			return nil, errors.Errorf("append results based on similarity: %s", err)
+			return nil, fmt.Errorf("append results based on similarity: %w", err)
 		}
 	}
 
@@ -772,7 +892,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 		// TODO: cross class
 		vector, targetVector, err := e.nearParamsVector.crossClassVectorFromNearObjectParams(ctx, params.NearObject)
 		if err != nil {
-			return nil, "", errors.Errorf("nearObject params: %v", err)
+			return nil, "", fmt.Errorf("nearObject params: %w", err)
 		}
 
 		return vector, targetVector, nil
@@ -792,7 +912,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 			paramName, paramValue, e.nearParamsVector.findVector,
 		)
 		if err != nil {
-			return nil, "", errors.Errorf("vectorize params: %v", err)
+			return nil, "", fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 		}
 		return vector, targetVector, nil
 	}

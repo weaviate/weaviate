@@ -46,33 +46,40 @@ func NewDiskTree(data []byte) *DiskTree {
 	}
 }
 
-func (t *DiskTree) Get(key []byte) (Node, error) {
+// GetOffsets walks the tree for key and returns the payload position (start,
+// end) of the matching node, or lsmkv.NotFound. It allocates nothing: keys
+// are compared in place against the tree data. pos can be an arbitrary child
+// offset read from possibly corrupt data, so every read is bounds-checked
+// against dataLen-pos (never pos+n, which would wrap) — corrupt or truncated
+// data yields NotFound or an error, never a panic.
+func (t *DiskTree) GetOffsets(key []byte) (start, end uint64, err error) {
 	if len(t.data) == 0 {
-		return Node{}, lsmkv.NotFound
+		return 0, 0, lsmkv.NotFound
 	}
-	var out Node
 	data := t.data
 	dataLen := uint64(len(data))
 	pos := uint64(0)
+	steps := 0
+	maxSteps := maxDescentSteps(len(data))
 
-	// jump through the buffer until the node with _key_ is found or return a
-	// NotFound error. Node keys are compared in place against the tree data, so
-	// the descent allocates nothing; only the matched node's key is materialized
-	// (callers may keep it beyond the underlying segment's lifetime).
-	//
-	// pos can be an arbitrary child offset read from possibly corrupt data, so
-	// every read is bounds-checked against dataLen-pos (never pos+n, which would
-	// wrap). Truncated or corrupt data yields NotFound or an error, never a panic.
 	for {
+		// A child pointer leading back to an already visited node would keep the
+		// descent going forever. No descent visits a node twice, so it cannot take
+		// more steps than the buffer can hold nodes.
+		steps++
+		if steps > maxSteps {
+			return 0, 0, errors.New("cyclic child pointers in segment index")
+		}
+
 		// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8].
 		if pos+4 > dataLen || pos+4 < 4 {
-			return out, lsmkv.NotFound
+			return 0, 0, lsmkv.NotFound
 		}
 
 		keyLen := uint64(binary.LittleEndian.Uint32(data[pos:]))
 		pos += 4
 		if keyLen > dataLen-pos {
-			return out, fmt.Errorf("node key at %d len %d out of range", pos, keyLen)
+			return 0, 0, fmt.Errorf("node key at %d len %d out of range", pos, keyLen)
 		}
 
 		keyEqual := bytes.Compare(key, data[pos:pos+keyLen])
@@ -80,24 +87,41 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 		avail := dataLen - pos
 		if keyEqual == 0 {
 			if avail < 16 { // start + end
-				return out, fmt.Errorf("node value at %d out of range", pos)
+				return 0, 0, fmt.Errorf("node value at %d out of range", pos)
 			}
-			out.Key = bytes.Clone(data[pos-keyLen : pos])
-			out.Start = binary.LittleEndian.Uint64(data[pos:])
-			out.End = binary.LittleEndian.Uint64(data[pos+8:])
-			return out, nil
+			return binary.LittleEndian.Uint64(data[pos:]),
+				binary.LittleEndian.Uint64(data[pos+8:]), nil
 		} else if keyEqual < 0 {
 			if avail < 24 { // start + end + left child
-				return out, fmt.Errorf("node left child at %d out of range", pos)
+				return 0, 0, fmt.Errorf("node left child at %d out of range", pos)
 			}
 			pos = binary.LittleEndian.Uint64(data[pos+16:]) // skip start+end, read left child
 		} else {
 			if avail < 32 { // start + end + left + right child
-				return out, fmt.Errorf("node right child at %d out of range", pos)
+				return 0, 0, fmt.Errorf("node right child at %d out of range", pos)
 			}
 			pos = binary.LittleEndian.Uint64(data[pos+24:]) // skip start+end+left, read right child
 		}
 	}
+}
+
+// maxDescentSteps bounds a root-to-leaf descent at the number of nodes a buffer
+// of this size can hold, which no descent following intact child pointers
+// reaches. It is what makes a cyclic pointer terminate.
+func maxDescentSteps(dataLen int) int {
+	return dataLen/TREE_KEY_STORE_OVERHEAD + 1
+}
+
+// Get returns the matching node with an owned copy of its key, safe to keep
+// beyond the segment's lifetime. A match means the in-tree key equals the
+// argument, so Get clones the caller's key, keeping the descent in
+// GetOffsets allocation-free.
+func (t *DiskTree) Get(key []byte) (Node, error) {
+	start, end, err := t.GetOffsets(key)
+	if err != nil {
+		return Node{}, err
+	}
+	return Node{Key: bytes.Clone(key), Start: start, End: end}, nil
 }
 
 func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
@@ -146,7 +170,7 @@ func (t *DiskTree) Seek(key []byte) (Node, error) {
 		return Node{}, lsmkv.NotFound
 	}
 
-	return t.seekAt(0, key, true)
+	return t.seekAt(0, key, true, maxDescentSteps(len(t.data)))
 }
 
 func (t *DiskTree) Next(key []byte) (Node, error) {
@@ -154,10 +178,16 @@ func (t *DiskTree) Next(key []byte) (Node, error) {
 		return Node{}, lsmkv.NotFound
 	}
 
-	return t.seekAt(0, key, false)
+	return t.seekAt(0, key, false, maxDescentSteps(len(t.data)))
 }
 
-func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, error) {
+// budget is how many more nodes the descent may visit, so a child pointer
+// leading back to an already visited node fails instead of recursing forever.
+func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool, budget int) (Node, error) {
+	if budget <= 0 {
+		return Node{}, errors.New("cyclic child pointers in segment index")
+	}
+
 	node, err := t.readNodeAt(offset)
 	if err != nil {
 		return Node{}, err
@@ -178,7 +208,7 @@ func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, er
 			return self, nil
 		}
 
-		left, err := t.seekAt(node.leftChild, key, includingKey)
+		left, err := t.seekAt(node.leftChild, key, includingKey, budget-1)
 		if err == nil {
 			return left, nil
 		}
@@ -193,7 +223,7 @@ func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, er
 			return Node{}, lsmkv.NotFound
 		}
 
-		return t.seekAt(node.rightChild, key, includingKey)
+		return t.seekAt(node.rightChild, key, includingKey, budget-1)
 	}
 }
 
@@ -202,8 +232,8 @@ func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, er
 // segment where we need access to all keys, e.g. to build a bloom filter. This
 // should not run at query time.
 //
-// The binary tree is traversed in Level-Order so keys have no meaningful
-// order. Do not use this method if an In-Order traversal is required, but only
+// Keys are returned in the tree's on-disk (serialized) order, which is not
+// sorted. Do not use this method if an In-Order traversal is required, but only
 // for use cases who don't require a specific order, such as building a
 // bloom filter.
 func (t *DiskTree) AllKeys() ([][]byte, error) {

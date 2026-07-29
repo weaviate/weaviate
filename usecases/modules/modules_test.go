@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -547,4 +549,19 @@ func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, k
 
 func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	return nil
+}
+
+// API handlers (e.g. adapters/handlers/rest/search) classify the failure by this
+// type, so it must not be dropped from the returned error.
+func TestVectorFromSearchParamNoVectorizerTypedError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+	p.SetSchemaGetter(getFakeSchemaGetter())
+
+	_, err := p.VectorFromSearchParam(context.Background(),
+		"ClassOne", "", "", "nearText", nil, nil)
+	assert.Error(t, err)
+	assert.True(t, errors.As(err, &enterrors.ErrNoVectorizerModule{}),
+		"no-vectorizer fallback must carry entities/errors.ErrNoVectorizerModule, got: %v", err)
+	assert.Contains(t, err.Error(), "Make sure a vectorizer module is configured")
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -51,13 +52,8 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
 	}
 
-	if req.Namespace != "" {
-		if !m.namespaces.Exists(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceGone, req.Namespace)
-		}
-		if !m.namespaces.IsActive(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, req.Namespace)
-		}
+	if err := usecasesNamespaces.RequireActive(m.namespaces, req.Namespace); err != nil {
+		return fmt.Errorf("%w: %q", err, req.Namespace)
 	}
 
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
@@ -152,20 +148,10 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Rebuild *apikey.User for the wire to keep the response shape stable;
-	// these pointers are local and never shared.
-	wireUsers := make(map[string]*apikey.User, len(users))
+	// These pointers are local and never shared.
+	wireUsers := make(map[string]*dbuser.View, len(users))
 	for id, v := range users {
-		wireUsers[id] = &apikey.User{
-			Id:                 v.Id,
-			Active:             v.Active,
-			InternalIdentifier: v.InternalIdentifier,
-			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
-			CreatedAt:          v.CreatedAt,
-			LastUsedAt:         v.LastUsedAt,
-			ImportedWithKey:    v.ImportedWithKey,
-			Namespace:          v.Namespace,
-		}
+		wireUsers[id] = &v
 	}
 	response := cmd.QueryGetUsersResponse{Users: wireUsers}
 	payload, err := json.Marshal(response)

@@ -225,7 +225,9 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 
 	// Single createdAt, propagated unchanged: replicas reject one another via the strict-greater-than guard.
 	createdAt := time.Now().UTC()
-	cutoffMs := createdAt.UnixMilli()
+	// Cutoff must be in every node's future at create (past-cutoff guard); short so the frozen subtest can outwait it.
+	cutoff := createdAt.Add(20 * time.Second)
+	cutoffMs := cutoff.UnixMilli()
 
 	t.Run("create checkpoint on every node with the same createdAt", func(t *testing.T) {
 		for i, cluster := range nodeClusters {
@@ -289,6 +291,10 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 	})
 
 	t.Run("post-cutoff writes do NOT change the checkpoint root", func(t *testing.T) {
+		// Wait until wall-clock passes the cutoff so these writes are genuinely post-cutoff.
+		if d := time.Until(cutoff); d > 0 {
+			time.Sleep(d + time.Second)
+		}
 		batch := make([]*models.Object, 10)
 		for i := 0; i < 10; i++ {
 			batch[i] = articles.NewParagraph().
@@ -374,8 +380,9 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 	shards := discoverShards(t, node1REST, paragraphClass.Class)
 
 	createdAt := time.Now().UTC()
+	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
 	for _, c := range []string{node1Cluster, node2Cluster, node3Cluster} {
-		asyncCheckpointCreate(t, c, paragraphClass.Class, shards, createdAt.UnixMilli(), createdAt.UnixMilli())
+		asyncCheckpointCreate(t, c, paragraphClass.Class, shards, cutoffMs, createdAt.UnixMilli())
 	}
 
 	// Pre-restart: every node has an active checkpoint.

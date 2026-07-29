@@ -182,7 +182,8 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 }
 
 // TestNamespaces_CreateUserInMissingNamespace pins that CreateUser rejects
-// with 422 when the target namespace does not exist.
+// with 422 when the target namespace does not exist, and that the message
+// does not name the namespace.
 func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
 	t.Parallel()
 	ghost := uniqueNS()
@@ -204,8 +205,8 @@ func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
 	require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	require.NotNil(t, unproc.Payload)
 	require.NotEmpty(t, unproc.Payload.Error)
-	assert.Contains(t, unproc.Payload.Error[0].Message, "namespace",
-		"422 message must explain the namespace existence failure; got %q", unproc.Payload.Error[0].Message)
+	assert.NotContains(t, unproc.Payload.Error[0].Message, ghost)
+	assert.NotContains(t, unproc.Payload.Error[0].Message, "namespace")
 }
 
 // TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.

@@ -78,6 +78,7 @@ type WeaviateRuntimeConfig struct {
 	DebugEndpointsEnabled                     *runtime.DynamicValue[bool]          `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
 	GRPCWebEnabled                            *runtime.DynamicValue[bool]          `json:"grpc_web_enabled" yaml:"grpc_web_enabled"`
 	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
+	ExperimentalRESTSearchEnabled             *runtime.DynamicValue[bool]          `json:"rest_search_enabled" yaml:"rest_search_enabled"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
 
@@ -86,6 +87,9 @@ type WeaviateRuntimeConfig struct {
 	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
 	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// Backup settings
+	BackupMaxIndividualFiles *runtime.DynamicValue[int] `json:"backup_max_individual_files" yaml:"backup_max_individual_files"`
 
 	// Export settings
 	ExportEnabled       *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
