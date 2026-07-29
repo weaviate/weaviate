@@ -140,6 +140,48 @@ func TestColdTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 	}
 }
 
+// TestHotTransfer_BuildsReindexLookupOncePerShardSet is INTENTIONALLY RED.
+//
+// It pins the last per-shard gate site: [Shard.HaltForTransfer] still calls
+// newReindexGate per shard, so a backup of M hot shards issues M
+// cluster-wide RAFT queries. On the hardlink path those are fanned out at
+// GOMAXPROCS concurrency by descriptorWithHardlinks, so the load shape at
+// the leader is worse than M sequential queries.
+//
+// Closing it means adding a gate parameter to HaltForTransfer, which is on
+// the ShardLike interface with seven non-test call sites — a materially
+// bigger change than this PR, deliberately left to
+// weaviate/0-weaviate-issues#425. Committed failing rather than left
+// untracked.
+//
+// The gate is consulted before HaltForTransfer does any work, so a refusing
+// gate drives each shard with no store, no vector index and no disk. Driving
+// the real descriptorWithHardlinks loop over real hot shards yields the same
+// two numbers: its hoisted gate resolves lazily, so an all-hot shard set
+// never resolves it and every query still comes from HaltForTransfer.
+func TestHotTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
+	const shards = 12
+
+	var builds atomic.Int64
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		builds.Add(1)
+		return func(string, string) bool { return true }
+	})
+	idx := &Index{db: db, Config: IndexConfig{ClassName: "HotTransferGateClass"}}
+
+	// One backup pass over one index's hot shards.
+	for s := 0; s < shards; s++ {
+		shard := &Shard{index: idx, name: fmt.Sprintf("hot-shard-%d", s)}
+		require.Error(t, shard.HaltForTransfer(context.Background(), false, 0),
+			"the refusing gate must stop the halt before it does any work")
+	}
+
+	require.Equalf(t, int64(1), builds.Load(),
+		"one backup must resolve the reindex gate once for all %d hot shards, got %d",
+		shards, builds.Load())
+}
+
 // TestColdTransfer_PopulatedShardsReachTheGate separates "the gate was
 // resolved once" from "the gate was never consulted", which produce the same
 // build count on a fixture whose shards have no directory on disk.
