@@ -2023,6 +2023,74 @@ func TestCycleCallback_DeactivateTimeoutState(t *testing.T) {
 	g.Unlock()
 }
 
+// The abort mark belongs to whichever operation set it, so a timing-out
+// deactivate must leave a mark it found already set. It must also reach that
+// decision without the group lock: taking it only to write back the same value
+// stalls the timeout path behind any lock holder.
+func TestCycleCallback_DeactivateTimeoutLeavesForeignAbortMark(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+
+	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+	ctrl := g.Register("slow", func(shouldAbort ShouldAbortCallback) bool {
+		started <- struct{}{}
+		<-release
+		return true
+	})
+
+	tickDone := make(chan struct{})
+	go func() {
+		g.CycleCallback(func() bool { return false })
+		close(tickDone)
+	}()
+	<-started
+
+	// Stands in for a concurrent deactivate/unregister that already owns the mark.
+	g.Lock()
+	var meta *cycleCallbackMeta
+	for _, m := range g.metas {
+		meta = m
+	}
+	require.NotNil(t, meta)
+	meta.abort = true
+	g.Unlock()
+
+	ctxCancel, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- ctrl.Deactivate(ctxCancel) }()
+
+	// tryCommitIdle creates done only for a caller that has to wait, so its
+	// presence means Deactivate is parked in the select with the lock released.
+	require.Eventually(t, func() bool {
+		g.Lock()
+		defer g.Unlock()
+		return meta.done != nil
+	}, 5*time.Second, time.Millisecond)
+
+	// Hold the lock across the cancellation: a rollback would block on it here.
+	g.Lock()
+	cancel()
+
+	var err error
+	select {
+	case err = <-errCh:
+	case <-time.After(5 * time.Second):
+		g.Unlock()
+		t.Fatal("Deactivate blocked on the group lock instead of skipping the no-op rollback")
+	}
+	assert.True(t, meta.abort, "an abort mark owned by another operation must survive the timeout")
+	g.Unlock()
+
+	require.ErrorIs(t, err, context.Canceled)
+
+	close(release)
+	<-tickDone
+}
+
 // ctxCancelledWhileRunningSpec parameterizes testCtxCancelledWhileRunning with
 // the controller op under test (Deactivate or Unregister): which op is invoked
 // with the cancellable ctx, which op-specific assertions run after it failed,
