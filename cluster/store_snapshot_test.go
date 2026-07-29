@@ -98,8 +98,25 @@ func TestSnapshotCapturesStateAtSnapshotTime(t *testing.T) {
 
 	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
 	require.NoError(t, snapshot.Persist(sink))
-	require.NotContains(t, sink.Buffer.String(), "committed-after-snapshot",
-		"state committed after Snapshot() leaked into the persisted snapshot")
+
+	// The DTM section of the snapshot is nested as base64-encoded bytes, so a
+	// substring probe on the raw sink can never fail — restore the persisted
+	// bytes into a fresh store and check the actual post-restore state.
+	target := NewMockStore(t, "cut-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
+	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+	target.indexer.On("AddClass", mock.Anything).Return(nil)
+	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+	restored, err := target.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	for _, task := range restored["test-namespace"] {
+		require.NotEqual(t, "committed-after-snapshot", task.ID,
+			"state committed after Snapshot() leaked into the persisted snapshot")
+	}
 }
 
 // TestSnapshotRestore_DistributedTaskStateRoundTrip pins that DTM state — the

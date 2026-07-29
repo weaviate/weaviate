@@ -454,6 +454,22 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 	sg.segments = sg.segments[:segmentIndex]
 
+	// Any later init failure (WAL recovery, sidecar recovery hard-fail,
+	// cleaner init) discards sg without a shutdown — close the mmapped
+	// segments here or every reload retry leaks them.
+	defer func() {
+		if err == nil {
+			return
+		}
+		for _, seg := range sg.segments {
+			if closeErr := seg.close(); closeErr != nil {
+				sg.logger.WithField("path", cfg.dir).
+					Warnf("close segment after failed segment-group init: %v", closeErr)
+			}
+			sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
+		}
+	}()
+
 	// Actual strategy is stored in segment files. In case it is SetCollection,
 	// while new implementation uses bitmaps and supposed to be RoaringSet,
 	// bucket and segmentgroup strategy is changed back to SetCollection

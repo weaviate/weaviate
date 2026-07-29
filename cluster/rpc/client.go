@@ -356,6 +356,8 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrNamespaceResuming)
 		case strings.Contains(msg, namespaces.ErrStateChangedConcurrently.Error()):
 			return errors.Join(err, namespaces.ErrStateChangedConcurrently)
+		case strings.Contains(msg, clusterSchema.ErrMTDisabled.Error()):
+			return errors.Join(err, clusterSchema.ErrMTDisabled)
 		}
 	case codes.AlreadyExists:
 		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {

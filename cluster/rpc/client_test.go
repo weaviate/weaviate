@@ -168,6 +168,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		// gate; unmapped it arrives as codes.Internal and renders HTTP 500
 		// instead of 422 on the forwarding node.
 		{name: "SchemaErrBadRequest", send: schema.ErrBadRequest},
+		{name: "SchemaErrMTDisabled", send: schema.ErrMTDisabled},
 		{name: "ErrNotLeader", send: types.ErrNotLeader},
 		{name: "ErrLeaderNotFound", send: types.ErrLeaderNotFound},
 	}

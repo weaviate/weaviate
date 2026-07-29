@@ -19,10 +19,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func newInterlockTestBucket(t *testing.T, dir string) (*Bucket, error) {
@@ -252,4 +254,40 @@ func TestNewBucket_LateInitFailureTearsDownDiskBeforeReleasingClaim(t *testing.T
 	require.NoError(t, err, "retry must find no leaked claim and no leaked flocks")
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.Shutdown(context.Background()))
+}
+
+// TestNewBucket_LockedSidecarRetriesDoNotLeakSegmentMmaps pins the failure
+// path with EXISTING segments: when the load fails on the still-locked
+// sidecar, the segments already mmapped for this attempt must be closed —
+// the shard lifecycle retries this load, and a per-retry leak of every
+// segment mapping wedges the node long before the old instance releases the
+// lock. Observed through the segment-total gauge, which the close path
+// decrements symmetrically with the load path's increment.
+func TestNewBucket_LockedSidecarRetriesDoNotLeakSegmentMmaps(t *testing.T) {
+	dir := t.TempDir()
+	seeded, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err)
+	require.NoError(t, seeded.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, seeded.FlushAndSwitch())
+	require.NoError(t, seeded.Shutdown(context.Background()))
+
+	ext := newSegmentEditOps(dir, "TestClass")
+	require.NoError(t, ext.RegisterOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	defer ext.Close() // holds the bolt flock for the duration of the test
+
+	metrics, err := NewMetrics(monitoring.GetMetrics(), "TestClass", "shard")
+	require.NoError(t, err)
+	gauge, err := metrics.segmentTotalByStrategy.GetMetricWithLabelValues(StrategyReplace)
+	require.NoError(t, err)
+	before := testutil.ToFloat64(gauge)
+
+	logger, _ := test.NewNullLogger()
+	_, err = NewBucketCreator().NewBucket(context.Background(), dir, dir, logger, metrics,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour),
+		WithClassName("TestClass"))
+	require.Error(t, err)
+
+	require.Equal(t, before, testutil.ToFloat64(gauge),
+		"a failed load must close (and un-count) every segment it opened")
 }

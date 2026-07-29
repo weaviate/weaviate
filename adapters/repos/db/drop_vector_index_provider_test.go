@@ -862,9 +862,38 @@ func TestOnTaskCompleted_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+	err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 
+	require.Error(t, err, "a non-nil return makes the scheduler retry the callback instead of minting FINISHED")
 	require.False(t, fin.called, "schema removal must be deferred when op deletion fails on a loaded shard")
+}
+
+// TestOnTaskCompleted_TransientFailures_ReturnErrorForRetry pins the retry
+// contract on every SWAPPING-path failure branch: acking (returning nil)
+// would mint a FINISHED record next to a standing marker — for the finalize
+// write specifically, one carrying COMPLETE coverage, which every reconcile
+// round re-reads as closed-epoch residue and answers with a full
+// re-strip of the collection, forever.
+func TestOnTaskCompleted_TransientFailures_ReturnErrorForRetry(t *testing.T) {
+	t.Run("finalize write failure", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{}
+		fin := &fakeFinalizer{err: errors.New("raft apply timeout")}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+		require.ErrorContains(t, err, "raft apply timeout")
+		require.True(t, fin.called)
+	})
+
+	t.Run("coverage check failure", func(t *testing.T) {
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
+		p.sharding = &fakeShardingReader{err: errors.New("no leader")}
+
+		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+		require.ErrorContains(t, err, "no leader")
+		require.False(t, fin.called)
+	})
 }
 
 // TestOnTaskCompleted_UnloadedShard_SkipsDeleteAndFinalizes: an unloaded shard's

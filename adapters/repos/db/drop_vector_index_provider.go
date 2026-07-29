@@ -588,8 +588,13 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 	// op on a loaded shard" holds (see DeleteEditOp for why a lingering op is unsafe).
 	// On failure, defer the schema removal for reconciliation rather than break it.
 	if err := p.deleteLocalEditOps(payload); err != nil {
-		logger.Errorf("drop-vector: task-completion: deleting completed edit op failed (reconcile will retry): %v", err)
-		return nil
+		// Non-nil return withholds FINISHED and the scheduler retries this
+		// callback (bounded; exhaustion fails the task — safe: the FAILED
+		// completion deletes ops and reconciliation re-covers). Acking here
+		// instead would mint a FINISHED record next to a standing marker,
+		// which the enqueuer must read as a closed epoch: a full re-clean
+		// for what is usually a transient blip.
+		return fmt.Errorf("deleting completed edit op: %w", err)
 	}
 
 	// Only the live completion (SWAPPING) finalizes; the FSM gate enforces the
@@ -622,8 +627,9 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 	// The marker stays until a later task covers everyone.
 	uncovered, err := p.uncoveredShards(payload)
 	if err != nil {
-		logger.Errorf("drop-vector: task-completion: coverage check failed (leaving schema marker): %v", err)
-		return nil
+		// Retry via the scheduler (see the delete-op failure above): acking a
+		// leader-read blip would cost a full re-clean.
+		return fmt.Errorf("coverage check: %w", err)
 	}
 	if len(uncovered) > 0 {
 		// Count + sample only: on a large MT collection the full list is a
@@ -640,17 +646,21 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 	// finalize must not remove the marker of a NEWER drop of the same name that is
 	// still running — that would free the name while the newer op strips it.
 	if blocked, err := p.activeOverlappingDrop(task, payload); err != nil {
-		logger.Errorf("drop-vector: task-completion: active-drop check failed (leaving schema marker): %v", err)
-		return nil
+		// Retry via the scheduler (see the delete-op failure above).
+		return fmt.Errorf("active-drop check: %w", err)
 	} else if blocked {
 		logger.Info("drop-vector: task-completion: a newer drop task on the same target is active; leaving its schema marker")
 		return nil
 	}
 
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
-		// Leave the marker in place; reconciliation re-cleans and re-finalizes.
-		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
-		return nil
+		// Retry via the scheduler (see the delete-op failure above). Acking a
+		// failed finalize write is the worst case of the four: the FINISHED
+		// record carries COMPLETE coverage, so every reconcile round would
+		// re-read "complete chain + standing marker" as closed-epoch residue
+		// and re-strip the whole collection, forever, while retained records
+		// accumulate.
+		return fmt.Errorf("removing VectorConfig entries: %w", err)
 	}
 	logger.Info("drop-vector: task-completion: dropped vector(s) removed from schema")
 	return nil
