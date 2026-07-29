@@ -285,9 +285,9 @@ func (_c *MockSchemaReader_GetAliasesForClass_Call) RunAndReturn(run func(string
 	return _c
 }
 
-// GetShardsStatus provides a mock function with given fields: class, tenant
-func (_m *MockSchemaReader) GetShardsStatus(class string, tenant string) (models.ShardStatusList, error) {
-	ret := _m.Called(class, tenant)
+// GetShardsStatus provides a mock function with given fields: ctx, class, tenant
+func (_m *MockSchemaReader) GetShardsStatus(ctx context.Context, class string, tenant string) (models.ShardStatusList, error) {
+	ret := _m.Called(ctx, class, tenant)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetShardsStatus")
@@ -295,19 +295,19 @@ func (_m *MockSchemaReader) GetShardsStatus(class string, tenant string) (models
 
 	var r0 models.ShardStatusList
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (models.ShardStatusList, error)); ok {
-		return rf(class, tenant)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (models.ShardStatusList, error)); ok {
+		return rf(ctx, class, tenant)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) models.ShardStatusList); ok {
-		r0 = rf(class, tenant)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) models.ShardStatusList); ok {
+		r0 = rf(ctx, class, tenant)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(models.ShardStatusList)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(class, tenant)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, class, tenant)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -321,15 +321,16 @@ type MockSchemaReader_GetShardsStatus_Call struct {
 }
 
 // GetShardsStatus is a helper method to define mock.On call
+//   - ctx context.Context
 //   - class string
 //   - tenant string
-func (_e *MockSchemaReader_Expecter) GetShardsStatus(class interface{}, tenant interface{}) *MockSchemaReader_GetShardsStatus_Call {
-	return &MockSchemaReader_GetShardsStatus_Call{Call: _e.mock.On("GetShardsStatus", class, tenant)}
+func (_e *MockSchemaReader_Expecter) GetShardsStatus(ctx interface{}, class interface{}, tenant interface{}) *MockSchemaReader_GetShardsStatus_Call {
+	return &MockSchemaReader_GetShardsStatus_Call{Call: _e.mock.On("GetShardsStatus", ctx, class, tenant)}
 }
 
-func (_c *MockSchemaReader_GetShardsStatus_Call) Run(run func(class string, tenant string)) *MockSchemaReader_GetShardsStatus_Call {
+func (_c *MockSchemaReader_GetShardsStatus_Call) Run(run func(ctx context.Context, class string, tenant string)) *MockSchemaReader_GetShardsStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -339,7 +340,7 @@ func (_c *MockSchemaReader_GetShardsStatus_Call) Return(_a0 models.ShardStatusLi
 	return _c
 }
 
-func (_c *MockSchemaReader_GetShardsStatus_Call) RunAndReturn(run func(string, string) (models.ShardStatusList, error)) *MockSchemaReader_GetShardsStatus_Call {
+func (_c *MockSchemaReader_GetShardsStatus_Call) RunAndReturn(run func(context.Context, string, string) (models.ShardStatusList, error)) *MockSchemaReader_GetShardsStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

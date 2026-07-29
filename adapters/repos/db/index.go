@@ -3520,6 +3520,11 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 // wait_for_vector_indexing) observe a single drained replica and declare async
 // indexing finished while the remaining replicas — any of which can serve a
 // subsequent search — are still consuming their queues.
+//
+// Operational contract: a replica that rejects the read because its shard is
+// still loading is reported as LOADING; an unreachable replica fails the whole
+// request (as it previously did for the single resolved owner), so pollers
+// retry. Reading the queue size loads lazy shards on every replica.
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (models.ShardStatusList, error) {
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
@@ -3539,17 +3544,28 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (models.Shar
 			return nil, errors.Wrapf(err, "shard %s: resolve replicas", shardName)
 		}
 
-		statuses := make([]string, 0, len(replicas))
-		var queueSize int64
-		for _, node := range replicas {
-			status, size, err := i.shardReplicaStatusAndQueueSize(ctx, tenant, shardName, node, localNode)
-			if err != nil {
-				return nil, errors.Wrapf(err, "shard %s: replica on node %s", shardName, node)
-			}
-			statuses = append(statuses, status)
-			queueSize += size
+		statuses := make([]string, len(replicas))
+		queueSizes := make([]int64, len(replicas))
+		eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+		for ri, node := range replicas {
+			eg.Go(func() error {
+				status, size, err := i.shardReplicaStatusAndQueueSize(egCtx, tenant, shardName, node, localNode)
+				if err != nil {
+					return errors.Wrapf(err, "replica on node %s", node)
+				}
+				statuses[ri] = status
+				queueSizes[ri] = size
+				return nil
+			}, node)
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
 
+		var queueSize int64
+		for _, size := range queueSizes {
+			queueSize += size
+		}
 		shardsStatus = append(shardsStatus, &models.ShardStatusGetResponse{
 			Name:            shardName,
 			Status:          aggregateShardStatuses(statuses),
@@ -3561,6 +3577,18 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (models.Shar
 }
 
 func (i *Index) shardReplicaStatusAndQueueSize(ctx context.Context,
+	tenant, shardName, node, localNode string,
+) (string, int64, error) {
+	status, queueSize, err := i.readShardReplica(ctx, tenant, shardName, node, localNode)
+	if err != nil && replicaShardNotReady(err) {
+		// The replica is up but its shard is still loading: that is a status,
+		// not a request failure.
+		return storagestate.StatusLoading.String(), 0, nil
+	}
+	return status, queueSize, err
+}
+
+func (i *Index) readShardReplica(ctx context.Context,
 	tenant, shardName, node, localNode string,
 ) (status string, queueSize int64, err error) {
 	if node != localNode {
@@ -3581,16 +3609,27 @@ func (i *Index) shardReplicaStatusAndQueueSize(ctx context.Context,
 		},
 		func() error {
 			// Sharding state lists this node as a replica but the shard is not
-			// directly reachable (e.g. still initializing); go through the
-			// cluster API like for any other node.
+			// reachable through the direct path; use the incoming handlers a
+			// remote peer would hit, without the loop-back HTTP hop.
 			var err error
-			if status, err = i.remote.GetShardStatusFromNode(ctx, node, shardName); err != nil {
+			if status, err = i.IncomingGetShardStatus(ctx, shardName); err != nil {
 				return err
 			}
-			queueSize, err = i.remote.GetShardQueueSizeFromNode(ctx, node, shardName)
+			queueSize, err = i.IncomingGetShardQueueSize(ctx, shardName)
 			return err
 		})
 	return status, queueSize, err
+}
+
+// replicaShardNotReady reports whether err is the shard-still-loading
+// rejection — the local typed error, or its HTTP 422 form when it crossed the
+// cluster API (clusterapi maps enterrors.ErrUnprocessable to 422, which the
+// remote client does not retry).
+func replicaShardNotReady(err error) bool {
+	if errors.As(err, &enterrors.ErrUnprocessable{}) {
+		return true
+	}
+	return strings.Contains(err.Error(), "status code: 422")
 }
 
 // shardStatusSeverity orders the non-READY statuses by how they should

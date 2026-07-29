@@ -131,7 +131,7 @@ type SchemaReader interface {
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
 	LocalActiveShardsCount(class string) (int, error)
-	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias
 
@@ -379,7 +379,7 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 		return nil, err
 	}
 
-	return h.schemaReader.GetShardsStatus(class, shard)
+	return h.schemaReader.GetShardsStatus(ctx, class, shard)
 }
 
 // JoinNode adds the given node to the cluster.

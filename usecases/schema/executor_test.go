@@ -199,7 +199,7 @@ func TestExecutor(t *testing.T) {
 		}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, nil)
 		x := newMockExecutor(migrator, store)
-		resp, err := x.GetShardsStatus("A", "")
+		resp, err := x.GetShardsStatus(context.Background(), "A", "")
 		assert.Nil(t, err)
 		assert.Equal(t, status, resp)
 	})
@@ -207,7 +207,7 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(models.ShardStatusList{}, ErrAny)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A", "")
+		_, err := x.GetShardsStatus(context.Background(), "A", "")
 		assert.ErrorIs(t, err, ErrAny)
 	})
 	t.Run("UpdateShardStatus", func(t *testing.T) {
