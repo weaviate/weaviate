@@ -13,10 +13,9 @@ package v1
 
 import (
 	"fmt"
-	"math/big"
-	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -207,11 +206,16 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 		return nil, "", errors.New("could not extract format id in additional prop")
 	}
 	idStrfmtStr := idStrfmt.String()
-	hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(idStrfmtStr, "-", ""), 16)
-	if !success {
-		return nil, "", fmt.Errorf("failed to parse hex string to integer")
+	// Avoids the leading-zero-byte truncation from decoding uuids through big.Int.
+	parsed, err := uuid.Parse(idStrfmtStr)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to parse id %q as uuid: %w", idStrfmtStr, err)
 	}
-	return hexInteger.Bytes(), idStrfmtStr, nil
+	idBytes, err := parsed.MarshalBinary()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode id %q as bytes: %w", idStrfmtStr, err)
+	}
+	return idBytes, idStrfmtStr, nil
 }
 
 func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {

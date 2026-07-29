@@ -63,6 +63,7 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyReplace,
+		logger:   nullLogger(),
 	}
 
 	cursor := b.Cursor()
@@ -181,7 +182,7 @@ func TestCursorInMemWithTombstones(t *testing.T) {
 	})
 	active.key.setTombstone([]byte("ccc"), nil, nil)
 
-	b := Bucket{active: active, disk: &SegmentGroup{}, strategy: StrategyReplace}
+	b := Bucket{active: active, disk: &SegmentGroup{}, strategy: StrategyReplace, logger: nullLogger()}
 
 	// plain in-mem cursor skips the tombstone
 	plain := map[string]string{}
