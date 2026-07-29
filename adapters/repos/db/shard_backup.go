@@ -67,11 +67,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
 			s.mayInitInactivityMonitoring()
 		}
-		// A successful halt is liveness. An overlapping consumer otherwise
-		// inherits the first consumer's deadline untouched while the seal steps
-		// it just ran spent wall-clock time against it, so the monitor can
-		// force-resume the moment the halt returns — and a force-resume zeroes
-		// the count for every holder, not just the one that timed out.
 		s.mayResetInactivityDeadline()
 	}()
 
