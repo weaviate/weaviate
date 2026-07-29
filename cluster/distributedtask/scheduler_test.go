@@ -954,6 +954,419 @@ func (p *blockingUnitAwareProvider) OnSwapRequested(_ context.Context, _ *Task, 
 
 func (p *blockingUnitAwareProvider) OnTaskCompleted(_ context.Context, _ *Task) error { return nil }
 
+// TestScheduler_Close_CancelsEveryTickPathRoundTrip covers the tick-path
+// call sites that the two tests above leave open: the cleaner, the
+// finalizer, both ack round-trips, and the two remaining
+// [UnitAwareProvider] callbacks. Each row wedges exactly one of them and
+// asserts the same two things: the wedged call sees ctx cancellation, and
+// Close returns afterwards.
+//
+// Each of these was a `context.Background()` call site before the audit in
+// weaviate/weaviate#11427; a regression to that would hang shutdown
+// silently, since a hung Close only shows up as a node that never
+// finishes SIGTERM.
+func TestScheduler_Close_CancelsEveryTickPathRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		// arrange drives the FSM into the state whose tick reaches the
+		// wedged call, wires the scheduler with the wedge in place, and
+		// starts the loop.
+		arrange func(e *closeStallEnv) *stallPoint
+	}{
+		{
+			name: "taskCleaner.CleanUpDistributedTask",
+			arrange: func(e *closeStallEnv) *stallPoint {
+				stall := newStallPoint()
+				e.addTaskWithFailedUnit("ttl-cleanup")
+				e.clock.Advance(e.ttl + time.Minute)
+				e.start(tickCollaborators{cleaner: &stallingCleaner{stall: stall}})
+				return stall
+			},
+		},
+		{
+			name: "taskFinalizer.MarkDistributedTaskFinalized",
+			arrange: func(e *closeStallEnv) *stallPoint {
+				stall := newStallPoint()
+				e.addTaskWithCompletedUnit("finalize", false)
+				e.start(tickCollaborators{finalizer: &stallingFinalizer{finalized: stall}})
+				return stall
+			},
+		},
+		{
+			name: "taskFinalizer.MarkDistributedTaskFailed",
+			arrange: func(e *closeStallEnv) *stallPoint {
+				stall := newStallPoint()
+				e.addTaskWithCompletedUnit("fail-finalize", false)
+				// A permanent OnTaskCompleted error is what routes the tick
+				// into the SWAPPING → FAILED write.
+				prov := e.unitAwareProvider(stallingUnitAwareProvider{
+					taskCompletedErr: fmt.Errorf("flip is unrecoverable: %w", ErrTaskCompletionPermanent),
+				})
+				e.start(tickCollaborators{
+					provider:  prov,
+					finalizer: &stallingFinalizer{failed: stall},
+				})
+				return stall
+			},
+		},
+		{
+			name: "ackRecorder.RecordDistributedTaskPreparationCompleteAck",
+			arrange: func(e *closeStallEnv) *stallPoint {
+				stall := newStallPoint()
+				e.addTaskWithCompletedUnit("prep-ack", true)
+				e.start(tickCollaborators{
+					provider: e.unitAwareProvider(stallingUnitAwareProvider{}),
+					ack:      &stallingAckRecorder{preparation: stall},
+				})
+				return stall
+			},
+		},
+		{
+			name: "ackRecorder.RecordDistributedTaskPostCompletionAck",
+			arrange: func(e *closeStallEnv) *stallPoint {
+				stall := newStallPoint()
+				e.addTaskWithCompletedUnit("post-ack", false)
+				e.start(tickCollaborators{
+					provider: e.unitAwareProvider(stallingUnitAwareProvider{}),
+					ack:      &stallingAckRecorder{postCompletion: stall},
+				})
+				return stall
+			},
+		},
+		{
+			name: "UnitAwareProvider.OnSwapRequested",
+			arrange: func(e *closeStallEnv) *stallPoint {
+				stall := newStallPoint()
+				e.addTaskWithCompletedUnit("swap-callback", true)
+				e.liftPreparationBarrier("swap-callback")
+				e.start(tickCollaborators{
+					provider: e.unitAwareProvider(stallingUnitAwareProvider{onSwapRequested: stall}),
+					ack:      &stallingAckRecorder{},
+				})
+				return stall
+			},
+		},
+		{
+			name: "UnitAwareProvider.OnTaskCompleted",
+			arrange: func(e *closeStallEnv) *stallPoint {
+				stall := newStallPoint()
+				e.addTaskWithCompletedUnit("task-callback", false)
+				// No ack recorder: Phase 2 is not gated on a cluster-wide
+				// ack, so OnTaskCompleted fires in the same tick as PHASE B.
+				e.start(tickCollaborators{
+					provider: e.unitAwareProvider(stallingUnitAwareProvider{onTaskCompleted: stall}),
+				})
+				return stall
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer leaktest.Check(t)()
+
+			e := newCloseStallEnv(t)
+			stall := tc.arrange(e)
+
+			var closeOnce sync.Once
+			closeScheduler := func() { closeOnce.Do(e.scheduler.Close) }
+			// Deferred in this order so the release fires FIRST: a
+			// regressed call site ignores ctx, and closeScheduler would
+			// then block until the wedge is released.
+			defer closeScheduler()
+			defer close(stall.release)
+
+			e.scheduler.Wake()
+
+			select {
+			case <-stall.entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("tick never reached the wedged call; the scenario no longer drives the code path it means to cover")
+			}
+
+			closed := make(chan struct{})
+			enterrors.GoWrapper(func() {
+				closeScheduler()
+				close(closed)
+			}, e.logger)
+
+			select {
+			case <-stall.ctxDone:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Scheduler.Close did not cancel the wedged call's ctx within 2s — a stalled RAFT round-trip would hold shutdown indefinitely")
+			}
+
+			select {
+			case <-closed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Scheduler.Close did not return after the wedged call unwound — barrier deadlock")
+			}
+		})
+	}
+}
+
+// stallPoint parks a tick inside one collaborator until its context is
+// cancelled (or the test releases it), and records both events so the
+// test can assert on them.
+type stallPoint struct {
+	entered chan struct{}
+	ctxDone chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newStallPoint() *stallPoint {
+	return &stallPoint{
+		entered: make(chan struct{}, 1),
+		ctxDone: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (s *stallPoint) block(ctx context.Context) error {
+	select {
+	case s.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		s.once.Do(func() { close(s.ctxDone) })
+		return ctx.Err()
+	}
+}
+
+type stallingCleaner struct{ stall *stallPoint }
+
+func (c *stallingCleaner) CleanUpDistributedTask(ctx context.Context, _, _ string, _ uint64) error {
+	return c.stall.block(ctx)
+}
+
+// stallingFinalizer wedges whichever finalize round-trip has a stall point
+// set; the other returns without touching the FSM.
+type stallingFinalizer struct {
+	finalized *stallPoint
+	failed    *stallPoint
+}
+
+func (f *stallingFinalizer) MarkDistributedTaskFinalized(ctx context.Context, _, _ string, _ uint64) error {
+	if f.finalized == nil {
+		return nil
+	}
+	return f.finalized.block(ctx)
+}
+
+func (f *stallingFinalizer) MarkDistributedTaskFailed(ctx context.Context, _, _ string, _ uint64, _ string) error {
+	if f.failed == nil {
+		return nil
+	}
+	return f.failed.block(ctx)
+}
+
+// stallingAckRecorder wedges whichever ack round-trip has a stall point
+// set; the other returns without touching the FSM.
+type stallingAckRecorder struct {
+	postCompletion *stallPoint
+	preparation    *stallPoint
+}
+
+func (r *stallingAckRecorder) RecordDistributedTaskPostCompletionAck(
+	ctx context.Context, _, _ string, _ uint64, _ string, _ bool, _ string,
+) error {
+	if r.postCompletion == nil {
+		return nil
+	}
+	return r.postCompletion.block(ctx)
+}
+
+func (r *stallingAckRecorder) RecordDistributedTaskPreparationCompleteAck(
+	ctx context.Context, _, _ string, _ uint64, _ string, _ bool, _ string,
+) error {
+	if r.preparation == nil {
+		return nil
+	}
+	return r.preparation.block(ctx)
+}
+
+// stallingUnitAwareProvider wedges whichever callback has a stall point
+// set; the others return immediately so the tick can reach the wedge.
+// OnGroupCompleted is never wedged here — TestScheduler_Close_WaitsForLoopExit_UnitAwareCallback
+// owns that site — so it returns immediately and lets the tick reach the
+// phases behind it.
+type stallingUnitAwareProvider struct {
+	*testTaskProvider
+	onSwapRequested *stallPoint
+	onTaskCompleted *stallPoint
+	// taskCompletedErr is what OnTaskCompleted returns once it is past its
+	// stall point — the SWAPPING-path error is what drives the scheduler on
+	// to MarkDistributedTaskFailed.
+	taskCompletedErr error
+}
+
+func (p *stallingUnitAwareProvider) OnGroupCompleted(_ context.Context, _ *Task, _ string, _ []string) error {
+	return nil
+}
+
+func (p *stallingUnitAwareProvider) OnSwapRequested(ctx context.Context, _ *Task, _ string, _ []string) error {
+	if p.onSwapRequested == nil {
+		return nil
+	}
+	return p.onSwapRequested.block(ctx)
+}
+
+func (p *stallingUnitAwareProvider) OnTaskCompleted(ctx context.Context, _ *Task) error {
+	if p.onTaskCompleted != nil {
+		if err := p.onTaskCompleted.block(ctx); err != nil {
+			return err
+		}
+	}
+	return p.taskCompletedErr
+}
+
+// tickCollaborators selects which of the scheduler's tick-path
+// collaborators a row overrides. Zero fields get pass-through defaults
+// that write straight to the shared Manager, except ack: a nil
+// AckRecorder is the scheduler's "no cluster-wide barrier" mode and some
+// rows want exactly that.
+type tickCollaborators struct {
+	provider  Provider
+	cleaner   TaskCleaner
+	finalizer TaskFinalizer
+	ack       PostCompletionAckRecorder
+}
+
+// closeStallEnv is a single-node scheduler over one in-memory Manager,
+// driven through the FSM by direct Manager calls so a row can reach any
+// tick phase without depending on tick ordering.
+type closeStallEnv struct {
+	t         *testing.T
+	clock     *clockwork.FakeClock
+	logger    logrus.FieldLogger
+	manager   *Manager
+	namespace string
+	node      string
+	ttl       time.Duration
+	scheduler *Scheduler
+}
+
+func newCloseStallEnv(t *testing.T) *closeStallEnv {
+	logger, _ := logrustest.NewNullLogger()
+	clock := clockwork.NewFakeClock()
+	ttl := 24 * time.Hour
+	return &closeStallEnv{
+		t:         t,
+		clock:     clock,
+		logger:    logger,
+		manager:   NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: ttl, Logger: logger}),
+		namespace: "tasks-namespace",
+		node:      "local-node",
+		ttl:       ttl,
+	}
+}
+
+func (e *closeStallEnv) unitAwareProvider(p stallingUnitAwareProvider) *stallingUnitAwareProvider {
+	p.testTaskProvider = newTestTaskProvider(e.t, nil)
+	return &p
+}
+
+func (e *closeStallEnv) start(c tickCollaborators) {
+	e.t.Helper()
+	if c.provider == nil {
+		c.provider = newTestTaskProvider(e.t, nil)
+	}
+	if c.cleaner == nil {
+		c.cleaner = &directCleaner{t: e.t, manager: e.manager}
+	}
+	if c.finalizer == nil {
+		c.finalizer = newDirectFinalizer(e.t, e.manager)
+	}
+	e.scheduler = NewScheduler(SchedulerParams{
+		CompletionRecorder: &fanoutRecorder{t: e.t, manager: e.manager},
+		TaskLister:         e.manager,
+		TaskCleaner:        c.cleaner,
+		TaskFinalizer:      c.finalizer,
+		AckRecorder:        c.ack,
+		Providers:          map[string]Provider{e.namespace: c.provider},
+		Clock:              e.clock,
+		Logger:             e.logger,
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          e.node,
+		CompletedTaskTTL:   e.ttl,
+		TickInterval:       30 * time.Second,
+	})
+	require.NoError(e.t, e.scheduler.Start(context.Background()))
+}
+
+func (e *closeStallEnv) addTask(taskID string, barrier bool) {
+	e.t.Helper()
+	require.NoError(e.t, e.manager.AddTask(toCmd(e.t, &cmd.AddDistributedTaskRequest{
+		Namespace:               e.namespace,
+		Id:                      taskID,
+		SubmittedAtUnixMillis:   e.clock.Now().UnixMilli(),
+		UnitIds:                 []string{"u-1"},
+		NeedsPreparationBarrier: barrier,
+	}), 1))
+	// Progress claims the unit for this node; without it the unit's
+	// NodeID stays empty and LocalGroupUnitIDs orphans it, so no
+	// per-group callback ever fires locally.
+	require.NoError(e.t, e.manager.UpdateUnitProgress(toCmd(e.t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+		Namespace:           e.namespace,
+		Id:                  taskID,
+		Version:             1,
+		NodeId:              e.node,
+		UnitId:              "u-1",
+		Progress:            0.1,
+		UpdatedAtUnixMillis: e.clock.Now().UnixMilli(),
+	})))
+}
+
+// addTaskWithCompletedUnit lands the task in PREPARING (barrier) or
+// SWAPPING (non-barrier).
+func (e *closeStallEnv) addTaskWithCompletedUnit(taskID string, barrier bool) {
+	e.t.Helper()
+	e.addTask(taskID, barrier)
+	require.NoError(e.t, e.manager.RecordUnitCompletion(toCmd(e.t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            e.namespace,
+		Id:                   taskID,
+		Version:              1,
+		NodeId:               e.node,
+		UnitId:               "u-1",
+		FinishedAtUnixMillis: e.clock.Now().UnixMilli(),
+	})))
+}
+
+// addTaskWithFailedUnit lands the task in FAILED with FinishedAt set, so
+// advancing the clock past the TTL makes it cleanable.
+func (e *closeStallEnv) addTaskWithFailedUnit(taskID string) {
+	e.t.Helper()
+	e.addTask(taskID, false)
+	require.NoError(e.t, e.manager.RecordUnitCompletion(toCmd(e.t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            e.namespace,
+		Id:                   taskID,
+		Version:              1,
+		NodeId:               e.node,
+		UnitId:               "u-1",
+		Error:                "unit failed",
+		FinishedAtUnixMillis: e.clock.Now().UnixMilli(),
+	})))
+}
+
+// liftPreparationBarrier records this node's prep ack straight on the
+// FSM, advancing a barrier task PREPARING → SWAPPING without needing a
+// tick to emit it.
+func (e *closeStallEnv) liftPreparationBarrier(taskID string) {
+	e.t.Helper()
+	require.NoError(e.t, e.manager.RecordPreparationCompleteAck(toCmd(e.t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace:         e.namespace,
+		Id:                taskID,
+		Version:           1,
+		NodeId:            e.node,
+		Success:           true,
+		AckedAtUnixMillis: e.clock.Now().UnixMilli(),
+	})))
+}
+
 type testTask struct {
 	*Task
 
