@@ -59,7 +59,7 @@ func newAutoRepairProviderCapturing(gate bool) (*ReindexProvider, *[]recordedRep
 }
 
 // TestDispatchAutoRepair_ChangeTokenizationDispatchesFilterableRepair is the
-// green-with assertion: a FAILED change-tokenization task auto-dispatches
+// green-path assertion: a FAILED change-tokenization task auto-dispatches
 // repair-filterable for the affected property (the #218 torn bucket). The
 // searchable side stays on the retained log guidance because the conflict rule
 // forbids a concurrent second repair on the same property — see

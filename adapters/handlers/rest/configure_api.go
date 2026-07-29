@@ -1181,9 +1181,10 @@ func initReindexAndDistributedTasks(
 				UnitToNode:    unitToNode,
 				UnitToShard:   unitToShard,
 			}
-			taskID := fmt.Sprintf("%s:%s:%s", collection, migrationType, shortRandomSuffix())
+			suffix := shortRandomSuffix()
+			taskID := fmt.Sprintf("%s:%s:%s", collection, migrationType, suffix)
 			if len(properties) > 0 {
-				taskID = fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], shortRandomSuffix())
+				taskID = fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], suffix)
 			}
 			// repair-* migrations are format-only (non-semantic): no PREP barrier.
 			return appState.ClusterService.AddDistributedTaskWithBarrier(
