@@ -3491,41 +3491,6 @@ func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
 	return nil
 }
 
-func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
-	className := i.Config.ClassName.String()
-	shardNames, err := i.schemaReader.Shards(className)
-	if err != nil {
-		return nil, err
-	}
-
-	shardsQueueSize := make(map[string]int64)
-	for _, shardName := range shardNames {
-		if tenant != "" && shardName != tenant {
-			continue
-		}
-		var size int64
-		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				return shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-					size += queue.Size()
-					return nil
-				})
-			},
-			func() error {
-				var err error
-				size, err = i.remote.GetShardQueueSize(ctx, shardName)
-				return err
-			})
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
-
-		shardsQueueSize[shardName] = size
-	}
-
-	return shardsQueueSize, nil
-}
-
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -3548,38 +3513,114 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return size, nil
 }
 
-func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
+// getShardsStatus reports, per shard, the status and vector-index queue size
+// aggregated over ALL replicas of that shard: a shard is only READY when every
+// replica is READY, and the queue size is the sum of every replica's queues.
+// Anything less lets clients that poll this endpoint (e.g. the python client's
+// wait_for_vector_indexing) observe a single drained replica and declare async
+// indexing finished while the remaining replicas — any of which can serve a
+// subsequent search — are still consuming their queues.
+func (i *Index) getShardsStatus(ctx context.Context, tenant string) (models.ShardStatusList, error) {
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return nil, err
 	}
 
-	shardsStatus := make(map[string]string)
+	localNode := i.getSchema.NodeName()
+	shardsStatus := make(models.ShardStatusList, 0, len(shardNames))
 
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
 		}
-		var status string
-		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				status = shard.GetStatus().String()
-				return nil
-			},
-			func() error {
-				var err error
-				status, err = i.remote.GetShardStatus(ctx, shardName)
-				return err
-			})
+		replicas, err := i.schemaReader.ShardReplicas(className, shardName)
 		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
+			return nil, errors.Wrapf(err, "shard %s: resolve replicas", shardName)
 		}
 
-		shardsStatus[shardName] = status
+		statuses := make([]string, 0, len(replicas))
+		var queueSize int64
+		for _, node := range replicas {
+			status, size, err := i.shardReplicaStatusAndQueueSize(ctx, tenant, shardName, node, localNode)
+			if err != nil {
+				return nil, errors.Wrapf(err, "shard %s: replica on node %s", shardName, node)
+			}
+			statuses = append(statuses, status)
+			queueSize += size
+		}
+
+		shardsStatus = append(shardsStatus, &models.ShardStatusGetResponse{
+			Name:            shardName,
+			Status:          aggregateShardStatuses(statuses),
+			VectorQueueSize: queueSize,
+		})
 	}
 
 	return shardsStatus, nil
+}
+
+func (i *Index) shardReplicaStatusAndQueueSize(ctx context.Context,
+	tenant, shardName, node, localNode string,
+) (status string, queueSize int64, err error) {
+	if node != localNode {
+		if status, err = i.remote.GetShardStatusFromNode(ctx, node, shardName); err != nil {
+			return "", 0, err
+		}
+		queueSize, err = i.remote.GetShardQueueSizeFromNode(ctx, node, shardName)
+		return status, queueSize, err
+	}
+
+	err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+		func(shard ShardLike) error {
+			status = shard.GetStatus().String()
+			return shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+				queueSize += queue.Size()
+				return nil
+			})
+		},
+		func() error {
+			// Sharding state lists this node as a replica but the shard is not
+			// directly reachable (e.g. still initializing); go through the
+			// cluster API like for any other node.
+			var err error
+			if status, err = i.remote.GetShardStatusFromNode(ctx, node, shardName); err != nil {
+				return err
+			}
+			queueSize, err = i.remote.GetShardQueueSizeFromNode(ctx, node, shardName)
+			return err
+		})
+	return status, queueSize, err
+}
+
+// shardStatusSeverity orders the non-READY statuses by how they should
+// dominate a multi-replica aggregate; INDEXING first, because pending queue
+// consumption is the transient state readiness pollers care about.
+var shardStatusSeverity = []storagestate.Status{
+	storagestate.StatusIndexing,
+	storagestate.StatusLoading,
+	storagestate.StatusLazyLoading,
+	storagestate.StatusShutdown,
+	storagestate.StatusReadOnly,
+}
+
+// aggregateShardStatuses reduces per-replica statuses to the least-ready one:
+// READY only when every replica reports READY.
+func aggregateShardStatuses(statuses []string) string {
+	for _, severe := range shardStatusSeverity {
+		if slices.Contains(statuses, severe.String()) {
+			return severe.String()
+		}
+	}
+	for _, status := range statuses {
+		if status != storagestate.StatusReady.String() {
+			return status
+		}
+	}
+	if len(statuses) == 0 {
+		return ""
+	}
+	return storagestate.StatusReady.String()
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {

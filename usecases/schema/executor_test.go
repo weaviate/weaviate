@@ -194,16 +194,18 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("GetShardsStatus", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]string{"A": "B"}
+		status := models.ShardStatusList{
+			{Name: "A", Status: "INDEXING", VectorQueueSize: 33},
+		}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, nil)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A", "")
+		resp, err := x.GetShardsStatus("A", "")
 		assert.Nil(t, err)
+		assert.Equal(t, status, resp)
 	})
 	t.Run("GetShardsStatusError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]string{"A": "B"}
-		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, ErrAny)
+		migrator.On("GetShardsStatus", Anything, "A", "").Return(models.ShardStatusList{}, ErrAny)
 		x := newMockExecutor(migrator, store)
 		_, err := x.GetShardsStatus("A", "")
 		assert.ErrorIs(t, err, ErrAny)

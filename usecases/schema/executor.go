@@ -364,21 +364,7 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 
 func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	ctx := context.Background()
-	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
-	if err != nil {
-		return nil, err
-	}
-
-	resp := models.ShardStatusList{}
-
-	for name, status := range shardsStatus {
-		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
-		})
-	}
-
-	return resp, nil
+	return e.migrator.GetShardsStatus(ctx, class, tenant)
 }
 
 func (e *executor) TriggerSchemaUpdateCallbacks() {
