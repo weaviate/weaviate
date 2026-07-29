@@ -21,8 +21,8 @@ import (
 )
 
 // BucketGeneration is the RAFT-replicated reindex-generation counter
-// (weaviate/weaviate#11689); a deep copy must preserve it or migrations
-// relying on the copy resolves the wrong LSM bucket.
+// (weaviate/weaviate#11689); a deep copy must preserve it, or migrations
+// relying on the copy resolve the wrong LSM bucket.
 func TestProp_PreservesBucketGeneration(t *testing.T) {
 	original := &models.Property{
 		Name:             "prop",
