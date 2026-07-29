@@ -431,25 +431,41 @@ func (g *cycleCallbackGroup) activate(callbackId uint32, callbackCustomId string
 // abort, then reports one of three outcomes: the callback is absent
 // (needWait=false, err=notFound); it is not running, so commit is applied and the
 // operation is complete (needWait=false, err=nil); or it is running, so the
-// lazily-created done channel is returned to wait on (needWait=true).
+// lazily-created done channel is returned to wait on (needWait=true). prevAbort
+// is the flag's value before this attempt set it, so commitIdle's timeout path
+// can undo a mark this operation introduced.
 func (g *cycleCallbackGroup) tryCommitIdle(callbackId uint32, commit func(*cycleCallbackMeta), notFound error,
-) (done chan struct{}, needWait bool, err error) {
+) (done chan struct{}, prevAbort bool, needWait bool, err error) {
 	g.Lock()
 	defer g.Unlock()
 
 	meta, ok := g.metas[callbackId]
 	if !ok {
-		return nil, false, notFound
+		return nil, false, false, notFound
 	}
+	prevAbort = meta.abort
 	meta.abort = true
 	if !meta.running {
 		commit(meta)
-		return nil, false, nil
+		return nil, prevAbort, false, nil
 	}
 	if meta.done == nil {
 		meta.done = make(chan struct{})
 	}
-	return meta.done, true, nil
+	return meta.done, prevAbort, true, nil
+}
+
+// rollbackAbort clears the abort flag after a timed-out deactivate/unregister.
+// It re-checks the callback still exists under the lock; clearing a flag a
+// racing deactivate/unregister set independently is accepted — that waiter
+// merely loses cooperative abort and completes when the run finishes naturally.
+func (g *cycleCallbackGroup) rollbackAbort(callbackId uint32) {
+	g.Lock()
+	defer g.Unlock()
+
+	if meta, ok := g.metas[callbackId]; ok {
+		meta.abort = false
+	}
 }
 
 // commitIdle drives the try/wait/re-check protocol shared by deactivate and
@@ -458,7 +474,10 @@ func (g *cycleCallbackGroup) tryCommitIdle(callbackId uint32, commit func(*cycle
 // retries tryCommitIdle after each finished run; commit is applied only once
 // tryCommitIdle observes the callback not running. A ctx deadline hit while
 // waiting returns ctx.Err(), but an already-finished run takes priority so a
-// completed operation is never reported as a timeout. Every result passes through
+// completed operation is never reported as a timeout. On timeout the abort mark
+// this operation set is rolled back, so a failed operation leaves the callback
+// fully operational; a mark that predates the operation (a concurrent
+// deactivate/unregister owns it) is left in place. Every result passes through
 // wrap (which maps nil to nil).
 func (g *cycleCallbackGroup) commitIdle(ctx context.Context, callbackId uint32,
 	commit func(*cycleCallbackMeta), notFound error, wrap func(error) error,
@@ -467,8 +486,10 @@ func (g *cycleCallbackGroup) commitIdle(ctx context.Context, callbackId uint32,
 		return wrap(ctx.Err())
 	}
 
+	// Only the first attempt's prevAbort reflects the state before this
+	// operation — retries observe the mark the first attempt set itself.
+	done, prevAbort, needWait, err := g.tryCommitIdle(callbackId, commit, notFound)
 	for {
-		done, needWait, err := g.tryCommitIdle(callbackId, commit, notFound)
 		if !needWait {
 			return wrap(err)
 		}
@@ -481,12 +502,17 @@ func (g *cycleCallbackGroup) commitIdle(ctx context.Context, callbackId uint32,
 			case <-done:
 				// re-check under the lock on the next iteration
 			default:
-				// Timeout: leave the callback in place (abort stays set). The running
-				// callback finishes eventually and endRun reschedules it; the caller
-				// can retry, and Activate resets abort.
+				// Timeout with the callback still running: the operation failed, and
+				// callers treat the error as "nothing changed" — they never Activate
+				// afterwards, so a lingering abort would silently short-circuit every
+				// subsequent run. Undo the mark unless it predates this operation.
+				if !prevAbort {
+					g.rollbackAbort(callbackId)
+				}
 				return wrap(ctx.Err())
 			}
 		}
+		done, _, needWait, err = g.tryCommitIdle(callbackId, commit, notFound)
 	}
 }
 
