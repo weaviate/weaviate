@@ -83,6 +83,22 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	defer h.compressActionLock.RUnlock()
 
 	vector = h.normalizeVec(vector)
+
+	// BQ's compressed byte-length only depends on the number of 64-bit blocks
+	// a vector packs into, so an under-dimensioned query that lands in the
+	// same block count as the index dimension produces a validly-shaped (but
+	// meaningless) compressed code instead of erroring during distance
+	// computation, unlike PQ/RQ/SQ which carry the expected dimension on
+	// their quantizer and guard against this in NewDistancer. BQ's quantizer
+	// is stateless and constructed before the index dimension is known, so we
+	// guard here instead, using the dimension established by the first
+	// inserted vector.
+	if h.bqConfig.Enabled {
+		if dims := int(h.dims.Load()); dims != 0 && dims != len(vector) {
+			return nil, nil, errors.Wrapf(distancer.ErrVectorLength, "%d vs %d", len(vector), dims)
+		}
+	}
+
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
