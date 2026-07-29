@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -93,7 +94,8 @@ func Test_Filters_String(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -371,7 +373,8 @@ func Test_Filters_Int(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -1154,7 +1157,8 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string

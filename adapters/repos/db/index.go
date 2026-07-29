@@ -1157,11 +1157,12 @@ type IndexConfig struct {
 	VisitedListPoolMaxSize                       int
 	BM25FilterTombMergeGateRatio                 *configRuntime.DynamicValue[float64]
 
-	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
-	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]
-	InvertedSorterDisabled     *configRuntime.DynamicValue[bool]
-	LazyPropertyLengthsEnabled *configRuntime.DynamicValue[bool]
-	MaintenanceModeEnabled     func() bool
+	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	QueryBatchedContainsEnabled *configRuntime.DynamicValue[bool]
+	LazyPropertyLengthsEnabled  *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled      func() bool
 
 	HFreshEnabled bool
 

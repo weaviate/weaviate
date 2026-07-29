@@ -303,6 +303,13 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// QueryBatchedContainsEnabled turns on the batched resolution of flat
+	// ContainsAny/ContainsAll/ContainsNone filters (many keys read under one
+	// consistent view, folded without per-value goroutines). Off by default;
+	// when off, every Contains filter takes the desugared per-value path. The
+	// batched path is behaviorally equivalent (pinned by a differential test).
+	QueryBatchedContainsEnabled *runtime.DynamicValue[bool] `json:"query_batched_contains_enabled" yaml:"query_batched_contains_enabled"`
+
 	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
 	// length map until first use and frees it after a compaction drops the
 	// segment, trading a one-time load on the first cold BM25 query for memory.
