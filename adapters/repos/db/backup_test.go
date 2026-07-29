@@ -290,7 +290,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	}
 
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, idx.newReindexGate())
 	require.NoError(t, err)
 
 	// Helper to get inode number.
@@ -451,14 +451,14 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, idx.newReindexGate())
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
 
 	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil)
+		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil, idx.newReindexGate())
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
@@ -607,7 +607,7 @@ func TestBackupShardWithoutHardlinks_InactiveShardSkipsActivePath(t *testing.T) 
 			createColdShardFiles(t, rootDir, className, shardName)
 			assertCase := tc.setup(idx)
 
-			sd, err := idx.backupShardWithoutHardlinks(ctx, shardName, nil)
+			sd, err := idx.backupShardWithoutHardlinks(ctx, shardName, nil, idx.newReindexGate())
 			require.NoError(t, err)
 			require.NotNil(t, sd)
 			assert.Equal(t, shardName, sd.Name)
@@ -882,7 +882,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), idx.newReindexGate())
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -981,7 +981,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}}
 			}
 
-			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir())
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), idx.newReindexGate())
 			if tt.expectedErr != "" {
 				require.ErrorContains(t, err, tt.expectedErr)
 			} else {
@@ -1014,7 +1014,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), idx.newReindexGate())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 

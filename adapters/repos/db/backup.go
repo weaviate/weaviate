@@ -287,9 +287,14 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	mu := sync.Mutex{}
 	shards := map[string]*backup.ShardDescriptor{}
 
+	// Built once above the loop and shared by every shard: the gate's
+	// RAFT query is cluster-wide, so resolving it per shard multiplies
+	// it by shard count.
+	gate := i.newReindexGate()
+
 	for _, name := range shardNames {
 		eg.Go(func() error {
-			sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot)
+			sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot, gate)
 			if err != nil {
 				if errors.Is(err, errShardNoLocalData) {
 					i.logger.WithField("shard", name).Debug("skipping shard with no local data")
@@ -330,7 +335,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 // preventShutdown refcount) so concurrent queries — which RLock the same per-shard
 // key in getOptInitLocalShard — don't block for the snapshot duration. See
 // weaviate/0-weaviate-issues#234.
-func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string, gate *reindexGate) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	// Deferred before backupLock so it runs after the unlock: dropping the last
@@ -356,7 +361,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 
 	if shard == nil {
 		// Not in shardMap => back up from disk if directory exists.
-		if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot); err != nil {
+		if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot, gate); err != nil {
 			return nil, err
 		}
 		return &sd, nil
@@ -371,7 +376,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		if !lazyShard.loaded {
 			// Shard is in the map but not loaded; read from disk.
 			defer releaseBlock()
-			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot); err != nil {
+			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot, gate); err != nil {
 				return nil, err
 			}
 			return &sd, nil
@@ -410,7 +415,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 
 // backupInactiveShardWithHardlinks backs up an inactive (unloaded) shard by reading
 // its files from disk and hardlinking them into the staging directory.
-func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, stagingRoot string) error {
+func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, stagingRoot string, gate *reindexGate) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
 		if os.IsNotExist(err) {
@@ -421,7 +426,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlight(name, i.newReindexGate()); err != nil {
+	if err := i.refuseIfReindexInFlight(name, gate); err != nil {
 		return err
 	}
 
@@ -480,9 +485,14 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
+	// Built once above the loop and shared by every shard: the gate's
+	// RAFT query is cluster-wide, so resolving it per shard multiplies
+	// it by shard count.
+	gate := i.newReindexGate()
+
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
-		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
+		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs, gate)
 		if err != nil {
 			if errors.Is(err, errShardNoLocalData) {
 				i.logger.WithField("shard", name).Debug("skipping shard with no local data")
@@ -510,7 +520,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 //
 // For inactive shards, backupProtectedShards is set and backupLock.Lock is held
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
-func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, gate *reindexGate) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
@@ -540,7 +550,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
 		i.backupProtectedShards.Store(name, struct{}{})
 		unlockOnReturn = false
-		if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr); err != nil {
+		if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr, gate); err != nil {
 			return nil, err
 		}
 		return &sd, nil
@@ -555,7 +565,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 			defer releaseBlock()
 			i.backupProtectedShards.Store(name, struct{}{})
 			unlockOnReturn = false
-			if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr); err != nil {
+			if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr, gate); err != nil {
 				return nil, err
 			}
 			return &sd, nil
@@ -587,7 +597,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 // backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading
 // its files directly from disk.
-func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
+func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, gate *reindexGate) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
 		if os.IsNotExist(err) {
@@ -598,7 +608,7 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlight(name, i.newReindexGate()); err != nil {
+	if err := i.refuseIfReindexInFlight(name, gate); err != nil {
 		return err
 	}
 

@@ -29,12 +29,16 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate resolves the backup-gate lookups once per precheck, lazily,
-// and reuses them for every shard. Building the activity lookup costs a
-// cluster-wide RAFT query; resolving it per shard instead of once turned
-// an ordinary precheck into thousands of queries on a multi-tenant node.
-// Lazily, because Backupable runs on every node and one holding none of
-// the requested classes' shards must issue no query at all.
+// reindexGate resolves the backup-gate lookups once per shard-set pass,
+// lazily, and reuses them for every shard in it. Building the activity
+// lookup costs a cluster-wide RAFT query; resolving it per shard instead
+// of once turned an ordinary backup into thousands of queries on a
+// multi-tenant node. Lazily, because a node holding none of the requested
+// classes' shards must issue no query at all.
+//
+// Safe to share across the goroutines of a concurrent shard loop: resolve
+// runs under sync.Once, which orders the write of the lookups before every
+// read of them.
 type reindexGate struct {
 	activityBuilder ShardReindexActivityLookupBuilder
 	cleanupBuilder  CleanupInProgressLookupBuilder
@@ -57,7 +61,7 @@ func (db *DB) newReindexGate() *reindexGate {
 	}
 }
 
-// newReindexGate builds the gate for single-shard backup paths. An Index
+// newReindexGate builds the gate for one Index's backup pass. An Index
 // without its DB back-reference yields an empty gate — safe, since the
 // nil-db branch of [Index.refuseIfReindexInFlight] refuses before use.
 func (i *Index) newReindexGate() *reindexGate {
