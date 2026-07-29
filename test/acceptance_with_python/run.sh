@@ -37,8 +37,16 @@ pip install -r requirements.txt --quiet
 #   pytest test/acceptance_with_python/test_readonly_recovery.py
 MODE="${1:-default}"
 
-# Dumps every container's log tail (including exited ones) after a test
-# failure, so a crash is diagnosable from CI output without a local repro.
+# Dumps the log tail of every container still present after a test failure,
+# including exited ones, so a crash is diagnosable from CI output without a
+# local repro.
+#
+# Containers that testcontainers already terminated AND removed during test
+# cleanup are gone by the time this runs and cannot be recovered here. A node
+# that died and was reaped therefore leaves no logs, so an incomplete dump is
+# not evidence that nothing crashed — cross-check against the docker ps -a
+# listing below.
+#
 # Local copy of dump_container_logs from test/run.sh — that script cannot be
 # sourced because it executes main on load.
 dump_container_logs() {
