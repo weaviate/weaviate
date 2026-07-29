@@ -64,17 +64,79 @@ func Class(c *models.Class) *models.Class {
 	}
 }
 
+// Prop copies every exported field of models.Property. Keep this exhaustive:
+// a struct-literal copy that misses a field silently drops it on every
+// caller, and that class of bug (weaviate/weaviate#11689) is only caught by
+// TestProp_CopiesAllExportedFields, not by the compiler.
 func Prop(p *models.Property) *models.Property {
-	return &models.Property{
-		DataType:          p.DataType,
-		Description:       p.Description,
-		ModuleConfig:      p.ModuleConfig,
-		Name:              p.Name,
-		Tokenization:      p.Tokenization,
-		IndexFilterable:   ptrBoolCopy(p.IndexFilterable),
-		IndexSearchable:   ptrBoolCopy(p.IndexSearchable),
-		IndexRangeFilters: ptrBoolCopy(p.IndexRangeFilters),
+	if p == nil {
+		return nil
 	}
+
+	return &models.Property{
+		BucketGeneration:            p.BucketGeneration,
+		DataType:                    p.DataType,
+		Description:                 p.Description,
+		DisableDuplicatedReferences: ptrBoolCopy(p.DisableDuplicatedReferences),
+		IndexFilterable:             ptrBoolCopy(p.IndexFilterable),
+		IndexInverted:               ptrBoolCopy(p.IndexInverted),
+		IndexRangeFilters:           ptrBoolCopy(p.IndexRangeFilters),
+		IndexSearchable:             ptrBoolCopy(p.IndexSearchable),
+		ModuleConfig:                p.ModuleConfig,
+		Name:                        p.Name,
+		NestedProperties:            nestedPropSlice(p.NestedProperties),
+		TextAnalyzer:                TextAnalyzer(p.TextAnalyzer),
+		Tokenization:                p.Tokenization,
+	}
+}
+
+// NestedProp copies every exported field of models.NestedProperty, recursing
+// into its own NestedProperties so an object/object[] property's whole
+// nested schema is deep-copied rather than sharing slice/pointer elements
+// with the source.
+func NestedProp(n *models.NestedProperty) *models.NestedProperty {
+	if n == nil {
+		return nil
+	}
+
+	return &models.NestedProperty{
+		DataType:          n.DataType,
+		Description:       n.Description,
+		IndexFilterable:   ptrBoolCopy(n.IndexFilterable),
+		IndexRangeFilters: ptrBoolCopy(n.IndexRangeFilters),
+		IndexSearchable:   ptrBoolCopy(n.IndexSearchable),
+		Name:              n.Name,
+		NestedProperties:  nestedPropSlice(n.NestedProperties),
+		TextAnalyzer:      TextAnalyzer(n.TextAnalyzer),
+		Tokenization:      n.Tokenization,
+	}
+}
+
+// nestedPropSlice rebuilds the slice itself (not just its elements) so the
+// copy doesn't share a backing array with the source: appending to one
+// must never resize/alias the other.
+func nestedPropSlice(nps []*models.NestedProperty) []*models.NestedProperty {
+	if nps == nil {
+		return nil
+	}
+
+	cp := make([]*models.NestedProperty, len(nps))
+	for i, np := range nps {
+		cp[i] = NestedProp(np)
+	}
+	return cp
+}
+
+// TextAnalyzer copies a *models.TextAnalyzerConfig. Its fields are value
+// types (bool/[]string/string), so a single dereference-copy is enough to
+// stop the pointer itself from being shared; this mirrors how
+// InvertedIndexConfig below rebuilds its nested configs.
+func TextAnalyzer(t *models.TextAnalyzerConfig) *models.TextAnalyzerConfig {
+	if t == nil {
+		return nil
+	}
+	cp := *t
+	return &cp
 }
 
 func ptrBoolCopy(ptrBool *bool) *bool {

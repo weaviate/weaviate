@@ -1017,13 +1017,49 @@ function run_acceptance_reindex_backup() {
     test/acceptance/reindex_backup
 }
 
+# go_client_packages prints every package of the go client acceptance module.
+#
+# It fails loudly when `go list` cannot resolve the module, for example when
+# test/acceptance_with_go_client/go.mod has drifted out of sync with the root
+# module ("go: updates to go.mod needed"). Callers used to inline
+# `for pkg in $(go list ./... | grep ...)`, so a failing `go list` produced an
+# empty list, the loop body ran zero times, and the job exited 0 while running
+# no tests at all.
+function go_client_packages() {
+  local pkgs
+  if ! pkgs=$(cd 'test/acceptance_with_go_client' && go list ./... 2>&1); then
+    {
+      echo "go list failed in test/acceptance_with_go_client."
+      echo "Its go.mod is likely out of sync with the root module; run 'make sync-deps'."
+      echo "$pkgs"
+    } >&2
+    return 1
+  fi
+  printf '%s\n' "$pkgs"
+}
+
+# go_client_packages_matching prints the go client packages matching a grep
+# pattern, and fails when the pattern matches nothing. An empty match means the
+# job would run no tests, which must never be reported as success.
+function go_client_packages_matching() {
+  local pattern="$1"
+  local pkgs matched
+  pkgs=$(go_client_packages) || return 1
+  matched=$(printf '%s\n' "$pkgs" | grep "${pattern}" || true)
+  if [[ -z $matched ]]; then
+    echo "No go client package matches '${pattern}': refusing to report success without running anything." >&2
+    return 1
+  fi
+  printf '%s\n' "$matched"
+}
+
 # get_fast_go_client_packages returns a list of fast go client test packages.
 # It excludes named_vectors_tests but includes all other go client acceptance tests.
 # The returned paths are normalized package paths.
 function get_fast_go_client_packages() {
-  cd 'test/acceptance_with_go_client'
-  go list ./... | grep -v 'acceptance_tests_with_client/named_vectors_tests' | sed 's|.*/acceptance_tests_with_client/|acceptance_tests_with_client/|'
-  cd -
+  local pkgs
+  pkgs=$(go_client_packages) || return 1
+  printf '%s\n' "$pkgs" | grep -v 'acceptance_tests_with_client/named_vectors_tests' | sed 's|.*/acceptance_tests_with_client/|acceptance_tests_with_client/|'
 }
 
 # get_go_client_group returns the package patterns for the specified group number.
@@ -1044,15 +1080,14 @@ function get_other_go_client_packages() {
   local -a ASSIGNED=()
   read -ra ASSIGNED <<< "$(get_go_client_group 1) $(get_go_client_group 2)"
 
-  # All fast go client test packages, excluding those in groups 1 and 2
-  local -a other_fast_packages=()
-  while IFS= read -r pkg; do
-    [[ -n $pkg ]] && other_fast_packages+=("$pkg")
-  done < <(
-    get_fast_go_client_packages | grep -F -x -v -f <(printf '%s\n' "${ASSIGNED[@]}")
-  )
+  # Resolve the full list first so a broken module fails here instead of looking
+  # like "there is nothing in group 3".
+  local all_fast
+  all_fast=$(get_fast_go_client_packages) || return 1
 
-  printf '%s\n' "${other_fast_packages[@]}"
+  # All fast go client test packages, excluding those in groups 1 and 2. grep
+  # exits 1 when everything is assigned, which is a legitimate empty result.
+  printf '%s\n' "$all_fast" | grep -F -x -v -f <(printf '%s\n' "${ASSIGNED[@]}") || true
 }
 
 # run_go_client_group runs a group of go client test packages with appropriate test flags.
@@ -1067,21 +1102,33 @@ function run_go_client_group() {
 
   echo "Go Client Group $group_name packages: ${package_paths[*]}"
 
-  # tests with go client are in a separate package with its own dependencies to isolate them
-  cd 'test/acceptance_with_go_client'
+  # Resolve the package list up front so an unresolvable module fails the group
+  # instead of quietly running nothing.
+  local all_fast
+  all_fast=$(get_fast_go_client_packages) || return 1
 
   local testFailed=0
   for pattern in "${package_paths[@]}"; do
-    for pkg in $(go list ./... | grep -v 'acceptance_tests_with_client/named_vectors_tests' | grep "${pattern}$"); do
+    local -a matched=()
+    while IFS= read -r pkg; do
+      [[ -n $pkg ]] && matched+=("$pkg")
+    done < <(printf '%s\n' "$all_fast" | grep "${pattern}$" || true)
+
+    if [[ ${#matched[@]} -eq 0 ]]; then
+      echo "No go client package matches '${pattern}'" >&2
+      testFailed=1
+      continue
+    fi
+
+    for pkg in "${matched[@]}"; do
       echo_green "Running $pkg"
-      if ! go test -count 1 -race "$pkg"; then
+      # tests with go client are in a separate module with its own dependencies to isolate them
+      if ! (cd 'test/acceptance_with_go_client' && go test -count 1 -race "$pkg"); then
         echo "Test for $pkg failed" >&2
         testFailed=1
       fi
     done
   done
-
-  cd -
 
   [[ $testFailed -eq 1 ]] && return 1
   return 0
@@ -1112,10 +1159,13 @@ function run_acceptance_go_client_only_fast_group() {
     3)
       echo_green "acceptance-go-client-only-fast — group 3/3 (others from fast set)"
 
+      local others
+      others=$(get_other_go_client_packages) || return 1
+
       local -a other_fast_packages=()
       while IFS= read -r pkg; do
         [[ -n $pkg ]] && other_fast_packages+=("$pkg")
-      done < <(get_other_go_client_packages)
+      done <<< "$others"
 
       [[ ${#other_fast_packages[@]} -eq 0 ]] && { echo "Nothing to run for group 3."; return 0; }
 
@@ -1127,28 +1177,28 @@ function run_acceptance_go_client_only_fast_group() {
 
 function run_acceptance_go_client_named_vectors_single_node() {
   build_weaviate_test_image
-    # tests with go client are in a separate package with its own dependencies to isolate them
-    cd 'test/acceptance_with_go_client'
-    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
-      if ! go test -timeout=15m -count 1 -race "$pkg"; then
-        echo "Test for $pkg failed" >&2
-        return 1
-      fi
-    done
-    cd -
+  local pkgs
+  pkgs=$(go_client_packages_matching 'acceptance_tests_with_client/named_vectors_tests/singlenode') || return 1
+  for pkg in $pkgs; do
+    # tests with go client are in a separate module with its own dependencies to isolate them
+    if ! (cd 'test/acceptance_with_go_client' && go test -timeout=15m -count 1 -race "$pkg"); then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
 }
 
 function run_acceptance_go_client_named_vectors_cluster() {
   build_weaviate_test_image
-    # tests with go client are in a separate package with its own dependencies to isolate them
-    cd 'test/acceptance_with_go_client'
-    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
-      if ! go test -timeout=15m -count 1 -race "$pkg"; then
-        echo "Test for $pkg failed" >&2
-        return 1
-      fi
-    done
-    cd -
+  local pkgs
+  pkgs=$(go_client_packages_matching 'acceptance_tests_with_client/named_vectors_tests/cluster') || return 1
+  for pkg in $pkgs; do
+    # tests with go client are in a separate module with its own dependencies to isolate them
+    if ! (cd 'test/acceptance_with_go_client' && go test -timeout=15m -count 1 -race "$pkg"); then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
 }
 
 function run_acceptance_graphql_tests() {
