@@ -128,23 +128,25 @@ func (s *objectStore) meta(ctx context.Context, key, overrideBucket, overridePat
 	return nil
 }
 
+// hasMeta reports whether a parseable metadata file exists at key.
+func (s *objectStore) hasMeta(ctx context.Context, key, overrideBucket, overridePath string) bool {
+	var desc backup.BackupDescriptor
+	return s.meta(ctx, key, overrideBucket, overridePath, &desc) == nil
+}
+
 type nodeStore struct {
 	objectStore
 }
 
-// Meta gets meta data using standard path or deprecated old path
-//
-// adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
-func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+// Meta gets the node's metadata. A backup carrying metadata only at the top-level base path
+// is refused as errLegacySingleNode.
+func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""} // for backward compatibility
-		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
-			if adjustBasePath {
-				s.objectStore.backupId = backupID
-			}
-			return &result, nil
+		base := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""}
+		if base.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+			return &result, errLegacySingleNode
 		}
 	}
 
@@ -178,15 +180,14 @@ func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.
 	return s.putMeta(ctx, filename, overrideBucket, overridePath, desc)
 }
 
-// Meta gets coordinator's global metadata from object store
+// Meta gets coordinator's global metadata from object store. A backup carrying only the
+// top-level per-node metadata is refused as errLegacySingleNode.
 func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overridePath string) (*backup.DistributedBackupDescriptor, error) {
 	var result backup.DistributedBackupDescriptor
 	err := s.meta(ctx, filename, overrideBucket, overridePath, &result)
-	if err != nil && filename == GlobalBackupFile {
-		var oldBackup backup.BackupDescriptor
-		if err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &oldBackup); err == nil {
-			return oldBackup.ToDistributed(), nil
-		}
+	if err != nil && filename == GlobalBackupFile &&
+		s.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+		return &result, errLegacySingleNode
 	}
 	return &result, err
 }
@@ -536,11 +537,11 @@ func (u *uploader) compress(ctx context.Context,
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 
-	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
-	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
-	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
-	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
-	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
+	// bigFilesThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFilesThreshold.
+	bigFilesThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFilesThreshold)
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFilesThreshold)
+	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}
@@ -634,7 +635,7 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 }
 
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
-// FileSizes map populated, and Top100Size calculated (size of 100th biggest file, minimum 1MB).
+// FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
 // Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
 func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
@@ -663,17 +664,26 @@ func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath stri
 	filesCopy := make([]string, len(files))
 	copy(filesCopy, files)
 
+	// A config not built by FromEnv leaves this nil, so Get yields 0.
+	maxIndividualFiles := u.cfg.MaxIndividualFiles.Get()
+	if maxIndividualFiles <= 0 {
+		maxIndividualFiles = config.DefaultBackupMaxIndividualFiles
+	}
+
 	return &backup.FileList{
-		Files:      filesCopy,
-		FileSizes:  fileSizes,
-		Top100Size: calculateTop100Size(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped, u.cfg.MinChunkSize),
+		Files:     filesCopy,
+		FileSizes: fileSizes,
+		BigFilesThreshold: calculateBigFilesThreshold(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped,
+			maxIndividualFiles, u.cfg.MinChunkSize),
 	}, nil
 }
 
-// calculateTop100Size returns the size of the 100th biggest file (or smallest if fewer than 100),
-// with a minimum of minSize. Uses a min-heap of size 100 for O(n) time and O(1) space complexity.
-func calculateTop100Size(fileSizes map[string]int64, numSkippedFiles int, minSize int64) int64 {
-	k := max(100-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
+// calculateBigFilesThreshold returns the size of the k-th biggest file, clamped to minSize,
+// where k is maxIndividualFiles reduced by numSkippedFiles and at least 1. Returns the
+// smallest file's size if there are fewer than k files.
+// Uses a min-heap for O(n) time and O(min(k, n)) space.
+func calculateBigFilesThreshold(fileSizes map[string]int64, numSkippedFiles, maxIndividualFiles int, minSize int64) int64 {
+	k := max(maxIndividualFiles-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
 
 	if len(fileSizes) == 0 {
 		return minSize
@@ -724,14 +734,12 @@ type fileWriter struct {
 	tempDir    string
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
-	compressed bool
 	GoPoolSize int
-	migrator   func(classPath string) error
 	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	compressed bool, logger logrus.FieldLogger,
+	logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -740,7 +748,6 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		destDir:    destDir,
 		tempDir:    path.Join(destDir, TempDirectory),
 		movedFiles: make([]string, 0, 64),
-		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
 		logger:     logger,
 	}
@@ -751,8 +758,6 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	return fw
 }
 
-func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
-
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
@@ -762,12 +767,6 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 
 	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
-		}
 	}
 
 	return nil
@@ -786,22 +785,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// no compression processed as before
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
-	if !fw.compressed {
-		eg.SetLimit(2 * numCPU())
-		for _, shard := range desc.Shards {
-			// Check for cancellation before processing each shard
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
-		}
-		return eg.Wait()
-	}
-
-	// source files are compressed
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
 		// Check for cancellation before processing each chunk
@@ -835,36 +819,6 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		}
 	}
 	return eg.Wait()
-}
-
-func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
-	for _, key := range sd.Files {
-		// Check for cancellation before processing each file
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		destPath := path.Join(classTempDir, key)
-		destDir := path.Dir(destPath)
-		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
-			return fmt.Errorf("create folder %s: %w", destDir, err)
-		}
-		if err := fw.backend.WriteToFile(ctx, key, destPath, overrideBucket, overridePath); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
-		}
-	}
-	destPath := path.Join(classTempDir, sd.DocIDCounterPath)
-	if err := os.WriteFile(destPath, sd.DocIDCounter, os.ModePerm); err != nil {
-		return fmt.Errorf("write counter file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.PropLengthTrackerPath)
-	if err := os.WriteFile(destPath, sd.PropLengthTracker, os.ModePerm); err != nil {
-		return fmt.Errorf("write prop file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.ShardVersionPath)
-	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
-		return fmt.Errorf("write version file %s: %w", destPath, err)
-	}
-	return nil
 }
 
 // readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.

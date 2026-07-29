@@ -31,19 +31,20 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/config"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 100,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
+			sm.EXPECT().GetSchemaSkipAuth().Return(
 				schema.Schema{
 					Objects: &models.Schema{Classes: []*models.Class{
 						{
@@ -151,14 +152,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
+			sm.EXPECT().GetSchemaSkipAuth().Return(
 				schema.Schema{
 					Objects: &models.Schema{Classes: []*models.Class{
 						{
@@ -232,7 +233,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
+			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -268,14 +270,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on update with no client usage", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter(t)
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
+			sm.EXPECT().GetSchemaSkipAuth().Return(
 				schema.Schema{
 					Objects: &models.Schema{Classes: []*models.Class{}},
 				})
@@ -289,7 +291,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 	t.Run("failure path", func(t *testing.T) {
 		t.Run("fail to get node status", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter(t)
+			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(nil)
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
@@ -298,7 +301,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("fail to get node status stats", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter(t)
+			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(&models.NodeStatus{})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
@@ -329,7 +333,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 		withConsumerURL(consumerURL),
 		withPushInterval(100 * time.Millisecond),
 	}
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -338,7 +342,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 			},
 		})
 
-	sm.On("GetSchemaSkipAuth").Return(
+	sm.EXPECT().GetSchemaSkipAuth().Return(
 		schema.Schema{
 			Objects: &models.Schema{Classes: []*models.Class{
 				{
@@ -438,14 +442,14 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 
 func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	t.Run("on init with cloud info present", func(t *testing.T) {
-		tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
 					ObjectCount: 100,
 				},
 			})
-		sm.On("GetSchemaSkipAuth").Return(
+		sm.EXPECT().GetSchemaSkipAuth().Return(
 			schema.Schema{
 				Objects: &models.Schema{Classes: []*models.Class{
 					{
@@ -478,7 +482,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	})
 
 	t.Run("on update with only cloud provider present", func(t *testing.T) {
-		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
+		sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -503,7 +508,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	})
 
 	t.Run("on terminate with empty cloud info", func(t *testing.T) {
-		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
+		sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -530,7 +536,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 	server := httptest.NewServer(&gcpTestConsumer{t})
 	defer server.Close()
-	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newGCPCloudInfo(server.URL))
+	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newGCPCloudInfo(server.URL))
+	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -557,7 +564,8 @@ func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 	server := httptest.NewServer(&awsTestConsumer{t})
 	defer server.Close()
-	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newAWSCloudInfo(server.URL))
+	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newAWSCloudInfo(server.URL))
+	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -596,33 +604,39 @@ func withPushInterval(interval time.Duration) telemetryOpt {
 	}
 }
 
-func newTestTelemeter(opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+func newTestTelemeter(t *testing.T, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter,
 ) {
 	sg := &fakeNodesStatusGetter{}
-	sm := &fakeSchemaManager{}
+	sm := schemaUC.NewMockSchemaGetter(t)
+	// Mirror the previous hand-written fake's default: a single node unless a
+	// test overrides it, so nodeCount assertions stay at 1 by default.
+	sm.EXPECT().Nodes().Return([]string{"node1"}).Maybe()
 	logger, _ := test.NewNullLogger()
-	// Pass empty url/duration to use defaults
-	tel := New(sg, sm, logger, "", 0, false)
+	// stubClusterID returns a fixed id so payloads carry clusterId in tests.
+	stubClusterID := func() string {
+		return "00000000-0000-7000-0000-000000000001"
+	}
+	tel := New(sg, sm, logger, Config{ClusterID: stubClusterID})
 	for _, opt := range opts {
 		opt(tel)
 	}
 	return tel, sg, sm
 }
 
-func newTestTelemeterWithCloudInfo(opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager, *fakeCloudInfoProvider,
+func newTestTelemeterWithCloudInfo(t *testing.T, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter, *fakeCloudInfoProvider,
 ) {
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 	ci := &fakeCloudInfoProvider{}
 	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
 	return tel, sg, sm, ci
 }
 
-func newTestTelemeterWithCustomCloudInfo(ci cloudInfoProvider, opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+func newTestTelemeterWithCustomCloudInfo(t *testing.T, ci cloudInfoProvider, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter,
 ) {
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
 	return tel, sg, sm
 }

@@ -376,6 +376,38 @@ func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 	})
 }
 
+func TestEnvironmentBackupMaxIndividualFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected int
+		wantErr  bool
+	}{
+		{name: "unset uses the default", value: "", expected: DefaultBackupMaxIndividualFiles},
+		{name: "valid value is parsed", value: "250", expected: 250},
+		{name: "one is the smallest accepted value", value: "1", expected: 1},
+		{name: "zero is rejected", value: "0", wantErr: true},
+		{name: "negative is rejected", value: "-1", wantErr: true},
+		{name: "non-numeric is rejected", value: "many", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BACKUP_MAX_INDIVIDUAL_FILES", tc.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "BACKUP_MAX_INDIVIDUAL_FILES")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, conf.Backup.MaxIndividualFiles.Get())
+		})
+	}
+}
+
 func TestEnvironmentSkipAccessCheck(t *testing.T) {
 	t.Run("unset defaults to false for both", func(t *testing.T) {
 		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "")

@@ -90,7 +90,7 @@ func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldL
 func configureOIDC(appState *state.State) *oidc.Client {
 	c, err := oidc.New(appState.ServerConfig.Config, appState.Logger)
 	if err != nil {
-		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
+		appState.Logger.WithField("action", "oidc_init").Fatalf("oidc client could not start up: %v", err)
 		os.Exit(1)
 	}
 
@@ -104,7 +104,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) *c
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
 	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger)
 	if err != nil {
-		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
+		appState.Logger.WithField("action", "api_keys_init").Fatalf("apikey client could not start up: %v", err)
 		os.Exit(1)
 	}
 
