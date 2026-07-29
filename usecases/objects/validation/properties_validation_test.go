@@ -304,6 +304,20 @@ func extractBeacon(t *testing.T, props models.PropertySchema) strfmt.URI {
 }
 
 func TestValidator_ValuesCasting(t *testing.T) {
+	t.Run("string(s)", func(t *testing.T) {
+		val, err := stringVal("hello world")
+		assert.NoError(t, err)
+		assert.Equal(t, "hello world", val)
+
+		val, err = stringVal("hello\x00world")
+		assert.Error(t, err)
+		assert.Empty(t, val)
+
+		val, err = stringVal(123)
+		assert.Error(t, err)
+		assert.Empty(t, val)
+	})
+
 	t.Run("int(s)", func(t *testing.T) {
 		type testCase struct {
 			value         interface{}
