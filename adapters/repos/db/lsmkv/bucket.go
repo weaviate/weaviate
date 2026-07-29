@@ -297,6 +297,10 @@ func NewBucketCreator() BucketCreator { return bucketCreator{} }
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
+// newBucketPostDiskInitHook is a test-only fault-injection point between the
+// segment-group init and the rest of NewBucket. Nil in production.
+var newBucketPostDiskInitHook func(*Bucket) error
+
 func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
@@ -312,10 +316,24 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
 		return nil, err
 	}
+	var constructed *Bucket // named return b is nil'd by error returns; keep our own handle
 	defer func() {
-		if err != nil {
-			GlobalBucketRegistry.Remove(dir)
+		if err == nil {
+			return
 		}
+		// A failure after newSegmentGroup succeeded leaves mmapped segments
+		// and flocked bolt handles behind disk; tear them down before
+		// releasing the claim — freeing the slot over live handles re-opens
+		// the exact double-open the front claim prevents. If the teardown
+		// itself fails, keep the claim: re-open stays refused until restart.
+		if constructed != nil && constructed.disk != nil {
+			if serr := constructed.disk.shutdown(context.Background()); serr != nil {
+				logger.WithField("dir", dir).
+					Errorf("close partially initialized bucket: %v — keeping registry claim; re-open refused until restart", serr)
+				return
+			}
+		}
+		GlobalBucketRegistry.Remove(dir)
 	}()
 
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
@@ -367,6 +385,8 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 	if b.disableCompaction {
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
+
+	constructed = b
 
 	b.desiredStrategy = b.strategy
 
@@ -423,6 +443,12 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 	}
 
 	b.disk = sg
+
+	if newBucketPostDiskInitHook != nil {
+		if err := newBucketPostDiskInitHook(b); err != nil {
+			return nil, err
+		}
+	}
 
 	if b.active == nil {
 		b.active, err = b.createNewActiveMemtable()

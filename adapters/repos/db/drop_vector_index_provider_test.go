@@ -1091,6 +1091,35 @@ func TestCheckConflict(t *testing.T) {
 	})
 }
 
+// TestCompletedUnitShards_RequiresAllReplicaUnits pins the RF>1 coverage
+// rule: units are per (shard, replica), so a shard is covered only when EVERY
+// unit completed. One completed replica next to a failed or orphaned sibling
+// must NOT fold the shard into CleanedShards — no later round would revisit
+// the dirty replica and finalize would free the name over its bytes.
+func TestCompletedUnitShards_RequiresAllReplicaUnits(t *testing.T) {
+	payload := &DropVectorIndexTaskPayload{
+		Collection: "C", Targets: []string{"v1"},
+		UnitToShard: map[string]string{
+			"s1__nodeA": "s1", "s1__nodeB": "s1",
+			"s2__nodeA": "s2", "s2__nodeB": "s2",
+			"s3__nodeA": "s3", "s3__nodeB": "s3",
+		},
+	}
+	task := &distributedtask.Task{
+		Status: distributedtask.TaskStatusFailed,
+		Units: map[string]*distributedtask.Unit{
+			"s1__nodeA": {Status: distributedtask.UnitStatusCompleted},
+			// s1__nodeB orphaned: no FSM record at all.
+			"s2__nodeA": {Status: distributedtask.UnitStatusCompleted},
+			"s2__nodeB": {Status: distributedtask.UnitStatusFailed},
+			"s3__nodeA": {Status: distributedtask.UnitStatusCompleted},
+			"s3__nodeB": {Status: distributedtask.UnitStatusCompleted},
+		},
+	}
+	require.Equal(t, []string{"s3"}, CompletedUnitShards(task, payload),
+		"a shard with any non-completed replica unit must not count as covered")
+}
+
 // TestCheckConflict_InheritanceSourceGuard pins the enqueue-to-commit TOCTOU
 // guard: a payload's CleanedShards claim must be re-provable from records
 // still in the FSM task list when AddTask applies. The dangerous interleaving:

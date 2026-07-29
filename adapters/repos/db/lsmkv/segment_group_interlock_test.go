@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -232,4 +233,25 @@ func TestBucketShutdown_KeepsRegistryClaimOnFailure(t *testing.T) {
 	reopened, err := newInterlockTestBucket(t, dir)
 	require.NoError(t, err, "a completed teardown frees the slot")
 	require.NoError(t, reopened.Shutdown(context.Background()))
+}
+
+// TestNewBucket_LateInitFailureTearsDownDiskBeforeReleasingClaim pins the
+// failed-late-init contract: a failure AFTER newSegmentGroup succeeded must
+// tear down the constructed segment group (mmapped segments, flocked bolt
+// sidecars) before releasing the registry claim. Releasing over live handles
+// would let a retry double-open the directory — a leaked sidecar flock makes
+// the retry below time out, a leaked claim makes it refuse.
+func TestNewBucket_LateInitFailureTearsDownDiskBeforeReleasingClaim(t *testing.T) {
+	dir := t.TempDir()
+	newBucketPostDiskInitHook = func(*Bucket) error { return errors.New("post-disk-init fault") }
+	defer func() { newBucketPostDiskInitHook = nil }()
+
+	_, err := newInterlockTestBucket(t, dir)
+	require.ErrorContains(t, err, "post-disk-init fault")
+
+	newBucketPostDiskInitHook = nil
+	bucket, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err, "retry must find no leaked claim and no leaked flocks")
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.Shutdown(context.Background()))
 }

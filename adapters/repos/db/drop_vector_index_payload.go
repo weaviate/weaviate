@@ -82,19 +82,33 @@ func SameTargetSet(a, b []string) bool {
 	return true
 }
 
-// CompletedUnitShards returns the shards of task's units recorded COMPLETED in
-// the FSM. A unit completion is durable proof that shard was drained and
-// verified, regardless of how the task later ended — so coverage inheritance
-// counts these even from FAILED rounds (one deactivated tenant fails a round;
-// at MT scale discarding the round's finished work would make convergence
-// improbable and re-pay its full re-clean I/O every retry).
+// CompletedUnitShards returns the shards for which EVERY unit of the task is
+// recorded COMPLETED in the FSM. A unit completion is durable proof that ONE
+// replica was drained and verified — a shard has one unit per (shard, replica)
+// under RF>1, and it is covered only when all of them completed: one failed
+// unit flips the task FAILED while sibling units are merely orphaned, so an
+// any-unit rule would fold a half-cleaned shard into CleanedShards and no
+// later round would ever revisit the dirty replica. Counting whole-shard
+// completions even from FAILED rounds is still deliberate (one deactivated
+// tenant fails a round; at MT scale discarding the round's finished work
+// would make convergence improbable and re-pay its full re-clean I/O every
+// retry).
 func CompletedUnitShards(task *distributedtask.Task, payload *DropVectorIndexTaskPayload) []string {
-	var shards []string
-	for unitID, unit := range task.Units {
-		if unit == nil || unit.Status != distributedtask.UnitStatusCompleted {
-			continue
+	// Iterate the payload's unit set, not task.Units: a unit the FSM has no
+	// record for counts as not completed.
+	allCompleted := make(map[string]bool)
+	for unitID, shard := range payload.UnitToShard {
+		unit := task.Units[unitID]
+		done := unit != nil && unit.Status == distributedtask.UnitStatusCompleted
+		if prev, seen := allCompleted[shard]; seen {
+			allCompleted[shard] = prev && done
+		} else {
+			allCompleted[shard] = done
 		}
-		if shard, ok := payload.UnitToShard[unitID]; ok {
+	}
+	var shards []string
+	for shard, all := range allCompleted {
+		if all {
 			shards = append(shards, shard)
 		}
 	}

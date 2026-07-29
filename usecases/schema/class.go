@@ -1112,6 +1112,25 @@ func rejectVectorIndexTypeNone(prev, next *models.Class) error {
 			"dropped indexes and cannot be set through a class update; use the drop "+
 			"vector index API instead", name, modelsext.VectorIndexTypeNone)
 	}
+	if prev == nil {
+		return nil
+	}
+	// The reverse direction is equally off-limits: flipping a dropped entry
+	// back to a live type would resurrect a schema entry whose data and index
+	// files the cleanup already strips (schema/data desync), cancel the drop
+	// out from under its task, and dodge the Collections-scope escalation
+	// that guards the drop surface. Re-creation is key-absent → new entry,
+	// only possible after finalize frees the name.
+	for name, prevCfg := range prev.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(prevCfg) {
+			continue
+		}
+		if nextCfg, ok := next.VectorConfig[name]; ok && !modelsext.IsVectorIndexDropped(nextCfg) {
+			return fmt.Errorf("vector %q: a dropped index entry cannot be revived to a live "+
+				"type through a class update; the drop completes via its cleanup task — "+
+				"re-create the vector after it finishes", name)
+		}
+	}
 	return nil
 }
 
