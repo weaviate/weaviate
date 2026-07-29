@@ -45,7 +45,7 @@ func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
-	).Return(&Bucket{}, nil)
+	).Return(&Bucket{logger: nullLogger()}, nil)
 	store.bcreator = mockBucketCreator
 
 	defer func() {
@@ -91,7 +91,7 @@ func TestCreateBucketConcurrency(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
-	).Return(&Bucket{}, nil)
+	).Return(&Bucket{logger: nullLogger()}, nil)
 	store.bcreator = mockBucketCreator
 
 	tcs := []string{"bucket1", "bucket1", "bucket1"}
