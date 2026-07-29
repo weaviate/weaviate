@@ -232,6 +232,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
+		} else {
+			// Expose the final status only after the descriptor is durably
+			// stored: a client observing SUCCESS earlier could act on a backup
+			// whose stored descriptor still says STARTED (e.g. an immediate
+			// restore would be rejected as "invalid backup in scheduler").
+			c.lastOp.set(c.descriptor.Status)
 		}
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
@@ -367,8 +373,6 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.set(c.descriptor.Status)
-
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
 		// so CANCELLED cannot be written to storage during schema apply.
@@ -376,6 +380,12 @@ func (c *coordinator) Restore(
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
+		} else {
+			// Expose the final status only after the descriptor is durably
+			// stored: reporting SUCCESS while restore_config.json still says
+			// FINALIZING would let a client act on a restore whose durable
+			// state is not final yet.
+			c.lastOp.set(c.descriptor.Status)
 		}
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup restored successfully")
@@ -714,7 +724,11 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.set(c.descriptor.Status)
+	// The final status is deliberately NOT exposed via lastOp here: the caller
+	// still has to upload the global descriptor, and a client observing SUCCESS
+	// before that upload completes could act on a backup whose stored descriptor
+	// still reports an in-progress state (e.g. an immediate restore would be
+	// rejected with "invalid backup in scheduler ... status: STARTED").
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
