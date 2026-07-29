@@ -360,10 +360,16 @@ func parseTextAggregation(schemaType string, in aggregation.Text) *pb.AggregateR
 		}
 		topOccurences = &pb.AggregateReply_Aggregations_Aggregation_Text_TopOccurrences{Items: items}
 	}
+	var cutoffExceeded *bool
+	if in.CutoffExceeded {
+		v := true
+		cutoffExceeded = &v
+	}
 	return &pb.AggregateReply_Aggregations_Aggregation_Text{
-		Count:         ptInt64(in.Count),
-		Type:          &schemaType,
-		TopOccurences: topOccurences,
+		Count:                       ptInt64(in.Count),
+		Type:                        &schemaType,
+		TopOccurences:               topOccurences,
+		TopOccurencesCutoffExceeded: cutoffExceeded,
 	}
 }
 

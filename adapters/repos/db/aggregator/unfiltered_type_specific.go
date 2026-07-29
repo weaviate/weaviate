@@ -431,6 +431,77 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 func (ua unfilteredAggregator) textProperty(ctx context.Context,
 	prop aggregation.ParamProperty,
 ) (*aggregation.Property, error) {
+	if prop.TopOccurrencesCutoff > 0 {
+		return ua.textPropertyFromInverted(ctx, prop)
+	}
+	return ua.textPropertyFromObjects(ctx, prop)
+}
+
+// textPropertyFromInverted lists the property's values from its filterable
+// inverted bucket instead of scanning every object: distinct values are the
+// bucket's keys, live doc counts their bitmaps' cardinalities. The scan stops
+// once more than prop.TopOccurrencesCutoff distinct values are seen — the
+// bloom lower bound skips clearly larger buckets before any cursor work —
+// and reports CutoffExceeded instead of values. The values are the indexed
+// terms, identical to stored values for untokenized properties.
+func (ua unfilteredAggregator) textPropertyFromInverted(ctx context.Context,
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
+	out := aggregation.Property{
+		Type:            aggregation.PropertyTypeText,
+		TextAggregation: aggregation.Text{},
+	}
+	cutoff := prop.TopOccurrencesCutoff
+
+	b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	if b == nil {
+		// no filterable index for this property
+		return ua.textPropertyFromObjects(ctx, prop)
+	}
+	defer release()
+	if b.Strategy() != lsmkv.StrategyRoaringSet {
+		return ua.textPropertyFromObjects(ctx, prop)
+	}
+
+	// clearly above the cutoff: the lower bound alone rejects the property
+	if lower, err := b.GetKeysCount(); err == nil && lower > cutoff {
+		out.TextAggregation.CutoffExceeded = true
+		return &out, nil
+	}
+
+	agg := newTextAggregator(extractLimitFromTopOccs(prop.Aggregators))
+	distinct := uint32(0)
+	c := b.CursorRoaringSetCtx(ctx)
+	defer c.Close()
+	for k, bm := c.First(); k != nil; k, bm = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var count int
+		if bm != nil {
+			count = bm.GetCardinality()
+		}
+		if count == 0 {
+			continue // every doc holding this value was deleted
+		}
+		distinct++
+		if distinct > cutoff {
+			out.TextAggregation = aggregation.Text{CutoffExceeded: true}
+			return &out, nil
+		}
+		if err := agg.AddTextCount(string(k), count); err != nil {
+			return nil, err
+		}
+	}
+
+	out.TextAggregation = agg.Res()
+
+	return &out, nil
+}
+
+func (ua unfilteredAggregator) textPropertyFromObjects(ctx context.Context,
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:            aggregation.PropertyTypeText,
 		TextAggregation: aggregation.Text{},

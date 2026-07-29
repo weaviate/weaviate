@@ -36,6 +36,15 @@ message AggregateRequest {
       bool type = 2;
       bool top_occurences = 3;
       optional uint32 top_occurences_limit = 4;
+      // Compute top_occurences from the property's inverted index instead of
+      // scanning objects, aborting once more than this many distinct values
+      // are seen — the reply then carries top_occurences_cutoff_exceeded
+      // instead of values. Costs milliseconds for low-cardinality properties
+      // where the object scan costs seconds. Values are the indexed terms:
+      // identical to stored values for untokenized properties, tokens
+      // otherwise. Counts are live per-value document counts. Ignores
+      // filters, search and group_by (unfiltered aggregations only).
+      optional uint32 top_occurences_cutoff = 5;
     }
     message Boolean {
       bool count = 1;
@@ -143,6 +152,9 @@ message AggregateReply {
         optional int64 count = 1;
         optional string type = 2;
         optional TopOccurrences top_occurences = 3;
+        // Set when top_occurences_cutoff was requested and the property has
+        // more distinct values than it allowed; top_occurences is then absent.
+        optional bool top_occurences_cutoff_exceeded = 4;
       }
       message Boolean {
         optional int64 count = 1;

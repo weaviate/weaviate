@@ -243,6 +243,48 @@ func TestGRPCAggregateReply(t *testing.T) {
 			},
 		},
 		{
+			name: "text top occurrences cutoff exceeded",
+			res: &aggregation.Result{
+				Groups: []aggregation.Group{
+					{
+						Count: 5,
+						Properties: map[string]aggregation.Property{
+							"first": {
+								Type:            aggregation.PropertyTypeText,
+								SchemaType:      "text",
+								TextAggregation: aggregation.Text{CutoffExceeded: true},
+							},
+						},
+					},
+				},
+			},
+			outRes: &pb.AggregateReply{
+				Result: &pb.AggregateReply_GroupedResults{
+					GroupedResults: &pb.AggregateReply_Grouped{
+						Groups: []*pb.AggregateReply_Group{
+							{
+								ObjectsCount: ptInt64(5),
+								Aggregations: &pb.AggregateReply_Aggregations{
+									Aggregations: []*pb.AggregateReply_Aggregations_Aggregation{
+										{
+											Property: "first",
+											Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Text_{
+												Text: &pb.AggregateReply_Aggregations_Aggregation_Text{
+													Count:                       ptInt64(0),
+													Type:                        ptr("text"),
+													TopOccurencesCutoffExceeded: ptr(true),
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "approximate cardinality only property",
 			res: &aggregation.Result{
 				Groups: []aggregation.Group{

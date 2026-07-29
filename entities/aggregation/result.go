@@ -38,6 +38,9 @@ type Property struct {
 type Text struct {
 	Items []TextOccurrence `json:"items"`
 	Count int              `json:"count"`
+	// CutoffExceeded reports that the property holds more distinct values
+	// than the requested top-occurrences cutoff allowed; Items is then empty.
+	CutoffExceeded bool `json:"cutoffExceeded,omitempty"`
 }
 
 type PropertyType string

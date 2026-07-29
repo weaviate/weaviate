@@ -75,6 +75,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				Name:                   schema.PropertyName(req.Aggregations[i].Property),
 				Aggregators:            parseAggregations(req.Aggregations[i]),
 				ApproximateCardinality: req.Aggregations[i].ApproximateCardinality,
+				TopOccurrencesCutoff:   req.Aggregations[i].GetText().GetTopOccurencesCutoff(),
 			}
 		}
 		params.Properties = properties

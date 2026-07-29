@@ -296,6 +296,10 @@ func (sc *ShardCombiner) finalizeBoolean(combined *aggregation.Boolean) {
 func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
 	first.Count += second.Count
 
+	// one shard over the cutoff makes the value list incomplete for the whole
+	// collection
+	first.CutoffExceeded = first.CutoffExceeded || second.CutoffExceeded
+
 	for _, textOcc := range second.Items {
 		pos := getPosOfTextOcc(first.Items, textOcc.Value)
 		if pos < 0 {
