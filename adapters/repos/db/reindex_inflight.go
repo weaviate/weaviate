@@ -157,9 +157,13 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
-// [DB.AnyLiveReindexForShard] to detect terminal-task cleanup that has
-// not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
-// post-bootstrap alongside [DB.SetShardReindexActivityLookup].
+// [reindexGate.anyLiveReindexForShard] to detect terminal-task cleanup
+// that has not yet finished tearing __reindex / __ingest sidecar dirs.
+// Wired in post-bootstrap alongside [DB.SetShardReindexActivityLookup].
+//
+// Unlike the activity builder, the installed closure reads the live
+// registry on every call, so the gate memoizes the closure but not its
+// answer: the cleanup verdict stays per-shard fresh.
 func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
@@ -183,6 +187,13 @@ func (i *Index) refuseIfReindexInFlight(shardName string, gate *reindexGate) err
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.
 		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
+	}
+	if gate == nil {
+		// A nil gate would panic on resolve. Falling back to a private
+		// one costs this caller a query but keeps the gate optional,
+		// matching [Index.newReindexGate] returning an empty gate rather
+		// than nil.
+		gate = i.newReindexGate()
 	}
 	if !gate.anyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
 		return nil

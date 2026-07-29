@@ -1749,18 +1749,18 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 // IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
 // currently tearing partial sidecar state on (collection, shard).
 //
-// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
-// answer must include this signal — the DTM activity lookup it wraps
-// flips a task to terminal as soon as the FSM lands, but the
-// node-local sidecar buckets are still being shut down for tens of
-// seconds after that. A backup that snapshots the shard in that gap
-// would capture half-removed __reindex / __ingest dirs.
+// Backup gate consumer: the cluster-wide [reindexGate] answer must
+// include this signal — the DTM activity lookup it wraps flips a task
+// to terminal as soon as the FSM lands, but the node-local sidecar
+// buckets are still being shut down for tens of seconds after that. A
+// backup that snapshots the shard in that gap would capture
+// half-removed __reindex / __ingest dirs.
 //
 // Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
 // over this method) on the DB alongside [DB.SetShardReindexActivity
-// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
-// if the registry is nil (test fixtures that construct the provider
-// without going through [NewReindexProvider]).
+// Lookup] so the gate consults both. Returns false if the registry is
+// nil (test fixtures that construct the provider without going through
+// [NewReindexProvider]).
 func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
@@ -1779,9 +1779,11 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 // terminal-cleanup is still running.
 type CleanupInProgressLookup func(collection, shard string) bool
 
-// CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
-// builder pattern used by [ShardReindexActivityLookupBuilder] so the
-// wiring in configure_api.go can install both lookups identically.
+// CleanupInProgressLookupBuilder returns a probe over the live registry,
+// not a snapshot: unlike [ShardReindexActivityLookupBuilder], building it
+// costs nothing and its answer changes underneath the caller. Mirrors that
+// builder's shape so the wiring in configure_api.go can install both
+// lookups identically.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures
@@ -1791,7 +1793,7 @@ type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 //
 // Returning the closure (rather than a direct method handle) keeps
 // the contract symmetric with [ShardReindexActivityLookupBuilder] and
-// lets the gate take a snapshot per probe rather than caching the
+// lets the gate re-read the registry per probe rather than caching the
 // underlying state.
 func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
 	return func() CleanupInProgressLookup {

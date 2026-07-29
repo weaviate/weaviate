@@ -188,3 +188,83 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	require.Equal(t, 4, strings.Count(err.Error(), "active runtime-reindex task in DTM"),
 		"all four shards must share the verdict of the single snapshot taken for this precheck")
 }
+
+// TestReindexGate_CleanupArmIsProbedPerShard pins the asymmetry between the
+// gate's two arms, which the build counts alone do not show.
+//
+// The production cleanup builder returns a method value over a live registry
+// (ReindexProvider.CleanupInProgressLookupBuilder), so memoizing it memoizes
+// the closure and not its answer. The activity arm is a real snapshot; the
+// cleanup arm keeps answering from current state. Both are built once.
+func TestReindexGate_CleanupArmIsProbedPerShard(t *testing.T) {
+	const shards = 4
+
+	db, classes := newPrecheckGateTestDB(t, 1, shards)
+
+	var activityBuilds, activityProbes, cleanupBuilds, cleanupProbes atomic.Int64
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		activityBuilds.Add(1)
+		return func(string, string) bool {
+			activityProbes.Add(1)
+			return false
+		}
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		cleanupBuilds.Add(1)
+		// Mirrors the production builder: a live probe, not a snapshot.
+		return func(string, string) bool {
+			cleanupProbes.Add(1)
+			return false
+		}
+	})
+
+	require.NoError(t, db.Backupable(context.Background(), classes))
+
+	require.Equal(t, int64(1), activityBuilds.Load(), "the DTM snapshot is taken once")
+	require.Equal(t, int64(1), cleanupBuilds.Load(), "the cleanup closure is obtained once")
+
+	// The build counts above are equal, so only the probe counts separate a
+	// snapshot from a live probe.
+	require.Equal(t, int64(shards), activityProbes.Load(),
+		"every shard is judged, but all of them against the one snapshot")
+	require.Equal(t, int64(shards), cleanupProbes.Load(),
+		"the cleanup arm re-reads live state per shard, so it is not snapshotted")
+}
+
+// TestRefuseIfReindexInFlight_NilGate pins that a nil gate is handled rather
+// than dereferenced. Every production caller passes a real gate, but the
+// parameter makes nil representable and resolve would panic on it.
+func TestRefuseIfReindexInFlight_NilGate(t *testing.T) {
+	tests := []struct {
+		name       string
+		live       bool
+		wantRefuse bool
+	}{
+		{name: "no live reindex", live: false, wantRefuse: false},
+		{name: "live reindex", live: true, wantRefuse: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var builds atomic.Int64
+			db := &DB{}
+			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+				builds.Add(1)
+				return func(string, string) bool { return tc.live }
+			})
+			idx := &Index{db: db, Config: IndexConfig{ClassName: "NilGateClass"}}
+
+			require.NotPanics(t, func() {
+				err := idx.refuseIfReindexInFlight("shard0", nil)
+				if tc.wantRefuse {
+					require.Error(t, err)
+					require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
+					return
+				}
+				require.NoError(t, err)
+			})
+			require.Equal(t, int64(1), builds.Load(),
+				"the fallback gate resolves once, like any other")
+		})
+	}
+}
