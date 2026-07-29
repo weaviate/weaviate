@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -111,7 +112,7 @@ func CasbinNodes(verbosity, class string) string {
 	if class == "" {
 		class = "*"
 	}
-	class = strings.ReplaceAll(class, "*", ".*")
+	class = casbinSegment(class)
 	return fmt.Sprintf("%s/verbosity/verbose/collections/%s", authorization.NodesDomain, class)
 }
 
@@ -120,15 +121,66 @@ func CasbinBackups(class string) string {
 	if class == "" {
 		class = "*"
 	}
-	class = strings.ReplaceAll(class, "*", ".*")
+	class = casbinSegment(class)
 	return fmt.Sprintf("%s/collections/%s", authorization.BackupsDomain, class)
+}
+
+// casbinSegment expands '*' to '.*' and wraps the value in a group when it could
+// break out of its casbin path segment. Casbin anchors the stored pattern, so an
+// unwrapped "users/z|.*" becomes "(^users/z)|(.*$)" — the second branch drops the
+// "users/" anchor and matches every resource, letting a read_users grant reach
+// "roles/admin". Wrapping to "users/(z|.*)" confines it. Only '|' and the line
+// anchors can break out, so literals and in-segment wildcards pass through bare; a
+// leading '<ns>:' qualifier stays outside the group, where the matcher reads it.
+func casbinSegment(name string) string {
+	prefix, body := namespaceQualifier(name)
+	body = strings.ReplaceAll(body, "*", ".*")
+	if !strings.ContainsAny(body, "|^$") {
+		return prefix + body
+	}
+	return prefix + "(" + body + ")"
+}
+
+// unwrapCasbinSegment reverses casbinSegment for read-back: it strips the
+// confinement group so a GET returns the submitted pattern. A bare segment, or
+// a "(...)" a user typed literally (its body carries no '|'/'^'/'$', so
+// casbinSegment never wrapped it), is returned unchanged.
+func unwrapCasbinSegment(name string) string {
+	prefix, body := namespaceQualifier(name)
+	if len(body) >= 2 && body[0] == '(' && body[len(body)-1] == ')' && strings.ContainsAny(body, "|^$") {
+		return prefix + body[1:len(body)-1]
+	}
+	return name
+}
+
+// namespaceQualifier splits a leading "<ns>:" qualifier (a clean identifier
+// before the first ':') so it can stay outside the confinement group. An
+// alternation repeating the prefix ("a:x|a:y") keeps only the first "a:", so the
+// other branch matches under a doubled prefix — still confined, but off-target.
+func namespaceQualifier(name string) (prefix, rest string) {
+	i := strings.IndexByte(name, ':')
+	if i < 0 {
+		return "", name
+	}
+	for _, r := range name[:i] {
+		switch {
+		case r == '-' || r == '_',
+			r >= '0' && r <= '9',
+			r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z':
+			// valid qualifier character
+		default:
+			return "", name
+		}
+	}
+	return name[:i+1], name[i+1:]
 }
 
 func CasbinUsers(user string) string {
 	if user == "" {
 		user = "*"
 	}
-	user = strings.ReplaceAll(user, "*", ".*")
+	user = casbinSegment(user)
 	return fmt.Sprintf("%s/%s", authorization.UsersDomain, user)
 }
 
@@ -136,7 +188,7 @@ func CasbinGroups(group string, groupType string) string {
 	if group == "" {
 		group = "*"
 	}
-	group = strings.ReplaceAll(group, "*", ".*")
+	group = casbinSegment(group)
 	return fmt.Sprintf("%s/%s/%s", authorization.GroupsDomain, groupType, group)
 }
 
@@ -144,7 +196,7 @@ func CasbinRoles(role string) string {
 	if role == "" {
 		role = "*"
 	}
-	role = strings.ReplaceAll(role, "*", ".*")
+	role = casbinSegment(role)
 	return fmt.Sprintf("%s/%s", authorization.RolesDomain, role)
 }
 
@@ -156,8 +208,8 @@ func CasbinSchema(collection, shard string) string {
 	if shard == "" {
 		shard = "*"
 	}
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	shard = strings.ReplaceAll(shard, "*", ".*")
+	collection = casbinSegment(collection)
+	shard = casbinSegment(shard)
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
 }
 
@@ -169,8 +221,8 @@ func CasbinReplicate(collection, shard string) string {
 	if shard == "" {
 		shard = "*"
 	}
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	shard = strings.ReplaceAll(shard, "*", ".*")
+	collection = casbinSegment(collection)
+	shard = casbinSegment(shard)
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicateDomain, collection, shard)
 }
 
@@ -181,8 +233,8 @@ func CasbinAliases(collection, alias string) string {
 	if alias == "" {
 		alias = "*"
 	}
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	alias = strings.ReplaceAll(alias, "*", ".*")
+	collection = casbinSegment(collection)
+	alias = casbinSegment(alias)
 	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
@@ -197,9 +249,9 @@ func CasbinData(collection, shard, object string) string {
 	if object == "" {
 		object = "*"
 	}
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	shard = strings.ReplaceAll(shard, "*", ".*")
-	object = strings.ReplaceAll(object, "*", ".*")
+	collection = casbinSegment(collection)
+	shard = casbinSegment(shard)
+	object = casbinSegment(object)
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
@@ -213,17 +265,24 @@ func CasbinNamespaces(name string) string {
 	if name == "" {
 		name = "*"
 	}
-	name = strings.ReplaceAll(name, "*", ".*")
+	name = casbinSegment(name)
 	return fmt.Sprintf("%s/%s", authorization.NamespacesDomain, name)
 }
 
 // ContainsNamespaceSeparator reports whether a casbin resource path contains
-// the namespace separator. The separator never appears in any other valid
-// resource path segment (collection, shard, tenant, role, and user names all
-// forbid it), so a plain byte scan unambiguously detects namespace
-// qualification regardless of the path shape.
+// the namespace separator. A hit means qualification only for the collection
+// shapes (schema/data/aliases); for users/<id> and groups/<...>, whose ids may
+// contain ':' (e.g. OIDC usernames), callers must shape-check first.
 func ContainsNamespaceSeparator(resource string) bool {
 	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
+}
+
+// IsOpaqueIDResource reports whether resource addresses a users/<id> or
+// groups/<type>/<name> shape, whose id may legitimately contain ':' (e.g. an
+// OIDC username) as part of the id rather than a namespace qualifier.
+func IsOpaqueIDResource(resource string) bool {
+	return strings.HasPrefix(resource, authorization.UsersDomain+"/") ||
+		strings.HasPrefix(resource, authorization.GroupsDomain+"/")
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -445,25 +504,31 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 
 	switch mapped.Domain {
 	case authorization.SchemaDomain:
+		collection := unwrapCasbinSegment(splits[2])
 		if splits[4] == "#" {
 			permission.Collections = &models.PermissionCollections{
-				Collection: &splits[2],
+				Collection: &collection,
 			}
 		} else {
+			tenant := unwrapCasbinSegment(splits[4])
 			permission.Tenants = &models.PermissionTenants{
-				Collection: &splits[2],
-				Tenant:     &splits[4],
+				Collection: &collection,
+				Tenant:     &tenant,
 			}
 		}
 	case authorization.DataDomain:
+		collection := unwrapCasbinSegment(splits[2])
+		tenant := unwrapCasbinSegment(splits[4])
+		object := unwrapCasbinSegment(splits[6])
 		permission.Data = &models.PermissionData{
-			Collection: &splits[2],
-			Tenant:     &splits[4],
-			Object:     &splits[6],
+			Collection: &collection,
+			Tenant:     &tenant,
+			Object:     &object,
 		}
 	case authorization.RolesDomain:
+		role := unwrapCasbinSegment(splits[1])
 		permission.Roles = &models.PermissionRoles{
-			Role: &splits[1],
+			Role: &role,
 		}
 
 		verbSplits := strings.Split(mapped.Verb, "_")
@@ -474,43 +539,50 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.NodesDomain:
 		verbosity := splits[2]
 		var collection *string
-		if verbosity == "minimal" {
-			collection = nil
-		} else {
-			collection = &splits[4]
+		if verbosity != "minimal" {
+			c := unwrapCasbinSegment(splits[4])
+			collection = &c
 		}
 		permission.Nodes = &models.PermissionNodes{
 			Collection: collection,
 			Verbosity:  &verbosity,
 		}
 	case authorization.BackupsDomain:
+		collection := unwrapCasbinSegment(splits[2])
 		permission.Backups = &models.PermissionBackups{
-			Collection: &splits[2],
+			Collection: &collection,
 		}
 	case authorization.UsersDomain:
+		user := unwrapCasbinSegment(splits[1])
 		permission.Users = &models.PermissionUsers{
-			Users: &splits[1],
+			Users: &user,
 		}
 	case authorization.ReplicateDomain:
+		collection := unwrapCasbinSegment(splits[2])
+		shard := unwrapCasbinSegment(splits[4])
 		permission.Replicate = &models.PermissionReplicate{
-			Collection: &splits[2],
-			Shard:      &splits[4],
+			Collection: &collection,
+			Shard:      &shard,
 		}
 	case authorization.AliasesDomain:
+		collection := unwrapCasbinSegment(splits[2])
+		alias := unwrapCasbinSegment(splits[4])
 		permission.Aliases = &models.PermissionAliases{
-			Collection: &splits[2],
-			Alias:      &splits[4],
+			Collection: &collection,
+			Alias:      &alias,
 		}
 	case authorization.GroupsDomain:
+		group := unwrapCasbinSegment(splits[2])
 		permission.Groups = &models.PermissionGroups{
-			Group:     &splits[2],
+			Group:     &group,
 			GroupType: models.GroupType(splits[1]),
 		}
 	case authorization.McpDomain:
 		// do nothing
 	case authorization.NamespacesDomain:
+		namespace := unwrapCasbinSegment(splits[1])
 		permission.Namespaces = &models.PermissionNamespaces{
-			Namespace: &splits[1],
+			Namespace: &namespace,
 		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
@@ -593,4 +665,26 @@ func GetUserAndPrefix(name string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid name: %s", name)
 	}
 	return user, prefix, nil
+}
+
+// SubjectNamespace returns a grouping subject's user identifier, auth type, and
+// namespace (e.g. "db:customer1:bob" -> "customer1"). A global principal
+// ("db:bob") and a group subject both yield no namespace; a group additionally
+// yields a zero auth type. An unparseable key returns an error so callers can
+// fail closed rather than treat it as global.
+func SubjectNamespace(subject string) (user string, authType authentication.AuthType, namespace string, err error) {
+	user, prefix, err := GetUserAndPrefix(subject)
+	if err != nil {
+		return "", "", "", err
+	}
+	switch prefix {
+	case string(authentication.AuthTypeDb):
+		authType = authentication.AuthTypeDb
+	case string(authentication.AuthTypeOIDC):
+		authType = authentication.AuthTypeOIDC
+	default:
+		// Group subjects are global; no namespace.
+		return user, "", "", nil
+	}
+	return user, authType, namespacing.NamespaceFromQualified(user), nil
 }

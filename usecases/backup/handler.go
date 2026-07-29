@@ -13,8 +13,11 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -26,16 +29,106 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+// classifyCanCommitErr maps a free-form canCommit error to a
+// [CanCommitErrorKind]. nil err returns the empty kind so callers can keep
+// using empty-string semantics when nothing went wrong.
+//
+// Classification uses errors.Is against the shared
+// [backup.ErrBackupBlockedByInFlightReindex] sentinel rather than substring
+// comparison; the storage layer's Backupable() wraps that sentinel inside
+// errors.Join when multiple shards refuse, and errors.Is walks the join.
+func classifyCanCommitErr(err error) CanCommitErrorKind {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+		return CanCommitErrInFlightReindex
+	}
+	return CanCommitErrCannotCommit
+}
+
 // Version of backup structure
 const (
-	// Version > version1 support compression
 	// "2.1" support restore on 2 phases
 	Version = "2.1"
 	// "2.0" support compression
 	// Version = "2.0"
-	// version1 store plain files without compression
+	// version1 is the newest structure version that is no longer restorable
 	version1 = "1.0"
 )
+
+var (
+	errLegacySingleNode = legacyRestoreErr("by Weaviate older than v1.17, which stored a single " +
+		"top-level backup.json instead of per-node metadata")
+	errLegacyUncompressed = legacyRestoreErr("by Weaviate older than v1.21, which stored files uncompressed")
+	errLegacyFlatFS       = legacyRestoreErr("by Weaviate older than v1.23, which stored shard files " +
+		"in a flat directory instead of one directory per shard")
+)
+
+// legacyRestoreErr builds the refusal for a backup format this build no longer restores.
+func legacyRestoreErr(origin string) error {
+	return fmt.Errorf("backup was created %s, and can no longer be restored: restore it on a "+
+		"release that still supports it and create a new backup", origin)
+}
+
+// maxMajorVersion is the newest backup-structure major version this build restores.
+var maxMajorVersion, _ = parseMajor(Version)
+
+// checkRestorableVersion refuses backups this build cannot restore, either because their
+// format is too old or because a later Weaviate produced them. version is the
+// backup-structure version; serverVersion is the Weaviate version that wrote it.
+func checkRestorableVersion(version, serverVersion string) error {
+	// An empty version means a corrupt descriptor rather than an old one; Validate reports it.
+	if version != "" && version <= version1 {
+		return errLegacyUncompressed
+	}
+	if serverVersionOlderThan(serverVersion, 1, 23) {
+		return errLegacyFlatFS
+	}
+	// A structure version may omit the minor, so compare majors only.
+	if major, ok := parseMajor(version); ok && major > maxMajorVersion {
+		return fmt.Errorf("%s: %s > %s", errMsgHigherVersion, version, Version)
+	}
+	return nil
+}
+
+// parseMajor reads the leading number of a "major[.minor[.patch]]" version. ok is false
+// when it is missing or unparseable.
+func parseMajor(version string) (major int, ok bool) {
+	major, err := strconv.Atoi(strings.Split(version, ".")[0])
+	return major, err == nil
+}
+
+// parseVersion splits a "major.minor[.patch]" version. ok is false when either number is
+// missing or unparseable.
+func parseVersion(version string) (major, minor int, ok bool) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, false
+	}
+	major, ok = parseMajor(version)
+	if !ok {
+		return 0, 0, false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	return major, minor, true
+}
+
+// serverVersionOlderThan reports whether serverVersion, formatted "major.minor[.patch]",
+// is older than major.minor. An unparseable version is not treated as older.
+func serverVersionOlderThan(serverVersion string, major, minor int) bool {
+	gotMajor, gotMinor, ok := parseVersion(serverVersion)
+	if !ok {
+		return false
+	}
+	if gotMajor != major {
+		return gotMajor < major
+	}
+	return gotMinor < minor
+}
 
 // TODO error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
@@ -48,8 +141,10 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
-	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool) error
+	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
 	NodeName() string
+	NamespacesEnabled() bool
+	ClassEqual(name string) string
 }
 
 type NodeResolver interface {
@@ -62,13 +157,22 @@ type NodeResolver interface {
 	LeaderID() string
 }
 
+// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM,
+// deliberately separate from fsm.Snapshotter (RAFT log compaction): the
+// variadic filter only makes sense for backups.
+type dynUserSnapshotter interface {
+	Snapshot(userIDs ...string) ([]byte, error)
+	Restore(snapshot []byte, stripNamespaces bool) error
+}
+
 type Status struct {
-	Path        string
-	StartedAt   time.Time
-	CompletedAt time.Time
-	Status      backup.Status
-	Err         string
-	Size        float64
+	Path         string
+	StartedAt    time.Time
+	CompletedAt  time.Time
+	Status       backup.Status
+	Err          string
+	Size         float64
+	BaseBackupID string
 }
 
 type Handler struct {
@@ -89,7 +193,7 @@ func NewHandler(
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	rbacSourcer fsm.Snapshotter,
-	dynUserSourcer fsm.Snapshotter,
+	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
 	node := schema.NodeName()
 	m := &Handler{
@@ -102,7 +206,7 @@ func NewHandler(
 			backends),
 		restorer: newRestorer(node, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
-			backends,
+			backends, schema.NamespacesEnabled(),
 		),
 	}
 	return m
@@ -133,6 +237,10 @@ type BackupRequest struct {
 	// Exclude means include all classes but those specified in Exclude
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
+
+	// Non-empty switches the backup to a filtered dynamic-user snapshot.
+	// Empty keeps the whole-cluster snapshot. Same '*'/'?' wildcards as Include.
+	IncludeUsers []string
 
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
@@ -169,6 +277,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
+		ret.ErrKind = CanCommitErrCannotCommit
 		return ret
 	}
 
@@ -176,15 +285,18 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	case OpCreate:
 		if err := m.backupper.sourcer.Backupable(ctx, req.Classes); err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = classifyCanCommitErr(err)
 			return ret
 		}
 		if err = store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		res, err := m.backupper.backup(store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = classifyCanCommitErr(err)
 			return ret
 		}
 		ret.Timeout = res.Timeout
@@ -192,16 +304,19 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		res, err := m.restorer.restore(req, meta, store)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		ret.Timeout = res.Timeout
 	default:
 		ret.Err = fmt.Sprintf("unknown backup operation: %s", req.Method)
+		ret.ErrKind = CanCommitErrCannotCommit
 		return ret
 	}
 

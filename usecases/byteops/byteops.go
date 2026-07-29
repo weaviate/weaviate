@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"math"
 )
 
 const (
@@ -31,24 +30,13 @@ type ReadWriter struct {
 	Buffer   []byte
 }
 
-func WithPosition(pos uint64) func(*ReadWriter) {
-	return func(rw *ReadWriter) {
-		rw.Position = pos
-	}
-}
-
 func NewReadWriter(buf []byte) ReadWriter {
 	rw := ReadWriter{Buffer: buf}
 	return rw
 }
 
-// NewReadWriterWithOps escapes to heap even if no ops are given
-func NewReadWriterWithOps(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
-	rw := ReadWriter{Buffer: buf}
-	for _, opt := range opts {
-		opt(&rw)
-	}
-	return rw
+func NewReadWriterWithPosition(buf []byte, pos uint64) ReadWriter {
+	return ReadWriter{Buffer: buf, Position: pos}
 }
 
 func (bo *ReadWriter) ResetBuffer(buf []byte) {
@@ -210,9 +198,7 @@ func Fp32SliceToBytes(slice []float32) []byte {
 		return []byte{}
 	}
 	vector := make([]byte, len(slice)*Uint32Len)
-	for i := 0; i < len(slice); i++ {
-		binary.LittleEndian.PutUint32(vector[i*Uint32Len:(i+1)*Uint32Len], math.Float32bits(slice[i]))
-	}
+	CopySliceToBytes(vector, slice)
 	return vector
 }
 
@@ -244,9 +230,7 @@ func Fp32SliceOfSlicesToBytes(slices [][]float32) []byte {
 
 func Fp64SliceToBytes(floats []float64) []byte {
 	vector := make([]byte, len(floats)*Uint64Len)
-	for i := 0; i < len(floats); i++ {
-		binary.LittleEndian.PutUint64(vector[i*Uint64Len:(i+1)*Uint64Len], math.Float64bits(floats[i]))
-	}
+	CopySliceToBytes(vector, floats)
 	return vector
 }
 
@@ -286,10 +270,7 @@ func Fp32SliceOfSlicesFromBytes(bytes []byte) ([][]float32, error) {
 
 func Fp64SliceFromBytes(vector []byte) []float64 {
 	floats := make([]float64, len(vector)/Uint64Len)
-	for i := 0; i < len(floats); i++ {
-		asUint := binary.LittleEndian.Uint64(vector[i*Uint64Len : (i+1)*Uint64Len])
-		floats[i] = math.Float64frombits(asUint)
-	}
+	CopyBytesToSlice(floats, vector)
 	return floats
 }
 
@@ -304,9 +285,6 @@ func IntsToByteVector(ints []float64) []byte {
 
 func IntsFromByteVector(vector []byte) []int64 {
 	ints := make([]int64, len(vector)/Uint64Len)
-	for i := 0; i < len(ints); i++ {
-		asUint := binary.LittleEndian.Uint64(vector[i*Uint64Len : (i+1)*Uint64Len])
-		ints[i] = int64(asUint)
-	}
+	CopyBytesToSlice(ints, vector)
 	return ints
 }

@@ -57,6 +57,7 @@ type Replicator struct {
 	client         Client
 	log            logrus.FieldLogger
 	requestCounter atomic.Uint64
+	inflight       *inflightWrites
 	*Finder
 }
 
@@ -80,6 +81,7 @@ func NewReplicator(className string,
 		router:   router,
 		client:   client,
 		log:      l,
+		inflight: newInflightWrites(),
 		Finder: NewFinder(
 			className,
 			router,
@@ -100,6 +102,8 @@ func (r *Replicator) PutObject(ctx context.Context,
 	schemaVersion uint64,
 ) error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
+	release := r.inflight.register(shard)
+	defer release()
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
 		if err == nil {
@@ -131,6 +135,8 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	schemaVersion uint64,
 ) error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
+	release := r.inflight.register(shard)
+	defer release()
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
 		if err == nil {
@@ -167,6 +173,8 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	schemaVersion uint64,
 ) error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
+	release := r.inflight.register(shard)
+	defer release()
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
 		if err == nil {
@@ -198,6 +206,8 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	schemaVersion uint64,
 ) []error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
+	release := r.inflight.register(shard)
+	defer release()
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
 		if err == nil {
@@ -235,6 +245,8 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
 	coord := NewWriteCoordinator[DeleteBatchResponse, objects.BatchSimpleObject](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
+	release := r.inflight.register(shard)
+	defer release()
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 		if err == nil {
@@ -281,6 +293,8 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	schemaVersion uint64,
 ) []error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
+	release := r.inflight.register(shard)
+	defer release()
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
 		if err == nil {
@@ -307,6 +321,10 @@ func (r *Replicator) AddReferences(ctx context.Context,
 			WithField("shard", shard).Error(rs)
 	}
 	return rs
+}
+
+func (r *Replicator) WaitForDrain(ctx context.Context, shard string) error {
+	return r.inflight.WaitForDrain(ctx, shard)
 }
 
 // simpleCommit generate commit function for the coordinator

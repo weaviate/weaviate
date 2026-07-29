@@ -84,9 +84,26 @@ func (e SimpleEncoder[T]) DecodeReusable(data []byte, values []T) {
 	}
 }
 
+// decodeSimpleUint64 is the stateless uint64 variant of DecodeReusable, used by
+// GetDecodeFunc so the read path needs no SimpleEncoder instance.
+func decodeSimpleUint64(data []byte, values []uint64) {
+	count := binary.LittleEndian.Uint64(data)
+	for i := 0; i < int(count); i++ {
+		values[i] = binary.LittleEndian.Uint64(data[8+i*8 : 8+(i+1)*8])
+	}
+}
+
 func (e *SimpleEncoder[T]) Encode(values []T) []byte {
 	e.EncodeReusable(values, e.buf)
 	return e.buf
+}
+
+func (e *SimpleEncoder[T]) EncodeAppend(values []T, arena []byte) ([]byte, []byte) {
+	e.EncodeReusable(values, e.buf)
+	n := 8 + len(values)*e.elementSize
+	start := len(arena)
+	arena = append(arena, e.buf[:n]...)
+	return arena[start:], arena
 }
 
 func (e *SimpleEncoder[T]) Decode(data []byte) []T {

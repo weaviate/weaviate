@@ -124,11 +124,13 @@ func testEnableFilterable(t *testing.T, restURI string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
+			case <-ticker.C:
 			}
 			ids, err := enableFilterableCategoryQuerySafe(t, "electronics")
 			queryRuns.Add(1)
@@ -137,17 +139,16 @@ func testEnableFilterable(t *testing.T, restURI string) {
 			} else if !reindexhelpers.IdsMatchUnordered(categoryBaseline, ids) {
 				queryFailures.Add(1)
 			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
 	// 1) Enable filterable on the int property.
-	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "score", `{"filterable":{"enabled":true}}`)
+	taskID1 := reindexhelpers.SubmitIndexUpsert(t, restURI, enableFilterableClassName, "score", "filterable", `{}`)
 	t.Logf("submitted enable-filterable task for score: %s", taskID1)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1)
 
 	// 2) Enable filterable on the boolean property.
-	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "available", `{"filterable":{"enabled":true}}`)
+	taskID2 := reindexhelpers.SubmitIndexUpsert(t, restURI, enableFilterableClassName, "available", "filterable", `{}`)
 	t.Logf("submitted enable-filterable task for available: %s", taskID2)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2)
 
@@ -170,7 +171,7 @@ func testEnableFilterable(t *testing.T, restURI string) {
 			}
 		}
 		return scoreOK && availableOK
-	}, 30*time.Second, 500*time.Millisecond, "IndexFilterable must flip to true on targeted properties")
+	}, 30*time.Second, 50*time.Millisecond, "IndexFilterable must flip to true on targeted properties")
 
 	// Capture post-migration baselines so the post-restart phase can compare
 	// against the exact result set we just produced from the new index.

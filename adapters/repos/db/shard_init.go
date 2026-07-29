@@ -48,7 +48,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
 
-	if shardusage.RemoveComputedUsageDataForUnloadedShard(index.path(), shardName); err != nil {
+	if err := shardusage.RemoveComputedUsageDataForUnloadedShard(index.path(), shardName); err != nil {
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
@@ -145,6 +145,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
+	}
+
+	if err := s.sweepChangelogDir(); err != nil {
+		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
 	}
 
 	// init the store itself synchronously

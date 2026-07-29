@@ -73,12 +73,11 @@ func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, mcpUR
 }
 
 func TestMCPServerAuthZ(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	compose, down := composeUpWithMCP(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil, true)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
@@ -132,12 +131,11 @@ func TestMCPServerAuthZ(t *testing.T) {
 // but only collection-scoped data permissions cannot access collections they
 // are not authorized for via MCP tools (search, upsert, get-config).
 func TestMCPServerCollectionLevelAuthZ(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	compose, down := composeUpWithMCP(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil, true)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
@@ -312,17 +310,13 @@ func TestMCPServerCollectionLevelAuthZ(t *testing.T) {
 // are enforced independently: a read-only user cannot upsert, and a write-only
 // user cannot search or list collections.
 func TestMCPPermissionSeparation(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	readUser := "read-user"
 	readKey := "read-key"
 	writeUser := "write-user"
 	writeKey := "write-key"
 
-	compose, down := composeUpWithMCP(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{readUser: readKey, writeUser: writeKey},
-		nil, true)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
@@ -458,17 +452,13 @@ func TestMCPPermissionSeparation(t *testing.T) {
 // read_mcp + read_tenants — not read_data. A pre-fix CollectionsData
 // pre-check would have denied the read_tenants-only role.
 func TestMCPTenantsListAuthZ(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	tenantReadUser := "tenant-read-user"
 	tenantReadKey := "tenant-read-key"
 	mcpOnlyUser := "mcp-only-user"
 	mcpOnlyKey := "mcp-only-key"
 
-	compose, down := composeUpWithMCP(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{tenantReadUser: tenantReadKey, mcpOnlyUser: mcpOnlyKey},
-		nil, true)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())

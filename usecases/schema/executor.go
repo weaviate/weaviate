@@ -125,6 +125,10 @@ func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode
 	return e.migrator.DropShard(ctx, class, shard)
 }
 
+func (e *executor) ReconcileAsyncReplicationForShard(class string, shard string) error {
+	return e.migrator.ReconcileAsyncReplicationForShard(context.Background(), class, shard)
+}
+
 func (e *executor) LoadShard(class string, shard string) {
 	ctx := context.Background()
 	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {

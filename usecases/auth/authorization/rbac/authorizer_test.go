@@ -878,15 +878,11 @@ func TestAudit_NamespaceFields_DenyPath(t *testing.T) {
 	require.False(t, hasGlobal)
 }
 
-// TestAudit_MalformedPrincipal_DefaultsToGlobalAndWarns covers the
-// defense-in-depth branch in auditFields: an namespace enabled cluster receiving
-// a principal with neither IsGlobalOperator nor Namespace set still emits
-// global_operator=true on the audit entry (audit invariant: exactly one
-// of the two top-level fields is present), and a Warn-level entry surfaces
-// to flag the producer-side drift. Upstream classification prevents this
-// in normal operation; this guards against future producers forgetting
-// to classify.
-func TestAudit_MalformedPrincipal_DefaultsToGlobalAndWarns(t *testing.T) {
+// TestAudit_MalformedPrincipal_MarksUnclassifiedAndWarns covers the
+// drift branch in auditFields: on a namespace enabled cluster a principal with
+// neither IsGlobalOperator nor Namespace set is labeled unclassified=true (not
+// global_operator) and a Warn-level entry surfaces the producer-side drift.
+func TestAudit_MalformedPrincipal_MarksUnclassifiedAndWarns(t *testing.T) {
 	logger, hook := test.NewNullLogger()
 	m, err := setupNSEnabledTestManager(t, logger)
 	require.NoError(t, err)
@@ -914,10 +910,12 @@ func TestAudit_MalformedPrincipal_DefaultsToGlobalAndWarns(t *testing.T) {
 		}
 	}
 	require.NotNil(t, warnEntry, "warn must surface for misclassified principal")
-	require.Contains(t, warnEntry.Message, "missing namespace and global classification")
+	require.Contains(t, warnEntry.Message, "missing namespace and global-operator classification")
 
 	require.NotNil(t, infoEntry, "audit info entry must still be emitted")
-	require.Equal(t, true, infoEntry.Data["global_operator"])
+	require.Equal(t, true, infoEntry.Data["unclassified"])
+	_, hasGlobal := infoEntry.Data["global_operator"]
+	require.False(t, hasGlobal, "unclassified principal must not be labeled global_operator")
 	_, hasNS := infoEntry.Data["namespace"]
 	require.False(t, hasNS)
 }

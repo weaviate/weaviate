@@ -15,9 +15,9 @@ package authz
 
 import (
 	authentication "github.com/weaviate/weaviate/usecases/auth/authentication"
-	apikey "github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
 	authorization "github.com/weaviate/weaviate/usecases/auth/authorization"
+
+	dbuser "github.com/weaviate/weaviate/entities/dbuser"
 
 	mock "github.com/stretchr/testify/mock"
 )
@@ -319,7 +319,7 @@ func (_c *MockControllerAndGetUsers_GetRolesForUserOrGroup_Call) RunAndReturn(ru
 }
 
 // GetUsers provides a mock function with given fields: userIds
-func (_m *MockControllerAndGetUsers) GetUsers(userIds ...string) (map[string]*apikey.User, error) {
+func (_m *MockControllerAndGetUsers) GetUsers(userIds ...string) (map[string]dbuser.View, error) {
 	_va := make([]interface{}, len(userIds))
 	for _i := range userIds {
 		_va[_i] = userIds[_i]
@@ -332,16 +332,16 @@ func (_m *MockControllerAndGetUsers) GetUsers(userIds ...string) (map[string]*ap
 		panic("no return value specified for GetUsers")
 	}
 
-	var r0 map[string]*apikey.User
+	var r0 map[string]dbuser.View
 	var r1 error
-	if rf, ok := ret.Get(0).(func(...string) (map[string]*apikey.User, error)); ok {
+	if rf, ok := ret.Get(0).(func(...string) (map[string]dbuser.View, error)); ok {
 		return rf(userIds...)
 	}
-	if rf, ok := ret.Get(0).(func(...string) map[string]*apikey.User); ok {
+	if rf, ok := ret.Get(0).(func(...string) map[string]dbuser.View); ok {
 		r0 = rf(userIds...)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[string]*apikey.User)
+			r0 = ret.Get(0).(map[string]dbuser.View)
 		}
 	}
 
@@ -379,12 +379,12 @@ func (_c *MockControllerAndGetUsers_GetUsers_Call) Run(run func(userIds ...strin
 	return _c
 }
 
-func (_c *MockControllerAndGetUsers_GetUsers_Call) Return(_a0 map[string]*apikey.User, _a1 error) *MockControllerAndGetUsers_GetUsers_Call {
+func (_c *MockControllerAndGetUsers_GetUsers_Call) Return(_a0 map[string]dbuser.View, _a1 error) *MockControllerAndGetUsers_GetUsers_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockControllerAndGetUsers_GetUsers_Call) RunAndReturn(run func(...string) (map[string]*apikey.User, error)) *MockControllerAndGetUsers_GetUsers_Call {
+func (_c *MockControllerAndGetUsers_GetUsers_Call) RunAndReturn(run func(...string) (map[string]dbuser.View, error)) *MockControllerAndGetUsers_GetUsers_Call {
 	_c.Call.Return(run)
 	return _c
 }

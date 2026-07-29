@@ -47,6 +47,26 @@ func newStartedTestScheduler(t *testing.T, workers int) *AsyncReplicationSchedul
 	return sched
 }
 
+// withAsyncSchedulerDispatchDisabled installs a scheduler that Registers shards
+// but never dispatches a cycle, so tests need no stubbed replicator/router.
+func withAsyncSchedulerDispatchDisabled(t *testing.T) func(*Index) {
+	t.Helper()
+	return func(idx *Index) {
+		logger, _ := test.NewNullLogger()
+		sched, err := NewAsyncReplicationScheduler(
+			context.Background(),
+			replication.GlobalConfig{
+				AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+				AsyncReplicationDisabled:         configRuntime.NewDynamicValue(true),
+			},
+			nil, logger,
+		)
+		require.NoError(t, err)
+		t.Cleanup(sched.Close)
+		idx.asyncReplicationScheduler = sched
+	}
+}
+
 // firstShard extracts the single shard from an Index created by testShard.
 func firstShard(t *testing.T, idx *Index) *Shard {
 	t.Helper()
@@ -129,6 +149,43 @@ func TestAsyncSchedulerRegistrationIdempotent(t *testing.T) {
 
 	require.NoError(t, sched.Deregister(s))
 	s.asyncRepWg.Wait()
+}
+
+// TestIndexCompareHashTreeRoots: a shard diverges iff its local root was read and
+// differs; missing/uninitialised roots are omitted.
+func TestIndexCompareHashTreeRoots(t *testing.T) {
+	ctx := context.Background()
+	_, idx := testShard(t, ctx, "CompareRootsClass")
+	s := firstShard(t, idx)
+	prepareShardForScheduler(t, s)
+	shardName := s.name
+	localRoot := s.hashtree.Root()
+
+	t.Run("equal root is omitted", func(t *testing.T) {
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Empty(t, div)
+	})
+
+	t.Run("differing root is diverging", func(t *testing.T) {
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: {99, 99}})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div)
+	})
+
+	t.Run("unknown shard is omitted", func(t *testing.T) {
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{"no-such-shard": {1, 2}})
+		require.NoError(t, err)
+		assert.Empty(t, div)
+	})
+
+	t.Run("uninitialised hashtree is omitted", func(t *testing.T) {
+		s.hashtreeFullyInitialized = false
+		defer func() { s.hashtreeFullyInitialized = true }()
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Empty(t, div)
+	})
 }
 
 // TestAsyncSchedulerDeregistrationIdempotent verifies that deregistering a

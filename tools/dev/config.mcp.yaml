@@ -30,7 +30,7 @@ tools:
     arguments:
       query: "The natural language search query to find relevant objects."
       collection_name: "The name of the collection to search in."
-      alpha: "Controls the balance between vector and keyword search: 0.0 = pure keyword (BM25), 1.0 = pure vector, 0.5 = equal weight (default)."
+      alpha: "Controls the balance between vector and keyword search: 0.0 = pure keyword (BM25), 1.0 = pure vector. Default is 0.75 (vector-leaning)."
 
   weaviate-objects-upsert:
     description: "Upserts (inserts or updates) one or more objects into a collection in batch. Supports efficient bulk operations - provide an array of objects to insert or update multiple objects at once. Each object can optionally specify a UUID; if provided and exists, the object is updated, otherwise a new object is created. Returns results for each object including success/failure status and generated UUIDs. Use this for adding or modifying data in Weaviate collections."

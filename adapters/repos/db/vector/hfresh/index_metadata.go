@@ -40,14 +40,21 @@ const (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 var (
-	indexMetadataBucketPrefix  = []byte{sharedBucketVersionV1, 0}
-	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
-	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
+	indexMetadataBucketPrefix = []byte{sharedBucketVersionV1, 0}
+	versionMapBucketPrefix    = []byte{sharedBucketVersionV1, 1}
+	// postingMapBucketPrefixV1 is migrated to postingMapBucketPrefixV2 by migratePostingMapV1ToV2.
+	postingMapBucketPrefixV1   = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
+	// reassignBucketKey is a legacy shared-bucket key used by the old persisted
+	// reassign deduplicator. It is intentionally reserved forever so no future
+	// metadata can accidentally read stale reassign blobs as a different format.
+	// New code must not write to this key.
+	reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
+	// postingMapBucketPrefixV2 stores posting IDs without vector version bytes.
+	postingMapBucketPrefixV2 = []byte{sharedBucketVersionV1, 5}
+	// postingSizesBucketPrefix was added with postingMapBucketPrefixV2.
+	postingSizesBucketPrefix = []byte{sharedBucketVersionV1, 6}
 )
-
-// reassignBucketKey is used to track vectors that need to be reassigned to new postings.
-var reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
@@ -61,11 +68,33 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmk
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
-	return store.Bucket(bName), nil
+	bucket := store.Bucket(bName)
+	err = cleanupLegacyReassignBucket(bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	return bucket, nil
 }
 
 func sharedBucketName(id string) string {
 	return fmt.Sprintf("hfresh_shared_%s", id)
+}
+
+func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
+	exists, err := bucket.Exists(reassignBucketKey)
+	if err != nil {
+		return errors.Wrap(err, "check legacy reassign bucket key")
+	}
+	if !exists {
+		return nil
+	}
+
+	err = bucket.Delete(reassignBucketKey)
+	if err != nil {
+		return errors.Wrap(err, "delete legacy reassign bucket key")
+	}
+	return nil
 }
 
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
@@ -148,7 +177,13 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 
+	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
+		return err
+	}
 	if err := h.PostingMap.Restore(h.ctx); err != nil {
+		return err
+	}
+	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
 
@@ -166,8 +201,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 		return nil
 	}
 
-	atomic.StoreUint32(&h.dims, dims)
-	if err := h.setMaxPostingSize(); err != nil {
+	if err := h.setMaxPostingSize(dims); err != nil {
 		return err
 	}
 
@@ -184,7 +218,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 		// Dimensions were persisted but quantization data was not (e.g. crash
 		// between persisting dimensions and quantization data). Re-create the
 		// quantizer from scratch.
-		quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
+		quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(dims), 42, h.config.DistanceProvider)
 		if err != nil {
 			return errors.Wrap(err, "could not create quantizer")
 		}
@@ -197,6 +231,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 	}
 
 	h.initDone = true
+	atomic.StoreUint32(&h.dims, dims)
 	return nil
 }
 
@@ -221,7 +256,7 @@ func (h *HFresh) restoreMetrics() error {
 	h.metrics.SetPendingReassignTasks(reassignCount)
 	h.metrics.SetPendingAnalyzeTasks(analyzeCount)
 
-	postingsCount := h.PostingMap.Size()
+	postingsCount := int(h.PostingSizes.Count())
 	h.Centroids.counter.Store(int32(postingsCount))
 	h.metrics.SetPostings(postingsCount)
 

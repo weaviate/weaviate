@@ -35,6 +35,10 @@ type Selector interface {
 	ListClasses(ctx context.Context) []string
 	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
 	IsMultiTenant(ctx context.Context, className string) bool
+
+	// IsAsyncReplicationEnabled reports whether async replication is active or
+	// irrelevant for the class. It also returns false when the class has no
+	// local index, so a false result is not necessarily a config problem.
 	IsAsyncReplicationEnabled(ctx context.Context, className string) bool
 
 	// SnapshotShards creates point-in-time snapshots of the objects buckets

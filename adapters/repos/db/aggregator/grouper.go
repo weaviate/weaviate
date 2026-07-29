@@ -198,7 +198,11 @@ func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 		}
 	case models.MultipleRef:
 		for i := range val {
-			g.addItem(val[i].Beacon, docID)
+			// Emit a plain string, not strfmt.URI: remote shards JSON-decode
+			// the beacon back to string while local shards keep the named
+			// type, and the two are unequal interface keys — so ShardCombiner
+			// would split one ref target into two buckets with halved counts.
+			g.addItem(string(val[i].Beacon), docID)
 		}
 	default:
 		g.addItem(val, docID)

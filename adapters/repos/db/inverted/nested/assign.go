@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -119,6 +120,14 @@ func AssignPositions(prop *models.Property, value any) (*AssignResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("walk element %d of %q: %w", i, prop.Name, err)
 		}
+
+		// Root-level _idx entry: records which positions belong to root element i.
+		// Required for arr[N] positional filtering (e.g. "addresses[1].city = X").
+		result.Idx = append(result.Idx, IdxEntry{
+			Path:      "",
+			Index:     i,
+			Positions: elemPositions,
+		})
 
 		allPositions = append(allPositions, elemPositions...)
 	}
@@ -381,9 +390,13 @@ func (w *walker) walkScalarArray(path string, dt schema.DataType,
 	return allPositions, nil
 }
 
+// joinPath concatenates prefix + separator + name without the
+// []string + strings.Join allocation that filnested.JoinPath incurs.
+// Called once per NestedProperty per object during nested write
+// analysis, so the per-call alloc adds up on heavy ingest.
 func joinPath(prefix, name string) string {
 	if prefix == "" {
 		return name
 	}
-	return prefix + "." + name
+	return prefix + filnested.PathSep + name
 }

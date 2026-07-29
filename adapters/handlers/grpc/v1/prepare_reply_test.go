@@ -1329,7 +1329,8 @@ func TestGRPCReply(t *testing.T) {
 	for _, tt := range tests {
 		replier := NewReplier(false, fakeGenerativeParams{}, nil, nil)
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
+			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, newSchemaResolver(getClass))
 			if tt.hasError {
 				require.NotNil(t, err)
 			} else {
@@ -1421,9 +1422,75 @@ func TestTargetCollectionStripping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
 			replier := NewReplier(false, fakeGenerativeParams{}, tc.principal, nil)
 			got, err := replier.extractPropertiesAnswer(
-				scheme,
+				newSchemaResolver(getClass),
+				map[string]interface{}{},
+				search.SelectProperties{}, // no properties → no schema walk needed
+				tc.className,
+				additional.Properties{},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, tc.want, got.TargetCollection)
+		})
+	}
+}
+
+// TestRefTargetCollectionStripping pins parity between
+// extractRefPropertiesAnswer and extractPropertiesAnswer: both must apply
+// StripOwnNamespace to the target class.
+func TestRefTargetCollectionStripping(t *testing.T) {
+	namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
+	global := &models.Principal{Username: "admin", IsGlobalOperator: true}
+
+	scheme := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{Class: "customer1:Animal"},
+				{Class: "Animal"},
+			},
+		},
+	}
+
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		className string
+		want      string
+	}{
+		{
+			name:      "namespaced caller: nested ref class stripped to short form",
+			principal: namespaced,
+			className: "customer1:Animal",
+			want:      "Animal",
+		},
+		{
+			name:      "global caller: nested ref class echoed qualified",
+			principal: global,
+			className: "customer1:Animal",
+			want:      "customer1:Animal",
+		},
+		{
+			name:      "nil principal: passthrough",
+			principal: nil,
+			className: "Animal",
+			want:      "Animal",
+		},
+		{
+			name:      "namespaced caller, foreign-NS nested ref class: prefix preserved",
+			principal: namespaced,
+			className: "customer2:Animal",
+			want:      "customer2:Animal",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			replier := NewReplier(false, fakeGenerativeParams{}, tc.principal, nil)
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
+			got, err := replier.extractRefPropertiesAnswer(
+				newSchemaResolver(getClass),
 				map[string]interface{}{},
 				search.SelectProperties{}, // no properties → no schema walk needed
 				tc.className,

@@ -20,66 +20,20 @@ package compaction_test
 import (
 	"context"
 	"fmt"
-	"math/rand"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/compactions"
 )
 
-const (
-	collection      = "CompactionTest"
-	objectsPerBatch = 200
-	textSize        = 2_000 // 200 obj × 2 KB ≈ 400 KB/batch; keeps property_text growing
-)
-
-// randomText generates a string of approximately n ASCII characters composed
-// of space-separated lowercase words, ensuring each object has unique tokens.
-func randomText(n int) string {
-	var sb strings.Builder
-	sb.Grow(n)
-	words := []string{
-		"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta",
-		"theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi",
-		"rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega",
-	}
-	for sb.Len() < n {
-		w := words[rand.Intn(len(words))]
-		sb.WriteString(w)
-		sb.WriteByte(' ')
-	}
-	return sb.String()[:n]
-}
-
-// importBatch inserts objectsPerBatch objects into the collection.
-func importBatch(t *testing.T) {
-	t.Helper()
-	objects := make([]*models.Object, objectsPerBatch)
-	for i := range objects {
-		objects[i] = &models.Object{
-			Class: collection,
-			ID:    strfmt.UUID(uuid.New().String()),
-			Properties: map[string]interface{}{
-				"text": randomText(textSize),
-			},
-		}
-	}
-	params := batch.NewBatchObjectsCreateParams().
-		WithBody(batch.BatchObjectsCreateBody{Objects: objects})
-	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-}
+const collection = "CompactionTest"
 
 // getShardName returns the first shard name for the collection.
 func getShardName(t *testing.T) string {
@@ -129,14 +83,14 @@ func TestAsyncDeletion_CrashRecovery(t *testing.T) {
 	// Import until the shard appears on disk
 	var shardName string
 	require.Eventually(t, func() bool {
-		importBatch(t)
+		compactions.ImportBatch(t, collection)
 		shardName = getShardName(t)
 		return shardName != ""
 	}, 60*time.Second, 2*time.Second, "shard never appeared")
 
 	// Hold a consistent view on the objects bucket as soon as the first segment appears
 	require.Eventually(t, func() bool {
-		return totalSegmentFileCount(ctx, container, collection, shardName, "objects") >= 1
+		return compactions.TotalSegmentFileCount(ctx, container, collection, shardName, "objects") >= 1
 	}, 60*time.Second, time.Second, "no segment appeared in objects bucket")
 
 	holdView(t, debugURI, collection, shardName, "objects")
@@ -145,21 +99,21 @@ func TestAsyncDeletion_CrashRecovery(t *testing.T) {
 	// evidenced by .deleteme files persisting on disk.  The ref-counted segment group
 	// renames segments to .deleteme but cannot unlink them while refs are held.
 	require.Eventually(t, func() bool {
-		importBatch(t)
-		count := totalSegmentFileCount(ctx, container, collection, shardName, "objects")
-		deleteme := countDeletemeSegments(ctx, container, collection, shardName, "objects")
+		compactions.ImportBatch(t, collection)
+		count := compactions.TotalSegmentFileCount(ctx, container, collection, shardName, "objects")
+		deleteme := compactions.CountDeletemeSegments(ctx, container, collection, shardName, "objects")
 		fmt.Printf("  [poll] objects total=%d  deleteme=%d\n", count, deleteme)
 		return deleteme >= 2
 	}, 3*time.Minute, 2*time.Second, "no .deleteme files appeared in objects bucket")
 
 	// Wait for the compaction cycle to quiesce across both buckets.
 	require.Eventually(t, func() bool {
-		return isStable(ctx, container, collection, shardName, []string{"objects", "property_text"})
+		return compactions.IsStable(ctx, container, collection, shardName, []string{"objects", "property_text"})
 	}, 3*time.Minute, 5*time.Second, "LSM tree did not stabilise after importing")
 
 	// While the view is held, non-blocking deletion should have left .deleteme files
 	// because the ref-counted segment group cannot unlink files with pinned refs.
-	deletemeCount := countDeletemeSegments(ctx, container, collection, shardName, "objects")
+	deletemeCount := compactions.CountDeletemeSegments(ctx, container, collection, shardName, "objects")
 	assert.Greater(t, deletemeCount, 0,
 		"expected .deleteme files to accumulate while a consistent view is held")
 
@@ -176,7 +130,7 @@ func TestAsyncDeletion_CrashRecovery(t *testing.T) {
 	// all .deleteme files. Use Eventually because the cleanup runs asynchronously
 	// and may not have completed immediately after the node becomes ready.
 	require.Eventually(t, func() bool {
-		deletemeAfter := countDeletemeSegments(ctx, container, collection, shardName, "objects")
+		deletemeAfter := compactions.CountDeletemeSegments(ctx, container, collection, shardName, "objects")
 		fmt.Printf("  [poll] post-restart deleteme=%d\n", deletemeAfter)
 		return deletemeAfter == 0
 	}, 60*time.Second, 2*time.Second, "startup cleanup must remove all .deleteme files")

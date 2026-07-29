@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
 	"sync"
 	"time"
@@ -28,16 +29,18 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type restorer struct {
-	node           string // node name
-	logger         logrus.FieldLogger
-	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
-	dynUserSourcer fsm.Snapshotter
-	backends       BackupBackendProvider
+	node              string // node name
+	logger            logrus.FieldLogger
+	sourcer           Sourcer
+	rbacSourcer       fsm.Snapshotter
+	dynUserSourcer    dynUserSnapshotter
+	backends          BackupBackendProvider
+	namespacesEnabled bool
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -48,17 +51,18 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter,
-	backends BackupBackendProvider,
+	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter,
+	backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
 	return &restorer{
-		node:           node,
-		logger:         logger,
-		sourcer:        sourcer,
-		rbacSourcer:    rbacSourcer,
-		dynUserSourcer: dynUserSourcer,
-		backends:       backends,
-		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		node:              node,
+		logger:            logger,
+		sourcer:           sourcer,
+		rbacSourcer:       rbacSourcer,
+		dynUserSourcer:    dynUserSourcer,
+		backends:          backends,
+		namespacesEnabled: namespacesEnabled,
+		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
@@ -67,10 +71,7 @@ func (r *restorer) restore(
 	desc *backup.BackupDescriptor,
 	store nodeStore,
 ) (CanCommitResponse, error) {
-	expiration := req.Duration
-	if expiration > _TimeoutShardCommit {
-		expiration = _TimeoutShardCommit
-	}
+	expiration := min(req.Duration, _TimeoutShardCommit)
 	ret := CanCommitResponse{
 		Method:  OpCreate,
 		ID:      req.ID,
@@ -99,7 +100,9 @@ func (r *restorer) restore(
 			StartedAt: time.Now().UTC(),
 			Status:    backup.Transferring,
 		}
+		backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessRestore)
 		defer func() {
+			backgroundDone()
 			status.CompletedAt = time.Now().UTC()
 			if err == nil {
 				status.Status = backup.Success
@@ -110,6 +113,7 @@ func (r *restorer) restore(
 					status.Status = backup.Cancelled
 				} else {
 					status.Status = backup.Failed
+					monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessRestore)
 				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
@@ -131,7 +135,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption, !r.namespacesEnabled)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -149,9 +153,9 @@ func (r *restorer) restore(
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+	stripNamespaces bool,
 ) error {
 	compressionType := desc.GetCompressionType()
-	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
 	// Check for cancellation before starting restore operations
@@ -161,8 +165,8 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	if r.dynUserSourcer != nil && len(desc.UserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		if err := r.dynUserSourcer.Restore(desc.UserBackups); err != nil {
-			return fmt.Errorf("restore rbac: %w", err)
+		if err := r.dynUserSourcer.Restore(desc.UserBackups, stripNamespaces); err != nil {
+			return fmt.Errorf("restore users: %w", err)
 		}
 		// Check for cancellation after User restore
 		if err := ctx.Err(); err != nil {
@@ -188,7 +192,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -213,8 +217,9 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
-	compressed bool, cpuPercentage int, store nodeStore,
+	cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
+	stripNamespaces bool,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -226,7 +231,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		defer timer.ObserveDuration()
 	}
 
-	fw := newFileWriter(r.sourcer, store, compressed, r.logger).
+	fw := newFileWriter(r.sourcer, store, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
 	// Pre-v1.23 versions store files in a flat format
@@ -238,7 +243,15 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, overrideBucket, overridePath, compressionType); err != nil {
+	// Local staging dir uses the post-strip name so the RAFT-applied
+	// RestoreClassDir (sees the stripped class.Class) finds the files.
+	// Object-storage chunk paths keep desc.Name — see fileWriter.Write.
+	materializedName := desc.Name
+	if stripNamespaces {
+		materializedName = namespacing.StripQualification(desc.Name)
+	}
+
+	if err := fw.Write(ctx, desc, materializedName, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 
@@ -264,7 +277,7 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 
 func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
 	destPath := store.HomeDir(req.Bucket, req.Path)
-	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path, true)
+	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {
@@ -273,17 +286,18 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, nil, fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
+			req.ID, path.Join(destPath, BackupFile), meta.ID, destPath)
 	}
 	if meta.Status != backup.Success {
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}
-	if err := meta.Validate(meta.Version > version1); err != nil {
-		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
+	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
+		return nil, nil, err
 	}
-	if v := meta.Version; v[0] > Version[0] {
-		return nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+	if err := meta.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
 	cs := meta.List()
 	if len(req.Classes) > 0 {

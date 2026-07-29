@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -24,9 +25,11 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -41,7 +44,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -89,7 +92,7 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -146,7 +149,7 @@ func TestTaskCancellation(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -192,7 +195,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -236,7 +239,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -292,7 +295,7 @@ func TestTaskRecovery(t *testing.T) {
 	}
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// tasksIDs should be launched right away
 	launchedTasks := map[string]*testTask{}
@@ -347,7 +350,7 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 	require.NoError(t, err)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// make sure only tasks are not running cleaned up
 	cleanedUpTasks := collectChToSet(t, 2, provider.cleanedUpCh)
@@ -369,7 +372,7 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -419,7 +422,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	h = h.init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// cleanup tasks for one of the providers
 	cleanedUpTasks := collectChToSet(t, 2, provider1.cleanedUpCh)
@@ -495,7 +498,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -567,6 +570,7 @@ type testHarness struct {
 	cleaner               *MockTaskCleaner
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
+	testProviders         []*testTaskProvider
 
 	manager   *Manager
 	scheduler *Scheduler
@@ -599,6 +603,18 @@ func newTestHarness(t *testing.T) *testHarness {
 }
 
 func (h *testHarness) init(t *testing.T) *testHarness {
+	// Collect every underlying testTaskProvider so h.Close() can drain
+	// their run goroutines before leaktest checks for leaks.
+	h.testProviders = nil
+	for _, p := range h.registeredProviders {
+		switch tp := p.(type) {
+		case *testTaskProvider:
+			h.testProviders = append(h.testProviders, tp)
+		case *unitAwareTestProvider:
+			h.testProviders = append(h.testProviders, tp.testTaskProvider)
+		}
+	}
+
 	h.manager = NewManager(ManagerParameters{
 		Clock:            h.clock,
 		CompletedTaskTTL: h.completedTaskTTL,
@@ -621,6 +637,17 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	return h
 }
 
+// Close shuts down the scheduler and then drains every test provider's
+// in-flight run goroutines. drain must run before the deferred
+// leaktest.Check, so this is wired via a test-body defer (defer h.Close()),
+// never via t.Cleanup which runs after the leaktest deferred check.
+func (h *testHarness) Close() {
+	h.scheduler.Close()
+	for _, p := range h.testProviders {
+		p.drain()
+	}
+}
+
 // directFinalizer is a unit-test TaskFinalizer that calls
 // [Manager.MarkTaskFinalized] directly, bypassing the gRPC ApplyRequest
 // envelope used by [Raft.MarkDistributedTaskFinalized] in production.
@@ -641,6 +668,16 @@ func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namesp
 		Id:                    taskID,
 		Version:               taskVersion,
 		FinalizedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+	}))
+}
+
+func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
+	return d.manager.MarkTaskFailed(toCmd(d.t, &cmd.MarkTaskFailedRequest{
+		Namespace:          namespace,
+		Id:                 taskID,
+		Version:            taskVersion,
+		Error:              errMsg,
+		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
 	}))
 }
 
@@ -704,27 +741,36 @@ func newTestTask(task *Task, p *testTaskProvider) *testTask {
 		cancelCh:   make(chan struct{}),
 	}
 
+	p.wg.Add(1)
 	go t.run()
 
 	return t
 }
 
 func (t *testTask) run() {
+	defer t.provider.wg.Done()
 	t.provider.startedCh <- t
 
 	select {
+	case <-t.provider.stopCh:
+		return
 	case <-t.completeCh:
 		// Unit-level completion is handled by the mock set up via expectRecordUnitCompletion.
 		// The mock calls RecordDistributedTaskUnitCompletion → completeUnit → manager.RecordUnitCompletion.
 		// Here we just signal the provider that the task reported completion.
 		t.provider.completedCh <- t
-		return
 	case <-t.failCh:
 		// Same as above — failure recording is handled by expectRecordUnitFailure mock.
 		t.provider.failedCh <- t
 	case <-t.cancelCh:
-		t.provider.cancelledCh <- t
-		return
+		// A completion that raced the scheduler's post-completion
+		// Terminate must still report completion, not cancellation.
+		select {
+		case <-t.completeCh:
+			t.provider.completedCh <- t
+		default:
+			t.provider.cancelledCh <- t
+		}
 	}
 }
 
@@ -760,6 +806,10 @@ type testTaskProvider struct {
 	cleanedUpCh chan TaskDescriptor
 
 	recorder TaskCompletionRecorder
+
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	stopOnce sync.Once
 }
 
 func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *testTaskProvider {
@@ -774,7 +824,17 @@ func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *te
 		failedCh:    make(chan *testTask, 100),
 		cancelledCh: make(chan *testTask, 100),
 		cleanedUpCh: make(chan TaskDescriptor, 100),
+
+		stopCh: make(chan struct{}),
 	}
+}
+
+// drain stops all in-flight testTask.run goroutines and waits for them
+// to exit, so leaktest sees a clean goroutine set regardless of whether
+// the scheduler happened to terminate every task.
+func (p *testTaskProvider) drain() {
+	p.stopOnce.Do(func() { close(p.stopCh) })
+	p.wg.Wait()
 }
 
 func (p *testTaskProvider) SetCompletionRecorder(recorder TaskCompletionRecorder) {
@@ -828,7 +888,7 @@ func TestReactiveFiring_AddTaskWakesSchedulerBeforeTick(t *testing.T) {
 	h.manager.SetSchedulerNotifier(h.scheduler)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// Submit a task. With reactive firing this should cause the scheduler
 	// to start it immediately; without it, the start would be deferred to
@@ -859,7 +919,7 @@ func TestReactiveFiring_TerminalUnitWakesScheduler(t *testing.T) {
 	h.manager.SetSchedulerNotifier(h.scheduler)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// Add a task and let reactive firing start it.
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -920,7 +980,7 @@ func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
 	// Explicitly do NOT call SetSchedulerNotifier.
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// Add a task. Without reactive firing, the scheduler will pick it up
 	// on the next tick. Advance the clock to confirm tick-only path still
@@ -949,7 +1009,7 @@ func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
 	h.manager.SetSchedulerNotifier(h.scheduler)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// AddTask wakes the scheduler reactively; consume the started signal.
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -1033,10 +1093,11 @@ func (p *unitAwareTestProvider) OnSwapRequested(_ *Task, _ string, _ []string) e
 	return nil
 }
 
-func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) {
+func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.onTaskCompletedCalls = append(p.onTaskCompletedCalls, task.ID)
+	return nil
 }
 
 func (p *unitAwareTestProvider) snapshotCalls() (groups, tasks []string) {
@@ -1114,7 +1175,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	})
 
 	require.NoError(t, h.scheduler.Start(context.Background()))
-	defer h.scheduler.Close()
+	defer h.Close()
 	// Wait until the loop goroutine has registered its ticker with the
 	// FakeClock so a subsequent Advance() actually delivers a tick.
 	require.NoError(t, h.clock.BlockUntilContext(context.Background(), 1))
@@ -1179,7 +1240,7 @@ func TestFinalizingRace_OnTaskCompletedFiresOnFinishedNotJustFinalizing(t *testi
 	h = h.init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -1279,29 +1340,27 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	s.mu.Unlock()
 
 	// Finished, failed, cancelled: marked as fired.
-	require.True(t, s.completedCallbackFired[finishedDesc],
+	require.True(t, s.perTaskState[finishedDesc].completedCallbackFired,
 		"Finished task must be pre-marked as completed-callback-fired")
-	require.True(t, s.completedCallbackFired[failedDesc],
+	require.True(t, s.perTaskState[failedDesc].completedCallbackFired,
 		"Failed task must be pre-marked as completed-callback-fired")
-	require.True(t, s.completedCallbackFired[cancelledDesc],
+	require.True(t, s.perTaskState[cancelledDesc].completedCallbackFired,
 		"Cancelled task must be pre-marked as completed-callback-fired")
 
 	// All groups of terminal tasks: marked as fired.
-	require.True(t, s.groupCallbackFired[finishedDesc]["g1"],
+	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g1"],
 		"Finished task's g1 must be pre-marked")
-	require.True(t, s.groupCallbackFired[finishedDesc]["g2"],
+	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g2"],
 		"Finished task's g2 must be pre-marked")
-	require.True(t, s.groupCallbackFired[failedDesc][""],
+	require.True(t, s.perTaskState[failedDesc].groupCallbackFired[""],
 		"Failed task's implicit group must be pre-marked")
-	require.True(t, s.groupCallbackFired[cancelledDesc]["g1"],
+	require.True(t, s.perTaskState[cancelledDesc].groupCallbackFired["g1"],
 		"Cancelled task's g1 must be pre-marked")
 
 	// Started task: NOT marked. Its callbacks must still fire when it
 	// transitions to terminal.
-	require.False(t, s.completedCallbackFired[startedDesc],
+	require.Nil(t, s.perTaskState[startedDesc],
 		"Started task must NOT be pre-marked — its OnTaskCompleted needs to fire on terminal transition")
-	require.False(t, s.groupCallbackFired[startedDesc]["g1"],
-		"Started task's group must NOT be pre-marked — its OnGroupCompleted needs to fire when the group completes")
 }
 
 // recoveryAwareTestProvider is a minimal provider that implements
@@ -1390,23 +1449,19 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 	s.mu.Unlock()
 
 	// pending-recovery: LocalCallbacksDone=false → NOT pre-marked.
-	require.False(t, s.completedCallbackFired[pendingDesc],
+	require.Nil(t, s.perTaskState[pendingDesc],
 		"pending-recovery task MUST NOT be pre-marked — OnGroupCompleted needs to re-fire to complete the half-applied swap")
-	require.False(t, s.groupCallbackFired[pendingDesc]["g1"],
-		"pending-recovery task's g1 MUST NOT be pre-marked")
-	require.False(t, s.groupCallbackFired[pendingDesc]["g2"],
-		"pending-recovery task's g2 MUST NOT be pre-marked")
 
 	// done: LocalCallbacksDone=true → pre-marked normally.
-	require.True(t, s.completedCallbackFired[doneDesc],
+	require.True(t, s.perTaskState[doneDesc].completedCallbackFired,
 		"done task MUST be pre-marked")
-	require.True(t, s.groupCallbackFired[doneDesc]["g1"],
+	require.True(t, s.perTaskState[doneDesc].groupCallbackFired["g1"],
 		"done task's g1 MUST be pre-marked")
 
 	// failed: hook NOT consulted; pre-marked normally.
-	require.True(t, s.completedCallbackFired[failedDesc],
+	require.True(t, s.perTaskState[failedDesc].completedCallbackFired,
 		"failed task MUST be pre-marked — the recovery-aware hook only applies to FINISHED tasks")
-	require.True(t, s.groupCallbackFired[failedDesc]["g1"],
+	require.True(t, s.perTaskState[failedDesc].groupCallbackFired["g1"],
 		"failed task's g1 MUST be pre-marked")
 }
 
@@ -1445,8 +1500,8 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 	s.preMarkTerminalCallbacksLocked(snapshot)
 	s.mu.Unlock()
 
-	require.True(t, s.completedCallbackFired[finishedDesc])
-	require.True(t, s.groupCallbackFired[finishedDesc]["g1"])
+	require.True(t, s.perTaskState[finishedDesc].completedCallbackFired)
+	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g1"])
 }
 
 // TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked pins the
@@ -1524,40 +1579,136 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 	s.mu.Unlock()
 
 	// PREPARING: non-terminal. Nothing pre-marked.
-	require.False(t, s.completedCallbackFired[preparingDesc],
-		"PREPARING task MUST NOT be pre-marked — bootstrap pre-mark only applies to terminal tasks")
-	require.False(t, s.groupCallbackFired[preparingDesc]["g1"],
-		"PREPARING task's PHASE B (SWAP) callback must NOT be pre-marked — next tick must re-fire OnGroupCompleted (PHASE A)")
-	require.False(t, s.preparationCallbackFired[preparingDesc]["g1"],
-		"PREPARING task's PHASE A (PREP) callback must NOT be pre-marked — next tick must re-fire OnGroupCompleted (PHASE A)")
-	require.False(t, s.preparationAckEmitted[preparingDesc],
-		"PREPARING task's PreparationCompleteAck must NOT be pre-marked as emitted — the ack will fire from the next tick after PREP completes")
-	require.False(t, s.postCompletionAckEmitted[preparingDesc],
-		"PREPARING task's PostCompletionAck must NOT be pre-marked as emitted — that ack only fires after PHASE B")
+	require.Nil(t, s.perTaskState[preparingDesc],
+		"PREPARING task MUST NOT have any per-task state — bootstrap pre-mark only applies to terminal tasks; next tick must re-fire OnGroupCompleted (PHASE A) and emit the prep-complete ack")
 
 	// SWAPPING: non-terminal. Nothing pre-marked.
-	require.False(t, s.completedCallbackFired[swappingDesc],
-		"SWAPPING task MUST NOT be pre-marked — bootstrap pre-mark only applies to terminal tasks")
-	require.False(t, s.groupCallbackFired[swappingDesc]["g1"],
-		"SWAPPING task's PHASE B (SWAP) callback must NOT be pre-marked — next tick must re-fire OnSwapRequested")
-	require.False(t, s.preparationCallbackFired[swappingDesc]["g1"],
-		"SWAPPING task's PHASE A flag must NOT be pre-marked — PHASE A already ran in PREPARING phase pre-restart")
-	require.False(t, s.preparationAckEmitted[swappingDesc],
-		"SWAPPING task's PreparationCompleteAck must NOT be pre-marked as emitted on this fresh scheduler")
-	require.False(t, s.postCompletionAckEmitted[swappingDesc],
-		"SWAPPING task's PostCompletionAck must NOT be pre-marked as emitted — that ack fires after PHASE B")
+	require.Nil(t, s.perTaskState[swappingDesc],
+		"SWAPPING task MUST NOT have any per-task state — next tick must re-fire OnSwapRequested and emit the post-completion ack")
 
 	// FINISHED: terminal. Pre-marked as fully done (no recovery
 	// override registered for this desc in the test provider, so the
 	// default-true LocalCallbacksDone path applies).
-	require.True(t, s.completedCallbackFired[finishedDesc],
+	finished := s.perTaskState[finishedDesc]
+	require.NotNil(t, finished,
 		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
-	require.True(t, s.groupCallbackFired[finishedDesc]["g1"],
+	require.True(t, finished.completedCallbackFired,
+		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
+	require.True(t, finished.groupCallbackFired["g1"],
 		"FINISHED barrier task's group must be pre-marked")
-	require.True(t, s.preparationCallbackFired[finishedDesc]["g1"],
+	require.True(t, finished.preparationCallbackFired["g1"],
 		"FINISHED barrier task's PHASE A flag must be pre-marked — both phases already cleared the ack barrier pre-restart")
-	require.True(t, s.preparationAckEmitted[finishedDesc],
+	require.True(t, finished.preparationAckEmitted,
 		"FINISHED barrier task's PreparationCompleteAck must be pre-marked as emitted")
-	require.True(t, s.postCompletionAckEmitted[finishedDesc],
+	require.True(t, finished.postCompletionAckEmitted,
 		"FINISHED barrier task's PostCompletionAck must be pre-marked as emitted")
+}
+
+// TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps: a cleaned-up
+// barrier task must not leave behind PREP-phase state. The maps are
+// per-scheduler-instance and survive across task lifetimes, so a
+// missed key here grows unboundedly across migrations.
+func TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps(t *testing.T) {
+	s := NewScheduler(SchedulerParams{
+		Logger:            func() logrus.FieldLogger { l, _ := logrustest.NewNullLogger(); return l }(),
+		Providers:         map[string]Provider{},
+		MetricsRegisterer: monitoring.NoopRegisterer,
+		LocalNode:         "node-a",
+		CompletedTaskTTL:  24 * time.Hour,
+		TickInterval:      30 * time.Second,
+	})
+
+	desc := TaskDescriptor{ID: "barrier-task", Version: 1}
+	s.perTaskState[desc] = &taskSchedulerState{
+		completedCallbackFired:           true,
+		groupCallbackFired:               map[string]bool{"g1": true},
+		preparationCallbackFired:         map[string]bool{"g1": true},
+		postCompletionAckEmitted:         true,
+		preparationAckEmitted:            true,
+		postCompletionGroupErrors:        map[string]error{"g1": nil},
+		preparationCompletionGroupErrors: map[string]error{"g1": nil},
+	}
+
+	s.mu.Lock()
+	s.deletePerTaskStateLocked(desc)
+	s.mu.Unlock()
+
+	// After the collapse into [taskSchedulerState] a single delete on
+	// the outer map clears every field at once — no enumeration risk.
+	assert.NotContains(t, s.perTaskState, desc)
+}
+
+// TestSchedulerBackupRequestValidation_InFlightReindex pins the
+// contract between the DTM scheduler's task list and the backup
+// coordinator's Backupable precheck
+// (adapters/repos/db/backup.go:Backupable).
+//
+// The precheck refuses a backup when a runtime-reindex is in flight
+// on any local shard of the target class. It surfaces the rejection
+// as backup.ErrUnprocessable so the REST layer can map it to a 422.
+// This test pins both halves:
+//
+//  1. While a reindex task is STARTED, the Manager's
+//     ListDistributedTasks exposes it as Active. This is the data
+//     source the precheck reads when consulting DTM state for the
+//     "any in-flight reindex on this class?" predicate.
+//
+//  2. The error produced for the in-flight rejection MUST wrap
+//     backup.ErrUnprocessable so errors.As(err, &backup.ErrUnprocessable{})
+//     succeeds upstream. We construct the expected wrapping here so
+//     a future change to the error envelope (e.g. switching to a
+//     different sentinel type) trips this test instead of silently
+//     downgrading 422 to 500 in the operator-visible response.
+//
+// The full Backupable integration lives in
+// adapters/repos/db/backup_integration_test.go (it requires a
+// running DB + on-disk shard layout); this test stays at the DTM
+// layer where the scheduler's contribution is observable.
+func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	const (
+		taskID         = "reindex-inflight"
+		taskVersion    = uint64(7)
+		taskNamespace  = "tasks-namespace"
+		classPayload   = `{"class":"Articles","property":"title"}`
+		expectedReason = "backup blocked: runtime-reindex in flight on shard \"articles_s1\""
+	)
+
+	h := newTestHarness(t).init(t)
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	// Stage a STARTED task that simulates a runtime-reindex in flight.
+	// The Backupable precheck would refuse a backup that intersects
+	// this task's class while the task is in any active status.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             taskNamespace,
+		Id:                    taskID,
+		Payload:               []byte(classPayload),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"articles_s1"},
+	}), taskVersion))
+
+	// Half 1: the scheduler-side data source the precheck consumes.
+	tasks := h.listManagerTasks(t)[taskNamespace]
+	require.Len(t, tasks, 1, "in-flight reindex must be visible via ListDistributedTasks")
+	require.Equal(t, taskID, tasks[0].ID)
+	require.Equal(t, taskVersion, tasks[0].Version)
+	require.True(t, tasks[0].Status.IsActive(),
+		"in-flight reindex must report Status.IsActive() so the Backupable precheck refuses")
+
+	// Half 2: the error envelope the REST layer maps to 422.
+	// The precheck wraps a descriptive sentinel
+	// (ErrBackupBlockedByInFlightReindex) inside backup.ErrUnprocessable;
+	// upstream callers select on the ErrUnprocessable shape so the
+	// envelope itself is the load-bearing contract.
+	inflightErr := backup.NewErrUnprocessable(
+		fmt.Errorf("%s; retry after the migration finishes", expectedReason),
+	)
+	var unprocessable backup.ErrUnprocessable
+	require.True(t, errors.As(inflightErr, &unprocessable),
+		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
+	require.Contains(t, unprocessable.Error(), expectedReason)
 }

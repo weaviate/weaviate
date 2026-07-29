@@ -289,7 +289,7 @@ func TestScoreResult_FilterMatch(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 1.0, float64(score), 0.001)
 }
 
@@ -298,7 +298,7 @@ func TestScoreResult_FilterNoMatch(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -307,7 +307,7 @@ func TestScoreResult_FilterMissingProperty(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -316,7 +316,7 @@ func TestScoreResult_NilSchema(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -343,7 +343,7 @@ func TestScoreResult_WeightedAverage(t *testing.T) {
 			Weight: 1.0, // doesn't match → score 0.0
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	// (2*1.0 + 1*0.0) / (2+1) = 0.6667
 	assert.InDelta(t, 0.6667, float64(score), 0.01)
 }
@@ -360,7 +360,7 @@ func TestScoreResult_ZeroWeight(t *testing.T) {
 			Weight: 0, // zero weight defaults to 1.0
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 1.0, float64(score), 0.001)
 }
 
@@ -538,9 +538,9 @@ func TestComputeDecayForResult_NumericProperty(t *testing.T) {
 		Curve:      filters.DecayCurveExp,
 		DecayValue: 0.5,
 	}
-	parsed := parseDecayParams(decay)
+	parsed := parseDecayParams(decay, time.Now())
 	props := map[string]any{"price": float64(300)} // dist=200=scale → 0.5
-	score := computeDecayForResult(decay, parsed, props, time.Now())
+	score := computeDecayForResult(decay, parsed, props)
 	assert.InDelta(t, 0.5, float64(score), 0.001)
 }
 
@@ -550,9 +550,9 @@ func TestComputeDecayForResult_MissingProperty(t *testing.T) {
 		Origin: "100",
 		Scale:  "200",
 	}
-	parsed := parseDecayParams(decay)
+	parsed := parseDecayParams(decay, time.Now())
 	props := map[string]any{}
-	score := computeDecayForResult(decay, parsed, props, time.Now())
+	score := computeDecayForResult(decay, parsed, props)
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -567,17 +567,17 @@ func TestComputeDecayForResult_DateProperty(t *testing.T) {
 		Curve:      filters.DecayCurveExp,
 		DecayValue: 0.5,
 	}
-	parsed := parseDecayParams(decay)
+	parsed := parseDecayParams(decay, now)
 
 	// 7 days ago → dist=scale → 0.5
 	t7dAgo := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
 	props := map[string]any{"createdAt": t7dAgo}
-	score := computeDecayForResult(decay, parsed, props, now)
+	score := computeDecayForResult(decay, parsed, props)
 	assert.InDelta(t, 0.5, float64(score), 0.05)
 
 	// Now → dist=0 → 1.0
 	props = map[string]any{"createdAt": now.Format(time.RFC3339)}
-	score = computeDecayForResult(decay, parsed, props, now)
+	score = computeDecayForResult(decay, parsed, props)
 	assert.InDelta(t, 1.0, float64(score), 0.05)
 }
 
@@ -616,7 +616,7 @@ func TestParseDecayParams_Valid(t *testing.T) {
 		Curve:      filters.DecayCurveGauss,
 		DecayValue: 0.3,
 	}
-	p := parseDecayParams(d)
+	p := parseDecayParams(d, time.Now())
 	assert.True(t, p.valid)
 	assert.InDelta(t, 10, p.offset, 0.001)
 	assert.InDelta(t, 200, p.scale, 0.001)
@@ -628,7 +628,7 @@ func TestParseDecayParams_Defaults(t *testing.T) {
 	d := &filters.Decay{
 		Scale: "100",
 	}
-	p := parseDecayParams(d)
+	p := parseDecayParams(d, time.Now())
 	assert.True(t, p.valid)
 	assert.InDelta(t, 0.5, p.decayValue, 0.001)     // default
 	assert.Equal(t, filters.DecayCurveExp, p.curve) // default
@@ -636,15 +636,15 @@ func TestParseDecayParams_Defaults(t *testing.T) {
 
 func TestParseDecayParams_InvalidScale(t *testing.T) {
 	d := &filters.Decay{Scale: ""}
-	p := parseDecayParams(d)
+	p := parseDecayParams(d, time.Now())
 	assert.False(t, p.valid)
 
 	d = &filters.Decay{Scale: "0"}
-	p = parseDecayParams(d)
+	p = parseDecayParams(d, time.Now())
 	assert.False(t, p.valid)
 
 	d = &filters.Decay{Scale: "-10"}
-	p = parseDecayParams(d)
+	p = parseDecayParams(d, time.Now())
 	assert.False(t, p.valid, "negative scale should produce invalid params")
 }
 
@@ -779,7 +779,7 @@ func TestScoreResult_NegativeWeightDemotes(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	// weight=-1, condScore=1 → weightedSum = -1*1 = -1, weightSum = 1 → -1/1 = -1
 	assert.InDelta(t, -1.0, float64(score), 0.001)
 }
@@ -808,7 +808,7 @@ func TestScoreResult_MixedPositiveNegativeWeights(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	// (2*1 + -1*1) / (2+1) = 1/3 ≈ 0.333
 	assert.InDelta(t, 0.333, float64(score), 0.01)
 }
@@ -886,17 +886,19 @@ func TestParseOriginAsTime(t *testing.T) {
 // --- computeDistance ---
 
 func TestComputeDistance_Numeric(t *testing.T) {
-	decay := &filters.Decay{Origin: "100"}
-	dist, err := computeDistance(decay, float64(150), time.Now())
+	decay := &filters.Decay{Origin: "100", Scale: "200"}
+	parsed := parseDecayParams(decay, time.Now())
+	dist, err := computeDistance(parsed, float64(150))
 	require.NoError(t, err)
 	assert.InDelta(t, 50, dist, 0.001)
 }
 
 func TestComputeDistance_Date(t *testing.T) {
 	now := time.Now()
-	decay := &filters.Decay{Origin: "now"}
+	decay := &filters.Decay{Origin: "now", Scale: "7d"}
+	parsed := parseDecayParams(decay, now)
 	dateVal := now.Add(-48 * time.Hour).Format(time.RFC3339)
-	dist, err := computeDistance(decay, dateVal, now)
+	dist, err := computeDistance(parsed, dateVal)
 	require.NoError(t, err)
 	expected := float64(48 * time.Hour)
 	assert.InDelta(t, expected, dist, float64(2*time.Second))
@@ -1056,7 +1058,7 @@ func TestScoreResult_NegativeWeightNonMatch(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
 	// condScore=0 (no match), weight=-1 → weightedSum=-1*0=0, weightSum=1 → 0/1=0
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
@@ -1067,9 +1069,9 @@ func TestComputeDecayForResult_NonExistingField(t *testing.T) {
 		Origin: "100",
 		Scale:  "200",
 	}
-	parsed := parseDecayParams(decay)
+	parsed := parseDecayParams(decay, time.Now())
 	props := map[string]any{"price": float64(50)}
-	score := computeDecayForResult(decay, parsed, props, time.Now())
+	score := computeDecayForResult(decay, parsed, props)
 	assert.InDelta(t, 0.0, float64(score), 0.001, "decay on non-existing field should score 0")
 }
 
@@ -1079,8 +1081,8 @@ func TestComputeDecayForResult_NilProps(t *testing.T) {
 		Origin: "100",
 		Scale:  "200",
 	}
-	parsed := parseDecayParams(decay)
-	score := computeDecayForResult(decay, parsed, nil, time.Now())
+	parsed := parseDecayParams(decay, time.Now())
+	score := computeDecayForResult(decay, parsed, nil)
 	assert.InDelta(t, 0.0, float64(score), 0.001, "decay on nil props should score 0")
 }
 
@@ -1213,6 +1215,66 @@ func TestApplyBoostScoring_OffsetBeyondResults(t *testing.T) {
 	}
 	got := applyBoostScoring(results, withOriginalPagination(boost, 10, 5))
 	assert.Nil(t, got, "offset beyond result count should return nil")
+}
+
+// Reproduces https://github.com/weaviate/weaviate/issues/11592: a missing
+// numeric property must not be treated as raw 0, which would outrank objects
+// whose actual values are negative.
+func TestApplyBoostScoring_PropertyValueMissingPropertyWithNegativeValues(t *testing.T) {
+	results := []search.Result{
+		makeResult("11111111-1111-1111-1111-111111111111", 0.5, map[string]any{"rating": float64(-1.0)}),
+		makeResult("22222222-2222-2222-2222-222222222222", 0.5, map[string]any{"rating": float64(-2.0)}),
+		makeResult("33333333-3333-3333-3333-333333333333", 0.5, map[string]any{"title": "missing rating"}),
+	}
+	boost := &filters.Boost{
+		Conditions: []filters.BoostCondition{propertyValueCondition("rating", filters.PropertyValueModifierNone)},
+		Weight:     1.0,
+	}
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	require.Len(t, got, 3)
+	assert.Equal(t, strfmt.UUID("11111111-1111-1111-1111-111111111111"), got[0].ID,
+		"object with highest present rating (-1.0) must rank first")
+}
+
+// log1p clamps negatives to 0, collapsing all present values to the same raw
+// score (range 0). Present results must still rank above the missing one.
+func TestApplyBoostScoring_PropertyValueModifierNegativeAndMissing(t *testing.T) {
+	for _, modifier := range []filters.PropertyValueModifierType{
+		filters.PropertyValueModifierLog1p, filters.PropertyValueModifierSqrt,
+	} {
+		t.Run(string(modifier), func(t *testing.T) {
+			results := []search.Result{
+				makeResult("aaaaaaaa-0000-0000-0000-000000000001", 0.5, map[string]any{"rating": float64(-1.0)}),
+				makeResult("aaaaaaaa-0000-0000-0000-000000000002", 0.5, map[string]any{"rating": float64(-2.0)}),
+				makeResult("aaaaaaaa-0000-0000-0000-000000000003", 0.5, map[string]any{"title": "missing rating"}),
+			}
+			boost := &filters.Boost{
+				Conditions: []filters.BoostCondition{propertyValueCondition("rating", modifier)},
+				Weight:     1.0,
+			}
+			got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+			require.Len(t, got, 3)
+			assert.Equal(t, strfmt.UUID("aaaaaaaa-0000-0000-0000-000000000003"), got[2].ID,
+				"missing property must rank last")
+		})
+	}
+}
+
+func TestApplyBoostScoring_PropertyValueAllMissing(t *testing.T) {
+	results := []search.Result{
+		makeResult("low-primary", 0.2, map[string]any{"title": "x"}),
+		makeResult("high-primary", 0.9, map[string]any{"title": "y"}),
+	}
+	boost := &filters.Boost{
+		Conditions: []filters.BoostCondition{propertyValueCondition("rating", filters.PropertyValueModifierNone)},
+		Weight:     0.5,
+	}
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	require.Len(t, got, 2)
+	// No result has the property: the condition is neutral and the primary
+	// score decides the order.
+	assert.Equal(t, strfmt.UUID("high-primary"), got[0].ID)
+	assert.Equal(t, strfmt.UUID("low-primary"), got[1].ID)
 }
 
 func cloneResults(results []search.Result) []search.Result {

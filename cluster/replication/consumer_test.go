@@ -14,6 +14,7 @@ package replication_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,12 +22,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -34,6 +38,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 )
 
@@ -72,21 +77,17 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 			Return(nil)
 		mockFSMUpdater.EXPECT().
+			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
+			Return(nil)
+		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 			Return(nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(opId)).
 			Return(uint64(0), nil)
-		mockFSMUpdater.EXPECT().
-			SyncShard(mock.Anything, "TestCollection", "shard1", "node1").
-			Return(uint64(0), nil).
-			Times(1)
-		mockFSMUpdater.EXPECT().
-			SyncShard(mock.Anything, "TestCollection", "shard1", "node2").
-			Return(uint64(0), nil).
-			Times(1)
 		mockReplicaCopier.EXPECT().
 			CopyReplicaFiles(
+				mock.Anything,
 				mock.Anything,
 				"node1",
 				"TestCollection",
@@ -98,27 +99,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.EXPECT().
 			LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 			Return(nil)
-		mockReplicaCopier.EXPECT().
-			InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
-			Return(nil)
-		mockReplicaCopier.EXPECT().
-			AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
-			Return(models.AsyncReplicationStatus{
-				ObjectsPropagated:       0,
-				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-			}, nil)
-		mockReplicaCopier.EXPECT().
-			AsyncReplicationStatus(mock.Anything, "node2", "node1", "TestCollection", "shard1").
-			Return(models.AsyncReplicationStatus{
-				ObjectsPropagated:       0,
-				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-			}, nil)
-		mockReplicaCopier.EXPECT().
-			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicaCopier.EXPECT().
-			RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-		mockReplicaCopier.EXPECT().
-			RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
+		expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -168,7 +149,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 			schemaReader,
 		)
@@ -243,6 +223,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.EXPECT().
 			CopyReplicaFiles(
 				mock.Anything,
+				mock.Anything,
 				"node1",
 				"TestCollection",
 				"shard1",
@@ -253,6 +234,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockFSMUpdater.EXPECT().
 			ReplicationRegisterError(mock.Anything, uint64(opId), mock.Anything).
 			Return(nil)
+		expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -301,7 +283,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 			schemaReader,
 		)
@@ -387,10 +368,13 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 				Return(nil)
 			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
+				Return(nil)
+			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
 				LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -398,23 +382,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			mockFSMUpdater.EXPECT().
 				ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 				Return(uint64(i), nil)
-			mockReplicaCopier.EXPECT().
-				AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				Return(models.AsyncReplicationStatus{
-					ObjectsPropagated:       0,
-					StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-				}, nil)
-			mockReplicaCopier.EXPECT().
-				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-				Return(nil)
-			mockReplicaCopier.EXPECT().
-				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			mockReplicaCopier.EXPECT().
-				RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-			mockReplicaCopier.EXPECT().
-				RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			mockFSMUpdater.EXPECT().
-				SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
+			expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 		}
 
 		var (
@@ -465,7 +433,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 			schemaReader,
 		)
@@ -595,7 +562,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 			schemaReader,
 		)
@@ -701,10 +667,13 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.FINALIZING).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.INTEGRATING).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.READY).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -712,29 +681,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything, uint64(opID)).
 					Return(uint64(i), nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
-					Return(models.AsyncReplicationStatus{
-						ObjectsPropagated:       0,
-						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-					}, nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, "node2", "node1", "TestCollection", mock.Anything).
-					Return(models.AsyncReplicationStatus{
-						ObjectsPropagated:       0,
-						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-					}, nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				mockReplicaCopier.EXPECT().
-					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				mockFSMUpdater.EXPECT().
-					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
+				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				completionWg.Add(1)
 			} else {
 				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")
@@ -785,7 +732,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 			schemaReader,
 		)
@@ -858,15 +804,12 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationCancellationComplete(mock.Anything, uint64(1)).
 		Return(nil)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(0, nil)
+	// cancelOp must drop the op's target shard on this (target) node. node2 is
+	// not in BelongsToNodes:[node1], so the guard passes and the drop fires.
 	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+		DropLocalShard(mock.Anything, "TestCollection", "shard1").
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-		Return(nil)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -909,7 +852,6 @@ func TestConsumerOpCancellation(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -926,8 +868,8 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, opID strfmt.UUID, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {
@@ -994,15 +936,11 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).
 		Return(nil)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(0, nil)
+	// The deletion cancel path also drops the op's target shard on this node.
 	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+		DropLocalShard(mock.Anything, "TestCollection", "shard1").
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-		Return(nil)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -1045,7 +983,6 @@ func TestConsumerOpDeletion(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1062,8 +999,8 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, opID strfmt.UUID, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {
@@ -1171,7 +1108,6 @@ func TestConsumerOpDuplication(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1197,6 +1133,9 @@ func TestConsumerOpDuplication(t *testing.T) {
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
 		Return(api.READY, nil)
 	mockFSMUpdater.EXPECT().
+		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.INTEGRATING).
+		Return(nil)
+	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
@@ -1205,23 +1144,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(models.AsyncReplicationStatus{
-			ObjectsPropagated:       0,
-			StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-		}, nil)
-	mockReplicaCopier.EXPECT().
-		AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
-		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
@@ -1317,7 +1240,6 @@ func TestConsumerOpSkip(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		3,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1346,28 +1268,15 @@ func TestConsumerOpSkip(t *testing.T) {
 		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
+		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.INTEGRATING).
+		Return(nil)
+	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
-	mockReplicaCopier.EXPECT().
-		AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(models.AsyncReplicationStatus{
-			ObjectsPropagated:       0,
-			StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-		}, nil)
-	mockReplicaCopier.EXPECT().
-		AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
-		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
 
@@ -1445,7 +1354,6 @@ func TestConsumerShutdown(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*30,
 		5,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1462,8 +1370,8 @@ func TestConsumerShutdown(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, opID strfmt.UUID, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {
@@ -1474,6 +1382,7 @@ func TestConsumerShutdown(t *testing.T) {
 			}
 		}).
 		Times(5)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	// Add five long running ops to the consumer
 	for i := 0; i < 5; i++ {
@@ -1509,4 +1418,318 @@ func TestConsumerShutdown(t *testing.T) {
 
 	mockFSMUpdater.AssertExpectations(t)
 	mockReplicaCopier.AssertExpectations(t)
+}
+
+// TestConsumerCopyIntegratingState: handler waits for transition convergence,
+// drains, seals, syncs, then reaches READY.
+func TestConsumerCopyIntegratingState(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
+
+	const opId = uint64(77)
+
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(mock.Anything, opId).
+		Return(api.INTEGRATING, nil).
+		Times(1)
+	// The crux: the handler waits locally for every voting peer to report
+	// PerNodeState[peer] >= INTEGRATING before sealing the log. Stubbed:
+	// peer list is empty so AllPeersAtLeast returns true immediately.
+	mockFSMUpdater.EXPECT().
+		ReplicationAllPeersAtLeast(opId, api.INTEGRATING).
+		Return(true, nil).
+		Maybe()
+	mockReplicaCopier.EXPECT().
+		SnapshotChangeLogLSN(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
+		Return(uint64(9), nil).
+		Times(1)
+	mockReplicaCopier.EXPECT().
+		TailAndApply(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything, mock.Anything).
+		Return(uint64(9), nil)
+	mockReplicaCopier.EXPECT().
+		FinalizeChangeLog(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
+		Return(uint64(9), nil).
+		Times(1)
+	mockReplicaCopier.EXPECT().
+		StopChangeCapture(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
+		Return(nil)
+	mockFSMUpdater.EXPECT().
+		ReplicationUpdateReplicaOpStatus(mock.Anything, opId, api.READY).
+		Return(nil).
+		Times(1)
+
+	var completionWg sync.WaitGroup
+	completionWg.Add(1)
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithOpCompleteCallback(func(node string) {
+			completionWg.Done()
+		}).Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		1,
+		metricsCallbacks,
+		schemaReader,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+	doneChan := make(chan error, 1)
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1", api.COPY)
+	status := replication.NewShardReplicationStatus(api.INTEGRATING)
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+
+	waitChan := make(chan struct{})
+	go func() {
+		completionWg.Wait()
+		waitChan <- struct{}{}
+	}()
+	select {
+	case <-waitChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out waiting for operation completion")
+	}
+
+	close(opsChan)
+	err := <-doneChan
+	require.NoError(t, err, "expected consumer to stop without error")
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
+}
+
+// TestConsumerCopyIntegratingRetryAfterSeal: a retry after a prior seal
+// sees "log gone" on snapshot, syncs, and reaches READY — no re-finalize.
+func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
+
+	const opId = uint64(78)
+
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(mock.Anything, opId).
+		Return(api.INTEGRATING, nil).
+		Times(1)
+	// Local convergence stubbed satisfied immediately.
+	mockFSMUpdater.EXPECT().ReplicationAllPeersAtLeast(opId, api.INTEGRATING).Return(true, nil).Maybe()
+	// The source already sealed the log on a prior attempt: the capped-drain
+	// snapshot reports it gone. The handler must NOT re-issue finalize/stop.
+	mockReplicaCopier.EXPECT().
+		SnapshotChangeLogLSN(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
+		Return(uint64(0), errors.New("snapshot change-log LSN on node1: shard: "+changelog.ErrMsgNoActiveChangeCaptureLog+" for that op-id")).
+		Times(1)
+	mockFSMUpdater.EXPECT().
+		ReplicationUpdateReplicaOpStatus(mock.Anything, opId, api.READY).
+		Return(nil).
+		Times(1)
+
+	var completionWg sync.WaitGroup
+	completionWg.Add(1)
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithOpCompleteCallback(func(node string) {
+			completionWg.Done()
+		}).Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		1,
+		metricsCallbacks,
+		schemaReader,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+	doneChan := make(chan error, 1)
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1", api.COPY)
+	status := replication.NewShardReplicationStatus(api.INTEGRATING)
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+
+	waitChan := make(chan struct{})
+	go func() {
+		completionWg.Wait()
+		waitChan <- struct{}{}
+	}()
+	select {
+	case <-waitChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out waiting for operation completion")
+	}
+
+	close(opsChan)
+	err := <-doneChan
+	require.NoError(t, err, "expected consumer to stop without error")
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
+}
+
+// TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget pins that when
+// CopyReplicaFiles returns the wire-side "shard busy" error, the op stays
+// in HYDRATING with no RegisterError and no OnOpFailed — strict mocks +
+// failed-callback t.Error enforce all three.
+func TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget(t *testing.T) {
+	logger, logHook := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
+
+	const opID = uint64(42)
+
+	// Only REGISTERED → HYDRATING is wired; the absence of FINALIZING and
+	// ReplicationRegisterError expectations is what enforces the test.
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(mock.Anything, opID).
+		Return(api.REGISTERED, nil).
+		Times(1)
+	mockFSMUpdater.EXPECT().
+		ReplicationUpdateReplicaOpStatus(mock.Anything, opID, api.HYDRATING).
+		Return(nil)
+
+	// Built from the live sentinel so a rename keeps the test honest.
+	busyErr := status.Errorf(codes.FailedPrecondition,
+		"failed to pause file activity for index %q, shard %q: %v",
+		"TestCollection", "shard1", enterrors.ErrShardBusyStructuralOp)
+
+	copyCalled := make(chan struct{}, 1)
+	mockReplicaCopier.EXPECT().
+		CopyReplicaFiles(mock.Anything, mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
+		Run(func(ctx context.Context, opID strfmt.UUID, sourceNode, sourceCollection, sourceShard string, schemaVersion uint64) {
+			select {
+			case copyCalled <- struct{}{}:
+			default:
+			}
+		}).
+		Return(busyErr).
+		Once()
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
+
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithOpFailedCallback(func(node string) {
+			t.Errorf("OnOpFailed must NOT fire for a shard-busy deferral; got node=%q", node)
+		}).Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		1,
+		metricsCallbacks,
+		schemaReader,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+	doneChan := make(chan error, 1)
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	opsChan <- replication.NewShardReplicationOpAndStatus(
+		replication.NewShardReplicationOp(opID, "node1", "node2", "TestCollection", "shard1", api.COPY),
+		replication.NewShardReplicationStatus(api.REGISTERED),
+	)
+
+	select {
+	case <-copyCalled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CopyReplicaFiles was never called — fixture broken")
+	}
+	// Grace for the error path (skip-register → Permanent → outer worker) to run.
+	time.Sleep(100 * time.Millisecond)
+
+	close(opsChan)
+	cancel()
+	select {
+	case <-doneChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("consumer did not shut down in time")
+	}
+
+	// Belt-and-braces: the deferred-log Info must have fired (proves the new
+	// branch ran, not some other no-op path).
+	deferred := false
+	for _, e := range logHook.AllEntries() {
+		if e.Level == logrus.InfoLevel && strings.Contains(strings.ToLower(e.Message), "deferr") {
+			deferred = true
+			break
+		}
+	}
+	require.True(t, deferred, "expected an Info log signalling shard-busy deferral")
+}
+
+// expectChangeCaptureMocks registers permissive (Maybe) expectations for
+// every change-capture primitive the consumer might call, plus the
+// FSM-converge-and-drain primitives that pair with it during DEHYDRATING.
+// Tests that don't reach FINALIZING (cancellation, deletion) still pass.
+func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpdater) {
+	m.EXPECT().StartChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+	m.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.EXPECT().ReleaseReplicaSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	// PerNodeState convergence wait: satisfied immediately by default.
+	fsm.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 }

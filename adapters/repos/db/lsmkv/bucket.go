@@ -23,11 +23,13 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -81,16 +83,23 @@ type BucketCreator interface {
 }
 
 type Bucket struct {
-	dir      string
-	rootDir  string
-	active   memtable
-	flushing memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+	dir            string
+	registeredPath string
+	rootDir        string
+	active         memtable
+	flushing       memtable
+	disk           *SegmentGroup
+	logger         logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
 	flushLock sync.RWMutex
+
+	// lifetimeLock pins this bucket for a whole read (RLock via
+	// Store.AcquireBucketForRead); Shutdown takes Lock() first, draining all
+	// pins before freeing mmap'd segments (no drain timeout — timeout-then-free
+	// would SEGFAULT a reader). Order: lifetimeLock OUTER, flushLock INNER.
+	lifetimeLock sync.RWMutex
 	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
 	// designed assuming a single triggerer at a time (the periodic flush
 	// callback or a control-plane caller — backup, runtime migration,
@@ -148,7 +157,14 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	pauseTimer *prometheus.Timer // Times the pause
+	// pauseCompactionMu ref-counts reindex pause/resume (weaviate/0-weaviate-issues#251).
+	pauseCompactionMu    sync.Mutex
+	pauseCompactionCount int
+
+	// pauseTimerMu ref-counts the timer across backup + reindex pause paths.
+	pauseTimerMu    sync.Mutex
+	pauseTimerCount int
+	pauseTimer      *prometheus.Timer
 
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.
@@ -174,9 +190,14 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction    bool
-	disableCompaction  bool
-	lazySegmentLoading bool
+	forceCompaction     bool
+	disableCompaction   bool
+	lazySegmentLoading  bool
+	lazyPropertyLengths *configRuntime.DynamicValue[bool]
+
+	// Block-max WAND filter/tombstone-fold gate, read in createDiskTermFromCV
+	// (see WithBM25FilterTombMergeGateRatio). Runtime-tunable via Get().
+	bm25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
@@ -214,6 +235,21 @@ type Bucket struct {
 	// keep segments in memory for more performant search
 	// (currently used by roaringsetrange inverted indexes)
 	keepSegmentsInMemory bool
+
+	// rangeableInMemoryDeferred marks a bucket whose rep was intentionally left
+	// unbuilt (reindex ingest path). Selects a diagnostic log line only;
+	// rangeableServesFromMemory alone governs read-path selection.
+	rangeableInMemoryDeferred bool
+
+	// rangeableRepRebuilt flips once RebuildRangeableSegmentInMemory
+	// publishes a rep. Atomic and read unlocked; the false->true store
+	// happens under flushLock after the rep is fully built, so a reader
+	// observing true is guaranteed a populated rep.
+	rangeableRepRebuilt atomic.Bool
+
+	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
+	rangeableDeferredLogOnce  sync.Once
+	rangeableFallbackWarnOnce sync.Once
 
 	// pool of buffers for bitmaps merges
 	// (currently used by roaringsetrange inverted indexes)
@@ -344,11 +380,13 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
+			lazyPropertyLengths:          b.lazyPropertyLengths,
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
+			className:                    b.className,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -372,6 +410,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		// prevent accidentally trying to register the same bucket twice
 		return nil, err
 	}
+	// The actual path of the bucket can change, e.g. on delete, without updating the registry. Keep the registered path in the bucket so we can remove it from the registry on shutdown.
+	b.registeredPath = dir
 
 	return b, nil
 }
@@ -384,6 +424,65 @@ func (b *Bucket) GetDir() string {
 
 func (b *Bucket) GetRootDir() string {
 	return b.rootDir
+}
+
+// HasEditOps reports whether this bucket has an edit-ops sidecar (the objects
+// bucket).
+func (b *Bucket) HasEditOps() bool {
+	return b.disk != nil && b.disk.editOps != nil
+}
+
+// RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
+// current segments as pending for the compaction/cleanup transformer to rewrite.
+// It flushes the active memtable first so in-memory data is captured. Idempotent:
+// an op that already has a snapshot (resume) is a no-op and skips the flush.
+func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
+	if !b.HasEditOps() {
+		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	snapshotted, err := b.disk.editOps.HasPendingSnapshot(opID)
+	if err != nil {
+		return err
+	}
+	if snapshotted {
+		return nil
+	}
+	if err := b.FlushAndSwitch(); err != nil {
+		return fmt.Errorf("flush before edit-op snapshot: %w", err)
+	}
+	return b.disk.registerEditOpAndSnapshot(opID, desc)
+}
+
+// EditOpPending returns the segment IDs still awaiting rewrite for opID. An empty
+// result means the operation has been fully applied on this bucket.
+func (b *Bucket) EditOpPending(opID string) ([]string, error) {
+	if !b.HasEditOps() {
+		return nil, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.Pending(opID)
+}
+
+// DeleteEditOp removes opID and its bookkeeping from the sidecar once its task
+// stops being live (success — delivered as SWAPPING or a replayed FINISHED — or
+// FAILED/CANCELLED), so the op stops driving the compaction/cleanup transformer.
+// A lingering op would re-decode every object on every future compaction, force a
+// full re-clean on each restart (via recoverEditOps), and — once the dropped name
+// is freed for re-creation — strip the re-created vector. Idempotent.
+func (b *Bucket) DeleteEditOp(opID string) error {
+	if !b.HasEditOps() {
+		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.DeleteOp(opID)
+}
+
+// EditOpQuarantined returns the segment IDs the cleanup driver quarantined
+// (retry budget exhausted) for opID; they still carry the dropped data, so the
+// caller must fail rather than treat empty pending as success.
+func (b *Bucket) EditOpQuarantined(opID string) ([]string, error) {
+	if !b.HasEditOps() {
+		return nil, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.QuarantinedFor(opID)
 }
 
 func (b *Bucket) GetStrategy() string {
@@ -442,77 +541,104 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
+// pauseCompaction / resumeCompaction are ref-counted at the bucket level so
+// snapshot, ApplyToObjectDigests, and runtime-reindex callers share one pause
+// (weaviate/0-weaviate-issues#251 + weaviate/weaviate#11486 review).
 func (b *Bucket) pauseCompaction(ctx context.Context) error {
-	return b.disk.pauseCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	b.pauseCompactionCount++
+	if b.pauseCompactionCount > 1 {
+		return nil
+	}
+	if err := b.disk.pauseCompaction(ctx); err != nil {
+		b.pauseCompactionCount--
+		return err
+	}
+	b.doStartPauseTimer()
+	return nil
 }
 
 func (b *Bucket) resumeCompaction(ctx context.Context) error {
-	return b.disk.resumeCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	if b.pauseCompactionCount == 0 {
+		return nil
+	}
+	if b.pauseCompactionCount > 1 {
+		b.pauseCompactionCount--
+		return nil
+	}
+	if err := b.disk.resumeCompaction(ctx); err != nil {
+		return err
+	}
+	b.doStopPauseTimer()
+	b.pauseCompactionCount--
+	return nil
 }
 
-// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
-// and on disk, and applies the given function to each object.
-// The afterInMemCallback is called after the in-memory memtable has been processed.
-// This allows the caller to perform actions that need to happen after the in-memory
-// objects have been processed.
-// The function f is called for each object, and if it returns an error, the
-// processing is stopped and the error is returned.
-// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+// ApplyToObjectDigests applies f to every live object (memtable and disk) once per
+// UUID, stopping on the first error. Dedup is keyed by UUID, not docID (a
+// vector-changed update reuses the UUID under a new docID); memtable-only tombstones
+// suppress their stale on-disk value. afterInMemCallback fires once the in-memory
+// scan is done.
+//
+// The on-disk cursor is created while the in-mem cursor holds the flush lock, so both
+// snapshots are taken at a single consistent point with no flush in between. Compaction
+// is not paused: the on-disk cursor pins its segments via reference counting.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(uuidBytes []byte, updateTime int64) error,
 ) error {
-	err := b.pauseCompaction(ctx)
-	if err != nil {
-		afterInMemCallback()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer func() {
-		ec := errorcompounder.New()
+	var onDiskCursor *CursorReplace
 
-		if err != nil {
-			ec.AddWrapf(err, "during ApplyToObjectDigests")
-		}
-
-		err = b.resumeCompaction(ctx)
-		if err != nil {
-			ec.AddWrapf(err, "resuming compaction after ApplyToObjectDigests")
-		}
-
-		err = ec.ToError()
-	}()
-
-	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDisk()
-	defer onDiskCursor.Close()
-
-	inmemProcessedDocIDs := make(map[uint64]struct{})
+	inmemProcessedUUIDs := make(map[[16]byte]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
+	err := func() error {
 		defer afterInMemCallback()
 
-		inMemCursor := b.CursorInMem()
+		inMemCursor := b.CursorInMemWithTombstones()
 		defer inMemCursor.Close()
+
+		// created under the in-mem cursor's flush lock, so it is consistent with the
+		// memtable view: no flush can run between the two snapshots.
+		// Digest mode: only the header is read below, so skip the full value copy.
+		onDiskCursor = b.CursorOnDiskDigest(storobj.MarshallerV1HeaderLen)
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
-				if err != nil {
-					return fmt.Errorf("cannot unmarshal object: %w", err)
-				}
-				if err := f(k, updateTime); err != nil {
-					return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
-				}
+			}
 
-				inmemProcessedDocIDs[docID] = struct{}{}
+			if len(k) != 16 {
+				return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
+			}
+
+			// record every UUID (live or tombstone) so the disk pass skips its stale value
+			inmemProcessedUUIDs[[16]byte(k)] = struct{}{}
+
+			if v == nil {
+				continue // tombstone: recorded, not folded
+			}
+
+			_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
+			}
+			if err := f(k, updateTime); err != nil {
+				return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 			}
 		}
 
 		return nil
 	}()
+	if onDiskCursor != nil {
+		defer onDiskCursor.Close()
+	}
 	if err != nil {
 		return err
 	}
@@ -522,18 +648,22 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal object: %w", err)
-			}
+		}
 
-			if _, ok := inmemProcessedDocIDs[docID]; ok {
-				continue
-			}
+		if len(k) != 16 {
+			return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
+		}
 
-			if err := f(k, updateTime); err != nil {
-				return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
-			}
+		if _, ok := inmemProcessedUUIDs[[16]byte(k)]; ok {
+			continue
+		}
+
+		_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+		if err != nil {
+			return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
+		}
+		if err := f(k, updateTime); err != nil {
+			return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 		}
 	}
 
@@ -582,7 +712,10 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+	// logger nil-guard: test buckets are built as bare literals without one, and
+	// under load this slow-lock branch can fire (RLock timed >100ms) where it never
+	// would in production; a nil FieldLogger would then panic on WithFields.
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond && b.logger != nil {
 		b.logger.WithFields(logrus.Fields{
 			"duration": duration,
 			"action":   "lsm_bucket_get_acquire_flush_lock",
@@ -626,6 +759,24 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	return b.get(key)
+}
+
+// Exists checks whether the given key exists and is not deleted without reading
+// the full value.
+//
+// Exists is specific to ReplaceStrategy.
+func (b *Bucket) Exists(key []byte) (bool, error) {
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	err := b.existsWithConsistentView(key, view)
+	if err != nil {
+		if lsmkv.IsDeletedOrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
@@ -734,6 +885,23 @@ func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, s
 		return nil, buffer, nil
 	}
 	return v, allocBuf, err
+}
+
+// SecondaryViewLookup acquires a single consistent view and returns a lookup
+// function bound to it, together with a release function. Reusing one view
+// across many secondary-key lookups avoids acquiring a fresh view (flush lock,
+// segment snapshot, and per-segment refcount churn) for every lookup. The
+// returned lookup is safe for concurrent use; call release exactly once, after
+// all lookups are done.
+func (b *Bucket) SecondaryViewLookup() (
+	func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error),
+	func(),
+) {
+	view := b.GetConsistentView()
+	lookup := func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error) {
+		return b.GetBySecondaryWithBufferAndView(ctx, pos, seckey, buffer, view)
+	}
+	return lookup, view.ReleaseView
 }
 
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
@@ -1115,6 +1283,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
+	skipPropertyLengths        bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -1128,6 +1297,14 @@ func MapListAcceptDuplicates() MapListOption {
 func MapListLegacySortingRequired() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.legacyRequireManualSorting = true
+	}
+}
+
+// MapListSkipPropertyLengths skips loading an inverted segment's per-document
+// property length map, for callers that read only keys (e.g. filter resolution).
+func MapListSkipPropertyLengths() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.skipPropertyLengths = true
 	}
 }
 
@@ -1175,9 +1352,9 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
-		if segmentStrategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+		var propLengths propLengthsView
+		if segmentStrategy == segmentindex.StrategyInverted && !c.skipPropertyLengths {
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -1200,7 +1377,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 					}
 				}
 				// put the property length in the value from the "external" property lengths
-				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths[docId])))
+				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths.get(docId))))
 
 			} else {
 				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
@@ -1499,6 +1676,27 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
+// CountApproximate is a cheap O(#segments) alternative to Count: exact
+// per-segment counts plus each memtable's approximate counter (see
+// Memtable.netCountAdditions for the drift bounds).
+func (b *Bucket) CountApproximate() (int, error) {
+	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
+		return 0, fmt.Errorf("Bucket::CountApproximate(): %w", err)
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	count := b.disk.countWithSegmentList(view.Disk) + view.Active.netCount()
+	if view.Flushing != nil {
+		count += view.Flushing.netCount()
+	}
+	if count < 0 {
+		count = 0
+	}
+	return count, nil
+}
+
 func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
 	segments []Segment,
 ) (int, error) {
@@ -1549,7 +1747,27 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
-	defer GlobalBucketRegistry.Remove(b.GetDir())
+	// Drain all in-flight read pins first (see the lifetimeLock doc); the
+	// heartbeat makes a wedged drain diagnosable.
+	drained := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-drained:
+				return
+			case <-t.C:
+				b.logger.WithField("dir", b.dir).
+					Warn("bucket shutdown still draining in-flight read pins")
+			}
+		}
+	}, b.logger)
+	b.lifetimeLock.Lock()
+	close(drained)
+	defer b.lifetimeLock.Unlock()
+
+	defer GlobalBucketRegistry.Remove(b.registeredPath)
 
 	start := time.Now()
 
@@ -1989,18 +2207,14 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
+		if b.rangeableServesFromMemory() {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:
-		// update property length only on flush
-		// we don't need to do it on compactions,
-		// as it is not currently tracking deletions
-		avg, count := seg.getInvertedData().avgPropertyLengthsAvg, seg.getInvertedData().avgPropertyLengthsCount
-		if count > 0 {
-			b.disk.averagePropSum.Add(uint64(avg * float64(count)))
-			b.disk.averagePropCount.Add(count)
-		}
+		// A flush only adds the new segment's live docs; deletes are subtracted
+		// later at compaction, once the tombstoned docs' lengths drop out of the
+		// merged segment (reconcileAveragePropertyLength).
+		b.disk.countSegmentAveragePropLength(seg)
 	}
 
 	return nil
@@ -2075,9 +2289,9 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
+		var propLengths propLengthsView
 		if segmentStrategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -2087,7 +2301,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 		for j, v := range plist {
 			if segmentStrategy == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
-				propLen := propLengths[docId]
+				propLen := propLengths.get(docId)
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
 					return nil, err
 				}
@@ -2150,7 +2364,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
 }
 
-func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistentView, N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistentView, N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, bm25Config schema.BM25Config) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
 	defer func() {
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
@@ -2187,70 +2401,110 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// active memtable
 	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	memTombstones := sroar.NewBitmap()
+	// Memtable tombstones are invariant within a consistent view. ReadOnlyTombstones
+	// returns a shared immutable snapshot, so reuse it directly when only one memtable
+	// carries tombstones; allocate a merged bitmap only when both are present.
+	var activeTombstones, flushingTombstones *sroar.Bitmap
+	if view.Active != nil {
+		activeTombstones, err = view.Active.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
+		}
+	}
+	if view.Flushing != nil {
+		flushingTombstones, err = view.Flushing.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+		}
+	}
+	var memTombstones *sroar.Bitmap
+	switch {
+	case activeTombstones != nil && flushingTombstones != nil:
+		memTombstones = sroar.Or(activeTombstones, flushingTombstones)
+	case activeTombstones != nil:
+		memTombstones = activeTombstones
+	case flushingTombstones != nil:
+		memTombstones = flushingTombstones
+	default:
+		memTombstones = sroar.NewBitmap()
+	}
+
+	// One index descent per (segment, term): diskNodes/diskNodeOk cache the node
+	// and doc count for reuse by both the count below and term construction.
+	// diskSkip marks inverted segments where the key is absent, so construction
+	// is skipped.
+	qn := len(query)
+	diskNodes := make([]segmentindex.Node, len(view.Disk)*qn)
+	diskNodeOk := make([]bool, len(view.Disk)*qn)
+	diskSkip := make([]bool, len(view.Disk)*qn)
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
 		n := uint64(0)
 
-		active := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-
-		var activeTombstones *sroar.Bitmap
+		var active, flushing *SegmentBlockMax
 		if view.Active != nil {
-			n2, _ := fillTerm(view.Active, key, active, filterDocIds)
-			if active.Count() > 0 {
-				output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
-			}
-			n += n2
+			if mapPairs, err := view.Active.getMap(key); err == nil {
+				if active = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); active != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, active)
+					if active.Count() > 0 {
+						output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
+					}
+					n += n2
 
-			activeTombstones, err = view.Active.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
-			}
-			memTombstones.Or(activeTombstones)
-
-			if !active.Exhausted() {
-				active.advanceOnTombstoneOrFilter()
+					if !active.Exhausted() {
+						active.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
 		}
 
 		if view.Flushing != nil {
-			n2, _ := fillTerm(view.Flushing, key, flushing, filterDocIds)
-			if flushing.Count() > 0 {
-				output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
-			}
-			n += n2
+			if mapPairs, err := view.Flushing.getMap(key); err == nil {
+				if flushing = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); flushing != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, flushing)
+					if flushing.Count() > 0 {
+						output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
+					}
+					n += n2
 
-			tombstones, err := view.Flushing.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+					if !flushing.Exhausted() {
+						flushing.setTombstones(activeTombstones)
+						flushing.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
-			memTombstones.Or(tombstones)
-
-			if !flushing.Exhausted() {
-				flushing.tombstones = activeTombstones
-				flushing.advanceOnTombstoneOrFilter()
-			}
-
 		}
 
-		for _, segment := range view.Disk {
-			if segment.getStrategy() == segmentindex.StrategyInverted && segment.hasKey(key) {
-				n += segment.getDocCount(key)
+		for j, segment := range view.Disk {
+			if segment.getStrategy() != segmentindex.StrategyInverted {
+				continue
+			}
+			if node, docCount, ok := segment.getInvertedNodeAndDocCount(key); ok {
+				n += docCount
+				diskNodes[j*qn+i] = node
+				diskNodeOk[j*qn+i] = true
+			} else {
+				diskSkip[j*qn+i] = true
 			}
 		}
 
 		// we can only know the full n after we have checked all segments and all memtables
-		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
+		idfs[i] = terms.Idf(float64(n), N) * float64(duplicateTextBoosts[i])
 
-		active.idf = idfs[i]
-		active.currentBlockImpact = float32(idfs[i])
-
-		flushing.idf = idfs[i]
-		flushing.currentBlockImpact = float32(idfs[i])
+		// currentBlockImpact is a max-score upper bound, so it must carry
+		// propertyBoost like Score and computeCurrentBlockImpact; bare idf
+		// under-counts boosted terms and prunes genuine top-K docs.
+		if active != nil {
+			active.idf = idfs[i]
+			active.currentBlockImpact = float32(idfs[i] * active.propertyBoost)
+		}
+		if flushing != nil {
+			flushing.idf = idfs[i]
+			flushing.currentBlockImpact = float32(idfs[i] * flushing.propertyBoost)
+		}
 
 		idfCounts[queryTerm] = n
 	}
@@ -2259,6 +2513,71 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		view.ReleaseView()
 		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
+
+	// Fold tombstones into the filter when it pays: one membership check per
+	// candidate instead of up to three, against an upfront AndNot per segment.
+	// The AndNot clones the whole filter once per disk segment, so amortize scan
+	// volume against the segment count, not a single clone — otherwise a broad
+	// filter over many segments merges for a marginal per-doc saving at a large
+	// per-query allocation. Skipped under deferTombstoneToScore, which deliberately
+	// keeps tombstones out of the advance-time checks the merge would fold into.
+	filterBl, _ := filterDocIds.(*helpers.BitmapAllowList)
+	mergeFilterAndTombstones := false
+	if filterBl != nil && !deferTombstoneToScore {
+		// An empty filter already admits nothing, so folding would only burn
+		// AndNots on a query that returns no results.
+		if filterCard := filterBl.Bm.GetCardinality(); filterCard > 0 {
+			var sumDf uint64
+			for _, n := range idfCounts {
+				sumDf += n
+			}
+			// nSeg (>=1) prices the per-segment clone into the gate: the fold runs
+			// an AndNot only where a segment's tombstones shadow the next-older one
+			// (Disk[1:], never the oldest), so count tombstone-carrying segments —
+			// not len(view.Disk), which over-prices a broad filter over many
+			// tombstone-free segments and skips folds that would have been cheap.
+			// These reads warm the snapshot cache the fold loop reads again below.
+			tombSegs := 0
+			for k := 1; k < len(view.Disk); k++ {
+				segTomb, tombErr := view.Disk[k].ReadOnlyTombstones()
+				if tombErr != nil {
+					view.ReleaseView()
+					return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", tombErr)
+				}
+				if !segTomb.IsEmpty() { // IsEmpty is nil-safe
+					tombSegs++
+				}
+			}
+			nSeg := float64(tombSegs)
+			if nSeg < 1 {
+				nSeg = 1
+			}
+			gateRatio := config.DefaultBM25FilterTombMergeGateRatio
+			if b.bm25FilterTombMergeGateRatio != nil {
+				gateRatio = b.bm25FilterTombMergeGateRatio.Get()
+			}
+			mergeFilterAndTombstones = float64(sumDf) >= gateRatio*float64(filterCard)*nSeg
+		}
+	}
+
+	// Memtable tombstones are loop-invariant, so fold them out of the filter once
+	// (filter \ memTombstones) and reuse that as the base every segment subtracts
+	// its own tombstones from (or uses directly when it has none).
+	memHasTomb := mergeFilterAndTombstones && !memTombstones.IsEmpty()
+	var filterBase *sroar.Bitmap
+	if mergeFilterAndTombstones {
+		filterBase = filterBl.Bm
+		if memHasTomb {
+			// Clone-then-subtract rather than a fresh AndNot: memtable tombstones
+			// are the small in-flight-deletes set, where removing bits from a copy
+			// beats building the result from scratch (~10-20% faster, one alloc
+			// fewer). Clone keeps the shared filter untouched.
+			filterBase = filterBl.Bm.Clone().AndNot(memTombstones)
+		}
+	}
+	// Wraps filterBase for segments with no tombstones of their own; built lazily
+	// so it costs nothing when every segment has tombstones.
+	var filterBaseList helpers.AllowList
 
 	var segTombstones *sroar.Bitmap
 	for j := len(view.Disk) - 1; j >= 0; j-- {
@@ -2272,8 +2591,39 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 		}
 
+		// Fold this segment's tombstones into a private filter clone. The free
+		// function sroar.AndNot returns a fresh filter \ tombstones and never
+		// mutates the shared filter, which concurrent readers depend on (unlike
+		// the in-place method).
+		segFilter, segTomb, segMemTomb := filterDocIds, segTombstones, memTombstones
+		if mergeFilterAndTombstones { // implies filterBl != nil
+			switch {
+			case !segTombstones.IsEmpty(): // IsEmpty is nil-safe
+				// filter \ memTombstones \ segTombstones, off the shared base.
+				segFilter = helpers.NewAllowListFromBitmap(sroar.AndNot(filterBase, segTombstones))
+			case memHasTomb:
+				if filterBaseList == nil {
+					filterBaseList = helpers.NewAllowListFromBitmap(filterBase)
+				}
+				segFilter = filterBaseList
+			}
+			// The fold moved tombstones into segFilter, so the term no longer
+			// checks them separately.
+			segTomb, segMemTomb = nil, nil
+		}
+
 		for i, key := range query {
-			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
+			idx := j*qn + i
+			if diskSkip[idx] {
+				continue
+			}
+			// non-inverted segments have no prefetched node; nil makes the
+			// constructor do its own index lookup.
+			var node *segmentindex.Node
+			if diskNodeOk[idx] {
+				node = &diskNodes[idx]
+			}
+			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTomb, segMemTomb, segFilter, averagePropLength, bm25Config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
@@ -2305,6 +2655,12 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	}
 	term.propLengths = make(map[uint64]uint32)
 
+	// SetIdf later recomputes currentBlockImpact from MaxImpactTf/PropLength. If
+	// those fields are left at zero, the recomputed impact — the WAND upper bound
+	// — is zero too, so record the posting list's max-impact pair here.
+	maxImpact := float64(0)
+	var maxImpactTf, maxImpactPropLength uint32
+
 	for _, v := range mem {
 		if v.Tombstone {
 			continue
@@ -2326,15 +2682,24 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
 
+		tf := float64(d.Frequency)
+		pl := float64(d.PropLength)
+		if impact := tf / (tf + term.k1*(1-term.b+term.b*(pl/term.averagePropLength))); impact > maxImpact {
+			maxImpact = impact
+			maxImpactTf = uint32(d.Frequency)
+			maxImpactPropLength = uint32(d.PropLength)
+		}
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
 	}
 	term.exhausted = false
-	term.blockEntries = make([]*terms.BlockEntry, 1)
-	term.blockEntries[0] = &terms.BlockEntry{
-		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
-		Offset: 0,
+	term.blockEntries = make([]terms.BlockEntry, 1)
+	term.blockEntries[0] = terms.BlockEntry{
+		MaxId:               term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
+		Offset:              0,
+		MaxImpactTf:         maxImpactTf,
+		MaxImpactPropLength: maxImpactPropLength,
 	}
 
 	term.currentBlockMaxId = term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1]

@@ -219,9 +219,9 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Cohere-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
 	return url.JoinPath(passedBaseURL, "/v2/chat")
 }

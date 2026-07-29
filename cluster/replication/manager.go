@@ -12,22 +12,26 @@
 package replication
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -36,15 +40,143 @@ type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
+	logger         logrus.FieldLogger
+
+	// localNodeID is embedded in node-reached-state broadcasts so peers
+	// know who reported.
+	localNodeID                  string
+	submitNodeReached            func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
+	inflightDrainer              func(ctx context.Context, class, shard string) error
+	inflightDrainFailuresCounter prometheus.Counter
+
+	// ctx is cancelled by Close to stop in-flight broadcast/drain retry loops on
+	// shutdown (the drain otherwise retries until the op is drained or terminal).
+	ctx    context.Context
+	cancel context.CancelFunc
 }
+
+const inflightDrainBackstop = 60 * time.Second
 
 func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
 		nodeSelector:   nodeSelector,
+		ctx:            ctx,
+		cancel:         cancel,
+		inflightDrainFailuresCounter: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "inflight_drain_failures_total",
+			Help:      "Total number of failures to drain in-flight writes before transitioning to INTEGRATING or DEHYDRATING state",
+		}),
 	}
+}
+
+// Close cancels any in-flight node-reached-state broadcast and drain retry loops.
+func (m *Manager) Close() {
+	m.cancel()
+}
+
+func (m *Manager) SetLogger(logger logrus.FieldLogger) {
+	m.logger = logger
+}
+
+func (m *Manager) SetNodeReachedStateSubmitter(
+	localNodeID string,
+	submit func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error,
+) {
+	m.localNodeID = localNodeID
+	m.submitNodeReached = submit
+}
+
+func (m *Manager) SetInflightDrainer(fn func(ctx context.Context, class, shard string) error) {
+	m.inflightDrainer = fn
+}
+
+// broadcastNodeReachedState submits a node-reached-state command async so
+// the FSM apply that triggered it can't block on RAFT. Bounded backoff;
+// idempotent on receipt (monotonic per peer).
+func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicationState) {
+	if m.submitNodeReached == nil || m.localNodeID == "" {
+		return
+	}
+
+	enterrors.GoWrapper(func() {
+		if state == cmd.INTEGRATING || state == cmd.DEHYDRATING {
+			if err := m.drainInflight(opID); err != nil {
+				// Op gone or terminal — nothing left to seal over, so skip the report.
+				m.logger.WithFields(logrus.Fields{
+					"op_id":   opID,
+					"node_id": m.localNodeID,
+					"state":   state,
+				}).Warnf("not reporting %s: %v", state, err)
+				return
+			}
+		}
+
+		req := &cmd.ReplicationNodeReachedStateRequest{
+			Version: cmd.ReplicationCommandVersionV0,
+			Id:      opID,
+			NodeId:  m.localNodeID,
+			State:   state,
+		}
+		bo := backoff.NewExponentialBackOff()
+		bo.MaxElapsedTime = 30 * time.Second
+		err := backoff.Retry(func() error {
+			return m.submitNodeReached(m.ctx, req)
+		}, backoff.WithContext(bo, m.ctx))
+		if err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"op_id":   opID,
+				"node_id": m.localNodeID,
+				"state":   state,
+			}).Error(fmt.Errorf("broadcast node-reached-state exhausted retries: %w", err))
+		}
+	}, m.logger)
+}
+
+// drainInflight blocks until this node's in-flight coordinated writes to the op's
+// shard drain. It retries rather than proceeding on a backstop timeout: reporting
+// INTEGRATING with writes still in flight lets the consumer seal the source log
+// over them. Returns non-nil only once the op is gone or terminal (no report owed).
+func (m *Manager) drainInflight(opID uint64) error {
+	if m.inflightDrainer == nil {
+		return nil
+	}
+	op, ok := m.replicationFSM.GetOpById(opID)
+	if !ok {
+		return fmt.Errorf("op %d not found; skipping drain", opID)
+	}
+	class := op.Op.SourceShard.CollectionId
+	shard := op.Op.SourceShard.ShardId
+
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxElapsedTime = 0 // retry until drained; bounded by op state below and Close (ctx)
+	return backoff.Retry(func() error {
+		cur, ok := m.replicationFSM.GetOpById(opID)
+		if !ok {
+			return backoff.Permanent(fmt.Errorf("op %d gone; abandoning drain", opID))
+		}
+		if s := cur.Status.GetCurrentState(); s == cmd.READY || s == cmd.CANCELLED {
+			return backoff.Permanent(fmt.Errorf("op %d terminal (%s); abandoning drain", opID, s))
+		}
+
+		ctx, cancel := context.WithTimeout(m.ctx, inflightDrainBackstop)
+		err := m.inflightDrainer(ctx, class, shard)
+		cancel()
+		if err != nil {
+			m.inflightDrainFailuresCounter.Inc()
+			m.logger.WithFields(logrus.Fields{
+				"op_id":   opID,
+				"node_id": m.localNodeID,
+				"class":   class,
+				"shard":   shard,
+			}).Warnf("in-flight write drain not complete, retrying before reporting: %v", err)
+		}
+		return err
+	}, backoff.WithContext(bo, m.ctx))
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
@@ -56,7 +188,25 @@ func (m *Manager) Snapshot() ([]byte, error) {
 }
 
 func (m *Manager) Restore(bytes []byte) error {
-	return m.replicationFSM.Restore(bytes)
+	if err := m.replicationFSM.Restore(bytes); err != nil {
+		return err
+	}
+	m.reannounceReachedStatesAfterRestore()
+	return nil
+}
+
+// reannounceReachedStatesAfterRestore re-broadcasts this node's reached state for
+// every in-progress op after a snapshot restore. The case that matters is a
+// runtime InstallSnapshot — a far-behind follower, or a node joining mid-op —
+// where the node learns an op's state without applying its UPDATE_STATE, so it
+// never broadcasts NodeReachedState. That leaves it absent from peers'
+// PerNodeState and stalls the all-nodes AllPeersAtLeast cutover barrier forever.
+// Re-announcing closes the gap and is idempotent on receipt, so redundant
+// announcements are harmless.
+func (m *Manager) reannounceReachedStatesAfterRestore() {
+	for opID, state := range m.replicationFSM.NonTerminalOpStates() {
+		m.broadcastNodeReachedState(opID, state)
+	}
 }
 
 func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
@@ -87,9 +237,12 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 			if err != nil {
 				return fmt.Errorf("failed to get op uuid from id %d: %w", req.Id, err)
 			}
-			return m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
+			if err := m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
 				Uuid: uuid,
-			})
+			}); err != nil {
+				return err
+			}
+			return nil
 		}
 		return err
 	}
@@ -106,8 +259,19 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Store the updated shard replication op in the FSM
-	return m.replicationFSM.UpdateReplicationOpStatus(req)
+	if err := m.replicationFSM.UpdateReplicationOpStatus(req); err != nil {
+		return err
+	}
+	m.broadcastNodeReachedState(req.Id, req.State)
+	return nil
+}
+
+func (m *Manager) NodeReachedState(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationNodeReachedStateRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.NodeReachedState(req)
 }
 
 func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
@@ -525,9 +689,10 @@ func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	// Trigger cancellation of the replication operation in the FSM
-	return m.replicationFSM.CancelReplication(req)
+	if err := m.replicationFSM.CancelReplication(req); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
@@ -535,9 +700,10 @@ func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	// Trigger deletion of the replication operation in the FSM
-	return m.replicationFSM.DeleteReplication(req)
+	if err := m.replicationFSM.DeleteReplication(req); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) DeleteAllReplications(c *cmd.ApplyRequest) error {

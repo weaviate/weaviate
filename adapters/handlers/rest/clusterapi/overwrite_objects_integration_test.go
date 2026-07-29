@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -119,7 +118,6 @@ func TestOverwriteObjectsClientServerIntegration(t *testing.T) {
 		cap,
 		clusterapi.NewNoopAuthHandler(),
 		func() bool { return false },
-		cluster.RequestQueueConfig{},
 		logger,
 		func() bool { return true },
 	)

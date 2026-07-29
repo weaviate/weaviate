@@ -25,11 +25,13 @@ func (s *Store) PauseObjectBucketCompaction(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	b := s.Bucket(helpers.ObjectsBucketLSM)
+	// Bucket() would recursively RLock and deadlock against a queued writer (weaviate/0-weaviate-issues#251).
+	b := s.bucketNoLock(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
+	}
 
-	b.disk.compactionCallbackCtrl.Deactivate(ctx)
-	b.doStartPauseTimer()
-	return nil
+	return b.pauseCompaction(ctx)
 }
 
 // ResumeObjectBucketCompaction resumes the compaction cycle for the objects bucket.
@@ -37,16 +39,10 @@ func (s *Store) ResumeObjectBucketCompaction(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	b := s.Bucket(helpers.ObjectsBucketLSM)
+	b := s.bucketNoLock(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
 	}
 
-	if err := b.disk.compactionCallbackCtrl.Activate(); err != nil {
-		return err
-	}
-
-	b.doStopPauseTimer()
-
-	return nil
+	return b.resumeCompaction(ctx)
 }

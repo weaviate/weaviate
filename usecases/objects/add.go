@@ -109,7 +109,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	class := fetchedClasses[object.Class].Class
 
-	err = m.validateObjectAndNormalizeNames(ctx, repl, object, nil, fetchedClasses)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -186,6 +186,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 }
 
 func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
+	principal *models.Principal,
 	repl *additional.ReplicationProperties,
 	incoming *models.Object, existing *models.Object, fetchedClasses map[string]versioned.Class,
 ) error {
@@ -199,7 +200,8 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	}
 	class := fetchedClasses[incoming.Class].Class
 
-	return validation.New(m.vectorRepo.Exists, m.config, repl).
+	return validation.New(m.vectorRepo.Exists, m.config, repl,
+		principal, m.config.Config.Namespaces.Enabled).
 		Object(ctx, class, incoming, existing)
 }
 

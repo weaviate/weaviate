@@ -94,11 +94,13 @@ func testChangeTokenization(t *testing.T, restURI string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
+			case <-ticker.C:
 			}
 			for i, bl := range retokenizeBaselines {
 				bq := bm25Queries[i]
@@ -119,11 +121,10 @@ func testChangeTokenization(t *testing.T, restURI string) {
 			} else if !reindexhelpers.IdsMatchUnordered(filterEqualDescBaseline, ids) {
 				queryFailures.Add(1)
 			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, retokenizeClassName, "filepath", `{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, retokenizeClassName, "filepath", "searchable", `{"tokenization":"field"}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, retokenizeClassName, "filepath", "searchable")
@@ -137,7 +138,7 @@ func testChangeTokenization(t *testing.T, restURI string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 1*time.Second, "tokenization should change to field")
+	}, 30*time.Second, 50*time.Millisecond, "tokenization should change to field")
 
 	close(stopCh)
 	wg.Wait()

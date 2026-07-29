@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -80,14 +81,14 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = docIDs
 			out.release = release
 			isEmpty = false
 		} else {
-			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
-			out.docIDs.OrConc(docIDs, concurrencyBudget)
+			out.docIDs.OrConc(docIDs, mergeConc)
 			release()
 		}
 
@@ -97,7 +98,12 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
+	var rr *RowReaderRoaringSet
+	if pv.nested.isNested {
+		rr = NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, invnested.PathPrefix(pv.nested.relPath))
+	} else {
+		rr = NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
+	}
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -135,14 +141,14 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
 			out.release = release
 			isEmpty = false
 		} else {
-			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
-			out.docIDs.OrConc(ids, concurrencyBudget)
+			out.docIDs.OrConc(ids, mergeConc)
 			release()
 		}
 
@@ -169,14 +175,14 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
 			out.release = release
 			isEmpty = false
 		} else {
-			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
-			out.docIDs.OrConc(ids, concurrencyBudget)
+			out.docIDs.OrConc(ids, mergeConc)
 			release()
 		}
 

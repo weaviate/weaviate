@@ -68,6 +68,8 @@ func (c *Crons) Init(clusterService *cluster.Service, ttlCoordinator *objectttl.
 	cr.Start()
 	<-c.serverShutdownCtx.Done()
 	cr.Stop()
+	// Await the namespace-cleanup registration goroutine before returning.
+	c.namespaceCleanup.wait()
 
 	return nil
 }

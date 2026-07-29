@@ -13,6 +13,7 @@ package configvalidation
 
 import (
 	"github.com/pkg/errors"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -38,7 +39,7 @@ func CheckCertaintyCompatibility(class *models.Class, targetVectors []string) er
 }
 
 func certaintyUnsupportedError(distType string) error {
-	return errors.Errorf(
+	return enterrors.NewErrCertaintyIncompatible(errors.Errorf(
 		"can't compute and return certainty when vector index is configured with %s distance",
-		distType)
+		distType))
 }

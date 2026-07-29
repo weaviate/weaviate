@@ -29,7 +29,7 @@ type AuthBrokerTokenSource struct {
 	client   *http.Client
 }
 
-const maxRetries = 3
+const maxRetries = 5
 
 var (
 	httpClientTimeout      = 5 * time.Second
@@ -65,8 +65,8 @@ func (b *AuthBrokerTokenSource) Token() (*oauth2.Token, error) {
 
 func (b *AuthBrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identityToken string) (*oauth2.Token, error) {
 	backoff := gax.Backoff{
-		Initial:    200 * time.Millisecond,
-		Max:        2 * time.Second,
+		Initial:    500 * time.Millisecond,
+		Max:        3 * time.Second,
 		Multiplier: 2,
 	}
 
@@ -104,7 +104,7 @@ func (b *AuthBrokerTokenSource) fetchToken(ctx context.Context, identityToken st
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 500 {
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 		return nil, fmt.Errorf("%w: auth broker returned status %d", ErrRetryableAuthBroker, resp.StatusCode)
 	}
 

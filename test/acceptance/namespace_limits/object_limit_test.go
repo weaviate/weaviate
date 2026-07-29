@@ -68,11 +68,9 @@ func fillUntilQuota(t *testing.T, class, key string) {
 // so the cap is per namespace, not per node: after alpha hits its cap,
 // beta can still write.
 func TestObjectLimitEnforcedPerNamespace(t *testing.T) {
-	const (
-		nsA      = "alpha"
-		nsB      = "beta"
-		homeNode = "weaviate-0"
-	)
+	t.Parallel()
+	nsA, nsB := uniqueNS(), uniqueNS()
+	const homeNode = "weaviate-0"
 
 	helper.CreateNamespaceWithHomeNode(t, nsA, homeNode, adminKey)
 	helper.CreateNamespaceWithHomeNode(t, nsB, homeNode, adminKey)
@@ -109,10 +107,9 @@ func TestObjectLimitEnforcedPerNamespace(t *testing.T) {
 // client is not bound to, so every insert is forwarded; the quota still
 // fires at the home node.
 func TestObjectLimitFromNonHomeNode(t *testing.T) {
-	const (
-		ns       = "forwarded"
-		homeNode = "weaviate-1"
-	)
+	t.Parallel()
+	ns := uniqueNS()
+	const homeNode = "weaviate-1"
 
 	// Guard against a future helper change that would silently make the
 	// test client bind to the home node and turn this into a local-write
@@ -136,10 +133,9 @@ func TestObjectLimitFromNonHomeNode(t *testing.T) {
 // TestUpdatesAtQuotaRejected regression-guards the documented behaviour
 // that PUTs also fail at full quota (the chokepoint covers updates).
 func TestUpdatesAtQuotaRejected(t *testing.T) {
-	const (
-		ns       = "updates"
-		homeNode = "weaviate-2"
-	)
+	t.Parallel()
+	ns := uniqueNS()
+	const homeNode = "weaviate-2"
 
 	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })

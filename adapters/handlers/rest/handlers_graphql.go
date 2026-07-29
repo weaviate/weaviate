@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	tailorincgraphql "github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/gqlerrors"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -52,7 +54,7 @@ func setupGraphQLHandlers(
 	api *operations.WeaviateAPI,
 	gqlProvider graphQLProvider,
 	m *schema.Manager,
-	disabled bool,
+	disabled *runtime.DynamicValue[bool],
 	namespacesEnabled bool,
 	metrics *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
@@ -60,6 +62,7 @@ func setupGraphQLHandlers(
 	metricRequestsTotal := newGraphqlRequestsTotal(metrics, logger)
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		if namespacesEnabled {
+			metricRequestsTotal.logNamespacesBlocked()
 			metricRequestsTotal.logUserError()
 			return graphql.NewGraphqlPostGone().
 				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration")))
@@ -82,7 +85,7 @@ func setupGraphQLHandlers(
 			}
 		}
 
-		if disabled {
+		if disabled.Get() {
 			metricRequestsTotal.logUserError()
 			err := fmt.Errorf("graphql api is disabled")
 			return graphql.NewGraphqlPostUnprocessableEntity().
@@ -109,7 +112,17 @@ func setupGraphQLHandlers(
 		// Only set variables if exists in request
 		var variables map[string]interface{}
 		if params.Body.Variables != nil {
-			variables = params.Body.Variables.(map[string]interface{})
+			vars, ok := params.Body.Variables.(map[string]interface{})
+			if !ok {
+				metricRequestsTotal.logUserError()
+				errorResponse.Error = []*models.ErrorResponseErrorItems0{
+					{
+						Message: fmt.Sprintf("variables must be a JSON object, got %T", params.Body.Variables),
+					},
+				}
+				return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			}
+			variables = vars
 		}
 
 		graphQL := gqlProvider.GetGraphQL()
@@ -162,6 +175,7 @@ func setupGraphQLHandlers(
 
 	api.GraphqlGraphqlBatchHandler = graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 		if namespacesEnabled {
+			metricRequestsTotal.logNamespacesBlocked()
 			metricRequestsTotal.logUserError()
 			return graphql.NewGraphqlBatchGone().
 				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration")))
@@ -171,6 +185,12 @@ func setupGraphQLHandlers(
 		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.Collections()...)
 		if err != nil {
 			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
+		}
+
+		if disabled.Get() {
+			metricRequestsTotal.logUserError()
+			return graphql.NewGraphqlBatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is disabled")))
 		}
 
 		errorResponse := &models.ErrorResponse{}
@@ -305,12 +325,42 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 }
 
 type graphqlRequestsTotal struct {
-	metrics *requestsTotalMetric
-	logger  logrus.FieldLogger
+	metrics           *requestsTotalMetric
+	namespacesBlocked prometheus.Counter
+	logger            logrus.FieldLogger
 }
 
 func newGraphqlRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) *graphqlRequestsTotal {
-	return &graphqlRequestsTotal{newRequestsTotalMetric(metrics, "graphql"), logger}
+	namespacesBlocked, err := newGraphqlNamespacesBlockedCounter(metrics)
+	if err != nil {
+		logger.Errorf("register graphql_namespaces_blocked_requests_total metric: %v", err)
+	}
+	return &graphqlRequestsTotal{
+		metrics:           newRequestsTotalMetric(metrics, "graphql"),
+		namespacesBlocked: namespacesBlocked,
+		logger:            logger,
+	}
+}
+
+func newGraphqlNamespacesBlockedCounter(metrics *monitoring.PrometheusMetrics) (prometheus.Counter, error) {
+	if metrics == nil || metrics.Registerer == nil {
+		return nil, nil
+	}
+	counter := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "graphql_namespaces_blocked_requests_total",
+		Help: "Number of requests to the GraphQL endpoint received while namespaces are enabled, where the GraphQL API is unavailable.",
+	})
+	registered, _, err := monitoring.EnsureRegisteredMetric(metrics.Registerer, counter)
+	if err != nil {
+		return nil, err
+	}
+	return registered, nil
+}
+
+func (e *graphqlRequestsTotal) logNamespacesBlocked() {
+	if e.namespacesBlocked != nil {
+		e.namespacesBlocked.Inc()
+	}
 }
 
 func (e *graphqlRequestsTotal) getQueryType(path []interface{}) string {

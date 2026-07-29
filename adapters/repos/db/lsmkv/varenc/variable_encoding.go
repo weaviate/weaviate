@@ -29,6 +29,10 @@ const (
 type VarEncEncoder[T any] interface {
 	Init(expectedCount int)
 	Encode(values []T) []byte
+	// EncodeAppend appends the encoding to arena and returns the encoded sub-slice
+	// plus the (possibly reallocated) arena. A growth realloc leaves earlier
+	// sub-slices valid but detached, so pre-size arena if they must stay contiguous.
+	EncodeAppend(values []T, arena []byte) (encoded []byte, updatedArena []byte)
 	Decode(data []byte) []T
 	EncodeReusable(values []T, buf []byte)
 	DecodeReusable(data []byte, values []T)
@@ -42,6 +46,24 @@ func GetVarEncEncoder64(t VarEncDataType) VarEncEncoder[uint64] {
 		return &VarIntEncoder{}
 	case DeltaVarIntUint64:
 		return &VarIntDeltaEncoder{}
+	default:
+		return nil
+	}
+}
+
+// GetDecodeFunc returns a stateless reusable-decode function for the query read
+// path. Unlike GetVarEncEncoder64 it allocates no per-call buffers and needs no
+// encoder instance — DecodeReusable writes straight into the caller's slice — so
+// callers avoid one heap allocation per term and the interface dispatch. Returns
+// nil for codecs without a uint64 decoder (same contract as GetVarEncEncoder64).
+func GetDecodeFunc(t VarEncDataType) func(data []byte, values []uint64) {
+	switch t {
+	case VarIntUint64:
+		return func(data []byte, values []uint64) { decodeReusable(values, data, false) }
+	case DeltaVarIntUint64:
+		return func(data []byte, values []uint64) { decodeReusable(values, data, true) }
+	case SimpleUint64:
+		return decodeSimpleUint64
 	default:
 		return nil
 	}

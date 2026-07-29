@@ -14,7 +14,9 @@ package replication
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,27 +24,17 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
-)
-
-// asyncStatusInterval is the polling interval to check the status of the
-// async replication of src->target
-const (
-	asyncStatusInterval = 5 * time.Second
-	// if async status errors more than 30 times, stop retrying
-	asyncStatusMaxErrors = 30
-	// about `asyncStatusInterval` seconds per retry, 120 retries = 10 minutes for async replication
-	// to complete
-	asyncStatusMaxRetries = 120
 )
 
 // OpConsumer is an interface for consuming replication operations.
@@ -56,8 +48,79 @@ type OpConsumer interface {
 // DELETED is a constant representing a temporary deleted state of a replication operation that should not be stored in the FSM.
 const DELETED = "deleted"
 
+// finalizeAndTail seals the source CCL while an uncapped tailer drains it
+// onto target. Idempotent on retry: "log gone" from either RPC means
+// already-drained.
+func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Entry, src, coll, shard, opID string) error {
+	tailCtx, cancelTail := context.WithCancel(ctx)
+	defer cancelTail()
+
+	tailErrCh := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		_, err := c.replicaCopier.TailAndApply(tailCtx, src, coll, shard, opID, math.MaxUint64)
+		if isCCLAlreadyGone(err) {
+			err = nil
+		}
+		tailErrCh <- err
+	}, c.logger)
+
+	if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID); err != nil {
+		if !isCCLAlreadyGone(err) {
+			cancelTail()
+			<-tailErrCh
+			logger.Errorf("failure while finalizing change log: %v", err)
+			return err
+		}
+		logger.Infof("FinalizeChangeLog: log already gone, treating as already finalized: %v", err)
+	}
+	if err := <-tailErrCh; err != nil {
+		logger.Errorf("failure while draining change log to final LSN: %v", err)
+		return err
+	}
+	if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil {
+		logger.Warnf("StopChangeCapture failed (non-fatal): %v", err)
+	}
+	return nil
+}
+
+// isCCLAlreadyGone matches the source's post-StopChangeCapture "log gone"
+// signal — the already-drained marker on retry.
+func isCCLAlreadyGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, changelog.ErrMsgNoActiveLog) ||
+		strings.Contains(msg, changelog.ErrMsgNoActiveChangeCaptureLog)
+}
+
 // errOpCancelled is an error indicating that the operation was cancelled.
 var errOpCancelled = errors.New("operation cancelled")
+
+// waitForAllNodesAtLeast blocks until every node has reported PerNodeState[peer] >= target
+func (c *CopyOpConsumer) waitForAllNodesAtLeast(
+	ctx context.Context, opID uint64, target api.ShardReplicationState,
+) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ok, err := c.leaderClient.ReplicationAllPeersAtLeast(opID, target)
+		if err != nil {
+			return fmt.Errorf("failed to check replication state of peers: %w", err)
+		}
+		if ok {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
 
 // CopyOpConsumer is an implementation of the OpConsumer interface that processes replication operations
 // by executing copy operations from a source shard to a target shard. It uses a ReplicaCopier to actually
@@ -108,35 +171,6 @@ type CopyOpConsumer struct {
 	// engineOpCallbacks defines hooks invoked at various stages of a replication operation's lifecycle
 	// (e.g., pending, start, complete, failure) to support metrics or custom observability logic.
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
-
-	// asyncReplicationMinimumWait is the duration for the upper time bound for the hash beat.
-	asyncReplicationMinimumWait *runtime.DynamicValue[time.Duration]
-}
-
-type overrides struct {
-	source additional.AsyncReplicationTargetNodeOverride
-	target additional.AsyncReplicationTargetNodeOverride
-}
-
-func newOverrides(op ShardReplicationOpAndStatus, upperTimeBound int64) overrides {
-	return overrides{
-		source: additional.AsyncReplicationTargetNodeOverride{
-			CollectionID:         op.Op.SourceShard.CollectionId,
-			ShardID:              op.Op.SourceShard.ShardId,
-			TargetNode:           op.Op.TargetShard.NodeId,
-			SourceNode:           op.Op.SourceShard.NodeId,
-			UpperTimeBound:       upperTimeBound,
-			NoDeletionResolution: true,
-		},
-		target: additional.AsyncReplicationTargetNodeOverride{
-			CollectionID:         op.Op.SourceShard.CollectionId,
-			ShardID:              op.Op.SourceShard.ShardId,
-			TargetNode:           op.Op.SourceShard.NodeId,
-			SourceNode:           op.Op.TargetShard.NodeId,
-			UpperTimeBound:       upperTimeBound,
-			NoDeletionResolution: false,
-		},
-	}
 }
 
 // NewCopyOpConsumer creates a new CopyOpConsumer instance responsible for executing
@@ -152,24 +186,22 @@ func NewCopyOpConsumer(
 	ongoingOps *OpsCache,
 	opTimeout time.Duration,
 	maxWorkers int,
-	asyncReplicationMinimumWait *runtime.DynamicValue[time.Duration],
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks,
 	schemaReader schema.SchemaReader,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
-		logger:                      logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction}),
-		leaderClient:                leaderClient,
-		replicaCopier:               replicaCopier,
-		backoffPolicy:               backoffPolicy,
-		ongoingOps:                  ongoingOps,
-		opTimeout:                   opTimeout,
-		maxWorkers:                  maxWorkers,
-		nodeId:                      nodeId,
-		tokens:                      make(chan struct{}, maxWorkers),
-		engineOpCallbacks:           engineOpCallbacks,
-		asyncReplicationMinimumWait: asyncReplicationMinimumWait,
-		schemaReader:                schemaReader,
-		opsGateway:                  NewOpsGateway(),
+		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction}),
+		leaderClient:      leaderClient,
+		replicaCopier:     replicaCopier,
+		backoffPolicy:     backoffPolicy,
+		ongoingOps:        ongoingOps,
+		opTimeout:         opTimeout,
+		maxWorkers:        maxWorkers,
+		nodeId:            nodeId,
+		tokens:            make(chan struct{}, maxWorkers),
+		engineOpCallbacks: engineOpCallbacks,
+		schemaReader:      schemaReader,
+		opsGateway:        NewOpsGateway(),
 	}
 	return c
 }
@@ -185,7 +217,7 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 	for {
 		select {
 		case <-workerCtx.Done():
-			c.logger.WithError(workerCtx.Err()).Info("worker context canceled, shutting down consumer")
+			c.logger.Infof("worker context canceled, shutting down consumer: %v", workerCtx.Err())
 			// We can start waiting for ops because their context depend on the worker context that just got cancelled
 			wg.Wait()
 			return workerCtx.Err()
@@ -316,22 +348,26 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					c.opsGateway.RegisterFailure(op.Op.ID)
 					if errors.Is(err, context.DeadlineExceeded) {
 						c.engineOpCallbacks.OnOpFailed(c.nodeId)
-						opLogger.WithError(err).Error("replication operation timed out")
+						opLogger.Errorf("replication operation timed out: %v", err)
 						return
 					}
 					// TODO: Refactor this error handling
 					if errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
-						opLogger.WithError(err).Info("replication operation cancelled")
+						opLogger.Infof("replication operation cancelled: %v", err)
 						c.cancelOp(operation, opLogger)
 						return
 					}
 					if errors.Is(err, errOpCancelled) {
-						opLogger.WithError(err).Info("replication operation cancelled")
+						opLogger.Infof("replication operation cancelled: %v", err)
 						c.cancelOp(operation, opLogger)
 						return
 					}
+					if isShardBusyError(err) {
+						opLogger.Infof("replication operation deferred: source shard busy: %v", err)
+						return
+					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
-					opLogger.WithError(err).Error("replication operation failed")
+					opLogger.Errorf("replication operation failed: %v", err)
 				}, c.logger)
 			}
 		}
@@ -352,6 +388,8 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 		return c.processStateAndTransition(ctx, op, c.processDehydratingOp)
 	case api.FINALIZING:
 		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
+	case api.INTEGRATING:
+		return c.processStateAndTransition(ctx, op, c.processIntegratingOp)
 	case api.READY:
 		return nil
 	case api.CANCELLED:
@@ -381,7 +419,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	nextState, err := backoff.RetryWithData(func() (api.ShardReplicationState, error) {
 		if ctx.Err() != nil {
-			logger.WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
+			logger.Errorf("error while processing replication operation, shutting down: %v", ctx.Err())
 			return api.ShardReplicationState(""), backoff.Permanent(ctx.Err())
 		}
 		if err := c.checkCancelled(logger, op); err != nil {
@@ -399,10 +437,17 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			if err := c.checkCancelled(logger, op); err != nil {
 				return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 			}
-			logger.WithError(err).Warn("state transition handler failed")
+			// Skip ReplicationRegisterError so a slow structural op cannot
+			// burn the MaxErrors budget and auto-cancel the movement; the
+			// outer worker re-dispatches on the next poll.
+			if isShardBusyError(err) {
+				logger.Infof("source shard busy with structural vector op; deferring movement step: %v", err)
+				return api.ShardReplicationState(""), backoff.Permanent(err)
+			}
+			logger.Warnf("state transition handler failed: %v", err)
 			// Otherwise, register the error with the FSM
 			if err := c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error()); err != nil {
-				logger.WithError(err).Error("failed to register error for replication operation")
+				logger.Errorf("failed to register error for replication operation: %v", err)
 			}
 			return api.ShardReplicationState(""), err
 		}
@@ -410,7 +455,6 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		if err := c.checkCancelled(logger, op); err != nil {
 			return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 		}
-		// No error from the state handler, update the state to the next, if this errors we will stop processing
 		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(ctx, op.Op.ID, nextState); err != nil {
 			logger.WithError(err).Errorf("failed to update replica status to '%s'", nextState)
 			return api.ShardReplicationState(""), fmt.Errorf("failed to update replica status to '%s': %w", nextState, err)
@@ -452,24 +496,38 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Ensure sync shards timesout reasonbly in case of hang
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Bound the cancel cleanup (StopChangeCapture, ReleaseReplicaSnapshot, target-shard drop) in case one hangs
 	defer cancel()
 
-	overrides := newOverrides(op, time.Now().UnixMilli())
-	c.stopAsyncReplication(ctx, op, overrides, logger)
+	// Safe for ops that never reached HYDRATING: idempotent for unknown opIDs.
+	if err := c.replicaCopier.StopChangeCapture(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
+		logger.Warnf("StopChangeCapture failed during cancel (non-fatal): %v", err)
+	}
 
-	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
-	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
-	if err := c.sync(ctx, op); err != nil {
-		logger.WithError(err).
-			WithField("op", op).
-			Error(fmt.Errorf("failure while syncing replica shard when cancelling the op"))
+	// Covers the case where CopyReplicaFiles' defer never registered — a
+	// leaked staging dir would otherwise pin compaction.
+	opUUID := string(op.Op.UUID)
+	if opUUID == "" {
+		opUUID = strconv.FormatUint(op.Op.ID, 10)
+	}
+	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, opUUID); err != nil {
+		logger.Warnf("ReleaseReplicaSnapshot failed during cancel (non-fatal): %v", err)
+	}
+
+	// Drop the op's target shard (files included). copier.go stages files into
+	// the live shard dir during hydration; a cancel before the replica is added
+	// to the schema leaves that residue behind. The consumer runs on the target
+	// node by construction, so this is a guarded local drop, not a RAFT reconcile.
+	if err := c.dropCancelledOpTargetShard(ctx, op, logger); err != nil {
+		logger.Errorf("failure while dropping cancelled-op target shard: %v", err)
 	}
 
 	// If the operation is only being cancelled then notify the FSM so it can update its state
 	if op.Status.OnlyCancellation() {
 		if err := c.leaderClient.ReplicationCancellationComplete(ctx, op.Op.ID); err != nil {
-			logger.WithError(err).Error("failure while completing cancellation of replica operation")
+			logger.Errorf("failure while completing cancellation of replica operation: %v", err)
 		}
 		return
 	}
@@ -477,50 +535,60 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	// If the operation is being deleted then remove it from the FSM
 	if op.Status.ShouldDelete {
 		if err := c.leaderClient.ReplicationRemoveReplicaOp(ctx, op.Op.ID); err != nil {
-			logger.WithError(err).Error("failure while deleting replica operation")
+			logger.Errorf("failure while deleting replica operation: %v", err)
 		}
 		return
 	}
 }
 
-func (c *CopyOpConsumer) startAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, overrides overrides, logger *logrus.Entry) error {
-	// Ensure async replication is started on local (target) node
-	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-		logger.WithError(err).Error("failed to initialize async replication on local node")
-		return err
-	}
-	// Start async replication from source node to target node
-	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.target, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failed to add async replication from source node to target node")
-		return err
-	}
-	// Start async replication from target node to source node
-	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.source, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failed to add async replication from target node to source node")
-		return err
-	}
-	return nil
-}
+// dropCancelledOpTargetShard removes the op's target shard (files included)
+// from this node when the op has been cancelled/deleted and this node is not a
+// replica of the shard.
+//
+// The guard is fail-closed on every branch and the whole helper is
+// log-and-continue (a failed cleanup never aborts cancellation):
+//  1. target-is-self: impossible by construction;
+//  2. op authority: only a cancelled/deleted op may drop its target;
+//  3. membership: a fresh ShardReplicas read; if this node is (again) a replica
+//     a newer op re-acquired the shard, so dropping would wipe a live replica.
+func (c *CopyOpConsumer) dropCancelledOpTargetShard(ctx context.Context, op ShardReplicationOpAndStatus, logger *logrus.Entry) error {
+	coll := op.Op.TargetShard.CollectionId
+	shard := op.Op.TargetShard.ShardId
 
-func (c *CopyOpConsumer) stopAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, overrides overrides, logger *logrus.Entry) {
-	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.target); err != nil {
-		logger.WithError(err).Error("failure while removing async replication from source node to target node")
-	}
-	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.source); err != nil {
-		logger.WithError(err).Error("failure while removing async replication from target node to source node")
-	}
-	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while reverting async replication on local node")
-	}
-}
+	logger = logger.WithFields(logrus.Fields{
+		"op_id":      op.Op.ID,
+		"collection": coll,
+		"shard":      shard,
+		"node":       c.nodeId,
+	})
 
-func (c *CopyOpConsumer) sync(ctx context.Context, op ShardReplicationOpAndStatus) error {
-	if _, err := c.leaderClient.SyncShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-		return err
+	if op.Op.TargetShard.NodeId != c.nodeId {
+		logger.WithField("target_node", op.Op.TargetShard.NodeId).
+			Warn("refusing to drop cancelled-op target shard: op target node is not this node")
+		return nil // shouldn't retry: the op is not for this node, so we don't need to drop the shard
 	}
-	if _, err := c.leaderClient.SyncShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
-		return err
+
+	if !op.Status.ShouldCancel && !op.Status.ShouldDelete && op.Status.GetCurrentState() != api.CANCELLED {
+		logger.Warn("refusing to drop target shard: op is neither cancelled nor deleted")
+		return nil // shouldn't retry: the op is not cancelled or deleted, so we don't need to drop the shard
 	}
+
+	nodes, err := c.schemaReader.ShardReplicas(coll, shard)
+	if err != nil {
+		// should retry: we cannot determine if this node is a replica of the shard, so we cannot safely drop the shard
+		return fmt.Errorf("refusing to drop target shard: failed to read shard replicas: %w", err)
+	}
+	if slices.Contains(nodes, c.nodeId) {
+		logger.Warn("refusing to drop target shard: this node is a replica of the shard")
+		return nil // shouldn't retry: this node is a replica of the shard, so we don't need to drop the shard
+	}
+
+	if err := c.replicaCopier.DropLocalShard(ctx, coll, shard); err != nil {
+		// should retry: we failed to drop the shard, so we should retry in case it was a transient error
+		return fmt.Errorf("failed to drop cancelled-op target shard: %w", err)
+	}
+
+	logger.Info("dropped cancelled-op target shard")
 	return nil
 }
 
@@ -532,9 +600,10 @@ func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplic
 	return api.HYDRATING, nil
 }
 
-// processHydratingOp is the state handler for the HYDRATING state.
-// It copies the replica shard from the source node to the target node using file copy opetaitons and then transitions the operation to the FINALIZING state.
-func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+// processHydratingOp is the state handler for the HYDRATING state. On error
+// after a successful StartChangeCapture it tears the source log down so the
+// retry starts from a clean file slate.
+func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (nextState api.ShardReplicationState, retErr error) {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing hydrating replication operation")
 
@@ -552,17 +621,17 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			},
 		})
 		if err != nil {
-			logger.WithError(err).Error("failure while updating tenant to active state for hydrating operation")
+			logger.Errorf("failure while updating tenant to active state for hydrating operation: %v", err)
 			return api.ShardReplicationState(""), err
 		}
 
 		if err := c.leaderClient.ReplicationStoreSchemaVersion(ctx, op.Op.ID, schemaVersion); err != nil {
-			logger.WithError(err).Error("failure while storing schema version for replication operation")
+			logger.Errorf("failure while storing schema version for replication operation: %v", err)
 			return api.ShardReplicationState(""), err
 		}
 
 		if err := c.leaderClient.WaitForUpdate(ctx, schemaVersion); err != nil {
-			logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+			logger.Errorf("failure while waiting for schema version to be applied to local node: %v", err)
 			return api.ShardReplicationState(""), err
 		}
 		// Update the local operation status with the stored schema version so it's available
@@ -573,46 +642,74 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	}
 
 	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		logger.Debugf("context cancelled, stopping replication operation: %v", ctx.Err())
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failure while copying replica shard")
+	opID := strconv.FormatUint(op.Op.ID, 10)
+	src := op.Op.SourceShard.NodeId
+	coll := op.Op.SourceShard.CollectionId
+	shard := op.Op.SourceShard.ShardId
+
+	// Must precede CopyReplicaFiles: every write after this point lands in
+	// the log and is replayed during FINALIZING/DEHYDRATING.
+	if err := c.replicaCopier.StartChangeCapture(ctx, src, coll, shard, opID, op.Status.SchemaVersion); err != nil {
+		logger.Errorf("failure while starting change capture: %v", err)
+		return api.ShardReplicationState(""), err
+	}
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		// Bounded background ctx — the worker ctx is already cancelled by the
+		// time we get here. If Stop fails, the orphan-sweep in
+		// Shard.ActivateChangeLog cleans up before the next retry's Start.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := c.replicaCopier.StopChangeCapture(cleanupCtx, src, coll, shard, opID); err != nil {
+			logger.Warnf("StopChangeCapture failed during HYDRATING cleanup (non-fatal): %v", err)
+		}
+	}()
+
+	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+		logger.Errorf("failure while copying replica shard: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
 	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		logger.Debugf("context cancelled, stopping replication operation: %v", ctx.Err())
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
 	return api.FINALIZING, nil
 }
 
-// processFinalizingOp is the state handler for the FINALIZING state.
-// It updates the sharding state and then transitions the operation to the READY state.
+// processFinalizingOp is the state handler for the FINALIZING state. The
+// cap'd drain runs before RAFT-add so a consistency=ONE read routed to the
+// target right after it joins the sharding state cannot observe a state older
+// than the FINALIZING phase boundary.
 func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing finalizing replication operation")
 
 	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		logger.Debugf("context cancelled, stopping replication operation: %v", ctx.Err())
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
 	if err := c.leaderClient.WaitForUpdate(ctx, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+		logger.Errorf("failure while waiting for schema version to be applied to local node: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
+	// Must precede the cap'd drain: replay writes to the local target shard.
 	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while loading shard")
+		logger.Errorf("failure while loading shard: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
 	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		logger.Debugf("context cancelled, stopping replication operation: %v", ctx.Err())
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
@@ -620,34 +717,34 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// If it does we are probably recoving from a previous failure and can skip adding the replica to the sharding state again
 	nodes, err := c.schemaReader.ShardReplicas(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId)
 	if err != nil {
-		logger.WithError(err).Error("failure while getting shard replicas")
+		logger.Errorf("failure while getting shard replicas: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 	replicaExists := slices.Contains(nodes, op.Op.TargetShard.NodeId)
 
-	// this time will be used to make sure async replication has propagated any writes which
-	// were received during the hydrating phase
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(time.Second * 5).UnixMilli()
-	overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
-	if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
+	opID := strconv.FormatUint(op.Op.ID, 10)
+	src := op.Op.SourceShard.NodeId
+	coll := op.Op.SourceShard.CollectionId
+	shard := op.Op.SourceShard.ShardId
+
+	snap, err := c.replicaCopier.SnapshotChangeLogLSN(ctx, src, coll, shard, opID)
+	if err != nil {
+		logger.Errorf("failure while snapshotting change log LSN: %v", err)
+		return api.ShardReplicationState(""), err
+	}
+
+	if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, snap); err != nil {
+		logger.Errorf("failure while draining change log up to snapshot LSN: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
 	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+		logger.Debugf("error while processing replication operation, shutting down: %v", ctx.Err())
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
-		logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
-		return api.ShardReplicationState(""), err
-	}
-
-	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
-		return api.ShardReplicationState(""), ctx.Err()
-	}
-
+	// RAFT-add only after the target is caught up to snap. CCL stays alive;
+	// the seal happens in INTEGRATING after the transition converges.
 	if !replicaExists {
 		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
 			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
@@ -655,93 +752,118 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 				// due to eventual consistency of the sharding state.
 				logger.Debug("replica already exists, skipping")
 			} else {
-				logger.WithError(err).Error("failure while adding replica to shard")
+				logger.Errorf("failure while adding replica to shard: %v", err)
 				return api.ShardReplicationState(""), err
 			}
 		}
 	}
 
-	switch op.Op.TransferType {
-	case api.COPY:
-		c.stopAsyncReplication(ctx, op, overrides, logger)
-		// sync the replica shard to ensure that the schema and store are consistent on each node
-		// In a COPY this happens now, in a MOVE this happens in the DEHYDRATING state
-		if err := c.sync(ctx, op); err != nil {
-			logger.WithError(err).Error("failure while syncing replica shard in finalizing state")
-			return api.ShardReplicationState(""), err
-		}
-		return api.READY, nil
-	case api.MOVE:
-		return api.DEHYDRATING, nil
-	default:
-		return api.ShardReplicationState(""), fmt.Errorf("unknown transfer type: %s", op.Op.TransferType)
-	}
+	return api.INTEGRATING, nil
 }
 
-// processDehydratingOp is the state handler for the DEHYDRATING state.
+// processIntegratingOp is the shared seal+drain phase for COPY and MOVE.
+// It waits for INTEGRATING to converge across every node — making the target
+// a counted write replica everywhere — then does a capped drain and seals the
+// source CCL. Idempotent: re-running after a prior seal sees "log gone".
+//
+// Returns READY for COPY (source stays), DEHYDRATING for MOVE (source removed
+// next by processDehydratingOp).
+func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
+	logger.Info("processing integrating replication operation")
+
+	if ctx.Err() != nil {
+		logger.Debugf("context cancelled, stopping replication operation: %v", ctx.Err())
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	opID := strconv.FormatUint(op.Op.ID, 10)
+	src := op.Op.SourceShard.NodeId
+	coll := op.Op.SourceShard.CollectionId
+	shard := op.Op.SourceShard.ShardId
+
+	// Wait for INTEGRATING to converge — until then the target is a counted
+	// write replica only where the transition has applied.
+	if err := c.waitForAllNodesAtLeast(ctx, op.Op.ID, api.INTEGRATING); err != nil {
+		logger.Errorf("failure waiting for INTEGRATING op-state to converge across nodes: %v", err)
+		return api.ShardReplicationState(""), err
+	}
+
+	// Capped drain shrinks the gap before the final seal. "Log gone" on retry
+	// means a prior attempt already sealed.
+	snap, err := c.replicaCopier.SnapshotChangeLogLSN(ctx, src, coll, shard, opID)
+	if err != nil {
+		if isCCLAlreadyGone(err) {
+			logger.Info("change log already sealed, integration already complete")
+			return nextStateAfterIntegrating(op.Op.TransferType), nil
+		}
+		logger.Errorf("failure while snapshotting change log LSN: %v", err)
+		return api.ShardReplicationState(""), err
+	}
+
+	if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, snap); err != nil {
+		if !isCCLAlreadyGone(err) {
+			logger.Errorf("failure while draining change log up to snapshot LSN: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	}
+
+	if ctx.Err() != nil {
+		logger.Debugf("error while processing replication operation, shutting down: %v", ctx.Err())
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.finalizeAndTail(ctx, logger, src, coll, shard, opID); err != nil {
+		return api.ShardReplicationState(""), err
+	}
+
+	return nextStateAfterIntegrating(op.Op.TransferType), nil
+}
+
+func nextStateAfterIntegrating(tt api.ShardReplicationTransferType) api.ShardReplicationState {
+	if tt == api.MOVE {
+		return api.DEHYDRATING
+	}
+	return api.READY
+}
+
+// processDehydratingOp is the MOVE-only post-seal handler: wait for
+// DEHYDRATING to converge (so the source-side fence is rejecting stale writes
+// everywhere), then remove the source from the sharding state. Retry-safe via
+// the "still in replica set" guard.
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
 
 	if err := c.leaderClient.WaitForUpdate(ctx, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+		logger.Errorf("failure while waiting for schema version to be applied to local node: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
 	nodes, err := c.schemaReader.ShardReplicas(op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
 	if err != nil {
-		logger.WithError(err).Error("failure while getting shard replicas")
+		logger.Errorf("failure while getting shard replicas: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
-	// Async replication was started in processFinalizingOp, but here we want to "increase" the upper time bound
-	// to make sure any writes received by the source node before the op entered the DEHYDRATING state are
-	// propagated to the target node. We assume writes will complete or time out (default 90s) within the
-	// asyncReplicationMinimumWait time (default 100s). The source node should not receive any writes after the op
-	// enters the DEHYDRATING state.
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
-	overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
+	src := op.Op.SourceShard.NodeId
+	coll := op.Op.SourceShard.CollectionId
+	shard := op.Op.SourceShard.ShardId
 
 	if slices.Contains(nodes, op.Op.SourceShard.NodeId) {
-		if ctx.Err() != nil {
-			logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
-			return api.ShardReplicationState(""), ctx.Err()
-		}
-
-		if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
+		// Wait for DEHYDRATING to converge so the source-side fence is active
+		// everywhere before we remove the source.
+		if err := c.waitForAllNodesAtLeast(ctx, op.Op.ID, api.DEHYDRATING); err != nil {
+			logger.Errorf("failure waiting for DEHYDRATING op-state to converge across nodes: %v", err)
 			return api.ShardReplicationState(""), err
 		}
 
-		if ctx.Err() != nil {
-			logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
-			return api.ShardReplicationState(""), ctx.Err()
-		}
-
-		if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
-			logger.WithError(err).Error("failure while waiting for async replication to complete while dehydrating")
-			return api.ShardReplicationState(""), err
-		}
-
-		if ctx.Err() != nil {
-			logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
-			return api.ShardReplicationState(""), ctx.Err()
-		}
-
-		c.stopAsyncReplication(ctx, op, overrides, logger)
-
-		// If the replica got deleted due to eventual consistency between our sanity check and this call, the delete will be a no-op and return no error
-		if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
-			logger.WithError(err).Error("failure while deleting replica from shard")
+		if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, coll, shard, src); err != nil {
+			logger.Errorf("failure while deleting replica from shard: %v", err)
 			return api.ShardReplicationState(""), err
 		}
 	}
 
-	// sync the replica shard to ensure that the schema and store are consistent on each node
-	// In a COPY this happens in the FINALIZING state, in a MOVE this happens now
-	if err := c.sync(ctx, op); err != nil {
-		logger.WithError(err).Error("failure while syncing replica shard in dehydrating state")
-		return api.ShardReplicationState(""), err
-	}
 	return api.READY, nil
 }
 
@@ -753,115 +875,44 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), fmt.Errorf("replication operation with id %v is not in a state to be deleted", op.Op.ID)
 	}
 
-	overrides := newOverrides(op, time.Now().UnixMilli())
-	c.stopAsyncReplication(ctx, op, overrides, logger)
+	// Safe for ops that never reached HYDRATING: idempotent for unknown opIDs.
+	if err := c.replicaCopier.StopChangeCapture(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
+		logger.Warnf("StopChangeCapture failed during cancelled-op cleanup (non-fatal): %v", err)
+	}
+
+	// Same cleanup as cancelOp, for the FSM-dispatched cancel path.
+	opUUID := string(op.Op.UUID)
+	if opUUID == "" {
+		opUUID = strconv.FormatUint(op.Op.ID, 10)
+	}
+	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, opUUID); err != nil {
+		logger.Warnf("ReleaseReplicaSnapshot failed during cancelled-op cleanup (non-fatal): %v", err)
+	}
+
+	if err := c.dropCancelledOpTargetShard(ctx, op, logger); err != nil {
+		logger.Errorf("failure while dropping cancelled-op target shard: %v", err)
+		return api.ShardReplicationState(""), err
+	}
 
 	if err := c.leaderClient.ReplicationRemoveReplicaOp(ctx, op.Op.ID); err != nil {
-		logger.WithError(err).Error("failure while removing replica operation")
+		logger.Errorf("failure while removing replica operation: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 	return DELETED, nil
 }
 
-func (c *CopyOpConsumer) handleAsyncReplErr(
-	err error,
-	retryNum int,
-	asyncStatusMaxErrors int,
-	remainingErrorsAllowed int,
-	logger *logrus.Entry,
-) (int, error) {
-	remainingErrorsAllowed--
-	if remainingErrorsAllowed < 0 {
-		// If we see this error, it means that something probably went wrong with
-		// initializing the async replication on the source/target nodes.
-		logger.WithFields(logrus.Fields{"num_errors": asyncStatusMaxErrors, "num_retries": retryNum}).WithError(err).Error("errored on all attempts to get async replication status")
-		return remainingErrorsAllowed, backoff.Permanent(err)
+func isShardBusyError(err error) bool {
+	if err == nil {
+		return false
 	}
-	// We expect to see this warning a few times while the hashtree's are being initialized
-	// on the source/target nodes, but if this errors for longer than ~asyncStatusRetries * asyncStatusInterval
-	// then either the hashtree is taking forever to init or something has gone wrong
-	logger.WithFields(logrus.Fields{"num_errors_allowed": asyncStatusMaxErrors, "num_errors_left": remainingErrorsAllowed, "num_retries_so_far": retryNum}).WithError(err).Warn("errored when getting async replication status, hashtrees may still be initializing, retrying")
-	return remainingErrorsAllowed, err
-}
-
-// waitForAsyncReplication waits for async replication to complete by checking the status of the async
-// replication every `asyncStatusInterval` seconds.
-// It returns an error if the async replication does not complete within `asyncStatusRetries` attempts.
-// It returns nil if the async replication has completed.
-func (c *CopyOpConsumer) waitForAsyncReplication(
-	ctx context.Context,
-	op ShardReplicationOpAndStatus,
-	asyncReplicationUpperTimeBoundUnixMillis int64,
-	logger *logrus.Entry,
-) error {
-	remainingErrorsAllowed := asyncStatusMaxErrors
-	retryNum := -1
-	return backoff.Retry(func() error {
-		retryNum++
-		asyncReplStatusSrc, err := c.replicaCopier.AsyncReplicationStatus(
-			ctx,
-			op.Op.SourceShard.NodeId,
-			op.Op.TargetShard.NodeId,
-			op.Op.SourceShard.CollectionId,
-			op.Op.SourceShard.ShardId,
-		)
-		if err != nil {
-			remainingErrorsAllowed, err = c.handleAsyncReplErr(err, retryNum, asyncStatusMaxErrors, remainingErrorsAllowed, logger)
-			return err
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		st, ok := status.FromError(e)
+		if !ok {
+			continue
 		}
-		asyncReplIsPastUpperTimeBoundSrc := asyncReplStatusSrc.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
-
-		asyncReplStatusTgt, err := c.replicaCopier.AsyncReplicationStatus(
-			ctx,
-			op.Op.TargetShard.NodeId,
-			op.Op.SourceShard.NodeId,
-			op.Op.TargetShard.CollectionId,
-			op.Op.TargetShard.ShardId,
-		)
-		if err != nil {
-			remainingErrorsAllowed, err = c.handleAsyncReplErr(err, retryNum, asyncStatusMaxErrors, remainingErrorsAllowed, logger)
-			return err
-		}
-		asyncReplIsPastUpperTimeBoundTgt := asyncReplStatusTgt.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
-
-		objectsPropagated := asyncReplStatusSrc.ObjectsPropagated + asyncReplStatusTgt.ObjectsPropagated
-		asyncReplIsPastUpperTimeBound := asyncReplIsPastUpperTimeBoundSrc && asyncReplIsPastUpperTimeBoundTgt
-		// It can take a few minutes for async replication to complete, this log is here to
-		// help monitor the progress.
-		logger.WithFields(logrus.Fields{
-			"objects_propagated":                      objectsPropagated,
-			"start_diff_time_unix_millis_src":         asyncReplStatusSrc.StartDiffTimeUnixMillis,
-			"start_diff_time_unix_millis_tgt":         asyncReplStatusTgt.StartDiffTimeUnixMillis,
-			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
-			"async_replication_past_upper_time_bound": asyncReplIsPastUpperTimeBound,
-			"num_retries_so_far":                      retryNum,
-			"remaining_errors_allowed":                remainingErrorsAllowed,
-		}).Info("async replication status")
-		if objectsPropagated == 0 && asyncReplIsPastUpperTimeBound {
-			return nil
-		}
-
-		// Wait until we've passed the upper time bound before starting status checks
-		// to avoid unnecessary status checks before the upper time bound has passed
-		currentTimeMillis := time.Now().UnixMilli()
-		if currentTimeMillis < asyncReplicationUpperTimeBoundUnixMillis {
-			waitDuration := time.Duration(asyncReplicationUpperTimeBoundUnixMillis-currentTimeMillis) * time.Millisecond
-			logger.WithFields(logrus.Fields{
-				"wait_duration_ms": waitDuration.Milliseconds(),
-				"upper_bound_ms":   asyncReplicationUpperTimeBoundUnixMillis,
-			}).Info("waiting to reach upper time bound before starting async replication status checks")
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(waitDuration):
-				// Time has passed, continue below with the status checks
-			}
-		}
-
-		return errors.New("async replication not done")
-	}, backoff.WithContext(
-		backoff.WithMaxRetries(backoff.NewConstantBackOff(asyncStatusInterval), asyncStatusMaxRetries),
-		ctx),
-	)
+		return st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), enterrors.ErrShardBusyStructuralOp.Error())
+	}
+	return false
 }

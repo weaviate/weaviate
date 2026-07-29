@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
@@ -104,6 +105,34 @@ func TestCompressionRestoreCfg(t *testing.T) {
 		t.Run(n, func(t *testing.T) {
 			ccfg := compressionFromRCfg(tc.cfg)
 			assert.Equal(t, tc.expectedCPU, ccfg.CPUPercentage)
+		})
+	}
+}
+
+// TestIsRequestFromRootUser verifies that the base backup ID gate passed to the
+// list manager is only set for root users (by username or group membership).
+func TestIsRequestFromRootUser(t *testing.T) {
+	h := &backupHandlers{
+		rbacConfig: rbacconf.Config{
+			RootUsers:  []string{"root-user"},
+			RootGroups: []string{"root-group"},
+		},
+	}
+
+	tcs := map[string]struct {
+		principal *models.Principal
+		expectGet bool
+	}{
+		"root user":            {principal: &models.Principal{Username: "root-user"}, expectGet: true},
+		"member of root group": {principal: &models.Principal{Username: "alice", Groups: []string{"root-group"}}, expectGet: true},
+		"non-root user":        {principal: &models.Principal{Username: "alice"}, expectGet: false},
+		"non-root group":       {principal: &models.Principal{Username: "alice", Groups: []string{"other-group"}}, expectGet: false},
+		"nil principal":        {principal: nil, expectGet: false},
+	}
+
+	for n, tc := range tcs {
+		t.Run(n, func(t *testing.T) {
+			assert.Equal(t, tc.expectGet, h.isRequestFromRootUser(tc.principal))
 		})
 	}
 }

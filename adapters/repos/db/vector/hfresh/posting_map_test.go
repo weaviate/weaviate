@@ -12,11 +12,12 @@
 package hfresh
 
 import (
-	"sync"
+	"bytes"
+	"encoding/binary"
 	"sync/atomic"
 	"testing"
-	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -27,10 +28,17 @@ import (
 func makePostingMetadataStore(t *testing.T) *PostingMap {
 	t.Helper()
 
+	bucket := makePostingMetadataBucket(t)
+	return NewPostingMap(bucket)
+}
+
+func makePostingMetadataBucket(t *testing.T) *lsmkv.Bucket {
+	t.Helper()
+
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	return NewPostingMap(bucket, makeTestMetrics())
+	return bucket
 }
 
 var idCounter atomic.Uint64
@@ -50,14 +58,44 @@ func makeVectors(t *testing.T, n, dims int) []Vector {
 	return result
 }
 
-func decodePacked(encoded PackedPostingMetadata) ([]uint64, []VectorVersion) {
+func decodePacked(encoded PackedPostingMetadata) []uint64 {
 	var ids []uint64
-	var versions []VectorVersion
-	for id, version := range encoded.Iter() {
+	for id := range encoded.Iter() {
 		ids = append(ids, id)
-		versions = append(versions, version)
 	}
-	return ids, versions
+	return ids
+}
+
+func legacyPackedPostingMetadata(ids ...uint64) PackedPostingMetadata {
+	scheme := determineScheme(ids)
+	bytesPerID := scheme.BytesPerValue()
+	data := make(PackedPostingMetadata, 5+len(ids)*(bytesPerID+1))
+	data[0] = byte(scheme)
+	binary.LittleEndian.PutUint32(data[1:5], uint32(len(ids)))
+
+	offset := 5
+	for _, id := range ids {
+		for i := range bytesPerID {
+			data[offset+i] = byte(id >> (i * 8))
+		}
+		offset += bytesPerID
+		data[offset] = byte(v1)
+		offset++
+	}
+
+	return data
+}
+
+func countKeysWithPrefix(bucket *lsmkv.Bucket, prefix []byte) int {
+	c := bucket.Cursor()
+	defer c.Close()
+
+	var count int
+	for k, _ := c.Seek(prefix); len(k) > 0 && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+		count++
+	}
+
+	return count
 }
 
 func TestPostingMapEncoding(t *testing.T) {
@@ -147,11 +185,10 @@ func TestPostingMapEncoding(t *testing.T) {
 				require.Equal(t, tt.expectedScheme, scheme)
 
 				// Test encode/decode round-trip
-				encoded := NewPackedPostingMetadata(tt.vectorIDs, tt.versions)
+				encoded := NewPackedPostingMetadata(tt.vectorIDs)
 
-				decodedIDs, decodedVersions := decodePacked(encoded)
+				decodedIDs := decodePacked(encoded)
 				require.Equal(t, tt.vectorIDs, decodedIDs)
-				require.Equal(t, tt.versions, decodedVersions)
 			})
 		}
 	})
@@ -210,38 +247,10 @@ func TestPostingMapEncoding(t *testing.T) {
 
 				m, err := store.Get(ctx, postingID)
 				require.NoError(t, err)
-				vectorIDs, versions := decodePacked(m.PackedPostingMetadata)
+				vectorIDs := decodePacked(m.PackedPostingMetadata)
 				require.Equal(t, tt.vectorIDs, vectorIDs)
-				require.Equal(t, tt.versions, versions)
 			})
 		}
-	})
-
-	t.Run("version byte encoding preserves all bits", func(t *testing.T) {
-		store := makePostingMetadataStore(t)
-		postingID := uint64(99)
-
-		// Test all possible version values (0-255)
-		vectorIDs := make([]uint64, 256)
-		versions := make([]VectorVersion, 256)
-		for i := 0; i < 256; i++ {
-			vectorIDs[i] = uint64(i + 1)
-			versions[i] = VectorVersion(i)
-		}
-
-		posting := make(Posting, 256)
-		for i := range vectorIDs {
-			posting[i] = NewVector(vectorIDs[i], versions[i], nil)
-		}
-
-		err := store.SetVectorIDs(ctx, postingID, posting)
-		require.NoError(t, err)
-
-		m, err := store.Get(ctx, postingID)
-		require.NoError(t, err)
-		vIDs, vVersions := decodePacked(m.PackedPostingMetadata)
-		require.Equal(t, vectorIDs, vIDs)
-		require.Equal(t, versions, vVersions)
 	})
 
 	t.Run("large posting count", func(t *testing.T) {
@@ -268,9 +277,8 @@ func TestPostingMapEncoding(t *testing.T) {
 		m, err := store.Get(ctx, postingID)
 		require.NoError(t, err)
 		require.EqualValues(t, count, m.Count())
-		vIDs, vVersions := decodePacked(m.PackedPostingMetadata)
+		vIDs := decodePacked(m.PackedPostingMetadata)
 		require.Equal(t, vectorIDs, vIDs)
-		require.Equal(t, versions, vVersions)
 	})
 
 	t.Run("AddVector scheme upgrade with data preservation", func(t *testing.T) {
@@ -278,20 +286,19 @@ func TestPostingMapEncoding(t *testing.T) {
 		var data PackedPostingMetadata
 
 		// Start with 2-byte scheme (small vectors)
-		data = data.AddVector(100, 1)
+		data = data.AddVector(100)
 		require.Equal(t, uint32(1), data.Count())
 
-		data = data.AddVector(200, 2)
+		data = data.AddVector(200)
 		require.Equal(t, uint32(2), data.Count())
 
 		// Add a vector that requires 4-byte scheme (should trigger upgrade)
-		data = data.AddVector(16777216, 3)
+		data = data.AddVector(16777216)
 		require.Equal(t, uint32(3), data.Count())
 
 		// Verify all data is preserved in correct order
-		ids, versions := decodePacked(data)
+		ids := decodePacked(data)
 		require.Equal(t, []uint64{100, 200, 16777216}, ids)
-		require.Equal(t, []VectorVersion{1, 2, 3}, versions)
 
 		// Verify scheme is now 4-byte
 		require.Equal(t, schemeID4Byte, Scheme(data[0]))
@@ -319,17 +326,15 @@ func TestPostingMapEncoding(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			data = data.AddVector(tc.id, tc.version)
+			data = data.AddVector(tc.id)
 		}
 
 		// Verify all data is preserved
-		ids, versions := decodePacked(data)
+		ids := decodePacked(data)
 		require.Len(t, ids, len(testCases))
-		require.Len(t, versions, len(testCases))
 
 		for i, tc := range testCases {
 			require.Equal(t, tc.id, ids[i], "ID at index %d", i)
-			require.Equal(t, tc.version, versions[i], "Version at index %d", i)
 		}
 
 		// Final scheme should be 8-byte
@@ -353,16 +358,14 @@ func TestPostingMapEncoding(t *testing.T) {
 				var data PackedPostingMetadata
 
 				// Add at boundary
-				data = data.AddVector(tc.boundary, 1)
-				ids, versions := decodePacked(data)
+				data = data.AddVector(tc.boundary)
+				ids := decodePacked(data)
 				require.Equal(t, []uint64{tc.boundary}, ids)
-				require.Equal(t, []VectorVersion{1}, versions)
 
 				// Add just over boundary (should trigger upgrade)
-				data = data.AddVector(tc.nextSize, 2)
-				ids, versions = decodePacked(data)
+				data = data.AddVector(tc.nextSize)
+				ids = decodePacked(data)
 				require.Equal(t, []uint64{tc.boundary, tc.nextSize}, ids)
-				require.Equal(t, []VectorVersion{1, 2}, versions)
 			})
 		}
 	})
@@ -383,40 +386,12 @@ func TestPostingMapEncoding(t *testing.T) {
 		}
 
 		for _, add := range additions {
-			data = data.AddVector(add.id, add.version)
+			data = data.AddVector(add.id)
 		}
 
 		// Verify order is preserved
-		ids, versions := decodePacked(data)
+		ids := decodePacked(data)
 		require.Equal(t, []uint64{1000, 2000, 16777216, 3000, 4000}, ids)
-		require.Equal(t, []VectorVersion{10, 20, 30, 40, 50}, versions)
-	})
-
-	t.Run("AddVector version byte integrity through re-encoding", func(t *testing.T) {
-		var data PackedPostingMetadata
-
-		// Add vectors with various version values
-		versionTests := []struct {
-			id      uint64
-			version VectorVersion
-		}{
-			{100, 0},       // min version
-			{200, 127},     // max without tombstone
-			{300, 128},     // with tombstone bit
-			{400, 255},     // max version
-			{16777216, 50}, // triggers upgrade, version in middle
-		}
-
-		for _, vt := range versionTests {
-			data = data.AddVector(vt.id, vt.version)
-		}
-
-		// Verify all version bits are correct
-		ids, versions := decodePacked(data)
-		for i, vt := range versionTests {
-			require.Equal(t, vt.id, ids[i], "ID at index %d", i)
-			require.Equal(t, vt.version, versions[i], "Version at index %d should be %d, got %d", i, vt.version, versions[i])
-		}
 	})
 
 	t.Run("AddVector to empty posting", func(t *testing.T) {
@@ -424,12 +399,11 @@ func TestPostingMapEncoding(t *testing.T) {
 		require.Equal(t, uint32(0), data.Count())
 
 		// Add first vector
-		data = data.AddVector(12345, 99)
+		data = data.AddVector(12345)
 		require.Equal(t, uint32(1), data.Count())
 
-		ids, versions := decodePacked(data)
+		ids := decodePacked(data)
 		require.Equal(t, []uint64{12345}, ids)
-		require.Equal(t, []VectorVersion{99}, versions)
 
 		// Verify header is correct
 		require.Greater(t, len(data), 5)
@@ -437,22 +411,38 @@ func TestPostingMapEncoding(t *testing.T) {
 		require.True(t, scheme >= schemeID2Byte && scheme <= schemeID8Byte)
 	})
 
+	t.Run("AddVector avoids large default backing buffer", func(t *testing.T) {
+		var data PackedPostingMetadata
+
+		data = data.AddVector(12345)
+
+		require.Equal(t, 7, len(data))
+		require.LessOrEqual(t, cap(data), 16)
+	})
+
+	t.Run("Compact trims spare capacity", func(t *testing.T) {
+		data := PackedPostingMetadata(make([]byte, 8, 128))
+
+		compact := data.Compact()
+
+		require.Equal(t, len(data), len(compact))
+		require.Equal(t, len(compact), cap(compact))
+	})
+
 	t.Run("AddVector with zero ID", func(t *testing.T) {
 		var data PackedPostingMetadata
 
 		// Add with ID = 0
-		data = data.AddVector(0, 1)
+		data = data.AddVector(0)
 		require.Equal(t, uint32(1), data.Count())
 
-		ids, versions := decodePacked(data)
+		ids := decodePacked(data)
 		require.Equal(t, []uint64{0}, ids)
-		require.Equal(t, []VectorVersion{1}, versions)
 
 		// Add another to ensure 0 doesn't break iteration
-		data = data.AddVector(100, 2)
-		ids, versions = decodePacked(data)
+		data = data.AddVector(100)
+		ids = decodePacked(data)
 		require.Equal(t, []uint64{0, 100}, ids)
-		require.Equal(t, []VectorVersion{1, 2}, versions)
 	})
 
 	t.Run("AddVector interleaved small and large", func(t *testing.T) {
@@ -472,15 +462,28 @@ func TestPostingMapEncoding(t *testing.T) {
 		}
 
 		for _, add := range additions {
-			data = data.AddVector(add.id, add.version)
+			data = data.AddVector(add.id)
 		}
 
-		ids, versions := decodePacked(data)
+		ids := decodePacked(data)
 		expectedIDs := []uint64{10, 4294967295, 20, 16777216, 1099511627776, 30}
-		expectedVersions := []VectorVersion{1, 2, 3, 4, 5, 6}
 
 		require.Equal(t, expectedIDs, ids)
-		require.Equal(t, expectedVersions, versions)
+	})
+
+	t.Run("legacy ID plus version format normalizes to IDs only", func(t *testing.T) {
+		legacy := PackedPostingMetadata{
+			byte(schemeID2Byte),
+			3, 0, 0, 0,
+			10, 0, 1,
+			20, 0, 2,
+			30, 0, 3,
+		}
+
+		normalized := normalizePackedPostingMetadata(legacy, false)
+
+		require.Equal(t, 11, len(normalized))
+		require.Equal(t, []uint64{10, 20, 30}, decodePacked(normalized))
 	})
 }
 
@@ -503,54 +506,41 @@ func TestPostingMetadataStore(t *testing.T) {
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
 		var i int
-		for id, v := range m.Iter() {
+		for id := range m.Iter() {
 			require.Equal(t, id, posting[i].ID())
-			require.Equal(t, v, posting[i].Version())
 			i++
 		}
 
-		count, err := store.CountVectors(ctx, 42)
-		require.NoError(t, err)
-		require.EqualValues(t, 10, count)
+		require.EqualValues(t, 10, m.Count())
 
 		m, err = store.Get(ctx, 42)
 		require.NoError(t, err)
 		i = 0
-		for id, v := range m.Iter() {
+		for id := range m.Iter() {
 			require.Equal(t, id, posting[i].ID())
-			require.Equal(t, v, posting[i].Version())
 			i++
 		}
 	})
 
-	t.Run("CountVectorIDs on non-existing posting", func(t *testing.T) {
-		store := makePostingMetadataStore(t)
-		count, err := store.CountVectors(ctx, 42)
-		require.NoError(t, err)
-		require.EqualValues(t, 0, count)
-	})
-
 	t.Run("FastAddVectorID", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
-		count, err := store.FastAddVectorID(ctx, 42, 100, 1)
+		count, err := store.FastAddVectorID(ctx, 42, 100)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, count)
 
-		count, err = store.FastAddVectorID(ctx, 42, 200, 1)
+		count, err = store.FastAddVectorID(ctx, 42, 200)
 		require.NoError(t, err)
 		require.EqualValues(t, 2, count)
 
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
-		id, v := m.GetAt(0)
+		id := m.GetAt(0)
 		require.Equal(t, uint64(100), id)
-		require.Equal(t, VectorVersion(1), v)
-		id, v = m.GetAt(1)
+		id = m.GetAt(1)
 		require.Equal(t, uint64(200), id)
-		require.Equal(t, VectorVersion(1), v)
 	})
 
-	t.Run("CountAllVectors with multiple postings", func(t *testing.T) {
+	t.Run("Iter with multiple postings", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
 
 		posting1 := Posting(makeVectors(t, 5, 16))
@@ -561,94 +551,112 @@ func TestPostingMetadataStore(t *testing.T) {
 		err = store.SetVectorIDs(ctx, 43, posting2)
 		require.NoError(t, err)
 
-		count, err := store.CountAllVectors(ctx)
-		require.NoError(t, err)
+		var count uint64
+		for _, metadata := range store.Iter() {
+			count += uint64(metadata.Count())
+		}
 		require.EqualValues(t, 10, count)
 	})
-}
 
-func TestOncePer(t *testing.T) {
-	t.Run("first call always runs f", func(t *testing.T) {
-		var count atomic.Int64
-		op := OncePer(time.Hour)
-		op.do(func() { count.Add(1) })
-		require.EqualValues(t, 1, count.Load())
+	t.Run("migrates legacy prefix before restore", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		store := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
+
+		legacy := legacyPackedPostingMetadata(10, 20, 30)
+		legacyKey := postingMapKey(postingMapBucketPrefixV1, 42)
+		err := bucket.Put(legacyKey, legacy)
+		require.NoError(t, err)
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+
+		pm := NewPostingMap(bucket)
+		err = pm.Restore(ctx)
+		require.NoError(t, err)
+
+		metadata, err := pm.Get(ctx, 42)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{10, 20, 30}, decodePacked(metadata.PackedPostingMetadata))
+
+		v2, err := store.Get(ctx, 42)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{10, 20, 30}, decodePacked(v2))
+
+		size, err := NewPostingSizesStore(bucket, postingSizesBucketPrefix).Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, size)
+
+		c := bucket.Cursor()
+		defer c.Close()
+		k, _ := c.Seek(postingMapBucketPrefixV1)
+		require.False(t, bytes.HasPrefix(k, postingMapBucketPrefixV1))
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
 	})
 
-	t.Run("subsequent calls within duration are skipped", func(t *testing.T) {
-		var count atomic.Int64
-		op := OncePer(time.Hour)
-		for range 10 {
-			op.do(func() { count.Add(1) })
-		}
-		require.EqualValues(t, 1, count.Load())
-	})
+	t.Run("migrates multiple batches and partial rerun", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		store := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
+		sizes := NewPostingSizesStore(bucket, postingSizesBucketPrefix)
 
-	t.Run("call after duration runs f again", func(t *testing.T) {
-		var count atomic.Int64
-		op := OncePer(100 * time.Millisecond)
-		op.do(func() { count.Add(1) })
-		require.EqualValues(t, 1, count.Load())
-
-		time.Sleep(300 * time.Millisecond)
-
-		op.do(func() { count.Add(1) })
-		require.EqualValues(t, 2, count.Load())
-	})
-
-	t.Run("timer resets after each invocation", func(t *testing.T) {
-		var count atomic.Int64
-		op := OncePer(100 * time.Millisecond)
-
-		op.do(func() { count.Add(1) })
-		require.EqualValues(t, 1, count.Load())
-
-		time.Sleep(300 * time.Millisecond)
-		op.do(func() { count.Add(1) })
-		require.EqualValues(t, 2, count.Load())
-
-		// Timer was reset: calls within the new window are skipped.
-		op.do(func() { count.Add(1) })
-		op.do(func() { count.Add(1) })
-		require.EqualValues(t, 2, count.Load())
-
-		time.Sleep(300 * time.Millisecond)
-		op.do(func() { count.Add(1) })
-		require.EqualValues(t, 3, count.Load())
-	})
-
-	t.Run("concurrent callers are skipped while f is running", func(t *testing.T) {
-		var count atomic.Int64
-		op := OncePer(time.Hour)
-
-		// Exhaust once.Do with a no-op so subsequent calls go through the TryLock path.
-		op.do(func() {})
-
-		// Reset the timer to 0 so it fires immediately, unblocking the select.
-		op.t.Reset(0)
-		time.Sleep(5 * time.Millisecond)
-
-		var wg sync.WaitGroup
-		const goroutines = 50
-		ready := make(chan struct{})
-		release := make(chan struct{})
-
-		for range goroutines {
-			wg.Go(func() {
-				<-ready
-				op.do(func() {
-					count.Add(1)
-					<-release
-				})
-			})
+		total := postingMapMigrationBatchSize + 3
+		for postingID := range total {
+			legacy := legacyPackedPostingMetadata(uint64(postingID), uint64(postingID+1))
+			err := bucket.Put(postingMapKey(postingMapBucketPrefixV1, uint64(postingID)), legacy)
+			require.NoError(t, err)
 		}
 
-		close(ready)
-		time.Sleep(100 * time.Millisecond) // let goroutines reach do()
-		close(release)
-		wg.Wait()
+		// Simulate a crash after v2 metadata and size were written for one posting,
+		// but before the legacy v1 row was deleted.
+		partialID := uint64(7)
+		partial := NewPackedPostingMetadata([]uint64{partialID, partialID + 1})
+		err := store.Set(ctx, partialID, partial)
+		require.NoError(t, err)
+		err = sizes.Set(ctx, partialID, partial.Count())
+		require.NoError(t, err)
 
-		// Only one goroutine should have executed f; the rest were skipped by TryLock.
-		require.EqualValues(t, 1, count.Load())
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+
+		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+
+		for _, postingID := range []uint64{0, partialID, uint64(total - 1)} {
+			metadata, err := store.Get(ctx, postingID)
+			require.NoError(t, err)
+			require.Equal(t, []uint64{postingID, postingID + 1}, decodePacked(metadata))
+
+			size, err := sizes.Get(ctx, postingID)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, size)
+		}
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+	})
+
+	t.Run("deletes empty legacy rows", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+
+		emptyKey := postingMapKey(postingMapBucketPrefixV1, 42)
+		err := bucket.Put(emptyKey, nil)
+		require.NoError(t, err)
+		err = bucket.Put(postingMapKey(postingMapBucketPrefixV1, 43), legacyPackedPostingMetadata(100, 200))
+		require.NoError(t, err)
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+
+		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+		require.Equal(t, 1, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
+		require.Equal(t, 1, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+
+		_, err = NewPostingMapStore(bucket, postingMapBucketPrefixV2).Get(ctx, 42)
+		require.ErrorIs(t, err, ErrPostingNotFound)
 	})
 }

@@ -20,13 +20,27 @@ import (
 	"github.com/jonboulle/clockwork"
 )
 
+// DefaultThrottleInterval is the production cap on per-unit progress writes
+// to the RAFT log. [Scheduler.Start] passes this constant to
+// [NewThrottledRecorder]. Pinned by `TestThrottledRecorder_DefaultInterval_*`
+// — if you change the value, update [Scheduler.Start]'s rationale comment
+// and the matching prose in `doc.go` ("Progress throttling" section) too.
+const DefaultThrottleInterval = 3 * time.Second
+
 // ThrottledRecorder wraps a [TaskCompletionRecorder] to prevent progress updates from
-// flooding Raft consensus. Each unit's progress is forwarded at most once per interval
-// (default 30s); intermediate updates are silently dropped. Completion and failure calls
-// always pass through immediately — they are never throttled.
+// flooding Raft consensus. Each unit's progress is forwarded at most once per the
+// interval given to [NewThrottledRecorder] ([DefaultThrottleInterval] in production);
+// intermediate updates are silently dropped. Completion and failure calls always pass
+// through immediately — they are never throttled.
 //
 // Throttle entries are cleaned up when a unit reaches a terminal state (completion or
 // failure), so the internal map does not grow beyond the number of active units.
+//
+// Two non-negotiable carve-outs (weaviate/0-weaviate-issues#240 Symptom B):
+//   - progress == 0.0 is never throttled — it is the per-unit worker's
+//     first call (the "claim") and the path that lands Unit.NodeID.
+//   - lastSent is updated only after a successful forward; a failed
+//     forward leaves no entry so the retry isn't blocked.
 type ThrottledRecorder struct {
 	inner    TaskCompletionRecorder
 	interval time.Duration
@@ -60,22 +74,44 @@ func (r *ThrottledRecorder) RecordDistributedTaskUnitFailure(ctx context.Context
 func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, version uint64, unitID string) {
 	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	delete(r.lastSent, key)
-	r.mu.Unlock()
 }
 
 func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
-	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
+	// CLAIM bypass: progress == 0.0 is the per-unit worker's first
+	// call (the claim) that lands Unit.NodeID via the FSM. Throttling
+	// risks deduplicating the assignment and orphaning the unit.
+	// Non-CLAIM 0.0 emissions (e.g. composeProgressEnvelope on the
+	// first sub-task) also hit this bypass — harmless extra forward,
+	// RAFT applies are idempotent on (unitID, progress).
+	if progress == 0.0 {
+		return r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
+	}
 
-	r.mu.Lock()
-	last, ok := r.lastSent[key]
+	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
 	now := r.clock.Now()
-	if ok && now.Sub(last) < r.interval {
-		r.mu.Unlock()
+
+	throttled := func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		last, ok := r.lastSent[key]
+		return ok && now.Sub(last) < r.interval
+	}()
+	if throttled {
 		return nil
 	}
-	r.lastSent[key] = now
-	r.mu.Unlock()
 
-	return r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
+	if err := r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress); err != nil {
+		return err
+	}
+
+	func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if cur, ok := r.lastSent[key]; !ok || cur.Before(now) {
+			r.lastSent[key] = now
+		}
+	}()
+	return nil
 }

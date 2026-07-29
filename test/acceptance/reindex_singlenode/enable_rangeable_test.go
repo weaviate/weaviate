@@ -93,11 +93,13 @@ func testEnableRangeable(t *testing.T, restURI string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
+			case <-ticker.C:
 			}
 			for i, bl := range rangeableBaselines {
 				ids, err := rangeableQuerySafe(t, rangeableFilterQueries[i].where)
@@ -108,18 +110,17 @@ func testEnableRangeable(t *testing.T, restURI string) {
 					queryFailures.Add(1)
 				}
 			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
-	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "score", `{"rangeable":{"enabled":true}}`)
+	taskID1 := reindexhelpers.SubmitIndexUpsert(t, restURI, rangeableClassName, "score", "rangeFilters", `{}`)
 	t.Logf("submitted reindex task for score: %s", taskID1)
-	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "score", "rangeable")
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "score", "rangeFilters")
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1)
 
-	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "price", `{"rangeable":{"enabled":true}}`)
+	taskID2 := reindexhelpers.SubmitIndexUpsert(t, restURI, rangeableClassName, "price", "rangeFilters", `{}`)
 	t.Logf("submitted reindex task for price: %s", taskID2)
-	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "price", "rangeable")
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "price", "rangeFilters")
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2)
 
 	close(stopCh)

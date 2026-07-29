@@ -13,6 +13,7 @@ package common
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -122,6 +123,11 @@ func NewShardedRWLocksWithPageSize(pageSize uint64) *ShardedRWLocks {
 	return NewShardedRWLocksWith(DefaultShardedLocksCount, pageSize)
 }
 
+// Count returns the number of lock stripes.
+func (sl *ShardedRWLocks) Count() uint64 {
+	return sl.count
+}
+
 func (sl *ShardedRWLocks) LockAll() {
 	for i := uint64(0); i < sl.count; i++ {
 		sl.shards[i].Lock()
@@ -194,6 +200,203 @@ func (sl *ShardedRWLocks) RUnlock(id uint64) {
 func (sl *ShardedRWLocks) RLocked(id uint64, callback func()) {
 	sl.RLock(id)
 	defer sl.RUnlock(id)
+
+	callback()
+}
+
+// LazyShardedRWLocks provides the same locking API as ShardedRWLocks, but
+// allocates its stripes on first use and can grow the stripe count later via
+// EnsureCount. This lets components that exist in large numbers but are
+// mostly idle (e.g. per-tenant vector caches) avoid paying for a full stripe
+// array up front.
+//
+// Correctness of the stripe swap relies on one invariant: the stripe set is
+// only ever replaced while every stripe of the previous set is held
+// exclusively. Consequently no stripe of the old set can be held during a
+// swap, so unlock operations may always resolve the current set, and only
+// acquire operations need to re-check the set after acquiring (a goroutine
+// that was blocked on an old stripe retries on the new set).
+type LazyShardedRWLocks struct {
+	locks atomic.Pointer[ShardedRWLocks]
+	// mu serializes allocation and re-striping
+	mu           sync.Mutex
+	initialCount uint64
+
+	PageSize uint64
+}
+
+// NewLazyShardedRWLocks creates sharded RW locks whose stripes are allocated
+// on first use, starting with initialCount stripes.
+func NewLazyShardedRWLocks(initialCount, pageSize uint64) *LazyShardedRWLocks {
+	if initialCount < 2 {
+		initialCount = 2
+	}
+
+	return &LazyShardedRWLocks{
+		initialCount: initialCount,
+		PageSize:     pageSize,
+	}
+}
+
+// Count returns the number of allocated stripes: 0 before first use.
+func (l *LazyShardedRWLocks) Count() uint64 {
+	if locks := l.locks.Load(); locks != nil {
+		return locks.Count()
+	}
+	return 0
+}
+
+// EnsureCount grows the stripe count to at least count, allocating the
+// stripes if this is the first use. It never shrinks, and never allocates
+// fewer stripes than the constructor's initial count: the initial layout
+// must not depend on which operation touches the instance first.
+func (l *LazyShardedRWLocks) EnsureCount(count uint64) {
+	if count < l.initialCount {
+		count = l.initialCount
+	}
+
+	// fast path: the count of an allocated set is immutable, so a single
+	// atomic load suffices to detect the common no-op case without the mutex
+	if locks := l.locks.Load(); locks != nil && count <= locks.Count() {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	locks := l.locks.Load()
+	if locks == nil {
+		l.locks.Store(NewShardedRWLocksWith(count, l.PageSize))
+		return
+	}
+	if count <= locks.Count() {
+		return
+	}
+
+	upgraded := NewShardedRWLocksWith(count, l.PageSize)
+	// drain every holder of the current set before publishing the new one,
+	// upholding the swap invariant documented on the type
+	locks.LockAll()
+	l.locks.Store(upgraded)
+	// wake goroutines still blocked on the old set; they re-check the set
+	// after acquiring and retry on the new one
+	locks.UnlockAll()
+}
+
+// current returns the stripe set, allocating it on first use.
+func (l *LazyShardedRWLocks) current() *ShardedRWLocks {
+	if locks := l.locks.Load(); locks != nil {
+		return locks
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if locks := l.locks.Load(); locks != nil {
+		return locks
+	}
+	locks := NewShardedRWLocksWith(l.initialCount, l.PageSize)
+	l.locks.Store(locks)
+	return locks
+}
+
+func (l *LazyShardedRWLocks) Lock(id uint64) {
+	for {
+		locks := l.current()
+		locks.Lock(id)
+		if l.locks.Load() == locks {
+			return
+		}
+		locks.Unlock(id)
+	}
+}
+
+func (l *LazyShardedRWLocks) TryLock(id uint64) bool {
+	for {
+		locks := l.current()
+		if !locks.TryLock(id) {
+			return false
+		}
+		if l.locks.Load() == locks {
+			return true
+		}
+		locks.Unlock(id)
+	}
+}
+
+func (l *LazyShardedRWLocks) Unlock(id uint64) {
+	l.locks.Load().Unlock(id)
+}
+
+func (l *LazyShardedRWLocks) RLock(id uint64) {
+	for {
+		locks := l.current()
+		locks.RLock(id)
+		if l.locks.Load() == locks {
+			return
+		}
+		locks.RUnlock(id)
+	}
+}
+
+func (l *LazyShardedRWLocks) RUnlock(id uint64) {
+	l.locks.Load().RUnlock(id)
+}
+
+func (l *LazyShardedRWLocks) LockAll() {
+	for {
+		locks := l.current()
+		locks.LockAll()
+		if l.locks.Load() == locks {
+			return
+		}
+		locks.UnlockAll()
+	}
+}
+
+func (l *LazyShardedRWLocks) UnlockAll() {
+	l.locks.Load().UnlockAll()
+}
+
+func (l *LazyShardedRWLocks) RLockAll() {
+	for {
+		locks := l.current()
+		locks.RLockAll()
+		if l.locks.Load() == locks {
+			return
+		}
+		locks.RUnlockAll()
+	}
+}
+
+func (l *LazyShardedRWLocks) RUnlockAll() {
+	l.locks.Load().RUnlockAll()
+}
+
+func (l *LazyShardedRWLocks) Locked(id uint64, callback func()) {
+	l.Lock(id)
+	defer l.Unlock(id)
+
+	callback()
+}
+
+func (l *LazyShardedRWLocks) RLocked(id uint64, callback func()) {
+	l.RLock(id)
+	defer l.RUnlock(id)
+
+	callback()
+}
+
+func (l *LazyShardedRWLocks) LockedAll(callback func()) {
+	l.LockAll()
+	defer l.UnlockAll()
+
+	callback()
+}
+
+func (l *LazyShardedRWLocks) RLockedAll(callback func()) {
+	l.RLockAll()
+	defer l.RUnlockAll()
 
 	callback()
 }

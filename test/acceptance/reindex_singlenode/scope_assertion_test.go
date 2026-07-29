@@ -57,11 +57,16 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 		properties []*models.Property
 		objects    []map[string]interface{}
 		target     string
-		body       string
-		// indexType is the key under which the targeted property's index
-		// entry appears in GET /v1/schema/{class}/indexes. Only that entry
-		// is allowed to leave `ready` during the migration; every other
-		// (property, indexType) pair must stay `ready`.
+		// body is the GA declarative-upsert body (PUT .../index/{indexType});
+		// ignored when rebuild is true.
+		body string
+		// rebuild selects POST .../index/{indexType}/rebuild instead of the
+		// declarative PUT upsert.
+		rebuild bool
+		// indexType is the URL index segment for the submit AND the key under
+		// which the targeted property's index entry appears in GET
+		// /v1/schema/{class}/indexes. Only that entry may leave `ready` during
+		// the migration; every other (property, indexType) pair must stay `ready`.
 		indexType string
 	}
 
@@ -156,7 +161,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: searchableScopeProps,
 			objects:    textScopeObjects,
 			target:     "title",
-			body:       `{"searchable":{"algorithm":"blockmax"}}`,
+			body:       `{"algorithm":"blockmax"}`,
 			indexType:  "searchable",
 		},
 		{
@@ -165,7 +170,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: filterableScopeProps,
 			objects:    textScopeObjects,
 			target:     "author",
-			body:       `{"filterable":{"rebuild":true}}`,
+			rebuild:    true,
 			indexType:  "filterable",
 		},
 		{
@@ -174,7 +179,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: tokenizationScopeProps,
 			objects:    textScopeObjects,
 			target:     "description",
-			body:       `{"searchable":{"tokenization":"whitespace"}}`,
+			body:       `{"tokenization":"whitespace"}`,
 			// Tokenization touches both searchable + filterable for the
 			// target property. The assertion on non-target props applies
 			// to both index types: the non-target props' searchable AND
@@ -187,8 +192,8 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: enableRangeableProps,
 			objects:    textScopeObjects,
 			target:     "score",
-			body:       `{"rangeable":{"enabled":true}}`,
-			indexType:  "rangeable",
+			body:       `{}`,
+			indexType:  "rangeFilters",
 		},
 		{
 			name:       "enable-filterable",
@@ -196,7 +201,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: enableFilterableProps,
 			objects:    enableFilterableObjects,
 			target:     "score",
-			body:       `{"filterable":{"enabled":true}}`,
+			body:       `{}`,
 			indexType:  "filterable",
 		},
 		{
@@ -205,7 +210,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: enableSearchableProps,
 			objects:    enableSearchableObjects,
 			target:     "title",
-			body:       `{"searchable":{"enabled":true,"tokenization":"word"}}`,
+			body:       `{"tokenization":"word"}`,
 			indexType:  "searchable",
 		},
 	}
@@ -317,7 +322,12 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			}()
 
 			// Submit the reindex and wait for it to finish.
-			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, tc.className, tc.target, tc.body)
+			var taskID string
+			if tc.rebuild {
+				taskID = reindexhelpers.RebuildIndex(t, restURI, tc.className, tc.target, tc.indexType)
+			} else {
+				taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, tc.className, tc.target, tc.indexType, tc.body)
+			}
 			t.Logf("submitted reindex task: %s", taskID)
 
 			// Assertion 3: the task ID must encode the targeted property.
@@ -358,18 +368,15 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 // readable, but fails if the task disappears before we can observe it.
 func assertPayloadProperties(t *testing.T, restURI, taskID, target string) {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+		if !assert.NoError(c, err) {
+			return
 		}
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+		if !assert.NoError(c, err) {
+			return
 		}
 		// Use a map[string]interface{} deserialization for the task since
 		// Payload is typed as interface{} and will come back as a generic
@@ -378,27 +385,38 @@ func assertPayloadProperties(t *testing.T, restURI, taskID, target string) {
 			ID      string                 `json:"id"`
 			Payload map[string]interface{} `json:"payload"`
 		}
-		if err := json.Unmarshal(body, &envelope); err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+		if !assert.NoError(c, json.Unmarshal(body, &envelope)) {
+			return
 		}
+		var found bool
+		var propsList []interface{}
 		for _, task := range envelope["reindex"] {
 			if task.ID != taskID {
 				continue
 			}
+			found = true
 			rawProps, ok := task.Payload["properties"]
-			require.True(t, ok, "task %s payload has no `properties` field (payload=%+v)", taskID, task.Payload)
-			propsList, ok := rawProps.([]interface{})
-			require.True(t, ok, "task %s payload.properties is not a list: %T", taskID, rawProps)
-			require.Len(t, propsList, 1,
-				"task %s payload.properties should contain exactly one entry but has %d: %v",
-				taskID, len(propsList), propsList)
-			require.Equal(t, target, propsList[0],
-				"task %s payload.properties should be [%q] but is %v",
-				taskID, target, propsList)
+			if !assert.True(c, ok, "task %s payload has no `properties` field (payload=%+v)", taskID, task.Payload) {
+				return
+			}
+			propsList, ok = rawProps.([]interface{})
+			if !assert.True(c, ok, "task %s payload.properties is not a list: %T", taskID, rawProps) {
+				return
+			}
+			break
+		}
+		// The task must be present in /v1/tasks; if not, fail the inner
+		// assert and retry on the next tick.
+		if !assert.True(c, found, "task %s not found in /v1/tasks — could not verify payload scope", taskID) {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("task %s not found in /v1/tasks within 30s — could not verify payload scope", taskID)
+		assert.Len(c, propsList, 1,
+			"task %s payload.properties should contain exactly one entry but has %d: %v",
+			taskID, len(propsList), propsList)
+		if len(propsList) == 1 {
+			assert.Equal(c, target, propsList[0],
+				"task %s payload.properties should be [%q] but is %v",
+				taskID, target, propsList)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 }

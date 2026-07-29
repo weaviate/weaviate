@@ -513,7 +513,15 @@ func (p *Provider) getVector(object *models.Object, targetVector string) models.
 func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string) (hnsw.UserConfig, error) {
 	vectorIndexConfig := class.VectorIndexConfig
 	if targetVector != "" {
-		vectorIndexConfig = class.VectorConfig[targetVector].VectorIndexConfig
+		vectorConfig := class.VectorConfig[targetVector]
+		// A named vector whose index has been dropped keeps its vector data but
+		// has VectorIndexType "none" and a nil index config. It has no HNSW config
+		// to return, and writes must not be validated against the removed index,
+		// so report no config rather than failing the type check below.
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			return hnsw.UserConfig{}, nil
+		}
+		vectorIndexConfig = vectorConfig.VectorIndexConfig
 	}
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)

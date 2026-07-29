@@ -82,6 +82,9 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	t.Run("MapToBlockmax", func(t *testing.T) {
 		testMapToBlockmax(t, compose)
 	})
+	t.Run("MapToBlockmaxMultiPropertyDefersFlip", func(t *testing.T) {
+		testMapToBlockmaxMultiPropertyDefersFlip(t, compose)
+	})
 	t.Run("RoaringSetRefresh", func(t *testing.T) {
 		testRoaringSetRefresh(t, compose)
 	})
@@ -91,6 +94,46 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	t.Run("ChangeTokenization", func(t *testing.T) {
 		testChangeTokenization(t, compose)
 	})
+}
+
+// testMapToBlockmaxMultiPropertyDefersFlip: first property's reindex must
+// not flip UsingBlockMaxWAND while a second searchable property is still
+// on map (weaviate/0-weaviate-issues#254).
+func testMapToBlockmaxMultiPropertyDefersFlip(t *testing.T, compose *docker.DockerCompose) {
+	className := "MultiNodeBlockmaxMultiProp"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, compose, restURI, className, 3, 3, textProps("title", "body"))
+	defer deleteCollection(t, restURI, className)
+
+	// Baseline: flag off pre-migration.
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		require.False(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"pre-migration: UsingBlockMaxWAND must start false on node %d", i)
+	}
+
+	// Migrate "title" only — flip must defer ("body" still on map).
+	taskID1 := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "title", "searchable", `{"algorithm":"blockmax"}`)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "title", "searchable", reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1, reindexhelpers.WithTimeout(180*time.Second))
+
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.False(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"after single-property reindex of 'title': UsingBlockMaxWAND must still be false on node %d (body still on map)", i)
+	}
+
+	// Migrate "body" — last property on map → guard releases, flip fires.
+	taskID2 := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "body", "searchable", `{"algorithm":"blockmax"}`)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable", reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2, reindexhelpers.WithTimeout(180*time.Second))
+
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"after last-property reindex of 'body': UsingBlockMaxWAND must now be true on node %d", i)
+	}
 }
 
 // TestMultiNode_QueryConsistencyDuringReindex pulls the query-consistency
@@ -110,9 +153,7 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeBlockmax"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
@@ -136,11 +177,13 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 		go func(uri string, idx int) {
 			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-stopCh:
 					return
-				default:
+				case <-ticker.C:
 				}
 				for _, q := range testBM25Queries {
 					ids, err := runBM25QueryOnNodeWithRetry(t, uri, className, q)
@@ -153,13 +196,12 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 						t.Logf("node %d query %q mismatch", idx+1, q)
 					}
 				}
-				time.Sleep(200 * time.Millisecond)
 			}
 		}(nodeURI, nodeIdx)
 	}
 
 	// Submit reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"algorithm":"blockmax"}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Poll until reindex is done via /indexes endpoint.
@@ -195,9 +237,7 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeRoaringSet"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
@@ -210,7 +250,7 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 		baselines[q] = results
 	}
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"filterable":{"rebuild":true}}`)
+	taskID := reindexhelpers.RebuildIndex(t, restURI, className, "text", "filterable")
 
 	// Poll until reindex is done via /indexes endpoint.
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "text", "filterable", reindexhelpers.WithTimeout(180*time.Second))
@@ -247,7 +287,7 @@ func testEnableRangeable(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeRangeable"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 		{Name: "score", DataType: []string{"int"}},
 	})
@@ -258,10 +298,10 @@ func testEnableRangeable(t *testing.T, compose *docker.DockerCompose) {
 		importObjectWithScore(t, restURI, className, text, i+1)
 	}
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score", "rangeFilters", `{}`)
 
 	// Poll until reindex is done via /indexes endpoint.
-	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "score", "rangeable", reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "score", "rangeFilters", reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify task reached FINISHED state.
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
@@ -297,9 +337,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeTokenize"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
@@ -312,7 +350,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 			"node %d: 'alpha' with WORD should match multiple docs", i)
 	}
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
 
 	// Poll until reindex is done via /indexes endpoint.
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "text", "searchable", reindexhelpers.WithTimeout(180*time.Second))
@@ -325,7 +363,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 	// the task reaches FINISHED. Wait for the schema to reflect the update.
 	require.Eventually(t, func() bool {
 		return tryGetPropertyTokenization(restURI, className, "text") == "field"
-	}, 30*time.Second, 1*time.Second, "tokenization should change to field after swap phase")
+	}, 30*time.Second, 50*time.Millisecond, "tokenization should change to field after swap phase")
 
 	// Verify schema on all nodes.
 	for i := 1; i <= 3; i++ {
@@ -344,7 +382,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 		require.Eventually(t, func() bool {
 			ids, err := runBM25QueryOnNode(t, nodeURI, className, "alpha")
 			return err == nil && len(ids) == 0
-		}, 30*time.Second, 1*time.Second,
+		}, 30*time.Second, 50*time.Millisecond,
 			"node %d: 'alpha' with FIELD should match no docs", i)
 	}
 
@@ -362,9 +400,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	className := "ConsistencyTest"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
@@ -389,11 +425,13 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 		go func(uri string, idx int) {
 			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-stopCh:
 					return
-				default:
+				case <-ticker.C:
 				}
 				for _, q := range testBM25Queries {
 					ids, err := runBM25QueryOnNodeWithRetry(t, uri, className, q)
@@ -407,13 +445,12 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 							idx+1, q, len(baselines[q][0]), len(ids))
 					}
 				}
-				time.Sleep(100 * time.Millisecond)
 			}
 		}(nodeURI, nodeIdx)
 	}
 
 	// Submit reindex (repair-searchable — the most common type).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"algorithm":"blockmax"}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
@@ -443,7 +480,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 			consecutiveSuccesses = 0
 		}
 		return consecutiveSuccesses >= requiredConsecutiveSuccesses
-	}, 30*time.Second, 200*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"expected %d consecutive successful query rounds after reindex completion",
 		requiredConsecutiveSuccesses)
 

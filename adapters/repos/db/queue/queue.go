@@ -57,10 +57,27 @@ const (
 	chunkFileFmt = "chunk-%d.bin"
 
 	magicHeader = "WV8Q"
+
+	// chunkHeaderSize is the size of a chunk file header:
+	// magic + version + record count.
+	chunkHeaderSize = len(magicHeader) + 1 + 8
+
+	// minEncodedRecordSize is the smallest possible record footprint in a
+	// chunk payload: a 4-byte length prefix plus at least 1 byte of record data.
+	minEncodedRecordSize = 4 + 1
 )
 
-// regex pattern for the chunk files
-var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
+// regex pattern for the chunk files.
+// It is anchored so that derived files (e.g. .processed tombstones or
+// .corrupt quarantined chunks) never match.
+var chunkFilePattern = regexp.MustCompile(`^chunk-\d+\.bin$`)
+
+// errBadMagic and errUnknownVersion let init-time recovery distinguish a
+// corrupt header from a well-formed header written by a newer version.
+var (
+	errBadMagic       = errors.New("invalid magic header")
+	errUnknownVersion = errors.New("invalid version")
+)
 
 // regex pattern for processed chunk tombstone files
 var processedChunkFilePattern = regexp.MustCompile(`^chunk-\d+\.bin\.processed$`)
@@ -346,9 +363,26 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 	defer c.Close()
 
+	// The record count comes from disk and may be corrupt. It is only used as
+	// a capacity hint: cap it by the number of records that could possibly
+	// fit in the chunk payload.
+	payloadSize := c.size - uint64(chunkHeaderSize)
+	count := c.count
+	if maxRecords := payloadSize / minEncodedRecordSize; count > maxRecords {
+		q.Logger.WithField("file", c.path).
+			Warnf("chunk header claims %d records, but at most %d fit in %d bytes of payload; the header is likely corrupt", c.count, maxRecords, payloadSize)
+		count = maxRecords
+	}
+
 	// decode all tasks from the chunk
 	// and partition them by worker
-	tasks := make([]Task, 0, c.count)
+	tasks := make([]Task, 0, count)
+
+	// A chunk torn by a crash (e.g. power loss before its tail reached disk)
+	// ends mid-record. The records before the corruption are still valid:
+	// salvage them and quarantine the file, otherwise the chunk is never
+	// removed and its records stay counted, so the queue never drains.
+	var corruptChunkErr error
 
 	buf := make([]byte, 4)
 	for {
@@ -359,12 +393,24 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		if errors.Is(err, io.EOF) {
 			break
 		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			corruptChunkErr = errors.Wrap(err, "chunk ends mid-record")
+			break
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to read record length")
 		}
 		length := binary.BigEndian.Uint32(buf)
 		if length == 0 {
-			return nil, errors.New("invalid record length")
+			corruptChunkErr = errors.New("invalid record length")
+			break
+		}
+		// the length prefix comes from disk and may be corrupt: a record
+		// cannot be larger than the chunk payload that contains it. Validate
+		// before allocating.
+		if uint64(length) > payloadSize-4 {
+			corruptChunkErr = errors.Errorf("invalid record length %d, chunk payload is only %d bytes", length, payloadSize)
+			break
 		}
 
 		// read the record
@@ -374,6 +420,10 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			buf = buf[:length]
 		}
 		_, err = io.ReadFull(c.r, buf)
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			corruptChunkErr = errors.Wrap(err, "chunk ends mid-record")
+			break
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to read record")
 		}
@@ -392,14 +442,24 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		q.Logger.WithField("file", c.path).WithError(err).Warn("failed to close chunk file")
 	}
 
+	if corruptChunkErr != nil {
+		q.quarantineChunk(c, corruptChunkErr)
+	}
+
 	if len(tasks) == 0 {
-		// empty chunk, remove it
-		q.removeChunk(c)
+		if corruptChunkErr == nil {
+			// empty chunk, remove it
+			q.removeChunk(c)
+		}
 		return nil, nil
 	}
 
 	doneFn := func() {
-		q.removeChunk(c)
+		// a quarantined chunk is already renamed and removed from the
+		// queue's accounting
+		if corruptChunkErr == nil {
+			q.removeChunk(c)
+		}
 		if q.onBatchProcessed != nil {
 			q.onBatchProcessed()
 		}
@@ -490,6 +550,7 @@ func (q *DiskQueue) Wait(ctx context.Context) error {
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
 	err := q.Pause(ctx)
 	if err != nil {
+		q.Resume()
 		return err
 	}
 	defer q.Resume()
@@ -638,6 +699,33 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 	q.m.Unlock()
 }
 
+// quarantineChunk renames a torn or corrupt chunk file to <name>.corrupt so
+// it is no longer scheduled, and removes its records from the queue's
+// accounting so the queue can drain. The file is kept on disk for inspection.
+func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
+	q.r.ReleaseChunk(c)
+
+	quarantinePath := c.path + ".corrupt"
+	err := os.Rename(c.path, quarantinePath)
+	if err != nil {
+		q.Logger.WithField("file", c.path).Errorf("failed to quarantine corrupt chunk: %v", err)
+		return
+	}
+
+	q.m.Lock()
+	defer q.m.Unlock()
+	q.recordCount -= c.count
+	q.diskUsage -= int64(c.size)
+	q.metrics.DiskUsage(q.diskUsage)
+	q.metrics.Size(q.recordCount)
+
+	q.Logger.WithField("file", quarantinePath).
+		Errorf("chunk is truncated or corrupt, quarantined it; records beyond the corruption are lost: %v", cause)
+}
+
 // analyzeDisk is a slow method that determines the number of records
 // stored on disk and in the partial chunk by reading the header of all the files in the directory.
 // It also calculates the disk usage.
@@ -681,12 +769,17 @@ func (q *DiskQueue) analyzeDisk() ([]string, error) {
 			continue
 		}
 
-		q.diskUsage += fi.Size()
-
 		count, err := q.readChunkRecordCount(filePath)
 		if err != nil {
-			return nil, err
+			// a crash may have left a chunk file with an unreadable header.
+			// It must not prevent the queue from starting.
+			if err := q.salvageUnreadableChunk(filePath, fi.Size(), err); err != nil {
+				return nil, err
+			}
+			continue
 		}
+
+		q.diskUsage += fi.Size()
 
 		// partial chunk
 		if count == 0 {
@@ -700,6 +793,44 @@ func (q *DiskQueue) analyzeDisk() ([]string, error) {
 	}
 
 	return chunkList, nil
+}
+
+// salvageUnreadableChunk handles a chunk file whose header cannot be parsed,
+// typically the leftover of a crash (power loss, disk full) while the chunk
+// was being created.
+// A file too short to contain a full header provably holds no records
+// (records are only ever written after the header) and is removed.
+// A full-size file with unreadable framing is renamed to <name>.corrupt so it
+// no longer blocks startup but remains available for inspection.
+// Only errors that are evidence of a corrupt or torn header are salvaged.
+// Anything else is returned and fails initialization: an environmental error
+// (e.g. permissions, I/O) does not mean the chunk is bad, and a well-formed
+// header with an unknown version was likely written by a newer version of
+// weaviate, so removing or hiding the chunk in those cases could drop valid
+// tasks.
+func (q *DiskQueue) salvageUnreadableChunk(path string, size int64, cause error) error {
+	if !errors.Is(cause, errBadMagic) &&
+		!errors.Is(cause, io.EOF) &&
+		!errors.Is(cause, io.ErrUnexpectedEOF) {
+		return cause
+	}
+
+	if size < int64(chunkHeaderSize) {
+		if err := os.Remove(path); err != nil {
+			return errors.Wrap(err, "failed to remove chunk with incomplete header")
+		}
+		q.Logger.WithField("file", path).
+			Warnf("removed chunk with incomplete header (%d bytes), likely due to a crash: %v", size, cause)
+		return nil
+	}
+
+	quarantinePath := path + ".corrupt"
+	if err := os.Rename(path, quarantinePath); err != nil {
+		return errors.Wrap(err, "failed to quarantine corrupt chunk")
+	}
+	q.Logger.WithField("file", quarantinePath).
+		Errorf("quarantined chunk with unreadable header, its tasks are lost: %v", cause)
+	return nil
 }
 
 // ListFiles returns a list of all chunk files in the queue directory.
@@ -742,13 +873,10 @@ func (q *DiskQueue) listFilesNoLock(ctx context.Context, basePath string) ([]str
 			continue
 		}
 
-		// skip tombstone files (they match chunkFilePattern since it's unanchored)
-		if processedChunkFilePattern.MatchString(entry.Name()) {
-			continue
-		}
-
-		// check if the entry name matches the regex pattern of a chunk file
-		if !chunkFilePattern.Match([]byte(entry.Name())) {
+		// check if the entry name matches the regex pattern of a chunk file.
+		// This also excludes derived files such as .processed tombstones and
+		// .corrupt quarantined chunks, since the pattern is anchored.
+		if !chunkFilePattern.MatchString(entry.Name()) {
 			continue
 		}
 
@@ -901,7 +1029,7 @@ func (c *chunk) Close() error {
 
 func readChunkHeader(r io.Reader) (uint64, error) {
 	// read the header
-	header := make([]byte, len(magicHeader)+1+8)
+	header := make([]byte, chunkHeaderSize)
 	_, err := io.ReadFull(r, header)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read header")
@@ -909,12 +1037,12 @@ func readChunkHeader(r io.Reader) (uint64, error) {
 
 	// check the magic number
 	if !bytes.Equal(header[:len(magicHeader)], []byte(magicHeader)) {
-		return 0, errors.New("invalid magic header")
+		return 0, errBadMagic
 	}
 
 	// check the version
 	if header[len(magicHeader)] != 1 {
-		return 0, errors.New("invalid version")
+		return 0, errUnknownVersion
 	}
 
 	// read the number of records
@@ -1059,7 +1187,7 @@ func (w *chunkWriter) Create() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to write size")
 	}
-	w.size = uint64(len(magicHeader) + 1 + 8)
+	w.size = uint64(chunkHeaderSize)
 
 	return nil
 }
@@ -1070,11 +1198,20 @@ func (w *chunkWriter) Open() error {
 		return errors.Wrap(err, "failed to read directory")
 	}
 
-	if len(entries) == 0 {
-		return nil
+	// adopt the most recent chunk file as the write target. The directory may
+	// also contain derived files (e.g. .corrupt quarantined chunks): those
+	// must never be written to.
+	var lastChunk string
+	for _, entry := range entries {
+		if entry.IsDir() || !chunkFilePattern.MatchString(entry.Name()) {
+			continue
+		}
+		lastChunk = entry.Name()
 	}
 
-	lastChunk := entries[len(entries)-1].Name()
+	if lastChunk == "" {
+		return nil
+	}
 
 	w.f, err = os.OpenFile(filepath.Join(w.dir, lastChunk), os.O_RDWR, 0o644)
 	if err != nil {
@@ -1107,7 +1244,7 @@ func (w *chunkWriter) Open() error {
 		if err != nil {
 			return errors.Wrap(err, "failed to write size")
 		}
-		w.size = uint64(len(magicHeader) + 1 + 8)
+		w.size = uint64(chunkHeaderSize)
 
 		return nil
 	}

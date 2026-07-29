@@ -17,6 +17,59 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 )
 
+func TestValidateRQConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  RQConfig
+		wantErr bool
+	}{
+		{
+			name:    "disabled config skips bits validation",
+			config:  RQConfig{Enabled: false, Bits: 3},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=1",
+			config:  RQConfig{Enabled: true, Bits: 1},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=4",
+			config:  RQConfig{Enabled: true, Bits: 4},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=8",
+			config:  RQConfig{Enabled: true, Bits: 8},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=0",
+			config:  RQConfig{Enabled: true, Bits: 0},
+			wantErr: true,
+		},
+		{
+			name:    "enabled with bits=2",
+			config:  RQConfig{Enabled: true, Bits: 2},
+			wantErr: true,
+		},
+		{
+			name:    "enabled with bits=16",
+			config:  RQConfig{Enabled: true, Bits: 16},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRQConfig(tt.config)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateRQConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestGetRQBits(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -42,6 +95,16 @@ func TestGetRQBits(t *testing.T) {
 				},
 			},
 			expected: 1,
+		},
+		{
+			name: "RQ enabled with bits=4 should return 4",
+			config: UserConfig{
+				RQ: RQConfig{
+					Enabled: true,
+					Bits:    4,
+				},
+			},
+			expected: 4,
 		},
 		{
 			name: "RQ enabled with bits=8 should return 8",

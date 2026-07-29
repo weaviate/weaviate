@@ -47,7 +47,7 @@ func NewSchemaObjectsPropertiesDelete(ctx *middleware.Context, handler SchemaObj
 
 # Delete a property's inverted index
 
-Deletes an inverted index of a specific property within a collection (`className`). The index to delete is identified by `indexName` and must be one of `filterable`, `searchable`, or `rangeFilters`.
+Deletes an inverted index of a specific property within a collection (`className`). The index to delete is identified by `indexName` and must be one of `filterable`, `searchable`, or `rangeFilters` (with `rangeable` accepted as an alias for `rangeFilters`).
 */
 type SchemaObjectsPropertiesDelete struct {
 	Context *middleware.Context

@@ -42,7 +42,7 @@ func newTestBucketWithFlushCycle(t *testing.T, opts ...BucketOption) *Bucket {
 	dirName := t.TempDir()
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(false), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

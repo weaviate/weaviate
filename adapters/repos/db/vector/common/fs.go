@@ -37,6 +37,8 @@ type FS interface {
 	Create(name string) (File, error)
 	MkdirAll(path string, perm os.FileMode) error
 	ReadDir(name string) ([]os.DirEntry, error)
+	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm os.FileMode) error
 	Stat(name string) (os.FileInfo, error)
 	Remove(name string) error
 	RemoveAll(path string) error
@@ -68,6 +70,14 @@ func (fs *osFS) MkdirAll(path string, perm os.FileMode) error {
 
 func (fs *osFS) ReadDir(name string) ([]os.DirEntry, error) {
 	return os.ReadDir(name)
+}
+
+func (fs *osFS) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+func (fs *osFS) WriteFile(name string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(name, data, perm)
 }
 
 func (fs *osFS) Stat(name string) (os.FileInfo, error) {
@@ -143,6 +153,14 @@ func (fs *TestFS) ReadDir(name string) ([]os.DirEntry, error) {
 	return os.ReadDir(name)
 }
 
+func (fs *TestFS) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+func (fs *TestFS) WriteFile(name string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(name, data, perm)
+}
+
 func (fs *TestFS) Stat(name string) (os.FileInfo, error) {
 	return os.Stat(name)
 }
@@ -174,6 +192,7 @@ type TestFile struct {
 	OnWrite func(b []byte) (n int, err error)
 	OnRead  func(b []byte) (n int, err error)
 	OnSync  func() error
+	OnClose func() error
 }
 
 func (f *TestFile) Write(b []byte) (n int, err error) {
@@ -195,4 +214,11 @@ func (f *TestFile) Sync() error {
 		return f.OnSync()
 	}
 	return f.File.Sync()
+}
+
+func (f *TestFile) Close() error {
+	if f.OnClose != nil {
+		return f.OnClose()
+	}
+	return f.File.Close()
 }

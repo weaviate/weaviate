@@ -41,6 +41,7 @@ type Migrator interface {
 	LoadShard(ctx context.Context, class, shard string) error
 	DropShard(ctx context.Context, class, shard string) error
 	ShutdownShard(ctx context.Context, class, shard string) error
+	ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error
 
 	AddProperty(ctx context.Context, className string,
 		props ...*models.Property) error

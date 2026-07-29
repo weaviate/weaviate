@@ -13,7 +13,9 @@ package namespace
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +26,28 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
+
+// nsCounter backs uniqueNS. Tests must not hardcode namespace names: a shared
+// literal would collide once tests run in parallel against the shared cluster.
+var nsCounter atomic.Int64
+
+// uniqueNS returns a process-unique namespace name ("ns1", "ns2", ...) that
+// satisfies the name contract (lowercase alphanumeric, 3-36 chars). Each test
+// allocates its own so namespaced state (classes, users, objects) stays
+// isolated across concurrent tests.
+func uniqueNS() string {
+	return fmt.Sprintf("ns%d", nsCounter.Add(1))
+}
+
+// roleCounter backs uniqueRole.
+var roleCounter atomic.Int64
+
+// uniqueRole returns a process-unique global role short name. Operator-created
+// global roles share a cluster-wide short-name reservation, so a hardcoded name
+// would collide once tests run in parallel against the shared cluster.
+func uniqueRole() string {
+	return fmt.Sprintf("role%d", roleCounter.Add(1))
+}
 
 // retryOnAliasLag retries op until it returns no error. Used after
 // CreateAliasAuth on the multi-node cluster: the create returns when the
@@ -39,16 +63,23 @@ func retryOnAliasLag(t *testing.T, op func() error) {
 	}, 10*time.Second, 50*time.Millisecond, "operation kept failing while waiting for alias to be visible locally")
 }
 
-// Test personas. All API keys are statically declared at compose-up time.
-// Per-test work is limited to creating a role with the desired permissions
-// and assigning it to one of these users (reversed in t.Cleanup).
+// adminUser is the env-var root. Namespaced DB users are created at runtime via
+// createNamespacedUser and granted the built-in admin role by this root.
+const adminUser, adminKey = "admin-user", "admin-key"
+
+// Two extra static API-key users for TestGlobalCallerColonUserIDAuthz. Static
+// keys are global operators (ns==""), the journey the matcher fix targets. The
+// test grants gCaller a narrow role at runtime; gTarget just needs to exist.
 const (
-	adminUser, adminKey               = "admin-user", "admin-key"
-	manageUser, manageKey             = "manage-user", "manage-key"
-	scopedManageUser, scopedManageKey = "scoped-manage-user", "scoped-manage-key"
-	viewerUser, viewerKey             = "viewer-user", "viewer-key"
-	noPermsUser, noPermsKey           = "no-perms-user", "no-perms-key"
+	gCaller, gCallerKey = "gcaller", "gcaller-key"
+	gTarget, gTargetKey = "gtarget", "gtarget-key"
 )
+
+// gAdmin is a global static-key operator that is NOT a root (only adminUser is,
+// via WithRbacRoots). TestNamespaceGlobalAdminDeniedGroupOps grants it the
+// built-in admin role at runtime to prove the narrowed admin cannot manage
+// groups; a dedicated identity keeps that grant from leaking into other tests.
+const gAdmin, gAdminKey = "gadmin", "gadmin-key"
 
 var sharedCompose *docker.DockerCompose
 
@@ -63,15 +94,24 @@ func TestMain(m *testing.M) {
 
 	compose, err := docker.New().
 		WithApiKey().
+		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).
-		WithUserApiKey(manageUser, manageKey).
-		WithUserApiKey(scopedManageUser, scopedManageKey).
-		WithUserApiKey(viewerUser, viewerKey).
-		WithUserApiKey(noPermsUser, noPermsKey).
+		WithUserApiKey(gCaller, gCallerKey).
+		WithUserApiKey(gTarget, gTargetKey).
+		WithUserApiKey(gAdmin, gAdminKey).
+		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
 		WithMCP().
 		WithOffloadS3("offloading", "us-west-1").
+		// backup-s3 + export share the MinIO sidecar; the "backups" bucket backs
+		// both. REPLICA_MOVEMENT_ENABLED ensures the Replicate handler reaches the
+		// auth check (it 501s before authz when movement is off), so the RBAC deny
+		// in rbac_surfaces_test.go is observable.
+		WithBackendS3("backups", "us-west-1").
+		WithWeaviateEnv("EXPORT_ENABLED", "true").
+		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", "backups").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)

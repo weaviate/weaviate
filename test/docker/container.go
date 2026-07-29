@@ -13,32 +13,54 @@ package docker
 
 import (
 	"fmt"
+	"math/rand"
+	"os"
+	"strconv"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 )
 
-// Subnet used by test clusters. All weaviate nodes get static IPs
-// derived from their hostname via [StaticIPForHostname].
-const (
-	TestSubnet  = "10.99.0.0/16"
-	TestGateway = "10.99.0.1"
-)
+// pickNetOctet returns a second octet for a test cluster's subnet
+// (10.<octet>.0.0/16). Was hardcoded to 99, so every network fought over
+// 10.99.0.0/16 and failed with "Pool overlaps" whenever two ran at once —
+// including multiple clusters within a single test binary. SOAK_NET_OCTET pins
+// it (the flake-soak sets one per worker); otherwise it's random and Compose
+// re-rolls on overlap, so each network lands on a free subnet. Avoids 128-255
+// (GCP's 10.128.0.0/9) and 0-15 (common host/Docker networks).
+func pickNetOctet() int {
+	if v := os.Getenv("SOAK_NET_OCTET"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 254 && n != 128 {
+			return n
+		}
+	}
+	return rand.Intn(112) + 16 // [16, 127]
+}
 
-// StaticIPForHostname returns a deterministic static IP for a weaviate node.
-// weaviate-0 → 10.99.0.10, weaviate-1 → 10.99.0.11, weaviate-2 → 10.99.0.12.
-// Returns empty string for non-weaviate containers.
-func StaticIPForHostname(hostname string) string {
+func subnetForOctet(octet int) string  { return fmt.Sprintf("10.%d.0.0/16", octet) }
+func gatewayForOctet(octet int) string { return fmt.Sprintf("10.%d.0.1", octet) }
+
+// staticIPForHostname gives each weaviate node a fixed IP in its cluster's
+// subnet; empty for non-weaviate containers.
+func staticIPForHostname(octet int, hostname string) string {
 	switch hostname {
 	case Weaviate0:
-		return "10.99.0.10"
+		return fmt.Sprintf("10.%d.0.10", octet)
 	case Weaviate1:
-		return "10.99.0.11"
+		return fmt.Sprintf("10.%d.0.11", octet)
 	case Weaviate2:
-		return "10.99.0.12"
+		return fmt.Sprintf("10.%d.0.12", octet)
 	default:
 		return ""
 	}
+}
+
+// minioContainerName must be unique per network: MinIO uses Reuse:true keyed on
+// name, so a shared "test-minio" binds to whichever network created it first
+// and leaves other clusters unable to resolve it. The network alias stays
+// MinIO, so weaviate's S3 endpoint config is unchanged.
+func minioContainerName(octet int) string {
+	return fmt.Sprintf("%s-%d", MinIO, octet)
 }
 
 type EndpointName string
@@ -61,25 +83,6 @@ type DockerContainer struct {
 	endpoints   map[EndpointName]endpoint
 	container   testcontainers.Container
 	envSettings map[string]string
-}
-
-// StaticIP returns the deterministic static IP for this container based on its name.
-func (d *DockerContainer) StaticIP() string {
-	return StaticIPForHostname(d.name)
-}
-
-// InternalAddress returns the static cluster-internal address (IP:gossipPort) for
-// this container, useful for logging and diagnostics.
-func (d *DockerContainer) InternalAddress() string {
-	ip := d.StaticIP()
-	if ip == "" {
-		return ""
-	}
-	port := d.envSettings["CLUSTER_GOSSIP_BIND_PORT"]
-	if port == "" {
-		return ip
-	}
-	return fmt.Sprintf("%s:%s", ip, port)
 }
 
 func (d *DockerContainer) Name() string {

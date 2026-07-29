@@ -84,6 +84,10 @@ var (
 		Role:  All,
 		Scope: String(models.PermissionRolesScopeAll),
 	}
+	AllRolesWithMatchScope = &models.PermissionRoles{
+		Role:  All,
+		Scope: String(models.PermissionRolesScopeMatch),
+	}
 	AllUsers = &models.PermissionUsers{
 		Users: All,
 	}
@@ -234,11 +238,26 @@ var (
 	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
 
 	EnvVarRoles = []string{ReadOnly, Root}
+
+	// OperatorReservedRolePrefixes mark a global role operator-only: invisible to,
+	// unassignable to, and uncreatable-as-a-local-role by namespace-confined callers.
+	OperatorReservedRolePrefixes = []string{"operator_", "global_"}
 )
+
+// IsOperatorReservedRoleName reports whether a role short name (no namespace
+// qualifier) carries an operator-reserved prefix. Case-sensitive.
+func IsOperatorReservedRoleName(shortName string) bool {
+	for _, prefix := range OperatorReservedRolePrefixes {
+		if strings.HasPrefix(shortName, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // BuiltInPermissionsFor returns the canonical permission shape of the four
 // built-in roles. On namespace-enabled clusters admin/viewer are narrowed
-// to collections/schema, data, multi-tenancy, and aliases; root/read-only
+// to collections/schema, data, multi-tenancy, aliases, and MCP; root/read-only
 // keep wildcard CRUD/READ across all domains.
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
@@ -667,12 +686,31 @@ var tenantSafeActions = []string{
 	CreateAliases, ReadAliases, UpdateAliases, DeleteAliases,
 }
 
+// tenantSafeMcpActions are namespace-safe because the MCP tools self-scope to
+// principal.Namespace; the mcp resource carries no collection field. A future
+// non-self-scoping MCP tool would require revisiting this.
+var tenantSafeMcpActions = []string{CreateMcp, ReadMcp, UpdateMcp}
+
+// tenantSafeUserActions is the user-CRUD subset granted alongside the
+// namespace-bearing actions. AssignAndRevokeUsers is excluded.
+var tenantSafeUserActions = []string{
+	CreateUsers, ReadUsers, UpdateUsers, DeleteUsers,
+}
+
+// tenantSafeRoleActions is the role-management subset granted at MATCH scope.
+// The matcher specializes roles/* to the caller's namespace, confining reads
+// and writes alike to it.
+var tenantSafeRoleActions = []string{
+	CreateRoles, ReadRoles, UpdateRoles, DeleteRoles,
+}
+
 // tenantSafeAdminPermissions returns the narrowed admin shape for
-// namespace-enabled clusters: CRUD over the namespace-bearing domains only.
-// Cluster-only domains (backups, replicate, nodes, cluster, users, roles,
-// groups, namespaces, mcp) are excluded.
+// namespace-enabled clusters: CRUD over the namespace-bearing domains plus
+// MCP, user CRUD, role management at MATCH scope, and role assignment.
+// Cluster-only domains (backups, replicate, nodes, cluster, groups,
+// namespaces) and group assignment are excluded.
 func tenantSafeAdminPermissions() []*models.Permission {
-	perms := make([]*models.Permission, 0, len(tenantSafeActions))
+	perms := make([]*models.Permission, 0, len(tenantSafeActions)+len(tenantSafeMcpActions)+len(tenantSafeUserActions)+len(tenantSafeRoleActions)+1)
 	for _, action := range tenantSafeActions {
 		perms = append(perms, &models.Permission{
 			Action:      &action,
@@ -682,6 +720,26 @@ func tenantSafeAdminPermissions() []*models.Permission {
 			Aliases:     AllAliases,
 		})
 	}
+	for _, action := range tenantSafeMcpActions {
+		perms = append(perms, &models.Permission{Action: &action})
+	}
+	for _, action := range tenantSafeUserActions {
+		perms = append(perms, &models.Permission{
+			Action: &action,
+			Users:  AllUsers,
+		})
+	}
+	for _, action := range tenantSafeRoleActions {
+		perms = append(perms, &models.Permission{
+			Action: &action,
+			Roles:  AllRolesWithMatchScope,
+		})
+	}
+	// Safe because the assign handler requires the caller to already hold every
+	// permission the assigned role grants, projected into the target's namespace;
+	// the user-target match only confines which user, not which role.
+	assign := AssignAndRevokeUsers
+	perms = append(perms, &models.Permission{Action: &assign, Users: AllUsers})
 	return perms
 }
 
@@ -700,6 +758,24 @@ func tenantSafeViewerPermissions() []*models.Permission {
 			Tenants:     AllTenants,
 			Aliases:     AllAliases,
 		})
+	}
+	for _, action := range tenantSafeMcpActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{Action: &action})
+	}
+	for _, action := range tenantSafeUserActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{Action: &action, Users: AllUsers})
+	}
+	for _, action := range tenantSafeRoleActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{Action: &action, Roles: AllRolesWithMatchScope})
 	}
 	return perms
 }

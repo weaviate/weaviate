@@ -26,6 +26,9 @@ type clientConfig struct {
 	ExternalID      string
 	STSEndpoint     string
 	RoleSessionName string
+
+	// SkipAccessCheck disables the write+delete probe in Initialize.
+	SkipAccessCheck bool
 }
 
 func newConfig(endpoint, bucket, path string, useSSL bool) *clientConfig {

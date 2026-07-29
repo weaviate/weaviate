@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -44,20 +46,21 @@ import (
 //
 //   - "Semantic" migrations are the ones that change query
 //     semantics for the migrated property — change-tokenization,
-//     change-tokenization-filterable, enable-filterable, enable-searchable.
-//     These get the full barrier dance: every shard reindexes first
-//     (RunReindexOnlyOnShard), and only after every unit is terminal does
-//     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
-//     local shard, followed by OnTaskCompleted's cluster-wide schema flip.
-//     No shard serves new data until ALL shards are ready. This is where
-//     the SWAPPING-window tokenization overlay lives.
+//     change-tokenization-filterable, enable-filterable, enable-searchable,
+//     change-algorithm (Map/WAND → Blockmax). These get the full barrier
+//     dance: every shard reindexes first (RunReindexOnlyOnShard), and only
+//     after every unit is terminal does OnGroupCompleted fire to run the swap
+//     phase (RunSwapOnShard) on each local shard, followed by
+//     OnTaskCompleted's cluster-wide schema flip. No shard serves new data
+//     until ALL shards are ready. This is where the SWAPPING-window
+//     tokenization overlay lives (for the tokenization-changing ones).
 //
 //   - "Format-only" migrations don't change query semantics — they only
 //     change the on-disk bucket format. enable-rangeable, repair-rangeable,
-//     repair-filterable, repair-searchable (Map→Blockmax), and the
-//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
-//     full lifecycle independently via RunOnShard; there is no cluster-wide
-//     schema flip to coordinate.
+//     repair-filterable, rebuild-searchable (rebuild an existing Blockmax
+//     bucket in place), and the RoaringSetRefresh strategy fall in this
+//     bucket. Each shard runs the full lifecycle independently via RunOnShard;
+//     there is no cluster-wide schema flip to coordinate.
 //
 // Note on enable-rangeable: it is intentionally NOT classified as
 // semantic. Range queries' correctness during the migration is gated
@@ -73,6 +76,11 @@ type ReindexProvider struct {
 	logger        logrus.FieldLogger
 	localNode     string
 	concurrency   func() int
+
+	// taskLister backs shouldDeferBlockmaxFlip's flip decision with
+	// cluster-consistent state instead of node-local shard buckets.
+	// cluster.Raft satisfies it.
+	taskLister distributedtask.TaskLister
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
@@ -105,6 +113,31 @@ type ReindexProvider struct {
 	// Guarded by [mu]. Set after the guard, cleared from a defer so any
 	// return path (failure, context.Canceled, panic) releases the slot.
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
+
+	// cleanupInProgressMu guards [cleanupInProgress]. Held only for the
+	// register/unregister/lookup increment/decrement; never held across
+	// the actual sidecar-teardown call (that runs unlocked, the registry
+	// only records "a cleanup is mid-flight on this tuple").
+	cleanupInProgressMu sync.RWMutex
+	// cleanupInProgress is the per-(collection, shard) refcount of
+	// in-flight terminal-task cleanups. The backup gate consults this
+	// alongside the DTM activity lookup so a backup landing in the
+	// "task is terminal in DTM but [autoCleanupAfterTerminal] is still
+	// tearing __reindex / __ingest sidecars" gap sees the shard as
+	// busy and refuses. Refcount (not bool) so re-entrant cleanups —
+	// two terminal-state transitions on different (property,
+	// indexType) tuples sharing the same shard — don't lose each
+	// other's registration.
+	cleanupInProgress map[reindexCleanupKey]int
+}
+
+// reindexCleanupKey identifies a per-(collection, shard) slot in the
+// [ReindexProvider.cleanupInProgress] registry. Used as the map key so
+// the backup gate's "is cleanup mid-flight on this shard?" lookup is
+// a single map probe.
+type reindexCleanupKey struct {
+	collection string
+	shard      string
 }
 
 // phaseUnitResolution holds the per-unit setup work that every per-shard
@@ -155,6 +188,7 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
+	taskLister distributedtask.TaskLister,
 	logger logrus.FieldLogger,
 	localNode string,
 	concurrency func() int,
@@ -164,16 +198,18 @@ func NewReindexProvider(
 		serverCtx = context.Background()
 	}
 	return &ReindexProvider{
-		db:             db,
-		schemaManager:  schemaManager,
-		logger:         logger,
-		localNode:      localNode,
-		concurrency:    concurrency,
-		serverCtx:      serverCtx,
-		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
-		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
-		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
-		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
+		db:                db,
+		schemaManager:     schemaManager,
+		taskLister:        taskLister,
+		logger:            logger,
+		localNode:         localNode,
+		concurrency:       concurrency,
+		serverCtx:         serverCtx,
+		runningHandles:    make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
+		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
+		cleanupInProgress: make(map[reindexCleanupKey]int),
 	}
 }
 
@@ -359,7 +395,10 @@ func (p *ReindexProvider) processUnits(
 ) {
 	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
 
+	// defer Wait so an early return on Acquire ctx-cancel still drains
+	// spawned per-unit goroutines before OnTaskCompleted's cleanup runs.
 	var wg sync.WaitGroup
+	defer wg.Wait()
 	for _, unitID := range localUnits {
 		unit := task.Units[unitID]
 		if unit != nil && (unit.Status == distributedtask.UnitStatusCompleted || unit.Status == distributedtask.UnitStatusFailed) {
@@ -379,8 +418,6 @@ func (p *ReindexProvider) processUnits(
 			p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
 		}, p.logger)
 	}
-
-	wg.Wait()
 }
 
 // processOneUnit executes reindex on a single unit (shard replica).
@@ -527,7 +564,19 @@ func (p *ReindexProvider) processOneUnit(
 	// arriving between shard init and OnGroupCompleted's swap go only to
 	// the old main bucket (no ingest double-write) and are lost on swap.
 	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
-	if err := p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks); err != nil {
+	//
+	// Guarded: SaveRecoveryPayload MkdirAll's the migration dir on a
+	// goroutine holding no closeLock — same re-materialization race as
+	// newReindexTrackerGuarded.
+	if err := concreteShard.Index().withCloseRLockGuard(func() error {
+		return p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks)
+	}); err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Index is closing: cascade-cancel ends the task; don't fail the unit.
+			p.logger.WithField("unit", unitID).
+				Debug("index closing during recovery-record persist; stopping unit")
+			return
+		}
 		// A failure to persist the recovery record means a restart in the
 		// next few seconds would lose the in-flight reindex's double-write
 		// callbacks. That is bad enough to fail the unit explicitly rather
@@ -1134,11 +1183,9 @@ func (p *ReindexProvider) runShardPrepPhase(
 	return ok, out
 }
 
-// runShardSwapPhase runs OVERLAY SET + atomic per-task SWAP + defensive
-// overlay clear. Assumes PREP succeeded (merged.mig on disk per task).
-// Partial-success (some swapped, some not) leaves the overlay in place:
-// swapped buckets match the new tokenization; un-swapped buckets need
-// operator rebuild.
+// runShardSwapPhase. Partial success leaves the overlay set for the
+// flipped props only; un-swapped buckets keep the old tokenization and
+// need operator rebuild.
 func (p *ReindexProvider) runShardSwapPhase(
 	ctx context.Context,
 	payload *ReindexTaskPayload,
@@ -1151,14 +1198,14 @@ func (p *ReindexProvider) runShardSwapPhase(
 	allSwapped := true
 	anySwapped := false
 
-	// Overlay-before-swap: queries observing the SWAPPING window need the
-	// new analyzer alignment for buckets that flip.
+	// Wire a per-prop hook rather than setting the overlay once up front;
+	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
 	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Warnf("reindex provider: cannot set tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
+			Warnf("reindex provider: cannot wire tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
 	}
-	overlayWasSet := maybeSetTokenizationOverlayPreSwap(setShard, payload)
+	overlayWasSet := maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
 	for _, reindexTask := range unitTasks {
 		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
@@ -1360,10 +1407,13 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	//
 	//   1. PREP (RunPrepareOnShard, per task) — disk-I/O-heavy work:
 	//      FlushAndSwitch reindex bucket, ShutdownBucket, Prepend.
-	//   2. OVERLAY SET — maybeSetTokenizationOverlayPreSwap. After
-	//      every task on this shard has its prep merged.
+	//   2. OVERLAY WIRING — maybeWirePerPropOverlaySet. Installs the
+	//      per-prop onPropSwapped hook on each task so the overlay is
+	//      SET atomically with that prop's bucket-pointer flip in
+	//      phase 3.
 	//   3. ATOMIC SWAP (RunSwapOnShard, per task) — in-memory
-	//      bucket-pointer flip + per-prop sentinel fsync. The disk
+	//      bucket-pointer flip + per-prop sentinel fsync + per-prop
+	//      overlay set, all in the Phase 2a tight loop. The disk
 	//      dirs aren't renamed here; that's deferred to next startup
 	//      via OnBeforeLsmInit's recoverRuntimeSwapBuckets path.
 	//
@@ -1519,7 +1569,12 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // Skips the flip on non-SWAPPING terminal states (FAILED / CANCELLED) so
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
-func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
+//
+// Returns a non-nil error on the SWAPPING path when the flip fails: wrapped
+// in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain
+// when transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup
+// always returns nil.
+func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
 	p.clearTaskCaches(task.TaskDescriptor)
@@ -1529,19 +1584,33 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
-		// On FAILED we still emit the operator repair guidance.
-		if task.Status == distributedtask.TaskStatusFailed && payloadErr == nil {
-			logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
+		// FAILED/CANCELLED auto-clean partial sidecar state on every node;
+		// FAILED additionally logs operator repair guidance.
+		if payloadErr == nil {
+			switch task.Status {
+			case distributedtask.TaskStatusFailed:
+				logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
+				p.autoCleanupAfterTerminal(task, payload, logger)
+			case distributedtask.TaskStatusCancelled:
+				p.autoCleanupAfterTerminal(task, payload, logger)
+			case distributedtask.TaskStatusStarted,
+				distributedtask.TaskStatusPreparing,
+				distributedtask.TaskStatusSwapping,
+				distributedtask.TaskStatusFinished:
+				// SWAPPING handled below; STARTED/PREPARING never reach
+				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
+			}
 		}
-		return
+		return nil
 	}
 	if payloadErr != nil {
 		logger.Errorf("reindex provider: task-completion: failed to load payload; schema flip will not run: %v", payloadErr)
-		return
+		// An unparsable payload never becomes parsable — permanent.
+		return fmt.Errorf("load payload for schema flip: %w: %w", payloadErr, distributedtask.ErrTaskCompletionPermanent)
 	}
 	if !IsSemanticMigration(payload.MigrationType) {
 		// Format-only migrations flip their metadata inside RunSwapOnShard.
-		return
+		return nil
 	}
 
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
@@ -1552,7 +1621,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		// Leave the overlay in place: buckets are NEW-tokenized but the
 		// schema is still pre-flip on this node — the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
-		return
+		return fmt.Errorf("schema flip: %w", err)
 	}
 
 	if IsTokenizationChangingMigration(payload.MigrationType) {
@@ -1575,6 +1644,193 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 			})
 		}
 	}
+
+	return nil
+}
+
+// autoCleanupAfterTerminal runs on every node when a semantic migration
+// reaches FAILED or CANCELLED. Drains any still-running local
+// goroutine, then wipes partial sidecar state per (property, indexType).
+// Errors are logged and swallowed; the next-restart audit catches anything
+// missed.
+//
+// Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
+// to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
+// teardown sees [IsLiveReindexTaskStatus]==false but the on-disk
+// __reindex / __ingest sidecars are still being torn out. Registering
+// every shard the task touched in [cleanupInProgress] before
+// CleanStalePartialReindexState fires (and unregistering after) makes
+// "cleanup is still happening on this shard" an explicit state the
+// gate consults — closing the cleanup-vs-status-visibility gap the
+// DTM-only lookup leaves open.
+func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
+	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
+	defer drainCancel()
+	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
+		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
+		return
+	}
+	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
+		return
+	}
+	// Register every shard the task touched as "cleanup in progress"
+	// for the duration of the per-(property, indexType) teardown loop.
+	// The unregister fires from the defer so any return path — including
+	// a panic inside CleanStalePartialReindexState — releases the slot.
+	shards := uniqueShardsFromPayload(payload)
+	for _, shardName := range shards {
+		p.registerCleanup(payload.Collection, shardName)
+	}
+	defer func() {
+		for _, shardName := range shards {
+			p.unregisterCleanup(payload.Collection, shardName)
+		}
+	}()
+	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
+	defer cancel()
+	for _, propName := range payload.Properties {
+		for _, indexType := range indexTypes {
+			if err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType); err != nil {
+				logger.WithField("property", propName).WithField("index_type", indexType).
+					Warnf("auto-cleanup after terminal status failed: %v", err)
+			}
+		}
+	}
+	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+}
+
+// uniqueShardsFromPayload returns the distinct shard names referenced
+// in payload.UnitToShard. Used by [autoCleanupAfterTerminal] to register
+// each shard exactly once in [cleanupInProgress] — multiple units can
+// map to the same shard for multi-property migrations.
+func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
+	if len(payload.UnitToShard) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(payload.UnitToShard))
+	out := make([]string, 0, len(payload.UnitToShard))
+	for _, shardName := range payload.UnitToShard {
+		if shardName == "" {
+			continue
+		}
+		if _, ok := seen[shardName]; ok {
+			continue
+		}
+		seen[shardName] = struct{}{}
+		out = append(out, shardName)
+	}
+	return out
+}
+
+// registerCleanup marks (collection, shard) as having an in-flight
+// terminal-task cleanup. Refcounted: paired calls to
+// [unregisterCleanup] release the slot, with the entry dropping out of
+// the map once the count returns to zero. Safe to call concurrently
+// from multiple terminal-state transitions (different tasks, different
+// (property, indexType) tuples) that share a shard.
+func (p *ReindexProvider) registerCleanup(collection, shard string) {
+	p.cleanupInProgressMu.Lock()
+	defer p.cleanupInProgressMu.Unlock()
+	p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}]++
+}
+
+// unregisterCleanup releases one outstanding "cleanup-in-progress"
+// registration on (collection, shard). When the refcount returns to
+// zero the map entry is removed so [IsCleanupInProgress] reports false
+// for that tuple and the registry doesn't grow unbounded across
+// task lifetimes.
+//
+// Calling unregisterCleanup without a matching registerCleanup is a
+// programming error and would underflow the count; the [autoCleanup
+// AfterTerminal] defer pairs every register with one unregister via
+// the same shard slice so this cannot happen in practice.
+func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
+	p.cleanupInProgressMu.Lock()
+	defer p.cleanupInProgressMu.Unlock()
+	k := reindexCleanupKey{collection: collection, shard: shard}
+	p.cleanupInProgress[k]--
+	if p.cleanupInProgress[k] <= 0 {
+		delete(p.cleanupInProgress, k)
+	}
+}
+
+// IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
+// currently tearing partial sidecar state on (collection, shard).
+//
+// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
+// answer must include this signal — the DTM activity lookup it wraps
+// flips a task to terminal as soon as the FSM lands, but the
+// node-local sidecar buckets are still being shut down for tens of
+// seconds after that. A backup that snapshots the shard in that gap
+// would capture half-removed __reindex / __ingest dirs.
+//
+// Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
+// over this method) on the DB alongside [DB.SetShardReindexActivity
+// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
+// if the registry is nil (test fixtures that construct the provider
+// without going through [NewReindexProvider]).
+func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
+	p.cleanupInProgressMu.RLock()
+	defer p.cleanupInProgressMu.RUnlock()
+	if p.cleanupInProgress == nil {
+		return false
+	}
+	return p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}] > 0
+}
+
+// CleanupInProgressLookup is the per-(collection, shard) "is the
+// terminal-task cleanup goroutine still inside its
+// CleanStalePartialReindexState loop?" probe. Sibling type to
+// [ShardReindexActivityLookup] (which is the cluster-wide DTM-backed
+// "is there a LIVE reindex task on this shard?" probe). The backup
+// gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
+// terminal-cleanup is still running.
+type CleanupInProgressLookup func(collection, shard string) bool
+
+// CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
+// builder pattern used by [ShardReindexActivityLookupBuilder] so the
+// wiring in configure_api.go can install both lookups identically.
+type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
+
+// CleanupInProgressLookupBuilder returns a builder whose closures
+// re-read the live [cleanupInProgress] registry on every invocation.
+// Use to wire the backup gate into the provider without coupling the
+// DB struct to the concrete *ReindexProvider type.
+//
+// Returning the closure (rather than a direct method handle) keeps
+// the contract symmetric with [ShardReindexActivityLookupBuilder] and
+// lets the gate take a snapshot per probe rather than caching the
+// underlying state.
+func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
+	return func() CleanupInProgressLookup {
+		return p.IsCleanupInProgress
+	}
+}
+
+// reindexTerminalCleanupDrainTimeout matches reindexCancelDrainTimeout
+// in the REST handlers so both cancel paths converge on identical
+// stuck-task behavior.
+const reindexTerminalCleanupDrainTimeout = 10 * time.Second
+
+// reindexTerminalCleanupTimeout bounds cleanup per shard across all
+// (property, indexType) pairs.
+const reindexTerminalCleanupTimeout = 60 * time.Second
+
+// IsLiveReindexTaskStatus reports whether a task in the given DTM status
+// still owns its on-disk tracker dirs.
+func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
+	switch status {
+	case distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping:
+		return true
+	case distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusCancelled,
+		distributedtask.TaskStatusFailed:
+		return false
+	}
+	return false
 }
 
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST
@@ -1597,41 +1853,52 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		return
 	}
 	for _, propName := range payload.Properties {
-		// The repair body rebuilds every index the migration could have
-		// torn — we can't tell from here which sub-task failed, and
-		// rebuild is idempotent on a healthy index.
-		var repairBody string
-		switch payload.MigrationType {
-		case ReindexTypeChangeTokenization,
-			ReindexTypeEnableSearchable,
-			ReindexTypeChangeAlgorithm,
-			ReindexTypeRebuildSearchable:
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
-		case ReindexTypeChangeTokenizationFilterable,
-			ReindexTypeEnableFilterable,
-			ReindexTypeRepairFilterable:
-			repairBody = `{"filterable":{"rebuild":true}}`
-		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-			repairBody = `{"rangeable":{"rebuild":true}}`
-		default:
-			// Fallback for any future migration type: rebuild everything.
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true},"rangeable":{"rebuild":true}}`
-		}
+		repairCommands := repairCommandsForFailedMigration(payload, propName)
 		logger.WithFields(map[string]any{
 			"property":       propName,
 			"migration_type": payload.MigrationType,
-			"repair_command": fmt.Sprintf(
-				"PUT /v1/schema/%s/indexes/%s %s",
-				payload.Collection, propName, repairBody),
+			"repair_command": strings.Join(repairCommands, " && "),
 		}).Errorf(
-			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
-				"that committed their swap BEFORE the failure left the "+
-				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema reverted to pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
-				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks that "+
+				"committed before the failure may have left the canonical "+
+				"inverted bucket inconsistent with the schema (which reverted "+
+				"to the pre-migration state) — issue the repair_command above "+
+				"to recover the affected index(es)",
 			payload.MigrationType, payload.Collection, propName)
+	}
+}
+
+// repairCommandsForFailedMigration returns the operator command(s) to recover
+// propName after payload's migration FAILED. enable-*/change-algorithm never
+// flip their flag on failure, so /rebuild would 400 — those re-run via PUT
+// instead; retokenize migrations rebuild the pre-existing bucket.
+func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
+	c := payload.Collection
+	rebuild := func(indexType string) string {
+		return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", c, propName, indexType)
+	}
+	put := func(indexType, body string) string {
+		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", c, propName, indexType, body)
+	}
+	switch payload.MigrationType {
+	case ReindexTypeEnableSearchable:
+		tok := payload.TargetTokenization
+		if tok == "" {
+			tok = "<tokenization>"
+		}
+		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
+	case ReindexTypeEnableFilterable:
+		return []string{put("filterable", "{}")}
+	case ReindexTypeChangeAlgorithm:
+		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
+	case ReindexTypeChangeTokenization:
+		return []string{rebuild("filterable"), rebuild("searchable")}
+	case ReindexTypeChangeTokenizationFilterable:
+		return []string{rebuild("filterable")}
+	default:
+		// Unknown/future semantic type: conservatively rebuild every inverted
+		// index and let the operator inspect.
+		return []string{rebuild("filterable"), rebuild("searchable"), rebuild("rangeFilters")}
 	}
 }
 
@@ -1676,6 +1943,12 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 			continue
 		}
 		lsmPath := concrete.pathLSM()
+		// ChangeAlgorithm uses a class-level tracker dir; per-property
+		// migrationDirsForPropertyIndex deliberately omits it.
+		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
+			hasUntidiedTracker(lsmPath, []string{MigrationDirSearchableMapToBlockmax}) {
+			return false
+		}
 		for _, indexType := range indexTypes {
 			for _, propName := range payload.Properties {
 				prefixes := migrationDirsForPropertyIndex(propName, indexType)
@@ -1702,7 +1975,9 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"searchable"}
 	case ReindexTypeEnableFilterable:
 		return []string{"filterable"}
-	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable,
+	case ReindexTypeChangeAlgorithm:
+		return []string{"searchable"}
+	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
 		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
@@ -1787,9 +2062,10 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("flip tokenization: %w", err)
 		}
 		if len(missing) > 0 {
-			// Single-property migration; a missing property between submit
-			// and finalize is a hard error.
-			return fmt.Errorf("property %v not found in class %q at finalize", missing, payload.Collection)
+			// Single-property migration: a property deleted between submit
+			// and finalize can never be flipped — permanent (weaviate/0-weaviate-issues#297).
+			return fmt.Errorf("property %v not found in class %q at finalize: %w",
+				missing, payload.Collection, distributedtask.ErrTaskCompletionPermanent)
 		}
 		logger.WithField("tokenization", payload.TargetTokenization).
 			Info("reindex provider: change-tokenization cutover committed")
@@ -1819,14 +2095,19 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("enable-searchable without targetTokenization in payload")
 		}
 		trueVal := true
+		// EnableSearchableStrategy.TargetStrategy() is hardcoded blockmax, so
+		// stamp SearchableBlockmax alongside the flag flip — one RAFT commit.
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
-			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization},
+			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization, api.PropertyFieldSearchableBlockmax},
 			func(prop *models.Property) bool {
-				if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == payload.TargetTokenization {
+				if prop.IndexSearchable != nil && *prop.IndexSearchable &&
+					prop.Tokenization == payload.TargetTokenization &&
+					prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
 					return false
 				}
 				prop.IndexSearchable = &trueVal
 				prop.Tokenization = payload.TargetTokenization
+				prop.SearchableBlockmax = &trueVal
 				return true
 			})
 		if err != nil {
@@ -1836,22 +2117,103 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			Info("reindex provider: enable-searchable cutover committed")
 		return nil
 
+	case ReindexTypeChangeAlgorithm:
+		// Stamp FIRST and unconditionally: per-property truth must be durable
+		// before a sibling's same-tick defer check runs, or that sibling would
+		// read a not-yet-FINISHED task instead of this stamp.
+		if err := p.stampSearchableBlockmax(ctx, payload.Collection, payload.Properties); err != nil {
+			return fmt.Errorf("stamp searchableBlockmax: %w", err)
+		}
+		// Defer the cluster-wide class-flag flip until every local searchable
+		// bucket is blockmax — submit is per-property, so the class may still
+		// have map buckets.
+		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
+			return err
+		} else if defer_ {
+			return nil
+		}
+		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
+			return fmt.Errorf("flip UsingBlockMaxWAND: %w", err)
+		}
+		logger.Info("reindex provider: change-algorithm cutover committed")
+		return nil
+
 	default:
 		// IsSemanticMigration above gates this; reaching here is a programming error.
 		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
 	}
 }
 
+// stampSearchableBlockmax durably records propNames as blockmax via a masked
+// RAFT UpdateProperty. Idempotent — already-stamped properties are skipped —
+// so repeated firings/replays/read-repair produce at most one commit per
+// property. Shared by the change-algorithm cutover and [RunSearchableBlockmaxRepair].
+func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collection string, propNames []string) error {
+	trueVal := true
+	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
+		[]string{api.PropertyFieldSearchableBlockmax},
+		func(prop *models.Property) bool {
+			if prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
+				return false
+			}
+			prop.SearchableBlockmax = &trueVal
+			return true
+		})
+	return err
+}
+
+// shouldDeferBlockmaxFlip defers the cluster-wide flip until every
+// searchable property is off WAND (weaviate/0-weaviate-issues#254), using
+// RAFT-consistent state so every node agrees. The property completing now
+// counts as done despite still showing SWAPPING, avoiding self-deferral.
+func (p *ReindexProvider) shouldDeferBlockmaxFlip(
+	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) (bool, error) {
+	if p.schemaManager == nil || p.taskLister == nil {
+		// Tests may construct the provider without these deps; don't defer.
+		return false, nil
+	}
+	class := p.schemaManager.ReadOnlyClass(payload.Collection)
+	if class == nil {
+		return false, fmt.Errorf("collection %q not found in schema", payload.Collection)
+	}
+	tasksByNS, err := p.taskLister.ListDistributedTasks(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list distributed tasks for blockmax flip: %w", err)
+	}
+	reindexTasks := tasksByNS[ReindexNamespace]
+
+	completing := make(map[string]struct{}, len(payload.Properties))
+	for _, prop := range payload.Properties {
+		completing[prop] = struct{}{}
+	}
+	for _, prop := range class.Properties {
+		if !inverted.HasSearchableIndex(prop) {
+			continue
+		}
+		if _, ok := completing[prop.Name]; ok {
+			continue // finalizing to blockmax now
+		}
+		// Durable-stamp resolver: a sibling stamped by its own completion no
+		// longer forces a spurious defer once its task ages out or is SWAPPING.
+		if !SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+			logger.WithField("property", prop.Name).Info("reindex provider: change-algorithm cutover deferred — a sibling searchable property is still on WAND (its migration will complete the flip)")
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier: every
-// shard must finish reindexing before any shard swaps. enable-rangeable
-// is intentionally NOT semantic — it predates the barrier family and
-// promoting it would change existing operator behavior.
+// behavior and therefore require the cross-replica swap barrier + cluster-
+// wide schema flip after every node has acknowledged. enable-rangeable is
+// intentionally NOT semantic — predates the barrier family.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
-		mt == ReindexTypeEnableSearchable
+		mt == ReindexTypeEnableSearchable ||
+		mt == ReindexTypeChangeAlgorithm
 }
 
 // IsTokenizationChangingMigration is true for migrations that flip a
@@ -1863,11 +2225,22 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// maybeSetTokenizationOverlayPreSwap sets the per-shard tokenization
-// overlay before the swap loop on a tokenization-changing migration.
-// Returns true iff the overlay was written, so the caller can match
+// maybeWirePerPropOverlaySet installs the per-prop onPropSwapped hook
+// on every task of a tokenization-changing migration so the per-shard
+// tokenization overlay is SET atomically with each property's
+// bucket-pointer flip, inside the swap's Phase 2a tight loop. Returns
+// true iff the hook was wired (i.e. this is a tokenization-changing
+// migration with a non-empty target), so the caller can match
 // [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
-func maybeSetTokenizationOverlayPreSwap(shard *Shard, payload *ReindexTaskPayload) bool {
+//
+// Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
+// (MkdirAll, sentinel stats, prop read) runs between the loop start and
+// the flip. Setting the overlay before the loop exposes overlay=NEW /
+// bucket=OLD for that whole window, so a BM25 query returns a wrong
+// count (0 for reverse field→word). Per-flip wiring collapses it to one
+// map write; a swap that fails before any flip never sets it, keeping
+// the all-failed path clean.
+func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) bool {
 	if shard == nil || payload == nil {
 		return false
 	}
@@ -1877,8 +2250,25 @@ func maybeSetTokenizationOverlayPreSwap(shard *Shard, payload *ReindexTaskPayloa
 	if payload.TargetTokenization == "" {
 		return false
 	}
-	for _, propName := range payload.Properties {
-		shard.SetTokenizationOverlay(propName, payload.TargetTokenization)
+	target := payload.TargetTokenization
+	for _, task := range tasks {
+		if task == nil {
+			continue
+		}
+		task := task
+		// onPropSwapped covers the recovery/resume path; the live Phase-2a
+		// loop uses swapPropAtomic (see the field docs on both).
+		task.onPropSwapped = func(propName string) {
+			shard.SetTokenizationOverlay(propName, target)
+		}
+		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
+			rt reindexTracker, propIdx int, propName string,
+		) (*lsmkv.Bucket, error) {
+			return shard.SwapBucketAndSetOverlay(propName, target,
+				func() (*lsmkv.Bucket, error) {
+					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+				})
+		}
 	}
 	return true
 }
@@ -1886,18 +2276,15 @@ func maybeSetTokenizationOverlayPreSwap(shard *Shard, payload *ReindexTaskPayloa
 // maybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
 // hook — called by [OnGroupCompleted] AFTER the per-task swap loop
 // on a shard. It clears the per-shard tokenization overlay iff (a)
-// the overlay was set pre-swap by
-// [maybeSetTokenizationOverlayPreSwap] (the `wasSet` argument) AND
+// the per-prop overlay hook was wired by
+// [maybeWirePerPropOverlaySet] (the `wasSet` argument) AND
 // (b) every per-task swap failed before flipping its bucket pointer
 // (the `anySwapped` argument is false).
 //
-// Without this clear, an all-failed swap path leaves the overlay set
-// against unchanged OLD buckets — the migration's FAILED transition
-// then skips the cluster-wide schema flip, so neither
-// [OnTaskCompleted]'s explicit clear nor [Shard.TokenizationFor]'s
-// self-clear-on-catchup will ever fire (the live schema stays OLD
-// and never matches the overlay's NEW value). Permanent misalignment
-// until operator repair.
+// Idempotent backstop: with per-prop wiring a fully-failed swap never
+// sets the overlay. It still matters if a flip succeeded but the
+// migration then went FAILED, since the skipped cluster-wide schema flip
+// means nothing else would ever clear the overlay.
 //
 // Partial success (≥ 1 per-task swap returned nil → ≥ 1 bucket
 // pointer flipped) is intentionally left intact: the overlay aligns

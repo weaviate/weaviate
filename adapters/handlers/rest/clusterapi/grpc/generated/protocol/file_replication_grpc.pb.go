@@ -19,22 +19,30 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FileReplicationService_PauseFileActivity_FullMethodName  = "/clusterapi.FileReplicationService/PauseFileActivity"
-	FileReplicationService_ResumeFileActivity_FullMethodName = "/clusterapi.FileReplicationService/ResumeFileActivity"
-	FileReplicationService_ListFiles_FullMethodName          = "/clusterapi.FileReplicationService/ListFiles"
-	FileReplicationService_GetFileMetadata_FullMethodName    = "/clusterapi.FileReplicationService/GetFileMetadata"
-	FileReplicationService_GetFile_FullMethodName            = "/clusterapi.FileReplicationService/GetFile"
+	FileReplicationService_CreateReplicaSnapshot_FullMethodName          = "/clusterapi.FileReplicationService/CreateReplicaSnapshot"
+	FileReplicationService_ReleaseReplicaSnapshot_FullMethodName         = "/clusterapi.FileReplicationService/ReleaseReplicaSnapshot"
+	FileReplicationService_GetReplicaSnapshotFileMetadata_FullMethodName = "/clusterapi.FileReplicationService/GetReplicaSnapshotFileMetadata"
+	FileReplicationService_GetReplicaSnapshotFile_FullMethodName         = "/clusterapi.FileReplicationService/GetReplicaSnapshotFile"
+	FileReplicationService_StartChangeCapture_FullMethodName             = "/clusterapi.FileReplicationService/StartChangeCapture"
+	FileReplicationService_GetChangeLog_FullMethodName                   = "/clusterapi.FileReplicationService/GetChangeLog"
+	FileReplicationService_SnapshotChangeLogLSN_FullMethodName           = "/clusterapi.FileReplicationService/SnapshotChangeLogLSN"
+	FileReplicationService_FinalizeChangeLog_FullMethodName              = "/clusterapi.FileReplicationService/FinalizeChangeLog"
+	FileReplicationService_StopChangeCapture_FullMethodName              = "/clusterapi.FileReplicationService/StopChangeCapture"
 )
 
 // FileReplicationServiceClient is the client API for FileReplicationService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FileReplicationServiceClient interface {
-	PauseFileActivity(ctx context.Context, in *PauseFileActivityRequest, opts ...grpc.CallOption) (*PauseFileActivityResponse, error)
-	ResumeFileActivity(ctx context.Context, in *ResumeFileActivityRequest, opts ...grpc.CallOption) (*ResumeFileActivityResponse, error)
-	ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error)
-	GetFileMetadata(ctx context.Context, in *GetFileMetadataRequest, opts ...grpc.CallOption) (*FileMetadata, error)
-	GetFile(ctx context.Context, in *GetFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileChunk], error)
+	CreateReplicaSnapshot(ctx context.Context, in *CreateReplicaSnapshotRequest, opts ...grpc.CallOption) (*CreateReplicaSnapshotResponse, error)
+	ReleaseReplicaSnapshot(ctx context.Context, in *ReleaseReplicaSnapshotRequest, opts ...grpc.CallOption) (*ReleaseReplicaSnapshotResponse, error)
+	GetReplicaSnapshotFileMetadata(ctx context.Context, in *GetReplicaSnapshotFileMetadataRequest, opts ...grpc.CallOption) (*FileMetadata, error)
+	GetReplicaSnapshotFile(ctx context.Context, in *GetReplicaSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileChunk], error)
+	StartChangeCapture(ctx context.Context, in *StartChangeCaptureRequest, opts ...grpc.CallOption) (*StartChangeCaptureResponse, error)
+	GetChangeLog(ctx context.Context, in *GetChangeLogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ChangeLogStreamEntry], error)
+	SnapshotChangeLogLSN(ctx context.Context, in *SnapshotChangeLogLSNRequest, opts ...grpc.CallOption) (*SnapshotChangeLogLSNResponse, error)
+	FinalizeChangeLog(ctx context.Context, in *FinalizeChangeLogRequest, opts ...grpc.CallOption) (*FinalizeChangeLogResponse, error)
+	StopChangeCapture(ctx context.Context, in *StopChangeCaptureRequest, opts ...grpc.CallOption) (*StopChangeCaptureResponse, error)
 }
 
 type fileReplicationServiceClient struct {
@@ -45,53 +53,43 @@ func NewFileReplicationServiceClient(cc grpc.ClientConnInterface) FileReplicatio
 	return &fileReplicationServiceClient{cc}
 }
 
-func (c *fileReplicationServiceClient) PauseFileActivity(ctx context.Context, in *PauseFileActivityRequest, opts ...grpc.CallOption) (*PauseFileActivityResponse, error) {
+func (c *fileReplicationServiceClient) CreateReplicaSnapshot(ctx context.Context, in *CreateReplicaSnapshotRequest, opts ...grpc.CallOption) (*CreateReplicaSnapshotResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PauseFileActivityResponse)
-	err := c.cc.Invoke(ctx, FileReplicationService_PauseFileActivity_FullMethodName, in, out, cOpts...)
+	out := new(CreateReplicaSnapshotResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_CreateReplicaSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileReplicationServiceClient) ResumeFileActivity(ctx context.Context, in *ResumeFileActivityRequest, opts ...grpc.CallOption) (*ResumeFileActivityResponse, error) {
+func (c *fileReplicationServiceClient) ReleaseReplicaSnapshot(ctx context.Context, in *ReleaseReplicaSnapshotRequest, opts ...grpc.CallOption) (*ReleaseReplicaSnapshotResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ResumeFileActivityResponse)
-	err := c.cc.Invoke(ctx, FileReplicationService_ResumeFileActivity_FullMethodName, in, out, cOpts...)
+	out := new(ReleaseReplicaSnapshotResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_ReleaseReplicaSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileReplicationServiceClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListFilesResponse)
-	err := c.cc.Invoke(ctx, FileReplicationService_ListFiles_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileReplicationServiceClient) GetFileMetadata(ctx context.Context, in *GetFileMetadataRequest, opts ...grpc.CallOption) (*FileMetadata, error) {
+func (c *fileReplicationServiceClient) GetReplicaSnapshotFileMetadata(ctx context.Context, in *GetReplicaSnapshotFileMetadataRequest, opts ...grpc.CallOption) (*FileMetadata, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(FileMetadata)
-	err := c.cc.Invoke(ctx, FileReplicationService_GetFileMetadata_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, FileReplicationService_GetReplicaSnapshotFileMetadata_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileReplicationServiceClient) GetFile(ctx context.Context, in *GetFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileChunk], error) {
+func (c *fileReplicationServiceClient) GetReplicaSnapshotFile(ctx context.Context, in *GetReplicaSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &FileReplicationService_ServiceDesc.Streams[0], FileReplicationService_GetFile_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FileReplicationService_ServiceDesc.Streams[0], FileReplicationService_GetReplicaSnapshotFile_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[GetFileRequest, FileChunk]{ClientStream: stream}
+	x := &grpc.GenericClientStream[GetReplicaSnapshotFileRequest, FileChunk]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -102,17 +100,80 @@ func (c *fileReplicationServiceClient) GetFile(ctx context.Context, in *GetFileR
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FileReplicationService_GetFileClient = grpc.ServerStreamingClient[FileChunk]
+type FileReplicationService_GetReplicaSnapshotFileClient = grpc.ServerStreamingClient[FileChunk]
+
+func (c *fileReplicationServiceClient) StartChangeCapture(ctx context.Context, in *StartChangeCaptureRequest, opts ...grpc.CallOption) (*StartChangeCaptureResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartChangeCaptureResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_StartChangeCapture_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fileReplicationServiceClient) GetChangeLog(ctx context.Context, in *GetChangeLogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ChangeLogStreamEntry], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &FileReplicationService_ServiceDesc.Streams[1], FileReplicationService_GetChangeLog_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GetChangeLogRequest, ChangeLogStreamEntry]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileReplicationService_GetChangeLogClient = grpc.ServerStreamingClient[ChangeLogStreamEntry]
+
+func (c *fileReplicationServiceClient) SnapshotChangeLogLSN(ctx context.Context, in *SnapshotChangeLogLSNRequest, opts ...grpc.CallOption) (*SnapshotChangeLogLSNResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SnapshotChangeLogLSNResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_SnapshotChangeLogLSN_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fileReplicationServiceClient) FinalizeChangeLog(ctx context.Context, in *FinalizeChangeLogRequest, opts ...grpc.CallOption) (*FinalizeChangeLogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FinalizeChangeLogResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_FinalizeChangeLog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fileReplicationServiceClient) StopChangeCapture(ctx context.Context, in *StopChangeCaptureRequest, opts ...grpc.CallOption) (*StopChangeCaptureResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StopChangeCaptureResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_StopChangeCapture_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 // FileReplicationServiceServer is the server API for FileReplicationService service.
 // All implementations should embed UnimplementedFileReplicationServiceServer
 // for forward compatibility.
 type FileReplicationServiceServer interface {
-	PauseFileActivity(context.Context, *PauseFileActivityRequest) (*PauseFileActivityResponse, error)
-	ResumeFileActivity(context.Context, *ResumeFileActivityRequest) (*ResumeFileActivityResponse, error)
-	ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error)
-	GetFileMetadata(context.Context, *GetFileMetadataRequest) (*FileMetadata, error)
-	GetFile(*GetFileRequest, grpc.ServerStreamingServer[FileChunk]) error
+	CreateReplicaSnapshot(context.Context, *CreateReplicaSnapshotRequest) (*CreateReplicaSnapshotResponse, error)
+	ReleaseReplicaSnapshot(context.Context, *ReleaseReplicaSnapshotRequest) (*ReleaseReplicaSnapshotResponse, error)
+	GetReplicaSnapshotFileMetadata(context.Context, *GetReplicaSnapshotFileMetadataRequest) (*FileMetadata, error)
+	GetReplicaSnapshotFile(*GetReplicaSnapshotFileRequest, grpc.ServerStreamingServer[FileChunk]) error
+	StartChangeCapture(context.Context, *StartChangeCaptureRequest) (*StartChangeCaptureResponse, error)
+	GetChangeLog(*GetChangeLogRequest, grpc.ServerStreamingServer[ChangeLogStreamEntry]) error
+	SnapshotChangeLogLSN(context.Context, *SnapshotChangeLogLSNRequest) (*SnapshotChangeLogLSNResponse, error)
+	FinalizeChangeLog(context.Context, *FinalizeChangeLogRequest) (*FinalizeChangeLogResponse, error)
+	StopChangeCapture(context.Context, *StopChangeCaptureRequest) (*StopChangeCaptureResponse, error)
 }
 
 // UnimplementedFileReplicationServiceServer should be embedded to have
@@ -122,20 +183,32 @@ type FileReplicationServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedFileReplicationServiceServer struct{}
 
-func (UnimplementedFileReplicationServiceServer) PauseFileActivity(context.Context, *PauseFileActivityRequest) (*PauseFileActivityResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method PauseFileActivity not implemented")
+func (UnimplementedFileReplicationServiceServer) CreateReplicaSnapshot(context.Context, *CreateReplicaSnapshotRequest) (*CreateReplicaSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateReplicaSnapshot not implemented")
 }
-func (UnimplementedFileReplicationServiceServer) ResumeFileActivity(context.Context, *ResumeFileActivityRequest) (*ResumeFileActivityResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ResumeFileActivity not implemented")
+func (UnimplementedFileReplicationServiceServer) ReleaseReplicaSnapshot(context.Context, *ReleaseReplicaSnapshotRequest) (*ReleaseReplicaSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseReplicaSnapshot not implemented")
 }
-func (UnimplementedFileReplicationServiceServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListFiles not implemented")
+func (UnimplementedFileReplicationServiceServer) GetReplicaSnapshotFileMetadata(context.Context, *GetReplicaSnapshotFileMetadataRequest) (*FileMetadata, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetReplicaSnapshotFileMetadata not implemented")
 }
-func (UnimplementedFileReplicationServiceServer) GetFileMetadata(context.Context, *GetFileMetadataRequest) (*FileMetadata, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetFileMetadata not implemented")
+func (UnimplementedFileReplicationServiceServer) GetReplicaSnapshotFile(*GetReplicaSnapshotFileRequest, grpc.ServerStreamingServer[FileChunk]) error {
+	return status.Error(codes.Unimplemented, "method GetReplicaSnapshotFile not implemented")
 }
-func (UnimplementedFileReplicationServiceServer) GetFile(*GetFileRequest, grpc.ServerStreamingServer[FileChunk]) error {
-	return status.Error(codes.Unimplemented, "method GetFile not implemented")
+func (UnimplementedFileReplicationServiceServer) StartChangeCapture(context.Context, *StartChangeCaptureRequest) (*StartChangeCaptureResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartChangeCapture not implemented")
+}
+func (UnimplementedFileReplicationServiceServer) GetChangeLog(*GetChangeLogRequest, grpc.ServerStreamingServer[ChangeLogStreamEntry]) error {
+	return status.Error(codes.Unimplemented, "method GetChangeLog not implemented")
+}
+func (UnimplementedFileReplicationServiceServer) SnapshotChangeLogLSN(context.Context, *SnapshotChangeLogLSNRequest) (*SnapshotChangeLogLSNResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SnapshotChangeLogLSN not implemented")
+}
+func (UnimplementedFileReplicationServiceServer) FinalizeChangeLog(context.Context, *FinalizeChangeLogRequest) (*FinalizeChangeLogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FinalizeChangeLog not implemented")
+}
+func (UnimplementedFileReplicationServiceServer) StopChangeCapture(context.Context, *StopChangeCaptureRequest) (*StopChangeCaptureResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StopChangeCapture not implemented")
 }
 func (UnimplementedFileReplicationServiceServer) testEmbeddedByValue() {}
 
@@ -157,88 +230,153 @@ func RegisterFileReplicationServiceServer(s grpc.ServiceRegistrar, srv FileRepli
 	s.RegisterService(&FileReplicationService_ServiceDesc, srv)
 }
 
-func _FileReplicationService_PauseFileActivity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PauseFileActivityRequest)
+func _FileReplicationService_CreateReplicaSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateReplicaSnapshotRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileReplicationServiceServer).PauseFileActivity(ctx, in)
+		return srv.(FileReplicationServiceServer).CreateReplicaSnapshot(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileReplicationService_PauseFileActivity_FullMethodName,
+		FullMethod: FileReplicationService_CreateReplicaSnapshot_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileReplicationServiceServer).PauseFileActivity(ctx, req.(*PauseFileActivityRequest))
+		return srv.(FileReplicationServiceServer).CreateReplicaSnapshot(ctx, req.(*CreateReplicaSnapshotRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileReplicationService_ResumeFileActivity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ResumeFileActivityRequest)
+func _FileReplicationService_ReleaseReplicaSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseReplicaSnapshotRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileReplicationServiceServer).ResumeFileActivity(ctx, in)
+		return srv.(FileReplicationServiceServer).ReleaseReplicaSnapshot(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileReplicationService_ResumeFileActivity_FullMethodName,
+		FullMethod: FileReplicationService_ReleaseReplicaSnapshot_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileReplicationServiceServer).ResumeFileActivity(ctx, req.(*ResumeFileActivityRequest))
+		return srv.(FileReplicationServiceServer).ReleaseReplicaSnapshot(ctx, req.(*ReleaseReplicaSnapshotRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileReplicationService_ListFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListFilesRequest)
+func _FileReplicationService_GetReplicaSnapshotFileMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetReplicaSnapshotFileMetadataRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileReplicationServiceServer).ListFiles(ctx, in)
+		return srv.(FileReplicationServiceServer).GetReplicaSnapshotFileMetadata(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileReplicationService_ListFiles_FullMethodName,
+		FullMethod: FileReplicationService_GetReplicaSnapshotFileMetadata_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileReplicationServiceServer).ListFiles(ctx, req.(*ListFilesRequest))
+		return srv.(FileReplicationServiceServer).GetReplicaSnapshotFileMetadata(ctx, req.(*GetReplicaSnapshotFileMetadataRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileReplicationService_GetFileMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetFileMetadataRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileReplicationServiceServer).GetFileMetadata(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FileReplicationService_GetFileMetadata_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileReplicationServiceServer).GetFileMetadata(ctx, req.(*GetFileMetadataRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileReplicationService_GetFile_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(GetFileRequest)
+func _FileReplicationService_GetReplicaSnapshotFile_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetReplicaSnapshotFileRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(FileReplicationServiceServer).GetFile(m, &grpc.GenericServerStream[GetFileRequest, FileChunk]{ServerStream: stream})
+	return srv.(FileReplicationServiceServer).GetReplicaSnapshotFile(m, &grpc.GenericServerStream[GetReplicaSnapshotFileRequest, FileChunk]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FileReplicationService_GetFileServer = grpc.ServerStreamingServer[FileChunk]
+type FileReplicationService_GetReplicaSnapshotFileServer = grpc.ServerStreamingServer[FileChunk]
+
+func _FileReplicationService_StartChangeCapture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartChangeCaptureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileReplicationServiceServer).StartChangeCapture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileReplicationService_StartChangeCapture_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileReplicationServiceServer).StartChangeCapture(ctx, req.(*StartChangeCaptureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FileReplicationService_GetChangeLog_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetChangeLogRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(FileReplicationServiceServer).GetChangeLog(m, &grpc.GenericServerStream[GetChangeLogRequest, ChangeLogStreamEntry]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileReplicationService_GetChangeLogServer = grpc.ServerStreamingServer[ChangeLogStreamEntry]
+
+func _FileReplicationService_SnapshotChangeLogLSN_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SnapshotChangeLogLSNRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileReplicationServiceServer).SnapshotChangeLogLSN(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileReplicationService_SnapshotChangeLogLSN_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileReplicationServiceServer).SnapshotChangeLogLSN(ctx, req.(*SnapshotChangeLogLSNRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FileReplicationService_FinalizeChangeLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizeChangeLogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileReplicationServiceServer).FinalizeChangeLog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileReplicationService_FinalizeChangeLog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileReplicationServiceServer).FinalizeChangeLog(ctx, req.(*FinalizeChangeLogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FileReplicationService_StopChangeCapture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopChangeCaptureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileReplicationServiceServer).StopChangeCapture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileReplicationService_StopChangeCapture_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileReplicationServiceServer).StopChangeCapture(ctx, req.(*StopChangeCaptureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 // FileReplicationService_ServiceDesc is the grpc.ServiceDesc for FileReplicationService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -248,26 +386,43 @@ var FileReplicationService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*FileReplicationServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "PauseFileActivity",
-			Handler:    _FileReplicationService_PauseFileActivity_Handler,
+			MethodName: "CreateReplicaSnapshot",
+			Handler:    _FileReplicationService_CreateReplicaSnapshot_Handler,
 		},
 		{
-			MethodName: "ResumeFileActivity",
-			Handler:    _FileReplicationService_ResumeFileActivity_Handler,
+			MethodName: "ReleaseReplicaSnapshot",
+			Handler:    _FileReplicationService_ReleaseReplicaSnapshot_Handler,
 		},
 		{
-			MethodName: "ListFiles",
-			Handler:    _FileReplicationService_ListFiles_Handler,
+			MethodName: "GetReplicaSnapshotFileMetadata",
+			Handler:    _FileReplicationService_GetReplicaSnapshotFileMetadata_Handler,
 		},
 		{
-			MethodName: "GetFileMetadata",
-			Handler:    _FileReplicationService_GetFileMetadata_Handler,
+			MethodName: "StartChangeCapture",
+			Handler:    _FileReplicationService_StartChangeCapture_Handler,
+		},
+		{
+			MethodName: "SnapshotChangeLogLSN",
+			Handler:    _FileReplicationService_SnapshotChangeLogLSN_Handler,
+		},
+		{
+			MethodName: "FinalizeChangeLog",
+			Handler:    _FileReplicationService_FinalizeChangeLog_Handler,
+		},
+		{
+			MethodName: "StopChangeCapture",
+			Handler:    _FileReplicationService_StopChangeCapture_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "GetFile",
-			Handler:       _FileReplicationService_GetFile_Handler,
+			StreamName:    "GetReplicaSnapshotFile",
+			Handler:       _FileReplicationService_GetReplicaSnapshotFile_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "GetChangeLog",
+			Handler:       _FileReplicationService_GetChangeLog_Handler,
 			ServerStreams: true,
 		},
 	},

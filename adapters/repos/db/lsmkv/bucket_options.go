@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/models"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -96,6 +97,29 @@ func WithWalThreshold(threshold uint64) BucketOption {
 func WithLazySegmentLoading(lazyLoading bool) BucketOption {
 	return func(b *Bucket) error {
 		b.lazySegmentLoading = lazyLoading
+		return nil
+	}
+}
+
+// WithLazyPropertyLengths defers loading an inverted segment's property length
+// map until first use. Read live at segment open, so runtime config can flip it
+// without a restart.
+func WithLazyPropertyLengths(lazy *configRuntime.DynamicValue[bool]) BucketOption {
+	return func(b *Bucket) error {
+		b.lazyPropertyLengths = lazy
+		return nil
+	}
+}
+
+// WithBM25FilterTombMergeGateRatio sets the block-max WAND merged-filter gate: fold
+// tombstones into the filter only when summed query doc frequency >= ratio *
+// filter cardinality * disk-segment count (the fold clones the filter once per
+// segment). 0 always merges, +Inf disables the fold, default 1. Read live at query
+// time, so runtime config can retune it without a restart. When left unset the read
+// falls back to the default ratio.
+func WithBM25FilterTombMergeGateRatio(ratio *configRuntime.DynamicValue[float64]) BucketOption {
+	return func(b *Bucket) error {
+		b.bm25FilterTombMergeGateRatio = ratio
 		return nil
 	}
 }
@@ -273,6 +297,16 @@ func WithKeepLevelCompaction(keepLevelCompaction bool) BucketOption {
 func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	return func(b *Bucket) error {
 		b.keepSegmentsInMemory = keep
+		return nil
+	}
+}
+
+// WithRangeableInMemoryDeferred marks a bucket whose in-memory rep was left
+// unbuilt intentionally. Enables a diagnostic log line only; never affects
+// read-path selection.
+func WithRangeableInMemoryDeferred(deferred bool) BucketOption {
+	return func(b *Bucket) error {
+		b.rangeableInMemoryDeferred = deferred
 		return nil
 	}
 }

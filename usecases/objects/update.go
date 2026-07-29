@@ -105,7 +105,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	class := fetchedClasses[className].Class
 
 	prevObj := obj.Object()
-	err = m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClasses)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}

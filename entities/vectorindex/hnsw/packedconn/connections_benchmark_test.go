@@ -208,6 +208,23 @@ func BenchmarkBulkInsert_Allocations(b *testing.B) {
 	})
 }
 
+// Reports allocations per NewWithData call. Each layer is a view into the blob
+// rather than a fresh make+copy, so allocs/op stays flat regardless of layer
+// count instead of growing one allocation per layer.
+func BenchmarkNewWithData_Allocs(b *testing.B) {
+	c, _ := NewWithMaxLayer(3)
+	for l := uint8(0); l <= 3; l++ {
+		c.ReplaceLayer(l, generateTestData(32, 65535))
+	}
+	blob := c.Data()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = NewWithData(blob)
+	}
+}
+
 // Benchmark with realistic workload patterns
 func BenchmarkBulkInsert_RealisticWorkload(b *testing.B) {
 	// Simulate building a connection list incrementally

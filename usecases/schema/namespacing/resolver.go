@@ -12,10 +12,14 @@
 package namespacing
 
 import (
+	"fmt"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // SchemaManager is a single-method interface exposing alias resolution.
@@ -46,12 +50,77 @@ func NamespaceFromQualified(name string) string {
 	return ""
 }
 
-// qualify prepends principal.Namespace to name.
-func qualify(principal *models.Principal, name string) string {
-	if principal == nil {
-		return name
+// StripQualification returns the entity portion of a qualified name
+// ("<ns>:<entity>") — the substring after the first namespace separator.
+// Names without the separator are returned unchanged. Used at write
+// boundaries that must persist a short, namespace-portable form (e.g.
+// cross-reference beacons) regardless of which form the caller submitted.
+func StripQualification(name string) string {
+	if _, entity, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
+		return entity
 	}
-	return QualifiedName(principal.Namespace, name)
+	return name
+}
+
+// ConfinedNamespace returns the namespace a caller's RBAC reads and writes are
+// confined to, or "" when the caller is unconfined: nil, a global operator, or
+// namespace-less. An operator is unconfined even if a namespace were ever set on
+// it, so the confine decision and the read-strip decision share one predicate.
+func ConfinedNamespace(principal *models.Principal) string {
+	if principal == nil || principal.IsGlobalOperator {
+		return ""
+	}
+	return principal.Namespace
+}
+
+// qualify prepends the caller's confined namespace to name; operators and
+// unconfined callers (nil, global operator, namespace-less) get name unchanged.
+func qualify(principal *models.Principal, name string) string {
+	return QualifiedName(ConfinedNamespace(principal), name)
+}
+
+// QualifyRefTarget normalises a cross-reference target. Refs can't cross
+// namespaces, so the source class's namespace is the authority — never the
+// principal's.
+//
+// Returns:
+//   - qualified: for authz, schema lookup, MT validation, shard routing
+//   - short: for the stored beacon (portable on export/import)
+//
+// Rejects with `<name> is not a valid class name`:
+//   - any prefix from a namespaced principal (resolver adds it for them)
+//   - a prefix naming a different namespace from sourceClass
+//
+// NS-disabled: pass-through. Centralises the policy shared by
+// references_add, references_update, batch_references_add and
+// properties_validation.
+func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourceClass, target string) (qualified, short string, err error) {
+	if !namespacesEnabled {
+		return target, target, nil
+	}
+	// Reject namespaced principals typing any prefix, and validate prefix
+	// syntax for global principals (so admin typos surface a specific
+	// "invalid namespace prefix" error instead of the generic mismatch one).
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, target, "class"); err != nil {
+		return "", "", err
+	}
+	sourceNS := NamespaceFromQualified(sourceClass)
+	if ns := NamespaceFromQualified(target); ns != "" && ns != sourceNS {
+		return "", "", fmt.Errorf("'%s' is not a valid class name", target)
+	}
+	short = StripQualification(target)
+	qualified = QualifiedName(sourceNS, short)
+	return qualified, short, nil
+}
+
+// QualifyUserIDForLookup returns the storage key for a user lookup —
+// raw passthrough for NS-disabled / global principals, prepended with
+// principal.Namespace for a namespaced principal.
+func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool, raw string) string {
+	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
+		return raw
+	}
+	return QualifiedName(principal.Namespace, raw)
 }
 
 // Resolve is the read-side entry point used everywhere a user-supplied
@@ -117,16 +186,43 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 // pass short DataType names; an already-qualified value will be rejected.
 //
 // Scope: top-level properties only. NestedProperty.DataType cross-refs are
-// rejected at usecases/schema/validation.go and never reach this path.
+// rejected upstream.
+//
+// # Storage-shape rule for ref-property readers
+//
+// After AddClass on an NS-enabled cluster, every cross-ref Property.DataType
+// entry is stored qualified ("customer1:Animal"). Downstream readers must:
+//   - in-memory ops (authz, schema lookup, MT validation, shard routing):
+//     use the stored DataType as-is; re-qualifying produces
+//     "customer1:customer1:Foo".
+//   - storage-shape outputs (beacons, filter values compared against stored
+//     beacons): StripQualification first so the on-disk URI stays portable.
+//
+// Call sites referencing the split point at this comment.
 func QualifyPropertyDataTypes(
 	principal *models.Principal,
 	namespacesEnabled bool,
 	properties []*models.Property,
 ) error {
-	if !namespacesEnabled || principal == nil || principal.Namespace == "" {
+	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
 		return nil
 	}
-	for _, p := range properties {
+	return walkCrossRefDataTypes(properties, func(p *models.Property) error {
+		for i, dt := range p.DataType {
+			if dt == "" {
+				continue
+			}
+			if err := ValidateNamespacePrefix(principal, namespacesEnabled, dt, "class"); err != nil {
+				return err
+			}
+			p.DataType[i] = QualifiedName(principal.Namespace, dt)
+		}
+		return nil
+	})
+}
+
+func walkCrossRefDataTypes(props []*models.Property, mutate func(p *models.Property) error) error {
+	for _, p := range props {
 		if p == nil || len(p.DataType) == 0 {
 			continue
 		}
@@ -136,14 +232,8 @@ func QualifyPropertyDataTypes(
 		if _, ok := schema.AsNested(p.DataType); ok {
 			continue
 		}
-		for i, dt := range p.DataType {
-			if dt == "" {
-				continue
-			}
-			if err := ValidateNamespacePrefix(principal, namespacesEnabled, dt, "class"); err != nil {
-				return err
-			}
-			p.DataType[i] = QualifiedName(principal.Namespace, dt)
+		if err := mutate(p); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -156,10 +246,22 @@ func QualifyPropertyDataTypes(
 // or short input). A foreign prefix is left intact so downstream
 // ValidateClassName fails closed on the embedded ":".
 func StripOwnNamespace(principal *models.Principal, name string) string {
-	if principal == nil || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return name
 	}
 	return strings.TrimPrefix(name, principal.Namespace+schema.NamespaceSeparator)
+}
+
+// StripPropertyDataTypes removes the "<namespace>:" prefix from cross-ref
+// Property.DataTypes in place — the graduation-restore inverse of
+// [QualifyPropertyDataTypes].
+func StripPropertyDataTypes(properties []*models.Property) {
+	walkCrossRefDataTypes(properties, func(p *models.Property) error {
+		for i, dt := range p.DataType {
+			p.DataType[i] = StripQualification(dt)
+		}
+		return nil
+	})
 }
 
 // StripClassResponse returns a shallow copy of src with the top-level Class
@@ -169,7 +271,7 @@ func StripOwnNamespace(principal *models.Principal, name string) string {
 // pass-through. The input is never mutated: callers can safely pass cached
 // schema pointers without affecting concurrent readers.
 func StripClassResponse(principal *models.Principal, src *models.Class) *models.Class {
-	if src == nil || principal == nil || principal.Namespace == "" {
+	if src == nil || ConfinedNamespace(principal) == "" {
 		return src
 	}
 	out := *src
@@ -188,7 +290,7 @@ func StripClassResponse(principal *models.Principal, src *models.Class) *models.
 // namespace prefix. Primitive types (text, int, …) never carry a namespace
 // prefix, so StripOwnNamespace is a no-op on them. The input is never mutated.
 func StripPropertyResponse(principal *models.Principal, src *models.Property) *models.Property {
-	if src == nil || principal == nil || principal.Namespace == "" {
+	if src == nil || ConfinedNamespace(principal) == "" {
 		return src
 	}
 	out := *src
@@ -233,7 +335,7 @@ func stripDataTypes(principal *models.Principal, src []string) []string {
 // mutated: callers can safely pass cached schema pointers without affecting
 // concurrent readers.
 func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.Alias {
-	if src == nil || principal == nil || principal.Namespace == "" {
+	if src == nil || ConfinedNamespace(principal) == "" {
 		return src
 	}
 	out := *src
@@ -247,17 +349,78 @@ func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.
 // objects manager — there are no shared pointers to protect — so in-place
 // mutation is safe.
 func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
-	if obj == nil || principal == nil || principal.Namespace == "" {
+	if obj == nil || ConfinedNamespace(principal) == "" {
 		return
 	}
 	obj.Class = StripOwnNamespace(principal, obj.Class)
+}
+
+// StripRefSourceBeacon returns the RefSource as a beacon URI with the
+// caller's own namespace stripped from the class. resolveNS qualifies the
+// From class before the response is built, so without this the From beacon
+// echoes the prefix back. Input is not mutated.
+func StripRefSourceBeacon(principal *models.Principal, src *crossref.RefSource) strfmt.URI {
+	if src == nil {
+		return ""
+	}
+	if ConfinedNamespace(principal) == "" {
+		return strfmt.URI(src.String())
+	}
+	out := *src
+	out.Class = schema.ClassName(StripOwnNamespace(principal, string(src.Class)))
+	return strfmt.URI(out.String())
+}
+
+// StripRefBeacon is the To-side counterpart of StripRefSourceBeacon.
+// Defense in depth: the target class is already short at the call site
+// (QualifyRefTarget normalises it on the write path), but a future change
+// that forgets to short-form it won't leak through here. Input is not mutated.
+func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
+	if r == nil {
+		return ""
+	}
+	if ConfinedNamespace(principal) == "" {
+		return strfmt.URI(r.String())
+	}
+	out := *r
+	out.Class = StripOwnNamespace(principal, r.Class)
+	return strfmt.URI(out.String())
+}
+
+// StripPointingTo strips the caller's own NS from each entry of the gRPC
+// Reference.PointingTo field. Entries come in two shapes:
+//   - Beacon URI ("weaviate://localhost/<class>/<uuid>") — populated by
+//     refAggregator from MultipleRef.Beacon for the PointingTo aggregator.
+//     Writes normalize beacons short, but a stray qualified one is stripped
+//     here as defense in depth.
+//   - Bare class name ("customer1:Animal") — populated from property.DataType
+//     by the TypeAggregator path in traverser_aggregate.go. DataType is stored
+//     qualified on NS clusters, so this entry IS a live leak vector.
+//
+// Tries crossref.Parse first; on parse failure, falls back to treating the
+// entry as a bare class name and stripping own NS as a string prefix. Input
+// is not mutated.
+func StripPointingTo(principal *models.Principal, entries []string) []string {
+	if len(entries) == 0 || ConfinedNamespace(principal) == "" {
+		return entries
+	}
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		if ref, err := crossref.Parse(e); err == nil {
+			ref.Class = StripOwnNamespace(principal, ref.Class)
+			out[i] = ref.String()
+			continue
+		}
+		out[i] = StripOwnNamespace(principal, e)
+	}
+	return out
 }
 
 // StripErrorMessage removes every occurrence of the principal's own
 // "<namespace>:" prefix from msg. Returns msg unchanged when principal is
 // nil or has no namespace.
 func StripErrorMessage(principal *models.Principal, msg string) string {
-	if principal == nil || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return msg
 	}
 	return strings.ReplaceAll(msg, principal.Namespace+schema.NamespaceSeparator, "")

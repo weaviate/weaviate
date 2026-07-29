@@ -9,27 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package reindexhelpers provides the HTTP-level helpers shared across
-// the runtime-reindex acceptance test packages (reindex_singlenode,
-// reindex_multinode, reindex_concurrent, reindex_mt). Each helper
-// previously existed in 2-3 near-identical copies inside individual
-// test packages; consolidating them here ensures the four suites
-// exercise the API the same way.
-//
-// All helpers take *testing.T as the first argument and call
-// t.Helper() so failures report at the test callsite. None of them
-// open long-lived resources — every HTTP response is closed before
-// return.
-//
-// Variants captured via functional options:
-//
-//   - [WithTenants] adds `?tenants=t1,t2` to the URL on
-//     [SubmitIndexUpdate] / [SubmitIndexUpdateExpect4xx] for the
-//     multi-tenant suite.
-//   - [WithTimeout] overrides the default [require.Eventually]
-//     timeout (120s) for [AwaitReindexFinished] /
-//     [AwaitReindexViaIndexes]. The multinode suite uses 180s to
-//     absorb the slower 3-node startup.
+// Package reindexhelpers provides HTTP-level helpers shared across
+// the runtime-reindex acceptance test packages.
 package reindexhelpers
 
 import (
@@ -39,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,11 +29,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// -- Functional options --------------------------------------------------------
-
-// Option configures the optional behaviour of a helper call. Use
-// [WithTenants] and [WithTimeout]; the zero-options call gives the
-// historical single-node / non-tenanted defaults.
+// Option configures optional behavior of a helper call.
 type Option func(*options)
 
 type options struct {
@@ -67,99 +45,132 @@ func applyOptions(opts []Option) options {
 	return o
 }
 
-// WithTenants appends `?tenants=t1,t2,…` to the URL on
-// [SubmitIndexUpdate] and [SubmitIndexUpdateExpect4xx]. Empty / nil
-// slice is a no-op.
+// WithTenants appends `?tenants=t1,t2,…` to the URL. Empty/nil is a no-op.
 func WithTenants(tenants []string) Option {
 	return func(o *options) { o.tenants = tenants }
 }
 
-// WithTimeout overrides the default 120s [require.Eventually] timeout
-// on [AwaitReindexFinished] and [AwaitReindexViaIndexes]. The
-// multinode suite passes 180s for the slower 3-node startup.
+// WithTimeout overrides the default 120s require.Eventually timeout.
 func WithTimeout(d time.Duration) Option {
 	return func(o *options) { o.timeout = d }
 }
 
-// -- Submit ----------------------------------------------------------------
-
-// SubmitIndexUpdate fires `PUT /v1/schema/{collection}/indexes/{property}`
-// with the supplied JSON body and asserts the response is 202 Accepted.
-// Returns the `taskId` field from the response body so the caller can
-// poll the resulting reindex task.
-//
-// Use [WithTenants] to add a `?tenants=` query parameter for the
-// multi-tenant suite. Without that option the URL is the same as
-// every single-node caller's.
-func SubmitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) string {
-	t.Helper()
-	o := applyOptions(opts)
-
-	url := indexUpdateURL(restURI, collection, property, o.tenants)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "index update request failed")
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(respBody))
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"index update endpoint returned non-202: %s", string(respBody))
-
-	var result map[string]string
-	require.NoError(t, json.Unmarshal(respBody, &result))
-	return result["taskId"]
-}
-
-// IndexUpdateErrorResponse captures the status + body of an
-// expected-to-fail PUT /indexes/{prop} request so the caller can
-// assert both the status code AND that the error message names the
-// right next step.
-type IndexUpdateErrorResponse struct {
+// IndexResponse captures the status and raw body of any index-resource
+// request. Used by the *Raw helpers for negative / status-taxonomy tests.
+type IndexResponse struct {
 	StatusCode int
 	Body       string
 }
 
-// SubmitIndexUpdateExpect4xx submits a PUT /indexes request that the
-// test expects to fail at validation and returns the response status
-// + body for assertion. Does NOT itself require 4xx (so the caller
-// can pin the exact code).
-func SubmitIndexUpdateExpect4xx(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
+// SubmitIndexUpsert PUTs the GA upsert body (e.g. `{"tokenization":"word"}`
+// or `{}`), asserts 202, and returns the taskId. Use SubmitIndexUpsertRaw for
+// NO_OP or negative cases.
+func SubmitIndexUpsert(t *testing.T, restURI, collection, property, indexType, jsonBody string, opts ...Option) string {
+	t.Helper()
+	resp := SubmitIndexUpsertRaw(t, restURI, collection, property, indexType, jsonBody, opts...)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"index upsert endpoint returned non-202: %s", resp.Body)
+	return taskIDFromBody(t, resp.Body)
+}
+
+// SubmitIndexUpsertRaw fires PUT .../index/{indexType} and returns the raw
+// status + body without asserting a specific code. The caller asserts.
+func SubmitIndexUpsertRaw(t *testing.T, restURI, collection, property, indexType, jsonBody string, opts ...Option) IndexResponse {
 	t.Helper()
 	o := applyOptions(opts)
+	url := indexResourceURL(restURI, collection, property, indexType, "", o.tenants)
+	return doIndexRequest(t, http.MethodPut, url, jsonBody)
+}
 
-	url := indexUpdateURL(restURI, collection, property, o.tenants)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
+// RebuildIndex fires POST .../index/{indexType}/rebuild, asserts 202, and
+// returns the taskId.
+func RebuildIndex(t *testing.T, restURI, collection, property, indexType string, opts ...Option) string {
+	t.Helper()
+	resp := RebuildIndexRaw(t, restURI, collection, property, indexType, opts...)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"index rebuild endpoint returned non-202: %s", resp.Body)
+	return taskIDFromBody(t, resp.Body)
+}
+
+// RebuildIndexRaw fires POST .../index/{indexType}/rebuild and returns the
+// raw status + body.
+func RebuildIndexRaw(t *testing.T, restURI, collection, property, indexType string, opts ...Option) IndexResponse {
+	t.Helper()
+	o := applyOptions(opts)
+	url := indexResourceURL(restURI, collection, property, indexType, "rebuild", o.tenants)
+	return doIndexRequest(t, http.MethodPost, url, "")
+}
+
+// CancelIndex fires POST .../index/{indexType}/cancel, asserts 202, and
+// returns the decoded response (taskId + status: CANCELLED or NO_OP).
+func CancelIndex(t *testing.T, restURI, collection, property, indexType string, opts ...Option) *models.IndexUpdateResponse {
+	t.Helper()
+	resp := CancelIndexRaw(t, restURI, collection, property, indexType, opts...)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"index cancel endpoint returned non-202: %s", resp.Body)
+	var out models.IndexUpdateResponse
+	require.NoError(t, json.Unmarshal([]byte(resp.Body), &out))
+	return &out
+}
+
+// CancelIndexRaw fires POST .../index/{indexType}/cancel and returns the raw
+// status + body.
+func CancelIndexRaw(t *testing.T, restURI, collection, property, indexType string, opts ...Option) IndexResponse {
+	t.Helper()
+	o := applyOptions(opts)
+	url := indexResourceURL(restURI, collection, property, indexType, "cancel", o.tenants)
+	return doIndexRequest(t, http.MethodPost, url, "")
+}
+
+// doIndexRequest performs a single index-resource request and returns the
+// raw status + body. An empty jsonBody sends no request body (rebuild/cancel).
+func doIndexRequest(t *testing.T, method, url, jsonBody string) IndexResponse {
+	t.Helper()
+	var reader io.Reader
+	if jsonBody != "" {
+		reader = bytes.NewReader([]byte(jsonBody))
+	}
+	req, err := http.NewRequest(method, url, reader)
 	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
+	if jsonBody != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	require.NoError(t, err, "index request failed")
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(body))
-	return IndexUpdateErrorResponse{StatusCode: resp.StatusCode, Body: string(body)}
+	t.Logf("%s %s response (status=%d): %s", method, url, resp.StatusCode, string(body))
+	return IndexResponse{StatusCode: resp.StatusCode, Body: string(body)}
 }
 
-func indexUpdateURL(restURI, collection, property string, tenants []string) string {
-	u := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
+func taskIDFromBody(t *testing.T, body string) string {
+	t.Helper()
+	var result map[string]string
+	require.NoError(t, json.Unmarshal([]byte(body), &result))
+	// A 202 must carry a non-empty taskId. Without this, a submit that
+	// returns 202 with a missing/empty taskId flows through silently and
+	// only surfaces downstream as a misleading 120s AwaitReindexFinished("")
+	// timeout — every submit in every package funnels through here.
+	require.NotEmpty(t, result["taskId"], "202 response missing taskId: %s", body)
+	return result["taskId"]
+}
+
+func indexResourceURL(restURI, collection, property, indexType, verb string, tenants []string) string {
+	u := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s", restURI, collection, property, indexType)
+	if verb != "" {
+		u += "/" + verb
+	}
 	if len(tenants) > 0 {
 		u += "?tenants=" + strings.Join(tenants, ",")
 	}
 	return u
 }
 
-// -- Indexes view ----------------------------------------------------------
-
-// IndexesResponse mirrors the `/v1/schema/{class}/indexes` GET response
-// shape. The Algorithm + TargetAlgorithm fields are populated for
-// BM25 (Map↔Blockmax) and otherwise empty.
+// IndexesResponse mirrors the GET /v1/schema/{class}/indexes response.
+// Algorithm and TargetAlgorithm are populated only for BM25 (Map↔Blockmax).
 type IndexesResponse struct {
 	Collection string `json:"collection"`
 	Properties []struct {
@@ -168,6 +179,7 @@ type IndexesResponse struct {
 			Type               string  `json:"type"`
 			Status             string  `json:"status"`
 			Progress           float32 `json:"progress"`
+			TaskID             string  `json:"taskId,omitempty"`
 			Tokenization       string  `json:"tokenization,omitempty"`
 			TargetTokenization string  `json:"targetTokenization,omitempty"`
 			Algorithm          string  `json:"algorithm,omitempty"`
@@ -176,10 +188,8 @@ type IndexesResponse struct {
 	} `json:"properties"`
 }
 
-// GetIndexes fires `GET /v1/schema/{collection}/indexes` and asserts
-// 200 OK. Returns the parsed response. Used by callers that need to
-// inspect the per-index status / progress directly (instead of polling
-// via /v1/tasks).
+// GetIndexes fires GET /v1/schema/{collection}/indexes and returns the
+// parsed response. Asserts 200.
 func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	t.Helper()
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
@@ -193,69 +203,214 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	return &result
 }
 
-// -- Awaiters --------------------------------------------------------------
+// TryFetchTasks does one tolerant GET /v1/tasks: ok=false on any error so
+// Eventually polls can retry post-restart transients. No *testing.T: require
+// in an Eventually condition would runtime.Goexit the wrong goroutine.
+func TryFetchTasks(restURI string) (models.DistributedTasks, bool) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var tasks models.DistributedTasks
+	if json.Unmarshal(body, &tasks) != nil {
+		return nil, false
+	}
+	return tasks, true
+}
 
-// AwaitReindexFinished polls `/v1/tasks` until the named reindex task
-// reaches `FINISHED`. Fails the test if the task transitions to
-// `FAILED` or doesn't reach `FINISHED` within the timeout.
+// TryGetIndexes is the GET /v1/schema/{collection}/indexes counterpart of
+// TryFetchTasks: same tolerant, no-*testing.T contract.
+func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var out IndexesResponse
+	if json.Unmarshal(body, &out) != nil {
+		return nil, false
+	}
+	return &out, true
+}
+
+// fetchReindexTask returns the reindex task with the given ID; ok=false
+// means keep polling.
+func fetchReindexTask(restURI, taskID string) (models.DistributedTask, bool) {
+	tasks, ok := TryFetchTasks(restURI)
+	if !ok {
+		return models.DistributedTask{}, false
+	}
+	for _, task := range tasks["reindex"] {
+		if task.ID == taskID {
+			return task, true
+		}
+	}
+	return models.DistributedTask{}, false
+}
+
+// AwaitReindexLive blocks until the task reaches a live status.
 //
-// Default timeout is 120s; use [WithTimeout] to override (the
-// multinode suite passes 180s to absorb the slower 3-node startup).
+// Sync here, not on GET /v1/schema/<class>/indexes: the backup gate reads
+// DTM liveness, and the two can lag ~1s, so index-status races the gate.
+func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
+	t.Helper()
+	o := applyOptions(opts)
+
+	// atomic.Pointer: require.Eventually's channel sync makes a plain var
+	// safe today, but a switch to assert.Eventually (returns on timeout)
+	// would make a plain capture a live race.
+	var terminalErr atomic.Pointer[error]
+	require.Eventually(t, func() bool {
+		task, ok := fetchReindexTask(restURI, taskID)
+		if !ok {
+			return false
+		}
+		t.Logf("task %s status: %s", taskID, task.Status)
+		switch task.Status {
+		case "FAILED", "CANCELLED":
+			err := fmt.Errorf("reindex task %s reached terminal status %s before going live: %s",
+				taskID, task.Status, task.Error)
+			terminalErr.Store(&err)
+			return true // exit Eventually; Fatalf below on the test goroutine
+		case "FINISHED":
+			// Drained before a live status was observed (fixture too small).
+			err := fmt.Errorf("reindex task %s reached FINISHED before a live status was observed; "+
+				"increase the import corpus so the migration outlives the gate-arming poll",
+				taskID)
+			terminalErr.Store(&err)
+			return true
+		case "STARTED", "PREPARING", "SWAPPING":
+			return true
+		}
+		return false
+	}, o.timeout, 200*time.Millisecond,
+		"reindex task %s should reach a live (STARTED/PREPARING/SWAPPING) status", taskID)
+	if errp := terminalErr.Load(); errp != nil {
+		t.Fatal(*errp)
+	}
+}
+
+// AwaitReindexFinished polls /v1/tasks until the named reindex task
+// reaches FINISHED. Fails on FAILED or on timeout (default 120s).
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
+	// atomic.Pointer for the same future-proofing as AwaitReindexLive.
+	var terminalErr atomic.Pointer[error]
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
+		task, ok := fetchReindexTask(restURI, taskID)
+		if !ok {
 			return false
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
+		t.Logf("task %s status: %s", taskID, task.Status)
+		if task.Status == "FAILED" {
+			err := fmt.Errorf("reindex task failed: %s", task.Error)
+			terminalErr.Store(&err)
+			return true // exit Eventually; Fatalf below on the test goroutine
 		}
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID == taskID {
-				t.Logf("task %s status: %s", taskID, task.Status)
-				if task.Status == "FAILED" {
-					t.Fatalf("reindex task failed: %s", task.Error)
-				}
-				return task.Status == "FINISHED"
-			}
-		}
-		return false
+		return task.Status == "FINISHED"
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
+	if errp := terminalErr.Load(); errp != nil {
+		t.Fatal(*errp)
+	}
 }
 
-// AwaitReindexViaIndexes polls `GET /v1/schema/{collection}/indexes`
-// until the named (property, indexType) reports `ready` status.
-// Distinguished from [AwaitReindexFinished]: the latter polls the
-// task-orchestration surface, this one polls the index-status surface
-// — useful for verifying the index is queryable end-to-end.
-//
-// Default timeout is 120s; use [WithTimeout] to override.
+// FetchClass: local=true sends consistency:false for the node's own FSM
+// state; the default GET proxies to the leader, not a per-node visibility gate.
+func FetchClass(restURI, className string, local bool) (*models.Class, bool) {
+	req, err := http.NewRequest(http.MethodGet,
+		fmt.Sprintf("http://%s/v1/schema/%s", restURI, className), nil)
+	if err != nil {
+		return nil, false
+	}
+	if local {
+		req.Header.Set("consistency", "false")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var class models.Class
+	if err := json.Unmarshal(body, &class); err != nil {
+		return nil, false
+	}
+	return &class, true
+}
+
+func fetchLocalTokenization(restURI, className, propName string) (string, bool) {
+	class, ok := FetchClass(restURI, className, true)
+	if !ok {
+		return "", false
+	}
+	for _, prop := range class.Properties {
+		if prop.Name == propName {
+			return prop.Tokenization, true
+		}
+	}
+	return "", false
+}
+
+// AwaitTokenizationVisible gates on the node's local schema: /v1/tasks
+// FINISHED is leader-forwarded, but the indexes PUT validates locally.
+func AwaitTokenizationVisible(t *testing.T, restURI, className, propName, wantTok string, opts ...Option) {
+	t.Helper()
+	o := applyOptions(opts)
+
+	lastSeen := "(no successful read)"
+	deadline := time.Now().Add(o.timeout)
+	for time.Now().Before(deadline) {
+		if tok, ok := fetchLocalTokenization(restURI, className, propName); ok {
+			lastSeen = tok
+			if tok == wantTok {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("property %s.%s tokenization not %q in local schema of %s within %s (last seen: %q)",
+		className, propName, wantTok, restURI, o.timeout, lastSeen)
+}
+
+// AwaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
+// the named (property, indexType) reports `ready`. Unlike
+// AwaitReindexFinished, this polls the index-status surface — useful for
+// verifying the index is queryable end-to-end. Default timeout 120s.
 func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
-	var lastProgress float32
-	var sawIndexing bool
+	// Atomics for the same future-proofing as AwaitReindexLive.
+	var lastProgress atomic.Value // float32
+	var sawIndexing atomic.Bool
 
 	require.Eventually(t, func() bool {
-		resp := GetIndexes(t, restURI, collection)
+		resp, ok := TryGetIndexes(restURI, collection)
+		if !ok {
+			return false // transient read (e.g. post-restart gRPC reconnect) — retry
+		}
 		for _, prop := range resp.Properties {
 			if prop.Name == property {
 				for _, idx := range prop.Indexes {
 					if idx.Type == indexType {
 						switch idx.Status {
 						case "indexing":
-							sawIndexing = true
-							lastProgress = idx.Progress
+							sawIndexing.Store(true)
+							lastProgress.Store(idx.Progress)
 							return false
 						case "ready":
 							return true
@@ -269,23 +424,49 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 		return false
 	}, o.timeout, 1*time.Second, "expected property %s index %s to reach ready status", property, indexType)
 
-	if sawIndexing {
-		t.Logf("index monitoring: saw indexing->ready for %s/%s (final progress: %f)", property, indexType, lastProgress)
+	if sawIndexing.Load() {
+		t.Logf("index monitoring: saw indexing->ready for %s/%s (final progress: %f)", property, indexType, lastProgress.Load())
 	} else {
 		t.Logf("index monitoring: task completed too fast for %s/%s", property, indexType)
 	}
 }
 
-// -- Misc ------------------------------------------------------------------
+// GetFirstShardName resolves the first shard name for `collection` via
+// GET /v1/nodes?output=verbose. Returns "" if the collection has no
+// shards on any node.
+func GetFirstShardName(t *testing.T, restURI, collection string) string {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-// BoolPtr returns a pointer to its bool argument. Convenience for
-// populating optional pointer-valued fields on schema requests.
+	var nodesResp struct {
+		Nodes []struct {
+			Shards []struct {
+				Class string `json:"class"`
+				Name  string `json:"name"`
+			} `json:"shards"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &nodesResp))
+
+	for _, node := range nodesResp.Nodes {
+		for _, shard := range node.Shards {
+			if shard.Class == collection {
+				return shard.Name
+			}
+		}
+	}
+	return ""
+}
+
+// BoolPtr returns a pointer to its bool argument.
 func BoolPtr(b bool) *bool { return &b }
 
 // IdsMatchUnordered reports whether two ID slices contain the same
-// elements regardless of order. Used by tests that compare result-set
-// IDs against an expected list when the storage/query path doesn't
-// guarantee ordering.
+// elements regardless of order.
 func IdsMatchUnordered(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -303,22 +484,9 @@ func IdsMatchUnordered(a, b []string) bool {
 	return true
 }
 
-// -- Test environment fixture -------------------------------------------------
-
 // SetupClass creates a single-tenant class with the named properties and
-// `Vectorizer: "none"` (the runtime-reindex tests all use BM25/filter
-// paths, never a vectorizer), then registers a t.Cleanup that deletes
-// the class at test end. Returns nothing — the class name passed in is
-// the handle.
-//
-// Used by [WithEnv] but also useful standalone for tests that want to
-// drive their own object creation (e.g. batch import, special data
-// shapes) but still want the class lifecycle managed.
-//
-// Requires the test process to have already called
-// [helper.SetupClient(restURI)] at the suite level — class creation
-// goes through the package-level helper client, not a per-call HTTP
-// hit.
+// Vectorizer "none", and registers a t.Cleanup that deletes the class.
+// Requires helper.SetupClient to have been called at the suite level.
 func SetupClass(t *testing.T, class string, props []*models.Property) {
 	t.Helper()
 	helper.CreateClass(t, &models.Class{
@@ -329,11 +497,8 @@ func SetupClass(t *testing.T, class string, props []*models.Property) {
 	t.Cleanup(func() { helper.DeleteClass(t, class) })
 }
 
-// SetupClassWithConfig is the [SetupClass] variant that lets the caller
-// pass arbitrary class-level config (InvertedIndexConfig,
-// MultiTenancyConfig, ReplicationConfig, etc.). The caller-supplied
-// `class` value MUST match `c.Class`; this is enforced via require so
-// a typo fails loudly.
+// SetupClassWithConfig is the SetupClass variant that accepts arbitrary
+// class-level config.
 func SetupClassWithConfig(t *testing.T, c *models.Class) {
 	t.Helper()
 	require.NotEmpty(t, c.Class, "Class name must be set on the models.Class")
@@ -345,19 +510,8 @@ func SetupClassWithConfig(t *testing.T, c *models.Class) {
 }
 
 // ImportObjects creates one object per entry in `objects` against the
-// given class via [helper.CreateObject]. Each entry is the Properties
-// map for that object — IDs and vectors are not set (the suites that
-// need explicit IDs/vectors use the lower-level helper.CreateObject
-// directly).
-//
-// Failures fail the test at the create-object call site (via
-// require.NoError); the object index is included in the failure
-// message so the offending row is identifiable.
-//
-// For large object counts use [helper.CreateObjectsBatch] directly;
-// this loop is intentionally simple and not batched. The suites that
-// need batch import (e.g. multinode round-trip) call the batch helper
-// themselves.
+// given class. Each entry is the Properties map. For large object counts
+// callers should use helper.CreateObjectsBatch directly.
 func ImportObjects(t *testing.T, class string, objects []map[string]interface{}) {
 	t.Helper()
 	for i, props := range objects {
@@ -368,39 +522,8 @@ func ImportObjects(t *testing.T, class string, objects []map[string]interface{})
 	}
 }
 
-// WithEnv is the closure-style fixture for the common "create class,
-// import N objects, run test, delete class" pattern. Replaces ~12-15
-// lines of boilerplate per test with one call.
-//
-// The fixture:
-//
-//  1. Calls [SetupClass] (creates the class + registers cleanup).
-//  2. Calls [ImportObjects] (one-by-one create, no batching).
-//  3. Invokes `body` — the per-test logic, which typically submits
-//     a reindex via [SubmitIndexUpdate] then awaits via
-//     [AwaitReindexFinished].
-//
-// Tests that need MT / custom InvertedIndexConfig / batch import / explicit
-// IDs should use [SetupClass] / [SetupClassWithConfig] / [ImportObjects]
-// directly — WithEnv targets the 80% case where the boilerplate is
-// uniform.
-//
-// Example:
-//
-//	reindexhelpers.WithEnv(t, "MyClass",
-//	    []*models.Property{
-//	        {Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-//	    },
-//	    []map[string]interface{}{
-//	        {"text": "hello world"},
-//	        {"text": "foo bar"},
-//	    },
-//	    func() {
-//	        taskID := reindexhelpers.SubmitIndexUpdate(t, restURI,
-//	            "MyClass", "text", `{"searchable":{"tokenization":"field"}}`)
-//	        reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-//	        // assertions...
-//	    })
+// WithEnv is the closure-style fixture for the "create class, import N
+// objects, run body, delete class" pattern.
 func WithEnv(
 	t *testing.T,
 	class string,

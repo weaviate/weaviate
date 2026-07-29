@@ -341,12 +341,21 @@ func (t *Tree) Size() int {
 
 // MarshalSortedKeys serializes a balanced BST index directly from sorted
 // KeyRedux entries, without constructing intermediate Tree or Node structures.
-// Keys must be in sorted order. Each key's ValueEnd is the absolute byte
-// offset where that key's data ends in the segment file.
-func MarshalSortedKeys(w io.Writer, keys []KeyRedux) (int64, error) {
+// Keys must be in sorted order. Each key's ValueEnd is the absolute byte offset
+// where that key's data ends in the segment file. dataStartOffset is where the
+// first key's data begins — HeaderSize for most strategies, larger for inverted
+// segments with an extended header.
+func MarshalSortedKeys(w io.Writer, keys []KeyRedux, dataStartOffset uint64) (int64, error) {
 	n := len(keys)
 	if n == 0 {
 		return 0, nil
+	}
+
+	// The first key's data spans [dataStartOffset, keys[0].ValueEnd]; a start past
+	// the end would silently serialize a corrupt node, so reject it explicitly.
+	if dataStartOffset > uint64(keys[0].ValueEnd) {
+		return 0, fmt.Errorf("dataStartOffset %d exceeds first key's ValueEnd %d",
+			dataStartOffset, keys[0].ValueEnd)
 	}
 
 	capacity := balancedTreeCapacity(n)
@@ -359,49 +368,34 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux) (int64, error) {
 	}
 	fillBFS(bfsToSorted, 0, 0, n-1)
 
-	// Compute the byte offset of each BFS position in the serialized output.
-	// Nil positions contribute 0 bytes, so their offset equals the next
-	// non-nil position's offset.
-	diskOffsets := make([]int64, capacity)
-	var currentOffset int64
-	for i := 0; i < capacity; i++ {
-		diskOffsets[i] = currentOffset
-		if si := bfsToSorted[i]; si >= 0 {
-			// node size: keyLen(4) + key + start(8) + end(8) + left(8) + right(8)
-			currentOffset += int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
-		}
+	// Emit nodes in van Emde Boas order; their offsets follow the write order,
+	// so compute them in a first pass before writing.
+	order := vebPositions(bfsToSorted, n)
+	diskOffsets, totalSize, err := vebOffsets(order, bfsToSorted, n, func(si int32) int64 {
+		// node size: keyLen(4) + key + start(8) + end(8) + left(8) + right(8)
+		return int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
+	})
+	if err != nil {
+		return 0, err
 	}
-	totalSize := currentOffset
 
-	// Write nodes in BFS order (matching MarshalBinaryInto output).
 	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 
-	for i := 0; i < capacity; i++ {
-		si := bfsToSorted[i]
-		if si < 0 {
-			continue
-		}
-
+	for _, p := range order {
+		si := bfsToSorted[p]
 		key := keys[si]
 
 		// Derive Start from the previous key's ValueEnd.
 		var start uint64
 		if si == 0 {
-			start = uint64(HeaderSize)
+			start = dataStartOffset
 		} else {
 			start = uint64(keys[si-1].ValueEnd)
 		}
 		end := uint64(key.ValueEnd)
 
-		// Compute child byte offsets in the serialized output.
-		leftChild := int64(-1)
-		if leftPos := 2*i + 1; leftPos < capacity && bfsToSorted[leftPos] >= 0 {
-			leftChild = diskOffsets[leftPos]
-		}
-		rightChild := int64(-1)
-		if rightPos := 2*i + 2; rightPos < capacity && bfsToSorted[rightPos] >= 0 {
-			rightChild = diskOffsets[rightPos]
-		}
+		leftChild := childOffset(diskOffsets, bfsToSorted, 2*int(p)+1)
+		rightChild := childOffset(diskOffsets, bfsToSorted, 2*int(p)+2)
 
 		binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key.Key)))
 		binary.LittleEndian.PutUint64(buf[4:12], start)
@@ -442,34 +436,21 @@ func MarshalSortedKeysFromKeys(w io.Writer, keys []Key) (int64, error) {
 	}
 	fillBFS(bfsToSorted, 0, 0, n-1)
 
-	diskOffsets := make([]int64, capacity)
-	var currentOffset int64
-	for i := 0; i < capacity; i++ {
-		diskOffsets[i] = currentOffset
-		if si := bfsToSorted[i]; si >= 0 {
-			currentOffset += int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
-		}
+	order := vebPositions(bfsToSorted, n)
+	diskOffsets, totalSize, err := vebOffsets(order, bfsToSorted, n, func(si int32) int64 {
+		return int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
+	})
+	if err != nil {
+		return 0, err
 	}
-	totalSize := currentOffset
 
 	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 
-	for i := 0; i < capacity; i++ {
-		si := bfsToSorted[i]
-		if si < 0 {
-			continue
-		}
+	for _, p := range order {
+		key := keys[bfsToSorted[p]]
 
-		key := keys[si]
-
-		leftChild := int64(-1)
-		if leftPos := 2*i + 1; leftPos < capacity && bfsToSorted[leftPos] >= 0 {
-			leftChild = diskOffsets[leftPos]
-		}
-		rightChild := int64(-1)
-		if rightPos := 2*i + 2; rightPos < capacity && bfsToSorted[rightPos] >= 0 {
-			rightChild = diskOffsets[rightPos]
-		}
+		leftChild := childOffset(diskOffsets, bfsToSorted, 2*int(p)+1)
+		rightChild := childOffset(diskOffsets, bfsToSorted, 2*int(p)+2)
 
 		binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key.Key)))
 		binary.LittleEndian.PutUint64(buf[4:12], uint64(key.ValueStart))
@@ -546,37 +527,25 @@ func marshalSortedSecondaryFromKeys(w io.Writer, keys []Key, pos int) (int64, er
 	}
 	fillBFS(bfsToIdx, 0, 0, n-1)
 
-	// Compute the byte offset of each BFS position in the serialized output.
-	diskOffsets := make([]int64, capacity)
-	var currentOffset int64
-	for i := 0; i < capacity; i++ {
-		diskOffsets[i] = currentOffset
-		if si := bfsToIdx[i]; si >= 0 {
-			ki := sortedIndices[si]
-			currentOffset += int64(TREE_KEY_STORE_OVERHEAD + len(keys[ki].SecondaryKeys[pos]))
-		}
-	}
-	totalSize := currentOffset
-
-	// Write nodes in BFS order (matching MarshalBinaryInto output).
-	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
-	for i := 0; i < capacity; i++ {
-		si := bfsToIdx[i]
-		if si < 0 {
-			continue
-		}
+	// Emit nodes in van Emde Boas order; their offsets follow the write order,
+	// so compute them in a first pass before writing.
+	order := vebPositions(bfsToIdx, n)
+	diskOffsets, totalSize, err := vebOffsets(order, bfsToIdx, n, func(si int32) int64 {
 		ki := sortedIndices[si]
+		return int64(TREE_KEY_STORE_OVERHEAD + len(keys[ki].SecondaryKeys[pos]))
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
+	for _, p := range order {
+		ki := sortedIndices[bfsToIdx[p]]
 		key := keys[ki]
 		secKey := key.SecondaryKeys[pos]
 
-		leftChild := int64(-1)
-		if leftPos := 2*i + 1; leftPos < capacity && bfsToIdx[leftPos] >= 0 {
-			leftChild = diskOffsets[leftPos]
-		}
-		rightChild := int64(-1)
-		if rightPos := 2*i + 2; rightPos < capacity && bfsToIdx[rightPos] >= 0 {
-			rightChild = diskOffsets[rightPos]
-		}
+		leftChild := childOffset(diskOffsets, bfsToIdx, 2*int(p)+1)
+		rightChild := childOffset(diskOffsets, bfsToIdx, 2*int(p)+2)
 
 		binary.LittleEndian.PutUint32(buf[0:4], uint32(len(secKey)))
 		binary.LittleEndian.PutUint64(buf[4:12], uint64(key.ValueStart))
@@ -607,4 +576,90 @@ func fillBFS(bfsToSorted []int32, targetPos, leftBound, rightBound int) {
 	bfsToSorted[targetPos] = int32(mid)
 	fillBFS(bfsToSorted, 2*targetPos+1, leftBound, mid-1)
 	fillBFS(bfsToSorted, 2*targetPos+2, mid+1, rightBound)
+}
+
+// vebPositions returns the heap positions of all present nodes in disk-write
+// order, using the van Emde Boas layout: cut the tree in half by height, write
+// the top subtree, then each bottom subtree, ordering every one of them the same
+// way recursively. For a full height-4 tree (positions 0..14, children of p at
+// 2p+1/2p+2) that is 0,1,2, 3,7,8, 4,9,10, 5,11,12, 6,13,14 — top subtree
+// {0,1,2}, then the four bottom subtrees {3,7,8}, {4,9,10}, {5,11,12}, {6,13,14}
+// — instead of level order's 0..14.
+//
+// Every subtree the recursion cuts out is written as one contiguous run. Cutting
+// by height rather than by a page size means some level of the recursion always
+// has subtrees about the size of a page, whatever that page size is, so a
+// root-to-leaf lookup reads only a few pages. In level order a node and its
+// children sit exponentially far apart, so almost every step reads a new page.
+//
+// mapping[p] is >= 0 for a present node and -1 for an empty position; its length
+// is the tree capacity and must be a power of two. nodeCount is how many present
+// nodes mapping holds; it sizes the result exactly, where the capacity would
+// over-allocate it by up to 2x. The root (position 0) is always emitted first, so
+// it sits at offset 0, where readers start.
+func vebPositions(mapping []int32, nodeCount int) []int32 {
+	out := make([]int32, 0, nodeCount)
+	height := bits.Len(uint(len(mapping))) - 1 // capacity == 1<<height
+	var rec func(root, h int)
+	rec = func(root, h int) {
+		if h <= 0 || root >= len(mapping) || mapping[root] < 0 {
+			return
+		}
+		if h == 1 {
+			out = append(out, int32(root))
+			return
+		}
+		topH := (h + 1) / 2
+		rec(root, topH)
+		base := ((root + 1) << topH) - 1 // first descendant at relative depth topH
+		for j := 0; j < 1<<topH; j++ {
+			rec(base+j, h-topH)
+		}
+	}
+	rec(0, height)
+	return out
+}
+
+// vebOffsets assigns each present node its byte offset in the serialized output
+// by walking heap positions in write order. Children are always written after
+// their parent, so a parent's child offsets are not known yet when it is
+// written and this pass has to run first. The result is indexed by sorted index
+// (mapping[heapPos]), so it holds nodeCount entries instead of the tree
+// capacity, which is up to 2x larger.
+//
+// Offsets run back to back with no padding, which AllKeys, KeyCount and
+// ForEachKey rely on to walk the blob sequentially.
+//
+// It fails unless order lists every node exactly once: a node missing from order
+// would keep offset -1, so its parent would read as having no child and its
+// whole subtree would be unreachable; a node listed twice would be written twice.
+func vebOffsets(order, mapping []int32, nodeCount int, nodeSize func(sortedIdx int32) int64) (offsetOf []int64, total int64, err error) {
+	offsetOf = make([]int64, nodeCount)
+	for i := range offsetOf {
+		offsetOf[i] = -1
+	}
+	for _, p := range order {
+		si := mapping[p]
+		if offsetOf[si] >= 0 {
+			return nil, 0, fmt.Errorf("segment index writer listed sorted index %d twice", si)
+		}
+		offsetOf[si] = total
+		total += nodeSize(si)
+	}
+	for si, offset := range offsetOf {
+		if offset < 0 {
+			return nil, 0, fmt.Errorf("segment index writer assigned no offset to sorted index %d of %d",
+				si, nodeCount)
+		}
+	}
+	return offsetOf, total, nil
+}
+
+// childOffset returns the serialized byte offset of the child at heap position
+// childPos, or -1 when that position holds no node.
+func childOffset(offsetOf []int64, mapping []int32, childPos int) int64 {
+	if childPos < len(mapping) && mapping[childPos] >= 0 {
+		return offsetOf[mapping[childPos]]
+	}
+	return -1
 }

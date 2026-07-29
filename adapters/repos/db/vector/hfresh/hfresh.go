@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -76,6 +75,7 @@ type HFresh struct {
 	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap    *VersionMap         // Stores vector versions in-memory.
 	PostingMap    *PostingMap         // Maps postings to vector IDs.
+	PostingSizes  *PostingSizes       // Tracks posting sizes.
 	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
@@ -113,10 +113,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
+	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
 		id:            cfg.ID,
-		logger:        cfg.Logger.WithField("component", "HFresh"),
+		logger:        logger,
 		config:        cfg,
 		scheduler:     cfg.Scheduler,
 		store:         store,
@@ -124,7 +125,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		PostingStore:  postingStore,
 		vectorForId:   cfg.VectorForIDThunk,
 		VersionMap:    NewVersionMap(bucket),
-		PostingMap:    NewPostingMap(bucket, metrics),
+		PostingMap:    NewPostingMap(bucket),
+		PostingSizes:  NewPostingSizes(bucket, metrics),
 		IndexMetadata: NewIndexMetadataStore(bucket),
 		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
@@ -159,7 +161,17 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
 
+	h.taskQueue.Register()
+
 	return &h, nil
+}
+
+func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	if err := h.PostingMap.SetVectorIDs(ctx, postingID, posting); err != nil {
+		return err
+	}
+
+	return h.PostingSizes.Set(ctx, postingID, len(posting))
 }
 
 // Delete marks a vector as deleted in the version map.
@@ -292,6 +304,10 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
+func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	return nil, nil
+}
+
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
 	if err != nil {
@@ -374,42 +390,25 @@ func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
+// loadQuantizer returns the index dimensionality and quantizer, or (0, nil)
+// if initialization has not completed yet. The atomic dims load pairs with
+// the store that publishes them at the end of initialization, so a non-nil
+// quantizer also guarantees the distancer and posting sizes are visible.
+func (h *HFresh) loadQuantizer() (uint32, *compressionhelpers.BinaryRotationalQuantizer) {
+	dims := atomic.LoadUint32(&h.dims)
+	if dims == 0 {
+		return 0, nil
+	}
+	return dims, h.quantizer
+}
+
 func (h *HFresh) CompressionStats() compressionhelpers.CompressionStats {
-	if h.quantizer != nil {
-		return h.quantizer.Stats()
+	if _, quantizer := h.loadQuantizer(); quantizer != nil {
+		return quantizer.Stats()
 	}
 	return compressionhelpers.UncompressedStats{}
 }
 
 func (h *HFresh) Preload(id uint64, vector []float32) {
 	// for now, nothing to do here
-}
-
-// deduplicator is a simple thread-safe structure to prevent duplicate values.
-type deduplicator struct {
-	m *xsync.Map[uint64, struct{}]
-}
-
-func newDeduplicator() *deduplicator {
-	return &deduplicator{
-		m: xsync.NewMap[uint64, struct{}](),
-	}
-}
-
-// tryAdd attempts to add an ID to the deduplicator.
-// Returns true if the ID was added, false if it already exists.
-func (d *deduplicator) tryAdd(id uint64) bool {
-	_, loaded := d.m.LoadOrStore(id, struct{}{})
-	return !loaded
-}
-
-// done marks an ID as processed, removing it from the deduplicator.
-func (d *deduplicator) done(id uint64) {
-	d.m.Delete(id)
-}
-
-// contains checks if an ID is already in the deduplicator.
-func (d *deduplicator) contains(id uint64) bool {
-	_, exists := d.m.Load(id)
-	return exists
 }

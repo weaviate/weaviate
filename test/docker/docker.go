@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -28,11 +29,69 @@ import (
 
 type DockerCompose struct {
 	network    *testcontainers.DockerNetwork
+	netOctet   int // second octet of this cluster's subnet (10.<netOctet>.0.0/16)
 	containers []*DockerContainer
 }
 
 func (d *DockerCompose) Containers() []*DockerContainer {
 	return d.containers
+}
+
+// DumpWeaviateLogs writes the last `tail` log lines of every weaviate node to w.
+// Call from TestMain on failure to capture the leader side; the start-failure
+// dump only covers boot crashes, not mid-test misbehavior.
+func (d *DockerCompose) DumpWeaviateLogs(ctx context.Context, w io.Writer, tail int) {
+	// crash traces can run to thousands of lines (full goroutine dumps);
+	// bound the per-node dump so a marker-triggered dump can't flood CI.
+	const dumpCeiling = 6000
+
+	for _, c := range d.containers {
+		if !strings.HasPrefix(c.name, "weaviate") {
+			continue
+		}
+
+		header := fmt.Sprintf("--- %s", c.name)
+		if ep, ok := c.endpoints[HTTP]; ok {
+			header += fmt.Sprintf(" (http %s)", ep.uri)
+		}
+		if state, err := c.container.State(ctx); err != nil {
+			header += fmt.Sprintf(" state-unavailable=%q", err.Error())
+		} else {
+			header += fmt.Sprintf(" status=%s exitCode=%d oomKilled=%v", state.Status, state.ExitCode, state.OOMKilled)
+		}
+
+		reader, err := c.container.Logs(ctx)
+		if err != nil {
+			fmt.Fprintf(w, "%s logs unavailable: %v ---\n", header, err)
+			continue
+		}
+		logs, _ := io.ReadAll(reader)
+		reader.Close()
+		lines := strings.Split(string(logs), "\n")
+
+		start := dumpWindowStart(lines, tail, dumpCeiling)
+		fmt.Fprintf(w, "%s logs (%d of %d lines) ---\n%s\n", header, len(lines)-start, len(lines), strings.Join(lines[start:], "\n"))
+	}
+}
+
+func dumpWindowStart(lines []string, tail, ceiling int) int {
+	start := len(lines) - tail
+	for i, line := range lines {
+		if strings.Contains(line, "panic:") || strings.Contains(line, "fatal error:") || strings.Contains(line, "WARNING: DATA RACE") {
+			// back up a little so the lines leading into the crash are visible
+			if i-20 < start {
+				start = i - 20
+			}
+			break
+		}
+	}
+	if start < len(lines)-ceiling {
+		start = len(lines) - ceiling
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
 }
 
 func (d *DockerCompose) Terminate(ctx context.Context) error {
@@ -191,6 +250,107 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	return nil
 }
 
+// RestartAt restarts a container via `docker restart` and waits for
+// /v1/.well-known/ready. timeout=nil uses Docker's default SIGTERM grace;
+// &zero forces SIGKILL. See weaviate/0-weaviate-issues#254.
+func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
+	if nodeIndex >= len(d.containers) {
+		return errors.Errorf("node index is greater than available nodes")
+	}
+	c := d.containers[nodeIndex]
+	containerID := c.container.GetContainerID()
+
+	args := []string{"restart"}
+	if timeout != nil {
+		if *timeout < 0 {
+			return fmt.Errorf("RestartAt[%s]: negative timeout %s", c.name, *timeout)
+		}
+		// docker -t is integer seconds. Round a non-zero sub-second
+		// timeout up to 1s — truncating e.g. 500ms to 0 would force an
+		// unintended SIGKILL. An explicit 0 stays 0 (intentional SIGKILL).
+		secs := int(timeout.Seconds())
+		if *timeout > 0 && secs == 0 {
+			secs = 1
+		}
+		args = append(args, "-t", fmt.Sprintf("%d", secs))
+	}
+	args = append(args, containerID)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("RestartAt[%s]: docker restart %s failed: %w (output: %s)",
+			c.name, containerID, err, string(out))
+	}
+
+	endPoints := map[EndpointName]endpoint{}
+	for name, e := range c.endpoints {
+		newURI, err := c.container.PortEndpoint(ctx, nat.Port(e.port), "")
+		if err != nil {
+			return fmt.Errorf("RestartAt[%s]: failed to resolve port %s: %w",
+				c.name, e.port, err)
+		}
+		endPoints[name] = endpoint{e.port, newURI}
+
+		if name != HTTP {
+			continue
+		}
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
+			return fmt.Errorf("RestartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
+				c.name, err)
+		}
+	}
+	c.endpoints = endPoints
+	return nil
+}
+
+// weaviateNodeIndex resolves the containers-slice position of weaviate node n
+// (1-based) by name, so callers are unaffected by sidecar containers (e.g.
+// MinIO) that may precede the cluster nodes in the slice.
+func (d *DockerCompose) weaviateNodeIndex(n int) (int, error) {
+	name := fmt.Sprintf("weaviate-%d", n)
+	for i, c := range d.containers {
+		if c.name == name {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("weaviate node %d (%q) not found", n, name)
+}
+
+// StopNode stops weaviate node n (1-based).
+func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Duration) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StopAt(ctx, idx, timeout)
+}
+
+// StartNode starts weaviate node n (1-based), re-mapping its endpoints.
+func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StartAt(ctx, idx)
+}
+
+// EnsureRunning starts weaviate node n (1-based) if it is not currently
+// running; a no-op when the node is already up.
+func (d *DockerCompose) EnsureRunning(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	state, err := d.containers[idx].container.State(ctx)
+	if err != nil {
+		return err
+	}
+	if state.Running {
+		return nil
+	}
+	return d.StartAt(ctx, idx)
+}
+
 func (d *DockerCompose) ContainerURI(index int) string {
 	return d.containers[index].URI()
 }
@@ -323,7 +483,7 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName stri
 	// pass --ip to preserve it — otherwise Docker assigns a new IP and Raft/memberlist
 	// can't resolve the rejoining node.
 	args := []string{"network", "connect"}
-	if ip := container.StaticIP(); ip != "" {
+	if ip := staticIPForHostname(d.netOctet, container.name); ip != "" {
 		args = append(args, "--ip", ip)
 	}
 	args = append(args, networkName, containerID)

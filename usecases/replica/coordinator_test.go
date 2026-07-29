@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -314,7 +315,7 @@ func Test_coordinatorPull(t *testing.T) {
 	setupRouter := func(cl types.ConsistencyLevel, replicas []types.Replica) *types.MockRouter {
 		mockRouter := types.NewMockRouter(t)
 
-		routingPlanOptions := types.RoutingPlanBuildOptions{Shard: shard, Tenant: "", ConsistencyLevel: cl, DirectCandidateNode: ""}
+		routingPlanOptions := types.RoutingPlanBuildOptions{Shard: shard, Tenant: "", ConsistencyLevel: cl, DirectCandidateNode: "", AllowTenantActivation: true}
 		mockRouter.EXPECT().BuildRoutingPlanOptions(shard, shard, cl, "").Return(routingPlanOptions).Once()
 		readRoutingPlan := types.ReadRoutingPlan{
 			Shard:               shard,

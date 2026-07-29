@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
@@ -55,8 +56,8 @@ import (
 //     searchable=false via the change-tokenization-filterable body
 //     shape?
 //  5. SearchableOnly_RoundTrip: same bug shape on searchable=true,
-//     filterable=false (change-tok-both is impossible here, only
-//     {"searchable":{"tokenization":X}} applies)?
+//     filterable=false (change-tok-both is impossible here, only the
+//     searchable change-tokenization applies)?
 //  6. EnableFilterableThenChangeTok: does enable-filterable's
 //     tidied.mig poison the subsequent change-tokenization migration
 //     dir state?
@@ -168,16 +169,16 @@ func TestMultiNode_ChangeTokenization_AJ_FilterableSearchable(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	t.Run("FilterableOnly_RoundTrip", func(t *testing.T) {
-		// Journey 4: round-trip via {"filterable":{"tokenization":X}}
-		// on a filterable-only property. Different reindexer
-		// (FilterableRetokenizeStrategy) but the same swap+schema-flip
-		// state machine.
+		// Journey 4: round-trip via PUT .../index/filterable
+		// {"tokenization":X} on a filterable-only property. Different
+		// reindexer (FilterableRetokenizeStrategy) but the same
+		// swap+schema-flip state machine.
 		testFilterableOnlyRoundTrip(t, compose)
 	})
 
 	t.Run("SearchableOnly_RoundTrip", func(t *testing.T) {
 		// Journey 5: filterable=false, searchable=true. The only valid
-		// body shape is {"searchable":{"tokenization":X}}. No sub-task
+		// path is PUT .../index/searchable {"tokenization":X}. No sub-task
 		// fan-out for filterable index, so a simpler shape — but still
 		// the same swap+schema-flip path.
 		testSearchableOnlyRoundTrip(t, compose)
@@ -229,9 +230,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	const className = "RestartRoundTrip"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	// Use a closure so the URI is re-resolved at defer-time. The
 	// rolling restart below replaces node-1's container; capturing
 	// compose.GetWeaviateNode(1).URI() at defer-registration time
@@ -257,37 +256,36 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T1: word → field.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// Restart every node, one at a time, so FinalizeCompletedMigrations
 	// runs on each node's shard init.
 	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
-		t.Logf("restarting node %d between rounds", nodeIdx+1)
-		require.NoError(t, compose.StopAt(ctx, nodeIdx, nil))
-		require.NoError(t, compose.StartAt(ctx, nodeIdx))
+		t.Logf("cycling node %d between rounds", nodeIdx+1)
+		cycleNodeFast(ctx, t, compose, nodeIdx)
 
 		restartedURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 		require.Eventually(t, func() bool {
 			_, err := runBM25QueryOnNode(t, restartedURI, className, "alpha")
 			return err == nil
-		}, 60*time.Second, 1*time.Second,
+		}, 60*time.Second, 50*time.Millisecond,
 			"node %d should be ready after restart", nodeIdx+1)
 
 		writeURI := compose.GetWeaviateNode(((nodeIdx + 1) % 3) + 1).URI()
 		require.Eventually(t, func() bool {
 			return tryImportObject(writeURI, className, "raft-probe") == nil
-		}, 90*time.Second, 1*time.Second,
+		}, 90*time.Second, 50*time.Millisecond,
 			"raft quorum should be restored after restart of node %d", nodeIdx+1)
 	}
 	// Re-fetch URI after the rolling restart.
 	restURI = compose.GetWeaviateNode(1).URI()
 
 	// T2: field → word.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
@@ -330,14 +328,14 @@ func TestMultiNode_ChangeTokenization_MTRoundTrip(t *testing.T) {
 	}
 
 	// word → field.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// field → word.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
@@ -376,10 +374,7 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	const className = "ConcurrentProps"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
-		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("title", "body"))
 	defer deleteCollection(t, restURI, className)
 
 	// Each object has distinct content in title and body so we can
@@ -395,13 +390,13 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		titleTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-			`{"searchable":{"tokenization":"field"}}`)
+		titleTaskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "title", "searchable",
+			`{"tokenization":"field"}`)
 	}()
 	go func() {
 		defer wg.Done()
-		bodyTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-			`{"searchable":{"tokenization":"field"}}`)
+		bodyTaskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "body", "searchable",
+			`{"tokenization":"field"}`)
 	}()
 	wg.Wait()
 
@@ -414,13 +409,13 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		titleTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-			`{"searchable":{"tokenization":"word"}}`)
+		titleTaskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "title", "searchable",
+			`{"tokenization":"word"}`)
 	}()
 	go func() {
 		defer wg.Done()
-		bodyTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-			`{"searchable":{"tokenization":"word"}}`)
+		bodyTaskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "body", "searchable",
+			`{"tokenization":"word"}`)
 	}()
 	wg.Wait()
 
@@ -432,47 +427,24 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	// Poll until each property's per-replica counts settle to the
 	// baseline. The schema flip propagates faster than per-node
 	// OnGroupCompleted runs in some races; see perReplicaConvergenceTimeout.
-	var (
-		lastTitle, lastBody map[string][]int
-		failures            []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastTitle = make(map[string][]int, len(testBM25Queries))
-		lastBody = make(map[string][]int, len(testBM25Queries))
-		failures = failures[:0]
+	// On timeout the per-(prop,query,node) assert messages reproduce the
+	// exact mismatch diagnostic the hand-rolled failures list emitted.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range testBM25Queries {
 			titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
 			bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
-			lastTitle[q] = titleActual
-			lastBody[q] = bodyActual
 			for i := 0; i < 3; i++ {
-				if titleActual[i] != baselinesTitle[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=title query=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesTitle[q][i], titleActual[i]))
-				}
-				if bodyActual[i] != baselinesBody[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=body query=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesBody[q][i], bodyActual[i]))
-				}
+				assert.Equalf(c, baselinesTitle[q][i], titleActual[i],
+					"prop=title query=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesTitle[q][i], titleActual[i])
+				assert.Equalf(c, baselinesBody[q][i], bodyActual[i],
+					"prop=body query=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesBody[q][i], bodyActual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	for _, q := range testBM25Queries {
-		t.Logf("post-concurrent title %q: baseline=%v actual=%v", q, baselinesTitle[q], lastTitle[q])
-		t.Logf("post-concurrent body %q: baseline=%v actual=%v", q, baselinesBody[q], lastBody[q])
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"per-replica inverted-bucket mismatch after concurrent two-property round-trip (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"per-replica inverted-bucket mismatch after concurrent two-property round-trip (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 // ----------------------------------------------------------------------------
@@ -497,7 +469,7 @@ func testRoundTripNRounds(
 	t.Helper()
 
 	restURI := compose.GetWeaviateNode(1).URI()
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: startTok},
 	})
 	defer deleteCollection(t, restURI, className)
@@ -508,8 +480,8 @@ func testRoundTripNRounds(
 	currentTok := startTok
 	for roundIdx, targetTok := range sequence {
 		t.Logf("round %d/%d: %s → %s", roundIdx+1, len(sequence), currentTok, targetTok)
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-			fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok))
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+			fmt.Sprintf(`{"tokenization":%q}`, targetTok))
 		reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 		awaitTokenizationOnAllNodes(t, compose, className, "text", targetTok)
 		currentTok = targetTok
@@ -537,10 +509,7 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	const className = "MultiProp"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
-		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("title", "body"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjectsTwoProps(t, restURI, className, testDocuments)
@@ -549,56 +518,43 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	baselinesBody := captureBaselineCounts(t, compose, className, "body", testBM25Queries)
 
 	// Sequential round-trip on title.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "title", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "field")
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "title", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
 
 	// Then on body.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "body", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "field")
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "body", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
 
 	// Poll both properties' per-replica counts until they match the
 	// baseline. Same settle-window rationale as assertPerReplicaConsistent.
-	var failures []string
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		failures = failures[:0]
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range testBM25Queries {
 			titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
 			bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
 			for i := 0; i < 3; i++ {
-				if titleActual[i] != baselinesTitle[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=title q=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesTitle[q][i], titleActual[i]))
-				}
-				if bodyActual[i] != baselinesBody[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=body q=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesBody[q][i], bodyActual[i]))
-				}
+				assert.Equalf(c, baselinesTitle[q][i], titleActual[i],
+					"prop=title q=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesTitle[q][i], titleActual[i])
+				assert.Equalf(c, baselinesBody[q][i], bodyActual[i],
+					"prop=body q=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesBody[q][i], bodyActual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"per-replica multi-property round-trip mismatch (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"per-replica multi-property round-trip mismatch (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
@@ -608,7 +564,7 @@ func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",
@@ -634,41 +590,30 @@ func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	}
 
 	// word → field via change-tokenization-filterable body shape.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"filterable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// field → word.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"filterable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	// Poll Equal-filter per-replica counts until they match baseline.
-	var failures []string
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		failures = failures[:0]
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, p := range probes {
 			actual := perNodeEqualCounts(t, compose, className, "text", p)
 			for i := 0; i < 3; i++ {
-				if actual[i] != baselines[p][i] {
-					failures = append(failures,
-						fmt.Sprintf("filter=Equal(%q) node%d expected=%d actual=%d",
-							p, i+1, baselines[p][i], actual[i]))
-				}
+				assert.Equalf(c, baselines[p][i], actual[i],
+					"filter=Equal(%q) node%d expected=%d actual=%d",
+					p, i+1, baselines[p][i], actual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"filterable-only per-replica mismatch after word→field→word round-trip (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"filterable-only per-replica mismatch after word→field→word round-trip (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
@@ -678,7 +623,7 @@ func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",
@@ -692,13 +637,13 @@ func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
@@ -713,7 +658,7 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",
@@ -727,8 +672,8 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// Step 1: enable filterable. This writes a tidied.mig per-prop.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"filterable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
+		`{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	require.Eventually(t, func() bool {
 		cls := getClassFromNode(t, restURI, className)
@@ -738,21 +683,21 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 			}
 		}
 		return false
-	}, 30*time.Second, 200*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"text.IndexFilterable should be true after enable-filterable")
 
 	// Step 2: change-tokenization word→field on the same property.
 	// Hypothesis: enable-filterable's tidied.mig poisons the new
 	// change-tok migration dir state, leaving N-1 replicas with empty
 	// post-swap buckets.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// Step 3: round-trip back to word.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
@@ -767,7 +712,7 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",
@@ -791,8 +736,8 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	// is also tokenized and must agree (see
 	// validateEnableSearchableProperty in handlers_reindex.go). We pick
 	// `word` to match the seed schema.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	require.Eventually(t, func() bool {
 		cls := getClassFromNode(t, restURI, className)
@@ -802,7 +747,7 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 			}
 		}
 		return false
-	}, 30*time.Second, 200*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"text.IndexSearchable should be true after enable-searchable")
 
 	// Now BM25 is available — record those baselines for downstream
@@ -817,56 +762,43 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	// a single change-tok-filterable updates the cluster-wide schema and
 	// rebuilds the filterable bucket. The searchable bucket is left at
 	// the old tokenization for now — exercising the divergent-bucket
-	// state. A second `{"searchable":{"tokenization":"field"}}` would be
-	// rejected by validateTokenizationChange ("already uses tokenization
-	// X") because the schema flip from step 2 already landed.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"filterable":{"tokenization":"field"}}`)
+	// state. A second PUT .../index/searchable {"tokenization":"field"}
+	// would be rejected by validateTokenizationChange ("already uses
+	// tokenization X") because the schema flip from step 2 already landed.
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// Step 3: back to word via filterable. Same single-request shape.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"filterable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	// Poll until both filterable (Equal) and searchable (BM25) per-replica
 	// counts match the baseline. Same settle-window rationale as
 	// assertPerReplicaConsistent.
-	var failures []string
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		failures = failures[:0]
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, p := range probes {
 			actual := perNodeEqualCounts(t, compose, className, "text", p)
 			for i := 0; i < 3; i++ {
-				if actual[i] != baselinesEqual[p][i] {
-					failures = append(failures,
-						fmt.Sprintf("Equal(%q) node%d expected=%d actual=%d",
-							p, i+1, baselinesEqual[p][i], actual[i]))
-				}
+				assert.Equalf(c, baselinesEqual[p][i], actual[i],
+					"Equal(%q) node%d expected=%d actual=%d",
+					p, i+1, baselinesEqual[p][i], actual[i])
 			}
 		}
 		for _, q := range testBM25Queries {
 			actual := perNodeBM25Counts(t, compose, className, q)
 			for i := 0; i < 3; i++ {
-				if actual[i] != baselinesBM25[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("BM25(%q) node%d expected=%d actual=%d",
-							q, i+1, baselinesBM25[q][i], actual[i]))
-				}
+				assert.Equalf(c, baselinesBM25[q][i], actual[i],
+					"BM25(%q) node%d expected=%d actual=%d",
+					q, i+1, baselinesBM25[q][i], actual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"enable-searchable+change-tok round-trip mismatch (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"enable-searchable+change-tok round-trip mismatch (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 // assertPerReplicaAgreement requires every replica to return the same
@@ -899,37 +831,20 @@ func assertPerReplicaAgreement(
 ) {
 	t.Helper()
 
-	var (
-		lastCounts map[string][]int
-		failures   []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastCounts = make(map[string][]int, len(queries))
-		failures = failures[:0]
+	lastCounts := make(map[string][]int, len(queries))
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range queries {
 			counts := perNodeBM25Counts(t, compose, className, q)
 			lastCounts[q] = counts
-			if counts[0] != counts[1] || counts[0] != counts[2] {
-				failures = append(failures,
-					fmt.Sprintf("query=%q counts=%v (replicas disagree)", q, counts))
-			}
+			assert.Truef(c, counts[0] == counts[1] && counts[0] == counts[2],
+				"query=%q counts=%v (replicas disagree)", q, counts)
 		}
-		if len(failures) == 0 {
-			for _, q := range queries {
-				t.Logf("%s %q: %v", label, q, lastCounts[q])
-			}
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"%s — per-replica disagreement (after %s wait)", label, perReplicaConvergenceTimeout)
 
 	for _, q := range queries {
 		t.Logf("%s %q: %v", label, q, lastCounts[q])
 	}
-	sort.Strings(failures)
-	t.Fatalf("%s — per-replica disagreement (after %s wait); %d mismatches:\n  %s",
-		label, perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 // assertPerReplicaConsistent polls per-replica counts until every
@@ -942,41 +857,24 @@ func assertPerReplicaConsistent(
 ) {
 	t.Helper()
 
-	var (
-		lastActual map[string][]int
-		failures   []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastActual = make(map[string][]int, len(queries))
-		failures = failures[:0]
+	lastActual := make(map[string][]int, len(queries))
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range queries {
 			actual := perNodeBM25Counts(t, compose, className, q)
 			lastActual[q] = actual
 			expected := baselines[q]
 			for i := 0; i < 3; i++ {
-				if actual[i] != expected[i] {
-					failures = append(failures,
-						fmt.Sprintf("query=%q node%d expected=%d actual=%d",
-							q, i+1, expected[i], actual[i]))
-				}
+				assert.Equalf(c, expected[i], actual[i],
+					"query=%q node%d expected=%d actual=%d",
+					q, i+1, expected[i], actual[i])
 			}
 		}
-		if len(failures) == 0 {
-			for _, q := range queries {
-				t.Logf("%s %q: baseline=%v actual=%v", label, q, baselines[q], lastActual[q])
-			}
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"%s — per-replica mismatch (after %s wait)", label, perReplicaConvergenceTimeout)
 
 	for _, q := range queries {
 		t.Logf("%s %q: baseline=%v actual=%v", label, q, baselines[q], lastActual[q])
 	}
-	sort.Strings(failures)
-	t.Fatalf("%s — per-replica mismatch (after %s wait); %d mismatches:\n  %s",
-		label, perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 func captureBaselineCounts(
@@ -1010,39 +908,24 @@ func waitForPerReplicaBaseline(
 ) map[string][]int {
 	t.Helper()
 
-	var (
-		lastCounts map[string][]int
-		failures   []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastCounts = make(map[string][]int, len(queries))
-		failures = failures[:0]
+	lastCounts := make(map[string][]int, len(queries))
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range queries {
 			counts := perNodeBM25Counts(t, compose, className, q)
 			lastCounts[q] = counts
+			// Preserve the original else-if branching: a query is only
+			// flagged "zero on every replica" once the replicas agree.
 			if counts[0] != counts[1] || counts[0] != counts[2] {
-				failures = append(failures,
-					fmt.Sprintf("baseline %q inconsistent: %v", q, counts))
+				c.Errorf("baseline %q inconsistent: %v", q, counts)
 			} else if counts[0] == 0 {
-				failures = append(failures,
-					fmt.Sprintf("baseline %q is zero on every replica", q))
+				c.Errorf("baseline %q is zero on every replica", q)
 			}
 		}
-		if len(failures) == 0 {
-			for _, q := range queries {
-				t.Logf("baseline %q: %v", q, lastCounts[q])
-			}
-			return lastCounts
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"baseline did not converge across replicas within %s", perReplicaConvergenceTimeout)
 
 	for _, q := range queries {
 		t.Logf("baseline %q: %v", q, lastCounts[q])
 	}
-	sort.Strings(failures)
-	t.Fatalf("baseline did not converge across replicas within %s; %d issues:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
-	return nil
+	return lastCounts
 }

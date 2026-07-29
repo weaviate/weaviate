@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
+	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -40,7 +41,7 @@ type GetTenantsResp struct {
 
 // Tool registration
 
-func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig) []server.ServerTool {
+func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig, m *mcpmetrics.MCPMetrics) []server.ServerTool {
 	getConfigName := "weaviate-collections-get-config"
 	getConfigTool := mcp.NewTool(
 		getConfigName,
@@ -66,7 +67,7 @@ func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig) []ser
 	internal.ApplySchemaDescriptions(&tenantsTool, tenantsName, configs)
 
 	return []server.ServerTool{
-		{Tool: getConfigTool, Handler: mcp.NewStructuredToolHandler(reader.GetCollectionConfig)},
-		{Tool: tenantsTool, Handler: mcp.NewStructuredToolHandler(reader.GetTenants)},
+		{Tool: getConfigTool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, getConfigName, reader.GetCollectionConfig))},
+		{Tool: tenantsTool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, tenantsName, reader.GetTenants))},
 	}
 }

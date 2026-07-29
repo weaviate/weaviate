@@ -86,6 +86,23 @@ func (p *Provider) Get(prop *models.Property) (StopwordDetector, error) {
 	return NewDetectorFromPreset(preset)
 }
 
+// GetForNested returns the stopword detector to use for a nested property,
+// applying the same preset-resolution logic as Get but reading from
+// NestedProperty.TextAnalyzer instead of Property.TextAnalyzer.
+func (p *Provider) GetForNested(leaf *models.NestedProperty) (StopwordDetector, error) {
+	if p == nil {
+		return nil, nil
+	}
+	if leaf == nil || leaf.TextAnalyzer == nil || leaf.TextAnalyzer.StopwordPreset == "" {
+		return p.fallback, nil
+	}
+	preset := leaf.TextAnalyzer.StopwordPreset
+	if d, ok := p.presets[preset]; ok {
+		return d, nil
+	}
+	return NewDetectorFromPreset(preset)
+}
+
 // Fallback returns the collection-level detector. Useful for call sites that
 // don't have a property in hand (e.g. shard-write deletes that build a
 // generic searcher).

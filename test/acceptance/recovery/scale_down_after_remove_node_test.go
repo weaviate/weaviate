@@ -45,7 +45,6 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
@@ -61,8 +60,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 3}
 	paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-		Factor:       2,
-		AsyncEnabled: false,
+		Factor: 2,
 	}
 	paragraphClass.Vectorizer = "text2vec-contextionary"
 

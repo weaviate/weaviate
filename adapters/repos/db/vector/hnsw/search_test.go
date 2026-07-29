@@ -367,6 +367,10 @@ func (f *fakeCompressionDistancer) DistanceToNode(id uint64) (float32, error) {
 	panic("not implemented")
 }
 
+func (f *fakeCompressionDistancer) DistancesToNodes(ids []uint64, dists []float32) []error {
+	panic("not implemented")
+}
+
 func (f *fakeCompressionDistancer) DistanceToFloat(vec []float32) (float32, error) {
 	return f.distFn(f.queryVec, vec), nil
 }

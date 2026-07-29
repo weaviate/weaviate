@@ -12,9 +12,21 @@
 package lsmkv
 
 import (
+	"context"
+	"errors"
+	"os"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/concurrency/testinghelpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // TestRoaringSetWritePathRefCount ensures that all write paths of the
@@ -58,8 +70,174 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 	assertWriterRefs()
 
 	// sanity check, final state:
-	v, releaseBufPol, err := b.RoaringSetGet([]byte("key1"))
+	v, releaseBufPol, err := b.RoaringSetGet(context.Background(), []byte("key1"))
 	defer releaseBufPol()
 	require.NoError(t, err)
 	require.Equal(t, []uint64{1, 3, 4, 5, 6, 7}, v.ToArray())
+}
+
+// TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError pins a
+// disk-buffer leak on flushing/active read errors after acquisition.
+func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("simulated memtable read error")
+
+	newDiskSeg := func() *fakeSegment {
+		return newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
+		})
+	}
+
+	t.Run("active read error frees disk layer via defer, returns caller-safe noop", func(t *testing.T) {
+		diskSeg := newDiskSeg()
+		active := newTestMemtableRoaringSet(nil)
+		active.roaringSetGetErr = readErr
+
+		b := Bucket{
+			strategy: StrategyRoaringSet,
+			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+		}
+		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte("key1"))
+		require.ErrorIs(t, err, readErr)
+		require.Nil(t, bm)
+		require.NotNil(t, release)
+
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"disk layer's release must fire when the active read errors")
+
+		release()
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"returned release must be a noop; buffer already freed by defer")
+	})
+
+	t.Run("flushing read error frees disk layer via defer", func(t *testing.T) {
+		diskSeg := newDiskSeg()
+		flushing := newTestMemtableRoaringSet(nil)
+		flushing.roaringSetGetErr = readErr
+		active := newTestMemtableRoaringSet(nil)
+
+		b := Bucket{
+			strategy: StrategyRoaringSet,
+			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+		}
+		view := BucketConsistentView{Active: active, Flushing: flushing, Disk: []Segment{diskSeg}}
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte("key1"))
+		require.ErrorIs(t, err, readErr)
+		require.Nil(t, bm)
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"disk layer's release must fire when the flushing read errors")
+
+		release()
+		require.Equal(t, 1, diskSeg.roaringSetReleases)
+	})
+
+	t.Run("success path defers nothing, caller owns the release", func(t *testing.T) {
+		diskSeg := newDiskSeg()
+		active := newTestMemtableRoaringSet(nil)
+
+		b := Bucket{
+			strategy: StrategyRoaringSet,
+			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+		}
+		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte("key1"))
+		require.NoError(t, err)
+		require.NotNil(t, bm)
+
+		require.Equal(t, 0, diskSeg.roaringSetReleases,
+			"success path must not release before the caller does")
+
+		release()
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"caller's release must free the disk layer exactly once")
+	})
+}
+
+// TestBucket_RoaringSetGet_RespectsConcurrencyBudget pins RoaringSetGet's
+// merge fan-out to the per-query budget without blowing the goroutine ceiling.
+func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
+	// Kill switch is this bound's red control, but no CI job sets it: CI
+	// only ever runs the green (budget-enforced) path.
+	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
+		t.Skip("budget cap disabled via kill switch")
+	}
+	// Merge fan-out only exists at SROAR_MERGE>=2 (GOMAXPROCS>=4); skipping
+	// here silently would hide the guard, so CI fails loudly instead.
+	if concurrency.SROAR_MERGE < 2 {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("bounding tests require GOMAXPROCS>=4, refusing to skip silently on CI (SROAR_MERGE=%d)",
+				concurrency.SROAR_MERGE)
+		}
+		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
+			concurrency.SROAR_MERGE)
+	}
+
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	tmpDir := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	// never auto-flush; we flush explicitly to control the disk segment count
+	b.SetMemtableThreshold(1e9)
+
+	// numContainers keeps worker count (min(numContainers/24, SROAR_MERGE))
+	// above 1; dense containers keep an ignored-budget worker alive across
+	// sampler ticks.
+	const (
+		numContainers      = 128
+		valuesPerContainer = 128
+	)
+	values := make([]uint64, 0, numContainers*valuesPerContainer)
+	for c := 0; c < numContainers; c++ {
+		for j := 0; j < valuesPerContainer; j++ {
+			values = append(values, uint64(c)<<16+uint64(j))
+		}
+	}
+
+	key := []byte("key")
+
+	// many disk segments keep each Get's merges live across the sampler window
+	const numSegments = 12
+	for s := 0; s < numSegments; s++ {
+		require.NoError(t, b.RoaringSetAddList(key, values))
+		require.NoError(t, b.FlushAndSwitch())
+	}
+
+	budget1 := concurrency.CtxWithBudget(ctx, 1)
+
+	// correctness: budget=1 result must match the unconstrained query
+	got1, release1, err := b.RoaringSetGet(budget1, key)
+	require.NoError(t, err)
+	arr1 := got1.ToArray()
+	release1()
+
+	gotDefault, releaseDefault, err := b.RoaringSetGet(ctx, key)
+	require.NoError(t, err)
+	arrDefault := gotDefault.ToArray()
+	releaseDefault()
+
+	require.Equal(t, values, arr1)
+	require.Equal(t, arrDefault, arr1)
+
+	// budget=1 spawns no extra workers; slack absorbs sampler/GC noise
+	testinghelpers.AssertGoroutineCeiling(t, 24, 1, 8, 200*time.Millisecond, func() error {
+		bm, release, err := b.RoaringSetGet(budget1, key)
+		if err != nil {
+			return err
+		}
+		_ = bm
+		release()
+		return nil
+	})
 }

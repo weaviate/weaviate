@@ -62,6 +62,18 @@ func TestIdentifyClientFromHeader(t *testing.T) {
 			expectedVer:  "1.0.0",
 		},
 		{
+			name:         "php client",
+			headerValue:  "weaviate-client-php/0.5.0",
+			expectedType: ClientTypePHP,
+			expectedVer:  "0.5.0",
+		},
+		{
+			name:         "ruby client",
+			headerValue:  "weaviate-client-ruby/0.9.0",
+			expectedType: ClientTypeRuby,
+			expectedVer:  "0.9.0",
+		},
+		{
 			name:         "no version",
 			headerValue:  "weaviate-client-python",
 			expectedType: ClientTypePython,
@@ -81,7 +93,7 @@ func TestIdentifyClientFromHeader(t *testing.T) {
 		},
 		{
 			name:         "unknown sdk",
-			headerValue:  "weaviate-client-ruby/1.0.0",
+			headerValue:  "weaviate-client-rust/1.0.0",
 			expectedType: ClientTypeUnknown,
 			expectedVer:  "",
 		},
@@ -116,7 +128,7 @@ func TestClientTrackingUnaryInterceptor(t *testing.T) {
 	tracker := NewClientTracker(logger)
 	defer tracker.Stop()
 
-	interceptor := ClientTrackingUnaryInterceptor(tracker)
+	interceptor := ClientTrackingUnaryInterceptor(tracker, nil)
 
 	handler := func(ctx context.Context, req any) (any, error) {
 		return nil, nil
@@ -141,7 +153,7 @@ func TestClientTrackingUnaryInterceptor_NoHeader(t *testing.T) {
 	tracker := NewClientTracker(logger)
 	defer tracker.Stop()
 
-	interceptor := ClientTrackingUnaryInterceptor(tracker)
+	interceptor := ClientTrackingUnaryInterceptor(tracker, nil)
 
 	handler := func(ctx context.Context, req any) (any, error) {
 		return nil, nil
@@ -153,4 +165,31 @@ func TestClientTrackingUnaryInterceptor_NoHeader(t *testing.T) {
 
 	counts := tracker.Get()
 	assert.Empty(t, counts)
+}
+
+func TestClientTrackingUnaryInterceptor_Integration(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	clientTracker := NewClientTracker(logger)
+	defer clientTracker.Stop()
+	integrationTracker := NewIntegrationTracker(logger)
+	defer integrationTracker.Stop()
+
+	interceptor := ClientTrackingUnaryInterceptor(clientTracker, integrationTracker)
+
+	handler := func(ctx context.Context, req any) (any, error) {
+		return nil, nil
+	}
+
+	// gRPC metadata keys are lowercased; send the integration header through
+	// gRPC just as a client would.
+	md := metadata.Pairs("x-weaviate-client-integration", "llamaindex/0.10.5")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{}, handler)
+	require.NoError(t, err)
+
+	assert.Eventually(t, func() bool {
+		counts := integrationTracker.Get()
+		return counts["llamaindex"]["0.10.5"] == 1
+	}, time.Second, 10*time.Millisecond)
 }

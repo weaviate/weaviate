@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package copier
+package copier_test
 
 import (
 	"context"
@@ -18,11 +18,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	logrusTest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -39,63 +41,58 @@ func TestCopyReplicaFiles(t *testing.T) {
 		return path
 	}
 
-	// remote files
+	// remote files (shard-relative paths)
 	remoteFiles := []struct {
 		rel string
 		buf []byte
 	}{
-		{"collection/shard/fileA", []byte("AAA")},
-		{"collection/shard/nested/fileB", []byte("BBB")},
+		{"fileA", []byte("AAA")},
+		{"nested/fileB", []byte("BBB")},
 	}
 
+	remoteShardDir := filepath.Join(remoteTmpDir, "collection", "shard")
 	for _, f := range remoteFiles {
-		write(remoteTmpDir, f.rel, f.buf)
+		write(remoteShardDir, f.rel, f.buf)
 	}
 
 	// local unexpected file that must be deleted
 	_ = write(localTmpDir, "collection/shard/old", []byte("OLD"))
 
-	mockClient := NewMockFileReplicationServiceClient(t)
+	mockClient := copier.NewMockFileReplicationServiceClient(t)
 	mockRemoteIndex := types.NewMockRemoteIndex(t)
 
-	// Pause / resume
-	mockClient.EXPECT().PauseFileActivity(mock.Anything, mock.Anything).
-		Return(&protocol.PauseFileActivityResponse{}, nil)
-	mockClient.EXPECT().ResumeFileActivity(mock.Anything, mock.Anything).
-		Return(&protocol.ResumeFileActivityResponse{}, nil)
+	opID := strfmt.UUID("11111111-1111-1111-1111-111111111111")
+	fileNames := []string{"fileA", "nested/fileB"}
 
-	// ListFiles
-	fileNames := []string{
-		"collection/shard/fileA",
-		"collection/shard/nested/fileB",
-	}
-	mockClient.EXPECT().ListFiles(mock.Anything, mock.Anything).
-		Return(&protocol.ListFilesResponse{FileNames: fileNames}, nil)
+	// Create / Release replica snapshot
+	mockClient.EXPECT().CreateReplicaSnapshot(mock.Anything, mock.Anything).
+		Return(&protocol.CreateReplicaSnapshotResponse{FileNames: fileNames}, nil)
+	mockClient.EXPECT().ReleaseReplicaSnapshot(mock.Anything, mock.Anything).
+		Return(&protocol.ReleaseReplicaSnapshotResponse{}, nil)
 
 	// Metadata calls
 	for _, f := range remoteFiles {
-		st, err := os.Stat(filepath.Join(remoteTmpDir, f.rel))
+		st, err := os.Stat(filepath.Join(remoteShardDir, f.rel))
 		require.NoError(t, err)
 
-		mockClient.EXPECT().GetFileMetadata(
+		mockClient.EXPECT().GetReplicaSnapshotFileMetadata(
 			mock.Anything,
-			&protocol.GetFileMetadataRequest{
+			&protocol.GetReplicaSnapshotFileMetadataRequest{
 				IndexName: "collection",
-				ShardName: "shard",
+				OpId:      string(opID),
 				FileName:  f.rel,
 			},
 		).Return(&protocol.FileMetadata{
 			IndexName: "collection",
-			ShardName: "shard",
 			FileName:  f.rel,
 			Size:      st.Size(),
-			Crc32:     checksum(filepath.Join(remoteTmpDir, f.rel), t),
+			Crc32:     checksum(filepath.Join(remoteShardDir, f.rel), t),
 		}, nil)
 	}
 
 	// File download streams
 	for _, f := range remoteFiles {
-		stream := NewMockFileChunkStream(t)
+		stream := copier.NewMockFileChunkStream(t)
 
 		stream.EXPECT().Recv().Return(&protocol.FileChunk{
 			Data: []byte(f.buf),
@@ -104,11 +101,11 @@ func TestCopyReplicaFiles(t *testing.T) {
 
 		stream.EXPECT().Recv().Return(nil, io.EOF)
 
-		mockClient.EXPECT().GetFile(
+		mockClient.EXPECT().GetReplicaSnapshotFile(
 			mock.Anything,
-			&protocol.GetFileRequest{
+			&protocol.GetReplicaSnapshotFileRequest{
 				IndexName: "collection",
-				ShardName: "shard",
+				OpId:      string(opID),
 				FileName:  f.rel,
 			},
 		).Return(stream, nil)
@@ -118,8 +115,10 @@ func TestCopyReplicaFiles(t *testing.T) {
 
 	logger, _ := logrusTest.NewNullLogger()
 
-	c := New(
-		func(ctx context.Context, addr string) (FileReplicationServiceClient, error) { return mockClient, nil },
+	c := copier.New(
+		func(ctx context.Context, addr string) (copier.FileReplicationServiceClient, error) {
+			return mockClient, nil
+		},
 		mockRemoteIndex,
 		fakeSelector,
 		2,
@@ -129,12 +128,13 @@ func TestCopyReplicaFiles(t *testing.T) {
 		logger,
 	)
 
-	err := c.CopyReplicaFiles(context.Background(), "node1", "collection", "shard", 0)
+	err := c.CopyReplicaFiles(context.Background(), opID, "node1", "collection", "shard", 0)
 	require.NoError(t, err)
 
-	// Validation: remote files exist locally
+	// Validation: remote files exist locally under <localTmpDir>/<lowerClass>/<shard>/<rel>
+	localShardDir := filepath.Join(localTmpDir, "collection", "shard")
 	for _, f := range remoteFiles {
-		path := filepath.Join(localTmpDir, f.rel)
+		path := filepath.Join(localShardDir, f.rel)
 		b, err := os.ReadFile(path)
 		require.NoError(t, err)
 		require.Equal(t, f.buf, b)

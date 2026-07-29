@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -22,8 +23,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+// ErrPrependWouldDesyncInMemoryRep is returned by PrependSegmentsFromBucket when
+// the target RoaringSetRange group keeps an active in-memory rep: splicing would
+// desync it from disk and silently serve empty/partial range results. Open with
+// keepSegmentsInMemory=false.
+var ErrPrependWouldDesyncInMemoryRep = errors.New(
+	"prepend segments: RoaringSetRange bucket has an active in-memory representation " +
+		"which this operation cannot maintain; open the bucket with " +
+		"keepSegmentsInMemory=false, or implement a full-rebuild merge",
 )
 
 // PrependSegmentsFromBucket copies all segments from srcDir and atomically
@@ -43,11 +52,31 @@ import (
 //     segments, which would produce incorrect object counts.
 //   - Supported strategies: RoaringSet, RoaringSetRange, SetCollection,
 //     MapCollection, Inverted.
+//
+// Per-strategy derived-state obligation (any new strategy must answer this):
+// splicing mutates sg.segments, so segment-group-level derived state must be
+// maintained, guarded, or the mutation rejected.
+//
+//	Replace                          -> rejected (countNetAdditions)
+//	Inverted                         -> maintained (avgPropertyLengths, below)
+//	RoaringSetRange                  -> guarded (in-memory rep can't be spliced)
+//	RoaringSet/SetCollection/MapCollection -> no derived state to maintain
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	// Step 1: Validate strategy — Replace is not supported.
 	if sg.strategy == StrategyReplace {
 		return fmt.Errorf("prepend segments: strategy %q is not supported because "+
 			"countNetAdditions cannot be recalculated for prepended segments", sg.strategy)
+	}
+
+	// Reject splicing into a RoaringSetRange group with an active in-memory
+	// rep: an older-onto-newer merge could let a stale value win, and an
+	// unrebuilt rep would silently serve empty/partial results. This RLock()
+	// pairs with installRoaringSetRangeRep's Lock() publish.
+	sg.maintenanceLock.RLock()
+	hasInMemoryRep := sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil
+	sg.maintenanceLock.RUnlock()
+	if hasInMemoryRep {
+		return fmt.Errorf("%w (bucket=%s)", ErrPrependWouldDesyncInMemoryRep, filepath.Base(sg.dir))
 	}
 
 	// Step 2: Discover source segments (.db files).
@@ -96,35 +125,24 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 	}
 
 	// Step 5: Atomic prepend under maintenanceLock.
-	sg.maintenanceLock.Lock()
-	newSegments := make([]Segment, 0, len(initialized)+len(sg.segments))
-	newSegments = append(newSegments, initialized...)
-	newSegments = append(newSegments, sg.segments...)
-	sg.segments = newSegments
-	sg.maintenanceLock.Unlock()
+	func() {
+		sg.maintenanceLock.Lock()
+		defer sg.maintenanceLock.Unlock()
 
-	// Update metrics for the newly added segments.
+		newSegments := make([]Segment, 0, len(initialized)+len(sg.segments))
+		newSegments = append(newSegments, initialized...)
+		newSegments = append(newSegments, sg.segments...)
+		sg.segments = newSegments
+	}()
+
+	// Update metrics and the average-property-length accounting for the newly
+	// added segments. The accounting has to land before the deferred
+	// resumeCompaction: a compaction that retires a prepended segment subtracts
+	// its contribution, which must have been added first.
 	for _, seg := range initialized {
 		sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
 		sg.metrics.ObserveSegmentSize(sg.strategy, seg.Size())
-	}
-
-	// For Inverted strategy, update the segment group's average property
-	// length tracking from the prepended segments. Without this, the
-	// bucket's GetAveragePropertyLength returns 0, causing BM25 scoring
-	// to produce zero scores and empty query results.
-	if sg.strategy == StrategyInverted {
-		for _, seg := range initialized {
-			if seg.getStrategy() != segmentindex.StrategyInverted {
-				continue
-			}
-			data := seg.getInvertedData()
-			avg, count := data.avgPropertyLengthsAvg, data.avgPropertyLengthsCount
-			if count > 0 {
-				sg.averagePropSum.Add(uint64(avg * float64(count)))
-				sg.averagePropCount.Add(count)
-			}
-		}
+		sg.countSegmentAveragePropLength(seg)
 	}
 
 	return nil
@@ -372,6 +390,7 @@ func (sg *SegmentGroup) initPrependedSegments(dbFiles []string) ([]Segment, erro
 				allocChecker:             sg.allocChecker,
 				writeMetadata:            sg.writeMetadata,
 				deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+				lazyPropertyLengths:      sg.lazyPropertyLengths,
 			})
 		if err != nil {
 			// Close any segments already initialized.
