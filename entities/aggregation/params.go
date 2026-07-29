@@ -101,6 +101,9 @@ func IsCountStar(p *Params) bool {
 type ParamProperty struct {
 	Name        schema.PropertyName `json:"name"`
 	Aggregators []Aggregator        `json:"aggregators"`
+	// ApproximateCardinality requests a bloom-filter estimate of the property's
+	// distinct values, computed without the per-type object scan.
+	ApproximateCardinality bool `json:"approximateCardinality,omitempty"`
 }
 
 type Aggregator struct {

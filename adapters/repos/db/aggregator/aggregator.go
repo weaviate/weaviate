@@ -117,20 +117,158 @@ func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 }
 
 func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
-	if a.params.GroupBy != nil {
-		return newGroupedAggregator(a).Do(ctx)
+	wantsCardinality := false
+	for _, p := range a.params.Properties {
+		if p.ApproximateCardinality {
+			wantsCardinality = true
+			break
+		}
 	}
 
-	isVectorEmpty, err := dto.IsVectorEmpty(a.params.SearchVector)
+	if !wantsCardinality {
+		return a.dispatch(ctx, a.params.Properties)
+	}
+
+	// the bloom estimate needs no object scan, so keep a cardinality-only
+	// property out of the aggregation entirely
+	normal := make([]aggregation.ParamProperty, 0, len(a.params.Properties))
+	for _, p := range a.params.Properties {
+		if len(p.Aggregators) > 0 {
+			normal = append(normal, p)
+		}
+	}
+
+	if err := a.validateCardinalityOnlyProperties(); err != nil {
+		return nil, err
+	}
+
+	res, err := a.dispatch(ctx, normal)
+	if err != nil {
+		return nil, err
+	}
+	// the estimate is whole-bucket, so it would repeat identically on every group
+	if a.params.GroupBy == nil {
+		a.addApproximateCardinalities(res)
+	}
+	return res, nil
+}
+
+func (a *Aggregator) dispatch(ctx context.Context, props []aggregation.ParamProperty) (*aggregation.Result, error) {
+	agg := a
+	if len(props) != len(a.params.Properties) {
+		cp := *a
+		cp.params.Properties = props
+		agg = &cp
+	}
+
+	if agg.params.GroupBy != nil {
+		return newGroupedAggregator(agg).Do(ctx)
+	}
+
+	isVectorEmpty, err := dto.IsVectorEmpty(agg.params.SearchVector)
 	if err != nil {
 		return nil, fmt.Errorf("aggregator: %w", err)
 	}
 
-	if a.params.Filters != nil || !isVectorEmpty || a.params.Hybrid != nil {
-		return newFilteredAggregator(a).Do(ctx)
+	if agg.params.Filters != nil || !isVectorEmpty || agg.params.Hybrid != nil {
+		return newFilteredAggregator(agg).Do(ctx)
 	}
 
-	return newUnfilteredAggregator(a).Do(ctx)
+	return newUnfilteredAggregator(agg).Do(ctx)
+}
+
+// validateCardinalityOnlyProperties rejects unknown property names, which would
+// otherwise pass silently: a cardinality-only property never reaches
+// aggTypeOfProperty, the only schema lookup the dispatch path performs.
+// Existence is the only check — the estimate counts bucket keys, so it stays
+// valid for properties no aggregator supports.
+func (a *Aggregator) validateCardinalityOnlyProperties() error {
+	names := make([]schema.PropertyName, 0, len(a.params.Properties))
+	for _, p := range a.params.Properties {
+		if p.ApproximateCardinality && len(p.Aggregators) == 0 {
+			names = append(names, p.Name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+
+	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
+	if class == nil {
+		return fmt.Errorf("could not find class %s in schema", a.params.ClassName)
+	}
+	for _, name := range names {
+		if _, err := schema.GetPropertyByName(class, name.String()); err != nil {
+			return errors.Wrapf(err, "property %s", name)
+		}
+	}
+
+	return nil
+}
+
+// addApproximateCardinalities attaches the estimate to every property that
+// requested it. Best-effort: a property whose bucket is missing or errors is
+// left without an estimate rather than failing the whole aggregation.
+func (a *Aggregator) addApproximateCardinalities(res *aggregation.Result) {
+	for _, p := range a.params.Properties {
+		if !p.ApproximateCardinality {
+			continue
+		}
+		est, err := a.approximateCardinality(p.Name)
+		if err != nil {
+			a.logger.WithField("action", "aggregate_approximate_cardinality").
+				WithField("property", p.Name.String()).Error(err)
+			continue
+		}
+		if est == nil {
+			continue
+		}
+		name := p.Name.String()
+		for gi := range res.Groups {
+			if res.Groups[gi].Properties == nil {
+				res.Groups[gi].Properties = map[string]aggregation.Property{}
+			}
+			prop := res.Groups[gi].Properties[name]
+			v := *est
+			prop.ApproximateCardinality = &v
+			res.Groups[gi].Properties[name] = prop
+		}
+	}
+}
+
+// approximateCardinality returns the highest distinct-key estimate across the
+// property's filterable and searchable buckets, or nil if it has neither on
+// this shard. An error is only returned if every existing bucket errored.
+func (a *Aggregator) approximateCardinality(name schema.PropertyName) (*uint32, error) {
+	bucketNames := []string{
+		helpers.BucketFromPropNameLSM(name.String()),
+		helpers.BucketSearchableFromPropNameLSM(name.String()),
+	}
+
+	var (
+		best    uint32
+		found   bool
+		lastErr error
+	)
+	for _, bn := range bucketNames {
+		b := a.store.Bucket(bn)
+		if b == nil {
+			continue
+		}
+		est, err := b.GetKeysCount()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !found || est > best {
+			best = est
+			found = true
+		}
+	}
+	if !found {
+		return nil, lastErr
+	}
+	return &best, nil
 }
 
 func (a *Aggregator) aggTypeOfProperty(

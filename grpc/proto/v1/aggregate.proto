@@ -66,6 +66,13 @@ message AggregateRequest {
       Date date = 6;
       Reference reference = 7;
     }
+    // Request a cheap bloom-filter estimate of this property's distinct values.
+    // It is a lower bound, not an exact distinct count: it counts
+    // inverted-index keys (tokens, for tokenized text), ignores filters and
+    // search, and where two filters cannot be combined — most often across
+    // shards, or between segments of different sizes — it reports the largest
+    // rather than their union. Ignored when group_by is set.
+    bool approximate_cardinality = 8;
   }
   message GroupBy {
     string collection = 1;
@@ -167,6 +174,9 @@ message AggregateReply {
         Date date = 6;
         Reference reference = 7;
       }
+      // Lower-bound estimate of this property's distinct values, set when
+      // approximate_cardinality was requested on a non-group-by aggregation.
+      optional int64 approximate_cardinality = 8;
     }
     repeated Aggregation aggregations = 1;
   }

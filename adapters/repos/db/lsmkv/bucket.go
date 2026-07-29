@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -2809,4 +2810,118 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 // for full semantics and preconditions.
 func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
+}
+
+// GetKeysCount estimates the bucket's distinct key count, taking the best of
+// the counts it can derive: the memtables, which are counted exactly, the disk
+// segments' bloom filters, and — when the memtables fit into the disk filter's
+// geometry — the union of the two. All are lower bounds, so the largest is the
+// tightest.
+//
+// All layers come from one pinned view, so a flush in flight cannot drop the
+// keys of a memtable it moves.
+func (b *Bucket) GetKeysCount() (uint32, error) {
+	if !b.useBloomFilter {
+		return 0, fmt.Errorf("bloom filter not enabled")
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	memKeys, err := collectMemtableKeys(view)
+	if err != nil {
+		return 0, err
+	}
+
+	diskBloom := combineBloomFilters(view.Disk)
+	if diskBloom == nil {
+		return memKeys.distinct(), nil
+	}
+
+	best := diskBloom.ApproximatedSize()
+	if memKeys.total == 0 {
+		return best, nil
+	}
+	if exact := memKeys.distinct(); exact > best {
+		best = exact
+	}
+
+	// Merge only accepts filters of identical geometry, and a segment's is fixed
+	// by its own key count, so the memtable keys go into a filter built to match.
+	// Overfilling it costs accuracy gradually and then all at once: past full
+	// saturation ApproximatedSize evaluates ln(0) and overflows to MaxUint32.
+	// Hence the union only competes when it has room left and actually wins.
+	//
+	// diskBloom is a copy owned by this call, and its own estimate is already in
+	// best, so it can be merged into in place.
+	shared := bloom.New(diskBloom.Cap(), diskBloom.K())
+	memKeys.addTo(shared)
+	if err := diskBloom.Merge(shared); err == nil && !bloomSaturated(diskBloom) {
+		if est := diskBloom.ApproximatedSize(); est > best {
+			best = est
+		}
+	}
+
+	return best, nil
+}
+
+// memtableKeys holds the keys of a view's memtables, so counting them and
+// feeding them to a filter does not read them twice.
+type memtableKeys struct {
+	sets  [2][][]byte
+	count int
+	total int
+}
+
+func collectMemtableKeys(view BucketConsistentView) (memtableKeys, error) {
+	memtables, count := viewMemtables(view)
+
+	mk := memtableKeys{count: count}
+	for i := range count {
+		keys, err := memtables[i].GetKeys()
+		if err != nil {
+			return memtableKeys{}, err
+		}
+		mk.sets[i] = keys
+		mk.total += len(keys)
+	}
+	return mk, nil
+}
+
+func (mk memtableKeys) addTo(keysBloom *bloom.BloomFilter) {
+	for i := range mk.count {
+		for _, key := range mk.sets[i] {
+			keysBloom.Add(key)
+		}
+	}
+}
+
+// distinct counts the memtables' keys exactly. Each memtable already holds one
+// node per key, and a bucket has at most two, so the only duplicates possible
+// are keys written again after a switch — which a merge of the two sorted key
+// lists removes without a sketch.
+func (mk memtableKeys) distinct() uint32 {
+	if mk.count < 2 {
+		return uint32(mk.total)
+	}
+
+	active, flushing := mk.sets[0], mk.sets[1]
+	shared := 0
+	for i, j := 0, 0; i < len(active) && j < len(flushing); {
+		switch bytes.Compare(active[i], flushing[j]) {
+		case 0:
+			shared++
+			i++
+			j++
+		case -1:
+			i++
+		default:
+			j++
+		}
+	}
+	return uint32(mk.total - shared)
+}
+
+func bloomSaturated(keysBloom *bloom.BloomFilter) bool {
+	return keysBloom.BitSet().Count() >= keysBloom.Cap()
 }

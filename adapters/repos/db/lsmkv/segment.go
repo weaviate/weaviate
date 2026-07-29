@@ -65,6 +65,7 @@ type Segment interface {
 	getCollection(key []byte) ([]value, error)
 	getCollectionBytes(key []byte) ([][]byte, error)
 	getInvertedData() *segmentInvertedData
+	getBloomFilter() *bloom.BloomFilter
 	isLoaded() bool
 	markForDeletion() error
 	markForDeletionExceptSegment() error

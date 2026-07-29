@@ -153,6 +153,40 @@ func (s *segment) loadBloomFilterFromDisk() error {
 	return nil
 }
 
+// getBloomFilter returns nil if the segment was built without one. Shared with
+// every concurrent reader, so callers must not mutate it.
+func (s *segment) getBloomFilter() *bloom.BloomFilter {
+	return s.bloomFilter
+}
+
+// combineBloomFilters unions the filters of segments the caller has pinned (see
+// getConsistentViewOfSegments), or returns nil if none carries one. Loads any
+// lazily loaded segment it touches. The result is always a copy, never a
+// segment's own filter, so the caller is free to mutate it.
+func combineBloomFilters(segments []Segment) *bloom.BloomFilter {
+	var combined *bloom.BloomFilter
+	for _, seg := range segments {
+		bf := seg.getBloomFilter()
+		if bf == nil {
+			continue
+		}
+		if combined == nil {
+			combined = bf.Copy()
+			continue
+		}
+		if err := combined.Merge(bf); err != nil {
+			// filters sized from different key counts have incompatible geometry
+			// (m, k); keep the larger so the result is at least the biggest
+			// single segment's distinct-key count
+			if bf.ApproximatedSize() > combined.ApproximatedSize() {
+				combined = bf.Copy()
+			}
+		}
+	}
+
+	return combined
+}
+
 func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList map[string]int64) error {
 	before := time.Now()
 

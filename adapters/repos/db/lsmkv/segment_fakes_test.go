@@ -18,6 +18,7 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -238,6 +239,10 @@ func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 		avgPropertyLengthsAvg:   3.0,
 		avgPropertyLengthsCount: 2,
 	}
+}
+
+func (f *fakeSegment) getBloomFilter() *bloom.BloomFilter {
+	return nil
 }
 
 func (f *fakeSegment) isLoaded() bool {
