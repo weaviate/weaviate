@@ -550,6 +550,32 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil
 }
 
+// snapshotIndices returns every index with its drop lock held, so callers can
+// work on them without holding db.indexLock for the duration. Taking the drop
+// lock under db.indexLock is what keeps a snapshotted index from being dropped
+// while still in use. The returned func releases them.
+func (db *DB) snapshotIndices() ([]*Index, func()) {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	indices := make([]*Index, 0, len(db.indices))
+	for name, idx := range db.indices {
+		if idx == nil {
+			db.logger.WithField("action", "snapshot_indices").
+				Warningf("no resource found for index %q", name)
+			continue
+		}
+		idx.dropIndex.RLock()
+		indices = append(indices, idx)
+	}
+
+	return indices, func() {
+		for _, idx := range indices {
+			idx.dropIndex.RUnlock()
+		}
+	}
+}
+
 // TODO-RAFT: Because of interfaces and import order we can't have this function just return the same index interface
 // for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
 // deduplication

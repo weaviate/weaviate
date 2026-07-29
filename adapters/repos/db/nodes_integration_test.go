@@ -262,9 +262,11 @@ func TestLazyLoadedShards(t *testing.T) {
 	require.NoError(t, err)
 
 	// make sure that getting the node status does not trigger loading of lazy shards
-	_, _, status := index.getShardsNodeStatus(ctx, "")
-	_, _, status2 := index.getShardsNodeStatus(ctx, "")
+	status := &[]*models.NodeShardStatus{}
+	index.getShardsNodeStatus(ctx, status, "")
+	status2 := &[]*models.NodeShardStatus{}
+	index.getShardsNodeStatus(ctx, status2, "")
 	require.Equal(t, status, status2)
-	require.Len(t, status, 1)
-	require.False(t, status[0].Loaded)
+	require.Len(t, *status, 1)
+	require.False(t, (*status)[0].Loaded)
 }
