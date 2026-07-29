@@ -85,7 +85,7 @@ type MutationGuard interface {
 // depend on the full Manager surface and tests can stub it. nil-safe.
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
-	PurgeTasksForCollectionTargets(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
+	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
 }
 
 type SchemaManager struct {
@@ -507,8 +507,8 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// meta was already mutated.)
 		if s.distributedTaskManager != nil {
 			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
-				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargets(meta.Class.Class, introduced)
-				if errors.Is(err, distributedtask.ErrTaskStillActiveForTargets) {
+				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargetVectors(meta.Class.Class, introduced)
+				if errors.Is(err, distributedtask.ErrTaskStillActiveForTargetVectors) {
 					// Operator signal: normally a ms-scale SWAPPING window, but a
 					// node that died holding its post-completion ack wedges the
 					// task (and this refusal) until DeleteClass — repeated lines
@@ -573,7 +573,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 // drop-vector marker introduction is safe to accept: the record purge/refusal
 // in the UpdateClass apply is new behavior, so a mixed-version cluster
 // diverges on the same log entry (a pre-purge node neither purges nor
-// refuses). The S19 rolling-upgrade gate (#11901) MUST consume this constant
+// refuses). The rolling-upgrade min-version gate (#11901) MUST consume this constant
 // to fence marker introductions until every node runs at least this version —
 // it exists so the release dependency is code-visible, not PR-description
 // prose. NOTE for the gate implementation: builds carry pre-release suffixes

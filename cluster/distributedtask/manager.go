@@ -64,8 +64,8 @@ type Manager struct {
 
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
 	// not collection-scoped and survives DeleteTasksForCollection.
-	collectionExtractors map[string]CollectionExtractor
-	targetExtractors     map[string]TargetExtractor
+	collectionExtractors   map[string]CollectionExtractor
+	targetVectorExtractors map[string]TargetVectorExtractor
 
 	completedTaskTTL time.Duration
 
@@ -246,9 +246,9 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 
 	return &Manager{
-		tasks:                make(map[string]map[string]*Task),
-		collectionExtractors: make(map[string]CollectionExtractor),
-		targetExtractors:     make(map[string]TargetExtractor),
+		tasks:                  make(map[string]map[string]*Task),
+		collectionExtractors:   make(map[string]CollectionExtractor),
+		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -269,29 +269,29 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.collectionExtractors[namespace] = extractor
 }
 
-// RegisterTargetExtractor opts a task namespace into
-// PurgeTasksForCollectionTargets. Same contract as RegisterCollectionExtractor.
-func (m *Manager) RegisterTargetExtractor(namespace string, extractor TargetExtractor) {
+// RegisterTargetVectorExtractor opts a task namespace into
+// PurgeTasksForCollectionTargetVectors. Same contract as RegisterCollectionExtractor.
+func (m *Manager) RegisterTargetVectorExtractor(namespace string, extractor TargetVectorExtractor) {
 	if namespace == "" || extractor == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.targetExtractors[namespace] = extractor
+	m.targetVectorExtractors[namespace] = extractor
 }
 
-// ErrTaskStillActiveForTargets means PurgeTasksForCollectionTargets found an
+// ErrTaskStillActiveForTargetVectors means PurgeTasksForCollectionTargetVectors found an
 // ACTIVE task bound to the given (collection, targets) and deleted nothing.
-var ErrTaskStillActiveForTargets = errors.New("a task bound to these targets is still active")
+var ErrTaskStillActiveForTargetVectors = errors.New("a task bound to these targets is still active")
 
-// PurgeTasksForCollectionTargets drops NON-ACTIVE tasks whose payload binds to
+// PurgeTasksForCollectionTargetVectors drops NON-ACTIVE tasks whose payload binds to
 // `collection` (case-insensitively, like every other consumer of these
 // payloads) and overlaps `targets`, in namespaces with a registered target
 // extractor. Called deterministically from the schema FSM when a new
 // drop-vector marker is introduced, so the previous drop of a re-created name
 // leaves no records for coverage inheritance or removal vouching to
 // misattribute to the new drop. An ACTIVE match aborts with
-// [ErrTaskStillActiveForTargets] and deletes NOTHING: active tasks must keep
+// [ErrTaskStillActiveForTargetVectors] and deletes NOTHING: active tasks must keep
 // the scheduler's running handles consistent (the previous drop's task can
 // still be SWAPPING for a moment after its finalize removed the old marker),
 // and such a survivor next to a fresh marker would seed stale coverage
@@ -301,7 +301,7 @@ var ErrTaskStillActiveForTargets = errors.New("a task bound to these targets is 
 // ack holds SWAPPING indefinitely (finalize waits for every node, CancelTask
 // accepts only STARTED, the TTL pruner skips active tasks) — until that is
 // operable, only DeleteClass clears such a wedge.
-func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []string) ([]TaskDescriptor, error) {
+func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]TaskDescriptor, error) {
 	if collection == "" || len(targets) == 0 {
 		return nil, nil
 	}
@@ -309,9 +309,9 @@ func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	targetSet := make(map[string]struct{}, len(targets))
+	targetVectorSet := make(map[string]struct{}, len(targets))
 	for _, t := range targets {
-		targetSet[t] = struct{}{}
+		targetVectorSet[t] = struct{}{}
 	}
 	type match struct {
 		namespace, taskID string
@@ -319,12 +319,12 @@ func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []st
 	}
 	var matches []match
 	for namespace, tasksByID := range m.tasks {
-		extractor, ok := m.targetExtractors[namespace]
+		extractor, ok := m.targetVectorExtractors[namespace]
 		if !ok || extractor == nil {
 			continue
 		}
 		for taskID, task := range tasksByID {
-			c, taskTargets, ok := extractor(task.Payload)
+			c, taskTargetVectors, ok := extractor(task.Payload)
 			// EqualFold: collection names are case-insensitive identifiers, and a
 			// byte-exact purge would be strictly weaker than the EqualFold
 			// inheritance match whose soundness leans on it.
@@ -332,8 +332,8 @@ func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []st
 				continue
 			}
 			overlaps := false
-			for _, t := range taskTargets {
-				if _, ok := targetSet[t]; ok {
+			for _, t := range taskTargetVectors {
+				if _, ok := targetVectorSet[t]; ok {
 					overlaps = true
 					break
 				}
@@ -343,7 +343,7 @@ func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []st
 			}
 			if task.Status.IsActive() {
 				return nil, fmt.Errorf("%w: task %s/%s (status %s)",
-					ErrTaskStillActiveForTargets, namespace, taskID, task.Status)
+					ErrTaskStillActiveForTargetVectors, namespace, taskID, task.Status)
 			}
 			matches = append(matches, match{namespace: namespace, taskID: taskID, desc: task.TaskDescriptor})
 		}
@@ -377,7 +377,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 		}
 		for taskID, task := range tasksByID {
 			c, ok := extractor(task.Payload)
-			// EqualFold, matching PurgeTasksForCollectionTargets and every
+			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
 			// payload consumer: collection names are case-insensitive
 			// identifiers, and a byte-exact cascade would leak a case-twin
 			// record past DELETE_CLASS.

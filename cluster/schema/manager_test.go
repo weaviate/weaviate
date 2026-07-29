@@ -818,9 +818,9 @@ func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distr
 	return nil
 }
 
-func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargets(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
+func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
 	if f.activeMatch {
-		return nil, distributedtask.ErrTaskStillActiveForTargets
+		return nil, distributedtask.ErrTaskStillActiveForTargetVectors
 	}
 	if f.purgeErr != nil {
 		return nil, f.purgeErr
@@ -908,7 +908,7 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
 		require.Error(t, err)
 		require.NotErrorIs(t, err, ErrBadRequest,
-			"only ErrTaskStillActiveForTargets is the client's fault; anything else must not be classified retryable-4xx")
+			"only ErrTaskStillActiveForTargetVectors is the client's fault; anything else must not be classified retryable-4xx")
 	})
 
 	t.Run("an already-dropped entry does not re-purge", func(t *testing.T) {

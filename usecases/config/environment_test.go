@@ -246,6 +246,35 @@ func TestEnvironmentDistributedTasksIntervals(t *testing.T) {
 		},
 		{name: "ttl negative", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"-1"}, expectedErr: true},
 		{name: "ttl over the cap", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"10000000000"}, expectedErr: true},
+		// Exact bounds of validateIntRange: the cap itself passes, cap+1 fails.
+		{
+			name: "tick lower bound", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{"1"}, expected: time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{
+			name: "tick at the cap", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{"604800"}, expected: 604800 * time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{name: "tick just over the cap", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"604801"}, expectedErr: true},
+		{
+			name: "ttl at the cap", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{"87600"}, expected: 87600 * time.Hour,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{name: "ttl just over the cap", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"87601"}, expectedErr: true},
+		{
+			name: "reconcile lower bound", env: "DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+			value: []string{"1"}, expected: time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.DropVectorReconcileInterval },
+		},
+		{
+			name: "reconcile at the cap", env: "DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+			value: []string{"604800"}, expected: 604800 * time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.DropVectorReconcileInterval },
+		},
+		{name: "reconcile just over the cap", env: "DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", value: []string{"604801"}, expectedErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

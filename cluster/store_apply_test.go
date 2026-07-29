@@ -679,7 +679,7 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 func TestStore_Apply_UpdateClass_MarkerIntroductionPurge(t *testing.T) {
 	ms, addLog, _ := setupCascadeTestStore(t, "Foo")
 
-	ms.store.distributedTasksManager.RegisterTargetExtractor(
+	ms.store.distributedTasksManager.RegisterTargetVectorExtractor(
 		"test-namespace",
 		func(payload []byte) (string, []string, bool) {
 			var p struct {

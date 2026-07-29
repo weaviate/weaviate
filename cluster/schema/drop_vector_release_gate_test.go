@@ -21,12 +21,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDropVectorMarkerPurgeMinVersion_HasConsumer makes the S19 release
+// TestDropVectorMarkerPurgeMinVersion_HasConsumer makes the release
 // dependency machine-checkable instead of PR-description prose: the
 // drop-vector marker-introduction purge/refusal and the reshaped removal gate
 // run unconditionally inside the deterministic UpdateClass apply, so a
 // 1.38→1.39 rolling upgrade diverges per node (schema split-brain) unless the
-// S19 min-version gate (weaviate/weaviate#11901) fences marker introductions.
+// rolling-upgrade min-version gate (weaviate/weaviate#11901) fences marker introductions.
 // That gate MUST consume [DropVectorMarkerPurgeMinVersion].
 //
 // While no consumer exists the test SKIPS with a release-blocker banner (CI
@@ -72,7 +72,7 @@ func TestDropVectorMarkerPurgeMinVersion_HasConsumer(t *testing.T) {
 	if consumers == 0 {
 		t.Skip("RELEASE BLOCKER — do not ship 1.39.0 with this skipping: " +
 			"cluster/schema.DropVectorMarkerPurgeMinVersion has no consumer. " +
-			"The S19 rolling-upgrade gate (weaviate/weaviate#11901) must land and consume it " +
+			"The rolling-upgrade min-version gate (weaviate/weaviate#11901) must land and consume it " +
 			"to fence drop-vector marker introductions (purge/refusal + removal gate) — " +
 			"mixed-version clusters otherwise apply the same raft entry divergently.")
 	}

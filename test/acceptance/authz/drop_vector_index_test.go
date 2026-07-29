@@ -178,8 +178,15 @@ func TestAuthzUpdateClassVectorConfigRemoval(t *testing.T) {
 		stripped := helper.GetClassAuth(t, className, sharedRootKey)
 		delete(stripped.VectorConfig, "toRemove")
 		_, err := helper.UpdateClassAuthWithReturn(t, className, stripped, customKey)
-		var forbidden *clschema.SchemaObjectsUpdateForbidden
-		require.False(t, errors.As(err, &forbidden),
-			"the drop endpoint's scope must clear the authz checkpoint (got %v)", err)
+		// The request must clear the authz checkpoint and proceed to
+		// validation: removing a LIVE entry is then rejected by the parser's
+		// immutability check as 422 — never 403. (A successful removal needs
+		// a completed drop, which the drop_vector_index suite covers; a
+		// stable "none" entry cannot be staged here because an empty class
+		// finalizes immediately.)
+		require.Error(t, err)
+		var unprocessable *clschema.SchemaObjectsUpdateUnprocessableEntity
+		require.True(t, errors.As(err, &unprocessable),
+			"expected the parser's 422, got %v (a 403 would mean the authz checkpoint misfired)", err)
 	})
 }

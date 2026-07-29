@@ -1865,10 +1865,10 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 	}
 
 	h := newTestHarness(t).init(t)
-	h.manager.RegisterTargetExtractor("drop", targetExtractor)
+	h.manager.RegisterTargetVectorExtractor("drop", targetExtractor)
 	// Both registrations are invalid and must be ignored, not panic or match.
-	h.manager.RegisterTargetExtractor("", targetExtractor)
-	h.manager.RegisterTargetExtractor("nil-extractor", nil)
+	h.manager.RegisterTargetVectorExtractor("", targetExtractor)
+	h.manager.RegisterTargetVectorExtractor("nil-extractor", nil)
 
 	mkTask := func(namespace, id string, payload any, status TaskStatus) {
 		t.Helper()
@@ -1898,24 +1898,24 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 	mkTask("no-extractor", "foreign-ns", fooV1, TaskStatusFinished)
 	mkTask("nil-extractor", "nil-ns", fooV1, TaskStatusFinished)
 
-	removed, err := h.manager.PurgeTasksForCollectionTargets("", []string{"v1"})
+	removed, err := h.manager.PurgeTasksForCollectionTargetVectors("", []string{"v1"})
 	require.NoError(t, err)
 	require.Empty(t, removed, "empty collection is a no-op")
-	removed, err = h.manager.PurgeTasksForCollectionTargets("Foo", nil)
+	removed, err = h.manager.PurgeTasksForCollectionTargetVectors("Foo", nil)
 	require.NoError(t, err)
 	require.Empty(t, removed, "nil targets is a no-op")
 
 	// An ACTIVE match refuses the whole purge before any deletion.
 	mkTask("drop", "still-active", fooV1, TaskStatusStarted)
-	removed, err = h.manager.PurgeTasksForCollectionTargets("Foo", []string{"v1"})
-	require.ErrorIs(t, err, ErrTaskStillActiveForTargets)
+	removed, err = h.manager.PurgeTasksForCollectionTargetVectors("Foo", []string{"v1"})
+	require.ErrorIs(t, err, ErrTaskStillActiveForTargetVectors)
 	require.Empty(t, removed)
 	require.Contains(t, h.manager.tasks["drop"], "match-1",
 		"an active match must abort the purge with nothing deleted")
 
 	// Once the active task settles, the purge removes every non-active match.
 	h.manager.tasks["drop"]["still-active"].Status = TaskStatusFinished
-	removed, err = h.manager.PurgeTasksForCollectionTargets("Foo", []string{"v1"})
+	removed, err = h.manager.PurgeTasksForCollectionTargetVectors("Foo", []string{"v1"})
 	require.NoError(t, err)
 	removedIDs := make([]string, 0, len(removed))
 	for _, d := range removed {

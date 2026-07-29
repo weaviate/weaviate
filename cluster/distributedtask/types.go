@@ -41,10 +41,10 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// TargetExtractor reads a task payload's (collection, target vectors) binding
-// for [Manager.PurgeTasksForCollectionTargets]; ok=false skips the record.
+// TargetVectorExtractor reads a task payload's (collection, target vectors) binding
+// for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
 // Same determinism contract as [CollectionExtractor].
-type TargetExtractor func(payload []byte) (collection string, targets []string, ok bool)
+type TargetVectorExtractor func(payload []byte) (collection string, targets []string, ok bool)
 
 // CompletedTaskRetainer is an optional interface a [Provider] implements to
 // veto the TTL cleanup of a terminal task whose record is still load-bearing.

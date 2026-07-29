@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testRedropAfterRecreate pins the generation token end to end: drop a
+// testRedropAfterRecreate pins the drop epoch end to end: drop a
 // vector, let it finalize, re-create the name and write new vectors, add a
 // NEW tenant, then re-drop through an all-cold window so the fresh enqueue
 // mints no task while the previous drop's FINISHED records still exist. The
@@ -45,13 +45,13 @@ func testRedropAfterRecreate() func(t *testing.T) {
 			tenant2   = "tenant-2" // created between the drops — the grown-set twist
 		)
 
-		insert := func(t *testing.T, target string, idBase int) {
+		insert := func(t *testing.T, tenant string, idBase int) {
 			batch := make([]*models.Object, perTenant)
 			for i := range perTenant {
 				batch[i] = &models.Object{
 					ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-0000000024%02d", idBase+i)),
 					Class:      className,
-					Tenant:     target,
+					Tenant:     tenant,
 					Properties: map[string]any{"name": fmt.Sprintf("object-%d", idBase+i)},
 					Vectors: models.Vectors{
 						dropped: randVec(dim, float32(idBase+i)),

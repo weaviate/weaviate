@@ -366,7 +366,10 @@ func fromRPCError(err error) error {
 			// namespaces.ErrBadRequest and clusterSchema.ErrBadRequest share the
 			// exact "bad request" message, so the wire cannot discriminate —
 			// rebuild both; every downstream errors.Is check classifies its own
-			// sentinel to a 4xx either way.
+			// sentinel to a 4xx either way. Any NEW bad-request-style sentinel
+			// mapped to InvalidArgument in toRPCError must be added to this
+			// join AND to TestFromRPCError_SentinelRoundTrip, or its errors.Is
+			// classification silently breaks across the hop.
 			return errors.Join(err, namespaces.ErrBadRequest, clusterSchema.ErrBadRequest)
 		}
 	default:

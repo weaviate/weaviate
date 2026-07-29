@@ -48,12 +48,12 @@ func TestRegisterEditOp_RefusedOnClosingBucket(t *testing.T) {
 	require.Contains(t, err.Error(), "shutting down")
 }
 
-// TestWALRecovery_FlushesLastWALUnderLiveOps pins the resurrection fix: data
-// recovered from the last WAL used to become the live memtable — pre-strip
-// bytes OUTSIDE the pending-segment bookkeeping, resurrecting a completed
-// drop's data with nothing left to re-clean it. With ops in the sidecar,
-// recovery must flush every WAL into segments so the sidecar re-snapshot
-// covers them.
+// TestWALRecovery_FlushesLastWALUnderLiveOps pins the recovery contract:
+// with ops in the sidecar, EVERY recovered WAL — including the one that
+// would otherwise seed the live memtable — is flushed into segments, so the
+// post-recovery re-snapshot covers all recovered bytes. Bytes recovered
+// outside the pending-segment bookkeeping would resurrect a completed drop's
+// data with nothing left to re-clean them.
 func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -87,10 +87,10 @@ func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	require.Equal(t, []byte("v1"), v, "recovered data must still be readable after the flush")
 }
 
-// TestNewBucket_FailsWhenSidecarLocked pins the reload fence: a sidecar still
-// flocked by a previous instance means that instance has not finished closing
-// — loading blind here (the old soft-skip logged "cleanup stalled") is how a
-// completed drop lost its healing re-pend. The load must fail retryably.
+// TestNewBucket_FailsWhenSidecarLocked pins the reload fence: a sidecar
+// still flocked by a previous instance means that instance has not finished
+// closing, and loading blind would cost a completed drop its healing
+// re-pend. The load must fail retryably instead.
 func TestNewBucket_FailsWhenSidecarLocked(t *testing.T) {
 	dir := t.TempDir()
 
@@ -183,13 +183,11 @@ func TestRegisterEditOp_RefusedOnReadOnlyBucket(t *testing.T) {
 // TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose pins the
 // reactivation contract behind a deep shard-teardown failure: a bucket the
 // failed teardown left open keeps its GlobalBucketRegistry entry, so a
-// tenant re-init over the same directory must be refused BEFORE it touches
-// any file, and must succeed once the leaked handle is finally shut down
-// (in practice: process restart). Writing this pin found two bugs: the
-// registry was checked LAST, so a doomed re-open first hung forever on the
-// cleanup.db flock and, once that got a timeout, deleted the live
-// instance's active WAL during recovery — the leaked bucket's buffered
-// writes then flushed into the unlinked inode: silent data loss.
+// tenant re-init over the same directory is refused BEFORE any file is
+// touched (a later check would let the doomed re-open hang on leaked flocks
+// or mutate the live instance's WAL — see the claim in NewBucket), and
+// succeeds once the leaked handle is finally shut down (in practice:
+// process restart).
 func TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose(t *testing.T) {
 	dir := t.TempDir()
 

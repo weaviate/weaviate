@@ -50,10 +50,12 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
-	// The interval caps keep the overrides well below the point where
-	// seconds*time.Second (or hours*time.Hour) would overflow into a negative
-	// duration — a negative tick interval panics time.NewTicker after boot,
-	// and a negative TTL silently expires every completed task record.
+	// The interval caps are operational sanity bounds on fat-fingered
+	// overrides (a multi-year tick or TTL disables its subsystem in all but
+	// name). They also sit far below the ~292-year point where the
+	// int-to-duration multiply would overflow negative — a negative tick
+	// interval panics time.NewTicker after boot, and a negative TTL silently
+	// expires every completed task record.
 	maxDistributedTasksSchedulerTickIntervalSeconds = 7 * 24 * 60 * 60 // 7 days
 	maxDistributedTasksCompletedTaskTTLHours        = 10 * 365 * 24    // 10 years
 	// DefaultDropVectorReconcileInterval paces the drop-vector marker
