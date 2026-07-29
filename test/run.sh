@@ -1047,7 +1047,7 @@ function go_client_packages_matching() {
   pkgs=$(go_client_packages) || return 1
   matched=$(printf '%s\n' "$pkgs" | grep "${pattern}" || true)
   if [[ -z $matched ]]; then
-    echo "No go client package matches '${pattern}' — refusing to report success without running anything." >&2
+    echo "No go client package matches '${pattern}': refusing to report success without running anything." >&2
     return 1
   fi
   printf '%s\n' "$matched"
