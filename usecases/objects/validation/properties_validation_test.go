@@ -516,6 +516,25 @@ func TestValidator_ValuesCasting(t *testing.T) {
 				expectedValue: "",
 				expectedErr:   true,
 			},
+			// Go's encoding/json replaces lone UTF-16 surrogates with U+FFFD.
+			// stringVal must reject such strings to return 422 instead of
+			// silently storing corrupt data (GitHub #11744).
+			{
+				value:         "�",
+				expectedValue: "",
+				expectedErr:   true,
+			},
+			{
+				value:         "hello�world",
+				expectedValue: "",
+				expectedErr:   true,
+			},
+			// Legitimate Unicode outside the BMP must still be accepted.
+			{
+				value:         "valid unicode ★",
+				expectedValue: "valid unicode ★",
+				expectedErr:   false,
+			},
 		}
 
 		for i, tc := range testCases {
