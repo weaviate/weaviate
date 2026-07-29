@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -336,4 +337,170 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	require.NotEmpty(t, p.OpID)
 	require.Equal(t, "node1", p.UnitToNode["shard1__node1"])
 	require.Equal(t, "shard1", p.UnitToShard["shard1__node1"])
+}
+
+// TestParseSemverPrefix tests parsing major.minor from semantic version strings.
+func TestParseSemverPrefix(t *testing.T) {
+	tests := []struct {
+		version string
+		major   int
+		minor   int
+		errOK   bool
+	}{
+		{"1.39.0", 1, 39, false},
+		{"1.39.0-alpha", 1, 39, false},
+		{"2.0.0", 2, 0, false},
+		{"0.1.0", 0, 1, false},
+		{"1.39", 1, 39, false},
+		{"invalid", 0, 0, true},
+		{"1.x.0", 0, 0, true},
+		{"", 0, 0, true},
+		{"1", 0, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			major, minor, err := parseSemverPrefix(tt.version)
+			if tt.errOK {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.major, major)
+				require.Equal(t, tt.minor, minor)
+			}
+		})
+	}
+}
+
+// TestVersionAtLeast tests semantic version comparison.
+func TestVersionAtLeast(t *testing.T) {
+	tests := []struct {
+		version    string
+		minVersion string
+		expected   bool
+		errOK      bool
+	}{
+		{"1.39.0", "1.39.0", true, false},
+		{"1.40.0", "1.39.0", true, false},
+		{"2.0.0", "1.39.0", true, false},
+		{"1.39.5", "1.39.0", true, false},
+		{"1.38.0", "1.39.0", false, false},
+		{"1.0.0", "1.39.0", false, false},
+		{"0.39.0", "1.39.0", false, false},
+		{"1.39.0-alpha", "1.39.0", true, false},  // -alpha doesn't affect major.minor
+		{"invalid", "1.39.0", false, true},
+		{"1.39.0", "invalid", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.version+"-vs-"+tt.minVersion, func(t *testing.T) {
+			ok, err := versionAtLeast(tt.version, tt.minVersion)
+			if tt.errOK {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, ok)
+			}
+		})
+	}
+}
+
+// fakeClusterVersioner provides fake node statuses for version checking tests.
+type fakeClusterVersioner struct {
+	statuses []*models.NodeStatus
+	err      error
+}
+
+func (f *fakeClusterVersioner) GetNodeStatus(ctx context.Context, className, shardName, verbosity string) ([]*models.NodeStatus, error) {
+	return f.statuses, f.err
+}
+
+// TestEnqueueDropVectorIndex_DeferIfClusterNotUpgraded gates enqueue on cluster version.
+func TestEnqueueDropVectorIndex_DeferIfClusterNotUpgraded(t *testing.T) {
+	t.Run("fully upgraded cluster enqueues normally", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+			"s1": {BelongsToNodes: []string{"n1"}},
+		})}
+		versioner := &fakeClusterVersioner{statuses: []*models.NodeStatus{
+			{Name: "n1", Version: "1.39.0"},
+		}}
+		enq := &dropVectorIndexEnqueuer{
+			clusterService:   cluster,
+			schemaState:      state,
+			clusterVersioner: versioner,
+		}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.NotEmpty(t, cluster.gotTaskID, "task should be enqueued on a fully upgraded cluster")
+	})
+
+	t.Run("mixed-version cluster defers enqueue", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+			"s1": {BelongsToNodes: []string{"n1", "n2"}},
+		})}
+		versioner := &fakeClusterVersioner{statuses: []*models.NodeStatus{
+			{Name: "n1", Version: "1.39.0"},
+			{Name: "n2", Version: "1.38.0"}, // Below minimum
+		}}
+		enq := &dropVectorIndexEnqueuer{
+			clusterService:   cluster,
+			schemaState:      state,
+			clusterVersioner: versioner,
+		}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.Empty(t, cluster.gotTaskID, "task should not be enqueued on a mixed-version cluster")
+	})
+
+	t.Run("node missing version defers enqueue", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+			"s1": {BelongsToNodes: []string{"n1"}},
+		})}
+		versioner := &fakeClusterVersioner{statuses: []*models.NodeStatus{
+			{Name: "n1", Version: ""}, // Missing version
+		}}
+		enq := &dropVectorIndexEnqueuer{
+			clusterService:   cluster,
+			schemaState:      state,
+			clusterVersioner: versioner,
+		}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.Empty(t, cluster.gotTaskID, "task should not be enqueued if a node has no version")
+	})
+
+	t.Run("version check error defers enqueue", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+			"s1": {BelongsToNodes: []string{"n1"}},
+		})}
+		versioner := &fakeClusterVersioner{err: fmt.Errorf("network error")}
+		enq := &dropVectorIndexEnqueuer{
+			clusterService:   cluster,
+			schemaState:      state,
+			clusterVersioner: versioner,
+		}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.Empty(t, cluster.gotTaskID, "task should not be enqueued if version check fails")
+	})
+
+	t.Run("newer cluster version enqueues normally", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+			"s1": {BelongsToNodes: []string{"n1"}},
+		})}
+		versioner := &fakeClusterVersioner{statuses: []*models.NodeStatus{
+			{Name: "n1", Version: "1.40.0"}, // Newer than minimum
+		}}
+		enq := &dropVectorIndexEnqueuer{
+			clusterService:   cluster,
+			schemaState:      state,
+			clusterVersioner: versioner,
+		}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.NotEmpty(t, cluster.gotTaskID, "task should be enqueued when all nodes are at or above minimum version")
+	})
 }
