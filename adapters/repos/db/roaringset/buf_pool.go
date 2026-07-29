@@ -32,23 +32,34 @@ type BitmapBufPool interface {
 	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
 }
 
+// bitmapCloneGrowthFactor gives a pooled clone headroom so a merge that grows
+// it doesn't spill to an unpooled buffer. Matches SegmentGroup.roaringSetGet's
+// first-layer factor.
+const bitmapCloneGrowthFactor = 1.25
+
 func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, put := pool.Get(bm.LenInBytes())
+	buf, put := pool.Get(withGrowthHeadroom(bm.LenInBytes(), bitmapCloneGrowthFactor))
 	return bm.CloneToBuf(buf), put
 }
+
+func withGrowthHeadroom(lenInBytes int, factor float64) int {
+	return int(math.Ceil(float64(lenInBytes) * factor))
+}
+
+const (
+	bufPoolSyncMinRangeP2   = 9                         // 512B
+	bufPoolSyncMaxRangeP2   = 20                        // 1MiB, largest sync.Pool class
+	bufPoolInMemoMinRangeP2 = bufPoolSyncMaxRangeP2 + 1 // 2MiB, smallest in-memory class
+)
 
 func NewBitmapBufPoolDefault(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics,
 	inMemoMaxBufSize int, maxMemoSizeForBufs int,
 ) (pool BitmapBufPool, close func()) {
-	syncMinRangeP2 := 9  // 2^9 = 512B
-	syncMaxRangeP2 := 20 // 2^20 = 1MB
-	syncRanges := calculateSyncBufferRanges(syncMinRangeP2, syncMaxRangeP2)
+	syncRanges := calculateSyncBufferRanges(bufPoolSyncMinRangeP2, bufPoolSyncMaxRangeP2)
+	inMemoRanges, inMemoBufsLimits := inMemoBufferRangesAndLimits(inMemoMaxBufSize, maxMemoSizeForBufs)
+	logDegradedBufPool(logger, inMemoRanges, inMemoMaxBufSize, maxMemoSizeForBufs)
+
 	syncMaxBufSize := syncRanges[len(syncRanges)-1]
-
-	inMemoMinRangeP2 := syncMaxRangeP2 + 1
-	inMemoRanges, inMemoBufsLimits := calculateInMemoBufferRangesAndLimits(syncMaxBufSize, inMemoMinRangeP2,
-		inMemoMaxBufSize, maxMemoSizeForBufs)
-
 	allRanges := syncRanges
 	if len(inMemoRanges) > 0 {
 		allRanges = append(allRanges, inMemoRanges...)
@@ -198,12 +209,13 @@ func NewBitmapBufPoolFactorWrapper(pool BitmapBufPool, factor float64) *bitmapBu
 }
 
 func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
-	newMinCap := int(math.Ceil(float64(minCap) * p.factor))
-	return p.pool.Get(newMinCap)
+	return p.pool.Get(withGrowthHeadroom(minCap, p.factor))
 }
 
 func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+	// factor is already merge headroom, so it replaces rather than stacks with the clone factor.
+	buf, put := p.pool.Get(withGrowthHeadroom(bm.LenInBytes(), max(p.factor, bitmapCloneGrowthFactor)))
+	return bm.CloneToBuf(buf), put
 }
 
 // -----------------------------------------------------------------------------
@@ -326,6 +338,50 @@ func calculateSyncBufferRanges(minRangeP2, maxRangeP2 int) []int {
 	return ranges
 }
 
+// inMemoBufferRangesAndLimits builds the ladder NewBitmapBufPoolDefault uses.
+func inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize int) ([]int, map[int]int) {
+	maxSyncBufSize := 1 << bufPoolSyncMaxRangeP2
+	return calculateInMemoBufferRangesAndLimits(maxSyncBufSize, bufPoolInMemoMinRangeP2,
+		maxBufSize, maxMemoSize)
+}
+
+// logDegradedBufPool is the only signal for a degraded pool: the surviving
+// sync.Pool tier emits no metrics of its own.
+func logDegradedBufPool(logger logrus.FieldLogger, inMemoRanges []int, maxBufSize, maxMemoSize int) {
+	if logger == nil {
+		return
+	}
+	entry := logger.WithFields(logrus.Fields{
+		"action":                         "bitmap_buf_pool_init",
+		"query_bitmap_bufs_max_buf_size": humanize.IBytes(uint64(maxBufSize)),
+		"query_bitmap_bufs_max_memory":   humanize.IBytes(uint64(maxMemoSize)),
+		"in_memory_size_classes":         humanizeSizes(inMemoRanges),
+	})
+	if len(inMemoRanges) == 0 {
+		entry.Warnf("QUERY_BITMAP_BUFS_MAX_BUF_SIZE=%s with QUERY_BITMAP_BUFS_MAX_MEMORY=%s builds no "+
+			"in-memory bitmap buffer class at all; every buffer above %s is allocated per request and "+
+			"never pooled",
+			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)),
+			humanize.IBytes(1<<bufPoolSyncMaxRangeP2))
+		return
+	}
+	if largest := inMemoRanges[len(inMemoRanges)-1]; largest < maxBufSize {
+		entry.Warnf("QUERY_BITMAP_BUFS_MAX_MEMORY=%s only affords in-memory bitmap buffer classes %v, "+
+			"short of the QUERY_BITMAP_BUFS_MAX_BUF_SIZE=%s requested; buffers above %s are allocated "+
+			"per request and never pooled",
+			humanize.IBytes(uint64(maxMemoSize)), humanizeSizes(inMemoRanges),
+			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(largest)))
+	}
+}
+
+func humanizeSizes(sizes []int) []string {
+	out := make([]string, len(sizes))
+	for i, s := range sizes {
+		out[i] = humanize.IBytes(uint64(s))
+	}
+	return out
+}
+
 func calculateInMemoBufferRangesAndLimits(maxSyncBufSize, minRangeP2, maxBufSize, maxMemoSize int,
 ) ([]int, map[int]int) {
 	if maxBufSize > maxSyncBufSize {
@@ -437,13 +493,12 @@ func newPromBufDisposableMetrics(metrics *monitoring.PrometheusMetrics) *promBuf
 }
 
 func (m *promBufDisposableMetrics) bufCreated(sizeInBytes int) {
-	s := uint64(sizeInBytes)
-	ceil := uint64(1 << bits.Len64(s))
-	if s^ceil != 0 {
-		ceil *= 2
+	// matches the pooled tiers' size label so the two count the same request
+	ceil := uint64(1)
+	if sizeInBytes > 1 {
+		ceil = 1 << bits.Len64(uint64(sizeInBytes)-1)
 	}
-	size := humanize.IBytes(ceil)
-	m.usageCounter.WithLabelValues(size, "disposable_created").Inc()
+	m.usageCounter.WithLabelValues(humanize.IBytes(ceil), "disposable_created").Inc()
 }
 
 type bufDisposableNoopMetrics struct{}

@@ -39,6 +39,11 @@ func TestParseResourceString(t *testing.T) {
 		{"Unlimited unlimited upper case", "UNLIMITED", math.MaxInt64, false},
 		{"Nolimit lower case", "nolimit", math.MaxInt64, false},
 		{"Nolimit upper case", "NOLIMIT", math.MaxInt64, false},
+		{"OverflowTiB", "10000000TiB", 0, true},
+		{"OverflowTB", "10000000TB", 0, true},
+		{"LargestTiB", "8388607TiB", 8388607 * 1024 * 1024 * 1024 * 1024, false},
+		{"MaxInt64Bytes", "9223372036854775807", math.MaxInt64, false},
+		{"BeyondInt64Bytes", "9223372036854775808", 0, true},
 	}
 
 	for _, tc := range tests {

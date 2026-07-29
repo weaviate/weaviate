@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -454,6 +455,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,
+		// db.New sets one; without it here a range filter reaches
+		// segmentInMemoryReader.cloneSeed with a nil pool and segfaults.
+		bitmapBufPool: roaringset.NewBitmapBufPoolNoop(),
 	}
 	{
 		var presetDetectors map[string]*stopwords.Detector

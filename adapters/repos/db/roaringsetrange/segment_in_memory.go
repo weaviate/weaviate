@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/bits"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -33,6 +34,26 @@ type SegmentInMemory struct {
 	bitmapsLock   *entsync.ReadPreferringRWMutex
 	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
 	memtablesLock *sync.Mutex
+
+	// generation is leafCache's invalidation token: it only changes inside
+	// mutateBitmaps and is read under RLock, so it's never stale relative to
+	// the bitmaps it labels. leafCache is nil when caching is disabled.
+	generation uint64
+	leafCache  *leafCache
+}
+
+// mutateBitmaps is the only place the bit planes may be written. It bumps
+// generation while holding the write lock, so leafCache can never be left
+// serving a stale allow-list: skip this path and queries silently return
+// wrong results, with no panic and no log. Enforced, not conventional — see
+// TestPlanesAreOnlyMutatedThroughMutateBitmaps.
+func (s *SegmentInMemory) mutateBitmaps(fn func(bitmaps *rangeBitmaps)) {
+	s.bitmapsLock.Lock()
+	defer s.bitmapsLock.Unlock()
+	// deferred so an early return or a panic inside fn cannot skip it
+	defer func() { s.generation++ }()
+
+	fn(&s.bitmaps)
 }
 
 func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
@@ -41,6 +62,7 @@ func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
 		bitmapsLock:   entsync.NewReadPreferringRWMutex(),
 		memtables:     make([]*Memtable, 0, 8),
 		memtablesLock: new(sync.Mutex),
+		leafCache:     newLeafCache(leafCacheMaxMemory),
 	}
 
 	for key := range s.bitmaps {
@@ -59,17 +81,16 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 		return fmt.Errorf("invalid first key of merged segment")
 	}
 
-	s.bitmapsLock.Lock()
-	defer s.bitmapsLock.Unlock()
-
-	if deletions := layer.Deletions; !deletions.IsEmpty() {
-		for key := range s.bitmaps {
-			s.bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+	s.mutateBitmaps(func(bitmaps *rangeBitmaps) {
+		if deletions := layer.Deletions; !deletions.IsEmpty() {
+			for key := range bitmaps {
+				bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+			}
 		}
-	}
-	for ; ok; key, layer, ok = cursor.Next() {
-		s.bitmaps[key].OrConc(layer.Additions, concurrency.SROAR_MERGE)
-	}
+		for ; ok; key, layer, ok = cursor.Next() {
+			bitmaps[key].OrConc(layer.Additions, concurrency.SROAR_MERGE)
+		}
+	})
 	return nil
 }
 
@@ -87,34 +108,33 @@ func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
 }
 
 func (s *SegmentInMemory) mergeMemtables() {
-	s.bitmapsLock.Lock()
-	defer s.bitmapsLock.Unlock()
-
-	i := 0
-	for {
-		s.memtablesLock.Lock()
-		if i == len(s.memtables) {
-			s.memtables = s.memtables[:0]
+	s.mutateBitmaps(func(bitmaps *rangeBitmaps) {
+		i := 0
+		for {
+			s.memtablesLock.Lock()
+			if i == len(s.memtables) {
+				s.memtables = s.memtables[:0]
+				s.memtablesLock.Unlock()
+				return
+			}
+			memtable := s.memtables[i]
+			i++
 			s.memtablesLock.Unlock()
-			return
-		}
-		memtable := s.memtables[i]
-		i++
-		s.memtablesLock.Unlock()
 
-		nodes := memtable.Nodes()
-		if len(nodes) == 0 {
-			continue
-		}
-		if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
-			for key := range s.bitmaps {
-				s.bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+			nodes := memtable.Nodes()
+			if len(nodes) == 0 {
+				continue
+			}
+			if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
+				for key := range bitmaps {
+					bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+				}
+			}
+			for _, node := range nodes {
+				bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
 			}
 		}
-		for _, node := range nodes {
-			s.bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
-		}
-	}
+	})
 }
 
 func (s *SegmentInMemory) countPendingMemtables() int {
@@ -140,8 +160,10 @@ func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []I
 
 	readers = make([]InnerReader, 1+len(memtables))
 	readers[0] = &segmentInMemoryReader{
-		bitmaps: s.bitmaps,
-		bufPool: bufPool,
+		bitmaps:    s.bitmaps,
+		bufPool:    bufPool,
+		cache:      s.leafCache,
+		generation: s.generation,
 	}
 	for i := range memtables {
 		readers[1+i] = NewMemtableReader(memtables[i])
@@ -151,9 +173,13 @@ func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []I
 
 // -----------------------------------------------------------------------------
 
+// segmentInMemoryReader is only valid while the read lock from Readers() is
+// held; that lock is what makes generation a sound cache token.
 type segmentInMemoryReader struct {
-	bitmaps rangeBitmaps
-	bufPool roaringset.BitmapBufPool
+	bitmaps    rangeBitmaps
+	bufPool    roaringset.BitmapBufPool
+	cache      *leafCache
+	generation uint64
 }
 
 func (r *segmentInMemoryReader) Read(ctx context.Context, value uint64, operator filters.Operator,
@@ -275,15 +301,91 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
-	result, release := r.bufPool.CloneToBuf(r.bitmaps[0])
-	ANDed := false
+// cascadeStart is where a bit-plane cascade begins: the seed plane, the next
+// bit to merge, and whether the result is already narrowed below plane 0. An
+// unnarrowed result is unchanged by OR, so those leading merges are skipped.
+type cascadeStart struct {
+	seed     *sroar.Bitmap
+	nextBit  int
+	narrowed bool
+}
 
-	for bit := 1; bit < len(r.bitmaps); bit++ {
+// cascadeSeed picks where value's cascade starts: every plane is a subset of
+// plane 0, so the lowest set bit's plane skips a redundant AND against plane
+// 0. Resolved before the cache probe, since a hit skips the cascade and any
+// invariant checked inside it would stop covering cached predicates.
+func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
+	if !cascadeSeedEnabled {
+		return cascadeStart{seed: r.bitmaps[0], nextBit: 1}
+	}
+	if value == 0 {
+		// Unreachable from the read paths — see
+		// TestCascadeSeedDisabledStaysFlatWhileSeedingIsOn — but
+		// TrailingZeros64(0) would index past the planes. With no set bit the
+		// cascade is a no-op anyway.
+		return cascadeStart{seed: r.bitmaps[0], nextBit: len(r.bitmaps)}
+	}
+
+	bit := bits.TrailingZeros64(value) + 1
+	assertPlaneIsSubsetOfPlaneZero(r.bitmaps, bit)
+	return cascadeStart{seed: r.bitmaps[bit], nextBit: bit + 1, narrowed: true}
+}
+
+// cloneSeed buffers from plane 0's size, not the seed's, so later merges keep
+// the same room as before seeding. CloneBufSize adds the growth headroom a
+// direct Get would drop, which CloneToBuf cannot supply here because the buffer
+// is sized from a bound wider than the bitmap being cloned.
+func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	buf, release := r.bufPool.Get(
+		roaringset.CloneBufSize(max(seed.LenInBytes(), r.bitmaps[0].LenInBytes())))
+	return seed.CloneToBuf(buf), release
+}
+
+// cloneCached hands out a private copy of a cached leaf, sized to the widest
+// plane rather than the leaf, plus CloneBufSize's growth headroom. That is the
+// room the uncached path leaves for downstream memtable ORs; a raw Get on the
+// bare max would drop it.
+func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	buf, release := r.bufPool.Get(
+		roaringset.CloneBufSize(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes())))
+	return bm.CloneToBuf(buf), release
+}
+
+// leafBytesBound is what probe charges before the leaf exists: plane 0, since
+// every plane is its subset regardless of where the cascade seeded. Charging
+// the seed instead would under-estimate, because the cascade ORs higher planes
+// back in and a leaf can far outgrow its seed.
+func (r *segmentInMemoryReader) leafBytesBound() int {
+	return r.bitmaps[0].LenInBytes()
+}
+
+func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
+	start := r.cascadeSeed(value)
+	key := leafKey{kind: leafGreaterThanEqual, valueMin: value}
+
+	cached, admit := r.cache.probe(r.generation, key, r.leafBytesBound())
+	if cached != nil {
+		return r.cloneCached(cached)
+	}
+
+	result, release := r.mergeGreaterThanEqualUncached(value, start, conc)
+	if admit {
+		r.cache.store(r.generation, key, result.Clone())
+	}
+	return result, release
+}
+
+func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, start cascadeStart, conc int,
+) (*sroar.Bitmap, func()) {
+	observeCascadeSeed(start)
+	result, release := r.cloneSeed(start.seed)
+	anded := start.narrowed
+
+	for bit := start.nextBit; bit < len(r.bitmaps); bit++ {
 		if value&(1<<(bit-1)) != 0 {
 			result.AndConc(r.bitmaps[bit], conc)
-			ANDed = true
-		} else if ANDed {
+			anded = true
+		} else if anded {
 			result.OrConc(r.bitmaps[bit], conc)
 		}
 	}
@@ -291,27 +393,55 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*
 }
 
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
-	resultMin, releaseMin := r.bufPool.CloneToBuf(r.bitmaps[0])
-	resultMax, releaseMax := r.bufPool.CloneToBuf(r.bitmaps[0])
-	defer releaseMax()
-	ANDedMin := false
-	ANDedMax := false
+	startMin := r.cascadeSeed(valueMinInc)
+	startMax := r.cascadeSeed(valueMaxExc)
+	key := leafKey{kind: leafBetween, valueMin: valueMinInc, valueMax: valueMaxExc}
 
-	for bit := 1; bit < len(r.bitmaps); bit++ {
+	cached, admit := r.cache.probe(r.generation, key, r.leafBytesBound())
+	if cached != nil {
+		return r.cloneCached(cached)
+	}
+
+	result, release := r.mergeBetweenUncached(valueMinInc, valueMaxExc, startMin, startMax, conc)
+	if admit {
+		r.cache.store(r.generation, key, result.Clone())
+	}
+	return result, release
+}
+
+func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc uint64,
+	startMin, startMax cascadeStart, conc int,
+) (*sroar.Bitmap, func()) {
+	observeCascadeSeed(startMin)
+	observeCascadeSeed(startMax)
+
+	resultMin, releaseMin := r.cloneSeed(startMin.seed)
+	resultMax, releaseMax := r.cloneSeed(startMax.seed)
+	defer releaseMax()
+	andedMin := startMin.narrowed
+	andedMax := startMax.narrowed
+
+	// one loop for both cascades: each plane is read once despite the two
+	// starting at different bits
+	for bit := min(startMin.nextBit, startMax.nextBit); bit < len(r.bitmaps); bit++ {
 		var b uint64 = 1 << (bit - 1)
 
-		if valueMinInc&b != 0 {
-			resultMin.AndConc(r.bitmaps[bit], conc)
-			ANDedMin = true
-		} else if ANDedMin {
-			resultMin.OrConc(r.bitmaps[bit], conc)
+		if bit >= startMin.nextBit {
+			if valueMinInc&b != 0 {
+				resultMin.AndConc(r.bitmaps[bit], conc)
+				andedMin = true
+			} else if andedMin {
+				resultMin.OrConc(r.bitmaps[bit], conc)
+			}
 		}
 
-		if valueMaxExc&b != 0 {
-			resultMax.AndConc(r.bitmaps[bit], conc)
-			ANDedMax = true
-		} else if ANDedMax {
-			resultMax.OrConc(r.bitmaps[bit], conc)
+		if bit >= startMax.nextBit {
+			if valueMaxExc&b != 0 {
+				resultMax.AndConc(r.bitmaps[bit], conc)
+				andedMax = true
+			} else if andedMax {
+				resultMax.OrConc(r.bitmaps[bit], conc)
+			}
 		}
 	}
 

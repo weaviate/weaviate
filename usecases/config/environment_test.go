@@ -1854,3 +1854,205 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"not given", []string{}, 0, false},
+		{"plain bytes", []string{"2097152"}, 2097152, false},
+		{"with unit", []string{"2GiB"}, 2 << 30, false},
+		{"at the ceiling", []string{"1TiB"}, MaxQueryBitmapBufsSize, false},
+		// math.MaxInt64 buffers would build channels with ~1.4e11 slots.
+		{"unlimited", []string{"unlimited"}, 0, true},
+		{"nolimit", []string{"nolimit"}, 0, true},
+		// 10_000_000 * 2^40 wraps int64 negative before the bounds are seen.
+		{"overflows int64", []string{"10000000TiB"}, 0, true},
+		{"above the ceiling", []string{"2TiB"}, 0, true},
+		{"zero", []string{"0"}, 0, true},
+		{"negative", []string{"-1"}, 0, true},
+		{"not parsable", []string{"I'm not a number"}, 0, true},
+		{"unsupported unit", []string{"5GiL"}, 0, true},
+	}
+
+	// The other variable is pinned wide enough that only the bound under test
+	// can reject a value, not the pair check that follows it.
+	envNames := []struct {
+		envName       string
+		defaultVal    int
+		otherEnvName  string
+		otherEnvValue string
+		read          func(Config) int
+	}{
+		{
+			"QUERY_BITMAP_BUFS_MAX_MEMORY", DefaultQueryBitmapBufsMaxMemory,
+			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", "2MiB",
+			func(c Config) int { return c.QueryBitmapBufsMaxMemory },
+		},
+		{
+			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", DefaultQueryBitmapBufsMaxBufSize,
+			"QUERY_BITMAP_BUFS_MAX_MEMORY", "1TiB",
+			func(c Config) int { return c.QueryBitmapBufsMaxBufSize },
+		},
+	}
+
+	for _, env := range envNames {
+		for _, tt := range tests {
+			t.Run(env.envName+"/"+tt.name, func(t *testing.T) {
+				t.Setenv(env.otherEnvName, env.otherEnvValue)
+				if len(tt.value) == 1 {
+					t.Setenv(env.envName, tt.value[0])
+				}
+				conf := Config{}
+				err := FromEnv(&conf)
+
+				if tt.expectedErr {
+					require.Error(t, err)
+					require.Contains(t, err.Error(), env.envName)
+					return
+				}
+				require.NoError(t, err)
+				expected := tt.expected
+				if len(tt.value) == 0 {
+					expected = env.defaultVal
+				}
+				require.Equal(t, expected, env.read(conf))
+			})
+		}
+	}
+}
+
+// No pair of these two refuses a boot. A pair that affords fewer in-memory
+// size classes than asked for, or none at all, degrades the buffer pool, which
+// is an optimisation; the pool warns and serves. Only the per-variable bounds
+// reject, and TestEnvironmentQueryBitmapBufsSizes covers those.
+func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
+	tests := []struct {
+		name    string
+		memory  string
+		bufSize string
+	}{
+		{
+			name: "both unset",
+		},
+		{
+			name:    "explicit defaults",
+			memory:  "128MiB",
+			bufSize: "32MiB",
+		},
+		{
+			name:    "smallest usable pair",
+			memory:  "2MiB",
+			bufSize: "2MiB",
+		},
+		// These build no in-memory class at all: the pool still serves correct
+		// results, with every buffer above 1MiB allocated per request.
+		{
+			name:    "budget below the smallest in-memory class, matching buf size",
+			memory:  "1MiB",
+			bufSize: "1MiB",
+		},
+		{
+			name:    "max buf size below the sync tier ceiling",
+			bufSize: "512KiB",
+		},
+		{
+			name:    "max buf size exactly at the sync tier ceiling",
+			bufSize: "1MiB",
+		},
+		// These build a ladder shorter than the max buf size asked for.
+		{
+			name:    "max buf size above the budget",
+			memory:  "4MiB",
+			bufSize: "32MiB",
+		},
+		{
+			name:    "budget one byte above the max buf size",
+			memory:  "33554433",
+			bufSize: "33554432",
+		},
+		{
+			name:    "max buf size one byte above the budget",
+			memory:  "33554432",
+			bufSize: "33554433",
+		},
+		// One variable set and the other left at its default is the ordinary
+		// operator action, and such configs are already live in the field.
+		// Refusing them turns an upgrade into a crash loop.
+		{
+			name:   "budget lowered to 8MiB, max buf size left at its default",
+			memory: "8MiB",
+		},
+		{
+			name:   "budget lowered to 2MiB, max buf size left at its default",
+			memory: "2MiB",
+		},
+		{
+			name:   "budget lowered to 1MiB, max buf size left at its default",
+			memory: "1MiB",
+		},
+		{
+			name:    "max buf size raised to 256MiB, budget left at its default",
+			bufSize: "256MiB",
+		},
+		{
+			name:    "max buf size lowered to 512KiB, budget left at its default",
+			bufSize: "512KiB",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.memory != "" {
+				t.Setenv("QUERY_BITMAP_BUFS_MAX_MEMORY", tt.memory)
+			}
+			if tt.bufSize != "" {
+				t.Setenv("QUERY_BITMAP_BUFS_MAX_BUF_SIZE", tt.bufSize)
+			}
+
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+		})
+	}
+}
+
+// Every size-valued env var must name itself and its rejected value on error.
+func TestEnvironmentResourceSizeRejectionsNameTheValue(t *testing.T) {
+	envNames := []string{
+		"PERSISTENCE_LSM_MAX_SEGMENT_SIZE",
+		"PERSISTENCE_MIN_MMAP_SIZE",
+		"PERSISTENCE_MAX_REUSE_WAL_SIZE",
+		"PERSISTENCE_HNSW_MAX_LOG_SIZE",
+		"BACKUP_MIN_CHUNK_SIZE",
+		"BACKUP_CHUNK_TARGET_SIZE",
+		"BACKUP_SPLIT_FILE_SIZE",
+		"QUERY_BITMAP_BUFS_MAX_MEMORY",
+		"QUERY_BITMAP_BUFS_MAX_BUF_SIZE",
+	}
+
+	badValues := []struct {
+		name  string
+		value string
+	}{
+		{name: "not a number", value: "I'm not a number"},
+		{name: "unsupported unit", value: "5GiL"},
+		{name: "overflows int64", value: "10000000TiB"},
+	}
+
+	for _, envName := range envNames {
+		for _, bad := range badValues {
+			t.Run(envName+"/"+bad.name, func(t *testing.T) {
+				t.Setenv(envName, bad.value)
+
+				err := FromEnv(&Config{})
+
+				require.Error(t, err)
+				require.Contains(t, err.Error(), envName)
+				require.Contains(t, err.Error(), bad.value)
+			})
+		}
+	}
+}

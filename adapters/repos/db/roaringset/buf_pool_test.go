@@ -18,9 +18,13 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/dustin/go-humanize"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -847,4 +851,321 @@ func TestValidateBufferRanges(t *testing.T) {
 			require.Equal(t, tc.expectedRanges, ranges)
 		})
 	}
+}
+
+func TestCloneToBufGrowthHeadroom(t *testing.T) {
+	const MiB = 1 << 20
+
+	// hands back a buffer of exactly the requested capacity, so the test sees
+	// the raw request instead of a ladder's rounded-up size class.
+	newRecording := func() (*recordingBufPool, BitmapBufPool) {
+		p := &recordingBufPool{}
+		return p, p
+	}
+
+	t.Run("clone is asked for more than the source length", func(t *testing.T) {
+		rec, pool := newRecording()
+		src := prefilledOfAtLeast(2 * MiB)
+
+		cloned, put := pool.CloneToBuf(src)
+		defer put()
+
+		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), rec.lastMinCap)
+		require.Greater(t, rec.lastMinCap, src.LenInBytes())
+		require.Equal(t, src.GetCardinality(), cloned.GetCardinality())
+	})
+
+	t.Run("a merge that adds containers stays inside the buffer", func(t *testing.T) {
+		rec, pool := newRecording()
+		src := prefilledOfAtLeast(2 * MiB)
+		grower := bitmapAbove(src, 16)
+
+		cloned, put := pool.CloneToBuf(src)
+		defer put()
+		cloned.Or(grower)
+
+		// Outgrowing the buffer is what makes sroar swap in an unpooled slice.
+		require.LessOrEqual(t, cloned.LenInBytes(), rec.lastCap)
+	})
+
+	t.Run("factor wrapper does not stack with the clone factor", func(t *testing.T) {
+		rec, base := newRecording()
+		src := prefilledOfAtLeast(2 * MiB)
+
+		// below the clone factor: the clone factor wins
+		NewBitmapBufPoolFactorWrapper(base, 1.1).CloneToBuf(src)
+		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), rec.lastMinCap)
+
+		// above it: the wrapper's own factor wins, and is not multiplied by it
+		NewBitmapBufPoolFactorWrapper(base, 2.0).CloneToBuf(src)
+		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), 2.0), rec.lastMinCap)
+	})
+
+	t.Run("Get is untouched", func(t *testing.T) {
+		rec, pool := newRecording()
+
+		buf, put := pool.Get(1234)
+		defer put()
+
+		require.Equal(t, 1234, rec.lastMinCap)
+		require.Equal(t, 1234, cap(buf))
+	})
+}
+
+type recordingBufPool struct {
+	lastMinCap int
+	lastCap    int
+	lastBuf    []byte
+}
+
+func (p *recordingBufPool) Get(minCap int) ([]byte, func()) {
+	p.lastMinCap = minCap
+	buf := make([]byte, 0, minCap)
+	p.lastCap = cap(buf)
+	p.lastBuf = buf
+	return buf, func() {}
+}
+
+func (p *recordingBufPool) CloneToBuf(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return cloneToBuf(p, bm)
+}
+
+func prefilledOfAtLeast(bytes int) *sroar.Bitmap {
+	ids := uint64(1 << 16)
+	bm := sroar.Prefill(ids)
+	for bm.LenInBytes() < bytes {
+		ids += 1 << 16
+		bm = sroar.Prefill(ids)
+	}
+	return bm
+}
+
+func bitmapAbove(src *sroar.Bitmap, containers int) *sroar.Bitmap {
+	base := src.Maximum() + 1<<16
+	bm := sroar.NewBitmap()
+	for c := 0; c < containers; c++ {
+		start := base + uint64(c)<<16
+		for i := uint64(0); i < 1<<16; i += 2 {
+			bm.Set(start + i)
+		}
+	}
+	return bm
+}
+
+// Gates growth headroom against the shipped defaults, not a test double or a
+// non-default knob.
+func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
+	const MiB = 1 << 20
+
+	// Sized to sit in the top 20% of the 2MiB class, where 1.25x moves the
+	// request into the next one. That is the whole behaviour change.
+	const topOfClassIDs = 14_000_000
+
+	newPool := func(t *testing.T) *bitmapBufPoolRanged {
+		logger, _ := test.NewNullLogger()
+		pool, stop := NewBitmapBufPoolDefault(logger, nil, 32*MiB, 128*MiB)
+		t.Cleanup(stop)
+		return pool.(*bitmapBufPoolRanged)
+	}
+
+	// servedClass reports the size class a returned buffer landed in, by
+	// draining the in-memory pools after the buffer was put back.
+	servedClass := func(p *bitmapBufPoolRanged) int {
+		for i, inMemo := range p.poolsInMemo {
+			select {
+			case ptr := <-inMemo.bufsCh:
+				require.Equal(t, p.ranges[p.firstInMemoRngIdx+i], cap(*ptr))
+				return p.ranges[p.firstInMemoRngIdx+i]
+			default:
+			}
+		}
+		return 0
+	}
+
+	src := sroar.Prefill(topOfClassIDs)
+	require.Greater(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), 2*MiB)
+	require.LessOrEqual(t, src.LenInBytes(), 2*MiB)
+
+	t.Run("the production pool clones a class above the source", func(t *testing.T) {
+		p := newPool(t)
+
+		_, put := p.Get(src.LenInBytes())
+		put()
+		require.Equal(t, 2*MiB, servedClass(p))
+
+		_, put = p.CloneToBuf(src)
+		put()
+		require.Equal(t, 4*MiB, servedClass(p))
+	})
+
+	// The one clone that opts out, because nothing downstream of it can grow.
+	t.Run("the whole-shard clone stays in its own class", func(t *testing.T) {
+		p := newPool(t)
+		bmf := NewBitmapFactory(p, func() uint64 { return topOfClassIDs - defaultIdIncrement })
+
+		bm, release := bmf.GetBitmap()
+		require.Equal(t, topOfClassIDs-defaultIdIncrement, bm.Maximum())
+		release()
+
+		require.Equal(t, 2*MiB, servedClass(p))
+	})
+}
+
+// The warning is the whole signal for a pool that built fewer classes than
+// asked for, or none at all: nothing else surfaces either state.
+func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
+	const (
+		KiB = 1 << 10
+		MiB = 1 << 20
+	)
+
+	testCases := []struct {
+		name       string
+		maxBufSize int
+		maxMemory  int
+		expWarn    string
+	}{
+		{
+			name:       "shipped defaults",
+			maxBufSize: 32 * MiB,
+			maxMemory:  128 * MiB,
+		},
+		{
+			name:       "no in-memory class at all",
+			maxBufSize: 512 * KiB,
+			maxMemory:  128 * MiB,
+			expWarn:    "builds no in-memory bitmap buffer class at all",
+		},
+		{
+			name:       "budget covers fewer classes than requested",
+			maxBufSize: 32 * MiB,
+			maxMemory:  40 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		// Same ladder either side of maxBufSize == maxMemory, same warning.
+		{
+			name:       "budget one byte above the max buf size",
+			maxBufSize: 32 * MiB,
+			maxMemory:  32*MiB + 1,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		{
+			name:       "max buf size one byte above the budget",
+			maxBufSize: 32*MiB + 1,
+			maxMemory:  32 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		// One variable set and the other left at its default. These build a
+		// pool rather than refusing a boot, so the warning is the only thing
+		// telling an operator which classes they gave up.
+		{
+			name:       "budget lowered to 8MiB, max buf size left at its default",
+			maxBufSize: 32 * MiB,
+			maxMemory:  8 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB]",
+		},
+		{
+			name:       "budget lowered to 2MiB, max buf size left at its default",
+			maxBufSize: 32 * MiB,
+			maxMemory:  2 * MiB,
+			expWarn:    "[2.0 MiB]",
+		},
+		{
+			name:       "budget lowered to 1MiB, max buf size left at its default",
+			maxBufSize: 32 * MiB,
+			maxMemory:  1 * MiB,
+			expWarn:    "builds no in-memory bitmap buffer class at all",
+		},
+		{
+			name:       "max buf size raised to 256MiB, budget left at its default",
+			maxBufSize: 256 * MiB,
+			maxMemory:  128 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB 32 MiB 64 MiB]",
+		},
+		{
+			name:       "max buf size lowered to the sync tier ceiling, budget left at its default",
+			maxBufSize: 1 * MiB,
+			maxMemory:  128 * MiB,
+			expWarn:    "builds no in-memory bitmap buffer class at all",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			_, stop := NewBitmapBufPoolDefault(logger, nil, tc.maxBufSize, tc.maxMemory)
+			defer stop()
+
+			if tc.expWarn == "" {
+				require.Empty(t, hook.AllEntries())
+				return
+			}
+			require.Len(t, hook.AllEntries(), 1)
+			require.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+			require.Contains(t, hook.LastEntry().Message, tc.expWarn)
+		})
+	}
+}
+
+func TestCloneBufSize(t *testing.T) {
+	const MiB = 1 << 20
+
+	// A clone sized from a wider bound than its source has to end up asking for
+	// the same thing CloneToBuf would have asked for at that size.
+	rec := &recordingBufPool{}
+	src := prefilledOfAtLeast(2 * MiB)
+	wider := src.LenInBytes() * 2
+
+	rec.Get(CloneBufSize(wider))
+	viaHelper := rec.lastMinCap
+
+	widerBm := prefilledOfAtLeast(wider)
+	rec.CloneToBuf(widerBm)
+
+	require.Equal(t, CloneBufSize(widerBm.LenInBytes()), rec.lastMinCap)
+	require.Greater(t, viaHelper, wider)
+}
+
+// pins disposable_created's size label to the same class the pooled tiers report.
+func TestDisposableBufMetricSizeLabel(t *testing.T) {
+	metrics := monitoring.GetMetrics()
+	m := newPromBufDisposableMetrics(metrics)
+
+	countFor := func(label string) float64 {
+		return testutil.ToFloat64(metrics.LSMBitmapBuffersUsage.WithLabelValues(label, "disposable_created"))
+	}
+
+	testCases := []struct {
+		name     string
+		size     int
+		expLabel string
+	}{
+		{name: "single byte", size: 1, expLabel: "1 B"},
+		{name: "exactly the smallest class", size: 512, expLabel: "512 B"},
+		{name: "one byte above a class", size: 513, expLabel: "1.0 KiB"},
+		{name: "exactly the sync tier ceiling", size: 1 << 20, expLabel: "1.0 MiB"},
+		{name: "exactly the largest in-memory class", size: 1 << 25, expLabel: "32 MiB"},
+		{name: "one byte above the largest class", size: 1<<25 + 1, expLabel: "64 MiB"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := countFor(tc.expLabel)
+			m.bufCreated(tc.size)
+			require.Equal(t, before+1, countFor(tc.expLabel))
+		})
+	}
+
+	t.Run("a request the size of a pooled class carries that class's label", func(t *testing.T) {
+		inMemoRanges, _ := inMemoBufferRangesAndLimits(1<<25, 1<<27)
+		require.NotEmpty(t, inMemoRanges)
+
+		for _, rng := range inMemoRanges {
+			pooledLabel := humanize.IBytes(uint64(rng))
+			before := countFor(pooledLabel)
+			m.bufCreated(rng)
+			require.Equal(t, before+1, countFor(pooledLabel),
+				"disposable label for %d bytes must match the pooled label %q", rng, pooledLabel)
+		}
+	})
 }

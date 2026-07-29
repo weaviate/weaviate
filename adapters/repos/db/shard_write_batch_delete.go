@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -22,7 +23,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -171,6 +174,10 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 
 	start := time.Now()
 
+	// This path bypasses buildAllowList, so without its own slow-log sink a
+	// delete's filter annotations have nowhere to land.
+	ctx = helpers.InitSlowQueryDetails(ctx)
+
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
@@ -180,21 +187,40 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 	defer allowList.Close()
 
+	// Counted here, not gated on the outcome below: a cancelled ctx errors out
+	// of the uuid loop after the filter has already resolved, and cancellations
+	// concentrate on the long-running deletes this metric exists to surface.
+	roaringsetrange.ObserveDeleteFilterResolution(ctx)
+
 	fetchStart := time.Now()
 	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
 	uuids = make([]strfmt.UUID, it.Len())
 	currIdx := 0
 
 	defer func() {
-		logger := logger.WithFields(logrus.Fields{
-			"took":           time.Since(start).String(),
+		outcome := logrus.Fields{
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
 			"uuids_resolved": currIdx,
-		})
+		}
+
+		// A delete-heavy workload makes one FindUUIDs call per batch per shard, so
+		// route the ctx annotations through the same slow-query reporter every
+		// other per-shard read path already bounds by.
+		reported := map[string]any{
+			"collection": s.index.Config.ClassName,
+			"shard":      s.ID(),
+			"tenant":     s.tenant(),
+			"query":      "FindUUIDs",
+			"filters":    filters,
+			"limit":      limit,
+		}
+		maps.Copy(reported, outcome)
+		s.slowQueryReporter.LogIfSlow(ctx, start, reported)
+
+		logger := logger.WithFields(outcome).WithField("took", time.Since(start).String())
 		if err != nil {
-			// log as debug
-			logger.WithError(err).Debug("Shard::FindUUIDs failed")
+			logger.Debugf("Shard::FindUUIDs failed: %v", err)
 			return
 		}
 		logger.Debug("Shard::FindUUIDs finished")

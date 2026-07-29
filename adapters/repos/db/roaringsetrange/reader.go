@@ -26,6 +26,24 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
+// DocBitmapAnnotation is the slow-query-log key the range cascade writes
+// under. Exported for the tests in packages db and inverted that assert on the
+// record; the delete path reads it in-package via readSourceFromContext.
+const DocBitmapAnnotation = "build_allow_list_doc_bitmap_rangeable"
+
+// docBitmapSourceField names which readers answered; the annotation's presence
+// alone doesn't, since both reader sets write it.
+const docBitmapSourceField = "source"
+
+// Both values are facts about the reader set. The second names the absence of
+// the in-memory segment rather than a backing, because the readers it stands
+// for are the bucket's memtable plus however many range segments happen to be
+// on disk, and that count is zero until the first flush.
+const (
+	sourceInMemorySegment   = "in_memory_segment"
+	sourceNoInMemorySegment = "no_in_memory_segment"
+)
+
 type InnerReader interface {
 	Read(ctx context.Context, value uint64, operator filters.Operator) (layer roaringset.BitmapLayer, release func(), err error)
 }
@@ -37,6 +55,7 @@ type CombinedReader struct {
 	// segmentConcurrency caps how many inner readers run at once; the
 	// bitmap-merge budget is a separate per-query axis carried in ctx.
 	segmentConcurrency int
+	source             string
 }
 
 func NewCombinedReader(readers []InnerReader, releaseReaders func(), segmentConcurrency int,
@@ -47,7 +66,40 @@ func NewCombinedReader(readers []InnerReader, releaseReaders func(), segmentConc
 		readers:            readers,
 		releaseReaders:     releaseReaders,
 		segmentConcurrency: segmentConcurrency,
+		source:             readerSource(readers),
 	}
+}
+
+// readerSource is derived from the readers rather than passed in by the
+// bucket, so a third construction site cannot label itself wrong.
+func readerSource(readers []InnerReader) string {
+	for _, reader := range readers {
+		if _, ok := reader.(*segmentInMemoryReader); ok {
+			return sourceInMemorySegment
+		}
+	}
+	return sourceNoInMemorySegment
+}
+
+// readSourceFromContext returns "" when no range read ran under ctx.
+func readSourceFromContext(ctx context.Context) string {
+	entries, ok := helpers.ExtractSlowQueryDetails(ctx)[DocBitmapAnnotation].([]map[string]any)
+	if !ok {
+		return ""
+	}
+
+	source := ""
+	for _, entry := range entries {
+		got, _ := entry[docBitmapSourceField].(string)
+		if got == sourceInMemorySegment {
+			// One is enough: the caller did traverse the memoisable path.
+			return got
+		}
+		if got != "" {
+			source = got
+		}
+	}
+	return source
 }
 
 func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filters.Operator,
@@ -61,6 +113,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	defer func() {
 		took := time.Since(before)
 		vals := map[string]any{
+			docBitmapSourceField:              r.source,
 			"readers":                         count,
 			"subresults_read_sum_took":        subresultsReadSum,
 			"subresults_read_sum_took_string": subresultsReadSum.String(),
@@ -70,7 +123,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 			"took_string":                     took.String(),
 		}
 
-		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap_rangeable", vals)
+		helpers.AnnotateSlowQueryLogAppend(ctx, DocBitmapAnnotation, vals)
 	}()
 
 	switch count {

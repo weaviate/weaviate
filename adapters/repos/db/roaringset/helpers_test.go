@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 )
 
 // benchMaxId controls the initial doc ID ceiling for BitmapFactory benchmarks,
@@ -426,4 +427,47 @@ func TestIterator(t *testing.T) {
 			})
 		}
 	})
+}
+
+// Pins GetBitmap's exact-sized clone: it must never outgrow its pooled buffer.
+func TestBitmapFactoryCloneNeverOutgrowsItsBuffer(t *testing.T) {
+	const ids = uint64(1 << 20)
+
+	sharesArrayWith := func(t *testing.T, buf []byte, bm *sroar.Bitmap) {
+		t.Helper()
+		backing := bm.ToBuffer()
+		require.NotEmpty(t, backing, "bitmap emptied out, the check would be vacuous")
+		require.Same(t, &buf[:1][0], &backing[0], "clone reallocated off its pooled buffer")
+	}
+
+	testCases := []struct {
+		name       string
+		initMaxId  uint64
+		queryMaxId uint64
+	}{
+		{name: "nothing to remove", initMaxId: ids, queryMaxId: ids + defaultIdIncrement},
+		{name: "removes most of the range", initMaxId: ids, queryMaxId: ids / 4},
+		{name: "removes down to a single id", initMaxId: ids, queryMaxId: 0},
+		{name: "expands past the prefilled range", initMaxId: ids, queryMaxId: 4 * ids},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			maxId := tc.initMaxId
+			rec := &recordingBufPool{}
+			bmf := NewBitmapFactory(rec, func() uint64 { return maxId })
+
+			maxId = tc.queryMaxId
+			cloned, release := bmf.GetBitmap()
+			defer release()
+
+			require.Equal(t, bmf.prefilled.LenInBytes(), rec.lastMinCap,
+				"the clone was asked for anything other than the exact source size")
+			sharesArrayWith(t, rec.lastBuf, cloned)
+
+			// what the single production caller does with it
+			cloned.AndNotConc(NewBitmap(1, 3, 5, 7), 1)
+			sharesArrayWith(t, rec.lastBuf, cloned)
+		})
+	}
 }
