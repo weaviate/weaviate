@@ -367,14 +367,16 @@ func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint
 				continue
 			}
 			// input ctx expired while the callback is still running and the caller
-			// treats the mutation as failed. Roll back shouldAbort to avoid silently
-			// aborting every subsequent cycle, unless a racing activate/deactivate
-			// changed the flag in the meantime.
-			c.Lock()
-			if meta, ok := c.callbacks[callbackId]; ok && meta.shouldAbort == postShouldAbort {
-				meta.shouldAbort = prevShouldAbort
+			// treats the mutation as failed. Roll back the shouldAbort change to
+			// avoid silently aborting every subsequent cycle, unless a racing
+			// activate/deactivate changed the flag in the meantime.
+			if prevShouldAbort != postShouldAbort {
+				c.Lock()
+				if meta, ok := c.callbacks[callbackId]; ok && meta.shouldAbort == postShouldAbort {
+					meta.shouldAbort = prevShouldAbort
+				}
+				c.Unlock()
 			}
-			c.Unlock()
 			return ctx.Err()
 		}
 	}

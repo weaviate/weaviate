@@ -2175,3 +2175,94 @@ func testUnregisterCtxCancelledWhileRunning(t *testing.T, routinesLimit int) {
 		},
 	})
 }
+
+// A mutation that left shouldAbort untouched has nothing to roll back when the
+// input ctx expires, so it must not reach for the group lock. The test holds the
+// lock while the ctx is cancelled: a rollback attempt would block on it.
+func TestCycleCallback_MutateCallbackCtxCancelledWithoutFlagChange(t *testing.T) {
+	type testCase struct {
+		name          string
+		routinesLimit int
+		// value of shouldAbort before and after the mutation
+		shouldAbort bool
+	}
+
+	testCases := []testCase{
+		{name: "sequential, flag stays false", routinesLimit: 1, shouldAbort: false},
+		{name: "sequential, flag stays true", routinesLimit: 1, shouldAbort: true},
+		{name: "parallel, flag stays false", routinesLimit: 2, shouldAbort: false},
+		{name: "parallel, flag stays true", routinesLimit: 2, shouldAbort: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			shouldNotAbort := func() bool { return false }
+
+			chStarted := make(chan struct{}, 1)
+			chGate := make(chan struct{})
+			callback := func(shouldAbort ShouldAbortCallback) bool {
+				chStarted <- struct{}{}
+				<-chGate
+				return true
+			}
+
+			callbacks := NewCallbackGroup("id", logger, tc.routinesLimit)
+			callbacks.Register("c", callback)
+			group := callbacks.(*cycleCallbackGroup)
+
+			// single registered callback gets id 0. true stands for a
+			// deactivate already waiting for the running callback to finish
+			group.Lock()
+			group.callbacks[0].shouldAbort = tc.shouldAbort
+			group.Unlock()
+
+			// 1st cycle with the callback blocking on the gate
+			chCycle := make(chan bool, 1)
+			go func() {
+				chCycle <- callbacks.CycleCallback(shouldNotAbort)
+			}()
+			<-chStarted
+
+			ctxMutate, cancelMutate := context.WithCancel(context.Background())
+			defer cancelMutate()
+
+			chEntered := make(chan struct{}, 1)
+			chMutated := make(chan error, 1)
+			go func() {
+				chMutated <- group.mutateCallback(ctxMutate, 0,
+					func(callbackId uint32) error { return nil },
+					func(callbackId uint32, meta *cycleCallbackMeta, running bool) error {
+						chEntered <- struct{}{}
+						return nil
+					},
+				)
+			}()
+
+			// onMetaFound runs under the group lock, so acquiring it here waits until
+			// mutateCallback released it and is about to wait for the running callback
+			<-chEntered
+			group.Lock()
+			cancelMutate()
+
+			var err error
+			timedOut := false
+			select {
+			case err = <-chMutated:
+			case <-time.After(5 * time.Second):
+				timedOut = true
+			}
+			group.Unlock()
+
+			require.False(t, timedOut, "mutateCallback waited for the group lock instead of skipping the rollback")
+			assert.ErrorIs(t, err, context.Canceled)
+
+			group.Lock()
+			assert.Equal(t, tc.shouldAbort, group.callbacks[0].shouldAbort)
+			group.Unlock()
+
+			close(chGate)
+			assert.True(t, <-chCycle)
+		})
+	}
+}
