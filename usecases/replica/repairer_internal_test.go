@@ -107,15 +107,16 @@ func describeWrites(xs []*objects.VObject) string {
 // the only pending write is a delete and no object read can be a precondition
 // for it.
 //
-// The last row is expected to FAIL. It pins a pre-existing order dependence
-// that this test does not fix: a tombstone only wins when no replica after it
-// holds a newer live version. See the row comment.
+// Whether an older tombstone should beat a newer live copy at all is decided by
+// TestRepairBatchPartDeleteOnConflictKeepsNewerLiveObject in
+// https://github.com/weaviate/weaviate/pull/12361, which covers this shape in
+// both digest arrival orders. Both rows here use the two-replica fixture, where
+// no such ordering question arises.
 func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 	const (
 		class    = "C1"
 		shard    = "S1"
 		liveTime = int64(100)
-		newTime  = int64(150)
 		delTime  = int64(80)
 	)
 	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
@@ -147,23 +148,6 @@ func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 			},
 			fetchFails: true,
 			wantDelete: []string{"A"},
-			wantQuiet:  []string{"B"},
-		},
-		{
-			// RED, and pre-existing: identical to the rows above except that C
-			// holds a newer live copy after B's tombstone. Folding the digests
-			// resets the accumulated Deleted bit whenever a later replica raises
-			// the winning time, so a tombstone is only seen when no replica after
-			// it is newer. Move C's live@150 to index 1 and the same multiset
-			// deletes on every replica. Rewritten by
-			// https://github.com/weaviate/weaviate/pull/12361.
-			name: "tombstone ahead of the newest live copy",
-			digests: []nodeDigest{
-				{sender: "A", utime: liveTime},
-				{sender: "B", utime: delTime, deleted: true},
-				{sender: "C", utime: newTime},
-			},
-			wantDelete: []string{"A", "C"},
 			wantQuiet:  []string{"B"},
 		},
 	}
