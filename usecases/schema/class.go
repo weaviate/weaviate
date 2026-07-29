@@ -532,9 +532,11 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 //
 // Returns only after the local FSM has applied the update.
 //
-// Empty/nil `fields` falls back to the legacy unmasked behaviour and
-// is identical to UpdateClassInternal — callers that intend a
-// targeted update should always pass an explicit non-empty mask.
+// Empty/nil `fields` falls back to the legacy unmasked merge, but is
+// still not the same call as UpdateClassInternal: this variant always
+// blocks on the local FSM apply, which UpdateClassInternal never does.
+// Callers that intend a targeted update should always pass an explicit
+// non-empty mask.
 func UpdateClassInternalMasked(h *Handler, ctx context.Context, className string, updated *models.Class,
 	fields ...string,
 ) error {

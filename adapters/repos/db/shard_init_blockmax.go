@@ -61,28 +61,38 @@ func structToMap(obj interface{}) (newMap interface{}) {
 // per-prop blockmax_reindex bucket and surface as
 // "store is read-only" mid-iteration. See
 // weaviate/0-weaviate-issues#240.
+// blockMaxInvertedIndexConfig returns the config to persist with
+// UsingBlockMaxWAND set, and whether an update is needed at all.
+//
+// The returned pointer is always distinct from cfg. Callers hold a shallow
+// copy of the class (CloneClass), so pointer fields like InvertedIndexConfig
+// still alias the live in-process schema; setting the flag on that pointer
+// would mutate the live schema outside the RAFT consensus path and race with
+// concurrent schema readers.
+//
+// A nil cfg has the flag unset by definition, so it still needs the update.
+func blockMaxInvertedIndexConfig(cfg *models.InvertedIndexConfig) (*models.InvertedIndexConfig, bool) {
+	if cfg == nil {
+		return &models.InvertedIndexConfig{UsingBlockMaxWAND: true}, true
+	}
+	if cfg.UsingBlockMaxWAND {
+		return nil, false
+	}
+	clone := *cfg
+	clone.UsingBlockMaxWAND = true
+	return &clone, true
+}
+
 func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {
 	class := sc.ReadOnlyClass(className)
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)
 	}
-	// nothing to update
-	if class.InvertedIndexConfig.UsingBlockMaxWAND {
+	next, needsUpdate := blockMaxInvertedIndexConfig(class.InvertedIndexConfig)
+	if !needsUpdate {
 		return nil
 	}
-	// sc.ReadOnlyClass returns a shallow copy (CloneClass), so pointer
-	// fields like InvertedIndexConfig still alias the live in-process
-	// schema. Mutating UsingBlockMaxWAND on the aliased pointer would
-	// change the live schema in-place — outside the RAFT consensus
-	// path — and race with concurrent schema readers. Clone the field
-	// before mutating.
-	if class.InvertedIndexConfig != nil {
-		clone := *class.InvertedIndexConfig
-		class.InvertedIndexConfig = &clone
-	} else {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
-	}
-	class.InvertedIndexConfig.UsingBlockMaxWAND = true
+	class.InvertedIndexConfig = next
 	// structToMap on the sibling sub-configs is still required so
 	// ParseClassUpdate's type assertions on the round-tripped class
 	// succeed — even though the mask skips applying them downstream,
