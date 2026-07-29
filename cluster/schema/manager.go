@@ -566,9 +566,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 	)
 }
 
-// introducedDroppedVectorConfigs returns the names of VectorConfig entries that
-// are dropped ("none") in next but were live or absent in prev — i.e. markers
-// this update introduces.
 // DropVectorMarkerPurgeMinVersion is the minimum cluster version at which a
 // drop-vector marker introduction is safe to accept: the record purge/refusal
 // in the UpdateClass apply is new behavior, so a mixed-version cluster
@@ -586,6 +583,9 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 // pre-release-tolerant or a homogeneous rc cluster would wrongly refuse.
 const DropVectorMarkerPurgeMinVersion = "1.39.0"
 
+// introducedDroppedVectorConfigs returns the names of VectorConfig entries that
+// are dropped ("none") in next but were live or absent in prev — i.e. markers
+// this update introduces.
 func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
 	var introduced []string
 	for name, cfg := range next.VectorConfig {

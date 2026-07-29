@@ -128,6 +128,8 @@ type DropVectorIndexProvider struct {
 
 // NewDropVectorIndexProvider builds the provider. localNode filters units to the
 // ones this node owns; serverCtx bounds the background poll loops.
+// reconcileNudge (nil-safe) wakes the reconcile loop when a completion leaves
+// work behind; it must be non-blocking — called from task-completion callbacks.
 func NewDropVectorIndexProvider(
 	shards dropVectorShards,
 	schema dropVectorSchemaFinalizer,
@@ -135,6 +137,7 @@ func NewDropVectorIndexProvider(
 	logger logrus.FieldLogger,
 	localNode string,
 	serverCtx context.Context,
+	reconcileNudge func(),
 ) *DropVectorIndexProvider {
 	return &DropVectorIndexProvider{
 		shards:               shards,
@@ -143,6 +146,7 @@ func NewDropVectorIndexProvider(
 		logger:               logger,
 		localNode:            localNode,
 		serverCtx:            serverCtx,
+		reconcileNudge:       reconcileNudge,
 		pollInterval:         defaultDropVectorPollInterval,
 		verifyRetryBackoff:   2 * time.Second,
 		verifiedStillDropped: map[string]bool{},
@@ -170,12 +174,6 @@ func (p *DropVectorIndexProvider) GetLocalTasks() []distributedtask.TaskDescript
 func (p *DropVectorIndexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
 	p.evictStillDroppedMemo(desc.ID)
 	return nil
-}
-
-// SetReconcileNudge installs the reconcile-loop wake hook. Must be
-// non-blocking; called from task-completion callbacks.
-func (p *DropVectorIndexProvider) SetReconcileNudge(nudge func()) {
-	p.reconcileNudge = nudge
 }
 
 func (p *DropVectorIndexProvider) nudgeReconcile() {

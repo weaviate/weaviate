@@ -276,7 +276,7 @@ func newTestDropProvider(shards dropVectorShards, fin dropVectorSchemaFinalizer,
 func newTestDropProviderCtx(shards dropVectorShards, fin dropVectorSchemaFinalizer, rec distributedtask.TaskCompletionRecorder, serverCtx context.Context) *DropVectorIndexProvider {
 	logger, _ := test.NewNullLogger()
 	// Default sharding state: exactly the shard the default dropTask covers.
-	p := NewDropVectorIndexProvider(shards, fin, &fakeShardingReader{shards: []string{"shard1"}}, logger, "node1", serverCtx)
+	p := NewDropVectorIndexProvider(shards, fin, &fakeShardingReader{shards: []string{"shard1"}}, logger, "node1", serverCtx, nil)
 	p.pollInterval = time.Millisecond
 	p.verifyRetryBackoff = time.Millisecond
 	p.SetCompletionRecorder(rec)
@@ -996,7 +996,7 @@ func TestOnTaskCompleted_UncoveredTenant_DefersFinalize(t *testing.T) {
 // round (FAILED/CANCELLED terminal, uncovered-shard deferral) it must nudge so
 // healing starts within dropVectorNudgeDelay instead of a full poll interval —
 // and on paths reconciliation cannot help (success, replay) it must stay quiet.
-// The hook is optional wiring (SetReconcileNudge); unset must not panic.
+// The hook is optional (nil at construction); unset must not panic.
 func TestOnTaskCompleted_ReconcileNudge(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1017,7 +1017,7 @@ func TestOnTaskCompleted_ReconcileNudge(t *testing.T) {
 				p.sharding = &fakeShardingReader{shards: []string{"shard1", "coldTenant"}}
 			}
 			nudges := 0
-			p.SetReconcileNudge(func() { nudges++ })
+			p.reconcileNudge = func() { nudges++ }
 
 			p.OnTaskCompleted(dropTask(tc.status, nil))
 
@@ -1118,6 +1118,31 @@ func TestCheckConflict(t *testing.T) {
 		done.Status = distributedtask.TaskStatusFinished
 		require.NoError(t, p.CheckConflict(newPayload, []*distributedtask.Task{done}))
 	})
+}
+
+// TestEpochCoveredShards_SingleTaskEqualsItsCoveredShards pins the layering
+// invariant behind "one coverage implementation": the per-task claim is
+// payload.CoveredShards (units ∪ CleanedShards — what finalize and the
+// removal gate read), and EpochCoveredShards is only the cross-task
+// aggregation OF that same claim. A single completed task's epoch coverage
+// must therefore be exactly its own CoveredShards.
+func TestEpochCoveredShards_SingleTaskEqualsItsCoveredShards(t *testing.T) {
+	payload := &DropVectorIndexTaskPayload{
+		Collection: "C", Targets: []string{"v1"}, OpID: "op1", DropEpochID: "E1",
+		UnitToShard:   map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
+		CleanedShards: []string{"s3"},
+	}
+	enc, err := payload.encode()
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+		Payload:        enc,
+		Status:         distributedtask.TaskStatusFinished,
+	}
+
+	require.Equal(t, payload.CoveredShards(),
+		EpochCoveredShards([]*distributedtask.Task{task}, "C", []string{"v1"}, "E1"))
 }
 
 // TestCompletedUnitShards_RequiresAllReplicaUnits pins the RF>1 coverage

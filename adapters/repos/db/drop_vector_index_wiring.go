@@ -26,39 +26,34 @@ import (
 )
 
 // EditOpBucketsForShards resolves the edit-ops objects buckets for the given
-// local shards in a single walk, so the drop-vector provider can register ops and
-// poll pending sets without an O(shards) lookup per unit. A shard absent from the
-// result is not locally available (a deactivated tenant, or a lazy shard that
-// failed to load). Lazy shards are loaded explicitly with the error surfaced —
-// never via Store()'s panicking mustLoad — acceptable for a drop, a rare
-// operator-initiated action that must touch every shard once anyway.
+// local shards by direct map lookup — O(requested), not O(collection) — so a
+// bounded round on a huge MT collection does not pay a full shard-map walk. A
+// shard absent from the result is not locally available (a deactivated
+// tenant, or a lazy shard that failed to load). Lazy shards are loaded
+// explicitly with the error surfaced — never via Store()'s panicking mustLoad
+// — acceptable for a drop, a rare operator-initiated action that must touch
+// every shard once anyway.
 func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, shardNames []string) (map[string]editOpBucket, error) {
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
 		return nil, fmt.Errorf("index for collection %q not found", collection)
 	}
-	wanted := make(map[string]struct{}, len(shardNames))
-	for _, name := range shardNames {
-		wanted[name] = struct{}{}
-	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
-	if err := idx.ForEachShard(func(name string, s ShardLike) error {
-		if _, ok := wanted[name]; !ok {
-			return nil
+	for _, name := range shardNames {
+		s := idx.shards.Load(name)
+		if s == nil {
+			continue
 		}
 		if lazy, ok := s.(*LazyLoadShard); ok {
 			if err := lazy.Load(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
 					Warnf("drop-vector: load lazy shard: %v", err)
-				return nil // absent from result; the unit fails instead of panicking
+				continue // absent from result; the unit fails instead of panicking
 			}
 		}
 		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
 			buckets[name] = b
 		}
-		return nil
-	}); err != nil {
-		return nil, err
 	}
 	return buckets, nil
 }
@@ -73,20 +68,23 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 	if idx == nil {
 		return nil, fmt.Errorf("index for collection %q not found", collection)
 	}
-	wanted := make(map[string]struct{}, len(shardNames))
-	for _, name := range shardNames {
-		wanted[name] = struct{}{}
-	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
-	if err := idx.ForEachLoadedShard(func(name string, s ShardLike) error {
-		if _, ok := wanted[name]; ok {
-			if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
-				buckets[name] = b
+	for _, name := range shardNames {
+		s := idx.shards.Load(name)
+		if s == nil {
+			continue
+		}
+		if lazy, ok := s.(*LazyLoadShard); ok {
+			lazy.mutex.Lock()
+			loaded := lazy.loaded
+			lazy.mutex.Unlock()
+			if !loaded {
+				continue
 			}
 		}
-		return nil
-	}); err != nil {
-		return nil, err
+		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+			buckets[name] = b
+		}
 	}
 	return buckets, nil
 }

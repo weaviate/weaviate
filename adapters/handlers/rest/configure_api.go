@@ -1185,6 +1185,9 @@ func initReindexAndDistributedTasks(
 
 	// Drop-vector-index distributed-task provider. Added to the providers map so the
 	// conflict/schema-mutation detector loops below auto-register it.
+	// Wake the reconcile loop when a round ends with work remaining (batch
+	// chains, deferrals, failed rounds) instead of idling a full interval.
+	dropVectorReconcileNudge := make(chan struct{}, 1)
 	dropVectorProvider := db.NewDropVectorIndexProvider(
 		repo,
 		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
@@ -1192,17 +1195,14 @@ func initReindexAndDistributedTasks(
 		appState.Logger,
 		appState.Cluster.LocalName(),
 		serverShutdownCtx,
+		func() {
+			select {
+			case dropVectorReconcileNudge <- struct{}{}:
+			default:
+			}
+		},
 	)
 	providers[db.DropVectorIndexNamespace] = dropVectorProvider
-	// Wake the reconcile loop when a round ends with work remaining (batch
-	// chains, deferrals, failed rounds) instead of idling a full interval.
-	dropVectorReconcileNudge := make(chan struct{}, 1)
-	dropVectorProvider.SetReconcileNudge(func() {
-		select {
-		case dropVectorReconcileNudge <- struct{}{}:
-		default:
-		}
-	})
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {

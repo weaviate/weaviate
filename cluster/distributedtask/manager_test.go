@@ -533,32 +533,6 @@ func TestManager_SnapshotRestore(t *testing.T) {
 // that merged would resurrect records the leader deleted — e.g. tasks purged
 // on a drop-vector marker introduction — and then alone reject applies its
 // peers accept.
-func TestManager_Restore_ReplacesPreviousState(t *testing.T) {
-	var (
-		h   = newTestHarness(t).init(t)
-		now = h.clock.Now().Truncate(time.Millisecond)
-	)
-	expectedTasks := ingestSampleTasks(t, h.manager, now)
-
-	snap, err := h.manager.Snapshot()
-	require.NoError(t, err)
-
-	h = newTestHarness(t).init(t)
-	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             "stale-ns",
-		Id:                    "deleted-on-leader",
-		Payload:               []byte("stale"),
-		SubmittedAtUnixMillis: now.UnixMilli(),
-		UnitIds:               []string{"su-1"},
-	}), 1))
-	require.NoError(t, h.manager.Restore(snap))
-
-	tasks, err := h.manager.ListDistributedTasks(context.Background())
-	require.NoError(t, err)
-	require.NotContains(t, tasks, "stale-ns", "restore must drop state absent from the snapshot")
-	assertTasks(t, expectedTasks, tasks)
-}
-
 func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Task {
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns1",

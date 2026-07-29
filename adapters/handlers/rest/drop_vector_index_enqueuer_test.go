@@ -873,7 +873,7 @@ func TestEnqueuerGuardConsistency(t *testing.T) {
 
 			// Re-prove the enqueuer's claim exactly as the raft apply would.
 			logger, _ := test.NewNullLogger()
-			provider := db.NewDropVectorIndexProvider(nil, nil, nil, logger, "n1", context.Background())
+			provider := db.NewDropVectorIndexProvider(nil, nil, nil, logger, "n1", context.Background(), nil)
 			enc, err := json.Marshal(payload)
 			require.NoError(t, err)
 			require.NoError(t, provider.CheckConflict(enc, sc.tasks),
