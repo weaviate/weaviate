@@ -366,6 +366,27 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	}
 
 	// segments need to be initialised in order of their timestamp to ensure that various computations are correct (CNA etc)
+	// Any init failure from here on discards sg without a shutdown — mid-loop
+	// load errors, WAL recovery, the sidecar-recovery hard-fail, cleaner init.
+	// Close whatever segments were already opened or every reload retry leaks
+	// their mmaps. Nil entries: the slice is pre-sized and truncated after the
+	// loop.
+	defer func() {
+		if err == nil {
+			return
+		}
+		for _, seg := range sg.segments {
+			if seg == nil {
+				continue
+			}
+			if closeErr := seg.close(); closeErr != nil {
+				sg.logger.WithField("path", cfg.dir).
+					Warnf("close segment after failed segment-group init: %v", closeErr)
+			}
+			sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
+		}
+	}()
+
 	fileList := make([]string, 0, len(files))
 	for entry := range files {
 		fileList = append(fileList, entry)
@@ -453,22 +474,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	}
 
 	sg.segments = sg.segments[:segmentIndex]
-
-	// Any later init failure (WAL recovery, sidecar recovery hard-fail,
-	// cleaner init) discards sg without a shutdown — close the mmapped
-	// segments here or every reload retry leaks them.
-	defer func() {
-		if err == nil {
-			return
-		}
-		for _, seg := range sg.segments {
-			if closeErr := seg.close(); closeErr != nil {
-				sg.logger.WithField("path", cfg.dir).
-					Warnf("close segment after failed segment-group init: %v", closeErr)
-			}
-			sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
-		}
-	}()
 
 	// Actual strategy is stored in segment files. In case it is SetCollection,
 	// while new implementation uses bitmaps and supposed to be RoaringSet,

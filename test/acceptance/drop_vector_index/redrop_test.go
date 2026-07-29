@@ -13,6 +13,7 @@ package drop_vector_index
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,13 +108,21 @@ func testRedropAfterRecreate() func(t *testing.T) {
 			setTenantStatusEventually(t, className, tenant2, models.TenantActivityStatusCOLD)
 			// The first drop's task may still be SWAPPING for a moment after
 			// its finalize removed the marker; a re-drop in that window is
-			// refused ("still completing") and is retryable by contract.
+			// refused ("still completing") and is retryable by contract. The
+			// window is ms-scale and timing-dependent, so this loop pins only
+			// eventual acceptance — the refusal itself is deterministically
+			// pinned at the FSM (marker-introduction refusal unit tests).
+			sawRefusal := false
 			require.EventuallyWithT(t, func(collect *assert.CollectT) {
 				_, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(
 					clschema.NewSchemaObjectsVectorsDeleteParams().
 						WithClassName(className).WithVectorIndexName(dropped), nil)
+				if err != nil && strings.Contains(err.Error(), "still completing") {
+					sawRefusal = true
+				}
 				assert.NoError(collect, err)
 			}, 30*time.Second, 250*time.Millisecond)
+			t.Logf("re-drop SWAPPING-window refusal observed: %v", sawRefusal)
 			setTenantStatusEventually(t, className, tenant, models.TenantActivityStatusHOT)
 			setTenantStatusEventually(t, className, tenant2, models.TenantActivityStatusHOT)
 		})

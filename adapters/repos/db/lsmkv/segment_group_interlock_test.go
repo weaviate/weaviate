@@ -16,6 +16,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -290,4 +291,41 @@ func TestNewBucket_LockedSidecarRetriesDoNotLeakSegmentMmaps(t *testing.T) {
 
 	require.Equal(t, before, testutil.ToFloat64(gauge),
 		"a failed load must close (and un-count) every segment it opened")
+}
+
+// TestNewBucket_MidLoopSegmentFailureClosesEarlierSegments pins the mid-loop
+// variant: when the SECOND segment fails to open, the first — already
+// mmapped — must be closed; the loading loop returns before the group is
+// published anywhere.
+func TestNewBucket_MidLoopSegmentFailureClosesEarlierSegments(t *testing.T) {
+	dir := t.TempDir()
+	seeded, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err)
+	require.NoError(t, seeded.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, seeded.FlushAndSwitch())
+	require.NoError(t, seeded.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, seeded.FlushAndSwitch())
+	require.NoError(t, seeded.Shutdown(context.Background()))
+
+	segs, err := filepath.Glob(filepath.Join(dir, "segment-*.db"))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(segs), 2)
+	sort.Strings(segs)
+	require.NoError(t, os.Truncate(segs[len(segs)-1], 3)) // corrupt the last-loaded one
+
+	metrics, err := NewMetrics(monitoring.GetMetrics(), "TestClass", "shard")
+	require.NoError(t, err)
+	gauge, err := metrics.segmentTotalByStrategy.GetMetricWithLabelValues(StrategyReplace)
+	require.NoError(t, err)
+	before := testutil.ToFloat64(gauge)
+
+	logger, _ := test.NewNullLogger()
+	_, err = NewBucketCreator().NewBucket(context.Background(), dir, dir, logger, metrics,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour),
+		WithClassName("TestClass"))
+	require.Error(t, err)
+
+	require.Equal(t, before, testutil.ToFloat64(gauge),
+		"segments opened before the failing one must be closed (and un-counted)")
 }

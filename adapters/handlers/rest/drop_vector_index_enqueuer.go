@@ -227,7 +227,6 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(
 	// deterministic, unlike node wall clocks) names the candidate epoch.
 	var newest *db.DropVectorIndexTaskPayload
 	var newestVersion uint64
-	matching := make(map[*distributedtask.Task]*db.DropVectorIndexTaskPayload)
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
@@ -237,7 +236,6 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(
 		if !strings.EqualFold(p.Collection, collection) || !db.SameTargetSet(p.Targets, targets) {
 			continue
 		}
-		matching[task] = p
 		if newest == nil || task.Version > newestVersion {
 			newest, newestVersion = p, task.Version
 		}

@@ -573,7 +573,12 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 // drop-vector marker introduction is safe to accept: the record purge/refusal
 // in the UpdateClass apply is new behavior, so a mixed-version cluster
 // diverges on the same log entry (a pre-purge node neither purges nor
-// refuses). The rolling-upgrade min-version gate (#11901) MUST consume this constant
+// refuses). The AddTask apply has the same exposure: the enqueue-time
+// CleanedShards/DropEpochID claim re-check (CheckConflict) can reject on new
+// binaries while old binaries accept blindly. Both are fenced only
+// PROPOSAL-side — an in-apply version check would read node-local state and
+// be non-deterministic itself — so the rolling-upgrade min-version gate
+// (#11901, at the top of EnqueueDropVectorIndex) MUST consume this constant
 // to fence marker introductions until every node runs at least this version —
 // it exists so the release dependency is code-visible, not PR-description
 // prose. NOTE for the gate implementation: builds carry pre-release suffixes

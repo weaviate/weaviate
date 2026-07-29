@@ -73,7 +73,8 @@ func TestDropVectorMarkerPurgeMinVersion_HasConsumer(t *testing.T) {
 		t.Skip("RELEASE BLOCKER — do not ship 1.39.0 with this skipping: " +
 			"cluster/schema.DropVectorMarkerPurgeMinVersion has no consumer. " +
 			"The rolling-upgrade min-version gate (weaviate/weaviate#11901) must land and consume it " +
-			"to fence drop-vector marker introductions (purge/refusal + removal gate) — " +
+			"to fence drop-vector marker introductions (purge/refusal + removal gate) AND " +
+			"task enqueues (the AddTask claim re-check rejects on new binaries, accepts on old) — " +
 			"mixed-version clusters otherwise apply the same raft entry divergently.")
 	}
 	require.GreaterOrEqual(t, consumers, 1)
