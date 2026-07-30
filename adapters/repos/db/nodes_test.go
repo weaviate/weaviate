@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -95,59 +96,99 @@ func TestGetShardReplicationDetails(t *testing.T) {
 }
 
 // TestLocalNodeShardStats pins that a verbose scan leaves indexLock free while
-// holding the scanned index against a drop, and that a drop mid-scan aborts it.
+// holding the scanned index against a drop, and that a collection being deleted
+// is the only one a scan may leave out without returning an error.
 func TestLocalNodeShardStats(t *testing.T) {
 	const className = "Slow"
 
 	tests := []struct {
-		name           string
-		class          string
-		shards         []string
-		shard          string
-		extraIndices   int
-		withNilIndex   bool
-		closeIndex     bool
-		signalDrop     bool
-		cancelCaller   bool
-		wantShards     int
-		wantShardCount int64
-		wantScanned    int32
+		name              string
+		class             string
+		shards            []string
+		shard             string
+		extraIndices      int
+		withNilIndex      bool
+		closeIndex        bool
+		closedCause       error
+		signalCause       error
+		cancelCaller      bool
+		wantShards        int
+		wantShardCount    int64
+		wantScanned       int32
+		wantClassReported bool
+		wantErr           error
 	}{
-		{name: "all classes", class: "", wantShards: 1, wantShardCount: 1, wantScanned: 1},
-		{name: "single class", class: className, wantShards: 1, wantShardCount: 1, wantScanned: 1},
+		{
+			name: "all classes", class: "",
+			wantShards: 1, wantShardCount: 1, wantScanned: 1, wantClassReported: true,
+		},
+		{
+			name: "single class", class: className,
+			wantShards: 1, wantShardCount: 1, wantScanned: 1, wantClassReported: true,
+		},
 		{
 			name: "all classes, one index entry missing", class: "",
 			withNilIndex: true, wantShards: 1, wantShardCount: 1, wantScanned: 1,
+			wantClassReported: true,
 		},
 		{
 			name: "all classes, counts summed across indices", class: "",
 			extraIndices: 2, wantShards: 3, wantShardCount: 3, wantScanned: 1,
+			wantClassReported: true,
 		},
 		{
 			name: "shard filter matches one of many", class: "", shard: "s1",
 			extraIndices: 2, wantShards: 1, wantShardCount: 1, wantScanned: 1,
+			wantClassReported: true,
 		},
 		{
 			name: "shard filter matches nothing", class: "", shard: "nosuchshard",
 			wantShards: 0, wantShardCount: 0, wantScanned: 0,
 		},
 		{
+			name: "index already dropped", class: className,
+			closeIndex: true, closedCause: errIndexDropped,
+			wantShards: 0, wantShardCount: 0, wantScanned: 0,
+		},
+		{
 			name: "index already shut down", class: className,
-			closeIndex: true, wantShards: 0, wantShardCount: 0, wantScanned: 0,
+			closeIndex: true, closedCause: errIndexShutdown, wantShards: 0, wantScanned: 0,
+			wantErr: errIndexShutdown,
+		},
+		{
+			// drop() closes an index without signalling a cause
+			name: "index closed with no cause", class: className,
+			closeIndex: true, wantShards: 0, wantScanned: 0, wantErr: errIndexClosed,
+		},
+		{
+			// the scan reached every shard, so a drop signalled afterwards must not discard the result
+			name: "drop requested while the scan finished", class: "",
+			signalCause: errIndexDropped, wantShards: 1, wantShardCount: 1, wantScanned: 1,
+			wantClassReported: true,
+		},
+		{
+			name: "shutdown requested while the scan finished", class: "",
+			signalCause: errIndexShutdown, wantShards: 1, wantShardCount: 1, wantScanned: 1,
+			wantClassReported: true,
 		},
 		{
 			name: "drop requested mid-scan", class: "", shards: []string{"s1", "s2"},
-			signalDrop: true, wantShards: 0, wantShardCount: 0, wantScanned: 1,
+			signalCause: errIndexDropped, wantShards: 0, wantShardCount: 0, wantScanned: 1,
 		},
 		{
 			name: "drop requested mid-scan keeps the other indices", class: "",
-			shards: []string{"s1", "s2"}, signalDrop: true, extraIndices: 2,
+			shards: []string{"s1", "s2"}, signalCause: errIndexDropped, extraIndices: 2,
 			wantShards: 2, wantShardCount: 2, wantScanned: 1,
 		},
 		{
+			name: "shutdown requested mid-scan", class: "", shards: []string{"s1", "s2"},
+			signalCause: errIndexShutdown, wantShards: 0, wantScanned: 1,
+			wantErr: errIndexShutdown,
+		},
+		{
 			name: "drop requested mid-scan with a cancelled caller", class: "",
-			shards: []string{"s1", "s2"}, signalDrop: true, cancelCaller: true,
-			wantShards: 0, wantShardCount: 0, wantScanned: 1,
+			shards: []string{"s1", "s2"}, signalCause: errIndexDropped, cancelCaller: true,
+			wantShards: 0, wantScanned: 1, wantErr: context.Canceled,
 		},
 	}
 
@@ -169,6 +210,9 @@ func TestLocalNodeShardStats(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			idx, scanned := shardedIndex(t, className, shardNames, entered, release, blocking)
 			if tt.closeIndex {
+				if tt.closedCause != nil {
+					idx.signalCloseRequested(tt.closedCause)
+				}
 				idx.closed = true
 			}
 			db := &DB{logger: logger, indices: map[string]*Index{idx.ID(): idx}}
@@ -186,10 +230,11 @@ func TestLocalNodeShardStats(t *testing.T) {
 
 			var shards []*models.NodeShardStatus
 			var stats *models.NodeStats
+			var err error
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				stats = db.localNodeShardStats(callerCtx, &shards, tt.class, tt.shard)
+				stats, err = db.localNodeShardStats(callerCtx, &shards, tt.class, tt.shard)
 			}()
 
 			if blocking {
@@ -211,9 +256,9 @@ func TestLocalNodeShardStats(t *testing.T) {
 				if tt.cancelCaller {
 					cancelCaller()
 				}
-				// a requested drop must unblock the scan on its own
-				if tt.signalDrop {
-					idx.signalCloseRequested(errIndexDropped)
+				// a requested close must unblock the scan on its own
+				if tt.signalCause != nil {
+					idx.signalCloseRequested(tt.signalCause)
 				} else {
 					releaseScan()
 				}
@@ -225,17 +270,87 @@ func TestLocalNodeShardStats(t *testing.T) {
 				t.Fatal("shard scan never finished")
 			}
 
-			require.NotNil(t, stats)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				require.Nil(t, stats, "a scan that reported an error must not report counts")
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, stats)
+				assert.Equal(t, tt.wantShardCount, stats.ShardCount, "shard count")
+				assert.Equal(t, tt.wantShardCount, stats.ObjectCount, "object count")
+			}
 			require.Len(t, shards, tt.wantShards)
-			assert.Equal(t, tt.wantShardCount, stats.ShardCount, "shard count")
-			assert.Equal(t, tt.wantShardCount, stats.ObjectCount, "object count")
 			assert.Equal(t, tt.wantScanned, scanned.Load(), "shards scanned")
+			classReported := slices.ContainsFunc(shards, func(s *models.NodeShardStatus) bool {
+				return s.Class == className
+			})
+			assert.Equal(t, tt.wantClassReported, classReported, "shards of the collection under test")
 			for _, shard := range shards {
 				assert.Equal(t, int64(1), shard.NumberOfReplicas, "number of replicas")
-				if tt.signalDrop {
-					assert.NotEqual(t, className, shard.Class, "an aborted index must not report shards")
-				}
 			}
+		})
+	}
+}
+
+// TestGetOneNodeStatusLocal pins how a local scan that cannot finish is reported:
+// running out of time times out this node alone, a shutdown fails the request.
+func TestGetOneNodeStatusLocal(t *testing.T) {
+	const className = "Local"
+
+	tests := []struct {
+		name        string
+		expiredCtx  bool
+		closedCause error
+		wantStatus  string
+		wantShards  int
+		wantErr     error
+	}{
+		{
+			name: "healthy node", wantStatus: models.NodeStatusStatusHEALTHY, wantShards: 1,
+		},
+		{
+			name: "scan ran out of time", expiredCtx: true,
+			wantStatus: models.NodeStatusStatusTIMEOUT, wantShards: 0,
+		},
+		{
+			name: "node shutting down", closedCause: errIndexShutdown,
+			wantErr: errIndexShutdown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			idx, _ := shardedIndex(t, className, []string{"s1"}, nil, nil, false)
+			if tt.closedCause != nil {
+				idx.signalCloseRequested(tt.closedCause)
+				idx.closed = true
+			}
+			db := &DB{
+				logger:       logger,
+				indices:      map[string]*Index{idx.ID(): idx},
+				schemaGetter: &fakeSchemaGetter{},
+			}
+
+			ctx := context.Background()
+			if tt.expiredCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+			}
+
+			status, err := db.GetOneNodeStatus(ctx, db.schemaGetter.NodeName(),
+				"", "", verbosity.OutputVerbose)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				require.Nil(t, status)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, status.Status)
+			assert.Equal(t, tt.wantStatus, *status.Status)
+			assert.Len(t, status.Shards, tt.wantShards)
 		})
 	}
 }
@@ -332,7 +447,8 @@ func (r *retryingSchemaReader) Read(_ string, retryIfClassNotFound bool,
 }
 
 // TestIndexShutdownAbortsInFlightNodeStatusScan pins that Shutdown does not wait
-// for a verbose scan holding closeLock, and that the closing index reports nothing.
+// for a verbose scan holding closeLock, and that the aborted scan reports the
+// shutdown instead of an empty collection.
 func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
 	const className = "Closing"
 
@@ -342,17 +458,18 @@ func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
 
 	idx := newShutdownTestIndex(t, nil)
 	idx.Config.ClassName = schema.ClassName(className)
-	idx.schemaReader = scannableSchemaReader(t, className, []string{"s1"})
-	shards, _ := scannableShards(t, []string{"s1"}, entered, release, true)
+	idx.schemaReader = scannableSchemaReader(t, className, []string{"s1", "s2"})
+	shards, _ := scannableShards(t, []string{"s1", "s2"}, entered, release, true)
 	for name, shard := range shards {
 		idx.shards.Store(name, shard)
 	}
 
 	var status []*models.NodeShardStatus
+	var scanErr error
 	scanDone := make(chan struct{})
 	go func() {
 		defer close(scanDone)
-		scanIndexShards(context.Background(), idx, &status, "")
+		_, _, scanErr = scanIndexShards(context.Background(), idx, &status, "")
 	}()
 
 	select {
@@ -373,4 +490,6 @@ func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
 
 	<-scanDone
 	assert.Empty(t, status, "a closing index must not report shards")
+	require.ErrorIs(t, scanErr, errIndexShutdown,
+		"a scan aborted by shutdown must say so, not report an empty collection")
 }

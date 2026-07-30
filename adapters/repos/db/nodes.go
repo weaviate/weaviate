@@ -60,7 +60,13 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 
 func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
-		return db.LocalNodeStatus(ctx, className, shardName, output), nil
+		status, err := db.LocalNodeStatus(ctx, className, shardName, output)
+		if errors.Is(err, context.DeadlineExceeded) {
+			// a local scan that ran out of time times out this node alone,
+			// instead of failing the status of every node
+			return timedOutNodeStatus(nodeName), nil
+		}
+		return status, err
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, shardName, output)
 	if err != nil {
@@ -68,8 +74,7 @@ func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardNa
 		switch {
 		case errors.As(err, &errSendHttpRequest):
 			if errors.Is(errSendHttpRequest.Unwrap(), context.DeadlineExceeded) {
-				nodeTimeout := models.NodeStatusStatusTIMEOUT
-				return &models.NodeStatus{Name: nodeName, Status: &nodeTimeout}, nil
+				return timedOutNodeStatus(nodeName), nil
 			}
 
 			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
@@ -84,15 +89,22 @@ func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardNa
 	return status, nil
 }
 
-// IncomingGetNodeStatus returns the index if it exists or nil if it doesn't
-func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string) (*models.NodeStatus, error) {
-	return db.LocalNodeStatus(ctx, className, shardName, verbosity), nil
+func timedOutNodeStatus(nodeName string) *models.NodeStatus {
+	timeout := models.NodeStatusStatusTIMEOUT
+	return &models.NodeStatus{Name: nodeName, Status: &timeout}
 }
 
-func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output string) *models.NodeStatus {
+// IncomingGetNodeStatus returns the index if it exists or nil if it doesn't.
+// A scan that ran out of time surfaces as an error: the node that asked has
+// timed out on its own request by then and reports this node as timed out.
+func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string) (*models.NodeStatus, error) {
+	return db.LocalNodeStatus(ctx, className, shardName, verbosity)
+}
+
+func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error) {
 	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
 		// class not found
-		return &models.NodeStatus{}
+		return &models.NodeStatus{}, nil
 	}
 
 	var (
@@ -100,7 +112,11 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 		nodeStats *models.NodeStats
 	)
 	if output == verbosity.OutputVerbose {
-		nodeStats = db.localNodeShardStats(ctx, &shards, className, shardName)
+		var err error
+		nodeStats, err = db.localNodeShardStats(ctx, &shards, className, shardName)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
@@ -119,12 +135,12 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 		OperationalMode: db.config.OperationalMode.Get(),
 	}
 
-	return &status
+	return &status, nil
 }
 
 func (db *DB) localNodeShardStats(ctx context.Context,
 	status *[]*models.NodeShardStatus, className, shardName string,
-) *models.NodeStats {
+) (*models.NodeStats, error) {
 	var objectCount, shardCount int64
 	if className == "" {
 		// scanning every shard takes far too long to hold indexLock
@@ -134,53 +150,74 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 					Warningf("no resource found for index %q", name)
 				continue
 			}
-			objects, shards := scanIndexShards(ctx, idx, status, shardName)
+			objects, shards, err := scanIndexShards(ctx, idx, status, shardName)
+			if err != nil {
+				return nil, err
+			}
 			objectCount, shardCount = objectCount+objects, shardCount+shards
 		}
 		return &models.NodeStats{
 			ObjectCount: objectCount,
 			ShardCount:  shardCount,
-		}
+		}, nil
 	}
 
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		db.logger.WithField("action", "local_node_status_for_class").
 			Warningf("no index found for class %q", className)
-		return nil
+		return nil, nil
 	}
-	objectCount, shardCount = scanIndexShards(ctx, idx, status, shardName)
+	objectCount, shardCount, err := scanIndexShards(ctx, idx, status, shardName)
+	if err != nil {
+		return nil, err
+	}
 	return &models.NodeStats{
 		ObjectCount: objectCount,
 		ShardCount:  shardCount,
-	}
+	}, nil
 }
 
-// scanIndexShards appends the shard statuses of one index to status. A requested
-// drop or shutdown aborts the scan, and a closing index contributes nothing.
+// errIndexClosed stands in for a close whose cause was never signalled, which
+// drop() leaves behind.
+var errIndexClosed = errors.New("collection is closed")
+
+// scanIndexShards appends the shard statuses of one index to status. A closed
+// index and an unfinished scan contribute nothing, but only a collection being
+// deleted may be left out without an error: anything else would report a live
+// collection as empty.
 func scanIndexShards(ctx context.Context, idx *Index,
 	status *[]*models.NodeShardStatus, shardName string,
-) (objectCount, shardCount int64) {
+) (objectCount, shardCount int64, err error) {
 	idx.dropIndex.RLock()
 	defer idx.dropIndex.RUnlock()
 
 	idx.closeLock.RLock()
 	defer idx.closeLock.RUnlock()
-	if idx.closed {
-		return 0, 0
-	}
-
-	scanCtx, done := idx.cancelOnCloseRequested(ctx)
-	defer done()
 
 	var shards []*models.NodeShardStatus
-	objectCount, shardCount = idx.getShardsNodeStatus(scanCtx, &shards, shardName)
-	if idx.closeRequestedCtx.Err() != nil {
-		// report it as gone, not as the shards the scan reached before aborting
-		return 0, 0
+	if idx.closed {
+		err = context.Cause(idx.closeRequestedCtx)
+		if err == nil {
+			err = errIndexClosed
+		}
+	} else {
+		scanCtx, done := idx.cancelOnCloseRequested(ctx)
+		defer done()
+
+		objectCount, shardCount, err = idx.getShardsNodeStatus(scanCtx, &shards, shardName)
+	}
+	if err != nil {
+		// the collection is named only here: the error reaches callers that this
+		// endpoint does not check a read permission against
+		idx.logger.Warnf("node status scan of collection %q stopped: %v", idx.Config.ClassName, err)
+		if errors.Is(err, errIndexDropped) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
 	}
 	*status = append(*status, shards...)
-	return objectCount, shardCount
+	return objectCount, shardCount, nil
 }
 
 func (db *DB) localNodeBatchStats() *models.BatchStats {
@@ -198,14 +235,13 @@ func (db *DB) localNodeBatchStats() *models.BatchStats {
 // If shardName is provided, it will only get the status of the specific shard.
 // Otherwise, it will get the status of all shards.
 // Returns the total object count and the number of shards.
-// If an error occurs, the status slice may have been modified and this method
-// may return a partial result.
+// If an error is returned, the counts and the status slice hold a partial result.
 func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus, shardName string,
-) (totalCount, shardCount int64) {
-	i.ForEachShard(func(name string, shard ShardLike) error {
-		if err := ctx.Err(); err != nil {
-			return err
+) (totalCount, shardCount int64, err error) {
+	err = i.ForEachShard(func(name string, shard ShardLike) error {
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
 		// if shardName is provided, only return the status for the specified shard
 		if shardName != "" && shardName != name {
@@ -268,7 +304,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		shardCount++
 		return nil
 	})
-	return totalCount, shardCount
+	return totalCount, shardCount, err
 }
 
 func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {

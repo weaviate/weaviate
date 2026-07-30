@@ -709,12 +709,16 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
+// The derived context is cancelled with the same cause, so a caller can tell a
+// drop from a shutdown.
 func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, func()) {
-	derived, cancel := context.WithCancel(ctx)
-	stop := context.AfterFunc(i.closeRequestedCtx, cancel)
+	derived, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(i.closeRequestedCtx, func() {
+		cancel(context.Cause(i.closeRequestedCtx))
+	})
 	return derived, func() {
 		stop()
-		cancel()
+		cancel(nil)
 	}
 }
 
