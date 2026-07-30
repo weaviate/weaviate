@@ -356,6 +356,23 @@ func (u tenantUsage) timestampFor(filter tenantactivity.UsageFilter) time.Time {
 	}
 }
 
+// How many tenants a filter reports. Every tenant has a total-activity
+// timestamp, but a read or write filter typically matches only a few of them, so
+// counting keeps Usage's result map from reserving space for the rest.
+func (tenants usageByTenant) countMatching(filter tenantactivity.UsageFilter) int {
+	if filter == tenantactivity.UsageFilterAll {
+		return len(tenants)
+	}
+
+	count := 0
+	for _, u := range tenants {
+		if !u.timestampFor(filter).IsZero() {
+			count++
+		}
+	}
+	return count
+}
+
 // Usage returns a copy, so that callers can read it while the observer keeps
 // updating its own state.
 func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
@@ -370,7 +387,7 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 
 	usage := make(tenantactivity.ByCollection, len(o.usage))
 	for class, tenants := range o.usage {
-		byTenant := make(tenantactivity.ByTenant, len(tenants))
+		byTenant := make(tenantactivity.ByTenant, tenants.countMatching(filter))
 		for tenant, u := range tenants {
 			if ts := u.timestampFor(filter); !ts.IsZero() {
 				byTenant[tenant] = ts

@@ -570,6 +570,71 @@ func TestShardActivityObserveAllocations(t *testing.T) {
 		"observing %d unchanged tenants allocated %d bytes per cycle", tenants, perCycle)
 }
 
+// A read or write filter reports only the tenants that saw that kind of
+// activity, so on a large but mostly idle collection its answer has to cost what
+// the matches cost, not what the collection costs.
+func TestShardActivityUsageAllocations(t *testing.T) {
+	const (
+		tenants = 2000
+		readers = 3
+		writers = 2
+		runs    = 10
+		// a map holding every tenant costs ~98 bytes per tenant when it is sized
+		// upfront and ~194 when it grows into it, so the budget sits between the
+		// two, and a handful of matches has to stay far below either
+		maxBytesFiltered  = 4096
+		maxBytesPerTenant = 140
+	)
+
+	logger, _ := test.NewNullLogger()
+	col1 := newActivityTestIndex("Col1", true)
+	for i := 0; i < tenants; i++ {
+		col1.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
+	}
+
+	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	o := newNodeWideMetricsObserver(db)
+	o.observeActivity()
+
+	for i := 0; i < readers; i++ {
+		col1.shards.Load(fmt.Sprintf("tenant-%d", i)).(*Shard).activityTrackerRead.Add(1)
+	}
+	for i := 0; i < writers; i++ {
+		col1.shards.Load(fmt.Sprintf("tenant-%d", i)).(*Shard).activityTrackerWrite.Add(1)
+	}
+	o.observeActivity()
+
+	cases := []struct {
+		name     string
+		filter   tenantactivity.UsageFilter
+		want     int
+		maxBytes uint64
+	}{
+		{"only reads", tenantactivity.UsageFilterOnlyReads, readers, maxBytesFiltered},
+		{"only writes", tenantactivity.UsageFilterOnlyWrites, writers, maxBytesFiltered},
+		{"all tenants", tenantactivity.UsageFilterAll, tenants, maxBytesPerTenant * tenants},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			// a budget on its own would also pass on an answer that is too small
+			require.Len(t, o.Usage(tt.filter)["Col1"], tt.want)
+
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			for i := 0; i < runs; i++ {
+				o.Usage(tt.filter)
+			}
+			runtime.ReadMemStats(&after)
+
+			perCall := (after.TotalAlloc - before.TotalAlloc) / runs
+			require.Less(t, perCall, tt.maxBytes,
+				"reporting %d of %d tenants allocated %d bytes per call", tt.want, tenants, perCall)
+		})
+	}
+}
+
 func TestShardActivityUsageWithoutObserver(t *testing.T) {
 	var o *nodeWideMetricsObserver
 	require.Empty(t, o.Usage(tenantactivity.UsageFilterAll))
