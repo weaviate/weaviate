@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -253,6 +252,20 @@ func (db *DB) localNodeBatchStats() *models.BatchStats {
 func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus, shardName string,
 ) (totalCount, shardCount int64, err error) {
+	if ctx.Err() != nil {
+		return 0, 0, context.Cause(ctx)
+	}
+
+	className := i.Config.ClassName.String()
+	replicationFactor, replicaCounts := i.readReplicationDetails()
+	replicaCountOf := func(name string) int64 {
+		count, ok := replicaCounts[name]
+		if !ok {
+			i.logger.Warnf("no replicas of shard %s of collection %s in the schema", name, className)
+		}
+		return count
+	}
+
 	err = i.ForEachShard(func(name string, shard ShardLike) error {
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
@@ -263,17 +276,15 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		}
 
 		// Don't force load a lazy shard to get nodes status
-		className := i.Config.ClassName.String()
 		if lazy, ok := shard.(*LazyLoadShard); ok {
 			if !lazy.isLoaded() {
-				numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
 				shardStatus := &models.NodeShardStatus{
 					Name:                 name,
 					Class:                className,
 					VectorIndexingStatus: shard.GetStatus().String(),
 					Loaded:               false,
 					ReplicationFactor:    replicationFactor,
-					NumberOfReplicas:     numberOfReplicas,
+					NumberOfReplicas:     replicaCountOf(name),
 					// don't add compression status as this would trigger loading the shard
 				}
 				*status = append(*status, shardStatus)
@@ -300,8 +311,6 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			return nil
 		})
 
-		numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
-
 		shardStatus := &models.NodeShardStatus{
 			Name:                   name,
 			Class:                  className,
@@ -312,7 +321,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			Loaded:                 true,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      replicationFactor,
-			NumberOfReplicas:       numberOfReplicas,
+			NumberOfReplicas:       replicaCountOf(name),
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
@@ -321,26 +330,26 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 	return totalCount, shardCount, err
 }
 
-func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
-	var numberOfReplicas int64
-	var replicationFactor int64
+// readReplicationDetails reads the sharding state once for the whole collection,
+// so that scanning it cannot cost a schema read per shard. A collection the
+// schema does not hold returns a zero factor and a nil map.
+//
+// A collection whose local index outlives its schema entry has been deleted, and
+// does not come back by waiting, so the read does not retry.
+func (i *Index) readReplicationDetails() (replicationFactor int64, replicaCounts map[string]int64) {
 	class := i.Config.ClassName.String()
-	// a class or shard that has left the schema keeps its local index or shard for
-	// a moment. Neither comes back by waiting, so don't spend a retry per shard.
-	err := i.schemaReader.Read(class, false, func(class *models.Class, state *sharding.State) error {
-		var err error
+	err := i.schemaReader.Read(class, false, func(_ *models.Class, state *sharding.State) error {
 		replicationFactor = state.ReplicationFactor
-		numberOfReplicas, err = state.NumberOfReplicas(shardName)
-		if err != nil {
-			return backoff.Permanent(
-				fmt.Errorf("unable to retrieve number of replicas for class %s: %w", class.Class, err))
+		replicaCounts = make(map[string]int64, len(state.Physical))
+		for shardName, physical := range state.Physical {
+			replicaCounts[shardName] = int64(len(physical.BelongsToNodes))
 		}
 		return nil
 	})
 	if err != nil {
-		i.logger.Errorf("error while getting number of replicas for shard %s: %v", shardName, err)
+		i.logger.Errorf("error while getting replication details of collection %s: %v", class, err)
 	}
-	return numberOfReplicas, replicationFactor
+	return replicationFactor, replicaCounts
 }
 
 func isAnyVectorIndexCompressed(shard ShardLike) bool {

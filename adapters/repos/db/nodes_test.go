@@ -39,44 +39,55 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func TestGetShardReplicationDetails(t *testing.T) {
+// TestReadReplicationDetails pins that one read without a retry covers every
+// shard of a collection, and how a collection the schema does not hold is
+// reported.
+func TestReadReplicationDetails(t *testing.T) {
 	const className = "Repl"
 
+	// only a partitioned state may hold no shard at all, so every case uses one
 	stateWith := func(physicals ...sharding.Physical) *sharding.State {
 		m := make(map[string]sharding.Physical, len(physicals))
 		for _, p := range physicals {
 			m[p.Name] = p
 		}
-		return &sharding.State{Physical: m, ReplicationFactor: 3}
+		return &sharding.State{Physical: m, ReplicationFactor: 3, PartitioningEnabled: true}
 	}
 
 	tests := []struct {
 		name                  string
 		state                 *sharding.State
-		shard                 string
-		wantNumberOfReplicas  int64
+		wantReplicas          map[string]int64
 		wantReplicationFactor int64
 	}{
 		{
-			name:                  "shard present in the sharding state",
+			name:                  "one shard",
 			state:                 stateWith(sharding.Physical{Name: "s1", BelongsToNodes: []string{"node1", "node2"}}),
-			shard:                 "s1",
-			wantNumberOfReplicas:  2,
+			wantReplicas:          map[string]int64{"s1": 2},
 			wantReplicationFactor: 3,
 		},
 		{
-			name:                  "shard absent from the sharding state",
-			state:                 stateWith(sharding.Physical{Name: "other", BelongsToNodes: []string{"node1"}}),
-			shard:                 "s1",
-			wantNumberOfReplicas:  0,
+			name: "many shards",
+			state: stateWith(
+				sharding.Physical{Name: "s1", BelongsToNodes: []string{"node1"}},
+				sharding.Physical{Name: "s2", BelongsToNodes: []string{"node1", "node2"}},
+				sharding.Physical{Name: "s3", BelongsToNodes: []string{"node1", "node2", "node3"}},
+			),
+			wantReplicas:          map[string]int64{"s1": 1, "s2": 2, "s3": 3},
 			wantReplicationFactor: 3,
 		},
 		{
-			// a nil state stands for a class that has left the schema
-			name:                  "class already gone from the schema",
+			// a multi-tenant collection without tenants has no shard to report
+			name:                  "no shards",
+			state:                 stateWith(),
+			wantReplicas:          map[string]int64{},
+			wantReplicationFactor: 3,
+		},
+		{
+			// a nil state stands for a collection the schema does not hold
+			name:                  "collection not in the schema",
 			state:                 nil,
-			shard:                 "s1",
-			wantNumberOfReplicas:  0,
+			wantReplicas:          nil,
 			wantReplicationFactor: 0,
 		},
 	}
@@ -87,20 +98,21 @@ func TestGetShardReplicationDetails(t *testing.T) {
 			reader := &retryingSchemaReader{class: &models.Class{Class: className}, state: tt.state}
 			idx := newTestIndex(t, logger, className, reader, nil)
 
-			numberOfReplicas, replicationFactor := getShardReplicationDetails(idx, tt.shard)
+			replicationFactor, replicas := idx.readReplicationDetails()
 
-			assert.Equal(t, tt.wantNumberOfReplicas, numberOfReplicas, "number of replicas")
 			assert.Equal(t, tt.wantReplicationFactor, replicationFactor, "replication factor")
-			// a class or shard that has left the schema never comes back by
-			// waiting, so neither lookup may spend the retry budget per shard
+			assert.Equal(t, tt.wantReplicas, replicas, "number of replicas per shard")
+			// a deleted collection does not come back by waiting, and the retry
+			// would sleep while a drop waits to take the index apart
 			assert.Equal(t, 1, reader.reads, "number of schema reads")
 		})
 	}
 }
 
 // TestLocalNodeShardStats pins that a verbose scan leaves indexLock free while
-// holding the scanned index against a drop, and that a collection being deleted
-// is the only one a scan may leave out without returning an error.
+// holding the scanned index against a drop, that a collection being deleted is
+// the only one a scan may leave out without returning an error, and that no
+// collection costs more than one schema read however many shards it holds.
 func TestLocalNodeShardStats(t *testing.T) {
 	const className = "Slow"
 
@@ -108,6 +120,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 		name              string
 		class             string
 		shards            []string
+		shardsNotInSchema []string
 		shard             string
 		extraIndices      int
 		withNilIndex      bool
@@ -115,6 +128,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 		closedCause       error
 		signalCause       error
 		cancelCaller      bool
+		cancelBeforeScan  bool
 		wantShards        int
 		wantShardCount    int64
 		wantScanned       int32
@@ -138,6 +152,16 @@ func TestLocalNodeShardStats(t *testing.T) {
 			name: "all classes, counts summed across indices", class: "",
 			extraIndices: 2, wantShards: 3, wantShardCount: 3, wantScanned: 1,
 			wantClassReported: true,
+		},
+		{
+			name: "all shards of an index", class: "", shards: []string{"s1", "s2", "s3"},
+			wantShards: 3, wantShardCount: 3, wantScanned: 3, wantClassReported: true,
+		},
+		{
+			// a shard that has left the schema is still held locally for a moment
+			name: "shard missing from the sharding state", class: "",
+			shards: []string{"s1", "s2"}, shardsNotInSchema: []string{"s2"},
+			wantShards: 2, wantShardCount: 2, wantScanned: 2, wantClassReported: true,
 		},
 		{
 			name: "shard filter matches one of many", class: "", shard: "s1",
@@ -193,6 +217,11 @@ func TestLocalNodeShardStats(t *testing.T) {
 			shards: []string{"s1", "s2"}, signalCause: errIndexDropped, cancelCaller: true,
 			wantShards: 0, wantScanned: 1, wantErr: context.Canceled,
 		},
+		{
+			name: "caller gave up before the scan started", class: "",
+			cancelBeforeScan: true, wantShards: 0, wantScanned: 0,
+			wantErr: context.Canceled,
+		},
 	}
 
 	for _, tt := range tests {
@@ -202,7 +231,8 @@ func TestLocalNodeShardStats(t *testing.T) {
 				shardNames = []string{"s1"}
 			}
 			// the scan only blocks once it reaches a shard of the index under test
-			blocking := !tt.closeIndex && (tt.shard == "" || slices.Contains(shardNames, tt.shard))
+			blocking := !tt.closeIndex && !tt.cancelBeforeScan &&
+				(tt.shard == "" || slices.Contains(shardNames, tt.shard))
 
 			entered := make(chan struct{})
 			release := make(chan struct{})
@@ -212,6 +242,12 @@ func TestLocalNodeShardStats(t *testing.T) {
 
 			logger, _ := test.NewNullLogger()
 			idx, scanned := shardedIndex(t, className, shardNames, entered, release, blocking)
+			if len(tt.shardsNotInSchema) > 0 {
+				inSchema := slices.DeleteFunc(slices.Clone(shardNames), func(name string) bool {
+					return slices.Contains(tt.shardsNotInSchema, name)
+				})
+				idx.schemaReader = scannableSchemaReader(className, inSchema)
+			}
 			if tt.closeIndex {
 				if tt.closedCause != nil {
 					idx.signalCloseRequested(tt.closedCause)
@@ -230,6 +266,9 @@ func TestLocalNodeShardStats(t *testing.T) {
 
 			callerCtx, cancelCaller := context.WithCancel(context.Background())
 			defer cancelCaller()
+			if tt.cancelBeforeScan {
+				cancelCaller()
+			}
 
 			var shards []*models.NodeShardStatus
 			var stats *models.NodeStats
@@ -289,7 +328,22 @@ func TestLocalNodeShardStats(t *testing.T) {
 			})
 			assert.Equal(t, tt.wantClassReported, classReported, "shards of the collection under test")
 			for _, shard := range shards {
-				assert.Equal(t, int64(1), shard.NumberOfReplicas, "number of replicas")
+				wantReplicas := int64(1)
+				if slices.Contains(tt.shardsNotInSchema, shard.Name) {
+					wantReplicas = 0
+				}
+				assert.Equal(t, wantReplicas, shard.NumberOfReplicas, "replicas of shard %q", shard.Name)
+			}
+			for _, index := range db.indices {
+				if index == nil {
+					continue
+				}
+				wantReads := 1
+				if tt.cancelBeforeScan {
+					wantReads = 0
+				}
+				assert.LessOrEqual(t, schemaReads(t, index), wantReads,
+					"schema reads of collection %q", index.Config.ClassName)
 			}
 		})
 	}
@@ -566,22 +620,27 @@ func (g *nodeListSchemaGetter) Nodes() []string {
 
 // scannableSchemaReader reports each shard name as a single-replica shard of the
 // given class, which is all a node status scan reads.
-func scannableSchemaReader(t *testing.T, className string, shardNames []string) schemaUC.SchemaReader {
-	t.Helper()
-
+func scannableSchemaReader(className string, shardNames []string) *retryingSchemaReader {
 	physical := make(map[string]sharding.Physical, len(shardNames))
+	virtual := make([]sharding.Virtual, 0, len(shardNames))
 	for _, name := range shardNames {
 		physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"node1"}}
+		// a state without virtual shards is one the schema reader rejects
+		virtual = append(virtual, sharding.Virtual{Name: name, AssignedToPhysical: name})
 	}
-	state := &sharding.State{Physical: physical, ReplicationFactor: 1}
+	return &retryingSchemaReader{
+		class: &models.Class{Class: className},
+		state: &sharding.State{Physical: physical, Virtual: virtual, ReplicationFactor: 1},
+	}
+}
 
-	reader := schemaUC.NewMockSchemaReader(t)
-	// the false matcher pins that the scan never asks for a retry
-	reader.EXPECT().Read(className, false, mock.Anything).
-		RunAndReturn(func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
-			return read(&models.Class{Class: className}, state)
-		}).Maybe()
-	return reader
+// schemaReads reports how often an index read the schema.
+func schemaReads(t *testing.T, idx *Index) int {
+	t.Helper()
+
+	reader, ok := idx.schemaReader.(*retryingSchemaReader)
+	require.True(t, ok, "index was not built with a counting schema reader")
+	return reader.reads
 }
 
 // scannableShards builds one mock shard per name, each reporting a single object.
@@ -628,7 +687,7 @@ func shardedIndex(t *testing.T, className string, shardNames []string,
 
 	logger, _ := test.NewNullLogger()
 	shards, scanned := scannableShards(t, shardNames, entered, release, blocking)
-	return newTestIndex(t, logger, className, scannableSchemaReader(t, className, shardNames), shards), scanned
+	return newTestIndex(t, logger, className, scannableSchemaReader(className, shardNames), shards), scanned
 }
 
 // retryingSchemaReader reproduces how the real schema reader resolves a class and
@@ -667,7 +726,7 @@ func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
 
 	idx := newShutdownTestIndex(t, nil)
 	idx.Config.ClassName = schema.ClassName(className)
-	idx.schemaReader = scannableSchemaReader(t, className, []string{"s1", "s2"})
+	idx.schemaReader = scannableSchemaReader(className, []string{"s1", "s2"})
 	shards, _ := scannableShards(t, []string{"s1", "s2"}, entered, release, true)
 	for name, shard := range shards {
 		idx.shards.Store(name, shard)
