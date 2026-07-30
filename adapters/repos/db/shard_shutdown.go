@@ -378,7 +378,15 @@ func (s *Shard) refCountSub() {
 	// a shutdown requested while the shard was in use runs once the last
 	// reference drops
 	if s.inUseCounter.Add(-1) == 0 && s.shutdownRequested.Load() {
-		s.performShutdown(context.TODO())
+		if err := s.performShutdown(context.TODO()); err != nil {
+			// No caller to receive this: the deferred completion runs on
+			// whichever request releases the last ref. teardownErr keeps deep
+			// failures sticky for later Shutdown/reactivation attempts, but
+			// the failure must be visible when it happens, not only then.
+			s.index.logger.WithField("action", "shard_shutdown").
+				WithField("shard", s.ID()).
+				Errorf("deferred shutdown on last reference release failed: %v", err)
+		}
 	}
 }
 

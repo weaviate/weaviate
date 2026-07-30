@@ -542,12 +542,16 @@ func (p *DropVectorIndexProvider) OnSwapRequested(
 // restart. Both steps are idempotent — deleting an absent op and removing
 // already-gone schema entries are no-ops.
 //
-// Always returns nil: this provider recovers failed cleanup through separate
-// reconciliation (the orphan sweep on shard load and startup/periodic marker
-// reconciliation), not through the scheduler's finalize retry. Returning a
-// transient error here would let a passing RAFT/IO hiccup exhaust the bounded
-// retries and drive the drop to FAILED — worse than finalizing and letting
-// reconciliation converge. See [distributedtask.UnitAwareProvider.OnTaskCompleted].
+// Transient failures on the SWAPPING path (op delete, coverage read,
+// active-drop read, the finalize write) return the error so the scheduler
+// withholds FINISHED and retries this callback — bounded; exhaustion fails
+// the task, which is safe (the FAILED completion deletes ops and
+// reconciliation re-covers). Acking such a failure instead would mint a
+// FINISHED record with complete coverage next to a standing marker, which
+// the enqueuer reads as closed-epoch residue: a full re-clean per reconcile
+// round. Designed deferrals (uncovered shards, a newer overlapping drop,
+// replayed FINISHED) return nil. See
+// [distributedtask.UnitAwareProvider.OnTaskCompleted].
 func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// The group-callback phase is over on every path that reaches this
 	// callback, so its verify memo can go (see verifiedStillDropped for why

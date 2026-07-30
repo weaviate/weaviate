@@ -50,6 +50,12 @@ func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 
 	err = ic.initDB()
 	if err != nil {
+		// Close, or the flocked handle leaks and wedges every future open
+		// until restart.
+		if closeErr := db.Close(); closeErr != nil {
+			logger.WithField("path", path).
+				Warnf("close index checkpoint db after failed init: %v", closeErr)
+		}
 		return nil, err
 	}
 

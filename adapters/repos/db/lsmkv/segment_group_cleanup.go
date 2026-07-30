@@ -155,6 +155,12 @@ func (c *segmentCleanerCommon) init() error {
 		}
 		return nil
 	}); err != nil {
+		// Close, or the flocked handle leaks and wedges every future load
+		// attempt of this shard until restart.
+		if closeErr := db.Close(); closeErr != nil {
+			c.sg.logger.WithField("path", path).
+				Warnf("close cleanup bolt db after failed init: %v", closeErr)
+		}
 		return fmt.Errorf("create bucket cleanup bolt db %q: %w", path, err)
 	}
 
