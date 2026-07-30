@@ -37,11 +37,23 @@ most favourable possible setting, to learn the ceiling before adding anything.
   (default 350) with a bucketed threshold — per-distance id lists plus a
   running threshold, no sort, no heap — then exact-rescores and takes the
   top k by insertion. This is the recall ceiling of the representation.
+- `-mode=hybrid`: budget-schedule scan with per-block access-mode selection:
+  a block is streamed (full sequential column read) when the survivor count
+  is ≥ N/8 and gathered (random access to survivor words only) below that.
+  Pruning uses the bucketed selector (no sort). Reports which blocks
+  streamed/gathered, measured bytes at 64-byte-line granularity (sampled
+  every 16th query, untimed), and bandwidth split by access mode.
 - `-mode=rankcurve`: for each prefix depth (64, 128, …, retained), computes
   each sampled query's true neighbours' ranks by prefix-Hamming distance
-  (worst case under ties) and reports p50/p95/p99/max of the per-query
-  maximum — the smallest budget at each depth that retains all true
-  neighbours. `-rank-queries` (default 400) controls the sample.
+  under both worst-case ties (all equal-distance vectors counted ahead) and
+  expected-case ties (half the tie bucket), and reports p50/p95/p99/max of
+  the per-query maximum — the smallest budget at each depth that retains all
+  true neighbours. `-rank-queries` (default 400) controls the sample.
+
+`-gen-quantile=q` (with schedule/hybrid modes) generates the budget schedule
+from the expected-case rank curve at quantile q instead of taking
+`-budgets`: an in-process `-rank-queries` sample, floored at the rescore
+count, monotone nonincreasing.
 
 ## Centering
 
