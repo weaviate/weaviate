@@ -26,21 +26,57 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-// shardKnownShut reports whether a map entry points at a shard that already
-// COMPLETED a shutdown — the only state a reactivation may evict. Distinct
+// shardKnownShut reports whether a map entry points at a shard that CLEANLY
+// completed a shutdown — the only state a reactivation may evict. Distinct
 // from !shardStillAlive: an unloaded LazyLoadShard is the normal steady state
 // of every not-yet-loaded shard, and evicting it would race a concurrent
 // Load() on the old wrapper into a second instance over the same directory.
+// A torn shard (teardownErr set) is NOT evictable either: it may still hold
+// open handles/flocks, so the map entry is the only reference keeping them
+// reachable — see shardTeardownError.
 func shardKnownShut(s ShardLike) bool {
 	switch sh := s.(type) {
 	case *Shard:
-		return sh.shut.Load()
+		return sh.shut.Load() && sh.teardownError() == nil
 	case *LazyLoadShard:
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
-		return sh.loaded && sh.shard.shut.Load()
+		return sh.loaded && sh.shard.shut.Load() && sh.shard.teardownError() == nil
 	default:
 		return false
+	}
+}
+
+// teardownError returns the sticky deep-teardown failure, nil when the shard
+// is live or cleanly shut.
+func (s *Shard) teardownError() error {
+	s.shutdownLock.RLock()
+	defer s.shutdownLock.RUnlock()
+	if !s.shut.Load() {
+		return nil
+	}
+	return s.teardownErr
+}
+
+// shardTeardownError surfaces a map entry's sticky teardown failure (nil for
+// live, cleanly-shut, or unloaded entries). Torn shards stay in the map on
+// purpose: the entry is the last reference to their possibly-still-open
+// handles, and serving the sticky error is cheaper and clearer than letting
+// every reactivation re-init into a bucket-registry collision. Heals on
+// process restart.
+func shardTeardownError(s ShardLike) error {
+	switch sh := s.(type) {
+	case *Shard:
+		return sh.teardownError()
+	case *LazyLoadShard:
+		sh.mutex.Lock()
+		defer sh.mutex.Unlock()
+		if !sh.loaded {
+			return nil
+		}
+		return sh.shard.teardownError()
+	default:
+		return nil
 	}
 }
 
@@ -113,21 +149,28 @@ func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, 
 		return err
 	}
 	if restoreShardIfStillAlive(shards, name, shard) {
-		logger.WithField("action", "shard_shutdown").
-			WithField("shard", name).
-			Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+		if terr := shardTeardownError(shard); terr != nil {
+			logger.WithField("action", "shard_shutdown").
+				WithField("shard", name).
+				Errorf("teardown failed mid-way; torn shard retained in the map (holds its leaked handles, unavailable until restart): %v", err)
+		} else {
+			logger.WithField("action", "shard_shutdown").
+				WithField("shard", name).
+				Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+		}
 	}
 	return err
 }
 
 // restoreShardIfStillAlive puts a shard whose Shutdown failed back into the
-// shard map (under the caller's shardCreateLock): a failed close usually
-// means "still in use" — leaving the live instance out of the map would let
-// a later (re)load double-open the same directory. Deep teardown failures
-// never restore: the shard is already marked shut (shardStillAlive false) and
-// the sticky teardownErr keeps the failure visible on every retry.
+// shard map (under the caller's shardCreateLock). Two cases restore: a live
+// instance (a failed close usually means "still in use" — leaving it out of
+// the map would let a later (re)load double-open the same directory), and a
+// TORN one (deep teardown failure: the entry is the last reference to its
+// possibly-still-open handles, and it fails fast with the sticky teardownErr
+// — see shardTeardownError). Only a cleanly-shut shard is left out.
 func restoreShardIfStillAlive(shards *shardMap, name string, shard ShardLike) bool {
-	if !shardStillAlive(shard) {
+	if !shardStillAlive(shard) && shardTeardownError(shard) == nil {
 		return false
 	}
 	shards.Store(name, shard)

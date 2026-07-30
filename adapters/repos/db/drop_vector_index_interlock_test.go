@@ -29,10 +29,10 @@ import (
 // the shard map (an orphaned live instance lets a reactivation double-open
 // the same directory); a shard that got past the mark must not be re-served.
 func TestShardStillAlive(t *testing.T) {
-	live := &Shard{}
+	live := &Shard{shutdownLock: new(sync.RWMutex)}
 	require.True(t, shardStillAlive(live), "not marked shut => alive")
 
-	shut := &Shard{}
+	shut := &Shard{shutdownLock: new(sync.RWMutex)}
 	shut.shut.Store(true)
 	require.False(t, shardStillAlive(shut), "marked shut => not restored")
 
@@ -144,15 +144,15 @@ func TestShutdown_RequestFlagAfterFailure(t *testing.T) {
 func TestRestoreShardIfStillAlive(t *testing.T) {
 	var m shardMap
 
-	live := &Shard{}
+	live := &Shard{shutdownLock: new(sync.RWMutex)}
 	require.True(t, restoreShardIfStillAlive(&m, "s1", live))
 	got := m.Load("s1")
 	require.NotNil(t, got)
 
-	shut := &Shard{}
+	shut := &Shard{shutdownLock: new(sync.RWMutex)}
 	shut.shut.Store(true)
 	require.False(t, restoreShardIfStillAlive(&m, "s2", shut),
-		"a shard past the shut mark must not be re-served")
+		"a cleanly-shut shard must not be re-served")
 	require.Nil(t, m.Load("s2"))
 }
 
@@ -199,25 +199,31 @@ func TestPerformShutdown_TeardownErrorSticks(t *testing.T) {
 // evicting it would race a concurrent Load() on the old wrapper into a second
 // instance over the same directory.
 func TestShardKnownShut(t *testing.T) {
-	require.False(t, shardKnownShut(&Shard{}))
+	require.False(t, shardKnownShut(&Shard{shutdownLock: new(sync.RWMutex)}))
 	require.False(t, shardKnownShut(&LazyLoadShard{}),
 		"never-loaded lazy shard must NOT be treated as shut")
 
-	shut := &Shard{}
+	shut := &Shard{shutdownLock: new(sync.RWMutex)}
 	shut.shut.Store(true)
 	require.True(t, shardKnownShut(shut))
 	require.True(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: shut}))
-	require.False(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: &Shard{}}))
+	require.False(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: &Shard{shutdownLock: new(sync.RWMutex)}}))
 
-	// A deep-teardown failure (shut=true, sticky teardownErr) reads the same
-	// as a clean shutdown: known-shut, so the reactivation belt evicts it and
-	// restore predicates refuse it. Re-init then either succeeds (teardown got
-	// far enough to release the buckets) or is refused loudly by the bucket
-	// registry until the leaked handles clear — pinned in lsmkv's
-	// TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose. It is never
-	// silently double-opened and never restored as if healthy.
-	torn := &Shard{teardownErr: errors.New("bucket close failed")}
+	// A deep-teardown failure (shut=true, sticky teardownErr) is NOT
+	// evictable: the map entry is the last reference to its possibly-leaked
+	// handles, so the restore predicate KEEPS it and the belts serve the
+	// sticky error instead of re-initializing into a bucket-registry
+	// collision (that refusal is pinned in lsmkv's
+	// TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose). It is
+	// never silently double-opened and never treated as healthy.
+	torn := &Shard{shutdownLock: new(sync.RWMutex), teardownErr: errors.New("bucket close failed")}
 	torn.shut.Store(true)
-	require.True(t, shardKnownShut(torn))
+	require.False(t, shardKnownShut(torn), "a torn shard must not be evicted for re-init")
 	require.False(t, shardStillAlive(torn))
+	require.ErrorContains(t, shardTeardownError(torn), "bucket close failed")
+
+	var m shardMap
+	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
+		"a torn shard is retained as the last reference to its leaked handles")
+	require.NotNil(t, m.Load("torn"))
 }
