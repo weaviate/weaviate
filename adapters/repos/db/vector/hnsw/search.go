@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -1035,14 +1036,20 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 		}
 	}
 
+	// Respect the per-query concurrency budget if the context carries one
+	// (see entities/concurrency): under concurrent load the budget shrinks
+	// the fan-out, without one we fall back to the full rescore concurrency.
+	// The floor of 1 keeps a zero budget from silently skipping rescoring.
+	workers := max(1, min(concurrency.BudgetFromCtx(ctx, h.rescoreConcurrency), h.rescoreConcurrency, len(ids)))
+
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
+	for workerID := 0; workerID < workers; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
 			slice := h.pools.tempVectors.Get(int(h.dims.Load()))
 			defer h.pools.tempVectors.Put(slice)
 
-			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+			for idPos := workerID; idPos < len(ids); idPos += workers {
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("computeLateInteraction: %w", err)
 				}
