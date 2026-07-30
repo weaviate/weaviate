@@ -29,8 +29,8 @@ import (
 // sequentially instead of pulling the vector's full code line.
 type bitStore struct {
 	n        int
-	blocks   int              // retained dims / 64
-	codes    []uint64         // len blocks*n, column-major
+	blocks   int                       // retained dims / 64
+	codes    []uint64                  // len blocks*n, column-major
 	rotation *compression.FastRotation // nil when rotation is disabled
 	retained int
 }
@@ -157,11 +157,11 @@ func (sc *scanner) pruneTo(budget int) {
 }
 
 type queryResult struct {
-	topK      []uint32
-	survivors []int // len == blocks, candidate count after each block's prune
-	block0    time.Duration
+	topK       []uint32
+	survivors  []int // len == blocks, candidate count after each block's prune
+	block0     time.Duration
 	restBlocks time.Duration
-	rescore   time.Duration
+	rescore    time.Duration
 }
 
 // search runs the progressive elimination scan for one query. survivors must
