@@ -110,8 +110,8 @@ var unloadedDimensionsBucketLocks = entsync.NewKeyLockerContext()
 // openUnloadedDimensionsBucket opens the dimensions bucket of an unloaded shard without
 // loading the shard into memory. The bucket is opened with a sequential-access hint, as the
 // dimension calculations scan it with cursors, and immutable, so reporting usage does not
-// fsync an unloaded tenant's directory or turn its write-ahead-log into a segment. Repairing
-// a directory a crash left inconsistent, and recomputing missing sidecars, still write.
+// fsync an unloaded tenant's directory or turn its write-ahead-log into a segment. Bloom
+// filters are off because cursors never consult them.
 // Callers must hold the unloadedDimensionsBucketLocks lock for bucketPath until the returned
 // bucket is shut down.
 func openUnloadedDimensionsBucket(ctx context.Context, logger logrus.FieldLogger, path, bucketPath string) (*lsmkv.Bucket, error) {
@@ -130,6 +130,7 @@ func openUnloadedDimensionsBucket(ctx context.Context, logger logrus.FieldLogger
 		lsmkv.WithStrategy(strategy),
 		lsmkv.WithSequentialAccess(true),
 		lsmkv.WithImmutable(true),
+		lsmkv.WithUseBloomFilter(false),
 	)
 }
 
