@@ -96,6 +96,8 @@ func movieClass() *models.Class {
 			{Name: "year", DataType: schema.DataTypeInt.PropString()},
 			{Name: "poster", DataType: schema.DataTypeBlob.PropString()},
 			{Name: "hasAuthor", DataType: []string{"Author"}},
+			// multi-target: the reference points at either collection
+			{Name: "basedOn", DataType: []string{"Book", "Comic"}},
 		},
 	}
 }
@@ -110,6 +112,40 @@ func authorClass() *models.Class {
 		Properties: []*models.Property{
 			{Name: "name", DataType: schema.DataTypeText.PropString()},
 			{Name: "age", DataType: schema.DataTypeInt.PropString()},
+			// second hop: Movie -> Author -> Studio
+			{Name: "worksFor", DataType: []string{"Studio"}},
+		},
+	}
+}
+
+func studioClass() *models.Class {
+	return &models.Class{
+		Class: "Studio",
+		Properties: []*models.Property{
+			{Name: "name", DataType: schema.DataTypeText.PropString()},
+			{Name: "logo", DataType: schema.DataTypeBlob.PropString()},
+			// third hop, for the depth-limit tests
+			{Name: "ownedBy", DataType: []string{"Studio"}},
+		},
+	}
+}
+
+func bookClass() *models.Class {
+	return &models.Class{
+		Class: "Book",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+		},
+	}
+}
+
+func comicClass() *models.Class {
+	return &models.Class{
+		Class: "Comic",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "issue", DataType: schema.DataTypeInt.PropString()},
 		},
 	}
 }
@@ -129,16 +165,21 @@ func newTestHandler(t *testing.T) *testDeps {
 			classes: map[string]*models.Class{
 				"Movie":  movieClass(),
 				"Author": authorClass(),
+				"Studio": studioClass(),
+				"Book":   bookClass(),
+				"Comic":  comicClass(),
 			},
 		},
 		authorizer: mocks.NewMockAuthorizer(),
 	}
 	deps.handler = NewHandler(HandlerConfig{
-		Traverser:      deps.searcher,
-		SchemaReader:   deps.schemaReader,
-		Authorizer:     deps.authorizer,
-		DefaultLimit:   10,
-		MaximumResults: 10000,
+		Traverser:    deps.searcher,
+		SchemaReader: deps.schemaReader,
+		Authorizer:   deps.authorizer,
+		DefaultLimit: 10,
+		// matches DefaultQueryCrossReferenceDepthLimit
+		CrossRefDepthLimit: 5,
+		MaximumResults:     10000,
 		// happy-path fixture: the experimental feature is enabled
 		Enabled: runtime.NewDynamicValue(true),
 		Logger:  logrus.New(),
@@ -569,7 +610,7 @@ func (a *denyCollections) Calls() []mocks.AuthZReq { return a.requests }
 // reference selection or a where filter are authorized, not just the primary.
 func TestHandlerAuthorizesReferencedCollections(t *testing.T) {
 	for name, body := range map[string]string{
-		"reference selection": `{"query":["space"],"returnProperties":["hasAuthor.name"]}`,
+		"reference selection": `{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"]}]}`,
 		"where filter across a reference": `{"query":["space"],"where":` +
 			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
 	} {

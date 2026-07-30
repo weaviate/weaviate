@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // checkReservedFields rejects reserved (not yet supported) fields with 422.
@@ -75,14 +76,26 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 }
 
 // fillSelectionAndFilter fills the tail every search type shares: the
-// returnProperties selection (with the no-props marker) and the where filter.
+// returnProperties + returnReferences selection (with the no-props marker)
+// and the where filter.
 func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class, className string,
 	common *models.SearchCommon, getClass classGetterFunc, principal *models.Principal,
 ) *APIError {
-	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
+	props, apiErr := parseReturnProperties(class, common.ReturnProperties)
 	if apiErr != nil {
 		return apiErr
 	}
+
+	refs, apiErr := h.parseReturnReferences(class, className, common.ReturnReferences, getClass, principal)
+	if apiErr != nil {
+		return apiErr
+	}
+	props = append(props, refs...)
+
+	if apiErr := h.checkRefDepth(props); apiErr != nil {
+		return apiErr
+	}
+
 	out.Properties = props
 	if len(out.Properties) == 0 {
 		out.AdditionalProperties.NoProps = true
@@ -571,7 +584,7 @@ func checkVectorizer(class *models.Class, targetVectors []string, searchKind str
 			continue // validated in resolveTargetVectors
 		}
 		// after a JSON/RAFT round-trip the vectorizer config is a
-		// map[moduleName]interface{}; "none" means no vectorizer
+		// map[moduleName]any; "none" means no vectorizer
 		if vectorizer, ok := cfg.Vectorizer.(map[string]any); ok {
 			if _, none := vectorizer["none"]; none {
 				return noVectorizer(target)
@@ -620,13 +633,10 @@ func parseReturnMetadata(class *models.Class, returnMetadata []string, targetVec
 	return props, nil
 }
 
-// parseReturnProperties builds the property selection. nil selects all
-// non-ref, non-blob properties; dot-paths ("hasAuthor.name") select one hop
-// across a reference; a bare reference name selects all non-ref properties
-// of the referenced collection.
-func parseReturnProperties(class *models.Class, returnProperties []string,
-	getClass classGetterFunc,
-) (search.SelectProperties, *APIError) {
+// parseReturnProperties builds the non-reference property selection. nil
+// selects all non-ref, non-blob properties; a reference property is a 400
+// here, references are selected with returnReferences.
+func parseReturnProperties(class *models.Class, returnProperties []string) (search.SelectProperties, *APIError) {
 	if returnProperties == nil {
 		props, err := search.AllNonRefNonBlobProperties(class)
 		if err != nil {
@@ -636,48 +646,27 @@ func parseReturnProperties(class *models.Class, returnProperties []string,
 	}
 
 	props := make(search.SelectProperties, 0, len(returnProperties))
-	refSelections := map[string]*search.SelectProperty{}
-
 	for _, entry := range returnProperties {
 		if entry == "" {
 			return nil, newAPIError(http.StatusBadRequest, "returnProperties entries must not be empty")
 		}
 
-		root, sub, isDotPath := strings.Cut(entry, ".")
-		normalized := schema.LowercaseFirstLetter(root)
-
+		normalized := schema.LowercaseFirstLetter(entry)
 		schemaProp, err := schema.GetPropertyByName(class, normalized)
 		if err != nil {
 			return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 		}
 
-		if !schema.IsRefDataType(schemaProp.DataType) {
-			if isDotPath {
-				return nil, newAPIError(http.StatusBadRequest,
-					"returnProperties: %q is not a reference property, dot-paths only select across references", root)
-			}
-			prop, apiErr := nonRefSelectProperty(schemaProp, normalized)
-			if apiErr != nil {
-				return nil, apiErr
-			}
-			props = append(props, *prop)
-			continue
+		if schema.IsRefDataType(schemaProp.DataType) {
+			return nil, newAPIError(http.StatusBadRequest,
+				"returnProperties: %q is a reference property, select it with returnReferences", entry)
 		}
 
-		refProp, apiErr := refSelectProperty(schemaProp, normalized, sub, isDotPath, refSelections, getClass)
+		prop, apiErr := nonRefSelectProperty(schemaProp, normalized)
 		if apiErr != nil {
 			return nil, apiErr
 		}
-		if refProp != nil {
-			props = append(props, *refProp)
-		}
-	}
-
-	// materialize merged ref selections in request order
-	for i := range props {
-		if merged, ok := refSelections[props[i].Name]; ok {
-			props[i] = *merged
-		}
+		props = append(props, *prop)
 	}
 
 	return props, nil
@@ -699,67 +688,195 @@ func nonRefSelectProperty(schemaProp *models.Property, name string) (*search.Sel
 	return &search.SelectProperty{Name: name, IsPrimitive: true}, nil
 }
 
-// refSelectProperty resolves a one-hop reference selection. Multiple entries
-// sharing the same root ("hasAuthor.name", "hasAuthor.age") merge into a
-// single selection; the first occurrence claims the slot in the output, so a
-// nil, nil return means "already emitted". Deeper hops are deferred.
-func refSelectProperty(schemaProp *models.Property, name, sub string, isDotPath bool,
-	refSelections map[string]*search.SelectProperty,
-	getClass classGetterFunc,
-) (*search.SelectProperty, *APIError) {
-	if isDotPath && strings.Contains(sub, ".") {
-		return nil, newAPIError(http.StatusUnprocessableEntity,
-			"returnProperties: %q is not yet supported, only one reference hop is supported (e.g. %s.%s)",
-			name+"."+sub, name, strings.Split(sub, ".")[0])
-	}
-	if len(schemaProp.DataType) != 1 {
-		return nil, newAPIError(http.StatusUnprocessableEntity,
-			"returnProperties: multi-target reference %q is not yet supported", name)
+// parseReturnReferences builds the reference selections, one search.SelectProperty
+// per reference property. Selectors naming the same property merge into that
+// one entry (one SelectClass per target) because the resolver indexes
+// selections by name and keeps only the first — see the design doc.
+func (h *Handler) parseReturnReferences(class *models.Class, className string,
+	selectors []*models.SearchReferenceSelector, getClass classGetterFunc, principal *models.Principal,
+) (search.SelectProperties, *APIError) {
+	if len(selectors) == 0 {
+		return nil, nil
 	}
 
-	linkedClassName := schemaProp.DataType[0]
-	linkedClass, err := getClass(linkedClassName)
-	if err != nil {
-		return nil, statusFromError(err)
-	}
+	props := make(search.SelectProperties, 0, len(selectors))
+	byName := map[string]int{}
 
-	existing, seen := refSelections[name]
-	if !seen {
-		existing = &search.SelectProperty{
-			Name: name,
-			Refs: []search.SelectClass{{ClassName: linkedClassName}},
+	for _, selector := range selectors {
+		if selector == nil {
+			return nil, newAPIError(http.StatusBadRequest, "returnReferences entries must not be null")
 		}
-		refSelections[name] = existing
-	}
+		if selector.LinkOn == nil || *selector.LinkOn == "" {
+			return nil, newAPIError(http.StatusBadRequest, "returnReferences: linkOn must not be empty")
+		}
+		name := schema.LowercaseFirstLetter(*selector.LinkOn)
 
-	if !isDotPath {
-		// bare reference name: all non-ref properties of the target
-		refProps, err := search.AllNonRefNonBlobProperties(linkedClass)
+		schemaProp, err := schema.GetPropertyByName(class, name)
 		if err != nil {
 			return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 		}
-		existing.Refs[0].RefProperties = append(existing.Refs[0].RefProperties, refProps...)
-	} else {
-		subNormalized := schema.LowercaseFirstLetter(sub)
-		subProp, err := schema.GetPropertyByName(linkedClass, subNormalized)
-		if err != nil {
-			return nil, &APIError{Status: http.StatusBadRequest, Err: err}
+		if !schema.IsRefDataType(schemaProp.DataType) {
+			return nil, newAPIError(http.StatusBadRequest,
+				"returnReferences: %q is not a reference property; plain properties are selected via returnProperties", name)
 		}
-		if schema.IsRefDataType(subProp.DataType) {
-			return nil, newAPIError(http.StatusUnprocessableEntity,
-				"returnProperties: %q is not yet supported, only one reference hop is supported", name+"."+sub)
-		}
-		selectProp, apiErr := nonRefSelectProperty(subProp, subNormalized)
+
+		linkedClassName, apiErr := h.resolveRefTarget(schemaProp, name, className, selector.TargetCollection, principal)
 		if apiErr != nil {
 			return nil, apiErr
 		}
-		existing.Refs[0].RefProperties = append(existing.Refs[0].RefProperties, *selectProp)
+		linkedClass, err := getClass(linkedClassName)
+		if err != nil {
+			return nil, statusFromError(err)
+		}
+
+		selectClass, apiErr := h.buildSelectClass(linkedClass, linkedClassName, selector, getClass, principal)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+
+		if i, seen := byName[name]; seen {
+			if props[i].FindSelectClass(schema.ClassName(linkedClassName)) != nil {
+				return nil, newAPIError(http.StatusBadRequest,
+					"returnReferences: duplicate selector for %q and target collection %q", name, linkedClassName)
+			}
+			props[i].Refs = append(props[i].Refs, *selectClass)
+			continue
+		}
+
+		byName[name] = len(props)
+		props = append(props, search.SelectProperty{
+			Name: name,
+			// a multi-target reference mixes collections, so the reply carries
+			// the collection of each referenced object
+			IncludeTypeName: len(schemaProp.DataType) > 1,
+			Refs:            []search.SelectClass{*selectClass},
+		})
 	}
 
-	if seen {
-		return nil, nil
+	return props, nil
+}
+
+// resolveRefTarget picks the referenced collection: a single-target reference
+// takes its only target, a multi-target one requires targetCollection.
+func (h *Handler) resolveRefTarget(schemaProp *models.Property, name, className, targetCollection string,
+	principal *models.Principal,
+) (string, *APIError) {
+	if len(schemaProp.DataType) == 1 {
+		if targetCollection == "" {
+			return schemaProp.DataType[0], nil
+		}
+		qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+		if err != nil {
+			return "", &APIError{Status: http.StatusBadRequest, Err: err}
+		}
+		if qualified != schemaProp.DataType[0] {
+			return "", newAPIError(http.StatusBadRequest,
+				"returnReferences: reference %q does not target collection %q, it targets %q",
+				name, targetCollection, schemaProp.DataType[0])
+		}
+		return schemaProp.DataType[0], nil
 	}
-	return existing, nil
+
+	if targetCollection == "" {
+		return "", newAPIError(http.StatusBadRequest,
+			"returnReferences: %q is a multi-target reference and needs targetCollection. Available target collections %v",
+			name, schemaProp.DataType)
+	}
+	qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+	if err != nil {
+		return "", &APIError{Status: http.StatusBadRequest, Err: err}
+	}
+	for _, target := range schemaProp.DataType {
+		if target == qualified {
+			return qualified, nil
+		}
+	}
+	return "", newAPIError(http.StatusBadRequest,
+		"returnReferences: reference %q does not target collection %q. Available target collections %v",
+		name, targetCollection, schemaProp.DataType)
+}
+
+// buildSelectClass fills one referenced collection's selection: its
+// properties, its metadata and, recursively, its own references.
+func (h *Handler) buildSelectClass(linkedClass *models.Class, linkedClassName string,
+	selector *models.SearchReferenceSelector, getClass classGetterFunc, principal *models.Principal,
+) (*search.SelectClass, *APIError) {
+	refProps, apiErr := parseReturnProperties(linkedClass, selector.ReturnProperties)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	nested, apiErr := h.parseReturnReferences(linkedClass, linkedClassName, selector.ReturnReferences, getClass, principal)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	refProps = append(refProps, nested...)
+
+	addProps, apiErr := parseReferenceMetadata(selector.ReturnMetadata)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	// pure-id selection: tell the db it needs no properties (gRPC parity)
+	if len(refProps) == 0 && addProps.ID && !addProps.CreationTimeUnix && !addProps.LastUpdateTimeUnix {
+		addProps.NoProps = true
+	}
+
+	return &search.SelectClass{
+		ClassName:            linkedClassName,
+		RefProperties:        refProps,
+		AdditionalProperties: addProps,
+	}, nil
+}
+
+// parseReferenceMetadata maps a selector's returnMetadata onto the referenced
+// object's additional properties. The vocabulary is narrower than a result's:
+// a referenced object carries no retrieval values.
+func parseReferenceMetadata(returnMetadata []string) (additional.Properties, *APIError) {
+	var props additional.Properties
+	for _, entry := range returnMetadata {
+		switch entry {
+		case "id":
+			props.ID = true
+		case "creationTime":
+			props.CreationTimeUnix = true
+		case "lastUpdateTime":
+			props.LastUpdateTimeUnix = true
+		default:
+			return additional.Properties{}, newAPIError(http.StatusBadRequest,
+				"unknown returnMetadata entry %q, expected one of id, creationTime, lastUpdateTime", entry)
+		}
+	}
+	return props, nil
+}
+
+// checkRefDepth rejects a selection nested deeper than
+// QUERY_CROSS_REFERENCE_DEPTH_LIMIT before the traverser reaches it, whose
+// own probe is untyped and would surface as a 500.
+func (h *Handler) checkRefDepth(props search.SelectProperties) *APIError {
+	if h.crossRefDepthLimit <= 0 {
+		return nil
+	}
+	if depth := refDepth(props, 0, h.crossRefDepthLimit); depth > h.crossRefDepthLimit {
+		return newAPIError(http.StatusBadRequest,
+			"returnReferences: nesting exceeds QUERY_CROSS_REFERENCE_DEPTH_LIMIT (%d)", h.crossRefDepthLimit)
+	}
+	return nil
+}
+
+// refDepth mirrors the traverser's probeForRefDepthLimit so the handler
+// rejects exactly what the engine would.
+func refDepth(props search.SelectProperties, currDepth, limit int) int {
+	if len(props) == 0 || currDepth > limit {
+		return 0
+	}
+	currDepth++
+	maxDepth := 0
+	for _, prop := range props {
+		for _, refTarget := range prop.Refs {
+			maxDepth = max(maxDepth, refDepth(refTarget.RefProperties, currDepth, limit))
+		}
+	}
+	return maxDepth + 1
 }
 
 func parseWhere(where *models.WhereFilter, className string, namespacesEnabled bool,
