@@ -603,6 +603,26 @@ func (s *segment) getDocCount(key []byte) uint64 {
 	return binary.LittleEndian.Uint64(buffer)
 }
 
+// eachDocCount yields every key's stored posting doc count via a sequential
+// index walk — one 8-byte read per row, no per-key index descent. Keys alias
+// the index data; copy before retaining. fn's error aborts the walk.
+func (s *segment) eachDocCount(fn func(key []byte, docCount uint64) error) error {
+	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
+		return nil
+	}
+
+	buf := make([]byte, 8)
+	return s.index.ForEachNodeOffset(func(key []byte, start, end uint64) error {
+		if start+8 > end {
+			return fmt.Errorf("row for key %q too short for doc count", key)
+		}
+		if err := s.copyNode(buf, nodeOffset{start, start + 8}); err != nil {
+			return err
+		}
+		return fn(key, binary.LittleEndian.Uint64(buf))
+	})
+}
+
 // getInvertedNodeAndDocCount returns a term's index node and posting doc count
 // from a single index descent, letting the caller reuse the node for term
 // construction. The doc count is read from the inverted posting layout, so it

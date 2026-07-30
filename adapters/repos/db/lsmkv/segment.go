@@ -93,6 +93,7 @@ type Segment interface {
 	// map/bmw specific
 	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
+	eachDocCount(fn func(key []byte, docCount uint64) error) error
 	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
 	isPropertyLengthsLoaded() bool
@@ -178,6 +179,11 @@ type diskIndex interface {
 	// The key passed to fn is a subslice of the underlying data and must not
 	// be retained or modified by the caller.
 	ForEachKey(fn func(key []byte))
+
+	// ForEachNodeOffset iterates over all keys with their payload (start, end)
+	// offsets, in on-disk order, without allocating. Keys alias the index
+	// data. fn's error aborts the walk and is returned.
+	ForEachNodeOffset(fn func(key []byte, start, end uint64) error) error
 }
 
 type segmentConfig struct {

@@ -2944,6 +2944,10 @@ func bloomSaturated(keysBloom *bloom.BloomFilter) bool {
 	return keysBloom.BitSet().Count() >= keysBloom.Cap()
 }
 
+// errDistinctKeysExceeded aborts a segment walk once maxDistinct is hit; it
+// never escapes InvertedEachDistinctKey.
+var errDistinctKeysExceeded = errors.New("distinct keys exceeded")
+
 // InvertedEachDistinctKey calls fn once per distinct key with the key's doc
 // count summed from the inverted rows' stored posting counts — no posting or
 // bitmap decode. It gives up in two ways: exceeded, once the bucket holds
@@ -2988,16 +2992,23 @@ func (b *Bucket) InvertedEachDistinctKey(ctx context.Context, maxDistinct int,
 	visited := 0
 	dfSum := map[string]uint64{}
 	for _, seg := range view.Disk {
-		for _, key := range seg.getKeysSorted() {
+		err := seg.eachDocCount(func(key []byte, df uint64) error {
 			if visited++; visited%ctxCheckEvery == 0 {
 				if err := ctx.Err(); err != nil {
-					return false, false, err
+					return err
 				}
 			}
 			if _, ok := dfSum[string(key)]; !ok && len(dfSum) == maxDistinct {
-				return true, false, nil
+				return errDistinctKeysExceeded
 			}
-			dfSum[string(key)] += seg.getDocCount(key)
+			dfSum[string(key)] += df
+			return nil
+		})
+		if errors.Is(err, errDistinctKeysExceeded) {
+			return true, false, nil
+		}
+		if err != nil {
+			return false, false, err
 		}
 	}
 

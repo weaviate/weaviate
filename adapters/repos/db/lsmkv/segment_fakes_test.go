@@ -415,6 +415,19 @@ func (s *fakeSegment) getDocCount(key []byte) uint64 {
 	return uint64(len(s.collectionStore[string(key)]))
 }
 
+func (s *fakeSegment) eachDocCount(fn func(key []byte, docCount uint64) error) error {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil
+	}
+
+	for key, vals := range s.collectionStore {
+		if err := fn([]byte(key), uint64(len(vals))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *fakeSegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return segmentindex.Node{}, 0, false
