@@ -24,9 +24,33 @@ most favourable possible setting, to learn the ceiling before adding anything.
   to `budgets[b]` (last budget repeats once the list is exhausted).
 - **Exact rescore**: final survivors are rescored with exact cosine distance
   against the float vectors; top k returned.
-- Candidate selection is deliberately the simplest thing that works (full
-  sort by distance, truncate). It is the baseline a later selection
-  optimisation will be compared against.
+- In `schedule` mode, candidate selection is deliberately the simplest thing
+  that works (full sort by distance, truncate). It is the baseline a later
+  selection optimisation will be compared against.
+
+## Modes
+
+- `-mode=schedule` (default): progressive elimination with the budget
+  schedule, sort-based selection (round-1 behaviour, kept reproducible).
+- `-mode=full`: honest no-elimination baseline. Reads every block of every
+  vector, accumulates full-width Hamming, selects the top `-rescore`
+  (default 350) with a bucketed threshold — per-distance id lists plus a
+  running threshold, no sort, no heap — then exact-rescores and takes the
+  top k by insertion. This is the recall ceiling of the representation.
+- `-mode=rankcurve`: for each prefix depth (64, 128, …, retained), computes
+  each sampled query's true neighbours' ranks by prefix-Hamming distance
+  (worst case under ties) and reports p50/p95/p99/max of the per-query
+  maximum — the smallest budget at each depth that retains all true
+  neighbours. `-rank-queries` (default 400) controls the sample.
+
+## Centering
+
+`-center` subtracts the dataset mean (computed once at build time) from base
+vectors and queries before rotation and sign extraction. Motivation: ada002
+embeddings are not centered; sign-quantizing against zero on uncentered data
+biases every rotated bit. The exact rescore always uses the uncentered
+normalized floats. Note the production `compressionhelpers.BinaryQuantizer`
+thresholds against literal zero with no centering upstream.
 
 ## Data preparation (one-time)
 
@@ -57,19 +81,29 @@ Flags:
 | flag | default | meaning |
 |---|---|---|
 | `-data` | dbpedia 1M bin dir | directory produced by `convert.sh` |
+| `-mode` | `schedule` | `schedule`, `full`, or `rankcurve` |
 | `-dims` | 1536 | input dimensionality |
 | `-retained` | 1536 | retained dims after rotation (multiple of 64) |
-| `-budgets` | `100000,20000,5000,1500,600,350` | survivors kept after each block; last value repeats |
+| `-budgets` | `100000,20000,5000,1500,600,350` | survivors kept after each block; last value repeats (schedule mode) |
 | `-rotate` | true | apply the fast rotation (off = plain truncation) |
+| `-center` | false | subtract the dataset mean before rotation/sign extraction |
 | `-seed` | RQ default | rotation seed |
-| `-rescore` | 0 | exact-rescore window (0 = all final survivors) |
+| `-rescore` | 0 | exact-rescore window (0 = all survivors in schedule mode, 350 in full mode) |
 | `-queries` | 0 | number of queries (0 = all) |
+| `-rank-queries` | 400 | sampled queries in rankcurve mode |
 | `-k` | 10 | result count / recall@k |
 | `-csv` | `bitpack-bench-results.csv` | CSV file to append results to |
 
 ## Output
 
 Per run: recall@10, p50/p95/p99 latency split by stage (block-0 pass,
-remaining blocks, exact rescore), average surviving candidates after each
-block, and store size (bytes/vector packed, total packed, float bytes held
-for rescore). Printed to stdout and appended to the CSV.
+remaining blocks + selection, exact rescore), average surviving candidates
+after each block, store size (bytes/vector packed, total packed, float bytes
+held for rescore), bytes read per query from the code store, effective scan
+bandwidth, and single-threaded QPS. Printed to stdout and appended to the
+CSV. `rankcurve` mode prints a per-depth rank table and writes its own CSV
+schema.
+
+Round-1 results used an earlier CSV schema without mode/center/bytes/QPS
+columns (`results/dbpedia-1M-baseline.csv`); round-2 runs append to new
+files.
