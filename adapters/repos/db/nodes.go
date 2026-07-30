@@ -28,10 +28,13 @@ import (
 
 // GetNodeStatus returns the status of all Weaviate nodes.
 func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, verbosity string) ([]*models.NodeStatus, error) {
-	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
+	// nodes join and leave while this runs, so the same read has to size the
+	// slice and drive the loop
+	nodeNames := db.schemaGetter.Nodes()
+	nodeStatuses := make([]*models.NodeStatus, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
-	for i, nodeName := range db.schemaGetter.Nodes() {
+	for i, nodeName := range nodeNames {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {
 			status, err := db.GetOneNodeStatus(ctx, nodeName, className, shardName, verbosity)
@@ -70,18 +73,24 @@ func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardNa
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, shardName, output)
 	if err != nil {
-		var errSendHttpRequest *enterrors.ErrSendHttpRequest
+		// the reported status carries no reason, so the cause is only visible here
+		db.logger.Warnf("node %q did not report its status: %v", nodeName, err)
+
+		// errors.As needs a value target: the client returns these errors by value
+		var errSendHttpRequest enterrors.ErrSendHttpRequest
 		switch {
 		case errors.As(err, &errSendHttpRequest):
 			if errors.Is(errSendHttpRequest.Unwrap(), context.DeadlineExceeded) {
 				return timedOutNodeStatus(nodeName), nil
 			}
 
-			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
-			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
+			return unavailableNodeStatus(nodeName), nil
 		case errors.As(err, &enterrors.ErrOpenHttpRequest{}):
-			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
-			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
+			return unavailableNodeStatus(nodeName), nil
+		case errors.As(err, &enterrors.ErrUnexpectedStatusCode{}):
+			// a node that answers with an error, e.g. because it is shutting down,
+			// is reported as unavailable instead of failing the status of every node
+			return unavailableNodeStatus(nodeName), nil
 		default:
 			return nil, err
 		}
@@ -92,6 +101,11 @@ func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardNa
 func timedOutNodeStatus(nodeName string) *models.NodeStatus {
 	timeout := models.NodeStatusStatusTIMEOUT
 	return &models.NodeStatus{Name: nodeName, Status: &timeout}
+}
+
+func unavailableNodeStatus(nodeName string) *models.NodeStatus {
+	unavailable := models.NodeStatusStatusUNAVAILABLE
+	return &models.NodeStatus{Name: nodeName, Status: &unavailable}
 }
 
 // IncomingGetNodeStatus returns the index if it exists or nil if it doesn't.
@@ -339,10 +353,13 @@ func isAnyVectorIndexCompressed(shard ShardLike) bool {
 }
 
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
-	nodeStatistics := make([]*models.Statistics, len(db.schemaGetter.Nodes()))
+	// nodes join and leave while this runs, so the same read has to size the
+	// slice and drive the loop
+	nodeNames := db.schemaGetter.Nodes()
+	nodeStatistics := make([]*models.Statistics, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
-	for i, nodeName := range db.schemaGetter.Nodes() {
+	for i, nodeName := range nodeNames {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {
 			statistics, err := db.getNodeStatistics(ctx, nodeName)
@@ -422,7 +439,11 @@ func (db *DB) getNodeStatistics(ctx context.Context, nodeName string) (*models.S
 	}
 	statistics, err := db.remoteNode.GetStatistics(ctx, nodeName)
 	if err != nil {
-		var errSendHttpRequest *enterrors.ErrSendHttpRequest
+		// the reported status carries no reason, so the cause is only visible here
+		db.logger.Warnf("node %q did not report its statistics: %v", nodeName, err)
+
+		// errors.As needs a value target: the client returns these errors by value
+		var errSendHttpRequest enterrors.ErrSendHttpRequest
 		switch {
 		case errors.As(err, &errSendHttpRequest):
 			if errors.Is(errSendHttpRequest.Unwrap(), context.DeadlineExceeded) {

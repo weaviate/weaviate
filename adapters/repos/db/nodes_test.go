@@ -13,7 +13,9 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -28,6 +30,7 @@ import (
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -353,6 +356,212 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 			assert.Len(t, status.Shards, tt.wantShards)
 		})
 	}
+}
+
+// TestGetNodeStatusRemoteNodeCannotAnswer pins that a remote node which cannot
+// answer is reported on its own, leaving the status of every other node intact.
+func TestGetNodeStatusRemoteNodeCannotAnswer(t *testing.T) {
+	const className = "Remote"
+
+	healthy := models.NodeStatusStatusHEALTHY
+
+	tests := []struct {
+		name       string
+		remoteErr  error
+		wantStatus string
+		wantErr    bool
+	}{
+		{
+			name:       "node answers",
+			wantStatus: models.NodeStatusStatusHEALTHY,
+		},
+		{
+			name:       "node refuses to answer while shutting down",
+			remoteErr:  enterrors.NewErrUnexpectedStatusCode(http.StatusBadRequest, []byte("collection is closed")),
+			wantStatus: models.NodeStatusStatusUNAVAILABLE,
+		},
+		{
+			name:       "node cannot be reached",
+			remoteErr:  enterrors.NewErrSendHttpRequest(errors.New("connection refused")),
+			wantStatus: models.NodeStatusStatusUNAVAILABLE,
+		},
+		{
+			name:       "node has no address to ask",
+			remoteErr:  enterrors.NewErrOpenHttpRequest(errors.New("invalid host")),
+			wantStatus: models.NodeStatusStatusUNAVAILABLE,
+		},
+		{
+			name:       "node ran out of time",
+			remoteErr:  enterrors.NewErrSendHttpRequest(context.DeadlineExceeded),
+			wantStatus: models.NodeStatusStatusTIMEOUT,
+		},
+		{
+			name:      "node sends a body that cannot be read",
+			remoteErr: enterrors.NewErrUnmarshalBody(errors.New("invalid character")),
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			idx, _ := shardedIndex(t, className, []string{"s1"}, nil, nil, false)
+			db := &DB{
+				logger:       logger,
+				indices:      map[string]*Index{idx.ID(): idx},
+				schemaGetter: &nodeListSchemaGetter{nodeLists: [][]string{{"node1", "node2"}}},
+				remoteNode: sharding.NewRemoteNode(
+					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
+					&FakeRemoteNodeClient{
+						Status: &models.NodeStatus{Name: "node2", Status: &healthy},
+						Err:    tt.remoteErr,
+					}),
+			}
+
+			statuses, err := db.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, statuses)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, statuses, 2)
+			require.NotNil(t, statuses[0].Status)
+			assert.Equal(t, models.NodeStatusStatusHEALTHY, *statuses[0].Status, "status of the local node")
+			assert.Len(t, statuses[0].Shards, 1, "shards of the local node")
+			require.NotNil(t, statuses[1].Status)
+			assert.Equal(t, tt.wantStatus, *statuses[1].Status, "status of the remote node")
+		})
+	}
+}
+
+// TestGetNodeStatusMembershipChange pins that a node joining or leaving while the
+// request runs neither panics nor leaves a node of the list it works off silent.
+func TestGetNodeStatusMembershipChange(t *testing.T) {
+	const className = "Membership"
+
+	healthy := models.NodeStatusStatusHEALTHY
+
+	tests := []struct {
+		name      string
+		nodeLists [][]string
+		wantNodes []string
+	}{
+		{
+			name:      "node leaves",
+			nodeLists: [][]string{{"node1", "node2"}, {"node1"}},
+			wantNodes: []string{"node1", "node2"},
+		},
+		{
+			name:      "node joins",
+			nodeLists: [][]string{{"node1"}, {"node1", "node2"}},
+			wantNodes: []string{"node1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			idx, _ := shardedIndex(t, className, []string{"s1"}, nil, nil, false)
+			db := &DB{
+				logger:       logger,
+				indices:      map[string]*Index{idx.ID(): idx},
+				schemaGetter: &nodeListSchemaGetter{nodeLists: tt.nodeLists},
+				remoteNode: sharding.NewRemoteNode(
+					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
+					&FakeRemoteNodeClient{Status: &models.NodeStatus{Name: "node2", Status: &healthy}}),
+			}
+
+			statuses, err := db.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
+
+			require.NoError(t, err)
+			names := make([]string, len(statuses))
+			for i, status := range statuses {
+				require.NotNil(t, status, "status of every node of the list")
+				names[i] = status.Name
+			}
+			assert.Equal(t, tt.wantNodes, names)
+		})
+	}
+}
+
+// TestGetNodeStatisticsRemoteNodeCannotAnswer pins that a remote node which
+// cannot be reached is reported as unavailable rather than as an error.
+func TestGetNodeStatisticsRemoteNodeCannotAnswer(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteErr  error
+		wantStatus string
+		wantErr    bool
+	}{
+		{
+			name: "node answers",
+		},
+		{
+			name:       "node cannot be reached",
+			remoteErr:  enterrors.NewErrSendHttpRequest(errors.New("connection refused")),
+			wantStatus: models.StatisticsStatusUNAVAILABLE,
+		},
+		{
+			name:       "node has no address to ask",
+			remoteErr:  enterrors.NewErrOpenHttpRequest(errors.New("invalid host")),
+			wantStatus: models.StatisticsStatusUNAVAILABLE,
+		},
+		{
+			name:       "node ran out of time",
+			remoteErr:  enterrors.NewErrSendHttpRequest(context.DeadlineExceeded),
+			wantStatus: models.StatisticsStatusTIMEOUT,
+		},
+		{
+			name:      "node sends a body that cannot be read",
+			remoteErr: enterrors.NewErrUnmarshalBody(errors.New("invalid character")),
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			db := &DB{
+				logger:       logger,
+				schemaGetter: &fakeSchemaGetter{},
+				remoteNode: sharding.NewRemoteNode(
+					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
+					&FakeRemoteNodeClient{Err: tt.remoteErr}),
+			}
+
+			statistics, err := db.getNodeStatistics(context.Background(), "node2")
+
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, statistics)
+				return
+			}
+			require.NoError(t, err)
+			if tt.wantStatus == "" {
+				assert.Equal(t, &models.Statistics{}, statistics, "the answer of the node")
+				return
+			}
+			require.NotNil(t, statistics.Status)
+			assert.Equal(t, tt.wantStatus, *statistics.Status)
+		})
+	}
+}
+
+// nodeListSchemaGetter reports one node list per read, so a test can add or
+// remove a node between the reads of a request.
+type nodeListSchemaGetter struct {
+	fakeSchemaGetter
+	nodeLists [][]string
+	reads     int
+}
+
+// Nodes reports the next list, and the last one once the lists run out.
+func (g *nodeListSchemaGetter) Nodes() []string {
+	nodes := g.nodeLists[min(g.reads, len(g.nodeLists)-1)]
+	g.reads++
+	return nodes
 }
 
 // scannableSchemaReader reports each shard name as a single-replica shard of the
