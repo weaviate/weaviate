@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"reflect"
 	"runtime"
 	"slices"
 	"sync"
@@ -556,6 +557,125 @@ func TestShardActivityUsageIsIndependent(t *testing.T) {
 		}
 		close(stop)
 		wg.Wait()
+	})
+}
+
+// Recycling a tenant map keeps the buckets of the largest tenant count its
+// collection ever held, so a collection that drained has to get a new one.
+func TestShardActivityTenantMapReuse(t *testing.T) {
+	const peak = 40
+
+	address := func(m any) uintptr { return reflect.ValueOf(m).Pointer() }
+
+	// a collection whose tenant maps are allocated and reused from here on
+	warm := func() (*nodeWideMetricsObserver, *Index, *DB) {
+		logger, _ := test.NewNullLogger()
+		col := newActivityTestIndex("Col1", true)
+		for i := 0; i < peak; i++ {
+			col.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
+		}
+		db := &DB{logger: logger, indices: map[string]*Index{"Col1": col}}
+		o := newNodeWideMetricsObserver(db)
+		o.observeActivity()
+		return o, col, db
+	}
+
+	tests := []struct {
+		name string
+		// how many of the initial tenants are left once the drain is done, how
+		// many tenants leave per cycle (0 removes them all in one), and how many
+		// tenants are added on top
+		keep         int
+		perCycle     int
+		add          int
+		wantReplaced bool
+	}{
+		{name: "most tenants stay", keep: 30},
+		{name: "down to exactly a quarter", keep: peak / 4},
+		{name: "just past a quarter", keep: peak/4 - 1, wantReplaced: true},
+		{name: "down to a single tenant", keep: 1, wantReplaced: true},
+		{name: "every tenant leaves", keep: 0, wantReplaced: true},
+		{name: "a few tenants leave per cycle", keep: 1, perCycle: 4, wantReplaced: true},
+		{name: "collection grows", keep: peak, add: peak},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o, col, _ := warm()
+			// holding on to the maps keeps a replacement from landing on the same
+			// address
+			snapshotBefore := o.activitySnapshot["Col1"]
+			usageBefore := o.usage["Col1"]
+
+			for i := 0; i < tt.add; i++ {
+				col.shards.Store(fmt.Sprintf("added-%d", i), &Shard{})
+			}
+
+			leaving := peak - tt.keep
+			perCycle := tt.perCycle
+			if perCycle == 0 {
+				perCycle = leaving
+			}
+			for removed := 0; removed < leaving; {
+				for i := 0; i < perCycle && removed < leaving; i++ {
+					col.shards.LoadAndDelete(fmt.Sprintf("tenant-%d", tt.keep+removed))
+					removed++
+				}
+				o.observeActivity()
+			}
+			// the counters map only reveals its new size once a cycle has filled it,
+			// so it is replaced on the cycle after
+			o.observeActivity()
+
+			require.Len(t, o.Usage(tenantactivity.UsageFilterAll)["Col1"], tt.keep+tt.add,
+				"every surviving tenant should still be reported")
+			require.Equal(t, tt.wantReplaced,
+				address(o.activitySnapshot["Col1"]) != address(snapshotBefore),
+				"counters map replaced")
+			require.Equal(t, tt.wantReplaced,
+				address(o.usage["Col1"]) != address(usageBefore),
+				"usage map replaced")
+		})
+	}
+
+	// The usage records are what the next cycle compares against, so a replaced
+	// map has to carry them over instead of reporting every tenant that is left
+	// as newly active.
+	t.Run("a surviving tenant keeps its record", func(t *testing.T) {
+		o, col, _ := warm()
+
+		survivor := col.shards.Load("tenant-0").(*Shard)
+		survivor.activityTrackerRead.Add(1)
+		survivor.activityTrackerWrite.Add(1)
+		o.observeActivity()
+
+		usageBefore := o.usage["Col1"]
+		before := usageBefore["tenant-0"]
+		require.False(t, before.lastRead.IsZero(), "the survivor should have been read")
+		require.False(t, before.lastWrite.IsZero(), "the survivor should have been written to")
+
+		for i := 1; i < peak; i++ {
+			col.shards.LoadAndDelete(fmt.Sprintf("tenant-%d", i))
+		}
+		col.shards.Store("tenant-new", &Shard{})
+		// a re-stamped timestamp has to be distinguishable from the one it replaces
+		time.Sleep(time.Millisecond)
+		o.observeActivity()
+
+		require.NotEqual(t, address(usageBefore), address(o.usage["Col1"]),
+			"the usage map should have been replaced")
+		require.Equal(t, before, o.usage["Col1"]["tenant-0"])
+		require.True(t, o.usage["Col1"]["tenant-new"].lastActivity.After(before.lastActivity),
+			"a tenant that arrived with the replacement should be newly active")
+	})
+
+	t.Run("a removed collection leaves no peak behind", func(t *testing.T) {
+		o, _, db := warm()
+		require.Contains(t, o.tenantPeaks, "Col1")
+
+		delete(db.indices, "Col1")
+		o.observeActivity()
+		require.NotContains(t, o.tenantPeaks, "Col1")
 	})
 }
 

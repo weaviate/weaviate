@@ -38,6 +38,12 @@ type nodeWideMetricsObserver struct {
 	// allocating new ones.
 	activitySnapshot activityByCollection
 
+	// The most tenants each collection has held since its tenant maps were last
+	// replaced. Cleared and pruned maps keep their buckets, so a collection down
+	// to less than a quarter of its peak gets fresh ones. Only the observeShards
+	// goroutine touches it.
+	tenantPeaks map[string]int
+
 	activityLock sync.Mutex
 	// Tenant usage as of the most recent cycle. Each cycle updates it in place
 	// instead of building a new one, so repeated observations do not allocate.
@@ -67,7 +73,11 @@ type (
 )
 
 func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
-	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
+	return &nodeWideMetricsObserver{
+		db:          db,
+		shutdown:    make(chan struct{}),
+		tenantPeaks: map[string]int{},
+	}
 }
 
 // Start goroutines for periodically polling node-wide metrics.
@@ -221,7 +231,9 @@ func (o *nodeWideMetricsObserver) logActivity(col, tenant, activityType string, 
 
 // Update the usage state from the newly observed counters. Collections and
 // tenants that no longer appear are deleted, the rest are updated in place, so
-// repeated observations do not allocate.
+// repeated observations do not allocate. A collection that lost most of its
+// tenants gets a new map, carrying over the records of the tenants that are
+// left.
 func (o *nodeWideMetricsObserver) updateUsage(currentActivity activityByCollection) {
 	now := time.Now()
 
@@ -233,28 +245,38 @@ func (o *nodeWideMetricsObserver) updateUsage(currentActivity activityByCollecti
 	for class := range o.usage {
 		if _, ok := currentActivity[class]; !ok {
 			delete(o.usage, class)
+			delete(o.tenantPeaks, class)
 		}
 	}
 
 	for class, current := range currentActivity {
-		byTenant := o.usage[class]
-		if byTenant == nil {
+		previous := o.usage[class]
+
+		byTenant := previous
+		if byTenant == nil || o.lostMostTenants(class, len(current)) {
 			byTenant = make(usageByTenant, len(current))
 			o.usage[class] = byTenant
-		}
-
-		for tenant := range byTenant {
-			if _, ok := current[tenant]; !ok {
-				delete(byTenant, tenant)
+		} else {
+			for tenant := range byTenant {
+				if _, ok := current[tenant]; !ok {
+					delete(byTenant, tenant)
+				}
 			}
 		}
+		o.tenantPeaks[class] = max(o.tenantPeaks[class], len(current))
 
 		for tenant, act := range current {
-			// each record is read before it is overwritten, so the previous values
-			// can come from the map being updated
-			byTenant[tenant] = o.tenantUsageDelta(class, tenant, act, byTenant, now)
+			// each record is read before it is overwritten, so previous can be the
+			// map being written to
+			byTenant[tenant] = o.tenantUsageDelta(class, tenant, act, previous, now)
 		}
 	}
+}
+
+// Whether a collection has lost so many tenants that reusing its maps would
+// keep far more buckets than the tenants that are left need.
+func (o *nodeWideMetricsObserver) lostMostTenants(class string, live int) bool {
+	return live*4 < o.tenantPeaks[class]
 }
 
 // Derive a tenant's usage from its current counters and its record from the
@@ -322,9 +344,15 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		// the previous counters are already kept in o.usage, so the map they were
 		// read from can be refilled instead of allocated again
 		tenants := previous[cn]
-		if tenants == nil {
+		switch {
+		case tenants == nil:
 			tenants = make(activityByTenant)
-		} else {
+		case o.lostMostTenants(cn, len(tenants)):
+			// len is last cycle's tenant count, as this cycle's is only known once
+			// the map has been filled
+			tenants = make(activityByTenant, len(tenants))
+			delete(o.tenantPeaks, cn)
+		default:
 			clear(tenants)
 		}
 		current[cn] = tenants
