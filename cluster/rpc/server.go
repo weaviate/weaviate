@@ -253,6 +253,9 @@ func toRPCError(err error) error {
 		ec = codes.FailedPrecondition
 	case errors.Is(err, namespaces.ErrAlreadyExists):
 		ec = codes.AlreadyExists
+	case errors.Is(err, schema.ErrClassVersionConflict):
+		// Optimistic-lock rejection: the proposer retries from a fresh read.
+		ec = codes.Aborted
 	case errors.Is(err, namespaces.ErrBadRequest),
 		// Schema-FSM client-fault rejections (drop-vector marker refusal,
 		// removal gate, …) must not reach the forwarding node as

@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -269,4 +270,42 @@ func TestShardReinitAfterDeferredShutdown(t *testing.T) {
 	_, release2, err := index.GetShard(context.Background(), shardName)
 	require.NoError(t, err)
 	release2()
+}
+
+// TestShutdownOrRestoreShard_ConcurrentCompletionIsNotAFailure pins the race
+// between an explicit Shutdown and the deferred ref-drain completion: when
+// the deferred completion wins while the explicit attempt times out, the
+// stale attempt error must not surface — the shard IS shut, and reporting
+// failure would fail e.g. a whole cold-tenant batch on one racy tenant.
+func TestShutdownOrRestoreShard_ConcurrentCompletionIsNotAFailure(t *testing.T) {
+	dirName := t.TempDir()
+	index, cleanup := initIndexAndPopulate(t, dirName)
+	defer cleanup()
+
+	var shardName string
+	index.shards.Range(func(name string, _ ShardLike) error {
+		shardName = name
+		return nil
+	})
+
+	_, release, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+
+	shard, _ := index.shards.LoadAndDelete(shardName)
+	require.NotNil(t, shard)
+
+	// Attempt 1 sees the shard in use; the ctx dies before attempt 2
+	// (backoff 200ms); the release at ~50ms lets the deferred completion
+	// finish the shutdown cleanly in between.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		release()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	err = shutdownOrRestoreShard(ctx, &index.shards, shardName, shard, index.logger)
+	require.ErrorIs(t, err, errAlreadyShutdown,
+		"a concurrently-completed shutdown is the requested outcome, not a failure")
+	require.Nil(t, index.shards.Load(shardName), "a cleanly shut shard is not restored")
 }

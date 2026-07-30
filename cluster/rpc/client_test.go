@@ -169,6 +169,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		// instead of 422 on the forwarding node.
 		{name: "SchemaErrBadRequest", send: schema.ErrBadRequest},
 		{name: "SchemaErrMTDisabled", send: schema.ErrMTDisabled},
+		{name: "SchemaErrClassVersionConflict", send: schema.ErrClassVersionConflict},
 		{name: "ErrNotLeader", send: types.ErrNotLeader},
 		{name: "ErrLeaderNotFound", send: types.ErrLeaderNotFound},
 	}

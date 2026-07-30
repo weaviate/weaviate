@@ -158,8 +158,15 @@ func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, 
 				WithField("shard", name).
 				Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
 		}
+		return err
 	}
-	return err
+	// Not restored and not torn: the shard is CLEANLY shut — the concurrent
+	// deferred completion (last ref release) won the race while this attempt
+	// timed out or saw it still in use. The attempt error is stale; the
+	// outcome the caller asked for happened. Report it as the benign
+	// already-shut case, not a failure (a cold-tenant batch would otherwise
+	// fail whole on one racy tenant).
+	return errAlreadyShutdown
 }
 
 // restoreShardIfStillAlive puts a shard whose Shutdown failed back into the

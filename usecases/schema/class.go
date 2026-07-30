@@ -505,8 +505,21 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// surface DeleteClassVectorIndex hardens: dropping a "none"-marked entry
 	// performs the drop's schema-visible completion, and dropping a live one
 	// discards an index outright. Both demand the drop endpoint's scope
-	// (Collections = metadata + data), not metadata-only.
-	for name := range initial.VectorConfig {
+	// (Collections = metadata + data), not metadata-only. The removal diff
+	// runs against the LEADER's view: the local replica may lag behind a
+	// recently added entry, and diffing against the stale view would let the
+	// removal slip past the escalation. A failed leader read fails CLOSED —
+	// require the stronger scope rather than guess.
+	reference := initial.VectorConfig
+	if vclasses, err := h.schemaManager.QueryReadOnlyClasses(className); err != nil {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+			return fmt.Errorf("cannot verify the update against the schema leader; the drop endpoint's scope is required: %w", err)
+		}
+		reference = nil // escalated unconditionally; nothing left to diff
+	} else if vcls, ok := vclasses[className]; ok && vcls.Class != nil {
+		reference = vcls.VectorConfig
+	}
+	for name := range reference {
 		if _, ok := updated.VectorConfig[name]; !ok {
 			if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
 				return err

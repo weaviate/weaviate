@@ -363,6 +363,10 @@ func fromRPCError(err error) error {
 		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {
 			return errors.Join(err, namespaces.ErrAlreadyExists)
 		}
+	case codes.Aborted:
+		if strings.Contains(msg, clusterSchema.ErrClassVersionConflict.Error()) {
+			return errors.Join(err, clusterSchema.ErrClassVersionConflict)
+		}
 	case codes.InvalidArgument:
 		if strings.Contains(msg, namespaces.ErrBadRequest.Error()) {
 			// namespaces.ErrBadRequest and clusterSchema.ErrBadRequest share the

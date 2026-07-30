@@ -32,12 +32,16 @@ import (
 )
 
 var (
-	ErrClassExists               = errors.New("class already exists")
-	ErrClassNotFound             = errors.New("class not found")
-	ErrShardNotFound             = errors.New("shard not found")
-	ErrAliasExists               = errors.New("alias already exists")
-	ErrAliasNotFound             = errors.New("alias not found")
-	ErrMTDisabled                = errors.New("multi-tenancy is not enabled")
+	ErrClassExists   = errors.New("class already exists")
+	ErrClassNotFound = errors.New("class not found")
+	ErrShardNotFound = errors.New("shard not found")
+	ErrAliasExists   = errors.New("alias already exists")
+	ErrAliasNotFound = errors.New("alias not found")
+	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
+	// ErrClassVersionConflict rejects an UpdateClass apply whose
+	// ExpectedClassVersion no longer matches — the proposer read stale state
+	// and must retry from a fresh read.
+	ErrClassVersionConflict      = errors.New("class changed concurrently")
 	ErrTenantTransitionalState   = errors.New("tenant is in a transitional state")
 	ErrReplicaMovementInProgress = errors.New("replica movement in progress")
 )

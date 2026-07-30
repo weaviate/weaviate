@@ -243,6 +243,8 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
 			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
 		fakeSchemaManager.On("ReadOnlyClass", "C").Return(initial())
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+			Return(map[string]versioned.Class{"C": {Class: initial()}}, nil)
 
 		updated := initial()
 		delete(updated.VectorConfig, "gone")
@@ -258,6 +260,43 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 			"removing a vector entry must demand the drop endpoint's scope")
 	})
 
+	t.Run("a locally-lagging entry still escalates (leader view wins)", func(t *testing.T) {
+		// The local replica has not caught up with a recently added vector;
+		// the PUT omits it. Diffing against the stale local view would find
+		// no removal — the leader view must be the reference.
+		inner := mocks.NewMockAuthorizer()
+		denied := errors.New("collections scope denied")
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
+			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
+		stale := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"keep": {VectorIndexType: hnswT},
+		}}
+		fakeSchemaManager.On("ReadOnlyClass", "C").Return(stale)
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+			Return(map[string]versioned.Class{"C": {Class: initial()}}, nil)
+
+		updated := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"keep": {VectorIndexType: hnswT},
+		}}
+		err := handler.UpdateClass(context.Background(), principal, "C", updated)
+		require.ErrorIs(t, err, denied,
+			"the leader view knows about the removed entry even when the local replica lags")
+	})
+
+	t.Run("a failed leader read fails closed to the Collections scope", func(t *testing.T) {
+		inner := mocks.NewMockAuthorizer()
+		denied := errors.New("collections scope denied")
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
+			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
+		fakeSchemaManager.On("ReadOnlyClass", "C").Return(initial())
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+			Return(nil, errors.New("no leader"))
+
+		err := handler.UpdateClass(context.Background(), principal, "C", initial())
+		require.ErrorIs(t, err, denied,
+			"an unverifiable update must require the stronger scope, not guess")
+	})
+
 	t.Run("keeping every entry stays metadata-scoped", func(t *testing.T) {
 		inner := mocks.NewMockAuthorizer()
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
@@ -267,6 +306,8 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 			"other": {VectorIndexType: hnswT},
 		}}
 		fakeSchemaManager.On("ReadOnlyClass", "C").Return(live).Maybe()
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+			Return(map[string]versioned.Class{"C": {Class: live}}, nil).Maybe()
 		fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(nil, nil).Maybe()
 		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
 
