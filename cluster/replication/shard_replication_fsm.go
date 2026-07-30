@@ -14,6 +14,7 @@ package replication
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -192,10 +193,14 @@ func (s *ShardReplicationFSM) GetOpById(id uint64) (ShardReplicationOpAndStatus,
 	return NewShardReplicationOpAndStatus(op, status), true
 }
 
+// GetOpsForTarget returns a copy: the caller (the producer's node poll) iterates the
+// result after the lock is dropped, while removeReplicationOps compacts the bucket's
+// backing array in place under the write lock. Returning the bucket itself would make
+// that an unsynchronized read of a concurrently rewritten array.
 func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return s.opsByTarget[node]
+	return slices.Clone(s.opsByTarget[node])
 }
 
 func (s *ShardReplicationFSM) GetOpsForCollection(collection string) ([]ShardReplicationOpAndStatus, bool) {
@@ -296,6 +301,77 @@ func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicati
 	defer s.opsLock.RUnlock()
 	ops, ok := s.opsByTarget[node]
 	return s.getOpsWithStatus(ops), ok
+}
+
+// StaleOp is one sweep candidate: the op id plus the terminal state that made it
+// eligible. The state travels with the id so the cleanup metric's per-state label
+// stays exact even when only some batches of a tick are applied.
+type StaleOp struct {
+	ID    uint64
+	State api.ShardReplicationState
+}
+
+// SelectStaleOps returns the lowest-id eligible ops, at most limit of them,
+// ascending by id, plus the number of ops that matched state and age but were
+// rejected by clause 2 (the whole such population, not just the part within
+// limit — it is the diagnostic for a READY gauge that plateaus above zero).
+//
+// An op is eligible when all of:
+//
+//  1. its current state is READY, or CANCELLED when includeCancelled is true;
+//  2. it carries neither ShouldCancel nor ShouldDelete — those ops are owned by
+//     an in-flight deletion (operator DELETE, or the class/tenant-deletion
+//     cascade), and they are the only terminal ops for which ShouldConsumeOps()
+//     is true, i.e. the only ones whose removal moves a gate predicate;
+//  3. its current-state start time is strictly before cutoffUnixMs, or is zero or
+//     negative — ops predating the field carry no timestamp and are infinitely old.
+//
+// Candidates are collected in full, sorted, and only then truncated. That is not an
+// optimisation: truncating a randomly-ordered map iteration would let an ancient op
+// be starved indefinitely behind a churning backlog. The sort is by id, not by
+// timestamp, because ids are RAFT log indices — identical on every node and equal to
+// creation order — while StartTimeUnixMs is stamped locally at apply time, so sorting
+// by it would reshuffle the priority order on every leadership change.
+func (s *ShardReplicationFSM) SelectStaleOps(cutoffUnixMs int64, includeCancelled bool, limit int) (ops []StaleOp, flaggedSkipped int) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	candidates := make([]uint64, 0, len(s.statusById))
+	for id, status := range s.statusById {
+		switch status.GetCurrentState() {
+		case api.READY:
+		case api.CANCELLED:
+			if !includeCancelled {
+				continue
+			}
+		default:
+			continue
+		}
+
+		st := status.Current.StartTimeUnixMs
+		oldEnough := st <= 0 || st < cutoffUnixMs
+		if !oldEnough {
+			continue
+		}
+
+		if status.ShouldCancel || status.ShouldDelete {
+			flaggedSkipped++
+			continue
+		}
+		candidates = append(candidates, id)
+	}
+
+	slices.Sort(candidates)
+	if limit >= 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	ops = make([]StaleOp, 0, len(candidates))
+	for _, id := range candidates {
+		status := s.statusById[id]
+		ops = append(ops, StaleOp{ID: id, State: status.GetCurrentState()})
+	}
+	return ops, flaggedSkipped
 }
 
 func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardReplicationOpStatus {

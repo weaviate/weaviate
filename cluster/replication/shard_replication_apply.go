@@ -305,8 +305,10 @@ func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellatio
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
+	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	status.CompleteCancellation()
 	s.statusById[op.ID] = status
+	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
 	return nil
 }
@@ -364,14 +366,12 @@ func (s *ShardReplicationFSM) ForceDeleteAll() error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
+	ids := make([]uint64, 0, len(s.opsById))
 	for id := range s.opsById {
-		err := s.removeReplicationOp(id)
-		if err != nil {
-			return fmt.Errorf("could not remove op %d: %w", id, err)
-		}
+		ids = append(ids, id)
 	}
 
-	return nil
+	return s.removeReplicationOps(ids)
 }
 
 func (s *ShardReplicationFSM) ForceDeleteByCollection(collection string) error {
@@ -383,14 +383,7 @@ func (s *ShardReplicationFSM) ForceDeleteByCollection(collection string) error {
 		return nil // nothing to do
 	}
 
-	for _, op := range ops {
-		err := s.removeReplicationOp(op.ID)
-		if err != nil {
-			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
-		}
-	}
-
-	return nil
+	return s.removeReplicationOps(idsOf(ops))
 }
 
 func (s *ShardReplicationFSM) ForceDeleteByCollectionAndShard(collection, shard string) error {
@@ -407,14 +400,7 @@ func (s *ShardReplicationFSM) ForceDeleteByCollectionAndShard(collection, shard 
 		return nil // nothing to do
 	}
 
-	for _, op := range shardOps {
-		err := s.removeReplicationOp(op.ID)
-		if err != nil {
-			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
-		}
-	}
-
-	return nil
+	return s.removeReplicationOps(idsOf(shardOps))
 }
 
 func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
@@ -426,14 +412,30 @@ func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
 		return nil // nothing to do
 	}
 
-	for _, op := range ops {
-		err := s.removeReplicationOp(op.ID)
-		if err != nil {
-			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
-		}
-	}
+	return s.removeReplicationOps(idsOf(ops))
+}
 
-	return nil
+// idsOf snapshots the ids of ops before any removal runs: removeReplicationOps
+// rewrites the very backing arrays these slices are headers over.
+func idsOf(ops []ShardReplicationOp) []uint64 {
+	ids := make([]uint64, 0, len(ops))
+	for _, op := range ops {
+		ids = append(ids, op.ID)
+	}
+	return ids
+}
+
+// ForceDeleteByIds removes exactly the listed ops with no teardown and no state
+// checks, like the rest of the force-delete family. Ids not present are skipped:
+// the command is idempotent, so a batch re-proposed after leader churn is a no-op.
+//
+// It must stay a pure function of ids — no clock, config, node identity or op
+// state may be read here — because it is applied independently on every node.
+func (s *ShardReplicationFSM) ForceDeleteByIds(ids []uint64) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	return s.removeReplicationOps(ids)
 }
 
 func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
@@ -452,7 +454,115 @@ func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
 	return nil
 }
 
-// TODO: Improve the error handling in that function
+// removeReplicationOps removes every op in ids in one filtering pass per touched
+// index bucket, rather than one full pass per op. Unknown ids are skipped, so the
+// operation is idempotent. Callers must hold s.opsLock.
+func (s *ShardReplicationFSM) removeReplicationOps(ids []uint64) error {
+	idSet := make(map[uint64]struct{}, len(ids))
+	ops := make([]ShardReplicationOp, 0, len(ids))
+
+	// The key derivation mirrors insertOpIntoFSM: the collection, collection-and-shard
+	// and source-FQDN indices are keyed off SourceShard, opsByTarget/opsByTargetFQDN
+	// off TargetShard.
+	targetNodes := make(map[string]struct{})
+	sourceNodes := make(map[string]struct{})
+	collections := make(map[string]struct{})
+	shardsByCollection := make(map[string]map[string]struct{})
+	targetFQDNs := make(map[shardFQDN]struct{})
+	sourceFQDNs := make(map[shardFQDN]struct{})
+
+	for _, id := range ids {
+		if _, seen := idSet[id]; seen {
+			continue
+		}
+		op, ok := s.opsById[id]
+		if !ok {
+			continue
+		}
+		idSet[id] = struct{}{}
+		ops = append(ops, op)
+
+		targetNodes[op.TargetShard.NodeId] = struct{}{}
+		sourceNodes[op.SourceShard.NodeId] = struct{}{}
+		collections[op.SourceShard.CollectionId] = struct{}{}
+		if _, ok := shardsByCollection[op.SourceShard.CollectionId]; !ok {
+			shardsByCollection[op.SourceShard.CollectionId] = make(map[string]struct{})
+		}
+		shardsByCollection[op.SourceShard.CollectionId][op.SourceShard.ShardId] = struct{}{}
+		targetFQDNs[op.TargetShard] = struct{}{}
+		sourceFQDNs[op.SourceShard] = struct{}{}
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+
+	for node := range targetNodes {
+		filterOpsFromBucket(s.opsByTarget, node, idSet)
+	}
+	for node := range sourceNodes {
+		filterOpsFromBucket(s.opsBySource, node, idSet)
+	}
+	for collection := range collections {
+		filterOpsFromBucket(s.opsByCollection, collection, idSet)
+	}
+	for fqdn := range targetFQDNs {
+		filterOpsFromBucket(s.opsByTargetFQDN, fqdn, idSet)
+	}
+	for fqdn := range sourceFQDNs {
+		filterOpsFromBucket(s.opsBySourceFQDN, fqdn, idSet)
+	}
+	for collection, shards := range shardsByCollection {
+		byShard, ok := s.opsByCollectionAndShard[collection]
+		if !ok {
+			continue
+		}
+		for shard := range shards {
+			filterOpsFromBucket(byShard, shard, idSet)
+		}
+		if len(byShard) == 0 {
+			delete(s.opsByCollectionAndShard, collection)
+		}
+	}
+
+	for _, op := range ops {
+		if status, ok := s.statusById[op.ID]; ok {
+			s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
+		}
+		delete(s.idsByUuid, op.UUID)
+		delete(s.opsById, op.ID)
+		delete(s.statusById, op.ID)
+	}
+
+	return nil
+}
+
+// filterOpsFromBucket rewrites m[key] without the ops in idSet, deleting the key
+// once the bucket drains. Deleting the key matters for opsByTargetFQDN: a present
+// key is OR-folded by filterOneReplicaReadWrite, so an empty slice reads
+// (false,false) and silently drops a live replica from routing instead of falling
+// through to the source check. It also keeps the (slice, ok) getters from
+// reporting a drained bucket as present.
+func filterOpsFromBucket[K comparable](m map[K][]ShardReplicationOp, key K, idSet map[uint64]struct{}) {
+	ops, ok := m[key]
+	if !ok {
+		return
+	}
+	kept := ops[:0]
+	for _, op := range ops {
+		if _, remove := idSet[op.ID]; !remove {
+			kept = append(kept, op)
+		}
+	}
+	if len(kept) == 0 {
+		delete(m, key)
+		return
+	}
+	m[key] = kept
+}
+
+// removeReplicationOp is the single-op path used by RemoveReplicationOp and
+// ForceDeleteByUuid; unlike removeReplicationOps it reports a missing op as
+// ErrReplicationOperationNotFound, which the consumer path relies on.
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error
 	op, ok := s.opsById[id]
@@ -460,99 +570,35 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 
-	ops, ok := s.opsByTarget[op.TargetShard.NodeId]
-	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by target %s, this should not happen", op.ID, op.SourceShard.NodeId))
+	// Every index below must contain the op: insertOpIntoFSM writes all of them
+	// together. A missing bucket is a torn FSM, reported but not fatal.
+	if _, ok := s.opsByTarget[op.TargetShard.NodeId]; !ok {
+		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by target %s, this should not happen", op.ID, op.TargetShard.NodeId))
 	}
-	opsReplace, ok := findAndDeleteOp(op.ID, ops)
-	if ok {
-		s.opsByTarget[op.TargetShard.NodeId] = opsReplace
+	if _, ok := s.opsBySource[op.SourceShard.NodeId]; !ok {
+		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by source %s, this should not happen", op.ID, op.SourceShard.NodeId))
 	}
-
-	ops, ok = s.opsBySource[op.SourceShard.NodeId]
-	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by source %s, this should not happen", op.ID, op.TargetShard.NodeId))
-	}
-	opsReplace, ok = findAndDeleteOp(op.ID, ops)
-	if ok {
-		s.opsBySource[op.SourceShard.NodeId] = opsReplace
-	}
-
-	ops, ok = s.opsByCollection[op.SourceShard.CollectionId]
-	if !ok {
+	if _, ok := s.opsByCollection[op.SourceShard.CollectionId]; !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by collection %s, this should not happen", op.ID, op.SourceShard.CollectionId))
 	}
-	opsReplace, ok = findAndDeleteOp(op.ID, ops)
-	if ok {
-		s.opsByCollection[op.SourceShard.CollectionId] = opsReplace
+	if _, ok := s.opsBySourceFQDN[op.SourceShard]; !ok {
+		err = multierror.Append(err, errors.New("could not find op in ops by source fqdn, this should not happen"))
 	}
-
-	ops, ok = s.opsBySourceFQDN[op.SourceShard]
-	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by source fqdn, this should not happen"))
+	if _, ok := s.opsByTargetFQDN[op.TargetShard]; !ok {
+		err = multierror.Append(err, errors.New("could not find op in ops by target fqdn, this should not happen"))
 	}
-	opsReplace, ok = findAndDeleteOp(op.ID, ops)
-	if ok {
-		s.opsBySourceFQDN[op.SourceShard] = opsReplace
+	if byShard, ok := s.opsByCollectionAndShard[op.SourceShard.CollectionId]; !ok {
+		err = multierror.Append(err, errors.New("could not find op in ops by collection and shard, this should not happen"))
+	} else if _, ok := byShard[op.SourceShard.ShardId]; !ok {
+		err = multierror.Append(err, errors.New("could not find op in ops by shard, this should not happen"))
 	}
-
-	// Unlike opsBySourceFQDN above, delete the target key when its slice empties: a
-	// present key is OR-folded by filterOneReplicaReadWrite, so a lingering empty slice
-	// would read (false,false) instead of falling through to the source check.
-	ops, ok = s.opsByTargetFQDN[op.TargetShard]
-	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by target fqdn, this should not happen"))
-	}
-	opsReplace, ok = findAndDeleteOp(op.ID, ops)
-	if ok {
-		if len(opsReplace) == 0 {
-			delete(s.opsByTargetFQDN, op.TargetShard)
-		} else {
-			s.opsByTargetFQDN[op.TargetShard] = opsReplace
-		}
-	}
-
-	shardOps, ok := s.opsByCollectionAndShard[op.SourceShard.CollectionId]
-	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by collection and shard, this should not happen"))
-	} else {
-		ops, ok = shardOps[op.SourceShard.ShardId]
-		if !ok {
-			err = multierror.Append(err, fmt.Errorf("could not find op in ops by shard, this should not happen"))
-		}
-		opsReplace, ok = findAndDeleteOp(op.ID, ops)
-		if ok {
-			s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId] = opsReplace
-		}
-	}
-
-	status, ok := s.statusById[op.ID]
-	if !ok {
+	if _, ok := s.statusById[op.ID]; !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op status for op %d", id))
-	} else {
-		s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	}
 
-	delete(s.idsByUuid, op.UUID)
-	delete(s.opsById, op.ID)
-	delete(s.statusById, op.ID)
+	if removeErr := s.removeReplicationOps([]uint64{id}); removeErr != nil {
+		err = multierror.Append(err, removeErr)
+	}
 
 	return err
-}
-
-func findAndDeleteOp(id uint64, ops []ShardReplicationOp) ([]ShardReplicationOp, bool) {
-	indexToDelete := 0
-	ok := false
-	// Iterate by hand as the slices should be kept small enough & we can't use the `slices` package binary search as we have a custom type
-	// in the slice and the Comparable constraint only works on primitive type
-	for i, op := range ops {
-		if op.ID == id {
-			ok = true
-			indexToDelete = i
-		}
-	}
-	if ok {
-		ops = append(ops[:indexToDelete], ops[indexToDelete+1:]...)
-	}
-	return ops, ok
 }

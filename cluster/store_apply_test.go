@@ -452,6 +452,9 @@ func TestStore_Apply_DeleteClass_CaseInsensitive(t *testing.T) {
 
 		// Setup mocks for adding class (schemaOnly mode - no AddClass on database)
 		ms.parser.On("ParseClass", mock.Anything).Return(nil)
+		// The replication-op cascade runs on every apply path, schemaOnly replay included.
+		// The cascade receives the canonical class name, not the request's casing.
+		ms.replicationFSM.EXPECT().DeleteReplicationsByCollection("FooBar").Return(nil).Once()
 
 		// Apply add operation
 		result := ms.store.Apply(addLog)

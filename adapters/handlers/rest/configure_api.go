@@ -661,11 +661,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace: db.ExtractReindexTaskCollection,
 		},
-		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
-		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
-		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
-		UsageLimitsErrorMessage: appState.ServerConfig.Config.UsageLimits.ErrorMessage,
-		DBLoadProgress:          repo.StartupLoadingProgress,
+		ReplicaMovementEnabled:                 appState.ServerConfig.Config.ReplicaMovementEnabled,
+		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
+		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
+		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,
+		ReplicaMovementCleanupIncludeCancelled: appState.ServerConfig.Config.Replication.ReplicaMovementCleanupIncludeCancelled,
+		DBLoadProgress:                         repo.StartupLoadingProgress,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -2635,79 +2639,7 @@ func (m membership) LeaderID() string {
 func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[config.WeaviateRuntimeConfig] {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
-		// Runtimeconfig manager takes of keeping the `registered` config values upto date
-		registered := &config.WeaviateRuntimeConfig{}
-		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
-		registered.MaximumAllowedObjectsCount = appState.ServerConfig.Config.UsageLimits.MaxObjectsCount
-		registered.MaximumAllowedTenantsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection
-		registered.MaximumAllowedShardsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxShardsPerCollection
-		registered.UsageLimitsErrorMessage = appState.ServerConfig.Config.UsageLimits.ErrorMessage
-		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
-		registered.AsyncReplicationSchedulerWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers
-		registered.AsyncReplicationHashtreeInitConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency
-		registered.AsyncReplicationHashtreeHeight = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight
-		registered.AsyncReplicationFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationFrequency
-		registered.AsyncReplicationFrequencyWhilePropagating = appState.ServerConfig.Config.Replication.AsyncReplicationFrequencyWhilePropagating
-		registered.AsyncReplicationLoggingFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationLoggingFrequency
-		registered.AsyncReplicationDiffBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationDiffBatchSize
-		registered.AsyncReplicationDiffPerNodeTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationDiffPerNodeTimeout
-		registered.AsyncReplicationPrePropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPrePropagationTimeout
-		registered.AsyncReplicationPropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationTimeout
-		registered.AsyncReplicationPropagationLimit = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationLimit
-		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
-		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
-		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
-		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
-		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
-		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
-		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
-		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
-		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
-		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
-		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
-		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
-		registered.QueryBatchedContainsEnabled = appState.ServerConfig.Config.QueryBatchedContainsEnabled
-		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
-		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
-		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
-		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
-		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
-		registered.AllowedVectorIndexTypes = appState.ServerConfig.Config.Restrictions.AllowedVectorIndexTypes
-		registered.AllowedCompressionTypes = appState.ServerConfig.Config.Restrictions.AllowedCompressionTypes
-		registered.RestrictionsErrorMessage = appState.ServerConfig.Config.Restrictions.ErrorMessage
-		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
-		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
-		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
-		registered.NamespaceCleanupInterval = appState.ServerConfig.Config.Namespaces.CleanupInterval
-		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
-		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
-		registered.ObjectsTTLPauseEveryNoBatches = appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches
-		registered.ObjectsTTLPauseDuration = appState.ServerConfig.Config.ObjectsTTLPauseDuration
-		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
-		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
-		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
-		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
-		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
-		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
-		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
-		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
-		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
-		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
-		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
-		registered.ExperimentalRESTSearchEnabled = appState.ServerConfig.Config.ExperimentalRESTSearchEnabled
-
-		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
-			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
-			registered.OIDCClientID = appState.ServerConfig.Config.Authentication.OIDC.ClientID
-			registered.OIDCSkipClientIDCheck = appState.ServerConfig.Config.Authentication.OIDC.SkipClientIDCheck
-			registered.OIDCUsernameClaim = appState.ServerConfig.Config.Authentication.OIDC.UsernameClaim
-			registered.OIDCGroupsClaim = appState.ServerConfig.Config.Authentication.OIDC.GroupsClaim
-			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
-			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
-			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
-			registered.OIDCSkipTLSVerify = appState.ServerConfig.Config.Authentication.OIDC.SkipTLSVerify
-		}
-
+		registered := config.BuildRegisteredRuntimeConfig(&appState.ServerConfig.Config)
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
 			config.NewRuntimeConfigParser(appState.Logger),

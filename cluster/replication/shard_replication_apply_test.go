@@ -492,3 +492,67 @@ func TestShardReplicationFSM_SetUnCancellable(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrReplicationOperationNotFound)
 	})
 }
+
+// TestCancellationComplete_GaugeAccuracy pins that the CANCELLED transition
+// adjusts opsByStateGauge like every other transition does. CompleteCancellation
+// changes state internally, so the Dec/Inc has to wrap the call site.
+func TestCancellationComplete_GaugeAccuracy(t *testing.T) {
+	const opID uint64 = 1
+
+	states := []api.ShardReplicationState{
+		api.REGISTERED,
+		api.HYDRATING,
+		api.FINALIZING,
+		api.INTEGRATING,
+		api.DEHYDRATING,
+	}
+
+	for _, from := range states {
+		t.Run("cancel from "+from.String(), func(t *testing.T) {
+			reg := prometheus.NewPedanticRegistry()
+			fsm := replication.NewShardReplicationFSM(reg)
+			seedOp(t, fsm, opID)
+			driveToState(t, fsm, opID, from)
+
+			require.Equal(t, 1.0, gaugeValue(t, reg, from.String()), "before cancellation")
+
+			driveToCancelled(t, fsm, opID)
+
+			require.Equal(t, 0.0, gaugeValue(t, reg, from.String()), "source state after cancellation")
+			require.Equal(t, 1.0, gaugeValue(t, reg, api.CANCELLED.String()), "CANCELLED after cancellation")
+		})
+	}
+
+	t.Run("replayed cancellation is a no-op for the gauge", func(t *testing.T) {
+		reg := prometheus.NewPedanticRegistry()
+		fsm := replication.NewShardReplicationFSM(reg)
+		seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.HYDRATING)
+		driveToCancelled(t, fsm, opID)
+		driveToCancelled(t, fsm, opID)
+
+		require.Equal(t, 0.0, gaugeValue(t, reg, api.HYDRATING.String()))
+		require.Equal(t, 1.0, gaugeValue(t, reg, api.CANCELLED.String()))
+	})
+}
+
+// gaugeValue reads weaviate_replication_operation_fsm_ops_by_state for one state
+// label, returning 0 when the label has never been touched.
+func gaugeValue(t *testing.T, g prometheus.Gatherer, state string) float64 {
+	t.Helper()
+	families, err := g.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != "weaviate_replication_operation_fsm_ops_by_state" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "state" && label.GetValue() == state {
+					return metric.GetGauge().GetValue()
+				}
+			}
+		}
+	}
+	return 0
+}

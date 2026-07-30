@@ -181,7 +181,15 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 	}
 	target := NewMockStore(t, "concurrent-snapshot-node", utils.MustGetFreeTCPPort())
 	target.store.init()
-	// Test concurrent Restore operations
+	// Test concurrent Restore operations.
+	//
+	// Restore clears the target schema before repopulating it, so a goroutine that
+	// verifies the target while a sibling is mid-Restore legitimately observes zero
+	// classes. restoreAndVerify makes each restore-then-verify pair atomic with
+	// respect to the other restorers; concurrency with the Persist and reader
+	// goroutines below — which is what this test is actually about — is unaffected.
+	// (RAFT never issues concurrent Restores against one FSM.)
+	var restoreMu sync.Mutex
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
@@ -194,15 +202,18 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 
 				target.parser.On("ParseClass", mock.Anything).Return(nil)
 				target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-				// Restore from the snapshot
+
+				restoreMu.Lock()
 				err = target.store.Restore(io.NopCloser(bytes.NewBuffer(sink.Buffer.Bytes())))
 				assert.NoError(t, err)
-				time.Sleep(time.Microsecond)
 				verifySchemaRestoration(t, source, target)
 				sourceSchema := source.store.SchemaReader().ReadOnlySchema()
 				targetSchema := target.store.SchemaReader().ReadOnlySchema()
 				assert.Greater(t, len(sourceSchema.Classes), 0)
 				assert.Equal(t, len(sourceSchema.Classes), len(targetSchema.Classes))
+				restoreMu.Unlock()
+
+				time.Sleep(time.Microsecond)
 			}
 		}()
 	}
