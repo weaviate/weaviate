@@ -190,37 +190,19 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 	}
 
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+	pool := b.bitmapBufPool
+	if pool == nil {
+		pool = roaringset.NewBitmapBufPoolNoop()
+	}
+	poolWithHeadroom := roaringset.NewBitmapBufPoolFactorWrapper(pool, baseLayerHeadroomFactor)
 	for key, layers := range layersByKey {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		// the collected layers alias segment storage, so the fold's
-		// accumulator must start from a clone
-		var merger roaringset.LayerMerger
-		if len(layers) > 0 {
-			merger = roaringset.NewLayerMerger(layers[0].Additions, true, maxConc)
-			for _, layer := range layers[1:] {
-				merger.Add(layer)
-			}
-		} else {
-			merger = roaringset.NewLayerMerger(nil, false, maxConc)
-		}
-		if view.Flushing != nil {
-			layer, err := view.Flushing.roaringSetGet([]byte(key))
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return false, err
-			} else if err == nil {
-				merger.Add(layer)
-			}
-		}
-		layer, err := view.Active.roaringSetGet([]byte(key))
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		liveCount, err := b.mergedLiveCountFromLayers(view, key, layers, poolWithHeadroom, maxConc)
+		if err != nil {
 			return false, err
-		} else if err == nil {
-			merger.Add(layer)
 		}
-
-		liveCount := merger.Result().GetCardinality()
 		if liveCount == 0 {
 			continue
 		}
@@ -230,6 +212,42 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 	}
 
 	return false, nil
+}
+
+// mergedLiveCountFromLayers folds a key's collected disk layers plus its
+// memtable layers into the key's live doc count. The collected layers alias
+// segment storage, so the fold's accumulator is a pooled clone of the first
+// layer — released before returning — rather than a per-key heap clone.
+func (b *Bucket) mergedLiveCountFromLayers(view BucketConsistentView, key string,
+	layers []roaringset.BitmapLayer, pool roaringset.BitmapBufPool, maxConc int,
+) (int, error) {
+	var merger roaringset.LayerMerger
+	if len(layers) > 0 {
+		base, put := pool.CloneToBuf(layers[0].Additions)
+		defer put()
+		merger = roaringset.NewLayerMerger(base, false, maxConc)
+		for _, layer := range layers[1:] {
+			merger.Add(layer)
+		}
+	} else {
+		merger = roaringset.NewLayerMerger(nil, false, maxConc)
+	}
+	if view.Flushing != nil {
+		layer, err := view.Flushing.roaringSetGet([]byte(key))
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return 0, err
+		} else if err == nil {
+			merger.Add(layer)
+		}
+	}
+	layer, err := view.Active.roaringSetGet([]byte(key))
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return 0, err
+	} else if err == nil {
+		merger.Add(layer)
+	}
+
+	return merger.Result().GetCardinality(), nil
 }
 
 // RoaringSetGet consults ctx only for the concurrency budget, not for cancellation.
