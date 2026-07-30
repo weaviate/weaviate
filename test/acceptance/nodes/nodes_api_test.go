@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -254,57 +255,78 @@ func Test_NodesAPI(t *testing.T) {
 		defer helper.DeleteClassObject(t, doomed.Class)
 
 		// wait for both collections to be fully reported before racing them
-		assert.EventuallyWithT(t, func(t *assert.CollectT) {
-			counts := shardsPerClass(t, doomed.Class, survivor.Class)
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			counts, err := shardsPerClass(doomed.Class, survivor.Class)
+			require.NoError(t, err)
 			assert.Equal(t, doomedTenants, counts[doomed.Class])
 			assert.Equal(t, survivorTenants, counts[survivor.Class])
 		}, 30*time.Second, 200*time.Millisecond)
 
+		// pollProblems lists everything a single poll got wrong. The pollers
+		// collect these instead of asserting, because a failed assertion from a
+		// non-test goroutine is not reported reliably.
+		pollProblems := func(counts map[string]int, err error) []string {
+			if err != nil {
+				return []string{fmt.Sprintf("node status failed: %v", err)}
+			}
+			var found []string
+			if n := counts[survivor.Class]; n != survivorTenants {
+				found = append(found, fmt.Sprintf(
+					"untouched collection reported %d of %d shards", n, survivorTenants))
+			}
+			if n := counts[doomed.Class]; n != 0 && n != doomedTenants {
+				found = append(found, fmt.Sprintf(
+					"deleted collection reported %d shards, want 0 or %d", n, doomedTenants))
+			}
+			return found
+		}
+
 		var (
-			wg       sync.WaitGroup
 			mu       sync.Mutex
 			problems []string
 			polls    int
 		)
-		stop := make(chan struct{})
-		for i := 0; i < pollers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for {
-					select {
-					case <-stop:
-						return
-					default:
-					}
 
-					counts := shardsPerClass(t, doomed.Class, survivor.Class)
-					mu.Lock()
-					polls++
-					if counts[survivor.Class] != survivorTenants {
-						problems = append(problems, fmt.Sprintf(
-							"untouched collection reported %d of %d shards",
-							counts[survivor.Class], survivorTenants))
-					}
-					if n := counts[doomed.Class]; n != 0 && n != doomedTenants {
-						problems = append(problems, fmt.Sprintf(
-							"deleted collection reported %d shards, want 0 or %d", n, doomedTenants))
-					}
-					mu.Unlock()
-				}
+		func() {
+			var wg sync.WaitGroup
+			stop := make(chan struct{})
+			// the pollers must not outlive this scope, not even when the delete
+			// below fails the test
+			defer func() {
+				close(stop)
+				wg.Wait()
 			}()
-		}
 
-		helper.DeleteClass(t, doomed.Class)
-		close(stop)
-		wg.Wait()
+			for i := 0; i < pollers; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+						}
 
-		mu.Lock()
-		defer mu.Unlock()
+						counts, err := shardsPerClass(doomed.Class, survivor.Class)
+						found := pollProblems(counts, err)
+
+						mu.Lock()
+						polls++
+						problems = append(problems, found...)
+						mu.Unlock()
+					}
+				}()
+			}
+
+			helper.DeleteClass(t, doomed.Class)
+		}()
+
 		assert.Empty(t, problems)
 		assert.Positive(t, polls, "the race never polled the nodes API")
 
-		counts := shardsPerClass(t, doomed.Class, survivor.Class)
+		counts, err := shardsPerClass(doomed.Class, survivor.Class)
+		require.NoError(t, err)
 		assert.Zero(t, counts[doomed.Class], "deleted collection still reports shards")
 		assert.Equal(t, survivorTenants, counts[survivor.Class])
 	})
@@ -334,14 +356,21 @@ func createMultiTenantClass(t *testing.T, name string, tenantCount int) *models.
 }
 
 // shardsPerClass counts the shards the verbose node status reports for each of
-// the given classes. Safe to call concurrently.
-func shardsPerClass(t require.TestingT, classes ...string) map[string]int {
+// the given classes. It returns errors instead of failing the test, so callers
+// can poll it from their own goroutines.
+func shardsPerClass(classes ...string) (map[string]int, error) {
 	output := verbosity.OutputVerbose
 	params := nodes.NewNodesGetParams().WithOutput(&output)
 	body, err := helper.Client(nil).Nodes.NodesGet(params, nil)
-	require.NoError(t, err)
-	require.NotNil(t, body.Payload)
-	require.Len(t, body.Payload.Nodes, 1)
+	if err != nil {
+		return nil, err
+	}
+	if body.Payload == nil {
+		return nil, errors.New("node status response has no payload")
+	}
+	if len(body.Payload.Nodes) != 1 {
+		return nil, fmt.Errorf("node status reported %d nodes, want 1", len(body.Payload.Nodes))
+	}
 
 	counts := make(map[string]int, len(classes))
 	for _, class := range classes {
@@ -352,7 +381,7 @@ func shardsPerClass(t require.TestingT, classes ...string) map[string]int {
 			counts[shard.Class]++
 		}
 	}
-	return counts
+	return counts, nil
 }
 
 func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
@@ -533,7 +562,9 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 ) {
 	minimal, verbose := verbosity.OutputMinimal, verbosity.OutputVerbose
 
-	commonTests := func(resp *nodes.NodesGetOK) {
+	// the caller passes in the t to assert against: inside EventuallyWithT that
+	// is the tick's CollectT, not the surrounding *testing.T
+	commonTests := func(t require.TestingT, resp *nodes.NodesGetOK) {
 		require.NotNil(t, resp.Payload)
 		nodes := resp.Payload.Nodes
 		require.NotNil(t, nodes)
@@ -543,8 +574,8 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 
 	t.Run("minimal", func(t *testing.T) {
 		payload, err := getNodesStatus(t, minimal, class)
-		require.Nil(t, err)
-		commonTests(&nodes.NodesGetOK{Payload: payload})
+		require.NoError(t, err)
+		commonTests(t, &nodes.NodesGetOK{Payload: payload})
 	})
 
 	if verboseAssertions != nil {
@@ -554,8 +585,8 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 			}
 			assert.EventuallyWithT(t, func(t *assert.CollectT) {
 				payload, err := getNodes()
-				require.Nil(t, err)
-				commonTests(&nodes.NodesGetOK{Payload: payload})
+				require.NoError(t, err)
+				commonTests(t, &nodes.NodesGetOK{Payload: payload})
 				// If commonTests pass, resp.Nodes[0] != nil
 				verboseAssertions(t, payload.Nodes[0])
 			}, 15*time.Second, 500*time.Millisecond)
@@ -563,15 +594,22 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 	}
 }
 
-func getNodesStatus(t *testing.T, output, class string) (payload *models.NodesStatusResponse, err error) {
+func getNodesStatus(t *testing.T, output, class string) (*models.NodesStatusResponse, error) {
+	// the generated client returns a nil body along with the error, so the
+	// payload can only be read once the error is ruled out
 	if class != "" {
 		params := nodes.NewNodesGetClassParams().WithOutput(&output).WithClassName(class)
-		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		payload, err = body.Payload, clientErr
-	} else {
-		params := nodes.NewNodesGetParams().WithOutput(&output)
-		body, clientErr := helper.Client(t).Nodes.NodesGet(params, nil)
-		payload, err = body.Payload, clientErr
+		body, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		if err != nil {
+			return nil, err
+		}
+		return body.Payload, nil
 	}
-	return payload, err
+
+	params := nodes.NewNodesGetParams().WithOutput(&output)
+	body, err := helper.Client(t).Nodes.NodesGet(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return body.Payload, nil
 }
