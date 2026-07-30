@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 	"time"
 
@@ -190,6 +191,33 @@ func TestPropertyValuesFromInvertedCutoff(t *testing.T) {
 		assert.Equal(t, []aggregation.TextOccurrence{
 			{Value: "42", Occurs: 2},
 			{Value: "7", Occurs: 1},
+		}, res.TextAggregation.Items)
+	})
+
+	t.Run("searchable-only property served from stored doc counts", func(t *testing.T) {
+		sbName := helpers.BucketSearchableFromPropNameLSM("tag")
+		require.NoError(t, store.CreateOrLoadBucket(ctx, sbName,
+			lsmkv.WithStrategy(lsmkv.StrategyInverted),
+			lsmkv.WithUseBloomFilter(true)))
+		sb := store.Bucket(sbName)
+		mapPair := func(docID uint64) lsmkv.MapPair {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, docID)
+			return lsmkv.MapPair{Key: key, Value: make([]byte, 8)}
+		}
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(1)))
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(2)))
+		require.NoError(t, sb.MapSet([]byte("rust"), mapPair(3)))
+		require.NoError(t, sb.FlushAndSwitch())
+
+		res, err := ua.propertyValuesFromInverted(ctx, aggregation.ParamProperty{
+			Name: "tag", Aggregators: topOccs, TopOccurrencesCutoff: 10,
+		}, schema.DataTypeText)
+		require.NoError(t, err)
+		require.False(t, res.TextAggregation.CutoffExceeded)
+		assert.Equal(t, []aggregation.TextOccurrence{
+			{Value: "go", Occurs: 2},
+			{Value: "rust", Occurs: 1},
 		}, res.TextAggregation.Items)
 	})
 

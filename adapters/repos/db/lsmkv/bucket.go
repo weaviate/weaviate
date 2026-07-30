@@ -2943,3 +2943,75 @@ func (ek exactKeys) distinct() uint32 {
 func bloomSaturated(keysBloom *bloom.BloomFilter) bool {
 	return keysBloom.BitSet().Count() >= keysBloom.Cap()
 }
+
+// InvertedEachDistinctKey calls fn once per distinct key with the key's doc
+// count summed from the inverted rows' stored posting counts — no posting or
+// bitmap decode. It gives up in two ways: exceeded, once the bucket holds
+// more than maxDistinct distinct keys, and exact=false when the stored
+// counts cannot be proven live-exact — per-segment counts ignore deletes and
+// cross-segment updates, so a non-inverted strategy, any segment tombstone
+// or any unflushed memtable state voids the guarantee and the caller must
+// use an exact source instead. fn only runs when the walk completed with
+// exact=true; the key passed to fn aliases internal storage, so copy it
+// before retaining.
+func (b *Bucket) InvertedEachDistinctKey(ctx context.Context, maxDistinct int,
+	fn func(key []byte, docCount int) error,
+) (exceeded, exact bool, err error) {
+	if b.strategy != StrategyInverted {
+		return false, false, nil
+	}
+
+	if lower, err := b.GetKeysCount(); err == nil && lower > uint32(maxDistinct) {
+		return true, false, nil
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	memtables, count := viewMemtables(view)
+	for i := range count {
+		if memtables[i].Size() > 0 {
+			return false, false, nil
+		}
+	}
+	for _, seg := range view.Disk {
+		tombstones, err := seg.ReadOnlyTombstones()
+		if err != nil {
+			return false, false, err
+		}
+		if tombstones != nil && !tombstones.IsEmpty() {
+			return false, false, nil
+		}
+	}
+
+	const ctxCheckEvery = 1 << 12
+	visited := 0
+	dfSum := map[string]uint64{}
+	for _, seg := range view.Disk {
+		for _, key := range seg.getKeysSorted() {
+			if visited++; visited%ctxCheckEvery == 0 {
+				if err := ctx.Err(); err != nil {
+					return false, false, err
+				}
+			}
+			if _, ok := dfSum[string(key)]; !ok && len(dfSum) == maxDistinct {
+				return true, false, nil
+			}
+			dfSum[string(key)] += seg.getDocCount(key)
+		}
+	}
+
+	for key, df := range dfSum {
+		if err := ctx.Err(); err != nil {
+			return false, false, err
+		}
+		if df == 0 {
+			continue
+		}
+		if err := fn([]byte(key), int(df)); err != nil {
+			return false, false, err
+		}
+	}
+
+	return false, true, nil
+}

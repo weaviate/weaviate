@@ -449,6 +449,31 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		TextAggregation: aggregation.Text{},
 	}
 
+	agg := newTextAggregator(extractLimitFromTopOccs(prop.Aggregators))
+	emit := func(key []byte, docCount int) error {
+		return agg.AddTextCount(decodeInvertedKey(key, dt), docCount)
+	}
+
+	// A searchable bucket with the inverted strategy stores each term's
+	// posting count in its rows, answering without touching any bitmaps —
+	// but only when provably churn-free; otherwise the exact paths below
+	// take over with agg untouched.
+	if sb, sbRelease := ua.store.AcquireBucketForRead(helpers.BucketSearchableFromPropNameLSM(prop.Name.String())); sb != nil {
+		exceeded, exact, err := sb.InvertedEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff), emit)
+		sbRelease()
+		if err != nil {
+			return nil, err
+		}
+		if exceeded {
+			out.TextAggregation = aggregation.Text{CutoffExceeded: true}
+			return &out, nil
+		}
+		if exact {
+			out.TextAggregation = agg.Res()
+			return &out, nil
+		}
+	}
+
 	b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String()))
 	if b == nil {
 		// no filterable index for this property
@@ -459,11 +484,7 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		return ua.property(ctx, withoutCutoff(prop))
 	}
 
-	agg := newTextAggregator(extractLimitFromTopOccs(prop.Aggregators))
-	exceeded, err := b.RoaringSetEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff),
-		func(key []byte, liveCount int) error {
-			return agg.AddTextCount(decodeInvertedKey(key, dt), liveCount)
-		})
+	exceeded, err := b.RoaringSetEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff), emit)
 	if err != nil {
 		return nil, err
 	}
