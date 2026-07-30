@@ -239,6 +239,26 @@ func (h *Handler) Bm25(ctx context.Context, principal *models.Principal,
 	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
+// NearObject executes a similarity search over collection anchored at an
+// existing object's stored vector, supplying execute with the near-object
+// params builder. It returns the 200 payload or an APIError carrying the
+// HTTP status.
+func (h *Handler) NearObject(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchNearObjectRequest,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildNearObjectParams(class, className, body, getClass, principal)
+	}
+	payload, apiErr := h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	if apiErr != nil && apiErr.Status == http.StatusBadGateway {
+		// near-object calls no embedding provider, so it declares no 502. The
+		// explorer wraps every source-object failure in ErrQueryVectorization,
+		// so whatever statusFromError did not type lands on the 502 arm.
+		apiErr.Status = http.StatusInternalServerError
+	}
+	return payload, apiErr
+}
+
 // Hybrid executes a hybrid (keyword + vector) search over collection,
 // supplying execute with the hybrid params builder. It returns the 200
 // payload or an APIError carrying the HTTP status.
@@ -297,8 +317,10 @@ const errClassNotFoundMarker = "could not find class"
 // errors.Is/As. This relies on the wrap chain staying %w/Wrapf (never
 // %v/%s), or the typed matches silently degrade to 500.
 //
-// ORDERING: ErrNoVectorizerModule (422) must precede ErrQueryVectorization
-// (502) — the former arrives wrapped inside the latter.
+// ORDERING: ErrNoVectorizerModule (422), ErrSourceObjectNotFound (400),
+// ErrSourceObjectNoVector (422) and ErrDirtyReadOfDeletedObject (400) must
+// precede ErrQueryVectorization (502) — each arrives wrapped inside the
+// latter.
 func statusFromError(err error) *APIError {
 	var forbidden autherrs.Forbidden
 	if errors.As(err, &forbidden) {
@@ -322,6 +344,18 @@ func statusFromError(err error) *APIError {
 	case errors.As(err, &enterrors.ErrNoVectorizerModule{}):
 		// must stay above ErrQueryVectorization (see func doc)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.As(err, &enterrors.ErrSourceObjectNotFound{}):
+		// near-object: the id names no object — a bad body value, like an
+		// unknown targetVector (must stay above ErrQueryVectorization)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
+	case errors.As(err, &enterrors.ErrSourceObjectNoVector{}):
+		// near-object: the object exists but its stored vectors cannot
+		// anchor this search (must stay above ErrQueryVectorization)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.As(err, &objects.ErrDirtyReadOfDeletedObject{}):
+		// near-object: the source object is mid-delete across replicas, which
+		// every other read path treats as gone (usecases/objects head, merge)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
 	case errors.As(err, &enterrors.ErrCertaintyIncompatible{}):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &inverted.MissingIndexError{}):
