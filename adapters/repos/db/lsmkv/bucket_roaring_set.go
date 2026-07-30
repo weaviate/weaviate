@@ -117,6 +117,121 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return active.roaringSetAddBitmap(key, bm)
 }
 
+// RoaringSetEachDistinctKey calls fn once per distinct key with the key's
+// live doc count, in no particular order, giving up once the bucket holds
+// more than maxDistinct distinct keys — the return is then (true, nil) and
+// fn may not have been called at all. The bloom lower bound rejects clearly
+// larger buckets before any scan. Keys whose docs are all deleted count
+// toward the limit but are not passed to fn; the key passed to fn aliases
+// internal storage, so copy it before retaining.
+//
+// Distinct keys come from per-segment key walks that collect each key's
+// bitmap layers as they pass; only the surviving distinct set pays a layer
+// merge, seeded from the already-collected layers. That costs O(index keys)
+// plus maxDistinct merges, with none of a merged cursor's per-key
+// materialization and none of a per-key get's index seeks.
+func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
+	fn func(key []byte, liveCount int) error,
+) (exceeded bool, err error) {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return false, err
+	}
+
+	if lower, err := b.GetKeysCount(); err == nil && lower > uint32(maxDistinct) {
+		return true, nil
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	// layers per key in chronological order; a nil slice still marks the key
+	// distinct (memtable-only keys)
+	layersByKey := map[string][]roaringset.BitmapLayer{}
+
+	const ctxCheckEvery = 1 << 12
+	visited := 0
+	for _, seg := range view.Disk {
+		c := seg.newRoaringSetCursor()
+		for {
+			key, layer, err := c.Next()
+			if err != nil {
+				return false, err
+			}
+			if key == nil {
+				break
+			}
+			if visited++; visited%ctxCheckEvery == 0 {
+				if err := ctx.Err(); err != nil {
+					return false, err
+				}
+			}
+			layers, ok := layersByKey[string(key)]
+			if !ok && len(layersByKey) == maxDistinct {
+				return true, nil
+			}
+			layersByKey[string(key)] = append(layers, layer)
+		}
+	}
+
+	memtables, count := viewMemtables(view)
+	for i := range count {
+		keys, err := memtables[i].GetKeys()
+		if err != nil {
+			return false, err
+		}
+		for _, key := range keys {
+			if _, ok := layersByKey[string(key)]; !ok {
+				if len(layersByKey) == maxDistinct {
+					return true, nil
+				}
+				layersByKey[string(key)] = nil
+			}
+		}
+	}
+
+	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+	for key, layers := range layersByKey {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		// the collected layers alias segment storage, so the fold's
+		// accumulator must start from a clone
+		var merger roaringset.LayerMerger
+		if len(layers) > 0 {
+			merger = roaringset.NewLayerMerger(layers[0].Additions, true, maxConc)
+			for _, layer := range layers[1:] {
+				merger.Add(layer)
+			}
+		} else {
+			merger = roaringset.NewLayerMerger(nil, false, maxConc)
+		}
+		if view.Flushing != nil {
+			layer, err := view.Flushing.roaringSetGet([]byte(key))
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
+				return false, err
+			} else if err == nil {
+				merger.Add(layer)
+			}
+		}
+		layer, err := view.Active.roaringSetGet([]byte(key))
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return false, err
+		} else if err == nil {
+			merger.Add(layer)
+		}
+
+		liveCount := merger.Result().GetCardinality()
+		if liveCount == 0 {
+			continue
+		}
+		if err := fn([]byte(key), liveCount); err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
+}
+
 // RoaringSetGet consults ctx only for the concurrency budget, not for cancellation.
 func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitmap, release func(), err error) {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {

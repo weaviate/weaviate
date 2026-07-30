@@ -434,12 +434,12 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 
 // propertyValuesFromInverted lists the property's values from its filterable
 // inverted bucket instead of scanning every object: distinct values are the
-// bucket's keys, live doc counts their bitmaps' cardinalities. The scan stops
-// once more than prop.TopOccurrencesCutoff distinct values are seen — the
-// bloom lower bound skips clearly larger buckets before any cursor work —
-// and reports CutoffExceeded instead of values. Keys decode per data type
-// into the value's string form; for text they are the indexed terms,
-// identical to stored values for untokenized properties.
+// bucket's keys, live doc counts their bitmaps' cardinalities. Past
+// prop.TopOccurrencesCutoff distinct values it reports CutoffExceeded
+// instead of values; deleted values count toward the cutoff until compaction
+// reclaims them. Keys decode per data type into the value's string form; for
+// text they are the indexed terms, identical to stored values for
+// untokenized properties.
 func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 	prop aggregation.ParamProperty, dt schema.DataType,
 ) (*aggregation.Property, error) {
@@ -448,7 +448,6 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		SchemaType:      string(dt),
 		TextAggregation: aggregation.Text{},
 	}
-	cutoff := prop.TopOccurrencesCutoff
 
 	b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String()))
 	if b == nil {
@@ -460,35 +459,17 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		return ua.property(ctx, withoutCutoff(prop))
 	}
 
-	// clearly above the cutoff: the lower bound alone rejects the property
-	if lower, err := b.GetKeysCount(); err == nil && lower > cutoff {
-		out.TextAggregation.CutoffExceeded = true
-		return &out, nil
-	}
-
 	agg := newTextAggregator(extractLimitFromTopOccs(prop.Aggregators))
-	distinct := uint32(0)
-	c := b.CursorRoaringSetCtx(ctx)
-	defer c.Close()
-	for k, bm := c.First(); k != nil; k, bm = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		var count int
-		if bm != nil {
-			count = bm.GetCardinality()
-		}
-		if count == 0 {
-			continue // every doc holding this value was deleted
-		}
-		distinct++
-		if distinct > cutoff {
-			out.TextAggregation = aggregation.Text{CutoffExceeded: true}
-			return &out, nil
-		}
-		if err := agg.AddTextCount(decodeInvertedKey(k, dt), count); err != nil {
-			return nil, err
-		}
+	exceeded, err := b.RoaringSetEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff),
+		func(key []byte, liveCount int) error {
+			return agg.AddTextCount(decodeInvertedKey(key, dt), liveCount)
+		})
+	if err != nil {
+		return nil, err
+	}
+	if exceeded {
+		out.TextAggregation = aggregation.Text{CutoffExceeded: true}
+		return &out, nil
 	}
 
 	out.TextAggregation = agg.Res()

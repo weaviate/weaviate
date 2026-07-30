@@ -814,16 +814,18 @@ type AggregateRequest_Aggregation_Text struct {
 	TopOccurences      bool                   `protobuf:"varint,3,opt,name=top_occurences,json=topOccurences,proto3" json:"top_occurences,omitempty"`
 	TopOccurencesLimit *uint32                `protobuf:"varint,4,opt,name=top_occurences_limit,json=topOccurencesLimit,proto3,oneof" json:"top_occurences_limit,omitempty"`
 	// Compute top_occurences from the property's inverted index instead of
-	// scanning objects, aborting once more than this many distinct values
-	// are seen — the reply then carries top_occurences_cutoff_exceeded
-	// instead of values. Costs milliseconds for low-cardinality properties
-	// where the object scan costs seconds. Works for text, int, number,
-	// boolean, date and uuid properties (and their arrays); the reply
-	// always arrives in the text branch with values rendered as strings.
-	// Text values are the indexed terms: identical to stored values for
-	// untokenized properties, tokens otherwise. Counts are live per-value
-	// document counts. Ignores filters, search and group_by (unfiltered
-	// aggregations only).
+	// scanning objects, giving up once the property holds more than this
+	// many distinct values — the reply then carries
+	// top_occurences_cutoff_exceeded instead of values. Costs milliseconds
+	// for low-cardinality properties where the object scan costs seconds.
+	// Works for text, int, number, boolean, date and uuid properties (and
+	// their arrays); the reply always arrives in the text branch with
+	// values rendered as strings. Text values are the indexed terms:
+	// identical to stored values for untokenized properties, tokens
+	// otherwise. Counts are live per-value document counts, but values
+	// whose documents were all deleted count toward the cutoff until
+	// compaction reclaims them. Ignores filters, search and group_by
+	// (unfiltered aggregations only).
 	TopOccurencesCutoff *uint32 `protobuf:"varint,5,opt,name=top_occurences_cutoff,json=topOccurencesCutoff,proto3,oneof" json:"top_occurences_cutoff,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
