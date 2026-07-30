@@ -40,18 +40,30 @@ func main() {
 
 func run() error {
 	var (
-		dataDir    = flag.String("data", filepath.Join(os.Getenv("HOME"), "Documents/datasets/dbpedia-openai-1000k-angular.bin"), "directory produced by convert.sh (train.f32, test.f32, neighbors.i32)")
-		dims       = flag.Int("dims", 1536, "input vector dimensionality")
-		retained   = flag.Int("retained", 1536, "retained dimensions after rotation (multiple of 64)")
-		budgetsArg = flag.String("budgets", "100000,20000,5000,1500,600,350", "survivor budget per block; last value repeats for remaining blocks")
-		rotate     = flag.Bool("rotate", true, "apply the RQ fast rotation before sign-bit packing")
-		seed       = flag.Uint64("seed", compression.DefaultFastRotationSeed, "rotation seed")
-		rescoreN   = flag.Int("rescore", 0, "exact-rescore window (0 = all final survivors)")
-		numQueries = flag.Int("queries", 0, "number of queries to run (0 = all)")
-		k          = flag.Int("k", 10, "final result count / recall@k")
-		csvPath    = flag.String("csv", "bitpack-bench-results.csv", "CSV file to append the run's results to")
+		dataDir     = flag.String("data", filepath.Join(os.Getenv("HOME"), "Documents/datasets/dbpedia-openai-1000k-angular.bin"), "directory produced by convert.sh (train.f32, test.f32, neighbors.i32)")
+		dims        = flag.Int("dims", 1536, "input vector dimensionality")
+		retained    = flag.Int("retained", 1536, "retained dimensions after rotation (multiple of 64)")
+		budgetsArg  = flag.String("budgets", "100000,20000,5000,1500,600,350", "survivor budget per block; last value repeats for remaining blocks (schedule mode)")
+		mode        = flag.String("mode", "schedule", "scan mode: schedule (progressive elimination), full (no-elimination baseline), rankcurve (prefix rank measurement)")
+		rotate      = flag.Bool("rotate", true, "apply the RQ fast rotation before sign-bit packing")
+		center      = flag.Bool("center", false, "subtract the dataset mean before rotation and sign extraction")
+		seed        = flag.Uint64("seed", compression.DefaultFastRotationSeed, "rotation seed")
+		rescoreN    = flag.Int("rescore", 0, "exact-rescore window (0 = all final survivors in schedule mode, 350 in full mode)")
+		numQueries  = flag.Int("queries", 0, "number of queries to run (0 = all)")
+		rankQueries = flag.Int("rank-queries", 400, "queries to sample in rankcurve mode")
+		k           = flag.Int("k", 10, "final result count / recall@k")
+		csvPath     = flag.String("csv", "bitpack-bench-results.csv", "CSV file to append the run's results to")
 	)
 	flag.Parse()
+
+	switch *mode {
+	case "schedule", "full", "rankcurve":
+	default:
+		return fmt.Errorf("unknown -mode %q", *mode)
+	}
+	if *mode == "full" && *rescoreN == 0 {
+		*rescoreN = 350
+	}
 
 	if *retained <= 0 || *retained%64 != 0 {
 		return fmt.Errorf("-retained must be a positive multiple of 64, got %d", *retained)
@@ -91,6 +103,12 @@ func run() error {
 	normalizeRows(base, *dims)
 	normalizeRows(queries, *dims)
 
+	var mean []float32
+	if *center {
+		fmt.Fprintln(os.Stderr, "computing dataset mean ...")
+		mean = columnMeans(base, *dims)
+	}
+
 	var rotation *compression.FastRotation
 	if *rotate {
 		rotation = compression.NewFastRotation(*dims, rotationRounds, *seed)
@@ -103,8 +121,31 @@ func run() error {
 
 	fmt.Fprintln(os.Stderr, "building column-major bit-packed store ...")
 	buildStart := time.Now()
-	store := buildBitStore(base, *dims, n, *retained, rotation)
+	store := buildBitStore(base, *dims, n, *retained, rotation, mean)
 	fmt.Fprintf(os.Stderr, "built in %.1fs\n", time.Since(buildStart).Seconds())
+
+	configLabel := "raw"
+	switch {
+	case *center && *rotate:
+		configLabel = "center+rotate"
+	case *rotate:
+		configLabel = "rotate"
+	case *center:
+		configLabel = "center"
+	}
+
+	if *mode == "rankcurve" {
+		fmt.Fprintf(os.Stderr, "measuring prefix rank curve (%s, %d queries) ...\n", configLabel, *rankQueries)
+		maxRanks := rankCurve(store, queries, *dims, nq, gt, gtCols, *k, *rankQueries)
+		rows := rankCurveStats(maxRanks)
+		sampleN := len(maxRanks[0])
+		printRankCurve(os.Stdout, configLabel, sampleN, *k, rows)
+		if err := appendRankCSV(*csvPath, filepath.Base(*dataDir), configLabel, *rotate, *center, *retained, sampleN, *k, rows); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "rank curve appended to %s\n", *csvPath)
+		return nil
+	}
 
 	if *numQueries <= 0 || *numQueries > nq {
 		*numQueries = nq
@@ -125,10 +166,20 @@ func run() error {
 	resBuf := make([]uint64, *k)
 	var hits, wanted uint64
 
-	fmt.Fprintf(os.Stderr, "running %d queries ...\n", *numQueries)
+	fmt.Fprintf(os.Stderr, "running %d queries (%s mode, %s) ...\n", *numQueries, *mode, configLabel)
+	var totalBytes int64
+	var scanTime time.Duration
+	loopStart := time.Now()
 	for qi := 0; qi < *numQueries; qi++ {
 		q := queries[qi**dims : (qi+1)**dims]
-		res := sc.search(q, topK, survivors)
+		var res queryResult
+		if *mode == "full" {
+			res = sc.searchFull(q, topK, survivors)
+		} else {
+			res = sc.search(q, topK, survivors)
+		}
+		totalBytes += res.bytesRead
+		scanTime += res.block0 + res.restBlocks
 
 		block0Lat[qi] = res.block0
 		restLat[qi] = res.restBlocks
@@ -150,6 +201,8 @@ func run() error {
 		wanted += uint64(*k)
 	}
 
+	wall := time.Since(loopStart)
+
 	recall := float64(hits) / float64(wanted)
 	avgSurvivors := make([]float64, blocks)
 	for b := range survivorSums {
@@ -158,19 +211,28 @@ func run() error {
 	bytesPerVec := blocks * 8
 	storeBytes := int64(blocks) * int64(n) * 8
 	floatBytes := int64(n) * int64(*dims) * 4
+	bytesPerQuery := totalBytes / int64(*numQueries)
+	bandwidth := float64(totalBytes) / scanTime.Seconds() / (1 << 30)
+	qps := float64(*numQueries) / wall.Seconds()
 
 	report := runReport{
 		dataset:      filepath.Base(*dataDir),
+		mode:         *mode,
 		n:            n,
 		dims:         *dims,
 		retained:     *retained,
 		rotate:       *rotate,
+		center:       *center,
+		config:       configLabel,
 		seed:         *seed,
 		budgets:      *budgetsArg,
 		rescoreN:     *rescoreN,
 		numQueries:   *numQueries,
 		k:            *k,
 		recall:       recall,
+		bytesPerQ:    bytesPerQuery,
+		bandwidth:    bandwidth,
+		qps:          qps,
 		block0:       percentiles(block0Lat),
 		rest:         percentiles(restLat),
 		rescore:      percentiles(rescoreLat),
@@ -234,15 +296,21 @@ func percentiles(lat []time.Duration) latencyStats {
 
 type runReport struct {
 	dataset      string
+	mode         string
 	n, dims      int
 	retained     int
 	rotate       bool
+	center       bool
+	config       string
 	seed         uint64
 	budgets      string
 	rescoreN     int
 	numQueries   int
 	k            int
 	recall       float64
+	bytesPerQ    int64
+	bandwidth    float64 // GiB/s over scan time (block0 + rest)
+	qps          float64
 	block0       latencyStats
 	rest         latencyStats
 	rescore      latencyStats
@@ -256,10 +324,12 @@ type runReport struct {
 func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
 
 func (r *runReport) print(w *os.File) {
-	fmt.Fprintf(w, "\n=== bitpack-bench: %s ===\n", r.dataset)
-	fmt.Fprintf(w, "n=%d dims=%d retained=%d rotate=%v budgets=%s rescore=%d queries=%d\n",
-		r.n, r.dims, r.retained, r.rotate, r.budgets, r.rescoreN, r.numQueries)
+	fmt.Fprintf(w, "\n=== bitpack-bench: %s (%s mode, %s) ===\n", r.dataset, r.mode, r.config)
+	fmt.Fprintf(w, "n=%d dims=%d retained=%d rotate=%v center=%v budgets=%s rescore=%d queries=%d\n",
+		r.n, r.dims, r.retained, r.rotate, r.center, r.budgets, r.rescoreN, r.numQueries)
 	fmt.Fprintf(w, "recall@%d: %.4f\n", r.k, r.recall)
+	fmt.Fprintf(w, "code-store reads: %.2f MiB/query, effective bandwidth %.2f GiB/s, single-threaded QPS %.1f\n",
+		float64(r.bytesPerQ)/(1<<20), r.bandwidth, r.qps)
 	fmt.Fprintf(w, "latency (ms):        p50      p95      p99\n")
 	fmt.Fprintf(w, "  block-0 pass  %8.3f %8.3f %8.3f\n", ms(r.block0.p50), ms(r.block0.p95), ms(r.block0.p99))
 	fmt.Fprintf(w, "  rest blocks   %8.3f %8.3f %8.3f\n", ms(r.rest.p50), ms(r.rest.p95), ms(r.rest.p99))
@@ -274,12 +344,13 @@ func (r *runReport) print(w *os.File) {
 }
 
 var csvHeader = strings.Join([]string{
-	"timestamp", "dataset", "n", "dims", "retained", "rotate", "seed", "budgets", "rescore", "queries", "k",
+	"timestamp", "dataset", "mode", "config", "n", "dims", "retained", "rotate", "center", "seed", "budgets", "rescore", "queries", "k",
 	"recall", "block0_p50_ms", "block0_p95_ms", "block0_p99_ms",
 	"rest_p50_ms", "rest_p95_ms", "rest_p99_ms",
 	"rescore_p50_ms", "rescore_p95_ms", "rescore_p99_ms",
 	"total_p50_ms", "total_p95_ms", "total_p99_ms",
 	"avg_survivors", "bytes_per_vec", "store_bytes", "float_bytes",
+	"bytes_read_per_query", "bandwidth_gib_s", "qps",
 }, ",")
 
 func (r *runReport) appendCSV(path string) error {
@@ -299,13 +370,14 @@ func (r *runReport) appendCSV(path string) error {
 	for i, s := range r.avgSurvivors {
 		surv[i] = strconv.FormatFloat(s, 'f', 1, 64)
 	}
-	_, err = fmt.Fprintf(f, "%s,%s,%d,%d,%d,%v,%d,%q,%d,%d,%d,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%q,%d,%d,%d\n",
-		time.Now().Format(time.RFC3339), r.dataset, r.n, r.dims, r.retained, r.rotate, r.seed, r.budgets,
+	_, err = fmt.Fprintf(f, "%s,%s,%s,%s,%d,%d,%d,%v,%v,%d,%q,%d,%d,%d,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%q,%d,%d,%d,%d,%.3f,%.2f\n",
+		time.Now().Format(time.RFC3339), r.dataset, r.mode, r.config, r.n, r.dims, r.retained, r.rotate, r.center, r.seed, r.budgets,
 		r.rescoreN, r.numQueries, r.k, r.recall,
 		ms(r.block0.p50), ms(r.block0.p95), ms(r.block0.p99),
 		ms(r.rest.p50), ms(r.rest.p95), ms(r.rest.p99),
 		ms(r.rescore.p50), ms(r.rescore.p95), ms(r.rescore.p99),
 		ms(r.total.p50), ms(r.total.p95), ms(r.total.p99),
-		strings.Join(surv, ";"), r.bytesPerVec, r.storeBytes, r.floatBytes)
+		strings.Join(surv, ";"), r.bytesPerVec, r.storeBytes, r.floatBytes,
+		r.bytesPerQ, r.bandwidth, r.qps)
 	return err
 }

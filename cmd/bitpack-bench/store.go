@@ -18,7 +18,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
@@ -32,41 +31,126 @@ type bitStore struct {
 	blocks   int                       // retained dims / 64
 	codes    []uint64                  // len blocks*n, column-major
 	rotation *compression.FastRotation // nil when rotation is disabled
+	mean     []float32                 // nil when centering is disabled
 	retained int
 }
 
-// buildBitStore encodes all vectors: (optional) rotation, truncation to
-// retained dims, sign-bit packing. Reuses the FastRotation from RQ and the
-// sign-bit packing of compressionhelpers.BinaryQuantizer.
-func buildBitStore(vectors []float32, dims, n, retained int, rotation *compression.FastRotation) *bitStore {
+// encodeInto applies the shared encode pipeline — (optional) centering,
+// (optional) rotation, truncation to retained dims, sign-bit packing — into
+// out (one word per block). centerScratch must have dims elements and
+// rotScratch OutputDim elements when the respective step is enabled. The
+// sign convention matches compressionhelpers.BinaryQuantizer.Encode: bit set
+// iff the component is negative, LSB-first within a block.
+func (s *bitStore) encodeInto(v []float32, centerScratch, rotScratch []float32, out []uint64) {
+	if s.mean != nil {
+		for i, x := range v {
+			centerScratch[i] = x - s.mean[i]
+		}
+		v = centerScratch
+	}
+	if s.rotation != nil {
+		v = s.rotation.RotateInto(v, rotScratch)
+	}
+	v = v[:s.retained]
+	for b := range out {
+		out[b] = 0
+	}
+	for i, x := range v {
+		if x < 0 {
+			out[i>>6] |= 1 << (uint(i) & 63)
+		}
+	}
+}
+
+// buildBitStore encodes all vectors: (optional) centering with the dataset
+// mean, (optional) rotation (the FastRotation from RQ), truncation to
+// retained dims, sign-bit packing.
+func buildBitStore(vectors []float32, dims, n, retained int, rotation *compression.FastRotation, mean []float32) *bitStore {
 	blocks := retained / 64
 	s := &bitStore{
 		n:        n,
 		blocks:   blocks,
 		codes:    make([]uint64, blocks*n),
 		rotation: rotation,
+		mean:     mean,
 		retained: retained,
 	}
-	bq := compressionhelpers.NewBinaryQuantizer(nil)
+	centerScratch := make([]float32, dims)
 	var rotScratch []float32
 	if rotation != nil {
 		rotScratch = make([]float32, rotation.OutputDim)
 	}
+	words := make([]uint64, blocks)
 	start := time.Now()
 	for id := 0; id < n; id++ {
 		v := vectors[id*dims : (id+1)*dims]
-		if rotation != nil {
-			v = rotation.RotateInto(v, rotScratch)
-		}
-		enc := bq.Encode(v[:retained])
+		s.encodeInto(v, centerScratch, rotScratch, words)
 		for b := 0; b < blocks; b++ {
-			s.codes[b*n+id] = enc[b]
+			s.codes[b*n+id] = words[b]
 		}
-		if (id+1)%100_000 == 0 {
+		if (id+1)%250_000 == 0 {
 			fmt.Fprintf(os.Stderr, "  encoded %d/%d vectors (%.1fs)\n", id+1, n, time.Since(start).Seconds())
 		}
 	}
 	return s
+}
+
+// bucketSelector maintains the best `target` ids by small-integer distance
+// without sorting: one id list per distance value plus a running threshold.
+// When the retained count exceeds target, the top bucket is dropped and the
+// threshold lowered. Buckets are preallocated and reused across queries.
+type bucketSelector struct {
+	buckets [][]uint32
+	thr     int
+	count   int
+	target  int
+}
+
+func newBucketSelector(maxDist, target int) *bucketSelector {
+	s := &bucketSelector{
+		buckets: make([][]uint32, maxDist+1),
+		target:  target,
+	}
+	for i := range s.buckets {
+		s.buckets[i] = make([]uint32, 0, 64)
+	}
+	return s
+}
+
+func (s *bucketSelector) reset() {
+	for i := range s.buckets {
+		s.buckets[i] = s.buckets[i][:0]
+	}
+	s.thr = len(s.buckets) - 1
+	s.count = 0
+}
+
+func (s *bucketSelector) add(id uint32, d int) {
+	if d > s.thr {
+		return
+	}
+	s.buckets[d] = append(s.buckets[d], id)
+	s.count++
+	// Drop the top bucket while the rest still holds target ids.
+	for s.count-len(s.buckets[s.thr]) >= s.target {
+		s.count -= len(s.buckets[s.thr])
+		s.buckets[s.thr] = s.buckets[s.thr][:0]
+		s.thr--
+	}
+}
+
+// collect appends the best target ids to out (ties at the boundary bucket
+// are cut arbitrarily, in insertion order).
+func (s *bucketSelector) collect(out []uint32) []uint32 {
+	for d := 0; d <= s.thr && len(out) < s.target; d++ {
+		for _, id := range s.buckets[d] {
+			out = append(out, id)
+			if len(out) == s.target {
+				break
+			}
+		}
+	}
+	return out
 }
 
 // byHamming sorts candidate ids by their accumulated Hamming distance.
@@ -106,6 +190,7 @@ type scanner struct {
 	k        int
 	dist     distancer.Provider
 
+	qCenter  []float32 // centering scratch
 	qRot     []float32 // rotation output scratch
 	qWords   []uint64  // packed query, one word per block
 	hamming  []uint16  // accumulated hamming per id
@@ -114,6 +199,9 @@ type scanner struct {
 	exactD   []float32 // rescore window exact distances
 	hSorter  byHamming
 	eSorter  byExact
+	selector *bucketSelector // full-scan top-N selection
+	bestID   []uint32        // full-scan top-k result scratch
+	bestD    []float32
 }
 
 func newScanner(store *bitStore, vectors []float32, dims int, budgets []int, rescoreN, k int) *scanner {
@@ -126,16 +214,22 @@ func newScanner(store *bitStore, vectors []float32, dims int, budgets []int, res
 		rescoreN: rescoreN,
 		k:        k,
 		dist:     distancer.NewCosineDistanceProvider(),
+		qCenter:  make([]float32, dims),
 		qWords:   make([]uint64, store.blocks),
 		hamming:  make([]uint16, store.n),
 		cand:     make([]uint32, store.n),
 		exactIDs: make([]uint32, 0, maxWindow),
 		exactD:   make([]float32, 0, maxWindow),
+		bestID:   make([]uint32, k),
+		bestD:    make([]float32, k),
 	}
 	if store.rotation != nil {
 		sc.qRot = make([]float32, store.rotation.OutputDim)
 	}
 	sc.hSorter.dist = sc.hamming
+	if rescoreN > 0 {
+		sc.selector = newBucketSelector(store.retained, rescoreN)
+	}
 	return sc
 }
 
@@ -159,6 +253,7 @@ func (sc *scanner) pruneTo(budget int) {
 type queryResult struct {
 	topK       []uint32
 	survivors  []int // len == blocks, candidate count after each block's prune
+	bytesRead  int64 // bytes read from the code store
 	block0     time.Duration
 	restBlocks time.Duration
 	rescore    time.Duration
@@ -173,21 +268,9 @@ func (sc *scanner) search(q []float32, topK []uint32, survivors []int) queryResu
 
 	t0 := time.Now()
 
-	// Encode the query exactly like the stored vectors: rotate, truncate,
-	// sign-pack.
-	qv := q
-	if s.rotation != nil {
-		qv = s.rotation.RotateInto(q, sc.qRot)
-	}
-	qv = qv[:s.retained]
-	for b := range sc.qWords {
-		sc.qWords[b] = 0
-	}
-	for i, x := range qv {
-		if x < 0 {
-			sc.qWords[i>>6] |= 1 << (uint(i) & 63)
-		}
-	}
+	// Encode the query exactly like the stored vectors: center, rotate,
+	// truncate, sign-pack.
+	s.encodeInto(q, sc.qCenter, sc.qRot, sc.qWords)
 
 	// Block 0: one sequential pass over the whole column.
 	col := s.codes[:n]
@@ -202,6 +285,7 @@ func (sc *scanner) search(q []float32, topK []uint32, survivors []int) queryResu
 	}
 	sc.pruneTo(sc.budget(0))
 	survivors[0] = len(sc.cand)
+	bytesRead := int64(n) * 8
 
 	t1 := time.Now()
 
@@ -209,6 +293,7 @@ func (sc *scanner) search(q []float32, topK []uint32, survivors []int) queryResu
 	for b := 1; b < s.blocks; b++ {
 		col := s.codes[b*n : (b+1)*n]
 		qb := sc.qWords[b]
+		bytesRead += int64(len(sc.cand)) * 8
 		for _, id := range sc.cand {
 			dist[id] += uint16(bits.OnesCount64(col[id] ^ qb))
 		}
@@ -248,6 +333,90 @@ func (sc *scanner) search(q []float32, topK []uint32, survivors []int) queryResu
 	return queryResult{
 		topK:       topK[:k],
 		survivors:  survivors,
+		bytesRead:  bytesRead,
+		block0:     t1.Sub(t0),
+		restBlocks: t2.Sub(t1),
+		rescore:    t3.Sub(t2),
+	}
+}
+
+// searchFull is the honest no-elimination baseline: read every block of
+// every vector, accumulate full-width Hamming, select the best rescoreN via
+// the bucketed threshold (no sort, no heap), exact-rescore them and take the
+// top k by insertion into a k-element list. This is the recall ceiling of
+// the representation.
+func (sc *scanner) searchFull(q []float32, topK []uint32, survivors []int) queryResult {
+	s := sc.store
+	n := s.n
+
+	t0 := time.Now()
+
+	s.encodeInto(q, sc.qCenter, sc.qRot, sc.qWords)
+
+	// Block 0: initialize the accumulator.
+	col := s.codes[:n]
+	q0 := sc.qWords[0]
+	acc := sc.hamming
+	for id := 0; id < n; id++ {
+		acc[id] = uint16(bits.OnesCount64(col[id] ^ q0))
+	}
+	survivors[0] = n
+
+	t1 := time.Now()
+
+	// Remaining blocks: full-column accumulation, no elimination.
+	for b := 1; b < s.blocks; b++ {
+		col := s.codes[b*n : (b+1)*n]
+		qb := sc.qWords[b]
+		for id := 0; id < n; id++ {
+			acc[id] += uint16(bits.OnesCount64(col[id] ^ qb))
+		}
+		survivors[b] = n
+	}
+	bytesRead := int64(s.blocks) * int64(n) * 8
+
+	// Bucketed threshold selection of the rescore window.
+	sel := sc.selector
+	sel.reset()
+	for id := 0; id < n; id++ {
+		sel.add(uint32(id), int(acc[id]))
+	}
+	sc.cand = sel.collect(sc.cand[:0])
+
+	t2 := time.Now()
+
+	// Exact rescore; keep the k best via insertion, no sort.
+	bestID, bestD := sc.bestID[:sc.k], sc.bestD[:sc.k]
+	filled := 0
+	for _, id := range sc.cand {
+		v := sc.vectors[int(id)*sc.dims : (int(id)+1)*sc.dims]
+		d, err := sc.dist.SingleDist(q, v)
+		if err != nil {
+			panic(err)
+		}
+		if filled == len(bestD) && d >= bestD[filled-1] {
+			continue
+		}
+		if filled < len(bestD) {
+			filled++
+		}
+		i := filled - 1
+		for i > 0 && bestD[i-1] > d {
+			bestD[i] = bestD[i-1]
+			bestID[i] = bestID[i-1]
+			i--
+		}
+		bestD[i] = d
+		bestID[i] = id
+	}
+	copy(topK, bestID[:filled])
+
+	t3 := time.Now()
+
+	return queryResult{
+		topK:       topK[:filled],
+		survivors:  survivors,
+		bytesRead:  bytesRead,
 		block0:     t1.Sub(t0),
 		restBlocks: t2.Sub(t1),
 		rescore:    t3.Sub(t2),

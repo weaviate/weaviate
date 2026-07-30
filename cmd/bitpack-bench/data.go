@@ -48,6 +48,23 @@ func loadInt32Matrix(path string, cols int) ([]int32, int, error) {
 	return ints, rows, nil
 }
 
+// columnMeans returns the per-dimension mean over all rows.
+func columnMeans(floats []float32, dims int) []float32 {
+	sums := make([]float64, dims)
+	rows := len(floats) / dims
+	for off := 0; off < len(floats); off += dims {
+		row := floats[off : off+dims]
+		for i, x := range row {
+			sums[i] += float64(x)
+		}
+	}
+	mean := make([]float32, dims)
+	for i := range mean {
+		mean[i] = float32(sums[i] / float64(rows))
+	}
+	return mean
+}
+
 // normalizeRows L2-normalizes each row of a flat row-major matrix in place.
 func normalizeRows(floats []float32, dims int) {
 	for off := 0; off < len(floats); off += dims {
