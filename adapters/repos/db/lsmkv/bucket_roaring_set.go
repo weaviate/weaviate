@@ -125,11 +125,12 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 // toward the limit but are not passed to fn; the key passed to fn aliases
 // internal storage, so copy it before retaining.
 //
-// Distinct keys come from per-segment key walks that collect each key's
-// bitmap layers as they pass; only the surviving distinct set pays a layer
-// merge, seeded from the already-collected layers. That costs O(index keys)
-// plus maxDistinct merges, with none of a merged cursor's per-key
-// materialization and none of a per-key get's index seeks.
+// Distinct keys come from allocation-free per-segment walks that collect
+// each key's raw serialized regions as they pass; only the surviving
+// distinct set pays a layer merge, folded through reused scratch views over
+// those regions. That costs O(index keys) plus maxDistinct merges, with none
+// of a merged cursor's per-node materialization and none of a per-key get's
+// index seeks.
 func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 	fn func(key []byte, liveCount int) error,
 ) (exceeded bool, err error) {
@@ -144,19 +145,17 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	// layers per key in chronological order; a nil slice still marks the key
+	// raw serialized regions per key in chronological order — two slice
+	// headers per layer, no bitmap views; a nil slice still marks the key
 	// distinct (memtable-only keys)
-	layersByKey := map[string][]roaringset.BitmapLayer{}
+	layersByKey := map[string][]rawBitmapLayer{}
 
 	const ctxCheckEvery = 1 << 12
 	visited := 0
 	for _, seg := range view.Disk {
-		c := seg.newRoaringSetCursor()
+		c := seg.newRoaringSetRawCursor()
 		for {
-			key, layer, err := c.Next()
-			if err != nil {
-				return false, err
-			}
+			key, additions, deletions := c.Next()
 			if key == nil {
 				break
 			}
@@ -169,7 +168,7 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 			if !ok && len(layersByKey) == maxDistinct {
 				return true, nil
 			}
-			layersByKey[string(key)] = append(layers, layer)
+			layersByKey[string(key)] = append(layers, rawBitmapLayer{additions, deletions})
 		}
 	}
 
@@ -200,6 +199,7 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 		pool = roaringset.NewBitmapBufPoolNoop()
 	}
 	poolWithHeadroom := roaringset.NewBitmapBufPoolFactorWrapper(pool, baseLayerHeadroomFactor)
+	var scratch [2]sroar.Bitmap // reused views over raw regions, one call at a time
 	for key, layers := range layersByKey {
 		if err := ctx.Err(); err != nil {
 			return false, err
@@ -208,12 +208,14 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 		if _, inMem := memKeys[key]; len(layers) == 1 && !inMem {
 			// a single layer needs no merge: its deletions delete from
 			// nothing (the same rule the fold applies to its base layer), so
-			// the additions are the live set — a container-count read on the
-			// view, no clone
-			liveCount = layers[0].Additions.GetCardinality()
+			// the additions are the live set — a container-count read on a
+			// reused view, no clone
+			if layers[0].additions != nil {
+				liveCount = sroar.InitFromBufferUnlimited(&scratch[0], layers[0].additions).GetCardinality()
+			}
 		} else {
 			var err error
-			liveCount, err = b.mergedLiveCountFromLayers(view, key, layers, poolWithHeadroom, maxConc)
+			liveCount, err = b.mergedLiveCountFromLayers(view, key, layers, &scratch, poolWithHeadroom, maxConc)
 			if err != nil {
 				return false, err
 			}
@@ -229,26 +231,48 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 	return false, nil
 }
 
+// rawBitmapLayer holds one layer's serialized additions/deletions regions,
+// aliasing segment storage; nil means the region is empty.
+type rawBitmapLayer struct {
+	additions, deletions []byte
+}
+
 // mergedLiveCountFromLayers folds a key's collected disk layers plus its
-// memtable layers into the key's live doc count. The collected layers alias
-// segment storage, so the fold's accumulator is a pooled clone of the first
-// layer — released before returning — rather than a per-key heap clone.
+// memtable layers into the key's live doc count. The accumulator is a pooled
+// clone sized for the whole fold; the other layers pass through the caller's
+// scratch views, so no per-layer bitmap materializes. The fold seeds from
+// the first layer with additions — earlier deletion-only layers delete from
+// nothing within this key's fold — which also keeps a nil-base merger from
+// ever adopting (and later corrupting) a scratch view.
 func (b *Bucket) mergedLiveCountFromLayers(view BucketConsistentView, key string,
-	layers []roaringset.BitmapLayer, pool roaringset.BitmapBufPool, maxConc int,
+	layers []rawBitmapLayer, scratch *[2]sroar.Bitmap,
+	pool roaringset.BitmapBufPool, maxConc int,
 ) (int, error) {
+	seedIdx := -1
+	minCap := 0
+	for i, layer := range layers {
+		minCap += len(layer.additions)
+		if seedIdx == -1 && layer.additions != nil {
+			seedIdx = i
+		}
+	}
+
 	var merger roaringset.LayerMerger
-	if len(layers) > 0 {
+	if seedIdx >= 0 {
 		// the union cannot outgrow the layers' summed sizes by much, so
 		// sizing the accumulator for the result keeps the fold in the pooled
 		// buffer instead of migrating to the heap mid-merge
-		minCap := 0
-		for _, layer := range layers {
-			minCap += layer.Additions.LenInBytes()
-		}
-		base, put := roaringset.CloneToBufWithMinCap(pool, layers[0].Additions, minCap)
+		base, put := roaringset.CloneBytesToBufWithMinCap(pool, layers[seedIdx].additions, minCap)
 		defer put()
 		merger = roaringset.NewLayerMerger(base, false, maxConc)
-		for _, layer := range layers[1:] {
+		for _, raw := range layers[seedIdx+1:] {
+			var layer roaringset.BitmapLayer
+			if raw.additions != nil {
+				layer.Additions = sroar.InitFromBufferUnlimited(&scratch[0], raw.additions)
+			}
+			if raw.deletions != nil {
+				layer.Deletions = sroar.InitFromBufferUnlimited(&scratch[1], raw.deletions)
+			}
 			merger.Add(layer)
 		}
 	} else {

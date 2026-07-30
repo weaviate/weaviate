@@ -243,6 +243,11 @@ func (s *lazySegment) getKeysSorted() [][]byte {
 	return s.segment.getKeysSorted()
 }
 
+func (s *lazySegment) newRoaringSetRawCursor() *roaringset.SegmentCursorRaw {
+	s.mustLoad()
+	return s.segment.newRoaringSetRawCursor()
+}
+
 func (s *lazySegment) isLoaded() bool {
 	s.mux.Lock()
 	defer s.mux.Unlock()

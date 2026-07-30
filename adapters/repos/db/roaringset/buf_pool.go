@@ -76,6 +76,21 @@ func CloneToBufWithMinCap(pool BitmapBufPool, src *sroar.Bitmap, minCap int) (cl
 	return bm, put
 }
 
+// CloneBytesToBufWithMinCap is [BitmapBufPool.CloneBytesToBuf] with a
+// caller-chosen minimum capacity, for clones of serialized regions that will
+// grow — e.g. a merge accumulator sized for the whole fold.
+func CloneBytesToBufWithMinCap(pool BitmapBufPool, src []byte, minCap int) (cloned *sroar.Bitmap, put func()) {
+	requireEvenLength(src)
+	if minCap < len(src) {
+		minCap = len(src)
+	}
+	buf, bm, put := pool.getWithBitmap(minCap)
+	buf = buf[:len(src)]
+	copy(buf, src)
+	sroar.InitFromBufferUnlimited(bm, buf)
+	return bm, put
+}
+
 // src must be a valid, non-empty sroar serialization (even length, >= 8
 // bytes): shorter input yields a bitmap not backed by the pooled buffer, and
 // odd-length input — always corruption, the format is []uint16-based — panics.

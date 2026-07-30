@@ -67,6 +67,7 @@ type Segment interface {
 	getInvertedData() *segmentInvertedData
 	getBloomFilter() *bloom.BloomFilter
 	getKeysSorted() [][]byte
+	newRoaringSetRawCursor() *roaringset.SegmentCursorRaw
 	isLoaded() bool
 	markForDeletion() error
 	markForDeletionExceptSegment() error

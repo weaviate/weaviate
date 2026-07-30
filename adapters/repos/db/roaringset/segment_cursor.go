@@ -12,6 +12,8 @@
 package roaringset
 
 import (
+	"encoding/binary"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
@@ -83,4 +85,49 @@ func (c *segmentCursor) Seek(key []byte) ([]byte, BitmapLayer, error) {
 	}
 	c.nextOffset = node.Start
 	return c.Next()
+}
+
+// SegmentCursorRaw iterates a segment's nodes yielding the raw serialized
+// regions instead of bitmap views, allocating nothing per node. The slices
+// alias the segment data, so they are only valid while the segment stays
+// pinned; keys are never empty, so a nil key signals the end.
+type SegmentCursorRaw struct {
+	data       []byte
+	nextOffset uint64
+}
+
+// NewSegmentCursorRaw takes the payload region of a segment, like
+// [NewSegmentCursor].
+func NewSegmentCursorRaw(data []byte) *SegmentCursorRaw {
+	return &SegmentCursorRaw{data: data}
+}
+
+// Next returns the next node's key and serialized additions/deletions
+// regions; an empty region comes back nil.
+func (c *SegmentCursorRaw) Next() (key, additions, deletions []byte) {
+	if c.nextOffset+8 > uint64(len(c.data)) {
+		return nil, nil, nil
+	}
+	buf := c.data[c.nextOffset:]
+	nodeLen := binary.LittleEndian.Uint64(buf[0:8])
+	buf = buf[:nodeLen]
+
+	addLen := binary.LittleEndian.Uint64(buf[8:16])
+	pos := uint64(16)
+	if addLen > 0 {
+		additions = buf[pos : pos+addLen : pos+addLen]
+	}
+	pos += addLen
+	delLen := binary.LittleEndian.Uint64(buf[pos : pos+8])
+	pos += 8
+	if delLen > 0 {
+		deletions = buf[pos : pos+delLen : pos+delLen]
+	}
+	pos += delLen
+	keyLen := uint64(binary.LittleEndian.Uint32(buf[pos : pos+4]))
+	pos += 4
+	key = buf[pos : pos+keyLen]
+
+	c.nextOffset += nodeLen
+	return key, additions, deletions
 }
