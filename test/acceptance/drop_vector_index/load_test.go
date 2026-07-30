@@ -115,7 +115,7 @@ func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 			for _, uri := range weaviateNodeURIs(compose) {
 				helper.SetupClient(uri)
 				require.EventuallyWithT(t, func(collect *assert.CollectT) {
-					got, err := getClassErr(className)
+					got, err := helper.GetClassWithoutAssert(t, className, "")
 					if !assert.NoError(collect, err) {
 						return
 					}

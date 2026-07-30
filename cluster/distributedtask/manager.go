@@ -301,6 +301,13 @@ var ErrTaskStillActiveForTargetVectors = errors.New("a task bound to these targe
 // ack holds SWAPPING indefinitely (finalize waits for every node, CancelTask
 // accepts only STARTED, the TTL pruner skips active tasks) — until that is
 // operable, only DeleteClass clears such a wedge.
+//
+// Overlap semantics: a record is purged WHOLE when ANY of its target vectors
+// overlaps `targets` — records are atomic, so a multi-target record's
+// coverage for the non-purged siblings is sacrificed with it (they pay one
+// idempotent re-clean; leaving the record would instead misattribute its
+// stale coverage to the NEW drop, which is the corruption this purge
+// prevents). Every live caller today passes a single target.
 func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]TaskDescriptor, error) {
 	if collection == "" || len(targets) == 0 {
 		return nil, nil

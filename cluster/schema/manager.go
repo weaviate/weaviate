@@ -505,8 +505,14 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
-		if s.distributedTaskManager != nil {
-			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
+		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
+			if s.distributedTaskManager == nil {
+				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
+				// with no task manager wired leaves the previous drop's
+				// records un-purged — visible, not silent.
+				s.log.WithField("class", meta.Class.Class).
+					Warnf("drop-vector marker introduced for %v with no distributed task manager wired; previous task records not purged", introduced)
+			} else {
 				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargetVectors(meta.Class.Class, introduced)
 				if errors.Is(err, distributedtask.ErrTaskStillActiveForTargetVectors) {
 					// Operator signal: normally a ms-scale SWAPPING window, but a
@@ -538,7 +544,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// path validated (vectorizer "none"); Vectorizer/VectorIndexType are
 		// otherwise immutable and deliberately never copied. Deterministic:
 		// a pure function of the FSM class and the applied update.
-		if vectorlessFlip(&meta.Class, u) {
+		if modelsext.IsVectorlessFlip(&meta.Class, u) {
 			meta.Class.Vectorizer = u.Vectorizer
 			meta.Class.VectorIndexType = u.VectorIndexType
 		}
@@ -596,22 +602,6 @@ const DropVectorMarkerPurgeMinVersion = "1.39.0"
 // introducedDroppedVectorConfigs returns the names of VectorConfig entries that
 // are dropped ("none") in next but were live or absent in prev — i.e. markers
 // this update introduces.
-// vectorlessFlip reports whether the update turns a named-vectors class into
-// the vector-less shape: every previous entry dropped ("none") and now
-// removed, inert legacy vectorizer. Mirrors usecases/schema.isVectorlessFlip,
-// which validated the update before it reached the log.
-func vectorlessFlip(prev, next *models.Class) bool {
-	if len(prev.VectorConfig) == 0 || len(next.VectorConfig) != 0 {
-		return false
-	}
-	for _, cfg := range prev.VectorConfig {
-		if !modelsext.IsVectorIndexDropped(cfg) {
-			return false
-		}
-	}
-	return prev.Vectorizer == "" && next.Vectorizer == "none"
-}
-
 func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
 	var introduced []string
 	for name, cfg := range next.VectorConfig {

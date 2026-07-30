@@ -73,7 +73,7 @@ func testLastVectorDropToVectorless() func(t *testing.T) {
 		})
 
 		t.Run("the collection is now vector-less with the inert legacy shape", func(t *testing.T) {
-			cls, err := getClassErr(className)
+			cls, err := helper.GetClassWithoutAssert(t, className, "")
 			require.NoError(t, err)
 			require.Empty(t, cls.VectorConfig)
 			require.Equal(t, "none", cls.Vectorizer,
@@ -96,6 +96,27 @@ func testLastVectorDropToVectorless() func(t *testing.T) {
 				Properties: map[string]any{"name": "post-flip"},
 			}}
 			helper.CreateObjectsBatch(t, extra)
+		})
+
+		t.Run("a follow-up class update does not wedge the flipped collection", func(t *testing.T) {
+			// The flipped class carries an inert legacy vector config; the
+			// executor's config-update path must treat the absent legacy
+			// index as a no-op — not flip the store read-only (the wedge the
+			// resolve-before-readonly fix closed).
+			cls, err := helper.GetClassWithoutAssert(t, className, "")
+			require.NoError(t, err)
+			cls.Description = "updated after the vector-less flip"
+			_, err = helper.Client(t).Schema.SchemaObjectsUpdate(
+				clschema.NewSchemaObjectsUpdateParams().
+					WithClassName(className).WithObjectClass(cls), nil)
+			require.NoError(t, err)
+
+			post := []*models.Object{{
+				ID:         strfmt.UUID("00000000-0000-0000-0000-000000599998"),
+				Class:      className,
+				Properties: map[string]any{"name": "post-update"},
+			}}
+			helper.CreateObjectsBatch(t, post)
 		})
 	}
 }

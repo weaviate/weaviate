@@ -68,6 +68,27 @@ func TestAuthzDeleteClassVectorIndex(t *testing.T) {
 		require.True(t, errors.As(err, &forbidden))
 	})
 
+	t.Run("fail with only update_data permission", func(t *testing.T) {
+		// The other half of the AND: data rights without metadata rights must
+		// not authorize the drop either.
+		roleName := "updateDataOnly"
+		role := &models.Role{
+			Name: &roleName,
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className).Permission(),
+			},
+		}
+		helper.CreateRole(t, sharedRootKey, role)
+		defer helper.DeleteRole(t, sharedRootKey, roleName)
+		helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
+		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
+
+		err := dropVectorIndex("toDrop", customKey)
+		require.Error(t, err, "data-only rights must not authorize a schema-mutating drop")
+		var forbidden *clschema.SchemaObjectsVectorsDeleteForbidden
+		require.True(t, errors.As(err, &forbidden))
+	})
+
 	t.Run("fail with only update_collections permission", func(t *testing.T) {
 		roleName := "updateCollectionsOnly"
 		role := &models.Role{

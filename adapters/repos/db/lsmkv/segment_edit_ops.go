@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // SegmentEditOps is a bolt-backed sidecar that records in-place segment edit
@@ -182,7 +183,7 @@ func (s *SegmentEditOps) openLocked() error {
 	// One handle per segment group. The Timeout turns an accidental second open
 	// into a fast error instead of a forever-hang; the single-open path is uncontended.
 	db, err := bolt.Open(filepath.Join(s.dir, segmentEditOpsFileName), 0o600,
-		&bolt.Options{Timeout: 5 * time.Second})
+		&bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return fmt.Errorf("open segment edit ops db: %w", err)
 	}

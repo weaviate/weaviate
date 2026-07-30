@@ -17,11 +17,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 var checkpointBucket = []byte("checkpoint")
@@ -38,7 +39,7 @@ func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 
 	// Timeout: a leaked handle from a failed teardown holds the flock; without
 	// it this open retries forever and wedges the loading goroutine.
-	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 5 * time.Second})
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}

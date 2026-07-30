@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -156,10 +155,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
 	}
 
-	epoch, cleaned, err := e.epochAndInheritedCoverage(collection, targets, state, tasks)
-	if err != nil {
-		return fmt.Errorf("drop-vector enqueue: coverage inheritance for %q: %w", collection, err)
-	}
+	epoch, cleaned := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
 	shardOwnership = withoutCleanedShards(shardOwnership, cleaned)
 	shardOwnership, deferredShards := capShardOwnership(shardOwnership, maxShardsPerDropRound)
 	if deferredShards > 0 {
@@ -201,68 +197,6 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 	// task, the backstop for the HasActiveDrop check race.
 	taskID := uuid.NewString()
 	return e.clusterService.AddDistributedTaskWithGroups(ctx, db.DropVectorIndexNamespace, taskID, payload, specs)
-}
-
-// epochAndInheritedCoverage resolves the drop epoch and the cleaned-shard set
-// accumulated by completed tasks of that epoch.
-//
-// A marker can only coexist with an INCOMPLETE chain of its own drop: the
-// previous drop's marker can vanish only via finalize (which requires a
-// complete chain) or class delete (which cascade-deletes the task records).
-// So a complete chain — or no usable chain — next to a marker is a closed
-// epoch's residue (re-created then re-dropped name, or a finalize that never
-// landed): mint a fresh epoch and re-clean everything, never trust it. That
-// costs one idempotent full re-clean; the alternative trusts stale coverage
-// and finalizes over unstripped vectors.
-//
-// The inference is sound only because stale records cannot coexist with a
-// marker they don't belong to: introducing a marker purges the previous
-// drop's records in the same raft apply (schema FSM marker-introduction
-// purge). Do not weaken that purge without revisiting this function.
-func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(
-	collection string, targets []string, state *sharding.State,
-	tasks map[string][]*distributedtask.Task,
-) (string, []string, error) {
-	// The newest matching task (raft-assigned Version: monotonic and
-	// deterministic, unlike node wall clocks) names the candidate epoch.
-	var newest *db.DropVectorIndexTaskPayload
-	var newestVersion uint64
-	for _, task := range tasks[db.DropVectorIndexNamespace] {
-		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
-		if err != nil {
-			warnSkippedPayload(e.logger, "coverage-inheritance", task.ID, err)
-			continue
-		}
-		if !strings.EqualFold(p.Collection, collection) || !db.SameTargetSet(p.Targets, targets) {
-			continue
-		}
-		if newest == nil || task.Version > newestVersion {
-			newest, newestVersion = p, task.Version
-		}
-	}
-	if newest == nil || newest.DropEpochID == "" {
-		return uuid.NewString(), nil, nil
-	}
-	// One shared implementation with the AddTask-apply guard that re-proves
-	// these claims (db.EpochCoveredShards): completed tasks vouch their full
-	// CoveredShards; a FAILED or CANCELLED round vouches only its COMPLETED units — a
-	// deactivated tenant fails a whole round, and discarding its finished
-	// work would make MT-scale convergence improbable.
-	covered := db.EpochCoveredShards(tasks[db.DropVectorIndexNamespace], collection, targets, newest.DropEpochID)
-	// Prune to current shards: deleted tenants would otherwise accumulate in
-	// every subsequent payload forever.
-	cleaned := make([]string, 0, len(covered))
-	for shard := range covered {
-		if _, ok := state.Physical[shard]; ok {
-			cleaned = append(cleaned, shard)
-		}
-	}
-	sort.Strings(cleaned)
-	if len(shardsNotIn(state, cleaned)) == 0 {
-		// Complete chain next to a marker — closed-epoch residue. See above.
-		return uuid.NewString(), nil, nil
-	}
-	return newest.DropEpochID, cleaned, nil
 }
 
 // maxShardsPerDropRound bounds one cleanup round. Units scale with
@@ -342,19 +276,6 @@ func withoutCleanedShards(ownership map[string][]string, cleaned []string) map[s
 		}
 	}
 	return result
-}
-
-// shardsNotIn returns the state's shards absent from the given set, sorted.
-func shardsNotIn(state *sharding.State, set []string) []string {
-	covered := make(map[string]struct{}, len(set))
-	for _, shard := range set {
-		covered[shard] = struct{}{}
-	}
-	shardNames := make([]string, 0, len(state.Physical))
-	for shard := range state.Physical {
-		shardNames = append(shardNames, shard)
-	}
-	return db.ShardsNotCovered(shardNames, covered)
 }
 
 // stillDroppedTargets filters targets to those still present and marked dropped

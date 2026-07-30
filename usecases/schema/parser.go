@@ -300,7 +300,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	// ONLY. A real vectorizer must never appear this way — it would silently
 	// start vectorizing (and billing) on a collection that just shed its
 	// vectors.
-	if !isVectorlessFlip(class, update) {
+	if !modelsext.IsVectorlessFlip(class, update) {
 		if err = validateLegacyVectorIndexConfigImmutableFields(class, update); err != nil {
 			return nil, err
 		}
@@ -309,7 +309,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	// The vector-less flip introduces a fresh (inert) legacy index config
 	// where the initial class had none — there is no previous config to
 	// validate the update against.
-	if (class.VectorIndexConfig != nil || update.VectorIndexConfig != nil) && !isVectorlessFlip(class, update) {
+	if (class.VectorIndexConfig != nil || update.VectorIndexConfig != nil) && !modelsext.IsVectorlessFlip(class, update) {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		vIdxConfigU, ok2 := update.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok1 || !ok2 {

@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -56,22 +55,7 @@ func testPartiallyColdTenants() func(t *testing.T) {
 		defer helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
 
 		t.Run("1 create 4 tenants, pump data, deactivate 2", func(t *testing.T) {
-			cls := &models.Class{
-				Class: className,
-				Properties: []*models.Property{
-					{Name: "name", DataType: []string{schema.DataTypeText.String()}},
-				},
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-				VectorConfig: map[string]models.VectorConfig{
-					dropped: noneVectorConfig(), sibling: noneVectorConfig(),
-				},
-			}
-			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
-				clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
-			require.NoError(t, err)
-			helper.CreateTenants(t, className, []*models.Tenant{
-				{Name: tenants[0]}, {Name: tenants[1]}, {Name: tenants[2]}, {Name: tenants[3]},
-			})
+			createMTDropClass(t, className, dropped, sibling, tenants[0], tenants[1], tenants[2], tenants[3])
 
 			for ten, tenant := range tenants {
 				batch := make([]*models.Object, perTenant)

@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -45,20 +44,7 @@ func testTenantMutationDuringDrop() func(t *testing.T) {
 		defer helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
 
 		t.Run("create class, tenants, and objects", func(t *testing.T) {
-			cls := &models.Class{
-				Class: className,
-				Properties: []*models.Property{
-					{Name: "name", DataType: []string{schema.DataTypeText.String()}},
-				},
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-				VectorConfig: map[string]models.VectorConfig{
-					dropped: noneVectorConfig(), sibling: noneVectorConfig(),
-				},
-			}
-			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
-				clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
-			require.NoError(t, err)
-			helper.CreateTenants(t, className, []*models.Tenant{{Name: tenant1}, {Name: tenant2}})
+			createMTDropClass(t, className, dropped, sibling, tenant1, tenant2)
 
 			for ten, tenant := range map[int]string{0: tenant1, 1: tenant2} {
 				batch := make([]*models.Object, 10)
@@ -94,7 +80,7 @@ func testTenantMutationDuringDrop() func(t *testing.T) {
 			// the round ends FAILED, and reconciliation re-enqueues for tenant1
 			// alone — so tenant1 strips despite the aborted first round.
 			requireTenantStripped(t, className, tenant1, dropped, 10)
-			got, err := getClassErr(className)
+			got, err := helper.GetClassWithoutAssert(t, className, "")
 			require.NoError(t, err)
 			cfg, present := got.VectorConfig[dropped]
 			require.True(t, present, "the marker must stay while a tenant is uncovered")
@@ -102,9 +88,7 @@ func testTenantMutationDuringDrop() func(t *testing.T) {
 		})
 
 		t.Run("reactivating the tenant completes the drop", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{Name: tenant2, ActivityStatus: models.TenantActivityStatusHOT},
-			})
+			setTenantStatusEventually(t, className, tenant2, models.TenantActivityStatusHOT)
 			eventuallyTargetVectorRemoved(t, className, dropped)
 		})
 

@@ -881,3 +881,37 @@ func TestEnqueuerGuardConsistency(t *testing.T) {
 		})
 	}
 }
+
+// TestCapShardOwnership_KeepsAllReplicasOfKeptShards pins the RF>1 rule: the
+// cap counts DISTINCT shards, and a kept shard keeps its unit on EVERY
+// replica node — units are per (shard, replica) and a shard's coverage only
+// counts when all of them complete, so capping away one replica would strand
+// the whole shard's round.
+func TestCapShardOwnership_KeepsAllReplicasOfKeptShards(t *testing.T) {
+	ownership := map[string][]string{
+		"node1": {"s1", "s2", "s3"},
+		"node2": {"s1", "s2", "s3"},
+		"node3": {"s2", "s3"},
+	}
+
+	kept, deferred := capShardOwnership(ownership, 2)
+	require.Equal(t, 1, deferred, "one distinct shard defers to a later round")
+
+	keptShards := map[string]int{}
+	for _, shards := range kept {
+		for _, s := range shards {
+			keptShards[s]++
+		}
+	}
+	require.Len(t, keptShards, 2, "the cap bounds DISTINCT shards, not units")
+	for shard, replicas := range keptShards {
+		switch shard {
+		case "s1":
+			require.Equal(t, 2, replicas, "s1 lives on 2 nodes; both units must stay")
+		case "s2":
+			require.Equal(t, 3, replicas, "s2 lives on 3 nodes; all three units must stay")
+		default:
+			t.Fatalf("unexpected shard kept: %s (deterministic sorted cap must keep s1, s2)", shard)
+		}
+	}
+}

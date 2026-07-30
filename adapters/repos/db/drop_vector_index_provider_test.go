@@ -894,6 +894,19 @@ func TestOnTaskCompleted_TransientFailures_ReturnErrorForRetry(t *testing.T) {
 		require.ErrorContains(t, err, "no leader")
 		require.False(t, fin.called)
 	})
+
+	t.Run("active-drop read failure", func(t *testing.T) {
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
+		p.sharding = &fakeShardingReader{
+			shards:       []string{"shard1"},
+			listTasksErr: errors.New("dtm unreachable"),
+		}
+
+		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+		require.ErrorContains(t, err, "dtm unreachable")
+		require.False(t, fin.called)
+	})
 }
 
 // TestOnTaskCompleted_UnloadedShard_SkipsDeleteAndFinalizes: an unloaded shard's

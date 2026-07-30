@@ -76,3 +76,25 @@ func ClassUsesVectorisation(class *models.Class) bool {
 	}
 	return false
 }
+
+// IsVectorlessFlip reports whether a class update is the legal named-vectors
+// → vector-less transition: every previous VectorConfig entry dropped
+// ("none") and now removed, and the legacy fields set to the INERT shape
+// (vectorizer "none" — never a live module, which would silently start
+// vectorizing a collection that just shed its vectors). Shared by the update
+// validator and the RAFT-apply FSM so both sides accept exactly the same
+// transition.
+func IsVectorlessFlip(prev, next *models.Class) bool {
+	if prev == nil || next == nil {
+		return false
+	}
+	if len(prev.VectorConfig) == 0 || len(next.VectorConfig) != 0 {
+		return false
+	}
+	for _, cfg := range prev.VectorConfig {
+		if !IsVectorIndexDropped(cfg) {
+			return false
+		}
+	}
+	return prev.Vectorizer == "" && next.Vectorizer == "none"
+}

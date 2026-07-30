@@ -17,9 +17,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // DropVectorIndexNamespace is the distributed-task namespace for dropping a
@@ -220,6 +222,80 @@ func EpochCoveredShards(tasks []*distributedtask.Task, collection string, target
 // would re-pay its full re-clean I/O, exactly like the FAILED case.
 func terminalWithPartialWork(s distributedtask.TaskStatus) bool {
 	return s == distributedtask.TaskStatusFailed || s == distributedtask.TaskStatusCancelled
+}
+
+// EpochAndInheritedCoverage resolves the drop epoch and the cleaned-shard
+// set accumulated by completed tasks of that epoch, for a new round on
+// (collection, targets).
+//
+// A marker can only coexist with an INCOMPLETE chain of its own drop: the
+// previous drop's marker can vanish only via finalize (which requires a
+// complete chain) or class delete (which cascade-deletes the task records).
+// So a complete chain — or no usable chain — next to a marker is a closed
+// epoch's residue (re-created then re-dropped name, or a finalize that never
+// landed): mint a fresh epoch and re-clean everything, never trust it. That
+// costs one idempotent full re-clean; the alternative trusts stale coverage
+// and finalizes over unstripped vectors.
+//
+// The inference is sound only because stale records cannot coexist with a
+// marker they don't belong to: introducing a marker purges the previous
+// drop's records in the same raft apply (schema FSM marker-introduction
+// purge). Do not weaken that purge without revisiting this function. Lives
+// next to EpochCoveredShards: the AddTask-apply guard re-proves every claim
+// composed here with the same implementation.
+func EpochAndInheritedCoverage(collection string, targets []string, state *sharding.State,
+	tasks map[string][]*distributedtask.Task, logger logrus.FieldLogger,
+) (epoch string, cleaned []string) {
+	// The newest matching task (raft-assigned Version: monotonic and
+	// deterministic, unlike node wall clocks) names the candidate epoch.
+	var newest *DropVectorIndexTaskPayload
+	var newestVersion uint64
+	for _, task := range tasks[DropVectorIndexNamespace] {
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			if logger != nil {
+				logger.WithField("task", task.ID).
+					Warnf("drop-vector: coverage-inheritance: skipping task with unparseable payload: %v", err)
+			}
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) || !SameTargetSet(p.Targets, targets) {
+			continue
+		}
+		if newest == nil || task.Version > newestVersion {
+			newest, newestVersion = p, task.Version
+		}
+	}
+	if newest == nil || newest.DropEpochID == "" {
+		return uuid.NewString(), nil
+	}
+	// Completed tasks vouch their full CoveredShards; a FAILED or CANCELLED
+	// round vouches only its COMPLETED units — a deactivated tenant fails a
+	// whole round, and discarding its finished work would make MT-scale
+	// convergence improbable.
+	covered := EpochCoveredShards(tasks[DropVectorIndexNamespace], collection, targets, newest.DropEpochID)
+	// Prune to current shards: deleted tenants would otherwise accumulate in
+	// every subsequent payload forever.
+	cleaned = make([]string, 0, len(covered))
+	for shard := range covered {
+		if _, ok := state.Physical[shard]; ok {
+			cleaned = append(cleaned, shard)
+		}
+	}
+	sort.Strings(cleaned)
+	shardNames := make([]string, 0, len(state.Physical))
+	for shard := range state.Physical {
+		shardNames = append(shardNames, shard)
+	}
+	remaining := make(map[string]struct{}, len(cleaned))
+	for _, shard := range cleaned {
+		remaining[shard] = struct{}{}
+	}
+	if len(ShardsNotCovered(shardNames, remaining)) == 0 {
+		// Complete chain next to a marker — closed-epoch residue. See above.
+		return uuid.NewString(), nil
+	}
+	return newest.DropEpochID, cleaned
 }
 
 // ShardsNotCovered returns the shards absent from covered, sorted.

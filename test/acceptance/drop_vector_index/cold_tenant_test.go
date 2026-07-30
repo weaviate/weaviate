@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -46,21 +45,7 @@ func testColdTenantDeferredFinalize() func(t *testing.T) {
 		defer helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
 
 		t.Run("create class, tenants, and objects", func(t *testing.T) {
-			cls := &models.Class{
-				Class: className,
-				Properties: []*models.Property{
-					{Name: "name", DataType: []string{schema.DataTypeText.String()}},
-				},
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-				VectorConfig: map[string]models.VectorConfig{
-					dropped: noneVectorConfig(), sibling: noneVectorConfig(),
-				},
-			}
-			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
-				clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
-			require.NoError(t, err)
-			helper.CreateTenants(t, className,
-				[]*models.Tenant{{Name: tenants[0]}, {Name: tenants[1]}, {Name: tenants[2]}})
+			createMTDropClass(t, className, dropped, sibling, tenants[0], tenants[1], tenants[2])
 
 			for ten, tenant := range tenants {
 				batch := make([]*models.Object, perTenant)
@@ -82,9 +67,7 @@ func testColdTenantDeferredFinalize() func(t *testing.T) {
 		})
 
 		t.Run("deactivate one tenant, then drop", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{Name: coldTenant, ActivityStatus: models.TenantActivityStatusCOLD},
-			})
+			setTenantStatusEventually(t, className, coldTenant, models.TenantActivityStatusCOLD)
 			dropTargetVector(t, className, dropped)
 		})
 

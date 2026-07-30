@@ -23,6 +23,7 @@ import (
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -72,21 +73,12 @@ func dropTargetVector(t *testing.T, className, targetVector string) {
 // is safe inside EventuallyWithT conditions (a require on the outer t there
 // runs Goexit in the condition goroutine: the parent test is marked failed
 // but the poll reports success and the test keeps running on broken state).
-func getClassErr(className string) (*models.Class, error) {
-	resp, err := helper.Client(nil).Schema.SchemaObjectsGet(
-		clschema.NewSchemaObjectsGetParams().WithClassName(className), nil)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Payload, nil
-}
-
 // eventuallyTargetVectorRemoved waits for the full drop lifecycle: the entry
 // must disappear from the schema entirely.
 func eventuallyTargetVectorRemoved(t *testing.T, className, targetVector string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		got, err := getClassErr(className)
+		got, err := helper.GetClassWithoutAssert(t, className, "")
 		if !assert.NoError(collect, err) {
 			return
 		}
@@ -266,4 +258,28 @@ func requireTenantStripped(t *testing.T, className, tenant, targetVector string,
 			assert.NotContains(collect, obj.Vectors, targetVector)
 		}
 	}, finalizeTimeout, time.Second, "tenant %s stripped of %s", tenant, targetVector)
+}
+
+// createMTDropClass creates the standard two-named-vector multi-tenant class
+// used by the tenant-lifecycle journeys, plus its tenants.
+func createMTDropClass(t *testing.T, className, dropped, sibling string, tenantNames ...string) {
+	t.Helper()
+	cls := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "name", DataType: []string{schema.DataTypeText.String()}},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		VectorConfig: map[string]models.VectorConfig{
+			dropped: noneVectorConfig(), sibling: noneVectorConfig(),
+		},
+	}
+	_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+		clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
+	require.NoError(t, err)
+	tenants := make([]*models.Tenant, len(tenantNames))
+	for i, name := range tenantNames {
+		tenants[i] = &models.Tenant{Name: name}
+	}
+	helper.CreateTenants(t, className, tenants)
 }

@@ -36,6 +36,7 @@ func TestDropVectorIndex_Cluster(t *testing.T) {
 
 	runSuite(t, compose)
 	t.Run("replicated drop", testReplicatedDrop(compose))
+	t.Run("replicated cold tenant", testReplicatedColdTenant(compose))
 }
 
 func TestDropVectorIndex_Restart_Cluster(t *testing.T) {
