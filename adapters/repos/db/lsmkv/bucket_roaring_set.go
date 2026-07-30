@@ -173,13 +173,18 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 		}
 	}
 
+	var memKeys map[string]struct{}
 	memtables, count := viewMemtables(view)
 	for i := range count {
 		keys, err := memtables[i].GetKeys()
 		if err != nil {
 			return false, err
 		}
+		if memKeys == nil && len(keys) > 0 {
+			memKeys = make(map[string]struct{}, len(keys))
+		}
 		for _, key := range keys {
+			memKeys[string(key)] = struct{}{}
 			if _, ok := layersByKey[string(key)]; !ok {
 				if len(layersByKey) == maxDistinct {
 					return true, nil
@@ -199,9 +204,19 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		liveCount, err := b.mergedLiveCountFromLayers(view, key, layers, poolWithHeadroom, maxConc)
-		if err != nil {
-			return false, err
+		var liveCount int
+		if _, inMem := memKeys[key]; len(layers) == 1 && !inMem {
+			// a single layer needs no merge: its deletions delete from
+			// nothing (the same rule the fold applies to its base layer), so
+			// the additions are the live set — a container-count read on the
+			// view, no clone
+			liveCount = layers[0].Additions.GetCardinality()
+		} else {
+			var err error
+			liveCount, err = b.mergedLiveCountFromLayers(view, key, layers, poolWithHeadroom, maxConc)
+			if err != nil {
+				return false, err
+			}
 		}
 		if liveCount == 0 {
 			continue
