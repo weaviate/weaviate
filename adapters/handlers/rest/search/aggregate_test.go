@@ -162,7 +162,7 @@ func TestAggregateReservedFieldsRejected(t *testing.T) {
 // TestAggregateReservedFieldsAbsentOrNullAllowed: an explicit null reserved
 // field is treated as absent, like everywhere in the family (the SearchCommon
 // pin is TestReservedFieldsAbsentOrNullAllowed). over is the family's first
-// interface{}-typed reserved field — null must decode to a nil interface,
+// any-typed reserved field — null must decode to a nil interface,
 // not a typed non-nil one — so its decode is pinned explicitly alongside the
 // pointer-typed objectLimit.
 func TestAggregateReservedFieldsAbsentOrNullAllowed(t *testing.T) {
