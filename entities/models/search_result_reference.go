@@ -26,33 +26,27 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchResultObject A single search hit: the object's `id` (always returned), the selected non-reference properties under `properties`, the selected cross-references under `references`, and the requested retrieval metadata under `metadata`.
+// SearchResultReference One referenced object: the selected non-reference properties under `properties`, deeper cross-references under `references`, and the requested metadata under `metadata`.
 //
-// swagger:model SearchResultObject
-type SearchResultObject struct {
-	// The object's UUID. Always returned.
-	// Required: true
-	// Format: uuid
-	ID *strfmt.UUID `json:"id"`
+// swagger:model SearchResultReference
+type SearchResultReference struct {
+	// The collection the referenced object belongs to. Returned for multi-target references.
+	Collection string `json:"collection,omitempty"`
 
 	// metadata
-	Metadata *SearchResultMetadata `json:"metadata,omitempty"`
+	Metadata *SearchResultReferenceMetadata `json:"metadata,omitempty"`
 
-	// The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — `{}` when the request selects no properties.
+	// The selected non-reference properties of the referenced object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — `{}` when the selector selects no properties.
 	// Required: true
 	Properties map[string]JSONObject `json:"properties"`
 
-	// The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references.
+	// The cross-references selected one hop deeper. Omitted when the selector selects none.
 	References map[string][]SearchResultReference `json:"references,omitempty"`
 }
 
-// Validate validates this search result object
-func (m *SearchResultObject) Validate(formats strfmt.Registry) error {
+// Validate validates this search result reference
+func (m *SearchResultReference) Validate(formats strfmt.Registry) error {
 	var res []error
-
-	if err := m.validateID(formats); err != nil {
-		res = append(res, err)
-	}
 
 	if err := m.validateMetadata(formats); err != nil {
 		res = append(res, err)
@@ -72,19 +66,7 @@ func (m *SearchResultObject) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SearchResultObject) validateID(formats strfmt.Registry) error {
-	if err := validate.Required("id", "body", m.ID); err != nil {
-		return err
-	}
-
-	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *SearchResultObject) validateMetadata(formats strfmt.Registry) error {
+func (m *SearchResultReference) validateMetadata(formats strfmt.Registry) error {
 	if swag.IsZero(m.Metadata) { // not required
 		return nil
 	}
@@ -103,7 +85,7 @@ func (m *SearchResultObject) validateMetadata(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SearchResultObject) validateProperties(formats strfmt.Registry) error {
+func (m *SearchResultReference) validateProperties(formats strfmt.Registry) error {
 	if err := validate.Required("properties", "body", m.Properties); err != nil {
 		return err
 	}
@@ -117,7 +99,7 @@ func (m *SearchResultObject) validateProperties(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SearchResultObject) validateReferences(formats strfmt.Registry) error {
+func (m *SearchResultReference) validateReferences(formats strfmt.Registry) error {
 	if swag.IsZero(m.References) { // not required
 		return nil
 	}
@@ -144,8 +126,8 @@ func (m *SearchResultObject) validateReferences(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this search result object based on the context it is used
-func (m *SearchResultObject) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validate this search result reference based on the context it is used
+func (m *SearchResultReference) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.contextValidateMetadata(ctx, formats); err != nil {
@@ -162,7 +144,7 @@ func (m *SearchResultObject) ContextValidate(ctx context.Context, formats strfmt
 	return nil
 }
 
-func (m *SearchResultObject) contextValidateMetadata(ctx context.Context, formats strfmt.Registry) error {
+func (m *SearchResultReference) contextValidateMetadata(ctx context.Context, formats strfmt.Registry) error {
 	if m.Metadata != nil {
 		if err := m.Metadata.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -177,7 +159,7 @@ func (m *SearchResultObject) contextValidateMetadata(ctx context.Context, format
 	return nil
 }
 
-func (m *SearchResultObject) contextValidateReferences(ctx context.Context, formats strfmt.Registry) error {
+func (m *SearchResultReference) contextValidateReferences(ctx context.Context, formats strfmt.Registry) error {
 	for k := range m.References {
 		for i := 0; i < len(m.References[k]); i++ {
 			if err := m.References[k][i].ContextValidate(ctx, formats); err != nil {
@@ -195,7 +177,7 @@ func (m *SearchResultObject) contextValidateReferences(ctx context.Context, form
 }
 
 // MarshalBinary interface implementation
-func (m *SearchResultObject) MarshalBinary() ([]byte, error) {
+func (m *SearchResultReference) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -203,8 +185,8 @@ func (m *SearchResultObject) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SearchResultObject) UnmarshalBinary(b []byte) error {
-	var res SearchResultObject
+func (m *SearchResultReference) UnmarshalBinary(b []byte) error {
+	var res SearchResultReference
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

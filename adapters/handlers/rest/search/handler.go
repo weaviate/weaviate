@@ -71,33 +71,38 @@ type HandlerConfig struct {
 	NamespacesEnabled bool
 	DefaultLimit      int64
 	MaximumResults    int64
-	Enabled           *runtime.DynamicValue[bool]
-	Logger            logrus.FieldLogger
+	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
+	// rejects deeper returnReferences nesting than the traverser would.
+	CrossRefDepthLimit int
+	Enabled            *runtime.DynamicValue[bool]
+	Logger             logrus.FieldLogger
 }
 
 // Handler implements the search endpoints. The caller is authenticated in
 // the swagger security layer; the handler receives the resulting principal.
 type Handler struct {
-	traverser         classSearcher
-	schemaReader      schemaReader
-	authorizer        authorization.Authorizer
-	namespacesEnabled bool
-	defaultLimit      int64
-	maximumResults    int64
-	enabled           *runtime.DynamicValue[bool]
-	logger            logrus.FieldLogger
+	traverser          classSearcher
+	schemaReader       schemaReader
+	authorizer         authorization.Authorizer
+	namespacesEnabled  bool
+	defaultLimit       int64
+	maximumResults     int64
+	crossRefDepthLimit int
+	enabled            *runtime.DynamicValue[bool]
+	logger             logrus.FieldLogger
 }
 
 func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
-		traverser:         cfg.Traverser,
-		schemaReader:      cfg.SchemaReader,
-		authorizer:        cfg.Authorizer,
-		namespacesEnabled: cfg.NamespacesEnabled,
-		defaultLimit:      cfg.DefaultLimit,
-		maximumResults:    cfg.MaximumResults,
-		enabled:           cfg.Enabled,
-		logger:            cfg.Logger,
+		traverser:          cfg.Traverser,
+		schemaReader:       cfg.SchemaReader,
+		authorizer:         cfg.Authorizer,
+		namespacesEnabled:  cfg.NamespacesEnabled,
+		defaultLimit:       cfg.DefaultLimit,
+		maximumResults:     cfg.MaximumResults,
+		crossRefDepthLimit: cfg.CrossRefDepthLimit,
+		enabled:            cfg.Enabled,
+		logger:             cfg.Logger,
 	}
 }
 
@@ -205,7 +210,7 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 		return nil, strip(statusFromError(err))
 	}
 
-	reply, err := buildResponse(res, params, time.Since(before))
+	reply, err := buildResponse(res, params, principal, time.Since(before))
 	if err != nil {
 		return nil, strip(&APIError{Status: http.StatusInternalServerError, Err: err})
 	}

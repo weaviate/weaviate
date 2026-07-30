@@ -31,7 +31,6 @@ import (
 //
 // swagger:model SearchCommon
 type SearchCommon struct {
-
 	// Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.
 	AutoLimit *int64 `json:"autoLimit,omitempty"`
 
@@ -63,8 +62,11 @@ type SearchCommon struct {
 	// The retrieval metadata to return under each result's `metadata` key. The object `id` is always returned as each result's `id` field. Omitted or empty returns no `metadata` block.
 	ReturnMetadata []string `json:"returnMetadata"`
 
-	// The properties to return. A dot-path selects one hop across a reference (e.g. `hasAuthor.name`). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.
+	// The non-reference properties to return. Omitted returns all non-reference, non-blob properties; an empty array returns no properties. References are selected with `returnReferences`.
 	ReturnProperties []string `json:"returnProperties"`
+
+	// The cross-references to return under each result's `references` key. Each entry selects one reference property and what to return from the referenced objects. Omitted or empty returns no references.
+	ReturnReferences []*SearchReferenceSelector `json:"returnReferences"`
 
 	// Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).
 	SinglePrompt *string `json:"singlePrompt,omitempty"`
@@ -89,6 +91,10 @@ func (m *SearchCommon) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateReturnMetadata(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateReturnReferences(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -191,10 +197,34 @@ func (m *SearchCommon) validateReturnMetadata(formats strfmt.Registry) error {
 	}
 
 	for i := 0; i < len(m.ReturnMetadata); i++ {
-
 		// value enum
 		if err := m.validateReturnMetadataItemsEnum("returnMetadata"+"."+strconv.Itoa(i), "body", m.ReturnMetadata[i]); err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *SearchCommon) validateReturnReferences(formats strfmt.Registry) error {
+	if swag.IsZero(m.ReturnReferences) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.ReturnReferences); i++ {
+		if swag.IsZero(m.ReturnReferences[i]) { // not required
+			continue
+		}
+
+		if m.ReturnReferences[i] != nil {
+			if err := m.ReturnReferences[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("returnReferences" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("returnReferences" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
 		}
 
 	}
@@ -229,6 +259,10 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateReturnReferences(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateWhere(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -240,7 +274,6 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 }
 
 func (m *SearchCommon) contextValidateRerank(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Rerank != nil {
 		if err := m.Rerank.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -255,8 +288,24 @@ func (m *SearchCommon) contextValidateRerank(ctx context.Context, formats strfmt
 	return nil
 }
 
-func (m *SearchCommon) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
+func (m *SearchCommon) contextValidateReturnReferences(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(m.ReturnReferences); i++ {
+		if m.ReturnReferences[i] != nil {
+			if err := m.ReturnReferences[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("returnReferences" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("returnReferences" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+	}
 
+	return nil
+}
+
+func (m *SearchCommon) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
 	if m.Where != nil {
 		if err := m.Where.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

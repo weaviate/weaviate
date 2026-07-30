@@ -35,14 +35,15 @@ import (
 // they reject requests with 422.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := restsearch.NewHandler(restsearch.HandlerConfig{
-		Traverser:         appState.Traverser,
-		SchemaReader:      appState.SchemaManager,
-		Authorizer:        appState.Authorizer,
-		NamespacesEnabled: appState.ServerConfig.Config.Namespaces.Enabled,
-		DefaultLimit:      appState.ServerConfig.Config.QueryDefaults.Limit,
-		MaximumResults:    appState.ServerConfig.Config.QueryMaximumResults,
-		Enabled:           appState.ServerConfig.Config.ExperimentalRESTSearchEnabled,
-		Logger:            appState.Logger,
+		Traverser:          appState.Traverser,
+		SchemaReader:       appState.SchemaManager,
+		Authorizer:         appState.Authorizer,
+		NamespacesEnabled:  appState.ServerConfig.Config.Namespaces.Enabled,
+		DefaultLimit:       appState.ServerConfig.Config.QueryDefaults.Limit,
+		MaximumResults:     appState.ServerConfig.Config.QueryMaximumResults,
+		CrossRefDepthLimit: appState.ServerConfig.Config.QueryCrossReferenceDepthLimit,
+		Enabled:            appState.ServerConfig.Config.ExperimentalRESTSearchEnabled,
+		Logger:             appState.Logger,
 	})
 
 	// swagger-layer errors (bind validation, security, routing) on search

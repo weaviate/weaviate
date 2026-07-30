@@ -11019,10 +11019,17 @@ func init() {
           }
         },
         "returnProperties": {
-          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "description": "The non-reference properties to return. Omitted returns all non-reference, non-blob properties; an empty array returns no properties. References are selected with ` + "`" + `returnReferences` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return under each result's ` + "`" + `references` + "`" + ` key. Each entry selects one reference property and what to return from the referenced objects. Omitted or empty returns no references.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
           }
         },
         "singlePrompt": {
@@ -11167,6 +11174,49 @@ func init() {
         }
       ]
     },
+    "SearchReferenceSelector": {
+      "description": "Selects one cross-reference to return, and what to return from each referenced object.",
+      "type": "object",
+      "required": [
+        "linkOn"
+      ],
+      "properties": {
+        "linkOn": {
+          "description": "The reference property to follow.",
+          "type": "string"
+        },
+        "returnMetadata": {
+          "description": "The metadata to return under each referenced object's ` + "`" + `metadata` + "`" + ` key. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "id",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The non-reference properties to return from each referenced object. Omitted returns all non-reference, non-blob properties of the referenced collection; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return from each referenced object. Nesting deeper than ` + "`" + `QUERY_CROSS_REFERENCE_DEPTH_LIMIT` + "`" + ` is rejected.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
+          }
+        },
+        "targetCollection": {
+          "description": "The referenced collection to select. Required when ` + "`" + `linkOn` + "`" + ` is a multi-target reference.",
+          "type": "string"
+        }
+      }
+    },
     "SearchRerank": {
       "description": "Reserved for reranking. Returns 422 (not yet supported).",
       "type": "object",
@@ -11275,14 +11325,73 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
             "items": {
-              "$ref": "#/definitions/JsonObject"
+              "$ref": "#/definitions/SearchResultReference"
             }
           }
+        }
+      }
+    },
+    "SearchResultReference": {
+      "description": "One referenced object: the selected non-reference properties under ` + "`" + `properties` + "`" + `, deeper cross-references under ` + "`" + `references` + "`" + `, and the requested metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "properties"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The collection the referenced object belongs to. Returned for multi-target references.",
+          "type": "string"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultReferenceMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the referenced object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the selector selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/SearchResultReference"
+            }
+          }
+        }
+      }
+    },
+    "SearchResultReferenceMetadata": {
+      "description": "The metadata of a referenced object, populated according to the selector's ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested.",
+      "type": "object",
+      "properties": {
+        "creationTime": {
+          "description": "The referenced object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "id": {
+          "description": "The referenced object's UUID.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The referenced object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
         }
       }
     },
@@ -23517,10 +23626,17 @@ func init() {
           }
         },
         "returnProperties": {
-          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "description": "The non-reference properties to return. Omitted returns all non-reference, non-blob properties; an empty array returns no properties. References are selected with ` + "`" + `returnReferences` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return under each result's ` + "`" + `references` + "`" + ` key. Each entry selects one reference property and what to return from the referenced objects. Omitted or empty returns no references.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
           }
         },
         "singlePrompt": {
@@ -23665,6 +23781,49 @@ func init() {
         }
       ]
     },
+    "SearchReferenceSelector": {
+      "description": "Selects one cross-reference to return, and what to return from each referenced object.",
+      "type": "object",
+      "required": [
+        "linkOn"
+      ],
+      "properties": {
+        "linkOn": {
+          "description": "The reference property to follow.",
+          "type": "string"
+        },
+        "returnMetadata": {
+          "description": "The metadata to return under each referenced object's ` + "`" + `metadata` + "`" + ` key. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "id",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The non-reference properties to return from each referenced object. Omitted returns all non-reference, non-blob properties of the referenced collection; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return from each referenced object. Nesting deeper than ` + "`" + `QUERY_CROSS_REFERENCE_DEPTH_LIMIT` + "`" + ` is rejected.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
+          }
+        },
+        "targetCollection": {
+          "description": "The referenced collection to select. Required when ` + "`" + `linkOn` + "`" + ` is a multi-target reference.",
+          "type": "string"
+        }
+      }
+    },
     "SearchRerank": {
       "description": "Reserved for reranking. Returns 422 (not yet supported).",
       "type": "object",
@@ -23773,14 +23932,73 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
             "items": {
-              "$ref": "#/definitions/JsonObject"
+              "$ref": "#/definitions/SearchResultReference"
             }
           }
+        }
+      }
+    },
+    "SearchResultReference": {
+      "description": "One referenced object: the selected non-reference properties under ` + "`" + `properties` + "`" + `, deeper cross-references under ` + "`" + `references` + "`" + `, and the requested metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "properties"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The collection the referenced object belongs to. Returned for multi-target references.",
+          "type": "string"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultReferenceMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the referenced object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the selector selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/SearchResultReference"
+            }
+          }
+        }
+      }
+    },
+    "SearchResultReferenceMetadata": {
+      "description": "The metadata of a referenced object, populated according to the selector's ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested.",
+      "type": "object",
+      "properties": {
+        "creationTime": {
+          "description": "The referenced object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "id": {
+          "description": "The referenced object's UUID.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The referenced object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
         }
       }
     },
