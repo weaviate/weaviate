@@ -533,6 +533,16 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		}
 
 		// Apply updates
+		// The vector-less flip (every named vector dropped, then finalize
+		// removes the entries) introduces the inert legacy fields the update
+		// path validated (vectorizer "none"); Vectorizer/VectorIndexType are
+		// otherwise immutable and deliberately never copied. Deterministic:
+		// a pure function of the FSM class and the applied update.
+		if vectorlessFlip(&meta.Class, u) {
+			meta.Class.Vectorizer = u.Vectorizer
+			meta.Class.VectorIndexType = u.VectorIndexType
+		}
+
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
@@ -586,6 +596,22 @@ const DropVectorMarkerPurgeMinVersion = "1.39.0"
 // introducedDroppedVectorConfigs returns the names of VectorConfig entries that
 // are dropped ("none") in next but were live or absent in prev — i.e. markers
 // this update introduces.
+// vectorlessFlip reports whether the update turns a named-vectors class into
+// the vector-less shape: every previous entry dropped ("none") and now
+// removed, inert legacy vectorizer. Mirrors usecases/schema.isVectorlessFlip,
+// which validated the update before it reached the log.
+func vectorlessFlip(prev, next *models.Class) bool {
+	if len(prev.VectorConfig) == 0 || len(next.VectorConfig) != 0 {
+		return false
+	}
+	for _, cfg := range prev.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			return false
+		}
+	}
+	return prev.Vectorizer == "" && next.Vectorizer == "none"
+}
+
 func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
 	var introduced []string
 	for name, cfg := range next.VectorConfig {

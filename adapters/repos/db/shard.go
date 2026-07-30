@@ -554,15 +554,20 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
-	reason := statusReasonVectorIndexUpdate
-	err := s.SetStatusReadonly(reason)
-	if err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
+	// Resolve the index BEFORE flipping the store read-only: the restore only
+	// runs in the success callback, so erroring after the flip would leave
+	// the shard read-only forever. A missing legacy index is a no-op, not an
+	// error — a named-vectors collection that dropped its last vector carries
+	// an inert legacy config in the schema, but its shards were built without
+	// a legacy index and there is nothing to reconfigure.
 	index, ok := s.GetVectorIndex("")
 	if !ok {
-		return fmt.Errorf("vector index does not exist")
+		return nil
+	}
+
+	reason := statusReasonVectorIndexUpdate
+	if err := s.SetStatusReadonly(reason); err != nil {
+		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 
 	return index.UpdateUserConfig(updated, func() {

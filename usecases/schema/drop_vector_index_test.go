@@ -62,6 +62,8 @@ func classWithVectors(cfg map[string]models.VectorConfig) *models.Class {
 }
 
 func TestDeleteClassVectorIndex_FreshDrop_SetsMarkerAndEnqueues(t *testing.T) {
+	// Single-vector class on purpose: dropping the LAST named vector is
+	// supported — finalize lands on the vector-less collection shape.
 	cls := classWithVectors(map[string]models.VectorConfig{
 		"foo": {VectorIndexType: "hnsw"},
 	})

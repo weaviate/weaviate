@@ -291,11 +291,25 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if err = validateLegacyVectorIndexConfigImmutableFields(class, update); err != nil {
-		return nil, err
+	// Removing a class's LAST named vector (all entries dropped, then
+	// finalize deletes them) lands on the vector-less collection shape: no
+	// VectorConfig, inert legacy fields — exactly what creating a collection
+	// without any vector config produces. That transition introduces legacy
+	// fields where there were none ("" → "none"/index default), which the
+	// immutability check below would reject; allow it for the inert shape
+	// ONLY. A real vectorizer must never appear this way — it would silently
+	// start vectorizing (and billing) on a collection that just shed its
+	// vectors.
+	if !isVectorlessFlip(class, update) {
+		if err = validateLegacyVectorIndexConfigImmutableFields(class, update); err != nil {
+			return nil, err
+		}
 	}
 
-	if class.VectorIndexConfig != nil || update.VectorIndexConfig != nil {
+	// The vector-less flip introduces a fresh (inert) legacy index config
+	// where the initial class had none — there is no previous config to
+	// validate the update against.
+	if (class.VectorIndexConfig != nil || update.VectorIndexConfig != nil) && !isVectorlessFlip(class, update) {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		vIdxConfigU, ok2 := update.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok1 || !ok2 {
@@ -613,6 +627,7 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 			}
 		}
 	}
+
 	return nil
 }
 

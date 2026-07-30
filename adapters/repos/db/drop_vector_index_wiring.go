@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -184,6 +185,16 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		}
 		if !changed {
 			return nil // idempotent: entries already gone
+		}
+		if len(next.VectorConfig) == 0 {
+			// Removing the LAST entry lands on the vector-less collection
+			// shape. Set the inert legacy fields explicitly: left empty,
+			// setClassDefaults would fill Vectorizer from the server's
+			// DEFAULT_VECTORIZER_MODULE — silently turning a collection that
+			// just shed its vectors into one that vectorizes (and bills) on
+			// every write. The parser only permits this flip for "none".
+			next.Vectorizer = "none"
+			next.VectorIndexType = vectorindex.DefaultVectorIndexType
 		}
 
 		if err := f.mgr.UpdateClassInternal(ctx, collection, next); err != nil {

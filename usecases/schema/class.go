@@ -1894,6 +1894,22 @@ func validateImmutableTextFields(previous, next *models.Class,
 	return nil
 }
 
+// isVectorlessFlip reports whether update is the legal named-vectors →
+// vector-less transition: every initial entry dropped ("none") and now
+// removed, no live entry ever removed (the parity check above guarantees
+// that), and the legacy fields set to the INERT shape (vectorizer "none").
+func isVectorlessFlip(initial, updated *models.Class) bool {
+	if len(initial.VectorConfig) == 0 || len(updated.VectorConfig) != 0 {
+		return false
+	}
+	for _, cfg := range initial.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			return false
+		}
+	}
+	return initial.Vectorizer == "" && updated.Vectorizer == "none"
+}
+
 func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Class) error {
 	return validateImmutableTextFields(initial, updated, []immutableText{
 		{

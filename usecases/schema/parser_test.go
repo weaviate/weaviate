@@ -534,7 +534,19 @@ func TestValidateNamedVectorConfigsParityAndImmutables_DroppedEntries(t *testing
 		require.Contains(t, err.Error(), "cannot re-create a dropped vector index")
 	})
 
-	t.Run("initial active, updated dropped — allowed (drop path)", func(t *testing.T) {
+	t.Run("finalize removing the last dropped entry — allowed (vector-less flip)", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"going": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		updated := &models.Class{Class: "Test", VectorConfig: map[string]models.VectorConfig{}}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("initial active, updated dropped — allowed (drop path, incl. the last vector)", func(t *testing.T) {
 		initial := &models.Class{
 			Class: "Test",
 			VectorConfig: map[string]models.VectorConfig{
@@ -615,5 +627,61 @@ func TestValidateNamedVectorConfigsParityAndImmutables_DroppedEntries(t *testing
 		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "vector index type of vector")
+	})
+}
+
+// TestParseClassUpdate_VectorlessFlip pins the named-vectors → vector-less
+// transition: removing the last (all-dropped) entries lands on the inert
+// legacy shape (vectorizer "none") — the same shape creating a collection
+// without any vector config produces — and ONLY that shape: a real
+// vectorizer appearing through this flip would silently start vectorizing a
+// collection that just shed its vectors.
+func TestParseClassUpdate_VectorlessFlip(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
+	dropped := map[string]models.VectorConfig{
+		"going": {
+			VectorIndexType: vectorindex.VectorIndexTypeNone,
+			Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+		},
+	}
+
+	t.Run("inert flip is allowed", func(t *testing.T) {
+		initial := &models.Class{Class: "C", VectorConfig: dropped, ShardingConfig: sc}
+		updated := &models.Class{
+			Class: "C", VectorConfig: map[string]models.VectorConfig{},
+			Vectorizer: "none", VectorIndexType: vectorindex.DefaultVectorIndexType,
+		}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("flip to a real vectorizer stays immutable-rejected", func(t *testing.T) {
+		initial := &models.Class{Class: "C", VectorConfig: dropped, ShardingConfig: sc}
+		updated := &models.Class{
+			Class: "C", VectorConfig: map[string]models.VectorConfig{},
+			Vectorizer: "text2vec-contextionary", VectorIndexType: vectorindex.DefaultVectorIndexType,
+		}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "vectorizer is immutable")
+	})
+
+	t.Run("a live entry blocks the flip (missing config)", func(t *testing.T) {
+		initial := &models.Class{Class: "C", ShardingConfig: sc, VectorConfig: map[string]models.VectorConfig{
+			"live": {
+				VectorIndexType: hnswT,
+				Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+			},
+		}}
+		updated := &models.Class{
+			Class: "C", VectorConfig: map[string]models.VectorConfig{},
+			Vectorizer: "none", VectorIndexType: vectorindex.DefaultVectorIndexType,
+		}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing config for vector")
 	})
 }
