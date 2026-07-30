@@ -77,18 +77,22 @@ func ClassUsesVectorisation(class *models.Class) bool {
 	return false
 }
 
-// IsVectorlessFlip reports whether a class update is the legal named-vectors
-// → vector-less transition: every previous VectorConfig entry dropped
-// ("none") and now removed, and the legacy fields set to the INERT shape
-// (vectorizer "none" — never a live module, which would silently start
-// vectorizing a collection that just shed its vectors). Shared by the update
-// validator and the RAFT-apply FSM so both sides accept exactly the same
-// transition.
-func IsVectorlessFlip(prev, next *models.Class) bool {
+// IsVectorlessUpdate reports whether a class update keeps (or lands) a class
+// in the vector-less state: the stored class has no legacy vectorizer and no
+// live named vectors (either every entry dropped — the flip moment when the
+// last drop finalizes — or already none), and the update carries no entries.
+// Vector-less classes keep their legacy fields genuinely EMPTY: the update
+// body arrives with server defaults filled in (setClassDefaults cannot know
+// better), and both the update validator and the RAFT-apply FSM use this
+// predicate to ignore those — immutability is relaxed for the comparison,
+// and the FSM never copies legacy fields, so nothing synthetic is ever
+// stored. Only named-vector classes can reach Vectorizer == "", so a legacy
+// class never matches.
+func IsVectorlessUpdate(prev, next *models.Class) bool {
 	if prev == nil || next == nil {
 		return false
 	}
-	if len(prev.VectorConfig) == 0 || len(next.VectorConfig) != 0 {
+	if prev.Vectorizer != "" || len(next.VectorConfig) != 0 {
 		return false
 	}
 	for _, cfg := range prev.VectorConfig {
@@ -96,5 +100,5 @@ func IsVectorlessFlip(prev, next *models.Class) bool {
 			return false
 		}
 	}
-	return prev.Vectorizer == "" && next.Vectorizer == "none"
+	return true
 }

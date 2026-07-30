@@ -24,11 +24,11 @@ import (
 )
 
 // testLastVectorDropToVectorless pins dropping a collection's ONLY named
-// vector: the drop completes and the collection becomes vector-less — the
-// same shape as creating a collection without any vector config (empty
-// VectorConfig, inert legacy fields with vectorizer "none"; never the
-// server's default vectorizer module, which would silently start vectorizing
-// new writes). Objects and their properties survive; only the vectors go.
+// vector: the drop completes and the collection becomes genuinely
+// vector-less — empty VectorConfig AND empty legacy fields (no vectorizer,
+// no index type, no config; never the server's default vectorizer module,
+// which would silently start vectorizing new writes). Objects and their
+// properties survive; only the vectors go.
 func testLastVectorDropToVectorless() func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
@@ -72,12 +72,13 @@ func testLastVectorDropToVectorless() func(t *testing.T) {
 			eventuallyTargetVectorRemoved(t, className, only)
 		})
 
-		t.Run("the collection is now vector-less with the inert legacy shape", func(t *testing.T) {
+		t.Run("the collection is now vector-less with empty legacy fields", func(t *testing.T) {
 			cls, err := helper.GetClassWithoutAssert(t, className, "")
 			require.NoError(t, err)
 			require.Empty(t, cls.VectorConfig)
-			require.Equal(t, "none", cls.Vectorizer,
-				"the flip must land on the inert vectorizer, never the server default module")
+			require.Empty(t, cls.Vectorizer,
+				"the flip stores nothing synthetic — no vectorizer, least of all the server default module")
+			require.Empty(t, cls.VectorIndexType)
 		})
 
 		t.Run("objects survive without vectors; new vector-less writes work", func(t *testing.T) {

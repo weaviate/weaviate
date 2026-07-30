@@ -648,17 +648,21 @@ func TestParseClassUpdate_VectorlessFlip(t *testing.T) {
 		},
 	}
 
-	t.Run("inert flip is allowed", func(t *testing.T) {
+	t.Run("the flip parses with a cleared body", func(t *testing.T) {
+		// UpdateClassInternal re-clears the legacy fields setClassDefaults
+		// filled into a vector-less body, so the update reaching this parse
+		// carries the stored shape and the immutability checks pass
+		// naturally ("" == "").
 		initial := &models.Class{Class: "C", VectorConfig: dropped, ShardingConfig: sc}
-		updated := &models.Class{
-			Class: "C", VectorConfig: map[string]models.VectorConfig{},
-			Vectorizer: "none", VectorIndexType: vectorindex.DefaultVectorIndexType,
-		}
+		updated := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
 		_, err := p.ParseClassUpdate(initial, updated)
 		require.NoError(t, err)
 	})
 
-	t.Run("flip to a real vectorizer stays immutable-rejected", func(t *testing.T) {
+	t.Run("a body that smuggles a vectorizer into the flip is rejected", func(t *testing.T) {
+		// Defense in depth: only UpdateClassInternal's cleared bodies are
+		// legitimate — anything carrying legacy fields for a vector-less
+		// class trips plain immutability.
 		initial := &models.Class{Class: "C", VectorConfig: dropped, ShardingConfig: sc}
 		updated := &models.Class{
 			Class: "C", VectorConfig: map[string]models.VectorConfig{},
@@ -667,6 +671,22 @@ func TestParseClassUpdate_VectorlessFlip(t *testing.T) {
 		_, err := p.ParseClassUpdate(initial, updated)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "vectorizer is immutable")
+	})
+
+	t.Run("ParseClass accepts the vector-less shape", func(t *testing.T) {
+		// Readers parse classes on fetch; erroring on the empty legacy type
+		// would make every getter treat a vector-less class as absent (the
+		// write path then tries to re-create it).
+		cls := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
+		require.NoError(t, p.ParseClass(cls))
+		require.Nil(t, cls.VectorIndexConfig, "no legacy config may be synthesized")
+	})
+
+	t.Run("steady state: updating an already vector-less class parses", func(t *testing.T) {
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}, ShardingConfig: sc}
+		updated := &models.Class{Class: "C", Description: "changed", VectorConfig: map[string]models.VectorConfig{}}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.NoError(t, err)
 	})
 
 	t.Run("a live entry blocks the flip (missing config)", func(t *testing.T) {

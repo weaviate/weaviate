@@ -540,6 +540,17 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
+	// A vector-less class (no legacy vectorizer, last named vector dropped
+	// or already gone) keeps its legacy fields genuinely empty. The defaults
+	// above just filled them into the body (they cannot know better) —
+	// re-clear, so the update that reaches the parser and the RAFT apply is
+	// exactly the stored shape and no synthetic vectorizer can ever land.
+	if cur := h.schemaReader.ReadOnlyClass(className); cur != nil && modelsext.IsVectorlessUpdate(cur, updated) {
+		updated.Vectorizer = ""
+		updated.VectorIndexType = ""
+		updated.VectorIndexConfig = nil
+	}
+
 	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {

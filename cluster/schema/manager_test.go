@@ -923,6 +923,31 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 			"retriggers and unrelated updates must not purge the ACTIVE drop's records")
 	})
 
+	t.Run("the vector-less flip stores nothing synthetic", func(t *testing.T) {
+		// UpdateClassInternal clears the legacy fields the defaults filled
+		// into the body before proposing, so the apply stores the genuinely
+		// empty shape; Vectorizer/VectorIndexType are never copied from
+		// updates in any case.
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		got, _ := sm.schema.ReadOnlyClass("C")
+		require.NotNil(t, got)
+		require.Empty(t, got.VectorConfig)
+		require.Empty(t, got.Vectorizer)
+		require.Empty(t, got.VectorIndexType)
+		require.Nil(t, got.VectorIndexConfig)
+
+		// Steady state: a later (cleared) update keeps the shape.
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		got, _ = sm.schema.ReadOnlyClass("C")
+		require.Nil(t, got.VectorIndexConfig)
+		require.Empty(t, got.Vectorizer)
+	})
+
 	t.Run("db-side apply failure cannot strand the purge: marker still stands", func(t *testing.T) {
 		// The purge is irreversible and commits inside the same updateSchema
 		// closure as the marker assignment; db.UpdateClass runs AFTER both
