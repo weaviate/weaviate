@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -175,6 +176,51 @@ func TestImmutableBucketRegistersNoCompaction(t *testing.T) {
 			require.Len(t, compaction.registered, tt.wantRegistered)
 		})
 	}
+}
+
+// Segment cleanup rewrites segment files and persists its progress in a bolt db next to
+// them, so an immutable bucket must not start it even when the caller configures an
+// interval.
+func TestImmutableBucketRunsNoSegmentCleanup(t *testing.T) {
+	tests := []struct {
+		name          string
+		opts          []BucketOption
+		wantCleanupDb bool
+	}{
+		{name: "writable", wantCleanupDb: true},
+		{name: "immutable", opts: []BucketOption{WithImmutable(true)}, wantCleanupDb: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := seedBucketDir(t, [][]walEntry{{{"k1", "v1"}}}, 0)
+
+			opts := append(tt.opts, WithSegmentsCleanupInterval(time.Second))
+			readValues(t, dir, map[string]string{"k1": "v1"}, opts...)
+
+			_, err := os.Stat(filepath.Join(dir, cleanupDbFileName))
+			if tt.wantCleanupDb {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+		})
+	}
+}
+
+// A configured cleanup interval must not make an immutable open reach for write access on
+// the bucket directory.
+func TestOpenImmutableBucketWithCleanupIntervalOnReadOnlyDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the write permission this test relies on")
+	}
+
+	dir := seedBucketDir(t, [][]walEntry{{{"k1", "v1"}}}, 0)
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+
+	readValues(t, dir, map[string]string{"k1": "v1"},
+		WithImmutable(true), WithSegmentsCleanupInterval(time.Second))
 }
 
 // readValues opens a bucket on dir, requires every wanted key to read back, and shuts it

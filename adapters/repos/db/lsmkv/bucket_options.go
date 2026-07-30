@@ -345,9 +345,10 @@ func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 // Opening and closing the bucket is read-only too: the directory is not
 // created, write-ahead-logs are opened read-only and merged into the active
 // memtable instead of being flushed to segments, and shutdown neither fsyncs
-// nor deletes anything. Segment files are still repaired on load when a crash
-// left the directory inconsistent, and missing .bloom / .cna sidecars are
-// still recomputed and written.
+// nor deletes anything. Compaction and segment cleanup never run, so
+// WithSegmentsCleanupInterval is ignored. Segment files are still repaired on
+// load when a crash left the directory inconsistent, and missing .bloom /
+// .cna / .metadata sidecars are still recomputed and written.
 //
 // This is distinct from the shard-level read-only status
 // (storagestate.StatusReadOnly) which temporarily halts flushes during

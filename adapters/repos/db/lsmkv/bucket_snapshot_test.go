@@ -500,6 +500,58 @@ func TestSnapshotFromDisk_WALIsolation(t *testing.T) {
 	}
 }
 
+// Opening and shutting down a snapshot bucket must leave the snapshot directory
+// byte-for-byte alone — no write-ahead-log, no cleanup db, nothing.
+func TestSnapshotOpenWritesNothing(t *testing.T) {
+	tests := []struct {
+		name string
+		// flush moves the data into a segment; without it the source shuts down WAL-only
+		flush bool
+		opts  []BucketOption
+	}{
+		{name: "segment", flush: true},
+		{name: "wal only"},
+		{
+			name:  "segment, caller asks for cleanup",
+			flush: true,
+			opts:  []BucketOption{WithSegmentsCleanupInterval(time.Second)},
+		},
+		{
+			name: "wal only, caller asks for cleanup",
+			opts: []BucketOption{WithSegmentsCleanupInterval(time.Second)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			noopCB := cyclemanager.NewCallbackGroupNoop()
+			bucketDir := t.TempDir()
+
+			bucket, err := NewBucketCreator().NewBucket(ctx, bucketDir, bucketDir,
+				testLogger(), nil, noopCB, noopCB, WithStrategy(StrategyReplace))
+			require.NoError(t, err)
+			require.NoError(t, bucket.Put([]byte("key"), []byte("value")))
+			if tt.flush {
+				require.NoError(t, bucket.FlushAndSwitch())
+			}
+			require.NoError(t, bucket.Shutdown(ctx))
+
+			snapshotDir, err := SnapshotBucketFromDisk(bucketDir, t.TempDir(), "no-writes")
+			require.NoError(t, err)
+			before := dirSnapshot(t, snapshotDir)
+
+			opts := append(tt.opts, WithStrategy(StrategyReplace))
+			snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, testLogger(), opts...)
+			require.NoError(t, err)
+			require.Equal(t, 1, cursorCount(t, snapBucket))
+			require.NoError(t, snapBucket.Shutdown(ctx))
+
+			require.Equal(t, before, dirSnapshot(t, snapshotDir))
+		})
+	}
+}
+
 func cursorCount(t *testing.T, b *Bucket) int {
 	t.Helper()
 	c := b.Cursor()

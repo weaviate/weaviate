@@ -344,6 +344,12 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
+	// Segment cleanup rewrites segment files and creates a bolt db in the bucket
+	// directory as soon as an interval is set, so it too must stay off.
+	if b.immutable {
+		b.segmentsCleanupInterval = 0
+	}
+
 	b.desiredStrategy = b.strategy
 
 	metrics.IncBucketInitCountByStrategy(b.strategy)
