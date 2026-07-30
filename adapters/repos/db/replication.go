@@ -40,6 +40,22 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
+// replicaPreparer is the two-phase-commit prepare surface of a shard.
+type replicaPreparer interface {
+	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
+	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
+	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
+	prepareDeleteObject(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse
+	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
+	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
+}
+
+// Makes a dropped prepare method a build failure rather than a runtime miss in writableShard.
+var (
+	_ replicaPreparer = (*Shard)(nil)
+	_ replicaPreparer = (*LazyLoadShard)(nil)
+)
+
 func (db *DB) ReplicateObject(ctx context.Context, class,
 	shard, requestID string, object *storobj.Object,
 	schemaVersion uint64,
@@ -316,89 +332,67 @@ func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersi
 	return nil
 }
 
-func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func(), *replica.SimpleResponse) {
+// writableShard runs f with the named shard pinned, releasing on every path so
+// callers cannot leak one. Skips f if the shard is not local or is read-only.
+func (i *Index) writableShard(ctx context.Context, name string, f func(shard replicaPreparer) replica.SimpleResponse) replica.SimpleResponse {
 	localShard, release, err := i.getOrInitShard(ctx, name)
+	defer release()
 	if err != nil {
-		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting or initializing shard %q: %v", name, err), Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
-		release()
-
-		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{{
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
 			Code: replicaerrors.StatusReadOnly, Msg: name,
 		}}}
 	}
-	return localShard, release, nil
+	preparer, ok := localShard.(replicaPreparer)
+	if !ok {
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusPreconditionFailed,
+			Msg:  fmt.Sprintf("shard %q does not implement replicaPreparer", name),
+		}}}
+	}
+	return f(preparer)
 }
 
 func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.preparePutObject(ctx, requestID, object)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.preparePutObject(ctx, requestID, object)
+	})
 }
 
 func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareMergeObject(ctx, requestID, doc)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareMergeObject(ctx, requestID, doc)
+	})
 }
 
 func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
+	})
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.preparePutObjects(ctx, requestID, objects)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.preparePutObjects(ctx, requestID, objects)
+	})
 }
 
 func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, _ uint64,
 ) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
+	})
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareAddReferences(ctx, requestID, refs)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareAddReferences(ctx, requestID, refs)
+	})
 }
 
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) any {
