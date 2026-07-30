@@ -3273,6 +3273,12 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	}
 	defer i.exitRead()
 
+	// Above both load points: preventShutdown below loads a resident lazy shard
+	// even with ensureInit false, so a check further down would miss the reads.
+	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+		return nil, func() {}, err
+	}
+
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
 	// the shard
 	func() {
