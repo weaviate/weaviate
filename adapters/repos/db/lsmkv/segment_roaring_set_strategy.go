@@ -36,7 +36,7 @@ func combineReleases(releaseAdd, releaseDel func()) func() {
 }
 
 // returned bitmaps are cloned and safe to mutate
-func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool, addMinCap int,
 ) (l roaringset.BitmapLayer, release func(), err error) {
 	out := roaringset.BitmapLayer{}
 
@@ -60,9 +60,9 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 			return out, noopRelease, err
 		}
 		out.Deletions, releaseDel = sn.DeletionsCloneToBuf(bitmapBufPool)
-		out.Additions, releaseAdd = sn.AdditionsCloneToBuf(bitmapBufPool)
+		out.Additions, releaseAdd = sn.AdditionsCloneToBufWithMinCap(bitmapBufPool, addMinCap)
 	} else {
-		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
+		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool, addMinCap)
 		if err != nil {
 			return out, noopRelease, err
 		}
@@ -106,7 +106,7 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 		sn, err = s.segmentNodeFromBufferMmap(offset)
 	} else {
 		var release func()
-		sn, release, err = s.segmentNodeFromBufferPread(offset, bitmapBufPool)
+		sn, release, err = s.segmentNodeFromBufferPread(offset, bitmapBufPool, 0)
 		defer release()
 	}
 	if err != nil {
@@ -119,12 +119,32 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 	return nil
 }
 
+// roaringSetNodeSize returns the byte size of the key's segment node, or 0
+// when the segment does not hold the key.
+func (s *segment) roaringSetNodeSize(key []byte) int {
+	if s.strategy != segmentindex.StrategyRoaringSet {
+		return 0
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return 0
+	}
+	start, end, err := s.index.GetOffsets(key)
+	if err != nil {
+		return 0
+	}
+	return int(end - start)
+}
+
 func (s *segment) segmentNodeFromBufferMmap(offset nodeOffset,
 ) (sn *roaringset.SegmentNode, err error) {
 	return roaringset.NewSegmentNodeFromBuffer(s.contents[offset.start:offset.end]), nil
 }
 
-func (s *segment) segmentNodeFromBufferPread(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool,
+// minCap extends the pooled buffer beyond the node itself; the additions
+// bitmap aliasing it (see AdditionsUnlimited) grows in place within that
+// spare capacity.
+func (s *segment) segmentNodeFromBufferPread(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool, minCap int,
 ) (sn *roaringset.SegmentNode, release func(), err error) {
 	reader, readerRelease, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
 	if err != nil {
@@ -133,7 +153,10 @@ func (s *segment) segmentNodeFromBufferPread(offset nodeOffset, bitmapBufPool ro
 	defer readerRelease()
 
 	ln := int(offset.end - offset.start)
-	contents, release := bitmapBufPool.Get(ln)
+	if minCap < ln {
+		minCap = ln
+	}
+	contents, release := bitmapBufPool.Get(minCap)
 	contents = contents[:ln]
 
 	_, err = reader.Read(contents)

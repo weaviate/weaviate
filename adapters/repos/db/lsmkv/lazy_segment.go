@@ -340,10 +340,15 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool, addMinCap int,
 ) (roaringset.BitmapLayer, func(), error) {
 	s.mustLoad()
-	return s.segment.roaringSetGet(key, bitmapBufPool)
+	return s.segment.roaringSetGet(key, bitmapBufPool, addMinCap)
+}
+
+func (s *lazySegment) roaringSetNodeSize(key []byte) int {
+	s.mustLoad()
+	return s.segment.roaringSetNodeSize(key)
 }
 
 func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
