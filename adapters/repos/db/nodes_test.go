@@ -158,7 +158,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 			wantShards: 3, wantShardCount: 3, wantScanned: 3, wantClassReported: true,
 		},
 		{
-			// a shard that has left the schema is still held locally for a moment
+			// a shard created after the read, or one already gone from the schema
 			name: "shard missing from the sharding state", class: "",
 			shards: []string{"s1", "s2"}, shardsNotInSchema: []string{"s2"},
 			wantShards: 2, wantShardCount: 2, wantScanned: 2, wantClassReported: true,
@@ -330,7 +330,8 @@ func TestLocalNodeShardStats(t *testing.T) {
 			for _, shard := range shards {
 				wantReplicas := int64(1)
 				if slices.Contains(tt.shardsNotInSchema, shard.Name) {
-					wantReplicas = 0
+					// a shard the read did not cover reports the collection's factor
+					wantReplicas = 3
 				}
 				assert.Equal(t, wantReplicas, shard.NumberOfReplicas, "replicas of shard %q", shard.Name)
 			}
@@ -619,7 +620,9 @@ func (g *nodeListSchemaGetter) Nodes() []string {
 }
 
 // scannableSchemaReader reports each shard name as a single-replica shard of the
-// given class, which is all a node status scan reads.
+// given class, which is all a node status scan reads. The collection asks for more
+// replicas than any shard holds, so a shard read from the state is told apart from
+// one falling back to the factor.
 func scannableSchemaReader(className string, shardNames []string) *retryingSchemaReader {
 	physical := make(map[string]sharding.Physical, len(shardNames))
 	virtual := make([]sharding.Virtual, 0, len(shardNames))
@@ -630,7 +633,7 @@ func scannableSchemaReader(className string, shardNames []string) *retryingSchem
 	}
 	return &retryingSchemaReader{
 		class: &models.Class{Class: className},
-		state: &sharding.State{Physical: physical, Virtual: virtual, ReplicationFactor: 1},
+		state: &sharding.State{Physical: physical, Virtual: virtual, ReplicationFactor: 3},
 	}
 }
 

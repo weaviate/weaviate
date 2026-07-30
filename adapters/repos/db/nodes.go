@@ -259,11 +259,11 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 	className := i.Config.ClassName.String()
 	replicationFactor, replicaCounts := i.readReplicationDetails()
 	replicaCountOf := func(name string) int64 {
-		count, ok := replicaCounts[name]
-		if !ok {
-			i.logger.Warnf("no replicas of shard %s of collection %s in the schema", name, className)
+		if count, ok := replicaCounts[name]; ok {
+			return count
 		}
-		return count
+		// a shard created after the read holds as many replicas as the collection asks for
+		return replicationFactor
 	}
 
 	err = i.ForEachShard(func(name string, shard ShardLike) error {
@@ -331,8 +331,9 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 }
 
 // readReplicationDetails reads the sharding state once for the whole collection,
-// so that scanning it cannot cost a schema read per shard. A collection the
-// schema does not hold returns a zero factor and a nil map.
+// so that scanning it cannot cost a schema read per shard. The map does not cover
+// shards created after the read. A collection the schema does not hold returns a
+// zero factor and a nil map.
 //
 // A collection whose local index outlives its schema entry has been deleted, and
 // does not come back by waiting, so the read does not retry.
