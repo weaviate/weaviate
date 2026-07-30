@@ -117,13 +117,15 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	// If compression is BQ we create the quantizer and cache immediately
 	// For RQ we create when restoring from disk or on first batch
 	if index.compressionType == CompressionBQ {
-		index.compressed.Store(true)
 		builder := NewQuantizerBuilder(cfg.DistanceProvider)
 		quantizer, err := builder.CreateQuantizer(index.compressionType, 0)
 		if err != nil {
 			return nil, err
 		}
+		// the quantizer must be assigned before the compressed flag is set:
+		// readers access it lock-free after observing Compressed() == true
 		index.quantizer = quantizer
+		index.compressed.Store(true)
 	}
 
 	cached, cacheType := extractCache(uc)
@@ -429,12 +431,13 @@ func (index *flat) searchTimeRescore(k int) int {
 }
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// route on the runtime compression state, not the configured type: with RQ
+	// the quantizer only exists after the first Add ran initializeDimensionsAndRQ,
+	// and until then the uncompressed bucket is the only complete source
+	if index.Compressed() {
 		return index.searchByVectorQuantized(ctx, vector, k, allow)
-	default:
-		return index.searchByVector(ctx, vector, k, allow)
 	}
+	return index.searchByVector(ctx, vector, k, allow)
 }
 
 func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -466,14 +469,10 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	// Ensure quantizer is initialized
+	// defensive: callers only reach this path once Compressed() is true, and
+	// the quantizer is always assigned before the compressed flag is set
 	if index.quantizer == nil {
-		dims := atomic.LoadInt32(&index.dims)
-		if dims == 0 {
-			return []uint64{}, []float32{}, nil
-		} else {
-			return nil, nil, fmt.Errorf("quantizer not initialized")
-		}
+		return nil, nil, fmt.Errorf("quantizer not initialized")
 	}
 
 	// TODO: pass context into inner methods, so it can be checked more granuarly
@@ -1104,12 +1103,11 @@ func (index *flat) PostStartup(ctx context.Context) {
 func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 
-	// logic modeled after SearchByVector which indicates that the PQ bucket is
-	// the same as the uncompressed bucket "for now"
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// logic modeled after SearchByVector: the compressed bucket is only
+	// guaranteed complete once the quantizer is initialized
+	if index.Compressed() {
 		bucketName = index.getCompressedBucketName()
-	default:
+	} else {
 		bucketName = index.getBucketName()
 	}
 
@@ -1126,12 +1124,11 @@ func (index *flat) ContainsDoc(id uint64) bool {
 func (index *flat) Iterate(fn func(docID uint64) bool) {
 	var bucketName string
 
-	// logic modeled after SearchByVector which indicates that the PQ bucket is
-	// the same as the uncompressed bucket "for now"
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// logic modeled after SearchByVector: the compressed bucket is only
+	// guaranteed complete once the quantizer is initialized
+	if index.Compressed() {
 		bucketName = index.getCompressedBucketName()
-	default:
+	} else {
 		bucketName = index.getBucketName()
 	}
 
@@ -1242,7 +1239,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 	}
 	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
-		if index.cache == nil {
+		// the quantized paths below dereference the quantizer, which for RQ
+		// only exists once Compressed() reports true; fall back to
+		// full-precision distances from the uncompressed bucket until then
+		if index.cache == nil || !index.Compressed() {
 			distFunc = defaultDistFunc
 		} else {
 			// For RQ-1 bit, use NewDistancer to get 5-bit query quantization for better accuracy
