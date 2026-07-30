@@ -221,6 +221,51 @@ func TestPropertyValuesFromInvertedCutoff(t *testing.T) {
 		}, res.TextAggregation.Items)
 	})
 
+	t.Run("churned searchable bucket falls back to exact filterable counts", func(t *testing.T) {
+		mapPair := func(docID uint64) lsmkv.MapPair {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, docID)
+			return lsmkv.MapPair{Key: key, Value: make([]byte, 8)}
+		}
+
+		// searchable holds stale postings plus a tombstone: raw stored counts
+		// would report go=2 and keep the fully-deleted value old alive
+		sbName := helpers.BucketSearchableFromPropNameLSM("status")
+		require.NoError(t, store.CreateOrLoadBucket(ctx, sbName,
+			lsmkv.WithStrategy(lsmkv.StrategyInverted),
+			lsmkv.WithUseBloomFilter(true)))
+		sb := store.Bucket(sbName)
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(1)))
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(2)))
+		require.NoError(t, sb.MapSet([]byte("rust"), mapPair(3)))
+		require.NoError(t, sb.MapSet([]byte("old"), mapPair(4)))
+		require.NoError(t, sb.FlushAndSwitch())
+		require.NoError(t, sb.MapDeleteKey([]byte("go"), mapPair(2).Key))
+		require.NoError(t, sb.MapDeleteKey([]byte("old"), mapPair(4).Key))
+		require.NoError(t, sb.FlushAndSwitch())
+
+		// filterable holds the live state
+		fbName := helpers.BucketFromPropNameLSM("status")
+		require.NoError(t, store.CreateOrLoadBucket(ctx, fbName,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+			lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+			lsmkv.WithUseBloomFilter(true)))
+		fb := store.Bucket(fbName)
+		require.NoError(t, fb.RoaringSetAddList([]byte("go"), []uint64{1}))
+		require.NoError(t, fb.RoaringSetAddList([]byte("rust"), []uint64{3}))
+		require.NoError(t, fb.FlushAndSwitch())
+
+		res, err := ua.propertyValuesFromInverted(ctx, aggregation.ParamProperty{
+			Name: "status", Aggregators: topOccs, TopOccurrencesCutoff: 10,
+		}, schema.DataTypeText)
+		require.NoError(t, err)
+		require.False(t, res.TextAggregation.CutoffExceeded)
+		assert.ElementsMatch(t, []aggregation.TextOccurrence{
+			{Value: "go", Occurs: 1},
+			{Value: "rust", Occurs: 1},
+		}, res.TextAggregation.Items, "must be live filterable counts, not stale stored ones")
+	})
+
 	t.Run("no cutoff: text takes the classic object scan", func(t *testing.T) {
 		// no objects bucket exists in this store, so the classic path errors —
 		// proving cutoff=0 does not take the inverted path
