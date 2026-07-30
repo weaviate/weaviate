@@ -102,6 +102,11 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 			if endpoint.path == "/search/{collection}/near-object" && endpoint.method == http.MethodPost {
 				body = []byte(`{"id":"aa44bbee-ca5f-4db7-a412-5fc6a2300001"}`)
 			}
+			// aggregate's generated body fills the reserved fields, which 422
+			// before authz; an empty body (total count) reaches authz.
+			if endpoint.path == "/aggregate/{collection}" && endpoint.method == http.MethodPost {
+				body = []byte(`{}`)
+			}
 
 			if endpoint.method == "POST" || endpoint.method == "PUT" || endpoint.method == "PATCH" || endpoint.method == "DELETE" {
 				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(body))

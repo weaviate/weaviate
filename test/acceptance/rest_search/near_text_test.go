@@ -584,4 +584,9 @@ func TestRESTSearchDisabled(t *testing.T) {
 	})
 	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	// the gate also covers the sibling aggregate endpoint
+	status, out = postAggregate(t, "Anything", map[string]interface{}{})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
 }
