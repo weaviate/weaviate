@@ -1191,12 +1191,22 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	if err != nil {
 		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
-	keys := make([][]byte, batch.Len())
+	total := 0
 	for i, valueTokens := range batch.All() {
 		if len(valueTokens) != 1 {
 			return nil, fmt.Errorf("extract contains values: value %d: FIELD tokenization produced %d tokens, want exactly 1", i, len(valueTokens))
 		}
-		keys[i] = []byte(valueTokens[0])
+		total += len(valueTokens[0])
+	}
+	// all keys share one backing slab; the three-index sub-slices cap each
+	// key's capacity at its own end, so an append to one key cannot clobber
+	// the next
+	keys := make([][]byte, batch.Len())
+	slab := make([]byte, 0, total)
+	for i, valueTokens := range batch.All() {
+		start := len(slab)
+		slab = append(slab, valueTokens[0]...)
+		keys[i] = slab[start:len(slab):len(slab)]
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
