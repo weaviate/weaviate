@@ -2915,13 +2915,20 @@ func (i *Index) getClass() *models.Class {
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
 func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false, callerUserRequest)
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
 	// TODO: implicitShardLoading needs to be double checked if needed at all
 	// consalidate mustLoad and implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading, callerUserRequest)
+}
+
+// LoadLocalShardForReplication loads a shard on behalf of a replica movement.
+// Suspending or resuming the namespace mid-movement must not fail that load, so
+// this is the one entry point exempt from the request-path namespace check.
+func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName string) error {
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplication)
 }
 
 // DropLocalShard removes a single local shard and its on-disk files. It is the
@@ -2931,12 +2938,18 @@ func (i *Index) DropLocalShard(name string) error {
 	return i.dropShards([]string{name})
 }
 
-func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
+func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool, caller shardLoadCaller) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
 	if i.closed {
 		return errAlreadyShutdown
+	}
+
+	// Checked before the already-in-map return below, because with mustLoad that
+	// return still loads a lazy shard.
+	if err := i.requireNamespaceAllowsShardLoad(caller); err != nil {
+		return err
 	}
 
 	// make sure same shard is not inited in parallel

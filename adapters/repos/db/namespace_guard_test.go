@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -446,4 +447,181 @@ func TestDesiredOpenLocalShardsReadError(t *testing.T) {
 	got, err := db.DesiredOpenLocalShards(class)
 	require.ErrorIs(t, err, errReadFailed)
 	assert.Nil(t, got)
+}
+
+// indexForGuardSite builds the minimum Index initLocalShardWithForcedLoading
+// needs before it reaches the resident-shard branch.
+func indexForGuardSite(t *testing.T, className string, e namespaces.Exister) *Index {
+	t.Helper()
+
+	logger, _ := logrustest.NewNullLogger()
+	return &Index{
+		Config:            IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(className)},
+		namespace:         namespacing.NamespaceFromQualified(className),
+		namespacesExister: e,
+		logger:            logger,
+		shardCreateLocks:  esync.NewKeyRWLocker(),
+		closingCtx:        context.Background(),
+	}
+}
+
+func existerWithState(t *testing.T, state api.NamespaceState) namespaces.Exister {
+	t.Helper()
+	e := namespaces.NewMockExister(t)
+	e.EXPECT().GetNamespace("alpha").
+		Return(api.Namespace{Name: "alpha", State: state}, true).Maybe()
+	return e
+}
+
+// The guard sits above the resident-shard branch, so a shard already in i.shards
+// is refused rather than force-loaded. Seeding a zero-value LazyLoadShard makes
+// that observable: reaching the branch would call Load on it, which cannot
+// succeed, so a namespace error proves the guard ran first.
+func TestGuardSiteI(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		state    api.NamespaceState
+		resident bool
+		wantErr  error
+	}{
+		{name: "suspended refuses", state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
+		{name: "deleting refuses", state: api.NamespaceStateDeleting, wantErr: namespaces.ErrNamespaceDeleting},
+		{name: "resuming refuses a request load", state: api.NamespaceStateResuming, wantErr: namespaces.ErrNamespaceResuming},
+		{
+			// Red if the guard is placed beside the initShard call: a resident
+			// shard returns before ever reaching it.
+			name: "suspended refuses a resident shard", state: api.NamespaceStateSuspended,
+			resident: true, wantErr: namespaces.ErrNamespaceSuspended,
+		},
+		{
+			name: "deleting refuses a resident shard", state: api.NamespaceStateDeleting,
+			resident: true, wantErr: namespaces.ErrNamespaceDeleting,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			if tc.resident {
+				idx.shards.Store("t1", &LazyLoadShard{})
+			}
+
+			err := idx.initLocalShardWithForcedLoading(ctx, &models.Class{Class: class}, "t1", true, false, callerUserRequest)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+
+	t.Run("a lookup miss refuses", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+		idx := indexForGuardSite(t, class, e)
+
+		err := idx.initLocalShardWithForcedLoading(ctx, &models.Class{Class: class}, "t1", true, false, callerUserRequest)
+		require.ErrorIs(t, err, errNamespaceRowMissing)
+	})
+
+	// The allow side: without it, a guard that refused every in-band load would
+	// pass every refuse-only assertion above.
+	t.Run("an active namespace admits the load", func(t *testing.T) {
+		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateActive))
+		idx.shards.Store("t1", &LazyLoadShard{})
+
+		err := idx.requireNamespaceAllowsShardLoad(callerUserRequest)
+		require.NoError(t, err)
+	})
+
+	t.Run("an unqualified class name admits the load", func(t *testing.T) {
+		idx := indexForGuardSite(t, "Product", nil)
+
+		err := idx.requireNamespaceAllowsShardLoad(callerUserRequest)
+		require.NoError(t, err)
+	})
+}
+
+// The replication target load is the one exemption: a suspend or resume must not
+// fail a movement already in flight, but a namespace being torn down still does.
+func TestReplicationExempt(t *testing.T) {
+	const class = "alpha:Product"
+
+	tests := []struct {
+		name    string
+		state   api.NamespaceState
+		wantErr error
+	}{
+		{name: "active is admitted", state: api.NamespaceStateActive},
+		{name: "suspended is admitted", state: api.NamespaceStateSuspended},
+		{name: "resuming is admitted", state: api.NamespaceStateResuming},
+		{name: "deleting is refused", state: api.NamespaceStateDeleting, wantErr: namespaces.ErrNamespaceDeleting},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+
+			err := idx.requireNamespaceAllowsShardLoad(callerReplication)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+
+	t.Run("a lookup miss is refused", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+		idx := indexForGuardSite(t, class, e)
+
+		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerReplication), errNamespaceRowMissing)
+	})
+
+	// The exemption is per entry point, not per namespace: the same suspended
+	// shard a movement may load is still refused to a request.
+	t.Run("the same suspended shard is refused to a request", func(t *testing.T) {
+		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateSuspended))
+
+		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerReplication))
+		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), namespaces.ErrNamespaceSuspended)
+	})
+}
+
+// The reopen path skips the request-path check but must still refuse a namespace
+// that keeps no shards open, so a stale reopen cannot revive a suspended one.
+func TestWorkerReopenAdmission(t *testing.T) {
+	const class = "alpha:Product"
+
+	tests := []struct {
+		name    string
+		state   api.NamespaceState
+		wantErr error
+	}{
+		{name: "resuming is admitted where a request is not", state: api.NamespaceStateResuming},
+		{name: "active is admitted", state: api.NamespaceStateActive},
+		{name: "suspended is refused", state: api.NamespaceStateSuspended, wantErr: errShardNamespaceClosed},
+		{name: "deleting is refused", state: api.NamespaceStateDeleting, wantErr: errShardNamespaceClosed},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+
+			err := idx.requireNamespaceAllowsShardLoad(callerResume)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+
+	// The split that goes red if the two accessors are ever collapsed into one.
+	t.Run("resuming admits the reopen while refusing a request", func(t *testing.T) {
+		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateResuming))
+
+		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerResume))
+		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), namespaces.ErrNamespaceResuming)
+	})
 }
