@@ -55,6 +55,7 @@ func run() error {
 		sweepArg    = flag.String("rescore-sweep", "", "full mode: comma-separated rescore windows evaluated in one scan (recall per window)")
 		blSweepArg  = flag.String("baseline-sweep", "16,32,64,128,256,512", "hnsw/hfresh modes: accuracy parameter sweep (ef / searchProbe)")
 		limitBase   = flag.Int("limit-base", 0, "use only the first N base vectors (smoke tests; ground truth becomes invalid)")
+		streamBuild = flag.Bool("stream-build", false, "rankcurve mode: build the code store by streaming base vectors from disk (floats never fully resident)")
 		k           = flag.Int("k", 10, "final result count / recall@k")
 		csvPath     = flag.String("csv", "bitpack-bench-results.csv", "CSV file to append the run's results to")
 	)
@@ -83,10 +84,28 @@ func run() error {
 		return err
 	}
 
+	if *streamBuild && *mode != "rankcurve" {
+		return fmt.Errorf("-stream-build only supports -mode=rankcurve (no floats resident for rescore)")
+	}
+
 	fmt.Fprintf(os.Stderr, "loading %s ...\n", *dataDir)
-	base, n, err := loadFloat32Matrix(filepath.Join(*dataDir, "train.f32"), *dims)
-	if err != nil {
-		return err
+	trainPath := filepath.Join(*dataDir, "train.f32")
+	var base []float32
+	var n int
+	if *streamBuild {
+		fi, serr := os.Stat(trainPath)
+		if serr != nil {
+			return serr
+		}
+		if fi.Size()%int64(*dims*4) != 0 {
+			return fmt.Errorf("%s: size not a multiple of row size", trainPath)
+		}
+		n = int(fi.Size() / int64(*dims*4))
+	} else {
+		base, n, err = loadFloat32Matrix(trainPath, *dims)
+		if err != nil {
+			return err
+		}
 	}
 	queries, nq, err := loadFloat32Matrix(filepath.Join(*dataDir, "test.f32"), *dims)
 	if err != nil {
@@ -112,7 +131,9 @@ func run() error {
 	fmt.Fprintf(os.Stderr, "loaded: %d base, %d queries, %d gt neighbors, %d dims\n", n, nq, gtCols, *dims)
 
 	fmt.Fprintln(os.Stderr, "normalizing ...")
-	normalizeRows(base, *dims)
+	if base != nil {
+		normalizeRows(base, *dims)
+	}
 	normalizeRows(queries, *dims)
 
 	if *mode == "hnsw" || *mode == "hfresh" {
@@ -129,10 +150,18 @@ func run() error {
 		return runHFreshBaseline(base, *dims, n, queries, gt, gtCols, *numQueries, *k, sweep, *csvPath, filepath.Base(*dataDir))
 	}
 
+	const streamChunkRows = 65536
 	var mean []float32
 	if *center {
 		fmt.Fprintln(os.Stderr, "computing dataset mean ...")
-		mean = columnMeans(base, *dims)
+		if *streamBuild {
+			mean, _, err = columnMeansStreaming(trainPath, *dims, streamChunkRows)
+			if err != nil {
+				return err
+			}
+		} else {
+			mean = columnMeans(base, *dims)
+		}
 	}
 
 	var rotation *compression.FastRotation
@@ -147,7 +176,15 @@ func run() error {
 
 	fmt.Fprintln(os.Stderr, "building column-major bit-packed store ...")
 	buildStart := time.Now()
-	store := buildBitStore(base, *dims, n, *retained, rotation, mean)
+	var store *bitStore
+	if *streamBuild {
+		store, err = buildBitStoreStreaming(trainPath, *dims, n, *retained, rotation, mean, streamChunkRows)
+		if err != nil {
+			return err
+		}
+	} else {
+		store = buildBitStore(base, *dims, n, *retained, rotation, mean)
+	}
 	fmt.Fprintf(os.Stderr, "built in %.1fs\n", time.Since(buildStart).Seconds())
 
 	configLabel := "raw"

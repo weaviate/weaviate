@@ -153,6 +153,49 @@ func (s *bucketSelector) collect(out []uint32) []uint32 {
 	return out
 }
 
+// buildBitStoreStreaming is buildBitStore reading the base vectors from
+// disk in chunks, for datasets whose floats must never be fully resident.
+// Rows are L2-normalized on the fly, then centered/rotated/packed exactly
+// like the in-memory build.
+func buildBitStoreStreaming(path string, dims, n, retained int, rotation *compression.FastRotation, mean []float32, chunkRows int) (*bitStore, error) {
+	blocks := retained / 64
+	s := &bitStore{
+		n:        n,
+		blocks:   blocks,
+		codes:    make([]uint64, blocks*n),
+		rotation: rotation,
+		mean:     mean,
+		retained: retained,
+	}
+	centerScratch := make([]float32, dims)
+	var rotScratch []float32
+	if rotation != nil {
+		rotScratch = make([]float32, rotation.OutputDim)
+	}
+	words := make([]uint64, blocks)
+	start := time.Now()
+	total, err := streamRows(path, dims, chunkRows, func(rows []float32, firstRow int) error {
+		for r := 0; r < len(rows)/dims; r++ {
+			id := firstRow + r
+			s.encodeInto(rows[r*dims:(r+1)*dims], centerScratch, rotScratch, words)
+			for b := 0; b < blocks; b++ {
+				s.codes[b*n+id] = words[b]
+			}
+		}
+		if (firstRow/chunkRows)%20 == 19 {
+			fmt.Fprintf(os.Stderr, "  streamed %d/%d vectors (%.0fs)\n", firstRow+len(rows)/dims, n, time.Since(start).Seconds())
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if total != n {
+		return nil, fmt.Errorf("streamed %d rows, expected %d", total, n)
+	}
+	return s, nil
+}
+
 // byHamming sorts candidate ids by their accumulated Hamming distance.
 // dist is indexed by id, so only ids move.
 type byHamming struct {

@@ -13,6 +13,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"unsafe"
@@ -46,6 +47,68 @@ func loadInt32Matrix(path string, cols int) ([]int32, int, error) {
 	rows := len(buf) / (cols * 4)
 	ints := unsafe.Slice((*int32)(unsafe.Pointer(&buf[0])), rows*cols)
 	return ints, rows, nil
+}
+
+// streamRows reads a raw float32 matrix file in chunks of chunkRows rows,
+// L2-normalizes each row in place, and invokes fn with the chunk and the
+// index of its first row. The full matrix is never resident.
+func streamRows(path string, dims, chunkRows int, fn func(rows []float32, firstRow int) error) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	rowBytes := int64(dims) * 4
+	if fi.Size()%rowBytes != 0 {
+		return 0, fmt.Errorf("%s: size %d not a multiple of row size %d", path, fi.Size(), rowBytes)
+	}
+	total := int(fi.Size() / rowBytes)
+	buf := make([]byte, chunkRows*dims*4)
+	row := 0
+	for row < total {
+		want := chunkRows
+		if total-row < want {
+			want = total - row
+		}
+		b := buf[:want*dims*4]
+		if _, err := io.ReadFull(f, b); err != nil {
+			return 0, fmt.Errorf("%s: read at row %d: %w", path, row, err)
+		}
+		rows := unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), want*dims)
+		normalizeRows(rows, dims)
+		if err := fn(rows, row); err != nil {
+			return 0, err
+		}
+		row += want
+	}
+	return total, nil
+}
+
+// columnMeansStreaming computes the per-dimension mean of the (normalized)
+// rows of a raw float32 matrix file without holding it in memory.
+func columnMeansStreaming(path string, dims, chunkRows int) ([]float32, int, error) {
+	sums := make([]float64, dims)
+	total, err := streamRows(path, dims, chunkRows, func(rows []float32, _ int) error {
+		for off := 0; off < len(rows); off += dims {
+			row := rows[off : off+dims]
+			for i, x := range row {
+				sums[i] += float64(x)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	mean := make([]float32, dims)
+	for i := range mean {
+		mean[i] = float32(sums[i] / float64(total))
+	}
+	return mean, total, nil
 }
 
 // columnMeans returns the per-dimension mean over all rows.
