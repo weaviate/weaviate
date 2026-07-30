@@ -223,7 +223,14 @@ func (b *Bucket) mergedLiveCountFromLayers(view BucketConsistentView, key string
 ) (int, error) {
 	var merger roaringset.LayerMerger
 	if len(layers) > 0 {
-		base, put := pool.CloneToBuf(layers[0].Additions)
+		// the union cannot outgrow the layers' summed sizes by much, so
+		// sizing the accumulator for the result keeps the fold in the pooled
+		// buffer instead of migrating to the heap mid-merge
+		minCap := 0
+		for _, layer := range layers {
+			minCap += layer.Additions.LenInBytes()
+		}
+		base, put := roaringset.CloneToBufWithMinCap(pool, layers[0].Additions, minCap)
 		defer put()
 		merger = roaringset.NewLayerMerger(base, false, maxConc)
 		for _, layer := range layers[1:] {
