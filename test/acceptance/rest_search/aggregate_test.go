@@ -42,7 +42,7 @@ const (
 
 // postAggregateRaw POSTs a raw payload (nil = no body) and decodes the raw
 // JSON reply, so assertions run against the wire shape, not generated models.
-func postAggregateRaw(t *testing.T, collection string, payload []byte) (int, map[string]interface{}) {
+func postAggregateRaw(t *testing.T, collection string, payload []byte) (int, map[string]any) {
 	t.Helper()
 	url := fmt.Sprintf("http://%s:%s/v1/aggregate/%s",
 		helper.ServerHost, helper.ServerPort, collection)
@@ -54,12 +54,12 @@ func postAggregateRaw(t *testing.T, collection string, payload []byte) (int, map
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	return resp.StatusCode, out
 }
 
-func postAggregate(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+func postAggregate(t *testing.T, collection string, body map[string]any) (int, map[string]any) {
 	t.Helper()
 	payload, err := json.Marshal(body)
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func postAggregate(t *testing.T, collection string, body map[string]interface{})
 }
 
 // countOf reads the flat form's count and asserts the grouped key is absent.
-func countOf(t *testing.T, out map[string]interface{}) float64 {
+func countOf(t *testing.T, out map[string]any) float64 {
 	t.Helper()
 	count, ok := out["count"].(float64)
 	require.True(t, ok, "response has no count: %v", out)
@@ -77,24 +77,24 @@ func countOf(t *testing.T, out map[string]interface{}) float64 {
 
 // groupsOf reads the grouped form's groups and asserts the flat key is
 // absent.
-func groupsOf(t *testing.T, out map[string]interface{}) []interface{} {
+func groupsOf(t *testing.T, out map[string]any) []any {
 	t.Helper()
-	groups, ok := out["groups"].([]interface{})
+	groups, ok := out["groups"].([]any)
 	require.True(t, ok, "response has no groups array: %v", out)
 	assert.NotContains(t, out, "count", "grouped replies must not carry the flat count")
 	return groups
 }
 
 // groupCounts flattens groups into value → count for order-free assertions.
-func groupCounts(t *testing.T, out map[string]interface{}) map[interface{}]float64 {
+func groupCounts(t *testing.T, out map[string]any) map[any]float64 {
 	t.Helper()
-	counts := map[interface{}]float64{}
+	counts := map[any]float64{}
 	for _, raw := range groupsOf(t, out) {
-		g, ok := raw.(map[string]interface{})
+		g, ok := raw.(map[string]any)
 		require.True(t, ok)
 		count, ok := g["count"].(float64)
 		require.True(t, ok, "group has no count: %v", g)
-		groupedBy, ok := g["groupedBy"].(map[string]interface{})
+		groupedBy, ok := g["groupedBy"].(map[string]any)
 		require.True(t, ok, "group has no groupedBy: %v", g)
 		counts[groupedBy["value"]] = count
 	}
@@ -159,55 +159,55 @@ func TestRESTAggregate(t *testing.T) {
 	}()
 	helper.CreateTenants(t, "Ledger", []*models.Tenant{{Name: "tenantA"}})
 
-	beacon := func(id strfmt.UUID) []interface{} {
-		return []interface{}{
-			map[string]interface{}{
+	beacon := func(id strfmt.UUID) []any {
+		return []any{
+			map[string]any{
 				"beacon": fmt.Sprintf("weaviate://localhost/Novelist/%s", id),
 			},
 		}
 	}
 	// the ref targets must exist before the batch below validates its beacons
 	require.NoError(t, helper.CreateObject(t, &models.Object{
-		ID: aggNovelist1ID, Class: "Novelist", Properties: map[string]interface{}{"name": "prolific writer"},
+		ID: aggNovelist1ID, Class: "Novelist", Properties: map[string]any{"name": "prolific writer"},
 	}))
 	require.NoError(t, helper.CreateObject(t, &models.Object{
-		ID: aggNovelist2ID, Class: "Novelist", Properties: map[string]interface{}{"name": "occasional writer"},
+		ID: aggNovelist2ID, Class: "Novelist", Properties: map[string]any{"name": "occasional writer"},
 	}))
 	helper.CreateObjectsBatch(t, []*models.Object{
 		{
 			Class: "Novel",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title": "galaxy voyage", "genre": "scifi", "year": 1999,
 				"inStock": true, "pages": 300, "hasNovelist": beacon(aggNovelist1ID),
 			},
 		},
 		{
 			Class: "Novel",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title": "star drifter", "genre": "scifi", "year": 2021,
 				"inStock": false, "pages": 250, "hasNovelist": beacon(aggNovelist1ID),
 			},
 		},
 		{
 			Class: "Novel",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title": "pasta at home", "genre": "cooking", "year": 1999,
 				"inStock": true, "pages": 120, "hasNovelist": beacon(aggNovelist1ID),
 			},
 		},
 		{
 			Class: "Novel",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title": "quiet rooms", "genre": "drama", "year": 2005,
 				"inStock": true, "pages": 200, "hasNovelist": beacon(aggNovelist2ID),
 			},
 		},
-		{Class: "Ledger", Tenant: "tenantA", Properties: map[string]interface{}{"entry": "first"}},
-		{Class: "Ledger", Tenant: "tenantA", Properties: map[string]interface{}{"entry": "second"}},
+		{Class: "Ledger", Tenant: "tenantA", Properties: map[string]any{"entry": "first"}},
+		{Class: "Ledger", Tenant: "tenantA", Properties: map[string]any{"entry": "second"}},
 	})
 
 	t.Run("empty body returns the total count", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{})
+		status, out := postAggregate(t, "Novel", map[string]any{})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.Equal(t, float64(4), countOf(t, out))
 		_, ok := out["tookMs"].(float64)
@@ -215,7 +215,7 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("returnMetrics count is equivalent to omitting it", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"returnMetrics": []string{"count"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
@@ -223,8 +223,8 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("where filter narrows the count", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"where": map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
+			"where": map[string]any{
 				"operator": "Equal", "path": []string{"year"}, "valueInt": 1999,
 			},
 		})
@@ -233,8 +233,8 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("a filter matching nothing still returns count 0", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"where": map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
+			"where": map[string]any{
 				"operator": "Equal", "path": []string{"genre"}, "valueText": "poetry",
 			},
 		})
@@ -243,81 +243,81 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("groupBy returns per-group counts, largest first", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "genre",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
 		groups := groupsOf(t, out)
 		require.Len(t, groups, 3)
-		first, ok := groups[0].(map[string]interface{})
+		first, ok := groups[0].(map[string]any)
 		require.True(t, ok)
-		groupedBy, ok := first["groupedBy"].(map[string]interface{})
+		groupedBy, ok := first["groupedBy"].(map[string]any)
 		require.True(t, ok, "group has no groupedBy: %v", first)
-		assert.Equal(t, []interface{}{"genre"}, groupedBy["path"])
+		assert.Equal(t, []any{"genre"}, groupedBy["path"])
 		assert.Equal(t, "scifi", groupedBy["value"], "largest group first")
 		assert.Equal(t, float64(2), first["count"])
 
-		assert.Equal(t, map[interface{}]float64{
+		assert.Equal(t, map[any]float64{
 			"scifi": 2, "cooking": 1, "drama": 1,
 		}, groupCounts(t, out))
 	})
 
 	t.Run("groupBy combines with where", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "genre",
-			"where": map[string]interface{}{
+			"where": map[string]any{
 				"operator": "Equal", "path": []string{"year"}, "valueInt": 1999,
 			},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
-		assert.Equal(t, map[interface{}]float64{
+		assert.Equal(t, map[any]float64{
 			"scifi": 1, "cooking": 1,
 		}, groupCounts(t, out))
 	})
 
 	t.Run("limit caps the number of groups", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "genre",
 			"limit":   1,
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
-		assert.Equal(t, map[interface{}]float64{"scifi": 2}, groupCounts(t, out))
+		assert.Equal(t, map[any]float64{"scifi": 2}, groupCounts(t, out))
 	})
 
 	t.Run("group values keep the property's JSON type", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "year",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		// int property: values arrive as JSON numbers, not strings
-		assert.Equal(t, map[interface{}]float64{
+		assert.Equal(t, map[any]float64{
 			float64(1999): 2, float64(2021): 1, float64(2005): 1,
 		}, groupCounts(t, out))
 
-		status, out = postAggregate(t, "Novel", map[string]interface{}{
+		status, out = postAggregate(t, "Novel", map[string]any{
 			"groupBy": "inStock",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		// boolean property: values arrive as JSON booleans
-		assert.Equal(t, map[interface{}]float64{
+		assert.Equal(t, map[any]float64{
 			true: 3, false: 1,
 		}, groupCounts(t, out))
 	})
 
 	t.Run("groupBy a reference property groups by beacon", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "hasNovelist",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
-		assert.Equal(t, map[interface{}]float64{
+		assert.Equal(t, map[any]float64{
 			fmt.Sprintf("weaviate://localhost/Novelist/%s", aggNovelist1ID): 3,
 			fmt.Sprintf("weaviate://localhost/Novelist/%s", aggNovelist2ID): 1,
 		}, groupCounts(t, out))
 	})
 
 	t.Run("groupBy property spelling is normalized", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "Genre",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
@@ -325,9 +325,9 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("groupBy matching nothing omits groups", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "genre",
-			"where": map[string]interface{}{
+			"where": map[string]any{
 				"operator": "Equal", "path": []string{"genre"}, "valueText": "poetry",
 			},
 		})
@@ -338,7 +338,7 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("unknown groupBy property is a 400", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "nonexistent",
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
@@ -346,7 +346,7 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("dotted groupBy is a 422", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"groupBy": "hasNovelist.name",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
@@ -354,13 +354,13 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("limit tiers", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"limit": 5,
 		})
 		require.Equal(t, http.StatusBadRequest, status, "limit without groupBy: %v", out)
 		assert.Contains(t, errMessage(t, out), "requires groupBy")
 
-		status, out = postAggregate(t, "Novel", map[string]interface{}{
+		status, out = postAggregate(t, "Novel", map[string]any{
 			"groupBy": "genre", "limit": 0,
 		})
 		require.Equal(t, http.StatusBadRequest, status, "zero limit: %v", out)
@@ -368,8 +368,8 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("reserved parameters are a 422", func(t *testing.T) {
-		for name, body := range map[string]map[string]interface{}{
-			"over":           {"over": map[string]interface{}{"near_text": map[string]interface{}{"query": []string{"x"}}}},
+		for name, body := range map[string]map[string]any{
+			"over":           {"over": map[string]any{"near_text": map[string]any{"query": []string{"x"}}}},
 			"objectLimit":    {"objectLimit": 100},
 			"metric grammar": {"returnMetrics": []string{"price:mean"}},
 			"unknown metric": {"returnMetrics": []string{"median"}},
@@ -380,8 +380,8 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("filter on a property without an inverted index is a 422", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"where": map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
+			"where": map[string]any{
 				"operator": "GreaterThan", "path": []string{"pages"}, "valueInt": 100,
 			},
 		})
@@ -390,8 +390,8 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("unknown filter property is a 400", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"where": map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
+			"where": map[string]any{
 				"operator": "Equal", "path": []string{"nonexistent"}, "valueText": "x",
 			},
 		})
@@ -399,33 +399,33 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("multi-tenancy statuses", func(t *testing.T) {
-		status, out := postAggregate(t, "Ledger", map[string]interface{}{
+		status, out := postAggregate(t, "Ledger", map[string]any{
 			"tenant": "tenantA",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.Equal(t, float64(2), countOf(t, out))
 
-		status, out = postAggregate(t, "Ledger", map[string]interface{}{
+		status, out = postAggregate(t, "Ledger", map[string]any{
 			"tenant": "ghostTenant",
 		})
 		require.Equal(t, http.StatusNotFound, status, "unknown tenant: %v", out)
 
-		status, out = postAggregate(t, "Ledger", map[string]interface{}{})
+		status, out = postAggregate(t, "Ledger", map[string]any{})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "missing tenant: %v", out)
 
-		status, out = postAggregate(t, "Novel", map[string]interface{}{
+		status, out = postAggregate(t, "Novel", map[string]any{
 			"tenant": "tenantA",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "tenant on non-MT collection: %v", out)
 	})
 
 	t.Run("unknown collection is a 404", func(t *testing.T) {
-		status, out := postAggregate(t, "NoSuchCollection", map[string]interface{}{})
+		status, out := postAggregate(t, "NoSuchCollection", map[string]any{})
 		require.Equal(t, http.StatusNotFound, status, "%v", out)
 	})
 
 	t.Run("unknown body fields are ignored", func(t *testing.T) {
-		status, out := postAggregate(t, "Novel", map[string]interface{}{
+		status, out := postAggregate(t, "Novel", map[string]any{
 			"not_a_field": 1,
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
@@ -440,8 +440,8 @@ func TestRESTAggregate(t *testing.T) {
 		status, out = postAggregateRaw(t, "Novel", []byte(`{"limit":"three"}`))
 		require.Equal(t, http.StatusBadRequest, status, "wrong field type: %v", out)
 
-		status, out = postAggregate(t, "Novel", map[string]interface{}{
-			"where": map[string]interface{}{
+		status, out = postAggregate(t, "Novel", map[string]any{
+			"where": map[string]any{
 				"operator": "NotAnOperator", "path": []string{"genre"}, "valueText": "x",
 			},
 		})
