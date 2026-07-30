@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -120,13 +121,7 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	}
 	out.ModuleParams = map[string]any{"nearText": nearTextParams}
 
-	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.AdditionalProperties = addProps
-
-	if apiErr := h.fillSelectionAndFilter(&out, class, className, common, getClass, principal); apiErr != nil {
+	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
 
@@ -206,11 +201,137 @@ func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIE
 		"collection %s has no searchable properties for a keyword search", class.Class)
 }
 
+// fillCommonTail parses returnMetadata (scoped to the resolved target
+// vectors), then the shared selection-and-filter tail — shared by the
+// vector-capable search types (near-text, hybrid).
+func (h *Handler) fillCommonTail(out *dto.GetParams, class *models.Class, className string,
+	common *models.SearchCommon, targetVectors []string, getClass classGetterFunc, principal *models.Principal,
+) *APIError {
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
+	if apiErr != nil {
+		return apiErr
+	}
+	out.AdditionalProperties = addProps
+
+	return h.fillSelectionAndFilter(out, class, className, common, getClass, principal)
+}
+
+// buildHybridParams converts the hybrid request into the dto.GetParams
+// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
+// parser's hybrid handling (adapters/handlers/grpc/v1/parse_search_request.go).
+func (h *Handler) buildHybridParams(class *models.Class, className string, body *models.SearchHybridRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	hybrid, apiErr := parseHybrid(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.HybridSearch = hybrid
+
+	if apiErr := validateQueryProperties(class, body.QueryProperties); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	// the keyword leg only runs below alpha 1; at alpha 1 a collection
+	// without searchable properties is legitimately pure-vector searchable
+	if hybrid.Alpha < 1 {
+		if apiErr := checkKeywordSearchable(class, body.QueryProperties); apiErr != nil {
+			return dto.GetParams{}, apiErr
+		}
+	}
+
+	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+const errQueryEmpty = "query must not be empty"
+
+// requireNonEmptyQuery guards the keyword endpoints' plain-string query: an
+// absent (or null) query is swagger's required 422 at bind; the explicit
+// empty string is this 400.
+func requireNonEmptyQuery(query *string) *APIError {
+	if query == nil || *query == "" {
+		return newAPIError(http.StatusBadRequest, errQueryEmpty)
+	}
+	return nil
+}
+
+// parseHybrid builds the hybrid search params, mirroring the gRPC parser:
+// alpha weights the vector leg, fusionType picks the fusion algorithm,
+// maxVectorDistance is the distance cutoff, queryProperties as in bm25.
+// The vector leg is skipped entirely at alpha 0, so a vectorizer module is
+// only required above 0.
+func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVectors []string) (*searchparams.HybridSearch, *APIError) {
+	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
+		return nil, apiErr
+	}
+
+	alpha := common_filters.DefaultAlpha
+	if body.Alpha != nil {
+		alpha = *body.Alpha
+	}
+	if alpha < 0 || alpha > 1 {
+		return nil, newAPIError(http.StatusBadRequest, "alpha should be between 0.0 and 1.0, got %v", alpha)
+	}
+	// the cutoff needs the query vector, which alpha 0 never computes (the
+	// vector leg is skipped entirely) — it would be silently ignored
+	if body.MaxVectorDistance != nil && alpha == 0 {
+		return nil, newAPIError(http.StatusBadRequest, "maxVectorDistance requires alpha > 0")
+	}
+
+	fusion := common_filters.HybridFusionDefault
+	switch body.FusionType {
+	case "":
+	case "ranked":
+		fusion = common_filters.HybridRankedFusion
+	case "relativeScore":
+		fusion = common_filters.HybridRelativeScoreFusion
+	default:
+		// enum-validated at bind time; fallback for the direct-call path
+		return nil, newAPIError(http.StatusBadRequest,
+			"fusionType must be one of ranked, relativeScore, got %q", body.FusionType)
+	}
+
+	params := &searchparams.HybridSearch{
+		Query:           *body.Query,
+		Properties:      schema.LowercaseFirstLetterOfStrings(body.QueryProperties),
+		Alpha:           alpha,
+		FusionAlgorithm: fusion,
+		TargetVectors:   targetVectors,
+	}
+	if body.MaxVectorDistance != nil {
+		params.Distance = float32(*body.MaxVectorDistance)
+		params.WithDistance = true
+	}
+
+	if alpha > 0 {
+		if apiErr := checkVectorizer(class, targetVectors, "hybrid with alpha > 0"); apiErr != nil {
+			return nil, apiErr
+		}
+	}
+
+	return params, nil
+}
+
 // parseBm25 builds the keyword-ranking params, mirroring the gRPC parser:
 // first letter lowercased, "^boost" suffixes pass through to the searcher.
 func parseBm25(body *models.SearchBm25Request, explainScore bool) (*searchparams.KeywordRanking, *APIError) {
-	if body.Query == nil || *body.Query == "" {
-		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
+		return nil, apiErr
 	}
 	return &searchparams.KeywordRanking{
 		Type:                   "bm25",
@@ -357,11 +478,11 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 // swagger's required validation, leaving empty-array/empty-concept here.
 func parseQuery(query []string) ([]string, *APIError) {
 	if len(query) == 0 {
-		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+		return nil, newAPIError(http.StatusBadRequest, errQueryEmpty)
 	}
 	for _, concept := range query {
 		if concept == "" {
-			return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+			return nil, newAPIError(http.StatusBadRequest, errQueryEmpty)
 		}
 	}
 	return query, nil

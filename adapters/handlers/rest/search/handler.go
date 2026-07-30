@@ -239,6 +239,18 @@ func (h *Handler) Bm25(ctx context.Context, principal *models.Principal,
 	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
+// Hybrid executes a hybrid (keyword + vector) search over collection,
+// supplying execute with the hybrid params builder. It returns the 200
+// payload or an APIError carrying the HTTP status.
+func (h *Handler) Hybrid(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchHybridRequest,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildHybridParams(class, className, body, getClass, principal)
+	}
+	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+}
+
 // dataResources is the authorization resource set for a collection's (or
 // tenant's) data.
 func dataResources(collection, tenant string) []string {
