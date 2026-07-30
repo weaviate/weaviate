@@ -339,7 +339,8 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	if b.disableCompaction {
+	// Compaction rewrites segment files, so it can never run on an immutable bucket.
+	if b.disableCompaction || b.immutable {
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
@@ -359,12 +360,18 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 		metrics.ObserveBucketInitDurationByStrategy(strategy, time.Since(beforeAll))
 	}(b.strategy)
 
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
+	// An immutable bucket does not create its directory.
+	if !b.immutable {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
 	}
 
 	files, _, err := diskio.GetFileWithSizes(dir)
-	if err != nil {
+	if b.immutable && os.IsNotExist(err) {
+		// nothing was ever written here, so the bucket is empty
+		files = map[string]int64{}
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -1543,15 +1550,25 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 	return active.setTombstoneWith(key, deletionTime, opts...)
 }
 
-func (b *Bucket) createNewActiveMemtable() (memtable, error) {
+func (b *Bucket) createNewActiveMemtable() (*Memtable, error) {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
+
+	// An immutable bucket must not log the write-ahead-logs it reads back into memory.
+	if b.immutable {
+		return b.newMemtableAt(path, &noopMemtableCommitLogger{})
+	}
 
 	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
 		return nil, errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
+	return b.newMemtableAt(path, cl)
+}
+
+// newMemtableAt builds a memtable that flushes to path and logs to cl.
+func (b *Bucket) newMemtableAt(path string, cl memtableCommitLogger) (*Memtable, error) {
+	return newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
 		path:                         path,
 		strategy:                     b.strategy,
 		secondaryIndices:             b.secondaryIndices,
@@ -1561,11 +1578,6 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
 		bm25config:                   b.bm25Config,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return mt, nil
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
@@ -1733,6 +1745,13 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 
 	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
+	}
+
+	// An immutable bucket has nothing to persist. Flushing would fsync the bucket
+	// directory, and turn a write-ahead-log above the reuse threshold into a new
+	// segment, in a directory the caller only reads.
+	if b.immutable {
+		return nil
 	}
 
 	b.flushLock.Lock()
@@ -1961,7 +1980,9 @@ func (b *Bucket) FlushAndSwitch() error {
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
 
-	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+		return b.createNewActiveMemtable()
+	})
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
 			WithField("path", bucketPath).

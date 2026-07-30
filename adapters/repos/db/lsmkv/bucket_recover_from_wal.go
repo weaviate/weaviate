@@ -47,11 +47,11 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			continue
 		}
 
-		path := filepath.Join(b.dir, file)
-
 		if size == 0 {
-			err := os.Remove(path)
-			if err != nil {
+			if b.immutable {
+				continue
+			}
+			if err := os.Remove(filepath.Join(b.dir, file)); err != nil {
 				return errors.Wrap(err, "remove empty wal file")
 			}
 			continue
@@ -66,8 +66,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 	}
 
 	// Names are segment-<unix-nano>.wal (fixed-width, so lexicographic == chronological).
-	// Recovery relies on order: only the last WAL is kept as the active memtable, the
-	// rest are flushed to segments. The source is a map, whose iteration order is random.
+	// Recovery relies on chronological order, and the source is a map, whose iteration
+	// order is random.
 	sort.Strings(walFileNames)
 
 	logOnceWhenRecoveringFromWAL.Do(func() {
@@ -92,6 +92,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		b.metrics.ObserveWalRecoveryDuration(b.strategy, time.Since(start))
 	}()
 
+	if b.immutable {
+		return b.replayCommitLogsIntoMemtable(sg, walFileNames)
+	}
+
 	recovered := false
 
 	// recover from each log
@@ -112,16 +116,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			cl.pause()
 			defer cl.unpause()
 
-			mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
-				path:                         path,
-				strategy:                     b.strategy,
-				secondaryIndices:             b.secondaryIndices,
-				enableChecksumValidation:     b.enableChecksumValidation,
-				writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
-				shouldSkipKeyFunc:            b.shouldSkipKey,
-				skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
-				bm25config:                   b.bm25Config,
-			})
+			mt, err := b.newMemtableAt(path, cl)
 			if err != nil {
 				return err
 			}
@@ -131,13 +126,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 				return err
 			}
 
-			meteredReader := diskio.NewMeteredReader(cl.file, b.metrics.TrackStartupReadWALDiskIO)
-			errRecovery := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt).Do()
-			if errRecovery != nil {
-				b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
-					WithField("path", filepath.Join(b.dir, fname)).
-					Error(errors.Wrap(errRecovery, "write-ahead-log ended abruptly, some elements may not have been recovered"))
-			}
+			errRecovery := b.parseCommitLog(cl.file, mt, filepath.Join(b.dir, fname))
 
 			if mt.strategy == StrategyInverted {
 				mt.averagePropLength, mt.propLengthCount = sg.GetAveragePropertyLength()
@@ -192,4 +181,56 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 	}
 
 	return nil
+}
+
+// replayCommitLogsIntoMemtable reads the write-ahead-logs of an immutable bucket, oldest
+// first, into a single active memtable. Merging them in memory keeps the same read
+// precedence as flushing the older ones to segments would, without creating, changing or
+// removing a single file in the bucket directory.
+func (b *Bucket) replayCommitLogsIntoMemtable(sg *SegmentGroup, walFileNames []string) error {
+	mt, err := b.createNewActiveMemtable()
+	if err != nil {
+		return err
+	}
+
+	for _, fname := range walFileNames {
+		if err := b.readCommitLogFile(filepath.Join(b.dir, fname), mt); err != nil {
+			return err
+		}
+	}
+
+	if mt.strategy == StrategyInverted {
+		mt.averagePropLength, mt.propLengthCount = sg.GetAveragePropertyLength()
+	}
+
+	b.active = mt
+	return nil
+}
+
+// readCommitLogFile opens a write-ahead-log read-only and reads it into mt.
+func (b *Bucket) readCommitLogFile(path string, mt *Memtable) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return errors.Wrap(err, "open write-ahead-log")
+	}
+	defer f.Close()
+
+	// an abrupt end is already logged, and what was read before it stays readable
+	_ = b.parseCommitLog(f, mt, path)
+	return nil
+}
+
+// parseCommitLog reads a write-ahead-log into mt and returns the error of a log that ended
+// abruptly. The entries read before that point stay in the memtable.
+func (b *Bucket) parseCommitLog(r diskio.Reader, mt *Memtable, logPath string) error {
+	meteredReader := diskio.NewMeteredReader(r, b.metrics.TrackStartupReadWALDiskIO)
+
+	err := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt).Do()
+	if err != nil {
+		b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
+			WithField("path", logPath).
+			Errorf("write-ahead-log ended abruptly, some elements may not have been recovered: %v", err)
+	}
+
+	return err
 }
