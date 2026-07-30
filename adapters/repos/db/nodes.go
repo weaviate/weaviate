@@ -256,41 +256,47 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		return 0, 0, context.Cause(ctx)
 	}
 
+	shards := map[string]ShardLike{}
+	if err = i.ForEachShard(func(name string, shard ShardLike) error {
+		if shardName == "" || shardName == name {
+			shards[name] = shard
+		}
+		return nil
+	}); err != nil {
+		return 0, 0, err
+	}
+
+	// the state is read once the shard list is fixed, so a shard created while
+	// the scan runs is left out instead of reported with a guessed replica count
 	className := i.Config.ClassName.String()
 	replicationFactor, replicaCounts := i.readReplicationDetails()
 	replicaCountOf := func(name string) int64 {
 		if count, ok := replicaCounts[name]; ok {
 			return count
 		}
-		// a shard created after the read holds as many replicas as the collection asks for
+		// a shard the read did not cover holds as many replicas as the collection asks for
 		return replicationFactor
 	}
 
-	err = i.ForEachShard(func(name string, shard ShardLike) error {
+	for name, shard := range shards {
 		if ctx.Err() != nil {
-			return context.Cause(ctx)
-		}
-		// if shardName is provided, only return the status for the specified shard
-		if shardName != "" && shardName != name {
-			return nil
+			return totalCount, shardCount, context.Cause(ctx)
 		}
 
 		// Don't force load a lazy shard to get nodes status
-		if lazy, ok := shard.(*LazyLoadShard); ok {
-			if !lazy.isLoaded() {
-				shardStatus := &models.NodeShardStatus{
-					Name:                 name,
-					Class:                className,
-					VectorIndexingStatus: shard.GetStatus().String(),
-					Loaded:               false,
-					ReplicationFactor:    replicationFactor,
-					NumberOfReplicas:     replicaCountOf(name),
-					// don't add compression status as this would trigger loading the shard
-				}
-				*status = append(*status, shardStatus)
-				shardCount++
-				return nil
+		if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.isLoaded() {
+			shardStatus := &models.NodeShardStatus{
+				Name:                 name,
+				Class:                className,
+				VectorIndexingStatus: shard.GetStatus().String(),
+				Loaded:               false,
+				ReplicationFactor:    replicationFactor,
+				NumberOfReplicas:     replicaCountOf(name),
+				// don't add compression status as this would trigger loading the shard
 			}
+			*status = append(*status, shardStatus)
+			shardCount++
+			continue
 		}
 
 		objectCount, err := shard.ObjectCountAsync(ctx)
@@ -325,15 +331,14 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
-		return nil
-	})
-	return totalCount, shardCount, err
+	}
+	return totalCount, shardCount, nil
 }
 
 // readReplicationDetails reads the sharding state once for the whole collection,
-// so that scanning it cannot cost a schema read per shard. The map does not cover
-// shards created after the read. A collection the schema does not hold returns a
-// zero factor and a nil map.
+// so that scanning it cannot cost a schema read per shard. The map covers only
+// the shards the schema holds when the read runs. A collection the schema does
+// not hold returns a zero factor and a nil map.
 //
 // A collection whose local index outlives its schema entry has been deleted, and
 // does not come back by waiting, so the read does not retry.

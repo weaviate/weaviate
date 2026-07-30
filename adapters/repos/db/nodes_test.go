@@ -121,6 +121,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 		class             string
 		shards            []string
 		shardsNotInSchema []string
+		shardOnSchemaRead string
 		shard             string
 		extraIndices      int
 		withNilIndex      bool
@@ -162,6 +163,13 @@ func TestLocalNodeShardStats(t *testing.T) {
 			name: "shard missing from the sharding state", class: "",
 			shards: []string{"s1", "s2"}, shardsNotInSchema: []string{"s2"},
 			wantShards: 2, wantShardCount: 2, wantScanned: 2, wantClassReported: true,
+		},
+		{
+			// the shard list is fixed before the schema is read, so a shard that
+			// appears afterwards is not part of a scan that is already running
+			name: "shard created while the scan runs", class: "",
+			shardOnSchemaRead: "s2", wantShards: 1, wantShardCount: 1, wantScanned: 1,
+			wantClassReported: true,
 		},
 		{
 			name: "shard filter matches one of many", class: "", shard: "s1",
@@ -247,6 +255,9 @@ func TestLocalNodeShardStats(t *testing.T) {
 					return slices.Contains(tt.shardsNotInSchema, name)
 				})
 				idx.schemaReader = scannableSchemaReader(className, inSchema)
+			}
+			if tt.shardOnSchemaRead != "" {
+				storeShardOnSchemaRead(t, idx, tt.shardOnSchemaRead)
 			}
 			if tt.closeIndex {
 				if tt.closedCause != nil {
@@ -694,12 +705,14 @@ func shardedIndex(t *testing.T, className string, shardNames []string,
 }
 
 // retryingSchemaReader reproduces how the real schema reader resolves a class and
-// retries every non-permanent error. reads counts how often the read ran.
+// retries every non-permanent error. reads counts how often the read ran, and
+// onRead runs at the moment the state is handed out.
 type retryingSchemaReader struct {
 	schemaUC.SchemaReader
-	class *models.Class
-	state *sharding.State
-	reads int
+	class  *models.Class
+	state  *sharding.State
+	reads  int
+	onRead func()
 }
 
 func (r *retryingSchemaReader) Read(_ string, retryIfClassNotFound bool,
@@ -713,8 +726,26 @@ func (r *retryingSchemaReader) Read(_ string, retryIfClassNotFound bool,
 			}
 			return backoff.Permanent(clusterSchema.ErrClassNotFound)
 		}
+		if r.onRead != nil {
+			r.onRead()
+		}
 		return read(r.class, r.state)
 	}, utils.NewBackoff())
+}
+
+// storeShardOnSchemaRead gives the index a scannable shard at the moment it reads
+// the schema, standing in for a shard created while a scan is already running.
+func storeShardOnSchemaRead(t *testing.T, idx *Index, shardName string) {
+	t.Helper()
+
+	reader, ok := idx.schemaReader.(*retryingSchemaReader)
+	require.True(t, ok, "index was not built with a counting schema reader")
+	shards, _ := scannableShards(t, []string{shardName}, nil, nil, false)
+	reader.onRead = func() {
+		for name, shard := range shards {
+			idx.shards.Store(name, shard)
+		}
+	}
 }
 
 // TestIndexShutdownAbortsInFlightNodeStatusScan pins that Shutdown does not wait
