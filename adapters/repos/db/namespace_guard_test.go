@@ -588,6 +588,89 @@ func TestReplicationExempt(t *testing.T) {
 	})
 }
 
+// Site (ii) is the read/write request path, which has two load points the load
+// path does not cover: the ensureInit creation, and preventShutdown loading a
+// resident lazy shard even when ensureInit is false. The guard sits above both.
+//
+// Each case is discriminating in its own way. Without a resident shard and with
+// ensureInit false the function otherwise returns no shard and no error, so a
+// refusal there is red if the guard moves into the ensureInit branch. With a
+// resident zero-value LazyLoadShard, reaching preventShutdown panics on Load, so
+// a namespace error rather than a panic is what proves the guard ran first.
+func TestGuardSiteII(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	refused := []struct {
+		name    string
+		state   api.NamespaceState
+		wantErr error
+	}{
+		{name: "suspended", state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
+		{name: "deleting", state: api.NamespaceStateDeleting, wantErr: namespaces.ErrNamespaceDeleting},
+		{name: "resuming", state: api.NamespaceStateResuming, wantErr: namespaces.ErrNamespaceResuming},
+	}
+
+	for _, tc := range refused {
+		t.Run("a read refuses "+tc.name+" with no resident shard", func(t *testing.T) {
+			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+
+			shard, release, err := idx.GetShard(ctx, "t1")
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Nil(t, shard)
+			require.NotNil(t, release, "a nil release panics in a caller that defers it")
+		})
+
+		t.Run("a read refuses "+tc.name+" holding a resident lazy shard", func(t *testing.T) {
+			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			lazy := &LazyLoadShard{}
+			idx.shards.Store("t1", lazy)
+
+			shard, release, err := idx.GetShard(ctx, "t1")
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Nil(t, shard)
+			require.NotNil(t, release)
+			assert.False(t, lazy.loaded, "the resident shard must not have been loaded")
+		})
+
+		t.Run("a write refuses "+tc.name, func(t *testing.T) {
+			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+
+			_, _, err := idx.getOrInitShard(ctx, "t1")
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+
+	t.Run("a lookup miss refuses", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+		idx := indexForGuardSite(t, class, e)
+		idx.shards.Store("t1", &LazyLoadShard{})
+
+		_, _, err := idx.GetShard(ctx, "t1")
+		require.ErrorIs(t, err, errNamespaceRowMissing)
+	})
+
+	// The allow side. An absent shard is the one case that reaches a clean return
+	// without a collaborator, so it is what the admitted states assert on: a guard
+	// refusing every read would pass every refusal above.
+	t.Run("an active namespace admits the read", func(t *testing.T) {
+		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateActive))
+
+		shard, _, err := idx.GetShard(ctx, "t1")
+		require.NoError(t, err)
+		assert.Nil(t, shard, "an absent shard is reported absent, not created")
+	})
+
+	t.Run("an unqualified class name admits the read", func(t *testing.T) {
+		idx := indexForGuardSite(t, "Product", nil)
+
+		shard, _, err := idx.GetShard(ctx, "t1")
+		require.NoError(t, err)
+		assert.Nil(t, shard)
+	})
+}
+
 // The reopen path skips the request-path check but must still refuse a namespace
 // that keeps no shards open, so a stale reopen cannot revive a suspended one.
 func TestWorkerReopenAdmission(t *testing.T) {
