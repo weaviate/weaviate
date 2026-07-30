@@ -48,21 +48,25 @@ func run() error {
 		rotate      = flag.Bool("rotate", true, "apply the RQ fast rotation before sign-bit packing")
 		center      = flag.Bool("center", false, "subtract the dataset mean before rotation and sign extraction")
 		seed        = flag.Uint64("seed", compression.DefaultFastRotationSeed, "rotation seed")
-		rescoreN    = flag.Int("rescore", 0, "exact-rescore window (0 = all final survivors in schedule mode, 350 in full mode)")
+		rescoreN    = flag.Int("rescore", 0, "exact-rescore window (0 = all final survivors in schedule/hybrid mode, 350 in full mode)")
 		numQueries  = flag.Int("queries", 0, "number of queries to run (0 = all)")
-		rankQueries = flag.Int("rank-queries", 400, "queries to sample in rankcurve mode")
+		rankQueries = flag.Int("rank-queries", 400, "queries to sample in rankcurve mode / schedule generation")
+		genQuantile = flag.Float64("gen-quantile", 0, "generate the budget schedule from the expected-case rank curve at this quantile (0 = use -budgets)")
 		k           = flag.Int("k", 10, "final result count / recall@k")
 		csvPath     = flag.String("csv", "bitpack-bench-results.csv", "CSV file to append the run's results to")
 	)
 	flag.Parse()
 
 	switch *mode {
-	case "schedule", "full", "rankcurve":
+	case "schedule", "full", "hybrid", "rankcurve":
 	default:
 		return fmt.Errorf("unknown -mode %q", *mode)
 	}
 	if *mode == "full" && *rescoreN == 0 {
 		*rescoreN = 350
+	}
+	if *genQuantile < 0 || *genQuantile >= 1 {
+		return fmt.Errorf("-gen-quantile must be in (0,1), got %v", *genQuantile)
 	}
 
 	if *retained <= 0 || *retained%64 != 0 {
@@ -136,15 +140,31 @@ func run() error {
 
 	if *mode == "rankcurve" {
 		fmt.Fprintf(os.Stderr, "measuring prefix rank curve (%s, %d queries) ...\n", configLabel, *rankQueries)
-		maxRanks := rankCurve(store, queries, *dims, nq, gt, gtCols, *k, *rankQueries)
-		rows := rankCurveStats(maxRanks)
-		sampleN := len(maxRanks[0])
+		res := rankCurve(store, queries, *dims, nq, gt, gtCols, *k, *rankQueries)
+		rows := rankCurveStats(res)
+		sampleN := len(res.worst[0])
 		printRankCurve(os.Stdout, configLabel, sampleN, *k, rows)
 		if err := appendRankCSV(*csvPath, filepath.Base(*dataDir), configLabel, *rotate, *center, *retained, sampleN, *k, rows); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "rank curve appended to %s\n", *csvPath)
 		return nil
+	}
+
+	if *genQuantile > 0 {
+		floor := 350
+		if *rescoreN > 0 {
+			floor = *rescoreN
+		}
+		fmt.Fprintf(os.Stderr, "generating budget schedule (q=%.2f, floor=%d, %d sampled queries) ...\n", *genQuantile, floor, *rankQueries)
+		res := rankCurve(store, queries, *dims, nq, gt, gtCols, *k, *rankQueries)
+		budgets = generateBudgets(res, *genQuantile, floor, n)
+		parts := make([]string, len(budgets))
+		for i, b := range budgets {
+			parts[i] = strconv.Itoa(b)
+		}
+		*budgetsArg = strings.Join(parts, ",")
+		fmt.Fprintf(os.Stderr, "generated schedule: %s\n", *budgetsArg)
 	}
 
 	if *numQueries <= 0 || *numQueries > nq {
@@ -173,9 +193,12 @@ func run() error {
 	for qi := 0; qi < *numQueries; qi++ {
 		q := queries[qi**dims : (qi+1)**dims]
 		var res queryResult
-		if *mode == "full" {
+		switch *mode {
+		case "full":
 			res = sc.searchFull(q, topK, survivors)
-		} else {
+		case "hybrid":
+			res = sc.searchHybrid(q, topK, survivors, qi%16 == 0)
+		default:
 			res = sc.search(q, topK, survivors)
 		}
 		totalBytes += res.bytesRead
@@ -215,6 +238,49 @@ func run() error {
 	bandwidth := float64(totalBytes) / scanTime.Seconds() / (1 << 30)
 	qps := float64(*numQueries) / wall.Seconds()
 
+	// Hybrid mode: replace the model numbers with measured, line-granularity
+	// ones, and split bandwidth by access mode.
+	var streamGiBs, gatherGiBs float64
+	blockModes := ""
+	if *mode == "hybrid" {
+		streamBytes := sc.hybStreamedCols * int64(n) * 8
+		var gatherBytes int64
+		for b := 0; b < blocks; b++ {
+			if sc.hybGatherCount[b] == 0 {
+				continue
+			}
+			if sc.hybLineSamples[b] > 0 {
+				avgLines := float64(sc.hybLineSum[b]) / float64(sc.hybLineSamples[b])
+				gatherBytes += int64(avgLines*64) * sc.hybGatherCount[b]
+			} else if b > 0 {
+				// Never sampled (tiny query counts): fall back to the
+				// one-line-per-survivor model on the pre-block survivor count.
+				avgK := survivorSums[b-1] / float64(*numQueries)
+				gatherBytes += int64(avgK*64) * sc.hybGatherCount[b]
+			}
+		}
+		bytesPerQuery = (streamBytes + gatherBytes) / int64(*numQueries)
+		bandwidth = float64(streamBytes+gatherBytes) / scanTime.Seconds() / (1 << 30)
+		if sc.hybStreamTime > 0 {
+			streamGiBs = float64(streamBytes) / sc.hybStreamTime.Seconds() / (1 << 30)
+		}
+		if sc.hybGatherTime > 0 {
+			gatherGiBs = float64(gatherBytes) / sc.hybGatherTime.Seconds() / (1 << 30)
+		}
+		modes := make([]byte, blocks)
+		for b := 0; b < blocks; b++ {
+			switch {
+			case sc.hybGatherCount[b] == 0:
+				modes[b] = 'S'
+			case sc.hybStreamCount[b] == 0:
+				modes[b] = 'G'
+			default:
+				modes[b] = 'M' // mixed across queries
+			}
+		}
+		blockModes = string(modes)
+	}
+
 	report := runReport{
 		dataset:      filepath.Base(*dataDir),
 		mode:         *mode,
@@ -233,6 +299,10 @@ func run() error {
 		bytesPerQ:    bytesPerQuery,
 		bandwidth:    bandwidth,
 		qps:          qps,
+		genQuantile:  *genQuantile,
+		streamGiBs:   streamGiBs,
+		gatherGiBs:   gatherGiBs,
+		blockModes:   blockModes,
 		block0:       percentiles(block0Lat),
 		rest:         percentiles(restLat),
 		rescore:      percentiles(rescoreLat),
@@ -311,6 +381,10 @@ type runReport struct {
 	bytesPerQ    int64
 	bandwidth    float64 // GiB/s over scan time (block0 + rest)
 	qps          float64
+	genQuantile  float64
+	streamGiBs   float64 // hybrid: streamed-block bandwidth
+	gatherGiBs   float64 // hybrid: gathered-block bandwidth (measured lines)
+	blockModes   string  // hybrid: S/G/M per block
 	block0       latencyStats
 	rest         latencyStats
 	rescore      latencyStats
@@ -330,6 +404,10 @@ func (r *runReport) print(w *os.File) {
 	fmt.Fprintf(w, "recall@%d: %.4f\n", r.k, r.recall)
 	fmt.Fprintf(w, "code-store reads: %.2f MiB/query, effective bandwidth %.2f GiB/s, single-threaded QPS %.1f\n",
 		float64(r.bytesPerQ)/(1<<20), r.bandwidth, r.qps)
+	if r.blockModes != "" {
+		fmt.Fprintf(w, "hybrid blocks [S=stream G=gather]: %s; stream %.2f GiB/s, gather %.2f GiB/s\n",
+			r.blockModes, r.streamGiBs, r.gatherGiBs)
+	}
 	fmt.Fprintf(w, "latency (ms):        p50      p95      p99\n")
 	fmt.Fprintf(w, "  block-0 pass  %8.3f %8.3f %8.3f\n", ms(r.block0.p50), ms(r.block0.p95), ms(r.block0.p99))
 	fmt.Fprintf(w, "  rest blocks   %8.3f %8.3f %8.3f\n", ms(r.rest.p50), ms(r.rest.p95), ms(r.rest.p99))
@@ -351,6 +429,7 @@ var csvHeader = strings.Join([]string{
 	"total_p50_ms", "total_p95_ms", "total_p99_ms",
 	"avg_survivors", "bytes_per_vec", "store_bytes", "float_bytes",
 	"bytes_read_per_query", "bandwidth_gib_s", "qps",
+	"gen_quantile", "block_modes", "stream_gib_s", "gather_gib_s",
 }, ",")
 
 func (r *runReport) appendCSV(path string) error {
@@ -370,7 +449,7 @@ func (r *runReport) appendCSV(path string) error {
 	for i, s := range r.avgSurvivors {
 		surv[i] = strconv.FormatFloat(s, 'f', 1, 64)
 	}
-	_, err = fmt.Fprintf(f, "%s,%s,%s,%s,%d,%d,%d,%v,%v,%d,%q,%d,%d,%d,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%q,%d,%d,%d,%d,%.3f,%.2f\n",
+	_, err = fmt.Fprintf(f, "%s,%s,%s,%s,%d,%d,%d,%v,%v,%d,%q,%d,%d,%d,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%q,%d,%d,%d,%d,%.3f,%.2f,%.2f,%s,%.2f,%.2f\n",
 		time.Now().Format(time.RFC3339), r.dataset, r.mode, r.config, r.n, r.dims, r.retained, r.rotate, r.center, r.seed, r.budgets,
 		r.rescoreN, r.numQueries, r.k, r.recall,
 		ms(r.block0.p50), ms(r.block0.p95), ms(r.block0.p99),
@@ -378,6 +457,7 @@ func (r *runReport) appendCSV(path string) error {
 		ms(r.rescore.p50), ms(r.rescore.p95), ms(r.rescore.p99),
 		ms(r.total.p50), ms(r.total.p95), ms(r.total.p99),
 		strings.Join(surv, ";"), r.bytesPerVec, r.storeBytes, r.floatBytes,
-		r.bytesPerQ, r.bandwidth, r.qps)
+		r.bytesPerQ, r.bandwidth, r.qps,
+		r.genQuantile, r.blockModes, r.streamGiBs, r.gatherGiBs)
 	return err
 }

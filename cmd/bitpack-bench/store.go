@@ -106,10 +106,9 @@ type bucketSelector struct {
 	target  int
 }
 
-func newBucketSelector(maxDist, target int) *bucketSelector {
+func newBucketSelector(maxDist int) *bucketSelector {
 	s := &bucketSelector{
 		buckets: make([][]uint32, maxDist+1),
-		target:  target,
 	}
 	for i := range s.buckets {
 		s.buckets[i] = make([]uint32, 0, 64)
@@ -117,12 +116,13 @@ func newBucketSelector(maxDist, target int) *bucketSelector {
 	return s
 }
 
-func (s *bucketSelector) reset() {
+func (s *bucketSelector) reset(target int) {
 	for i := range s.buckets {
 		s.buckets[i] = s.buckets[i][:0]
 	}
 	s.thr = len(s.buckets) - 1
 	s.count = 0
+	s.target = target
 }
 
 func (s *bucketSelector) add(id uint32, d int) {
@@ -199,9 +199,24 @@ type scanner struct {
 	exactD   []float32 // rescore window exact distances
 	hSorter  byHamming
 	eSorter  byExact
-	selector *bucketSelector // full-scan top-N selection
-	bestID   []uint32        // full-scan top-k result scratch
+	selector *bucketSelector // no-sort top-N selection
+	bestID   []uint32        // top-k result scratch
 	bestD    []float32
+
+	// Hybrid-mode state. lineEpoch marks 64-byte code-store lines touched
+	// during a sampled gather block (epoch-versioned, never cleared).
+	lineEpoch    []uint32
+	lineEpochCtr uint32
+
+	// Hybrid-mode whole-run aggregates.
+	hybStreamTime   time.Duration
+	hybGatherTime   time.Duration
+	hybStreamedCols int64   // streamed columns incl. block 0
+	hybGatherK      int64   // total gathered survivor lookups
+	hybStreamCount  []int64 // per block: queries that streamed it
+	hybGatherCount  []int64 // per block: queries that gathered it
+	hybLineSum      []int64 // per block: sampled distinct 64B lines
+	hybLineSamples  []int64 // per block: samples taken
 }
 
 func newScanner(store *bitStore, vectors []float32, dims int, budgets []int, rescoreN, k int) *scanner {
@@ -227,9 +242,12 @@ func newScanner(store *bitStore, vectors []float32, dims int, budgets []int, res
 		sc.qRot = make([]float32, store.rotation.OutputDim)
 	}
 	sc.hSorter.dist = sc.hamming
-	if rescoreN > 0 {
-		sc.selector = newBucketSelector(store.retained, rescoreN)
-	}
+	sc.selector = newBucketSelector(store.retained)
+	sc.lineEpoch = make([]uint32, (store.n+7)/8)
+	sc.hybStreamCount = make([]int64, store.blocks)
+	sc.hybGatherCount = make([]int64, store.blocks)
+	sc.hybLineSum = make([]int64, store.blocks)
+	sc.hybLineSamples = make([]int64, store.blocks)
 	return sc
 }
 
@@ -340,6 +358,157 @@ func (sc *scanner) search(q []float32, topK []uint32, survivors []int) queryResu
 	}
 }
 
+// pruneBuckets keeps the best `budget` candidates by accumulated Hamming
+// using the bucketed selector (no sort). Candidates come back ordered by
+// distance; ids within a distance keep their traversal order.
+func (sc *scanner) pruneBuckets(budget int) {
+	if len(sc.cand) <= budget {
+		return
+	}
+	sel := sc.selector
+	sel.reset(budget)
+	acc := sc.hamming
+	for _, id := range sc.cand {
+		sel.add(id, int(acc[id]))
+	}
+	sc.cand = sel.collect(sc.cand[:0])
+}
+
+// rescoreTopK exact-rescores the current candidates (bounded by rescoreN
+// when set) and writes the best k ids into topK by insertion. Returns the
+// number written.
+func (sc *scanner) rescoreTopK(q []float32, topK []uint32) int {
+	window := len(sc.cand)
+	if sc.rescoreN > 0 && sc.rescoreN < window {
+		window = sc.rescoreN
+	}
+	bestID, bestD := sc.bestID[:sc.k], sc.bestD[:sc.k]
+	filled := 0
+	for _, id := range sc.cand[:window] {
+		v := sc.vectors[int(id)*sc.dims : (int(id)+1)*sc.dims]
+		d, err := sc.dist.SingleDist(q, v)
+		if err != nil {
+			panic(err)
+		}
+		if filled == len(bestD) && d >= bestD[filled-1] {
+			continue
+		}
+		if filled < len(bestD) {
+			filled++
+		}
+		i := filled - 1
+		for i > 0 && bestD[i-1] > d {
+			bestD[i] = bestD[i-1]
+			bestID[i] = bestID[i-1]
+			i--
+		}
+		bestD[i] = d
+		bestID[i] = id
+	}
+	copy(topK, bestID[:filled])
+	return filled
+}
+
+// searchHybrid runs the budget schedule with per-block access-mode
+// selection: a block is STREAMED (full sequential column read, evaluating
+// every id — dead ids' accumulator values are garbage but never consulted)
+// when the survivor count is >= n/8, and GATHERED (random access to the
+// survivors' words only) below that. Pruning uses the bucketed selector, no
+// sort. When sampleLines is set, gathered blocks also count the distinct
+// 64-byte lines they touch, in a separate untimed pass, subtracted from the
+// stage timing.
+func (sc *scanner) searchHybrid(q []float32, topK []uint32, survivors []int, sampleLines bool) queryResult {
+	s := sc.store
+	n := s.n
+	streamThreshold := n / 8
+
+	t0 := time.Now()
+
+	s.encodeInto(q, sc.qCenter, sc.qRot, sc.qWords)
+
+	// Block 0 always streams: survivor count is n.
+	col := s.codes[:n]
+	q0 := sc.qWords[0]
+	acc := sc.hamming
+	tb := time.Now()
+	for id := 0; id < n; id++ {
+		acc[id] = uint16(bits.OnesCount64(col[id] ^ q0))
+	}
+	sc.hybStreamTime += time.Since(tb)
+	sc.hybStreamedCols++
+	sc.hybStreamCount[0]++
+
+	sel := sc.selector
+	sel.reset(sc.budget(0))
+	for id := 0; id < n; id++ {
+		sel.add(uint32(id), int(acc[id]))
+	}
+	sc.cand = sel.collect(sc.cand[:0])
+	survivors[0] = len(sc.cand)
+	bytesRead := int64(n) * 8
+
+	t1 := time.Now()
+
+	var countOverhead time.Duration
+	for b := 1; b < s.blocks; b++ {
+		col := s.codes[b*n : (b+1)*n]
+		qb := sc.qWords[b]
+		k := len(sc.cand)
+		if k >= streamThreshold {
+			tb := time.Now()
+			for id := 0; id < n; id++ {
+				acc[id] += uint16(bits.OnesCount64(col[id] ^ qb))
+			}
+			sc.hybStreamTime += time.Since(tb)
+			sc.hybStreamedCols++
+			sc.hybStreamCount[b]++
+			bytesRead += int64(n) * 8
+		} else {
+			tb := time.Now()
+			for _, id := range sc.cand {
+				acc[id] += uint16(bits.OnesCount64(col[id] ^ qb))
+			}
+			sc.hybGatherTime += time.Since(tb)
+			sc.hybGatherK += int64(k)
+			sc.hybGatherCount[b]++
+			bytesRead += int64(k) * 64 // model; measured lines aggregated below
+			if sampleLines {
+				tc := time.Now()
+				sc.lineEpochCtr++
+				ep := sc.lineEpochCtr
+				lines := 0
+				for _, id := range sc.cand {
+					l := id >> 3 // 8 words per 64-byte line
+					if sc.lineEpoch[l] != ep {
+						sc.lineEpoch[l] = ep
+						lines++
+					}
+				}
+				sc.hybLineSum[b] += int64(lines)
+				sc.hybLineSamples[b]++
+				countOverhead += time.Since(tc)
+			}
+		}
+		sc.pruneBuckets(sc.budget(b))
+		survivors[b] = len(sc.cand)
+	}
+
+	t2 := time.Now()
+
+	filled := sc.rescoreTopK(q, topK)
+
+	t3 := time.Now()
+
+	return queryResult{
+		topK:       topK[:filled],
+		survivors:  survivors,
+		bytesRead:  bytesRead,
+		block0:     t1.Sub(t0),
+		restBlocks: t2.Sub(t1) - countOverhead,
+		rescore:    t3.Sub(t2),
+	}
+}
+
 // searchFull is the honest no-elimination baseline: read every block of
 // every vector, accumulate full-width Hamming, select the best rescoreN via
 // the bucketed threshold (no sort, no heap), exact-rescore them and take the
@@ -377,7 +546,7 @@ func (sc *scanner) searchFull(q []float32, topK []uint32, survivors []int) query
 
 	// Bucketed threshold selection of the rescore window.
 	sel := sc.selector
-	sel.reset()
+	sel.reset(sc.rescoreN)
 	for id := 0; id < n; id++ {
 		sel.add(uint32(id), int(acc[id]))
 	}
@@ -386,30 +555,7 @@ func (sc *scanner) searchFull(q []float32, topK []uint32, survivors []int) query
 	t2 := time.Now()
 
 	// Exact rescore; keep the k best via insertion, no sort.
-	bestID, bestD := sc.bestID[:sc.k], sc.bestD[:sc.k]
-	filled := 0
-	for _, id := range sc.cand {
-		v := sc.vectors[int(id)*sc.dims : (int(id)+1)*sc.dims]
-		d, err := sc.dist.SingleDist(q, v)
-		if err != nil {
-			panic(err)
-		}
-		if filled == len(bestD) && d >= bestD[filled-1] {
-			continue
-		}
-		if filled < len(bestD) {
-			filled++
-		}
-		i := filled - 1
-		for i > 0 && bestD[i-1] > d {
-			bestD[i] = bestD[i-1]
-			bestID[i] = bestID[i-1]
-			i--
-		}
-		bestD[i] = d
-		bestID[i] = id
-	}
-	copy(topK, bestID[:filled])
+	filled := sc.rescoreTopK(q, topK)
 
 	t3 := time.Now()
 
