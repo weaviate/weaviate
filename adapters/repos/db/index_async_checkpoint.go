@@ -171,7 +171,7 @@ func (i *Index) resolveShardNames(shards []string) []string {
 		}
 	}
 	var all []string
-	_ = i.ForEachShard(func(name string, _ ShardLike) error {
+	_ = i.ForEachShardMeta(func(name string, _ ShardLike) error {
 		all = append(all, name)
 		return nil
 	})

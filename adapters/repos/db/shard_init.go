@@ -83,7 +83,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		scheduler:        scheduler,
 		indexCheckpoints: indexCheckpoints,
 
-		shutdownLock:  new(sync.RWMutex),
 		shutCtx:       shutCtx,
 		shutCtxCancel: shutCtxCancel,
 

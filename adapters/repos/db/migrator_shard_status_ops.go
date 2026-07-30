@@ -45,7 +45,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
-			shard, ok := idx.shards.LoadAndDelete(name)
+			shard, ok := idx.takeShardForTeardown(name)
 			if !ok {
 				// shard already does not exist or inactive, so remove local files if exists
 				// this pass will happen if the shard was COLD for example

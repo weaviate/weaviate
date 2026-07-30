@@ -21,63 +21,60 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-func (s *Shard) Shutdown(ctx context.Context) (err error) {
-	s.shutdownRequested.Store(true)
-	return backoff.Retry(func() error {
-		// this retry to make sure it's retried in case
-		// the performShutdown() returned shard still in use
-		return s.performShutdown(ctx)
-	}, backoff.WithContext(backoff.WithMaxRetries(
-		// this will try with max 2 seconds could be configurable later on
-		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
-}
+// Shutdown drains in-flight users, then tears the in-memory state down, leaving
+// everything on disk. It is idempotent. On drain timeout it errors but leaves
+// the teardown pending for the last user to release (see [Shard.releaseRef]),
+// so a busy shard cannot be unmapped yet never torn down.
+func (s *Shard) Shutdown(ctx context.Context) error {
+	s.lifecycle.requestTeardown(shardUnloading)
 
-/*
-
-	batch
-		shut
-		false
-			in_use ++
-			defer in_use --
-		true
-			fail request
-
-	shutdown
-		loop + time:
-		if shut == true
-			fail request
-		in_use == 0 && shut == false
-			shut = true
-
-*/
-// Shutdown needs to be idempotent, so it can also deal with a partial
-// initialization. In some parts, it relies on the underlying structs to have
-// idempotent Shutdown methods. In other parts, it explicitly checks if a
-// component was initialized. If not, it turns it into a noop to prevent
-// blocking.
-func (s *Shard) performShutdown(ctx context.Context) (err error) {
-	s.shutdownLock.Lock()
-	defer s.shutdownLock.Unlock()
-
-	if s.shut.Load() {
-		s.shutdownRequested.Store(false)
+	claimed, err := s.awaitTeardown(ctx, shardUnloading)
+	if err != nil {
+		return err
+	}
+	if !claimed {
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
-			// shutdown is idempotent
 		return nil
 	}
-	if s.inUseCounter.Load() > 0 {
+
+	return s.performShutdown(ctx)
+}
+
+// awaitTeardown polls until this caller owns the teardown for kind; claimed ==
+// false with a nil error means it already ran. Polling rather than parking keeps
+// the lifecycle one atomic word with no companion primitive to sync.
+func (s *Shard) awaitTeardown(ctx context.Context, kind shardPhase) (claimed bool, err error) {
+	err = backoff.Retry(func() error {
+		var current shardPhase
+		claimed, current = s.lifecycle.claimTeardown(kind)
+		if claimed || current == shardClosed {
+			return nil
+		}
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is still in use", s.name)
 		return fmt.Errorf("shard %q is still in use", s.name)
-	}
-	s.shut.Store(true)
-	s.shutdownRequested.Store(false)
+	}, backoff.WithContext(backoff.WithMaxRetries(
+		// this will try with max 2 seconds could be configurable later on
+		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+	return claimed, err
+}
+
+// performShutdown runs the unload teardown body. The caller must own the
+// teardown via [Shard.awaitTeardown], which is what guarantees no user is in
+// flight and no other goroutine is here.
+//
+// It needs to be idempotent, so it can also deal with a partial initialization.
+// In some parts, it relies on the underlying structs to have idempotent Shutdown
+// methods. In other parts, it explicitly checks if a component was initialized.
+// If not, it turns it into a noop to prevent blocking.
+func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
 	// Track shard unloading: loaded -> unloading
@@ -99,7 +96,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.mayStopInactivityMonitoring()
 	s.haltForTransferMux.Unlock()
 
-	ec := errorcompounder.New()
+	// Safe: the teardown below collects errors from parallel goroutines.
+	ec := errorcompounder.NewSafe()
 
 	err = s.GetPropertyLengthTracker().Close()
 	ec.AddWrapf(err, "close prop length tracker")
@@ -116,51 +114,77 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	s.mayStopAsyncReplication()
 
+	// A shard can carry many named vectors, and each flush and close is its own
+	// disk round-trip; run them concurrently. Errors go to ec rather than the
+	// group, so one failing queue does not skip the rest.
+	//
+	// Note the closures use their own err: the outer one is this function's named
+	// return, and writing it from several goroutines would be a data race.
+	queueEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	queueEg.SetLimit(_NUMCPU)
+
 	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Flush(); err != nil {
-			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
-		}
+		queueEg.Go(func() error {
+			if err := queue.Flush(); err != nil {
+				ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
+			}
 
-		if err = queue.Close(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
-		}
+			if err := queue.Close(ctx); err != nil {
+				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
+			}
 
+			return nil
+		})
 		return nil
 	})
 
 	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
-		if err = queue.Flush(); err != nil {
-			ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
-		}
+		queueEg.Go(func() error {
+			if err := queue.Flush(); err != nil {
+				ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
+			}
 
-		if err = queue.Close(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
-		}
+			if err := queue.Close(ctx); err != nil {
+				ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
+			}
 
+			return nil
+		})
 		return nil
 	})
+
+	// Every queue must be closed before any vector index is torn down: a queue
+	// still draining writes into the index it feeds.
+	_ = queueEg.Wait()
 
 	s.propertyIndicesLock.RLock()
 	err = s.propertyIndices.ShutdownGeoIndices(ctx)
 	s.propertyIndicesLock.RUnlock()
 	ec.AddWrapf(err, "shutdown geo property indices")
 
+	indexEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	indexEg.SetLimit(_NUMCPU)
+
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		// to ensure that all commitlog entries are written to disk.
-		// otherwise in some cases the tombstone cleanup process'
-		// 'RemoveTombstone' entry is not picked up on restarts
-		// resulting in perpetually attempting to remove a tombstone
-		// which doesn't actually exist anymore
-		if err = index.Flush(); err != nil {
-			ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
-		}
+		indexEg.Go(func() error {
+			// to ensure that all commitlog entries are written to disk.
+			// otherwise in some cases the tombstone cleanup process'
+			// 'RemoveTombstone' entry is not picked up on restarts
+			// resulting in perpetually attempting to remove a tombstone
+			// which doesn't actually exist anymore
+			if err := index.Flush(); err != nil {
+				ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
+			}
 
-		if err = index.Shutdown(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
-		}
+			if err := index.Shutdown(ctx); err != nil {
+				ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
+			}
 
+			return nil
+		})
 		return nil
 	})
+	_ = indexEg.Wait()
 
 	if s.store != nil {
 		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
@@ -186,20 +210,15 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
 
+// preventShutdown blocks teardown — unload and drop alike — until release is
+// called, so the holder is guaranteed the store, buckets and vector indexes stay
+// alive. release is never nil and must be called exactly once.
 func (s *Shard) preventShutdown() (release func(), err error) {
-	if s.shutdownRequested.Load() {
-		return func() {}, errShutdownInProgress
+	if err := s.lifecycle.acquire(); err != nil {
+		return func() {}, err
 	}
-	s.shutdownLock.RLock()
-	defer s.shutdownLock.RUnlock()
-
-	if s.shut.Load() {
-		return func() {}, errAlreadyShutdown
-	}
-
-	s.refCountAdd()
-	// Releasing more than once per acquire would drive the counter negative and
-	// disable the in-use guard in performShutdown, so absorb it and report it.
+	// Per closure, not just against the count reaching zero: with several holders
+	// a double release would otherwise consume someone else's reference.
 	var released atomic.Bool
 	return func() {
 		if !released.CompareAndSwap(false, true) {
@@ -209,21 +228,35 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 				Error(msgReleasedMoreThanOnce)
 			return
 		}
-		s.refCountSub()
+		s.releaseRef()
 	}, nil
 }
 
-func (s *Shard) refCountAdd() {
-	s.inUseCounter.Add(1)
-}
+// releaseRef returns one [Shard.preventShutdown] reference and, if it was the
+// last holding up a pending unload, completes it. A pending drop is left to
+// [Shard.drop]'s caller, which holds the keepFiles argument this path lacks.
+func (s *Shard) releaseRef() {
+	drained, err := s.lifecycle.release()
+	if err != nil {
+		s.index.logger.
+			WithField("action", "shard_ref_count").
+			WithField("shard", s.name).
+			Errorf("shard reference bookkeeping: %v", err)
+		return
+	}
+	if !drained {
+		return
+	}
 
-// refCountSub, and hence preventShutdown's release func, must not be called
-// while holding s.shutdownLock: performShutdown takes the write lock.
-func (s *Shard) refCountSub() {
-	// a shutdown requested while the shard was in use runs once the last
-	// reference drops
-	if s.inUseCounter.Add(-1) == 0 && s.shutdownRequested.Load() {
-		s.performShutdown(context.TODO())
+	claimed, _ := s.lifecycle.claimTeardown(shardUnloading)
+	if !claimed {
+		return
+	}
+	if err := s.performShutdown(context.TODO()); err != nil {
+		s.index.logger.
+			WithField("action", "shutdown").
+			WithField("shard", s.name).
+			Errorf("deferred shutdown after last reference released: %v", err)
 	}
 }
 

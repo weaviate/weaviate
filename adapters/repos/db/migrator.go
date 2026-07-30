@@ -340,7 +340,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	idx.shardCreateLocks.Lock(shard)
 	defer idx.shardCreateLocks.Unlock(shard)
 
-	shardLike, ok := idx.shards.LoadAndDelete(shard)
+	shardLike, ok := idx.takeShardForTeardown(shard)
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
@@ -434,7 +434,7 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 ) error {
 	var toRemove []string
 
-	idx.ForEachShard(func(name string, _ ShardLike) error {
+	idx.ForEachShardMeta(func(name string, _ ShardLike) error {
 		if _, ok := incomingSS.Physical[name]; !ok {
 			toRemove = append(toRemove, name)
 		}
@@ -469,7 +469,7 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	requestedShards := incomingSS.AllLocalPhysicalShards()
 	existingShards := make(map[string]ShardLike)
 
-	if err := idx.ForEachShard(func(name string, shard ShardLike) error {
+	if err := idx.ForEachShardMeta(func(name string, shard ShardLike) error {
 		existingShards[name] = shard
 		return nil
 	}); err != nil {
@@ -706,7 +706,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				idx.shardCreateLocks.Lock(name)
 				defer idx.shardCreateLocks.Unlock(name)
 
-				shard, ok := idx.shards.LoadAndDelete(name)
+				shard, ok := idx.takeShardForTeardown(name)
 				if !ok {
 					m.logger.WithField("shard", name).Debug("already shut down or dropped")
 					return nil // shard already does not exist or inactive

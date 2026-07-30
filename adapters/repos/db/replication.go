@@ -475,7 +475,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 		i.shardCreateLocks.Lock(shardName)
 		defer i.shardCreateLocks.Unlock(shardName)
 
-		shard, ok := i.shards.LoadAndDelete(shardName)
+		shard, ok := i.takeShardForTeardown(shardName)
 		if ok {
 			if err := shard.Shutdown(ctx); err != nil {
 				if !errors.Is(err, errAlreadyShutdown) {

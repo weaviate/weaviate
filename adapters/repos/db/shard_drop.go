@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // IMPORTANT:
@@ -34,6 +35,19 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
+	defer cancel()
+
+	// Drain before touching anything an in-flight user might hold: without this
+	// a concurrent batch kept a *Shard whose store was being shut down under it.
+	s.lifecycle.requestTeardown(shardDropping)
+	claimed, err := s.awaitTeardown(ctx, shardDropping)
+	if err != nil {
+		return fmt.Errorf("drop shard %q: %w", s.ID(), err)
+	}
+	// an unload already tore the in-memory state down; the files still have to go
+	alreadyUnloaded := !claimed
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
@@ -54,9 +68,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 	s.mayStopInactivityMonitoring()
 	s.haltForTransferMux.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
-	defer cancel()
 
 	// Guarantee the lsmkv store is shut down on every exit. The pre-Shutdown
 	// steps below (queue/geo/vector-index Drop, cycle-callback Unregister)
@@ -80,33 +91,52 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	// queues need to be closed first to make sure they are not writing anymore
 	// to their associated vector index, as they might still be using the store
 	// and other resources we are about to drop.
-	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Drop(ctx); err != nil {
-			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
-		}
+	//
+	// Each drop is its own disk round-trip and a shard can carry many named
+	// vectors, so run them concurrently. The closures take their own err: the
+	// outer one is this function's named return, and writing it from several
+	// goroutines would be a data race.
+	queueEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	queueEg.SetLimit(_NUMCPU)
+
+	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		queueEg.Go(func() error {
+			if err := queue.Drop(ctx); err != nil {
+				return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
+			}
+			return nil
+		})
 		return nil
 	})
-	if err != nil {
+
+	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		queueEg.Go(func() error {
+			if err := queue.Drop(ctx); err != nil {
+				return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
+			}
+			return nil
+		})
+		return nil
+	})
+
+	if err = queueEg.Wait(); err != nil {
 		return err
 	}
 
-	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
-		if err = queue.Drop(ctx); err != nil {
-			return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
+	indexEg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	indexEg.SetLimit(_NUMCPU)
 
-	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.Drop(ctx, keepFiles); err != nil {
-			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
-		}
+	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		indexEg.Go(func() error {
+			if err := index.Drop(ctx, keepFiles); err != nil {
+				return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
+			}
+			return nil
+		})
 		return nil
 	})
-	if err != nil {
+
+	if err = indexEg.Wait(); err != nil {
 		return err
 	}
 
@@ -121,7 +151,8 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
+	// an unload that beat us here already closed the store
+	if err = s.store.Shutdown(ctx); err != nil && !(alreadyUnloaded && errors.Is(err, lsmkv.ErrAlreadyClosed)) {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 

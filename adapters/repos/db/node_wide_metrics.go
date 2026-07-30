@@ -114,7 +114,7 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 
 	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		index.ForEachShardMeta(func(name string, shard ShardLike) error {
 			index.shardCreateLocks.RLock(name)
 			defer index.shardCreateLocks.RUnlock(name)
 			exists, err := index.tenantDirExists(name)
@@ -299,7 +299,7 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		}
 		cn := index.Config.ClassName.String()
 		current[cn] = make(activityByTenant)
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		index.ForEachShardMeta(func(name string, shard ShardLike) error {
 			index.shardCreateLocks.RLock(name)
 			defer index.shardCreateLocks.RUnlock(name)
 
@@ -413,9 +413,6 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 				// Avoid loading cold shards, as it may create I/O spikes.
 				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-					index.shardCreateLocks.RLock(shardName)
-					defer index.shardCreateLocks.RUnlock(shardName)
-
 					dim := calculateShardDimensionMetrics(ctx, sl)
 					total = total.Add(dim)
 

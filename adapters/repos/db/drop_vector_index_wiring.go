@@ -42,7 +42,7 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		wanted[name] = struct{}{}
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
-	if err := idx.ForEachShard(func(name string, s ShardLike) error {
+	if err := idx.ForEachShardMeta(func(name string, s ShardLike) error {
 		if _, ok := wanted[name]; !ok {
 			return nil
 		}
