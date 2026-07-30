@@ -34,6 +34,26 @@ var (
 	// errNamespaceLookupMissing is returned when a namespaced class has no
 	// namespace lookup to consult, which only a lost wiring line can produce.
 	errNamespaceLookupMissing = errors.New("no namespace lookup for a namespaced class")
+
+	// errShardNamespaceClosed is returned when the reopen path is asked for a
+	// shard whose namespace no longer keeps any open.
+	errShardNamespaceClosed = errors.New("namespace keeps no shards open")
+)
+
+// shardLoadCaller says who wants a shard loaded. Each caller gets a different
+// part of the namespace check.
+type shardLoadCaller int
+
+const (
+	// callerUserRequest is a load driven by a user request. It gets the full check.
+	callerUserRequest shardLoadCaller = iota
+	// callerResume is a resuming namespace reopening its own shards. It is still
+	// refused for a namespace that keeps no shards open, so a stale reopen cannot
+	// revive a suspended one.
+	callerResume
+	// callerReplication is a replica movement loading its target shard.
+	// Suspending or resuming must not fail a movement already under way.
+	callerReplication
 )
 
 // refuseShardDecision logs why a shard decision is being refused and returns
@@ -81,6 +101,16 @@ func requireShardLoadable(e namespaces.Exister, namespace, class string, logger 
 		return err
 	}
 	return namespaces.RequireShardLoadable(state)
+}
+
+// admitReplicationTarget returns nil when a replica movement may load one of the
+// class's shards.
+func admitReplicationTarget(e namespaces.Exister, namespace, class string, logger logrus.FieldLogger) error {
+	state, err := stateForShardDecision(e, namespace, class, logger)
+	if err != nil {
+		return err
+	}
+	return namespaces.AdmitReplicationTarget(state)
 }
 
 // desiredOpen reports whether a shard should be open, given its namespace's
@@ -141,4 +171,25 @@ func (i *Index) shardsShouldBeOpen() bool {
 
 func (i *Index) requireShardLoadable() error {
 	return requireShardLoadable(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
+}
+
+func (i *Index) admitReplicationTarget() error {
+	return admitReplicationTarget(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
+}
+
+// requireNamespaceAllowsShardLoad returns nil when the namespace's state lets
+// this caller load a shard. A caller with no case below is refused.
+func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
+	switch caller {
+	case callerUserRequest:
+		return i.requireShardLoadable()
+	case callerResume:
+		if !i.shardsShouldBeOpen() {
+			return errShardNamespaceClosed
+		}
+		return nil
+	case callerReplication:
+		return i.admitReplicationTarget()
+	}
+	return errShardNamespaceClosed
 }
