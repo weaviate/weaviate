@@ -53,13 +53,15 @@ func run() error {
 		rankQueries = flag.Int("rank-queries", 400, "queries to sample in rankcurve mode / schedule generation")
 		genQuantile = flag.Float64("gen-quantile", 0, "generate the budget schedule from the expected-case rank curve at this quantile (0 = use -budgets)")
 		sweepArg    = flag.String("rescore-sweep", "", "full mode: comma-separated rescore windows evaluated in one scan (recall per window)")
+		blSweepArg  = flag.String("baseline-sweep", "16,32,64,128,256,512", "hnsw/hfresh modes: accuracy parameter sweep (ef / searchProbe)")
+		limitBase   = flag.Int("limit-base", 0, "use only the first N base vectors (smoke tests; ground truth becomes invalid)")
 		k           = flag.Int("k", 10, "final result count / recall@k")
 		csvPath     = flag.String("csv", "bitpack-bench-results.csv", "CSV file to append the run's results to")
 	)
 	flag.Parse()
 
 	switch *mode {
-	case "schedule", "full", "hybrid", "rankcurve":
+	case "schedule", "full", "hybrid", "rankcurve", "hnsw", "hfresh":
 	default:
 		return fmt.Errorf("unknown -mode %q", *mode)
 	}
@@ -102,11 +104,30 @@ func run() error {
 	if gtCols < *k {
 		return fmt.Errorf("ground truth has %d neighbors per query, need k=%d", gtCols, *k)
 	}
+	if *limitBase > 0 && *limitBase < n {
+		n = *limitBase
+		base = base[:n**dims]
+		fmt.Fprintf(os.Stderr, "WARNING: -limit-base=%d, ground-truth recall is not meaningful\n", n)
+	}
 	fmt.Fprintf(os.Stderr, "loaded: %d base, %d queries, %d gt neighbors, %d dims\n", n, nq, gtCols, *dims)
 
 	fmt.Fprintln(os.Stderr, "normalizing ...")
 	normalizeRows(base, *dims)
 	normalizeRows(queries, *dims)
+
+	if *mode == "hnsw" || *mode == "hfresh" {
+		sweep, err := parseBudgets(*blSweepArg)
+		if err != nil {
+			return err
+		}
+		if *numQueries <= 0 || *numQueries > nq {
+			*numQueries = nq
+		}
+		if *mode == "hnsw" {
+			return runHNSWBaseline(base, *dims, n, queries, gt, gtCols, *numQueries, *k, sweep, *csvPath, filepath.Base(*dataDir))
+		}
+		return runHFreshBaseline(base, *dims, n, queries, gt, gtCols, *numQueries, *k, sweep, *csvPath, filepath.Base(*dataDir))
+	}
 
 	var mean []float32
 	if *center {
