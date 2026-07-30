@@ -56,7 +56,7 @@ type (
 	usageByCollection map[string]usageByTenant
 	usageByTenant     map[string]tenantUsage
 	// tenantUsage holds what the next cycle needs to compute a delta: the counter
-	// values last seen, and the times those counters last changed.
+	// values last seen, and the timestamps derived from them.
 	tenantUsage struct {
 		read         int32
 		write        int32
@@ -259,7 +259,8 @@ func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityB
 }
 
 // Derive a tenant's usage from its current counters and its record from the
-// previous cycle. A timestamp only moves when the matching counter changed.
+// previous cycle. lastActivity moves when either counter changes, lastRead and
+// lastWrite only when their own counter increases.
 func (o *nodeWideMetricsObserver) tenantUsageDelta(class, tenant string, act activity, previous usageByTenant, now time.Time) tenantUsage {
 	prev, ok := previous[tenant]
 	if !ok {
