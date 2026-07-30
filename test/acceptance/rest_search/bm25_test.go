@@ -36,12 +36,12 @@ const (
 	bm25Movie2ID = strfmt.UUID("bb44bbee-ca5f-4db7-a412-5fc6a2300002")
 )
 
-func postBm25(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+func postBm25(t *testing.T, collection string, body map[string]any) (int, map[string]any) {
 	return postSearch(t, collection, "bm25", body)
 }
 
 // titlesOf collects properties.title over all hits, in rank order.
-func titlesOf(t *testing.T, out map[string]interface{}) []string {
+func titlesOf(t *testing.T, out map[string]any) []string {
 	t.Helper()
 	res := results(t, out)
 	titles := make([]string, len(res))
@@ -100,7 +100,7 @@ func TestRESTSearchBm25(t *testing.T) {
 		{
 			ID:    bm25Movie1ID,
 			Class: "Book",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title":       "spaceship galaxy adventure",
 				"description": "cooking pasta at home",
 				"year":        2021,
@@ -109,7 +109,7 @@ func TestRESTSearchBm25(t *testing.T) {
 		{
 			ID:    bm25Movie2ID,
 			Class: "Book",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title":       "cooking dinner recipes",
 				"description": "a spaceship voyage through the galaxy stars",
 				"year":        1999,
@@ -119,14 +119,14 @@ func TestRESTSearchBm25(t *testing.T) {
 			ID:     strfmt.UUID("bb44bbee-ca5f-4db7-a412-5fc6a2300003"),
 			Class:  "Diary",
 			Tenant: "tenantA",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title": "travel diary",
 			},
 		},
 	})
 
 	t.Run("happy path: envelope with id, properties, score metadata, tookMs", func(t *testing.T) {
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":            "spaceship galaxy",
 			"returnProperties": []string{"title"},
 			"returnMetadata":   []string{"score"},
@@ -139,7 +139,7 @@ func TestRESTSearchBm25(t *testing.T) {
 	})
 
 	t.Run("queryProperties restricts the searched properties", func(t *testing.T) {
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":            "spaceship",
 			"queryProperties":  []string{"title"},
 			"returnProperties": []string{"title"},
@@ -153,7 +153,7 @@ func TestRESTSearchBm25(t *testing.T) {
 		// the same query with the boost flipped between the two properties
 		// must flip the ranking: boosting title favors the title match,
 		// boosting description favors the description match
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":            "spaceship galaxy",
 			"queryProperties":  []string{"title^10", "description"},
 			"returnProperties": []string{"title"},
@@ -162,7 +162,7 @@ func TestRESTSearchBm25(t *testing.T) {
 		require.Len(t, results(t, out), 2)
 		assert.Equal(t, []string{"spaceship galaxy adventure", "cooking dinner recipes"}, titlesOf(t, out))
 
-		status, out = postBm25(t, "Book", map[string]interface{}{
+		status, out = postBm25(t, "Book", map[string]any{
 			"query":            "spaceship galaxy",
 			"queryProperties":  []string{"title", "description^10"},
 			"returnProperties": []string{"title"},
@@ -173,7 +173,7 @@ func TestRESTSearchBm25(t *testing.T) {
 	})
 
 	t.Run("explainScore explains the bm25 score", func(t *testing.T) {
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":          "spaceship",
 			"returnMetadata": []string{"score", "explainScore"},
 		})
@@ -188,7 +188,7 @@ func TestRESTSearchBm25(t *testing.T) {
 		// distance and certainty are in the shared returnMetadata enum but
 		// cannot be computed for a keyword search: the request succeeds and
 		// the response omits them (gRPC-parity silent drop)
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":          "spaceship",
 			"returnMetadata": []string{"distance", "certainty", "score"},
 		})
@@ -200,9 +200,9 @@ func TestRESTSearchBm25(t *testing.T) {
 	})
 
 	t.Run("where filter narrows results", func(t *testing.T) {
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query": "spaceship galaxy",
-			"where": map[string]interface{}{
+			"where": map[string]any{
 				"path":     []string{"year"},
 				"operator": "LessThan",
 				"valueInt": 2000,
@@ -218,7 +218,7 @@ func TestRESTSearchBm25(t *testing.T) {
 	t.Run("queryProperties on a non-searchable property is a 422", func(t *testing.T) {
 		// int properties have no searchable index; live guard for the
 		// MissingIndexError mapping on the keyword path
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":           "2021",
 			"queryProperties": []string{"year"},
 		})
@@ -229,7 +229,7 @@ func TestRESTSearchBm25(t *testing.T) {
 	t.Run("unknown property in queryProperties is a 400", func(t *testing.T) {
 		// an entry naming no schema property is a 400 like returnProperties;
 		// contrast with the existing-but-non-searchable 422 above
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":           "spaceship",
 			"queryProperties": []string{"titel"},
 		})
@@ -241,7 +241,7 @@ func TestRESTSearchBm25(t *testing.T) {
 		// with queryProperties omitted, the searched set expands to all
 		// searchable properties; a collection with none must be a 422, not
 		// the engine's untyped all-properties-expansion error (a 500)
-		status, out := postBm25(t, "Ledger", map[string]interface{}{
+		status, out := postBm25(t, "Ledger", map[string]any{
 			"query": "spaceship",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
@@ -249,7 +249,7 @@ func TestRESTSearchBm25(t *testing.T) {
 	})
 
 	t.Run("absent query is rejected at bind time", func(t *testing.T) {
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"limit": 1,
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
@@ -261,7 +261,7 @@ func TestRESTSearchBm25(t *testing.T) {
 	t.Run("empty query is a 400", func(t *testing.T) {
 		// an explicit empty string passes swagger's required validation (the
 		// pointer is non-nil) and reaches the handler
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query": "",
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
@@ -269,48 +269,48 @@ func TestRESTSearchBm25(t *testing.T) {
 	})
 
 	t.Run("query is string-only: the array form fails decode", func(t *testing.T) {
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query": []string{"spaceship"},
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
 	})
 
 	t.Run("unknown collection is a 404", func(t *testing.T) {
-		status, out := postBm25(t, "Ghosts", map[string]interface{}{
+		status, out := postBm25(t, "Ghosts", map[string]any{
 			"query": "anything",
 		})
 		require.Equal(t, http.StatusNotFound, status, "%v", out)
 	})
 
 	t.Run("reserved fields are a 422", func(t *testing.T) {
-		status, out := postBm25(t, "Book", map[string]interface{}{
+		status, out := postBm25(t, "Book", map[string]any{
 			"query":  "spaceship",
-			"rerank": map[string]interface{}{"property": "title"},
+			"rerank": map[string]any{"property": "title"},
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "not yet supported")
 	})
 
 	t.Run("multi-tenancy statuses", func(t *testing.T) {
-		status, out := postBm25(t, "Diary", map[string]interface{}{
+		status, out := postBm25(t, "Diary", map[string]any{
 			"query":  "travel",
 			"tenant": "tenantA",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, results(t, out), 1)
 
-		status, out = postBm25(t, "Diary", map[string]interface{}{
+		status, out = postBm25(t, "Diary", map[string]any{
 			"query":  "travel",
 			"tenant": "ghostTenant",
 		})
 		require.Equal(t, http.StatusNotFound, status, "unknown tenant: %v", out)
 
-		status, out = postBm25(t, "Diary", map[string]interface{}{
+		status, out = postBm25(t, "Diary", map[string]any{
 			"query": "travel",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "missing tenant: %v", out)
 
-		status, out = postBm25(t, "Book", map[string]interface{}{
+		status, out = postBm25(t, "Book", map[string]any{
 			"query":  "spaceship",
 			"tenant": "tenantA",
 		})

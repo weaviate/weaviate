@@ -37,7 +37,7 @@ const (
 	hybridSong2ID = strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300002")
 )
 
-func postHybrid(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+func postHybrid(t *testing.T, collection string, body map[string]any) (int, map[string]any) {
 	return postSearch(t, collection, "hybrid", body)
 }
 
@@ -100,7 +100,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		{
 			ID:    hybridSong1ID,
 			Class: "Song",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title":  "spaceship galaxy adventure",
 				"lyrics": "stars and planets in the night",
 				"year":   2021,
@@ -109,7 +109,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		{
 			ID:    hybridSong2ID,
 			Class: "Song",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title":  "cooking dinner recipes",
 				"lyrics": "pasta and cooking at home",
 				"year":   1999,
@@ -118,7 +118,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		{
 			ID:    strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300003"),
 			Class: "Zine",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title": "travel stories",
 			},
 		},
@@ -126,14 +126,14 @@ func TestRESTSearchHybrid(t *testing.T) {
 			ID:     strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300004"),
 			Class:  "Zettel",
 			Tenant: "tenantA",
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"title": "travel diary",
 			},
 		},
 	})
 
 	t.Run("happy path: envelope with id, properties, score metadata, tookMs", func(t *testing.T) {
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":            "spaceship galaxy",
 			"returnProperties": []string{"title"},
 			"returnMetadata":   []string{"score"},
@@ -148,7 +148,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 
 	t.Run("alpha steers the blend", func(t *testing.T) {
 		// alpha 0 is a pure keyword search: only the bm25 match returns
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":            "cooking",
 			"alpha":            0,
 			"returnProperties": []string{"title"},
@@ -158,7 +158,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		assert.Equal(t, hybridSong2ID.String(), idOf(t, hit(t, out, 0)))
 
 		// alpha 1 is a pure vector search: every object returns, by distance
-		status, out = postHybrid(t, "Song", map[string]interface{}{
+		status, out = postHybrid(t, "Song", map[string]any{
 			"query":            "cooking",
 			"alpha":            1,
 			"returnProperties": []string{"title"},
@@ -170,7 +170,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 
 	t.Run("both fusion algorithms run", func(t *testing.T) {
 		for _, fusion := range []string{"ranked", "relativeScore"} {
-			status, out := postHybrid(t, "Song", map[string]interface{}{
+			status, out := postHybrid(t, "Song", map[string]any{
 				"query":          "spaceship galaxy",
 				"fusionType":     fusion,
 				"returnMetadata": []string{"score"},
@@ -183,7 +183,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 	})
 
 	t.Run("unknown fusionType is rejected at bind time", func(t *testing.T) {
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":      "spaceship",
 			"fusionType": "best",
 		})
@@ -194,7 +194,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 	})
 
 	t.Run("alpha outside [0,1] is a 400", func(t *testing.T) {
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query": "spaceship",
 			"alpha": 1.5,
 		})
@@ -208,7 +208,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		// searches), so probe the cutoff by its effect: the loosest cosine
 		// cutoff keeps everything, a near-zero one drops everything —
 		// keyword-leg matches included
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":             "spaceship galaxy",
 			"maxVectorDistance": 1.99,
 			"returnProperties":  []string{"title"},
@@ -216,7 +216,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, results(t, out), 2)
 
-		status, out = postHybrid(t, "Song", map[string]interface{}{
+		status, out = postHybrid(t, "Song", map[string]any{
 			"query":             "spaceship galaxy",
 			"maxVectorDistance": 0.0001,
 			"returnProperties":  []string{"title"},
@@ -229,7 +229,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		// both are in the shared returnMetadata enum and stay requested
 		// (hybrid is a vector search, gRPC keeps the flags), but the fused
 		// result list only carries scores — the response omits them
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":          "spaceship galaxy",
 			"returnMetadata": []string{"distance", "certainty", "score"},
 		})
@@ -244,7 +244,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		// alpha 0 isolates the keyword leg: "cooking" appears in song2's
 		// title and lyrics, so restricting to title still matches, while
 		// restricting to a property without the term matches nothing
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":           "cooking",
 			"alpha":           0,
 			"queryProperties": []string{"title"},
@@ -252,7 +252,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, results(t, out), 1)
 
-		status, out = postHybrid(t, "Song", map[string]interface{}{
+		status, out = postHybrid(t, "Song", map[string]any{
 			"query":           "spaceship",
 			"alpha":           0,
 			"queryProperties": []string{"lyrics"},
@@ -262,9 +262,9 @@ func TestRESTSearchHybrid(t *testing.T) {
 	})
 
 	t.Run("where filter narrows results", func(t *testing.T) {
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query": "spaceship galaxy",
-			"where": map[string]interface{}{
+			"where": map[string]any{
 				"path":     []string{"year"},
 				"operator": "LessThan",
 				"valueInt": 2000,
@@ -279,13 +279,13 @@ func TestRESTSearchHybrid(t *testing.T) {
 
 	t.Run("no vectorizer is a 422 above alpha 0, fine at alpha 0", func(t *testing.T) {
 		// live guard for the alpha-gated vectorizer pre-check
-		status, out := postHybrid(t, "Zine", map[string]interface{}{
+		status, out := postHybrid(t, "Zine", map[string]any{
 			"query": "travel",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "vectorizer")
 
-		status, out = postHybrid(t, "Zine", map[string]interface{}{
+		status, out = postHybrid(t, "Zine", map[string]any{
 			"query": "travel",
 			"alpha": 0,
 		})
@@ -296,7 +296,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 	t.Run("empty query is a 400", func(t *testing.T) {
 		// an explicit empty string passes swagger's required validation (the
 		// pointer is non-nil) and reaches the handler
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query": "",
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
@@ -304,7 +304,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 	})
 
 	t.Run("absent query is rejected at bind time", func(t *testing.T) {
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"limit": 1,
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
@@ -313,14 +313,14 @@ func TestRESTSearchHybrid(t *testing.T) {
 	})
 
 	t.Run("unknown collection is a 404", func(t *testing.T) {
-		status, out := postHybrid(t, "Ghosts", map[string]interface{}{
+		status, out := postHybrid(t, "Ghosts", map[string]any{
 			"query": "anything",
 		})
 		require.Equal(t, http.StatusNotFound, status, "%v", out)
 	})
 
 	t.Run("unknown property in queryProperties is a 400", func(t *testing.T) {
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":           "spaceship",
 			"queryProperties": []string{"titel"},
 		})
@@ -332,7 +332,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		// with queryProperties omitted the keyword leg expands to all
 		// searchable properties; a collection with none must be a 422, not
 		// the engine's untyped expansion error (a 500)
-		status, out := postHybrid(t, "Ledger", map[string]interface{}{
+		status, out := postHybrid(t, "Ledger", map[string]any{
 			"query": "spaceship",
 			"alpha": 0.5,
 		})
@@ -340,7 +340,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "no searchable properties")
 
 		// at alpha 1 the keyword leg never runs: pure vector search works
-		status, out = postHybrid(t, "Ledger", map[string]interface{}{
+		status, out = postHybrid(t, "Ledger", map[string]any{
 			"query": "spaceship",
 			"alpha": 1,
 		})
@@ -348,34 +348,34 @@ func TestRESTSearchHybrid(t *testing.T) {
 	})
 
 	t.Run("reserved fields are a 422", func(t *testing.T) {
-		status, out := postHybrid(t, "Song", map[string]interface{}{
+		status, out := postHybrid(t, "Song", map[string]any{
 			"query":  "spaceship",
-			"rerank": map[string]interface{}{"property": "title"},
+			"rerank": map[string]any{"property": "title"},
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "not yet supported")
 	})
 
 	t.Run("multi-tenancy statuses", func(t *testing.T) {
-		status, out := postHybrid(t, "Zettel", map[string]interface{}{
+		status, out := postHybrid(t, "Zettel", map[string]any{
 			"query":  "travel",
 			"tenant": "tenantA",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, results(t, out), 1)
 
-		status, out = postHybrid(t, "Zettel", map[string]interface{}{
+		status, out = postHybrid(t, "Zettel", map[string]any{
 			"query":  "travel",
 			"tenant": "ghostTenant",
 		})
 		require.Equal(t, http.StatusNotFound, status, "unknown tenant: %v", out)
 
-		status, out = postHybrid(t, "Zettel", map[string]interface{}{
+		status, out = postHybrid(t, "Zettel", map[string]any{
 			"query": "travel",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "missing tenant: %v", out)
 
-		status, out = postHybrid(t, "Song", map[string]interface{}{
+		status, out = postHybrid(t, "Song", map[string]any{
 			"query":  "spaceship",
 			"tenant": "tenantA",
 		})
