@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -671,22 +670,9 @@ func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Ta
 	if err != nil {
 		return false, err
 	}
-	for _, other := range tasks[DropVectorIndexNamespace] {
-		if other.ID == task.ID || !other.Status.IsActive() {
-			continue
-		}
-		otherP, err := decodeDropVectorIndexPayload(other.Payload)
-		if err != nil {
-			continue
-		}
-		if !strings.EqualFold(otherP.Collection, payload.Collection) {
-			continue
-		}
-		if len(intersectTargets(otherP.Targets, payload.Targets)) > 0 {
-			return true, nil
-		}
-	}
-	return false, nil
+	other, _, _ := FirstActiveOverlappingDrop(
+		tasks[DropVectorIndexNamespace], task.ID, payload.Collection, payload.Targets, p.logger)
+	return other != nil, nil
 }
 
 // targetsStillDropped reports whether every payload target is still present and

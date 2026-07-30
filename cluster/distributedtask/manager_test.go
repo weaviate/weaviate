@@ -528,11 +528,6 @@ func TestManager_SnapshotRestore(t *testing.T) {
 	assertTasks(t, expectedTasks, tasks)
 }
 
-// TestManager_Restore_ReplacesPreviousState pins the FSM snapshot contract
-// (see Store.Restore): pre-restore state is discarded, not merged. A follower
-// that merged would resurrect records the leader deleted — e.g. tasks purged
-// on a drop-vector marker introduction — and then alone reject applies its
-// peers accept.
 func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Task {
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns1",

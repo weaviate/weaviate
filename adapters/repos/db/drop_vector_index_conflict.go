@@ -30,26 +30,11 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 		return fmt.Errorf("unmarshal new drop-vector payload: %w", err)
 	}
 
-	for _, task := range existingTasks {
-		if !task.Status.IsActive() {
-			continue
-		}
-		existP, err := decodeDropVectorIndexPayload(task.Payload)
-		if err != nil {
-			// Skip a corrupt payload rather than fail closed: erroring here would block
-			// every new drop cluster-wide on one bad task. Deterministic across nodes.
-			p.logger.WithField("task", task.ID).
-				Warnf("drop-vector: skipping active task with unparseable payload in conflict check: %v", err)
-			continue
-		}
-		if !strings.EqualFold(existP.Collection, newP.Collection) {
-			continue
-		}
-		if overlap := intersectTargets(existP.Targets, newP.Targets); len(overlap) > 0 {
-			return fmt.Errorf(
-				"drop-vector task %q is already in flight on %s for vector(s) %v (status=%s)",
-				task.ID, existP.Collection, overlap, task.Status)
-		}
+	if task, existP, overlap := FirstActiveOverlappingDrop(
+		existingTasks, "", newP.Collection, newP.Targets, p.logger); task != nil {
+		return fmt.Errorf(
+			"drop-vector task %q is already in flight on %s for vector(s) %v (status=%s)",
+			task.ID, existP.Collection, overlap, task.Status)
 	}
 
 	// CleanedShards is a CLAIM of prior cleaning, composed from a leader read
@@ -93,8 +78,9 @@ func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingT
 
 // CheckTenantMutation is deliberately permissive: tenant lifecycle is not
 // coupled to in-flight drop-vector cleanups. Deactivating (or deleting) a
-// tenant mid-strip makes its unit unfinishable — the drain loop loses the
-// shard, fails the unit after its bounded poll retries, and the round ends
+// tenant mid-strip makes its unit unfinishable — the drain loop fails the
+// unit on the FIRST errored poll once the shard is no longer locally loaded
+// (the transient-blip tolerance is deliberately skipped), the round ends
 // FAILED — and reconciliation then re-enqueues for the remaining active
 // shards: already-stripped shards re-drain instantly (their pending sets are
 // empty), and the deactivated tenant is picked up by the cold-tenant deferral

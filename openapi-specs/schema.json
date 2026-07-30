@@ -8645,6 +8645,7 @@
         "description": "Updates the configuration settings of an existing collection (`className`) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.",
         "operationId": "schema.objects.update",
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ],
         "tags": [
@@ -9272,6 +9273,7 @@
         "description": "Deletes a specific vector index within a collection (`className`). The vector index to delete is identified by `vectorIndexName`.",
         "operationId": "schema.objects.vectors.delete",
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ],
         "tags": [

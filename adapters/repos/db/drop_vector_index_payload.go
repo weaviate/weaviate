@@ -116,6 +116,38 @@ func CompletedUnitShards(task *distributedtask.Task, payload *DropVectorIndexTas
 	return shards
 }
 
+// FirstActiveOverlappingDrop returns the first ACTIVE task — excluding
+// excludeTaskID — whose payload overlaps collection (case-insensitive) and
+// any of targets (exact case), along with its decoded payload and the
+// overlapping names. The shared predicate behind the AddTask conflict check
+// and the finalize-time replay guard; corrupt payloads are skipped fail-open
+// with a warning (erroring would block on one bad record; deterministic:
+// every node sees the same records).
+func FirstActiveOverlappingDrop(tasks []*distributedtask.Task, excludeTaskID, collection string, targets []string,
+	logger logrus.FieldLogger,
+) (*distributedtask.Task, *DropVectorIndexTaskPayload, []string) {
+	for _, task := range tasks {
+		if task.ID == excludeTaskID || !task.Status.IsActive() {
+			continue
+		}
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			if logger != nil {
+				logger.WithField("task", task.ID).
+					Warnf("drop-vector: skipping active task with unparseable payload in overlap check: %v", err)
+			}
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) {
+			continue
+		}
+		if overlap := intersectTargets(p.Targets, targets); len(overlap) > 0 {
+			return task, p, overlap
+		}
+	}
+	return nil, nil, nil
+}
+
 // ActiveDropCovers reports whether an ACTIVE drop task in tasks covers
 // targetVector (exact case) on collection (case-insensitive). The shared
 // predicate for "is this drop still running" across the REST enqueuer and the
