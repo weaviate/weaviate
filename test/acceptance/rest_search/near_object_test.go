@@ -52,7 +52,7 @@ const (
 	ghostID = strfmt.UUID("dd44bbee-ca5f-4db7-a412-5fc6a2399999")
 )
 
-func postNearObject(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+func postNearObject(t *testing.T, collection string, body map[string]any) (int, map[string]any) {
 	return postSearch(t, collection, "near-object", body)
 }
 
@@ -87,11 +87,11 @@ func TestRESTSearchNearObject(t *testing.T) {
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			"first": {
-				Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+				Vectorizer:      map[string]any{"none": map[string]any{}},
 				VectorIndexType: "hnsw",
 			},
 			"second": {
-				Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+				Vectorizer:      map[string]any{"none": map[string]any{}},
 				VectorIndexType: "hnsw",
 			},
 		},
@@ -100,7 +100,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	chartClass := &models.Class{
 		Class:             "Chart",
 		Vectorizer:        "none",
-		VectorIndexConfig: map[string]interface{}{"distance": "l2-squared"},
+		VectorIndexConfig: map[string]any{"distance": "l2-squared"},
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 		},
@@ -130,24 +130,24 @@ func TestRESTSearchNearObject(t *testing.T) {
 			ID:         poem1ID,
 			Class:      "Poem",
 			Vector:     models.C11yVector{1, 0},
-			Properties: map[string]interface{}{"title": "the spaceship", "year": 2021},
+			Properties: map[string]any{"title": "the spaceship", "year": 2021},
 		},
 		{
 			ID:         poem2ID,
 			Class:      "Poem",
 			Vector:     models.C11yVector{0.8, 0.6},
-			Properties: map[string]interface{}{"title": "the galaxy", "year": 1999},
+			Properties: map[string]any{"title": "the galaxy", "year": 1999},
 		},
 		{
 			ID:         poem3ID,
 			Class:      "Poem",
 			Vector:     models.C11yVector{0, 1},
-			Properties: map[string]interface{}{"title": "the kitchen", "year": 2010},
+			Properties: map[string]any{"title": "the kitchen", "year": 2010},
 		},
 		{
 			ID:         poem4ID,
 			Class:      "Poem",
-			Properties: map[string]interface{}{"title": "unwritten", "year": 2024},
+			Properties: map[string]any{"title": "unwritten", "year": 2024},
 		},
 		{
 			ID:    sketch1ID,
@@ -156,7 +156,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 				"first":  []float32{1, 0},
 				"second": []float32{0, 1},
 			},
-			Properties: map[string]interface{}{"title": "two vectors"},
+			Properties: map[string]any{"title": "two vectors"},
 		},
 		{
 			ID:    sketch2ID,
@@ -164,25 +164,25 @@ func TestRESTSearchNearObject(t *testing.T) {
 			Vectors: models.Vectors{
 				"first": []float32{0.6, 0.8},
 			},
-			Properties: map[string]interface{}{"title": "one vector"},
+			Properties: map[string]any{"title": "one vector"},
 		},
 		{
 			ID:         chart1ID,
 			Class:      "Chart",
 			Vector:     models.C11yVector{1, 0},
-			Properties: map[string]interface{}{"title": "l2 chart"},
+			Properties: map[string]any{"title": "l2 chart"},
 		},
 		{
 			ID:         logbook1ID,
 			Class:      "Logbook",
 			Tenant:     "tenantA",
 			Vector:     models.C11yVector{1, 0},
-			Properties: map[string]interface{}{"title": "travel logbook"},
+			Properties: map[string]any{"title": "travel logbook"},
 		},
 	})
 
 	t.Run("happy path: ordered by distance from the source object, source included", func(t *testing.T) {
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id":               poem1ID.String(),
 			"returnProperties": []string{"title"},
 			"returnMetadata":   []string{"distance"},
@@ -206,7 +206,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("distance cuts off far objects", func(t *testing.T) {
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id":       poem1ID.String(),
 			"distance": 0.5,
 		})
@@ -219,7 +219,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 
 	t.Run("certainty cuts off far objects on a cosine index", func(t *testing.T) {
 		// certainty = 1 - distance/2: 1.0, 0.9 and 0.5 for the three poems
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id":        poem1ID.String(),
 			"certainty": 0.85,
 		})
@@ -230,7 +230,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	t.Run("well-formed unknown id is a 400", func(t *testing.T) {
 		// the engine cannot resolve the source object: a bad body value
 		// (typed ErrSourceObjectNotFound), not a 404 and not a 502
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id": ghostID.String(),
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
@@ -238,8 +238,8 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("structurally invalid id is rejected at bind time", func(t *testing.T) {
-		for _, id := range []interface{}{"not-a-uuid", ""} {
-			status, out := postNearObject(t, "Poem", map[string]interface{}{
+		for _, id := range []any{"not-a-uuid", ""} {
+			status, out := postNearObject(t, "Poem", map[string]any{
 				"id": id,
 			})
 			require.Equal(t, http.StatusUnprocessableEntity, status, "id %q: %v", id, out)
@@ -250,7 +250,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("absent id is rejected at bind time", func(t *testing.T) {
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"limit": 1,
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
@@ -258,7 +258,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("source object without a vector is a 422", func(t *testing.T) {
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id": poem4ID.String(),
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
@@ -266,7 +266,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("named vectors: targetVector selects the anchor vector", func(t *testing.T) {
-		status, out := postNearObject(t, "Sketch", map[string]interface{}{
+		status, out := postNearObject(t, "Sketch", map[string]any{
 			"id":           sketch1ID.String(),
 			"targetVector": "first",
 		})
@@ -276,7 +276,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("named vectors: missing targetVector on a multi-vector collection is a 422", func(t *testing.T) {
-		status, out := postNearObject(t, "Sketch", map[string]interface{}{
+		status, out := postNearObject(t, "Sketch", map[string]any{
 			"id": sketch1ID.String(),
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
@@ -284,7 +284,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("named vectors: unknown targetVector is a 400", func(t *testing.T) {
-		status, out := postNearObject(t, "Sketch", map[string]interface{}{
+		status, out := postNearObject(t, "Sketch", map[string]any{
 			"id":           sketch1ID.String(),
 			"targetVector": "third",
 		})
@@ -292,7 +292,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("source object without the target vector is a 422", func(t *testing.T) {
-		status, out := postNearObject(t, "Sketch", map[string]interface{}{
+		status, out := postNearObject(t, "Sketch", map[string]any{
 			"id":           sketch2ID.String(),
 			"targetVector": "second",
 		})
@@ -301,7 +301,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("certainty on a non-cosine index is a 422", func(t *testing.T) {
-		status, out := postNearObject(t, "Chart", map[string]interface{}{
+		status, out := postNearObject(t, "Chart", map[string]any{
 			"id":        chart1ID.String(),
 			"certainty": 0.7,
 		})
@@ -310,7 +310,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("both certainty and distance is a 400", func(t *testing.T) {
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id":        poem1ID.String(),
 			"certainty": 0.7,
 			"distance":  0.3,
@@ -320,9 +320,9 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("where filter narrows results", func(t *testing.T) {
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id": poem1ID.String(),
-			"where": map[string]interface{}{
+			"where": map[string]any{
 				"path":     []string{"year"},
 				"operator": "LessThan",
 				"valueInt": 2000,
@@ -336,41 +336,41 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("unknown collection is a 404", func(t *testing.T) {
-		status, out := postNearObject(t, "Ghosts", map[string]interface{}{
+		status, out := postNearObject(t, "Ghosts", map[string]any{
 			"id": poem1ID.String(),
 		})
 		require.Equal(t, http.StatusNotFound, status, "%v", out)
 	})
 
 	t.Run("reserved fields are a 422", func(t *testing.T) {
-		status, out := postNearObject(t, "Poem", map[string]interface{}{
+		status, out := postNearObject(t, "Poem", map[string]any{
 			"id":     poem1ID.String(),
-			"rerank": map[string]interface{}{"property": "title"},
+			"rerank": map[string]any{"property": "title"},
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "not yet supported")
 	})
 
 	t.Run("multi-tenancy statuses", func(t *testing.T) {
-		status, out := postNearObject(t, "Logbook", map[string]interface{}{
+		status, out := postNearObject(t, "Logbook", map[string]any{
 			"id":     logbook1ID.String(),
 			"tenant": "tenantA",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, results(t, out), 1)
 
-		status, out = postNearObject(t, "Logbook", map[string]interface{}{
+		status, out = postNearObject(t, "Logbook", map[string]any{
 			"id":     logbook1ID.String(),
 			"tenant": "ghostTenant",
 		})
 		require.Equal(t, http.StatusNotFound, status, "unknown tenant: %v", out)
 
-		status, out = postNearObject(t, "Logbook", map[string]interface{}{
+		status, out = postNearObject(t, "Logbook", map[string]any{
 			"id": logbook1ID.String(),
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "missing tenant: %v", out)
 
-		status, out = postNearObject(t, "Poem", map[string]interface{}{
+		status, out = postNearObject(t, "Poem", map[string]any{
 			"id":     poem1ID.String(),
 			"tenant": "tenantA",
 		})
