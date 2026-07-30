@@ -298,7 +298,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 
 	lsmPath := shardPathLSM(i.path(), shard.Name())
 
-	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	directories, err := diskio.GetSubdirNames(lsmPath)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +397,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 	lsmPath := shardPathLSM(i.path(), shardName)
 
-	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	directories, err := diskio.GetSubdirNames(lsmPath)
 	if err != nil {
 		return nil, err
 	}

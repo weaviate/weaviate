@@ -303,7 +303,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
-				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				directories, err := diskio.GetSubdirNames(lsmPath)
 				require.NoError(t, err)
 
 				vectorStorageSize, uncompressed, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
@@ -365,7 +365,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NoError(t, lazyShard.Load(ctx))
 
 				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
-				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				directories, err := diskio.GetSubdirNames(lsmPath)
 				require.NoError(t, err)
 
 				vectorStorageSize, _, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
@@ -804,7 +804,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.True(t, ok)
 
 	lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
-	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	directories, err := diskio.GetSubdirNames(lsmPath)
 	require.NoError(t, err)
 
 	activeVectorStorageSize, uncompressed, err := shard.VectorStorageSize(ctx, lsmPath, directories)
