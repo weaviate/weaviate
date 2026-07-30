@@ -420,7 +420,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 	}
 
 	t.Run("send objects and references without errors", func(t *testing.T) {
-		defer setupClasses(clsA, clsP)()
+		defer setupClasses(clsP, clsA)()
 
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient, "")
@@ -456,7 +456,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 	})
 
 	t.Run("verify expected client-server behaviour when reconnecting between nodes due to shutdown", func(t *testing.T) {
-		defer setupClasses(clsA, clsP)()
+		defer setupClasses(clsP, clsA)()
 		firstNode := 2
 		secondNode := 1
 
@@ -579,7 +579,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 	})
 
 	t.Run("verify that server still shuts down if client hangs up without closing its end of the stream", func(t *testing.T) {
-		defer setupClasses(clsA, clsP)()
+		defer setupClasses(clsP, clsA)()
 		node := 2
 
 		helper.SetupClient(compose.GetWeaviateNode(node).URI())
