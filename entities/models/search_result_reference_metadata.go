@@ -29,6 +29,7 @@ import (
 //
 // swagger:model SearchResultReferenceMetadata
 type SearchResultReferenceMetadata struct {
+
 	// The referenced object's creation time, as epoch milliseconds.
 	CreationTime *int64 `json:"creationTime,omitempty"`
 

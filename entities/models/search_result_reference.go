@@ -30,6 +30,7 @@ import (
 //
 // swagger:model SearchResultReference
 type SearchResultReference struct {
+
 	// The collection the referenced object belongs to. Returned for multi-target references.
 	Collection string `json:"collection,omitempty"`
 
@@ -86,14 +87,17 @@ func (m *SearchResultReference) validateMetadata(formats strfmt.Registry) error 
 }
 
 func (m *SearchResultReference) validateProperties(formats strfmt.Registry) error {
+
 	if err := validate.Required("properties", "body", m.Properties); err != nil {
 		return err
 	}
 
 	for k := range m.Properties {
+
 		if err := validate.Required("properties"+"."+k, "body", m.Properties[k]); err != nil {
 			return err
 		}
+
 	}
 
 	return nil
@@ -111,6 +115,7 @@ func (m *SearchResultReference) validateReferences(formats strfmt.Registry) erro
 		}
 
 		for i := 0; i < len(m.References[k]); i++ {
+
 			if err := m.References[k][i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
@@ -119,6 +124,7 @@ func (m *SearchResultReference) validateReferences(formats strfmt.Registry) erro
 				}
 				return err
 			}
+
 		}
 
 	}
@@ -145,6 +151,7 @@ func (m *SearchResultReference) ContextValidate(ctx context.Context, formats str
 }
 
 func (m *SearchResultReference) contextValidateMetadata(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Metadata != nil {
 		if err := m.Metadata.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -160,8 +167,11 @@ func (m *SearchResultReference) contextValidateMetadata(ctx context.Context, for
 }
 
 func (m *SearchResultReference) contextValidateReferences(ctx context.Context, formats strfmt.Registry) error {
+
 	for k := range m.References {
+
 		for i := 0; i < len(m.References[k]); i++ {
+
 			if err := m.References[k][i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
@@ -170,7 +180,9 @@ func (m *SearchResultReference) contextValidateReferences(ctx context.Context, f
 				}
 				return err
 			}
+
 		}
+
 	}
 
 	return nil

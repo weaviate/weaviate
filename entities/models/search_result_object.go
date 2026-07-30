@@ -30,6 +30,7 @@ import (
 //
 // swagger:model SearchResultObject
 type SearchResultObject struct {
+
 	// The object's UUID. Always returned.
 	// Required: true
 	// Format: uuid
@@ -73,6 +74,7 @@ func (m *SearchResultObject) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchResultObject) validateID(formats strfmt.Registry) error {
+
 	if err := validate.Required("id", "body", m.ID); err != nil {
 		return err
 	}
@@ -104,14 +106,17 @@ func (m *SearchResultObject) validateMetadata(formats strfmt.Registry) error {
 }
 
 func (m *SearchResultObject) validateProperties(formats strfmt.Registry) error {
+
 	if err := validate.Required("properties", "body", m.Properties); err != nil {
 		return err
 	}
 
 	for k := range m.Properties {
+
 		if err := validate.Required("properties"+"."+k, "body", m.Properties[k]); err != nil {
 			return err
 		}
+
 	}
 
 	return nil
@@ -129,6 +134,7 @@ func (m *SearchResultObject) validateReferences(formats strfmt.Registry) error {
 		}
 
 		for i := 0; i < len(m.References[k]); i++ {
+
 			if err := m.References[k][i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
@@ -137,6 +143,7 @@ func (m *SearchResultObject) validateReferences(formats strfmt.Registry) error {
 				}
 				return err
 			}
+
 		}
 
 	}
@@ -163,6 +170,7 @@ func (m *SearchResultObject) ContextValidate(ctx context.Context, formats strfmt
 }
 
 func (m *SearchResultObject) contextValidateMetadata(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Metadata != nil {
 		if err := m.Metadata.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -178,8 +186,11 @@ func (m *SearchResultObject) contextValidateMetadata(ctx context.Context, format
 }
 
 func (m *SearchResultObject) contextValidateReferences(ctx context.Context, formats strfmt.Registry) error {
+
 	for k := range m.References {
+
 		for i := 0; i < len(m.References[k]); i++ {
+
 			if err := m.References[k][i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
@@ -188,7 +199,9 @@ func (m *SearchResultObject) contextValidateReferences(ctx context.Context, form
 				}
 				return err
 			}
+
 		}
+
 	}
 
 	return nil

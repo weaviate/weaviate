@@ -31,6 +31,7 @@ import (
 //
 // swagger:model SearchCommon
 type SearchCommon struct {
+
 	// Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.
 	AutoLimit *int64 `json:"autoLimit,omitempty"`
 
@@ -197,10 +198,12 @@ func (m *SearchCommon) validateReturnMetadata(formats strfmt.Registry) error {
 	}
 
 	for i := 0; i < len(m.ReturnMetadata); i++ {
+
 		// value enum
 		if err := m.validateReturnMetadataItemsEnum("returnMetadata"+"."+strconv.Itoa(i), "body", m.ReturnMetadata[i]); err != nil {
 			return err
 		}
+
 	}
 
 	return nil
@@ -274,6 +277,7 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 }
 
 func (m *SearchCommon) contextValidateRerank(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Rerank != nil {
 		if err := m.Rerank.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -289,7 +293,9 @@ func (m *SearchCommon) contextValidateRerank(ctx context.Context, formats strfmt
 }
 
 func (m *SearchCommon) contextValidateReturnReferences(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.ReturnReferences); i++ {
+
 		if m.ReturnReferences[i] != nil {
 			if err := m.ReturnReferences[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -300,12 +306,14 @@ func (m *SearchCommon) contextValidateReturnReferences(ctx context.Context, form
 				return err
 			}
 		}
+
 	}
 
 	return nil
 }
 
 func (m *SearchCommon) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Where != nil {
 		if err := m.Where.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

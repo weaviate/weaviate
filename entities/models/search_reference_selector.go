@@ -31,6 +31,7 @@ import (
 //
 // swagger:model SearchReferenceSelector
 type SearchReferenceSelector struct {
+
 	// The reference property to follow.
 	// Required: true
 	LinkOn *string `json:"linkOn"`
@@ -71,6 +72,7 @@ func (m *SearchReferenceSelector) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchReferenceSelector) validateLinkOn(formats strfmt.Registry) error {
+
 	if err := validate.Required("linkOn", "body", m.LinkOn); err != nil {
 		return err
 	}
@@ -103,10 +105,12 @@ func (m *SearchReferenceSelector) validateReturnMetadata(formats strfmt.Registry
 	}
 
 	for i := 0; i < len(m.ReturnMetadata); i++ {
+
 		// value enum
 		if err := m.validateReturnMetadataItemsEnum("returnMetadata"+"."+strconv.Itoa(i), "body", m.ReturnMetadata[i]); err != nil {
 			return err
 		}
+
 	}
 
 	return nil
@@ -153,7 +157,9 @@ func (m *SearchReferenceSelector) ContextValidate(ctx context.Context, formats s
 }
 
 func (m *SearchReferenceSelector) contextValidateReturnReferences(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.ReturnReferences); i++ {
+
 		if m.ReturnReferences[i] != nil {
 			if err := m.ReturnReferences[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -164,6 +170,7 @@ func (m *SearchReferenceSelector) contextValidateReturnReferences(ctx context.Co
 				return err
 			}
 		}
+
 	}
 
 	return nil
