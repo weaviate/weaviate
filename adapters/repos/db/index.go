@@ -717,6 +717,27 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
+// withDropRLock runs f while holding this index's drop read lock. Take it
+// just-in-time per index, never up front for a whole snapshot: DeleteIndex
+// holds db.indexLock for as long as it waits on dropIndex.Lock, so an
+// acquire-all blocks every GetIndex in the process for the caller's lifetime.
+//
+// f is skipped if the index was dropped or shut down since being snapshotted,
+// which is not an error for the status and metrics callers this serves.
+func (i *Index) withDropRLock(f func() error) error {
+	i.dropIndex.RLock()
+	defer i.dropIndex.RUnlock()
+
+	i.closeLock.RLock()
+	closed := i.closed
+	i.closeLock.RUnlock()
+	if closed {
+		return nil
+	}
+
+	return f()
+}
+
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
 		// Skip lazy loaded shard which are not loaded

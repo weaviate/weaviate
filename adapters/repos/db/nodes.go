@@ -126,8 +126,7 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 ) *models.NodeStats {
 	var objectCount, shardCount int64
 	if className == "" {
-		indices, release := db.snapshotIndices()
-		defer release()
+		indices := db.snapshotIndices()
 
 		type indexStats struct {
 			objects, shards int64
@@ -136,15 +135,19 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 		results := make([]indexStats, len(indices))
 
 		eg := enterrors.NewErrorGroupWrapper(db.logger)
-		eg.SetLimit(_NUMCPU)
+		eg.SetLimit(min(_NUMCPU, len(indices)))
 		for i, idx := range indices {
 			eg.Go(func() error {
-				var shardsStatus []*models.NodeShardStatus
-				objects, shards := idx.getShardsNodeStatus(ctx, &shardsStatus, shardName)
-				results[i] = indexStats{objects: objects, shards: shards, status: shardsStatus}
-				return nil
-			})
+				return idx.withDropRLock(func() error {
+					var shardsStatus []*models.NodeShardStatus
+					objects, shards := idx.getShardsNodeStatus(ctx, &shardsStatus, shardName)
+					results[i] = indexStats{objects: objects, shards: shards, status: shardsStatus}
+					return nil
+				})
+			}, idx.Config.ClassName)
 		}
+		// only non-nil for a recovered panic; that index's slot stays zeroed and
+		// the counts below are short by its contribution
 		if err := eg.Wait(); err != nil {
 			db.logger.WithField("action", "local_node_status_for_all").Error(err)
 		}
@@ -191,22 +194,34 @@ func (db *DB) localNodeBatchStats() *models.BatchStats {
 func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus, shardName string,
 ) (totalCount, shardCount int64) {
-	replicationFactor, replicasPerShard := i.getShardsReplicationDetails(shardName)
-
+	names := make([]string, 0, 16)
+	shards := make([]ShardLike, 0, 16)
 	i.ForEachShard(func(name string, shard ShardLike) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		// if shardName is provided, only return the status for the specified shard
 		if shardName != "" && shardName != name {
 			return nil
 		}
+		names = append(names, name)
+		shards = append(shards, shard)
+		return nil
+	})
+	if len(names) == 0 {
+		return 0, 0
+	}
+
+	replicationFactor, replicasPerShard := i.getShardsReplicationDetails(names)
+	className := i.Config.ClassName.String()
+
+	for idx, shard := range shards {
+		if ctx.Err() != nil {
+			break
+		}
+		name := names[idx]
 
 		// Don't force load a lazy shard to get nodes status
-		className := i.Config.ClassName.String()
 		if lazy, ok := shard.(*LazyLoadShard); ok {
 			if !lazy.isLoaded() {
-				shardStatus := &models.NodeShardStatus{
+				*status = append(*status, &models.NodeShardStatus{
 					Name:                 name,
 					Class:                className,
 					VectorIndexingStatus: shard.GetStatus().String(),
@@ -214,16 +229,15 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					ReplicationFactor:    replicationFactor,
 					NumberOfReplicas:     replicasPerShard[name],
 					// don't add compression status as this would trigger loading the shard
-				}
-				*status = append(*status, shardStatus)
+				})
 				shardCount++
-				return nil
+				continue
 			}
 		}
 
 		objectCount, err := shard.ObjectCountAsync(ctx)
 		if err != nil {
-			i.logger.Warnf("error while getting object count for shard %s: %w", shard.Name(), err)
+			i.logger.Warnf("error while getting object count for shard %s: %v", name, err)
 		}
 
 		totalCount += int64(objectCount)
@@ -239,13 +253,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			return nil
 		})
 
-		var compressed bool
-		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
-			compressed = compressed || index.Compressed()
-			return nil
-		})
-
-		shardStatus := &models.NodeShardStatus{
+		*status = append(*status, &models.NodeShardStatus{
 			Name:                   name,
 			Class:                  className,
 			ObjectCount:            objectCount,
@@ -256,38 +264,35 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      replicationFactor,
 			NumberOfReplicas:       replicasPerShard[name],
-		}
-		*status = append(*status, shardStatus)
+		})
 		shardCount++
-		return nil
-	})
+	}
 	return totalCount, shardCount
 }
 
-// getShardsReplicationDetails resolves the replication factor and the number of
-// replicas per shard in a single schema read: all shards of an index share the
-// same sharding state, so reading it per shard only contends on the schema lock.
-func (i *Index) getShardsReplicationDetails(shardName string) (int64, map[string]int64) {
+// getShardsReplicationDetails resolves the replication factor and replica count
+// for the given shards in a single schema read. Only the named shards are
+// looked up: for a multi-tenant class state.Physical holds an entry per tenant
+// cluster-wide, so walking it would cost O(all tenants) under the class lock to
+// report on the handful of shards this node hosts.
+func (i *Index) getShardsReplicationDetails(shardNames []string) (int64, map[string]int64) {
 	var replicationFactor int64
-	replicasPerShard := map[string]int64{}
-	class := i.Config.ClassName.String()
-	err := i.schemaReader.Read(class, true, func(class *models.Class, state *sharding.State) error {
+	replicasPerShard := make(map[string]int64, len(shardNames))
+	className := i.Config.ClassName.String()
+	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 		replicationFactor = state.ReplicationFactor
-		if shardName != "" {
-			numberOfReplicas, err := state.NumberOfReplicas(shardName)
-			if err != nil {
-				return fmt.Errorf("unable to retrieve number of replicas for class %s: %w", class.Class, err)
+		for _, name := range shardNames {
+			physical, ok := state.Physical[name]
+			if !ok {
+				// concurrently deleted tenant; skip rather than fail the index
+				continue
 			}
-			replicasPerShard[shardName] = numberOfReplicas
-			return nil
-		}
-		for name, physical := range state.Physical {
 			replicasPerShard[name] = int64(len(physical.BelongsToNodes))
 		}
 		return nil
 	})
 	if err != nil {
-		i.logger.Errorf("error while getting replication details for class %s: %v", class, err)
+		i.logger.Errorf("error while getting replication details for class %s: %v", className, err)
 	}
 	return replicationFactor, replicasPerShard
 }
