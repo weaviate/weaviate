@@ -39,9 +39,9 @@ type nodeWideMetricsObserver struct {
 	activitySnapshot activityByCollection
 
 	activityLock sync.Mutex
-	usage        usageByCollection
-	// The maps usage replaced on the last cycle, refilled by the next one.
-	usageScratch usageByCollection
+	// Tenant usage as of the most recent cycle. Each cycle updates it in place
+	// instead of building a new one, so repeated observations do not allocate.
+	usage usageByCollection
 }
 
 // internal types used for tenant activity aggregation, not exposed to the user
@@ -181,9 +181,7 @@ func (o *nodeWideMetricsObserver) observeActivity() {
 	o.activityLock.Lock()
 	defer o.activityLock.Unlock()
 
-	next := o.analyzeActivityDelta(current, o.usageScratch)
-	o.usageScratch = o.usage
-	o.usage = next
+	o.updateUsage(current)
 
 	took := time.Since(start)
 	o.db.logger.WithFields(logrus.Fields{
@@ -221,41 +219,42 @@ func (o *nodeWideMetricsObserver) logActivity(col, tenant, activityType string, 
 	logBase.Logf(level, "tenant %s activity change: %s", tenant, activityType)
 }
 
-// Rebuild the usage state from the newly observed counters. The map built two
-// cycles ago is passed in as reuse and refilled, so repeated observations do not
-// allocate a map per collection.
-func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityByCollection, reuse usageByCollection) usageByCollection {
+// Update the usage state from the newly observed counters. Collections and
+// tenants that no longer appear are deleted, the rest are updated in place, so
+// repeated observations do not allocate.
+func (o *nodeWideMetricsObserver) updateUsage(currentActivity activityByCollection) {
 	now := time.Now()
 
-	next := reuse
-	if next == nil {
-		next = make(usageByCollection, len(currentActivity))
+	if o.usage == nil {
+		o.usage = make(usageByCollection, len(currentActivity))
 	}
 
 	// drop whatever doesn't appear in the new list anymore
-	for class := range next {
+	for class := range o.usage {
 		if _, ok := currentActivity[class]; !ok {
-			delete(next, class)
+			delete(o.usage, class)
 		}
 	}
 
 	for class, current := range currentActivity {
-		previous := o.usage[class]
-
-		byTenant := next[class]
+		byTenant := o.usage[class]
 		if byTenant == nil {
 			byTenant = make(usageByTenant, len(current))
-			next[class] = byTenant
-		} else {
-			clear(byTenant)
+			o.usage[class] = byTenant
+		}
+
+		for tenant := range byTenant {
+			if _, ok := current[tenant]; !ok {
+				delete(byTenant, tenant)
+			}
 		}
 
 		for tenant, act := range current {
-			byTenant[tenant] = o.tenantUsageDelta(class, tenant, act, previous, now)
+			// each record is read before it is overwritten, so the previous values
+			// can come from the map being updated
+			byTenant[tenant] = o.tenantUsageDelta(class, tenant, act, byTenant, now)
 		}
 	}
-
-	return next
 }
 
 // Derive a tenant's usage from its current counters and its record from the

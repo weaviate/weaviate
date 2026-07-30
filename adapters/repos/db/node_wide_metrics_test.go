@@ -376,6 +376,33 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 			},
 		},
 		{
+			// the collection is still there, it just has nothing left to report
+			name:   "collection loses its last tenant",
+			mutate: func() { col2.shards.LoadAndDelete("t5") },
+			want: map[string]map[string]tenantWant{
+				"Col1": {
+					"t1": {all: kept, read: kept, write: kept},
+					"t2": {all: kept, read: kept},
+					"t3": {all: kept},
+					"t4": {all: kept},
+				},
+				"Col2": {},
+			},
+		},
+		{
+			name:   "tenant returns to the emptied collection",
+			mutate: add(col2, "t5", 3, 1),
+			want: map[string]map[string]tenantWant{
+				"Col1": {
+					"t1": {all: kept, read: kept, write: kept},
+					"t2": {all: kept, read: kept},
+					"t3": {all: kept},
+					"t4": {all: kept},
+				},
+				"Col2": {"t5": {all: fresh, read: fresh}},
+			},
+		},
+		{
 			name:   "collection removed",
 			mutate: func() { delete(db.indices, "Col2") },
 			want: map[string]map[string]tenantWant{
@@ -537,8 +564,9 @@ func TestShardActivityUsageIsIndependent(t *testing.T) {
 func TestShardActivityObserveAllocations(t *testing.T) {
 	const (
 		tenants = 2000
-		// steady state is ~41 bytes per tenant, and dropping either reuse buffer
-		// costs 149 or more, so the budget sits between the two
+		// steady state is ~40 bytes per tenant, and giving up the reuse of either
+		// the counters or the usage records costs 149 or more, so the budget sits
+		// between the two
 		maxBytesPerTenant = 60
 		runs              = 10
 	)
@@ -552,10 +580,8 @@ func TestShardActivityObserveAllocations(t *testing.T) {
 	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 
-	// the buffers are only fully in place once a cycle has replaced a cycle
-	for i := 0; i < 3; i++ {
-		o.observeActivity()
-	}
+	// the maps are allocated on the first cycle and reused from then on
+	o.observeActivity()
 
 	var before, after runtime.MemStats
 	runtime.GC()
