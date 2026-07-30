@@ -509,6 +509,92 @@ func (sc *scanner) searchHybrid(q []float32, topK []uint32, survivors []int, sam
 	}
 }
 
+// searchFullSweep is searchFull evaluating several rescore windows in one
+// scan: select the largest window's candidates (hamming-ordered), exact-
+// rescore them all once, then for each window w take the top k among the
+// first w candidates. outTopK[i] receives window windows[i]'s result;
+// windows must be ascending; outFilled[i] the result count.
+func (sc *scanner) searchFullSweep(q []float32, survivors []int, windows []int, outTopK [][]uint32, outFilled []int) queryResult {
+	s := sc.store
+	n := s.n
+	maxW := windows[len(windows)-1]
+
+	t0 := time.Now()
+	s.encodeInto(q, sc.qCenter, sc.qRot, sc.qWords)
+	col := s.codes[:n]
+	q0 := sc.qWords[0]
+	acc := sc.hamming
+	for id := 0; id < n; id++ {
+		acc[id] = uint16(bits.OnesCount64(col[id] ^ q0))
+	}
+	survivors[0] = n
+	t1 := time.Now()
+	for b := 1; b < s.blocks; b++ {
+		col := s.codes[b*n : (b+1)*n]
+		qb := sc.qWords[b]
+		for id := 0; id < n; id++ {
+			acc[id] += uint16(bits.OnesCount64(col[id] ^ qb))
+		}
+		survivors[b] = n
+	}
+	sel := sc.selector
+	sel.reset(maxW)
+	for id := 0; id < n; id++ {
+		sel.add(uint32(id), int(acc[id]))
+	}
+	sc.cand = sel.collect(sc.cand[:0])
+	t2 := time.Now()
+
+	// Rescore the largest window once.
+	sc.exactIDs = sc.exactIDs[:0]
+	sc.exactD = sc.exactD[:0]
+	for _, id := range sc.cand {
+		v := sc.vectors[int(id)*sc.dims : (int(id)+1)*sc.dims]
+		d, err := sc.dist.SingleDist(q, v)
+		if err != nil {
+			panic(err)
+		}
+		sc.exactIDs = append(sc.exactIDs, id)
+		sc.exactD = append(sc.exactD, d)
+	}
+	// Top k per window by insertion over the window's prefix.
+	for wi, w := range windows {
+		if w > len(sc.exactIDs) {
+			w = len(sc.exactIDs)
+		}
+		bestID, bestD := sc.bestID[:sc.k], sc.bestD[:sc.k]
+		filled := 0
+		for i := 0; i < w; i++ {
+			d, id := sc.exactD[i], sc.exactIDs[i]
+			if filled == len(bestD) && d >= bestD[filled-1] {
+				continue
+			}
+			if filled < len(bestD) {
+				filled++
+			}
+			j := filled - 1
+			for j > 0 && bestD[j-1] > d {
+				bestD[j] = bestD[j-1]
+				bestID[j] = bestID[j-1]
+				j--
+			}
+			bestD[j] = d
+			bestID[j] = id
+		}
+		copy(outTopK[wi], bestID[:filled])
+		outFilled[wi] = filled
+	}
+	t3 := time.Now()
+
+	return queryResult{
+		survivors:  survivors,
+		bytesRead:  int64(s.blocks) * int64(n) * 8,
+		block0:     t1.Sub(t0),
+		restBlocks: t2.Sub(t1),
+		rescore:    t3.Sub(t2),
+	}
+}
+
 // searchFull is the honest no-elimination baseline: read every block of
 // every vector, accumulate full-width Hamming, select the best rescoreN via
 // the bucketed threshold (no sort, no heap), exact-rescore them and take the

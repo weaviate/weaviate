@@ -52,6 +52,7 @@ func run() error {
 		numQueries  = flag.Int("queries", 0, "number of queries to run (0 = all)")
 		rankQueries = flag.Int("rank-queries", 400, "queries to sample in rankcurve mode / schedule generation")
 		genQuantile = flag.Float64("gen-quantile", 0, "generate the budget schedule from the expected-case rank curve at this quantile (0 = use -budgets)")
+		sweepArg    = flag.String("rescore-sweep", "", "full mode: comma-separated rescore windows evaluated in one scan (recall per window)")
 		k           = flag.Int("k", 10, "final result count / recall@k")
 		csvPath     = flag.String("csv", "bitpack-bench-results.csv", "CSV file to append the run's results to")
 	)
@@ -172,6 +173,18 @@ func run() error {
 	}
 
 	sc := newScanner(store, base, *dims, budgets, *rescoreN, *k)
+
+	if *sweepArg != "" {
+		if *mode != "full" {
+			return fmt.Errorf("-rescore-sweep requires -mode=full")
+		}
+		windows, err := parseBudgets(*sweepArg)
+		if err != nil {
+			return err
+		}
+		sort.Ints(windows)
+		return runRescoreSweep(sc, store, queries, gt, gtCols, *numQueries, nq, *dims, *k, windows, *csvPath, filepath.Base(*dataDir), configLabel, *rotate, *center, *retained, *seed)
+	}
 
 	// Per-query metric collection (allocated up front, outside the hot path).
 	blocks := store.blocks
@@ -318,6 +331,94 @@ func run() error {
 	}
 	fmt.Fprintf(os.Stderr, "results appended to %s\n", *csvPath)
 	return nil
+}
+
+// runRescoreSweep runs the full scan once per query, evaluating recall for
+// every rescore window in a single pass. One CSV row per window (mode
+// "fullsweep"); latency columns describe the shared sweep run, with the
+// rescore stage covering the largest window plus per-window evaluation.
+func runRescoreSweep(sc *scanner, store *bitStore, queries []float32, gt []int32, gtCols, numQueries, nq, dims, k int, windows []int, csvPath, dataset, configLabel string, rotate, center bool, retained int, seed uint64) error {
+	if numQueries <= 0 || numQueries > nq {
+		numQueries = nq
+	}
+	blocks := store.blocks
+	outTopK := make([][]uint32, len(windows))
+	for i := range outTopK {
+		outTopK[i] = make([]uint32, k)
+	}
+	outFilled := make([]int, len(windows))
+	hits := make([]uint64, len(windows))
+	survivors := make([]int, blocks)
+	gtBuf := make([]uint64, k)
+	resBuf := make([]uint64, k)
+	block0Lat := make([]time.Duration, numQueries)
+	restLat := make([]time.Duration, numQueries)
+	rescoreLat := make([]time.Duration, numQueries)
+	totalLat := make([]time.Duration, numQueries)
+
+	fmt.Fprintf(os.Stderr, "running %d queries (rescore sweep %v, %s) ...\n", numQueries, windows, configLabel)
+	loopStart := time.Now()
+	for qi := 0; qi < numQueries; qi++ {
+		q := queries[qi*dims : (qi+1)*dims]
+		res := sc.searchFullSweep(q, survivors, windows, outTopK, outFilled)
+		block0Lat[qi] = res.block0
+		restLat[qi] = res.restBlocks
+		rescoreLat[qi] = res.rescore
+		totalLat[qi] = res.block0 + res.restBlocks + res.rescore
+
+		gtRow := gt[qi*gtCols : qi*gtCols+k]
+		for i, id := range gtRow {
+			gtBuf[i] = uint64(id)
+		}
+		for wi := range windows {
+			resBuf = resBuf[:outFilled[wi]]
+			for i, id := range outTopK[wi][:outFilled[wi]] {
+				resBuf[i] = uint64(id)
+			}
+			hits[wi] += testinghelpers.MatchesInLists(gtBuf, resBuf)
+		}
+	}
+	wall := time.Since(loopStart)
+	qps := float64(numQueries) / wall.Seconds()
+	bytesPerQuery := int64(blocks) * int64(store.n) * 8
+
+	fmt.Fprintf(os.Stdout, "\n=== rescore sweep: %s retained=%d (%s, %d queries) ===\n", dataset, retained, configLabel, numQueries)
+	fmt.Fprintf(os.Stdout, "window   recall@%d\n", k)
+	avgSurvivors := make([]float64, blocks)
+	for b := range avgSurvivors {
+		avgSurvivors[b] = float64(store.n)
+	}
+	for wi, w := range windows {
+		recall := float64(hits[wi]) / float64(uint64(k)*uint64(numQueries))
+		fmt.Fprintf(os.Stdout, "%6d   %.4f\n", w, recall)
+		report := runReport{
+			dataset: dataset, mode: "fullsweep", n: store.n, dims: dims,
+			retained: retained, rotate: rotate, center: center, config: configLabel,
+			seed: seed, budgets: "", rescoreN: w, numQueries: numQueries, k: k,
+			recall: recall, bytesPerQ: bytesPerQuery,
+			bandwidth: float64(bytesPerQuery) * float64(numQueries) / (sumDur(block0Lat) + sumDur(restLat)).Seconds() / (1 << 30),
+			qps:       qps,
+			block0:    percentiles(block0Lat), rest: percentiles(restLat),
+			rescore: percentiles(rescoreLat), total: percentiles(totalLat),
+			avgSurvivors: avgSurvivors,
+			bytesPerVec:  blocks * 8,
+			storeBytes:   int64(blocks) * int64(store.n) * 8,
+			floatBytes:   int64(store.n) * int64(dims) * 4,
+		}
+		if err := report.appendCSV(csvPath); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(os.Stderr, "sweep results appended to %s\n", csvPath)
+	return nil
+}
+
+func sumDur(ds []time.Duration) time.Duration {
+	var t time.Duration
+	for _, d := range ds {
+		t += d
+	}
+	return t
 }
 
 func parseBudgets(s string) ([]int, error) {
