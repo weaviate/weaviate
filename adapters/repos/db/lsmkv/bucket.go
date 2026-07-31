@@ -2816,7 +2816,10 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 // the counts it can derive: the exactly counted keys of the memtables and of
 // the small disk segments that carry no bloom filter, the remaining segments'
 // unioned filters, and — while the union has room left — the filter with the
-// exact keys added in. All are lower bounds, so the largest is the tightest.
+// exact keys added in. Each is a lower bound on the keys present in the index,
+// so the largest is the tightest. The index retains the keys of deleted and
+// updated values until compaction prunes them, so the result can exceed the
+// number of distinct live values.
 //
 // All layers come from one pinned view, so a flush in flight cannot drop the
 // keys of a memtable it moves.
