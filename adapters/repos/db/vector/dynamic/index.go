@@ -636,6 +636,9 @@ func (dynamic *dynamic) doUpgrade() error {
 		return b.Put(dynamic.dbKey(), []byte{1})
 	})
 	if err != nil {
+		// the new index is never installed, so tear it down like any other
+		// aborted upgrade
+		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "update dynamic")
 	}
 
