@@ -14,10 +14,13 @@ package roaringset
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -847,4 +850,84 @@ func TestValidateBufferRanges(t *testing.T) {
 			require.Equal(t, tc.expectedRanges, ranges)
 		})
 	}
+}
+
+// mirrors the real LSMBitmapBuffersUsage definition, but unregistered so each
+// test observes only its own increments.
+func newTestBitmapBuffersUsage() *prometheus.CounterVec {
+	return prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "lsm_bitmap_buffers_usage",
+		Help: "Number of bitmap buffers used by size",
+	}, []string{"size", "operation"})
+}
+
+func expectedDisposableCreated(sizeLabel string) string {
+	return fmt.Sprintf(`
+# HELP lsm_bitmap_buffers_usage Number of bitmap buffers used by size
+# TYPE lsm_bitmap_buffers_usage counter
+lsm_bitmap_buffers_usage{operation="disposable_created",size="%s"} 1
+`, sizeLabel)
+}
+
+func TestPromBufDisposableMetricsSizeLabel(t *testing.T) {
+	tests := []struct {
+		name        string
+		sizeInBytes int
+		sizeLabel   string
+	}{
+		{
+			name:        "exactly a power of two",
+			sizeInBytes: 32 << 20,
+			sizeLabel:   "32 MiB",
+		},
+		{
+			name:        "one byte above a power of two",
+			sizeInBytes: 32<<20 + 1,
+			sizeLabel:   "64 MiB",
+		},
+		{
+			name:        "one byte below a power of two",
+			sizeInBytes: 64<<20 - 1,
+			sizeLabel:   "64 MiB",
+		},
+		{
+			name:        "between two powers of two",
+			sizeInBytes: 100_000_000,
+			sizeLabel:   "128 MiB",
+		},
+		{
+			name:        "smallest buffer",
+			sizeInBytes: 1,
+			sizeLabel:   "1 B",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			counter := newTestBitmapBuffersUsage()
+			metrics := newPromBufDisposableMetrics(&monitoring.PrometheusMetrics{
+				LSMBitmapBuffersUsage: counter,
+			})
+
+			metrics.bufCreated(test.sizeInBytes)
+
+			require.NoError(t, testutil.CollectAndCompare(counter,
+				strings.NewReader(expectedDisposableCreated(test.sizeLabel))))
+		})
+	}
+}
+
+func TestBitmapBufPoolRangedDisposableMetrics(t *testing.T) {
+	// 2048 is above the largest range, so it is served by an unpooled buffer
+	// and labelled with the size class it would have needed.
+	counter := newTestBitmapBuffersUsage()
+	pool := NewBitmapBufPoolRanged(&monitoring.PrometheusMetrics{
+		LSMBitmapBuffersUsage: counter,
+	}, 1024, nil, 512, 1024)
+
+	_, put := pool.Get(2048)
+	put()
+
+	require.NoError(t, testutil.CollectAndCompare(counter,
+		strings.NewReader(expectedDisposableCreated("2.0 KiB"))))
 }

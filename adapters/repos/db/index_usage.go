@@ -64,16 +64,13 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, sha
 		index.dropIndex.RUnlock()
 	}()
 
-	// abort the scan as soon as a drop of this index is requested, so the drop
-	// does not wait behind the dropIndex.RLock held above
-	usageCtx, usageCancel := context.WithCancel(ctx)
-	defer usageCancel()
-	stop := context.AfterFunc(index.dropRequestedCtx, usageCancel)
-	defer stop()
+	usageCtx, done := index.cancelOnCloseRequested(ctx)
+	defer done()
 
 	usage, err := index.usageForCollection(usageCtx, shardReadSem, exactObjectCount, vectorsConfig)
-	if err != nil && index.dropRequestedCtx.Err() != nil && ctx.Err() == nil {
-		// the collection is being dropped: skip it, the report continues without it
+	// only a collection being deleted may be left out; a scan aborted by node
+	// shutdown must surface, or the report silently loses collections
+	if err != nil && errors.Is(context.Cause(index.closeRequestedCtx), errIndexDropped) && ctx.Err() == nil {
 		db.logger.Infof("usage scan aborted: collection %q is being dropped", className)
 		return nil, nil
 	}
