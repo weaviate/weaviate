@@ -27,11 +27,11 @@ func scatteredNodes(size, count int) []uint64 {
 	return nodes
 }
 
-// BenchmarkSparseSet_FreshSet reproduces the allocation pattern behind
-// 0-weaviate-issues#357: the outer sync.Pool drops sets on every GC cycle, so
-// under load sets are constantly reborn and every fresh set pays the lazy
-// segment allocations again as a search touches segments scattered across the
-// graph. collisionRate matches the production value in NewPool.
+// BenchmarkSparseSet_FreshSet measures the cost of a set that starts cold:
+// every iteration takes a freshly initialised set and visits nodes scattered
+// across the graph, so the lazy per-segment allocations are paid inside the
+// measured section instead of being amortised over reuses. collisionRate
+// matches the production value in NewPool.
 func BenchmarkSparseSet_FreshSet(b *testing.B) {
 	benches := []struct {
 		name   string
