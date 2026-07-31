@@ -33,9 +33,10 @@ type nodeWideMetricsObserver struct {
 	// Goroutines spawned by nodeWideMetricsObserver must exit after receiving on this channel.
 	shutdown chan struct{}
 
-	// Shard activity counters as of the most recent cycle. Only the observeShards
-	// goroutine touches it, and the next cycle refills its maps rather than
-	// allocating new ones.
+	// The tenant maps that the most recent cycle filled, kept so the next cycle
+	// can refill them instead of allocating new ones. The counters a cycle
+	// compares against are kept in usage. Only the observeShards goroutine
+	// touches it.
 	activitySnapshot activityByCollection
 
 	// The most tenants each collection has held since its counters map was last
@@ -406,8 +407,9 @@ func (tenants usageByTenant) countMatching(filter tenantactivity.UsageFilter) in
 	return count
 }
 
-// Usage returns a copy, so that callers can read it while the observer keeps
-// updating its own state.
+// Usage returns a copy: every cycle rewrites the observer's own maps in place,
+// so handing those out would let a caller range over a map while a cycle writes
+// to it, aborting the process with "concurrent map iteration and map write".
 func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
 	if o == nil {
 		// not loaded yet, requests could come in before the db is initialized yet

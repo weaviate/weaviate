@@ -47,6 +47,25 @@ func newActivityTestIndex(className string, partitioningEnabled bool) *Index {
 	}
 }
 
+// addTenant and bumpTenant return their mutation rather than applying it, so a
+// test table can hold it and the cycle loop applies it.
+func addTenant(index *Index, name string, read, write int32) func() {
+	return func() {
+		shard := &Shard{}
+		shard.activityTrackerRead.Store(read)
+		shard.activityTrackerWrite.Store(write)
+		index.shards.Store(name, shard)
+	}
+}
+
+func bumpTenant(index *Index, name string, read, write int32) func() {
+	return func() {
+		shard := index.shards.Load(name).(*Shard)
+		shard.activityTrackerRead.Add(read)
+		shard.activityTrackerWrite.Add(write)
+	}
+}
+
 // newWarmActivityObserver returns an observer that has already observed a
 // multi-tenant collection, so its tenant maps are allocated and reused from
 // here on.
@@ -139,7 +158,7 @@ func TestShardActivity(t *testing.T) {
 		// t1's counter wrapped past MaxInt32 instead of growing, which does not
 		// count as a read, so its read timestamp stays where t2's is even though
 		// its total timestamp has moved on
-		assert.Equal(t, col["t2_only_reads"], col["t1_overflow"],
+		require.Equal(t, col["t2_only_reads"], col["t1_overflow"],
 			"a wrapped counter should not move the read timestamp")
 	})
 
@@ -206,21 +225,6 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 
 	require.Empty(t, o.Usage(tenantactivity.UsageFilterAll), "nothing observed yet")
 
-	add := func(index *Index, name string, read, write int32) func() {
-		return func() {
-			shard := &Shard{}
-			shard.activityTrackerRead.Store(read)
-			shard.activityTrackerWrite.Store(write)
-			index.shards.Store(name, shard)
-		}
-	}
-	bump := func(index *Index, name string, read, write int32) func() {
-		return func() {
-			shard := index.shards.Load(name).(*Shard)
-			shard.activityTrackerRead.Add(read)
-			shard.activityTrackerWrite.Add(write)
-		}
-	}
 	on := func(index *Index, name string, fn func(*Shard)) func() {
 		return func() { fn(index.shards.Load(name).(*Shard)) }
 	}
@@ -237,7 +241,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "tenant appears at its initial counters",
-			mutate: add(col1, "t1", 1, 1),
+			mutate: addTenant(col1, "t1", 1, 1),
 			want: map[string]map[string]tenantWant{
 				"Col1": {"t1": {all: fresh}},
 				"Col2": {},
@@ -253,7 +257,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "tenant is read",
-			mutate: bump(col1, "t1", 1, 0),
+			mutate: bumpTenant(col1, "t1", 1, 0),
 			want: map[string]map[string]tenantWant{
 				"Col1": {"t1": {all: fresh, read: fresh}},
 				"Col2": {},
@@ -269,7 +273,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "tenant is written to",
-			mutate: bump(col1, "t1", 0, 1),
+			mutate: bumpTenant(col1, "t1", 0, 1),
 			want: map[string]map[string]tenantWant{
 				"Col1": {"t1": {all: fresh, read: kept, write: fresh}},
 				"Col2": {},
@@ -277,7 +281,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "read and write in the same cycle",
-			mutate: bump(col1, "t1", 1, 1),
+			mutate: bumpTenant(col1, "t1", 1, 1),
 			want: map[string]map[string]tenantWant{
 				"Col1": {"t1": {all: fresh, read: fresh, write: fresh}},
 				"Col2": {},
@@ -317,7 +321,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "tenant first seen one read above its initial counter",
-			mutate: add(col1, "t2", 2, 1),
+			mutate: addTenant(col1, "t2", 2, 1),
 			want: map[string]map[string]tenantWant{
 				"Col1": {
 					"t1": {all: kept, read: kept, write: kept},
@@ -328,7 +332,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "tenant first seen one write above its initial counter",
-			mutate: add(col1, "t3", 1, 2),
+			mutate: addTenant(col1, "t3", 1, 2),
 			want: map[string]map[string]tenantWant{
 				"Col1": {
 					"t1": {all: kept, read: kept, write: kept},
@@ -353,7 +357,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "activity in one collection leaves the other alone",
-			mutate: add(col2, "t5", 3, 1),
+			mutate: addTenant(col2, "t5", 3, 1),
 			want: map[string]map[string]tenantWant{
 				"Col1": {
 					"t1": {all: kept, read: kept, write: kept},
@@ -380,7 +384,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 			// the tenant is new to the observer again, so the write timestamp it
 			// used to have is gone rather than resurrected
 			name:   "tenant returns at its initial counters",
-			mutate: add(col1, "t3", 1, 1),
+			mutate: addTenant(col1, "t3", 1, 1),
 			want: map[string]map[string]tenantWant{
 				"Col1": {
 					"t1": {all: kept, read: kept, write: kept},
@@ -407,7 +411,7 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 		},
 		{
 			name:   "tenant returns to the emptied collection",
-			mutate: add(col2, "t5", 3, 1),
+			mutate: addTenant(col2, "t5", 3, 1),
 			want: map[string]map[string]tenantWant{
 				"Col1": {
 					"t1": {all: kept, read: kept, write: kept},
@@ -700,31 +704,51 @@ func TestShardActivityTenantMapReuse(t *testing.T) {
 	})
 }
 
-// The observe cycle runs on every node every 10 seconds, so its allocations must
-// not grow with the number of tenants.
-func TestShardActivityObserveAllocations(t *testing.T) {
-	const (
-		tenants = 2000
-		// steady state is ~40 bytes per tenant, and giving up the reuse of either
-		// the counters or the usage records costs 149 or more, so the budget sits
-		// between the two
-		maxBytesPerTenant = 60
-		runs              = 10
-	)
-
-	o, _, _ := newWarmActivityObserver(tenants)
+// bytesPerCall runs fn over a window long enough that a cost fn only pays every
+// so often still lands inside it. TotalAlloc counts the whole process, so the
+// result can be inflated but never hides an allocation.
+func bytesPerCall(fn func()) uint64 {
+	const runs = 200
 
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
 	for i := 0; i < runs; i++ {
-		o.observeActivity()
+		fn()
 	}
 	runtime.ReadMemStats(&after)
 
-	perCycle := (after.TotalAlloc - before.TotalAlloc) / runs
-	require.Less(t, perCycle, uint64(maxBytesPerTenant*tenants),
-		"observing %d unchanged tenants allocated %d bytes per cycle", tenants, perCycle)
+	return (after.TotalAlloc - before.TotalAlloc) / runs
+}
+
+// The observe cycle runs on every node every 10 seconds, so its allocations must
+// not grow with the number of tenants: what one tenant costs has to stay flat,
+// and stay below what a cycle that reallocated its maps would spend.
+func TestShardActivityObserveAllocations(t *testing.T) {
+	const (
+		// steady state is ~40 bytes per tenant, and giving up the reuse of either
+		// the counters or the usage records costs 149 or more, so the budget sits
+		// between the two
+		maxBytesPerTenant = 60
+		fewTenants        = 1000
+		manyTenants       = 8000
+	)
+
+	perTenant := func(tenants int) uint64 {
+		o, _, _ := newWarmActivityObserver(tenants)
+		return bytesPerCall(o.observeActivity) / uint64(tenants)
+	}
+
+	few, many := perTenant(fewTenants), perTenant(manyTenants)
+	require.Less(t, few, uint64(maxBytesPerTenant),
+		"observing %d unchanged tenants allocated %d bytes per tenant per cycle", fewTenants, few)
+	require.Less(t, many, uint64(maxBytesPerTenant),
+		"observing %d unchanged tenants allocated %d bytes per tenant per cycle", manyTenants, many)
+	// the fixed cost of a cycle is spread over more tenants, so a collection that
+	// grew may only ever cost less per tenant, never more
+	require.LessOrEqual(t, many, few,
+		"a cycle cost %d bytes per tenant at %d tenants and %d at %d",
+		few, fewTenants, many, manyTenants)
 }
 
 // A read or write filter reports only the tenants that saw that kind of
@@ -735,7 +759,6 @@ func TestShardActivityUsageAllocations(t *testing.T) {
 		tenants = 2000
 		readers = 3
 		writers = 2
-		runs    = 10
 		// a map holding every tenant costs ~98 bytes per tenant when it is sized
 		// upfront and ~194 when it grows into it, so the budget sits between the
 		// two, and a handful of matches has to stay far below either
@@ -769,15 +792,7 @@ func TestShardActivityUsageAllocations(t *testing.T) {
 			// a budget on its own would also pass on an answer that is too small
 			require.Len(t, o.Usage(tt.filter)["Col1"], tt.want)
 
-			var before, after runtime.MemStats
-			runtime.GC()
-			runtime.ReadMemStats(&before)
-			for i := 0; i < runs; i++ {
-				o.Usage(tt.filter)
-			}
-			runtime.ReadMemStats(&after)
-
-			perCall := (after.TotalAlloc - before.TotalAlloc) / runs
+			perCall := bytesPerCall(func() { o.Usage(tt.filter) })
 			require.Less(t, perCall, tt.maxBytes,
 				"reporting %d of %d tenants allocated %d bytes per call", tt.want, tenants, perCall)
 		})
@@ -871,22 +886,6 @@ func TestShardActivityLogging(t *testing.T) {
 	db.config.TenantActivityWriteLogLevel = configRuntime.NewDynamicValue("info")
 	o := newNodeWideMetricsObserver(db)
 
-	addTenant := func(name string, read, write int32) func() {
-		return func() {
-			shard := &Shard{}
-			shard.activityTrackerRead.Store(read)
-			shard.activityTrackerWrite.Store(write)
-			col1.shards.Store(name, shard)
-		}
-	}
-	bump := func(name string, read, write int32) func() {
-		return func() {
-			shard := col1.shards.Load(name).(*Shard)
-			shard.activityTrackerRead.Add(read)
-			shard.activityTrackerWrite.Add(write)
-		}
-	}
-
 	cycles := []struct {
 		name   string
 		mutate func()
@@ -894,27 +893,27 @@ func TestShardActivityLogging(t *testing.T) {
 	}{
 		{
 			name:   "new tenant at its initial counters",
-			mutate: addTenant("t_activation", 1, 1),
+			mutate: addTenant(col1, "t_activation", 1, 1),
 			want:   map[string]string{"t_activation": "activation"},
 		},
 		{
 			name:   "new tenant that has already been read",
-			mutate: addTenant("t_new_read", 5, 1),
+			mutate: addTenant(col1, "t_new_read", 5, 1),
 			want:   map[string]string{"t_new_read": "read"},
 		},
 		{
 			name:   "new tenant that has already been written to",
-			mutate: addTenant("t_new_write", 1, 5),
+			mutate: addTenant(col1, "t_new_write", 1, 5),
 			want:   map[string]string{"t_new_write": "write"},
 		},
 		{
 			name:   "known tenant is read",
-			mutate: bump("t_activation", 1, 0),
+			mutate: bumpTenant(col1, "t_activation", 1, 0),
 			want:   map[string]string{"t_activation": "read"},
 		},
 		{
 			name:   "known tenant is written to",
-			mutate: bump("t_activation", 0, 1),
+			mutate: bumpTenant(col1, "t_activation", 0, 1),
 			want:   map[string]string{"t_activation": "write"},
 		},
 		{
