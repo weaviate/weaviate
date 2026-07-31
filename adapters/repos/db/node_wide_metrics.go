@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -376,15 +375,8 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	if o.db.config.DisableDimensionMetrics.Get() {
 		return
 	}
-	var indices map[string]*Index
 	// We're a low-priority process, copy the index map to avoid blocking others.
-	// No new indices can be added while we're holding the lock anyways.
-	func() {
-		o.db.indexLock.RLock()
-		defer o.db.indexLock.RUnlock()
-		indices = make(map[string]*Index, len(o.db.indices))
-		maps.Copy(indices, o.db.indices)
-	}()
+	indices := o.db.copyIndices()
 
 	var total DimensionMetrics
 
