@@ -13,6 +13,7 @@ package segmentindex
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -102,6 +103,17 @@ func (t *DiskTree) descendTo(key []byte) (pos, keyLen uint64, err error) {
 	steps := 0
 	maxSteps := maxDescentSteps(len(data))
 
+	// 8-byte keys (the int/number/date/docID encodings) compare as big-endian
+	// uint64s: for equal-length keys, lexicographic byte order equals numeric
+	// big-endian order, and the single-word compare avoids the bytes.Compare
+	// call that otherwise dominates the descent. The probe key's word is
+	// loop-invariant, read once here.
+	var probeWord uint64
+	probe8 := len(key) == 8
+	if probe8 {
+		probeWord = binary.BigEndian.Uint64(key)
+	}
+
 	for {
 		// A child pointer leading back to an already visited node would keep the
 		// descent going forever. No descent visits a node twice, so it cannot take
@@ -122,7 +134,13 @@ func (t *DiskTree) descendTo(key []byte) (pos, keyLen uint64, err error) {
 			return 0, 0, fmt.Errorf("node key at %d len %d out of range", pos, keyLen)
 		}
 
-		keyEqual := bytes.Compare(key, data[pos:pos+keyLen])
+		var keyEqual int
+		if probe8 && keyLen == 8 {
+			// the keyLen bounds check above guarantees 8 readable bytes
+			keyEqual = cmp.Compare(probeWord, binary.BigEndian.Uint64(data[pos:]))
+		} else {
+			keyEqual = bytes.Compare(key, data[pos:pos+keyLen])
+		}
 		pos += keyLen
 		avail := dataLen - pos
 		if keyEqual == 0 {
