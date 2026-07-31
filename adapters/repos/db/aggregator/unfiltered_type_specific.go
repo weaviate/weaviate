@@ -432,14 +432,15 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 	return nil
 }
 
-// propertyValuesFromInverted lists the property's values from its filterable
-// inverted bucket instead of scanning every object: distinct values are the
-// bucket's keys, live doc counts their bitmaps' cardinalities. Past
-// prop.TopOccurrencesCutoff distinct values it reports CutoffExceeded
-// instead of values; deleted values count toward the cutoff until compaction
-// reclaims them. Keys decode per data type into the value's string form; for
-// text they are the indexed terms, identical to stored values for
-// untokenized properties.
+// propertyValuesFromInverted lists the property's values from its inverted
+// index instead of scanning every object: the filterable roaringset bucket
+// when the property has one (distinct values are its keys, live doc counts
+// their bitmaps' cardinalities), otherwise the searchable bucket's stored
+// posting counts when provably churn-free. Past prop.TopOccurrencesCutoff
+// distinct values it reports CutoffExceeded instead of values; deleted
+// values count toward the cutoff until compaction reclaims them. Keys decode
+// per data type into the value's string form; for text they are the indexed
+// terms, identical to stored values for untokenized properties.
 func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 	prop aggregation.ParamProperty, dt schema.DataType,
 ) (*aggregation.Property, error) {
@@ -454,10 +455,29 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		return agg.AddTextCount(decodeInvertedKey(key, dt), docCount)
 	}
 
-	// A searchable bucket with the inverted strategy stores each term's
-	// posting count in its rows, answering without touching any bitmaps —
-	// but only when provably churn-free; otherwise the exact paths below
-	// take over with agg untouched.
+	// The filterable roaringset bucket answers whenever the property has
+	// one: its layer fold is exact under any churn. The searchable bucket's
+	// stored posting counts serve searchable-only properties, guarded by
+	// their churn gate; everything else falls back to the object scan.
+	if b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String())); b != nil {
+		defer release()
+		if b.Strategy() != lsmkv.StrategyRoaringSet {
+			return ua.property(ctx, withoutCutoff(prop))
+		}
+
+		exceeded, err := b.RoaringSetEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff), emit)
+		if err != nil {
+			return nil, err
+		}
+		if exceeded {
+			out.TextAggregation = aggregation.Text{CutoffExceeded: true}
+			return &out, nil
+		}
+
+		out.TextAggregation = agg.Res()
+		return &out, nil
+	}
+
 	if sb, sbRelease := ua.store.AcquireBucketForRead(helpers.BucketSearchableFromPropNameLSM(prop.Name.String())); sb != nil {
 		exceeded, exact, err := sb.InvertedEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff), emit)
 		sbRelease()
@@ -472,30 +492,10 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 			out.TextAggregation = agg.Res()
 			return &out, nil
 		}
+		// churn voided the stored counts (agg untouched); scan objects instead
 	}
 
-	b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String()))
-	if b == nil {
-		// no filterable index for this property
-		return ua.property(ctx, withoutCutoff(prop))
-	}
-	defer release()
-	if b.Strategy() != lsmkv.StrategyRoaringSet {
-		return ua.property(ctx, withoutCutoff(prop))
-	}
-
-	exceeded, err := b.RoaringSetEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff), emit)
-	if err != nil {
-		return nil, err
-	}
-	if exceeded {
-		out.TextAggregation = aggregation.Text{CutoffExceeded: true}
-		return &out, nil
-	}
-
-	out.TextAggregation = agg.Res()
-
-	return &out, nil
+	return ua.property(ctx, withoutCutoff(prop))
 }
 
 func withoutCutoff(prop aggregation.ParamProperty) aggregation.ParamProperty {

@@ -221,6 +221,81 @@ func TestPropertyValuesFromInvertedCutoff(t *testing.T) {
 		}, res.TextAggregation.Items)
 	})
 
+	t.Run("filterable preferred over a clean searchable bucket", func(t *testing.T) {
+		mapPair := func(docID uint64) lsmkv.MapPair {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, docID)
+			return lsmkv.MapPair{Key: key, Value: make([]byte, 8)}
+		}
+
+		// both indexes exist and the searchable one is churn-free; its
+		// stored counts (go=2, rust=1) diverge from the filterable state,
+		// so the result pins which bucket answered
+		sbName := helpers.BucketSearchableFromPropNameLSM("lang")
+		require.NoError(t, store.CreateOrLoadBucket(ctx, sbName,
+			lsmkv.WithStrategy(lsmkv.StrategyInverted),
+			lsmkv.WithUseBloomFilter(true)))
+		sb := store.Bucket(sbName)
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(1)))
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(2)))
+		require.NoError(t, sb.MapSet([]byte("rust"), mapPair(3)))
+		require.NoError(t, sb.FlushAndSwitch())
+
+		fb := newBucket(t, "lang")
+		require.NoError(t, fb.RoaringSetAddList([]byte("go"), []uint64{1, 2, 4}))
+		require.NoError(t, fb.RoaringSetAddList([]byte("rust"), []uint64{3}))
+		require.NoError(t, fb.RoaringSetAddList([]byte("zig"), []uint64{5}))
+		require.NoError(t, fb.FlushAndSwitch())
+
+		res, err := ua.propertyValuesFromInverted(ctx, aggregation.ParamProperty{
+			Name: "lang", Aggregators: topOccs, TopOccurrencesCutoff: 10,
+		}, schema.DataTypeText)
+		require.NoError(t, err)
+		require.False(t, res.TextAggregation.CutoffExceeded)
+		assert.ElementsMatch(t, []aggregation.TextOccurrence{
+			{Value: "go", Occurs: 3},
+			{Value: "rust", Occurs: 1},
+			{Value: "zig", Occurs: 1},
+		}, res.TextAggregation.Items, "must be the filterable bucket's counts")
+	})
+
+	t.Run("churned searchable without filterable falls back to the object scan", func(t *testing.T) {
+		mapPair := func(docID uint64) lsmkv.MapPair {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, docID)
+			return lsmkv.MapPair{Key: key, Value: make([]byte, 8)}
+		}
+
+		sbName := helpers.BucketSearchableFromPropNameLSM("desc")
+		require.NoError(t, store.CreateOrLoadBucket(ctx, sbName,
+			lsmkv.WithStrategy(lsmkv.StrategyInverted),
+			lsmkv.WithUseBloomFilter(true)))
+		sb := store.Bucket(sbName)
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(1)))
+		require.NoError(t, sb.MapSet([]byte("go"), mapPair(2)))
+		require.NoError(t, sb.FlushAndSwitch())
+		require.NoError(t, sb.MapDeleteKey([]byte("go"), mapPair(2).Key))
+		require.NoError(t, sb.FlushAndSwitch())
+
+		// the store has no objects bucket, so reaching the scan errors —
+		// proving the churned stored counts were refused
+		schemaGetter := schemaUC.NewMockSchemaGetter(t)
+		schemaGetter.EXPECT().ReadOnlyClass("Things").Return(&models.Class{
+			Class: "Things",
+			Properties: []*models.Property{
+				{Name: "desc", DataType: schema.DataTypeText.PropString()},
+			},
+		})
+		uaScan := newUnfilteredAggregator(&Aggregator{
+			store: store, logger: logger, getSchema: schemaGetter,
+			params: aggregation.Params{ClassName: "Things"},
+		})
+		_, err := uaScan.propertyValuesFromInverted(ctx, aggregation.ParamProperty{
+			Name: "desc", Aggregators: topOccs, TopOccurrencesCutoff: 10,
+		}, schema.DataTypeText)
+		require.Error(t, err)
+	})
+
 	t.Run("churned searchable bucket falls back to exact filterable counts", func(t *testing.T) {
 		mapPair := func(docID uint64) lsmkv.MapPair {
 			key := make([]byte, 8)
