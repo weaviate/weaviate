@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 
@@ -23,11 +22,12 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func TestCreateOrLoadBucketConcurrency(t *testing.T) {
-	t.Parallel()
+// The mock is returned alongside the store because each caller asserts its own
+// NewBucket call count.
+func newStoreWithMockedBuckets(t *testing.T) (*Store, *MockBucketCreator) {
+	t.Helper()
 
 	dirName := t.TempDir()
-	defer os.RemoveAll(dirName)
 	logger, _ := test.NewNullLogger()
 
 	store, err := New(dirName, dirName, logger, nil, nil,
@@ -36,8 +36,8 @@ func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	mockBucketCreator := NewMockBucketCreator(t)
-	mockBucketCreator.On("NewBucket",
+	creator := NewMockBucketCreator(t)
+	creator.On("NewBucket",
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
@@ -45,8 +45,16 @@ func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
-	).Return(&Bucket{}, nil)
-	store.bcreator = mockBucketCreator
+	).Return(&Bucket{logger: nullLogger()}, nil)
+	store.bcreator = creator
+
+	return store, creator
+}
+
+func TestCreateOrLoadBucketConcurrency(t *testing.T) {
+	t.Parallel()
+
+	store, mockBucketCreator := newStoreWithMockedBuckets(t)
 
 	defer func() {
 		// this test create in total 2 new bucket so NewBucket
@@ -72,27 +80,7 @@ func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 func TestCreateBucketConcurrency(t *testing.T) {
 	t.Parallel()
 
-	dirName := t.TempDir()
-	defer os.RemoveAll(dirName)
-	logger, _ := test.NewNullLogger()
-
-	store, err := New(dirName, dirName, logger, nil, nil,
-		cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1),
-		cyclemanager.NewCallbackGroup("classCompactionNonObjects", logger, 1),
-		cyclemanager.NewCallbackGroupNoop())
-	require.Nil(t, err)
-
-	mockBucketCreator := NewMockBucketCreator(t)
-	mockBucketCreator.On("NewBucket",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-	).Return(&Bucket{}, nil)
-	store.bcreator = mockBucketCreator
+	store, mockBucketCreator := newStoreWithMockedBuckets(t)
 
 	tcs := []string{"bucket1", "bucket1", "bucket1"}
 	wg := sync.WaitGroup{}

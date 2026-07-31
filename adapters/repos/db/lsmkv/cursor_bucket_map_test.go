@@ -92,6 +92,7 @@ func TestMapCursorConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
 	}
 
 	// Open the cursor that should see key1..key3 only and stay stable
@@ -210,6 +211,7 @@ func TestMapCursorKeyOnly(t *testing.T) {
 		active:   active,
 		disk:     diskSegments,
 		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
 	}
 
 	cur, err := b.MapCursorKeyOnly()
@@ -239,6 +241,7 @@ func TestMapCursorKeyOnly_FirstKeyOnNonEmptyBucket(t *testing.T) {
 		}),
 		disk:     &SegmentGroup{logger: logger},
 		strategy: StrategyMapCollection,
+		logger:   logger,
 	}
 
 	cur, err := b.MapCursorKeyOnly()
@@ -278,6 +281,7 @@ func TestMapCursorKeyOnly_TombstonedKeyDropped(t *testing.T) {
 		}),
 		disk:     diskSegments,
 		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
 	}
 
 	cur, err := b.MapCursorKeyOnly()

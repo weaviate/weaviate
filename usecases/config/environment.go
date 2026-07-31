@@ -1446,6 +1446,9 @@ func FromEnv(config *Config) error {
 	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
 		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
 
+	config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED")))
+
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
 		operationalMode = v

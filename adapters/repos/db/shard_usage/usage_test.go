@@ -14,6 +14,7 @@ package shardusage
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -215,6 +216,43 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 	return fileTypes
 }
 
+// Nothing deletes the pre-calculated usage of a shard that stays cold, so the
+// version check is the only guard against serving outdated sizes.
+func TestLoadComputedUsageDataVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		version   int
+		wantError bool
+	}{
+		{name: "current version is served", version: types.UsageDiskVersion},
+		{name: "older version is rejected", version: types.UsageDiskVersion - 1, wantError: true},
+		{name: "newer version is rejected", version: types.UsageDiskVersion + 1, wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(dirName, "shard1"), 0o777))
+
+			stored := &types.UsageDisk{
+				Version:    tt.version,
+				ShardUsage: &types.ShardUsage{Name: "shard1", IndexStorageBytes: 42},
+			}
+			data, err := json.Marshal(stored)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(usageTmpFilePath(dirName, "shard1"), data, 0o600))
+
+			usage, err := LoadComputedUsageData(dirName, "shard1")
+			if tt.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, uint64(42), usage.IndexStorageBytes)
+		})
+	}
+}
+
 func TestStorageCalculation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -224,7 +262,16 @@ func TestStorageCalculation(t *testing.T) {
 	lsmFolder := shardPathLSM(dirName, "shard1")
 	require.NoError(t, os.MkdirAll(lsmFolder, 0o777))
 
-	buckets := []string{helpers.ObjectsBucketLSM, helpers.DimensionsBucketLSM, "vectors", "vectors_compressed", "vectors_compressed_named_vector", "property_someProp_searchable", "property_someProp", "property__id"}
+	// a bucket that exists but holds nothing yet
+	emptyBucket := helpers.BucketNestedFromPropNameLSM("emptyNestedProp")
+	indexBuckets := []string{
+		helpers.DimensionsBucketLSM,
+		"property_someProp_searchable", "property_someProp", "property__id",
+		helpers.BucketNestedFromPropNameLSM("someNestedProp"),
+		helpers.BucketNestedMetaFromPropNameLSM("someNestedProp"),
+		emptyBucket,
+	}
+	buckets := append([]string{helpers.ObjectsBucketLSM, "vectors", "vectors_compressed", "vectors_compressed_named_vector"}, indexBuckets...)
 	sizeTracker := make(map[string]uint64, len(buckets))
 
 	// create different buckets with dummy files with varying sizes
@@ -233,13 +280,18 @@ func TestStorageCalculation(t *testing.T) {
 		require.NoError(t, os.MkdirAll(bucketPath, 0o777))
 		sizeTracker[bucket] = 0
 
-		// create some dummy files
-		for i := 0; i < rand.Intn(10); i++ {
+		if bucket == emptyBucket {
+			continue
+		}
+
+		// non-empty, so a bucket left out of the calculation always changes the result
+		numFiles := rand.Intn(10) + 1
+		for i := 0; i < numFiles; i++ {
 			filePath := filepath.Join(bucketPath, fmt.Sprintf("file%d.db", i))
 			f, err := os.Create(filePath)
 			require.NoError(t, err)
 
-			size := rand.Intn(10000)
+			size := rand.Intn(10000) + 1
 			sizeTracker[bucket] += uint64(size)
 			data := make([]byte, size)
 			_, err = f.Write(data)
@@ -264,7 +316,11 @@ func TestStorageCalculation(t *testing.T) {
 
 	indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
 	require.NoError(t, err)
-	require.Equal(t, sizeTracker["property_someProp_searchable"]+sizeTracker["property_someProp"]+sizeTracker["property__id"]+sizeTracker[helpers.DimensionsBucketLSM], indexBytes)
+	expectedIndexBytes := uint64(0)
+	for _, bucket := range indexBuckets {
+		expectedIndexBytes += sizeTracker[bucket]
+	}
+	require.Equal(t, expectedIndexBytes, indexBytes)
 
 	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)

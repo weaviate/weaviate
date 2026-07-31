@@ -60,10 +60,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	s.haltForTransferCount++
 
 	defer func() {
-		if err == nil && inactivityTimeout > 0 {
+		if err != nil {
+			return
+		}
+		if inactivityTimeout > 0 {
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
 			s.mayInitInactivityMonitoring()
 		}
+		s.mayResetInactivityDeadline()
 	}()
 
 	if offloading {
