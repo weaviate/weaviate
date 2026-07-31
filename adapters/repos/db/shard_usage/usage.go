@@ -373,9 +373,12 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek(ctx, []byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next(ctx) {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+			if !strings.HasPrefix(string(k), targetVector) {
 				break
+			}
+			// a longer name sharing this prefix can sort before the target's own keys
+			if len(k) != expectedKeyLen {
+				continue
 			}
 
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
@@ -395,9 +398,12 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek([]byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next() {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+			if !strings.HasPrefix(string(k), targetVector) {
 				break
+			}
+			// a longer name sharing this prefix can sort before the target's own keys
+			if len(k) != expectedKeyLen {
+				continue
 			}
 
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
