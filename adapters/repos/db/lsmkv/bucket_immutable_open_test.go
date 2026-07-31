@@ -252,6 +252,32 @@ func TestOpenImmutableBucketWithCrashResidue(t *testing.T) {
 	}
 }
 
+// The switch after a compaction marks the left of its two source segments for deletion first,
+// so a compacted segment still sitting next to a present left source never came from a switch.
+// That left source is live and must keep being read.
+func TestOpenImmutableBucketWithOrphanedCompactionOutput(t *testing.T) {
+	// no segment carries this id, a later compaction consumed that source
+	const consumedSourceID = "1800000000000000000"
+
+	dir, older, newer := seedTwoSegments(t)
+	// the newer segment is the left source of the leftover, the consumed one its right
+	writeFile(t, dir, compactedName(newer, consumedSourceID)+".tmp", compactedSegment(t))
+	before := dirSnapshot(t, dir)
+
+	b := openAndReadValues(t, dir, map[string]string{"k1": "v1", "k2": "v2"},
+		WithImmutable(true), WithUseBloomFilter(false))
+
+	var mounted []string
+	for _, segment := range b.disk.segments {
+		mounted = append(mounted, filepath.Base(segment.getPath()))
+	}
+	require.Equal(t, []string{older, newer}, mounted)
+	require.NoError(t, b.Shutdown(context.Background()))
+
+	require.Equal(t, before, dirSnapshot(t, dir),
+		"an immutable open must not add, change or remove a file")
+}
+
 // requireRecovered requires that a writable open has cleaned up every leftover: no temporary
 // file, no file marked for deletion and no scratch directory is left in dir.
 func requireRecovered(t *testing.T, dir string) {

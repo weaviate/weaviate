@@ -214,12 +214,12 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		if sg.immutable {
 			// Renaming the compacted segment over its sources is a write, so a read-only
-			// open reads it where it is instead — but only once the switch has taken a
-			// source away, as until then the compaction may still have been writing it.
-			if remaining, started := compactionSwitchStarted(jointSegmentsIDs, files); started {
+			// open reads it where it is instead — but only once the switch has taken the
+			// left source away, as until then the compaction may still have been writing it.
+			if rightSource, started := compactionSwitchStarted(jointSegmentsIDs, files); started {
 				compactedSegments[entry] = struct{}{}
-				for _, name := range remaining {
-					delete(files, name)
+				if rightSource != "" {
+					delete(files, rightSource)
 				}
 
 				logger.WithField("action", "lsm_segment_init").
@@ -622,21 +622,21 @@ func compactionSourceIDs(entry string) []string {
 	return strings.Split(segmentID(segmentFileName), "_")
 }
 
-// compactionSwitchStarted reports whether the switch replacing the segments with the given
-// ids by their compacted segment had already begun, and returns the ones still on disk. The
-// compacted segment is fsynced and closed before the first source is marked for deletion, so
-// a missing source means it is complete and holds the only copy of their data.
-func compactionSwitchStarted(sourceIDs []string, files map[string]int64) (remaining []string, started bool) {
+// compactionSwitchStarted reports whether the switch replacing the segments with the given ids
+// by their compacted segment had already begun, and names the right source if it is still on
+// disk. The switch marks the left source first, and the compacted segment is fsynced and closed
+// before that mark, so once the left source is gone it is complete and supersedes both sources.
+func compactionSwitchStarted(sourceIDs []string, files map[string]int64) (rightSource string, started bool) {
 	if len(sourceIDs) != 2 {
-		return nil, false
+		return "", false
 	}
 
-	for _, id := range sourceIDs {
-		if found, name := segmentExistsWithID(id, files); found {
-			remaining = append(remaining, name)
-		}
+	if leftFound, _ := segmentExistsWithID(sourceIDs[0], files); leftFound {
+		return "", false
 	}
-	return remaining, len(remaining) < len(sourceIDs)
+
+	_, rightSource = segmentExistsWithID(sourceIDs[1], files)
+	return rightSource, true
 }
 
 func (sg *SegmentGroup) pauseCompaction(ctx context.Context) error {
