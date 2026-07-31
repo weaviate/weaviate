@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -260,22 +259,15 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 }
 
 // localShardsToLoad returns the number of local shards that count toward eager
-// startup loading for the given class: local physical shards whose activity
-// status is HOT (empty status counts as HOT)
+// startup loading for the given class: the shards its namespace state and their
+// own activity status agree should be open. A class whose shards none of the
+// loading paths will open must not be counted, or progress never completes.
 func (db *DB) localShardsToLoad(className string) int64 {
-	var count int64
-	_ = db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return nil
-		}
-		for name, physical := range state.Physical {
-			if state.IsLocalShard(name) && physical.ActivityStatus() == models.TenantActivityStatusHOT {
-				count++
-			}
-		}
-		return nil
-	})
-	return count
+	desired, err := db.DesiredOpenLocalShards(className)
+	if err != nil {
+		return 0
+	}
+	return int64(len(desired))
 }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
