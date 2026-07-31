@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -163,6 +164,19 @@ func (db *DB) DesiredOpenLocalShards(className string) ([]string, error) {
 	// Map iteration order otherwise makes a sweep's logs and diffs unreproducible.
 	sort.Strings(desired)
 	return desired, nil
+}
+
+// ReopenShard loads a shard on behalf of a resuming namespace, which the request
+// path refuses to do while the namespace comes back. The shard is loaded outright
+// rather than registered lazily, since no request would come along to load it. A
+// namespace that keeps no shards open is still refused, so a stale reopen cannot
+// revive a suspended one.
+func (db *DB) ReopenShard(ctx context.Context, className, shardName string) error {
+	index := db.GetIndex(schema.ClassName(className))
+	if index == nil {
+		return fmt.Errorf("index for class %q not found locally", className)
+	}
+	return index.initLocalShardWithForcedLoading(ctx, index.getClass(), shardName, true, false, callerResume)
 }
 
 func (i *Index) shardsShouldBeOpen() bool {
