@@ -15,13 +15,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBucketReplaceWritePathRefCount(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		strategy:       StrategyReplace,
-		disk:           &SegmentGroup{segments: []Segment{}},
+		disk:           &SegmentGroup{logger: logger, segments: []Segment{}},
 		active:         newTestMemtableReplace(nil),
 		keepTombstones: true,
 	}

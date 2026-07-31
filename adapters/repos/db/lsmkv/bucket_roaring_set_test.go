@@ -33,9 +33,10 @@ import (
 // RoaringSet type correctly use and release refcounts on the active memtable
 // and therefore do not block a flushlock for the entire duration of the wrige.
 func TestRoaringSetWritePathRefCount(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		strategy: StrategyRoaringSet,
-		disk:     &SegmentGroup{segments: []Segment{}},
+		disk:     &SegmentGroup{logger: logger, segments: []Segment{}},
 		active:   newTestMemtableRoaringSet(nil),
 	}
 
@@ -94,9 +95,10 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		active := newTestMemtableRoaringSet(nil)
 		active.roaringSetGetErr = readErr
 
+		logger, _ := test.NewNullLogger()
 		b := Bucket{
 			strategy: StrategyRoaringSet,
-			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+			disk:     &SegmentGroup{logger: logger, segments: []Segment{diskSeg}},
 		}
 		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
 
@@ -119,9 +121,10 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		flushing.roaringSetGetErr = readErr
 		active := newTestMemtableRoaringSet(nil)
 
+		logger, _ := test.NewNullLogger()
 		b := Bucket{
 			strategy: StrategyRoaringSet,
-			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+			disk:     &SegmentGroup{logger: logger, segments: []Segment{diskSeg}},
 		}
 		view := BucketConsistentView{Active: active, Flushing: flushing, Disk: []Segment{diskSeg}}
 
@@ -139,9 +142,10 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		diskSeg := newDiskSeg()
 		active := newTestMemtableRoaringSet(nil)
 
+		logger, _ := test.NewNullLogger()
 		b := Bucket{
 			strategy: StrategyRoaringSet,
-			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+			disk:     &SegmentGroup{logger: logger, segments: []Segment{diskSeg}},
 		}
 		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
 

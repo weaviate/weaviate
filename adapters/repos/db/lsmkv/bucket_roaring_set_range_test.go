@@ -167,6 +167,7 @@ func TestRoaringSetRangeReaderConsistentViewInMemo(t *testing.T) {
 	b := Bucket{
 		active: initialMemtable,
 		disk: &SegmentGroup{
+			logger:                         logger,
 			segments:                       []Segment{},
 			roaringSetRangeSegmentInMemory: segInMemo,
 		},
@@ -454,9 +455,10 @@ func newRangeableBucketForBench(logger logrus.FieldLogger, rep *roaringsetrange.
 func TestRoaringSetRangeWritePathRefCount(t *testing.T) {
 	key1, key2 := uint64(1), uint64(2)
 
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		strategy: StrategyRoaringSetRange,
-		disk:     &SegmentGroup{segments: []Segment{}},
+		disk:     &SegmentGroup{logger: logger, segments: []Segment{}},
 		active:   newTestMemtableRoaringSetRange(nil),
 	}
 

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,20 +74,22 @@ func TestSegmentGroup_BestCompactionPair(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
 			sg := &SegmentGroup{
-				segments:       test.segments,
+				logger:         logger,
+				segments:       testCase.segments,
 				maxSegmentSize: maxSegmentSize,
 			}
 			pair, level := sg.findCompactionCandidates()
-			if test.expectedPair == nil {
+			if testCase.expectedPair == nil {
 				assert.Nil(t, pair)
 				assert.Equal(t, uint16(0), level)
 			} else {
-				leftPath := test.segments[pair[0]].getPath()
-				rightPath := test.segments[pair[1]].getPath()
-				assert.Equal(t, test.expectedPair, []string{leftPath, rightPath})
+				leftPath := testCase.segments[pair[0]].getPath()
+				rightPath := testCase.segments[pair[1]].getPath()
+				assert.Equal(t, testCase.expectedPair, []string{leftPath, rightPath})
 			}
 		})
 	}
@@ -1284,7 +1287,8 @@ func TestSegmentGroup_CompactionPairToFixLevelsOrder(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			sg := &SegmentGroup{segments: tc.segments}
+			logger, _ := test.NewNullLogger()
+			sg := &SegmentGroup{logger: logger, segments: tc.segments}
 			pair, lvl := sg.findCompactionCandidates()
 
 			if tc.expPair == nil {
@@ -1302,10 +1306,12 @@ func TestSegmentGroup_CompactionPairToFixLevelsOrder(t *testing.T) {
 
 func TestSegmenGroup_CompactionLargerThanMaxSize(t *testing.T) {
 	maxSegmentSize := int64(10000)
+	logger, _ := test.NewNullLogger()
 	// this test only tests the unhappy path which has an early exist condition,
 	// meaning we don't need real segments, it is only metadata that is evaluated
 	// here.
 	sg := &SegmentGroup{
+		logger: logger,
 		segments: []Segment{
 			&segment{size: 8000, path: "segment0", level: 3},
 			&segment{size: 8000, path: "segment1", level: 3},
@@ -1320,7 +1326,9 @@ func TestSegmenGroup_CompactionLargerThanMaxSize(t *testing.T) {
 
 func TestSegmentGroup_CompactionCandidates(t *testing.T) {
 	compactionResizeFactor := float32(1)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:   logger,
 		segments: createSegments(),
 	}
 
@@ -1560,7 +1568,9 @@ func TestSegmentGroup_CompactionCandidates(t *testing.T) {
 
 func TestSegmentGroup_CompactionCandidates_MaxSize300_Resize08(t *testing.T) {
 	compactionResizeFactor := float32(.8)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:         logger,
 		segments:       createSegments(),
 		maxSegmentSize: 300 * GiB,
 	}
@@ -1741,7 +1751,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize300_Resize08(t *testing.T) {
 
 func TestSegmentGroup_CompactionCandidates_MaxSize400_Resize09(t *testing.T) {
 	compactionResizeFactor := float32(.9)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:         logger,
 		segments:       createSegments(),
 		maxSegmentSize: 400 * GiB,
 	}
@@ -1932,7 +1944,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize400_Resize09(t *testing.T) {
 
 func TestSegmentGroup_CompactionCandidates_MaxSize500_Resize08(t *testing.T) {
 	compactionResizeFactor := float32(.8)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:         logger,
 		segments:       createSegments(),
 		maxSegmentSize: 500 * GiB,
 	}
@@ -2148,7 +2162,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize500_Resize08(t *testing.T) {
 
 func TestSegmentGroup_CompactionCandidates_MaxSize600_Resize09(t *testing.T) {
 	compactionResizeFactor := float32(.9)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:         logger,
 		segments:       createSegments(),
 		maxSegmentSize: 600 * GiB,
 	}
@@ -2354,7 +2370,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize600_Resize09(t *testing.T) {
 
 func TestSegmentGroup_CompactionCandidates_MaxSize300To600_Resize08(t *testing.T) {
 	compactionResizeFactor := float32(.8)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:         logger,
 		segments:       createSegments(),
 		maxSegmentSize: 300 * GiB,
 	}
@@ -2420,7 +2438,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize300To600_Resize08(t *testing.T
 
 func TestSegmentGroup_CompactionCandidates_Leftover(t *testing.T) {
 	compactionResizeFactor := float32(1)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:                  logger,
 		segments:                createSegments(),
 		compactLeftOverSegments: true,
 	}
@@ -2671,7 +2691,9 @@ func TestSegmentGroup_CompactionCandidates_Leftover(t *testing.T) {
 
 func TestSegmentGroup_CompactionCandidates_MaxSize300_Resize08_Leftover(t *testing.T) {
 	compactionResizeFactor := float32(.8)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:                  logger,
 		segments:                createSegments(),
 		maxSegmentSize:          300 * GiB,
 		compactLeftOverSegments: true,
@@ -2853,7 +2875,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize300_Resize08_Leftover(t *testi
 
 func TestSegmentGroup_CompactionCandidates_MaxSize400_Resize09_Leftover(t *testing.T) {
 	compactionResizeFactor := float32(.9)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:                  logger,
 		segments:                createSegments(),
 		maxSegmentSize:          400 * GiB,
 		compactLeftOverSegments: true,
@@ -3050,7 +3074,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize400_Resize09_Leftover(t *testi
 
 func TestSegmentGroup_CompactionCandidates_MaxSize500_Resize08_Leftover(t *testing.T) {
 	compactionResizeFactor := float32(.8)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:                  logger,
 		segments:                createSegments(),
 		maxSegmentSize:          500 * GiB,
 		compactLeftOverSegments: true,
@@ -3267,7 +3293,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize500_Resize08_Leftover(t *testi
 
 func TestSegmentGroup_CompactionCandidates_MaxSize600_Resize09_Leftover(t *testing.T) {
 	compactionResizeFactor := float32(.9)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:                  logger,
 		segments:                createSegments(),
 		maxSegmentSize:          600 * GiB,
 		compactLeftOverSegments: true,
@@ -3479,7 +3507,9 @@ func TestSegmentGroup_CompactionCandidates_MaxSize600_Resize09_Leftover(t *testi
 
 func TestSegmentGroup_CompactionCandidates_MaxSize300To600_Resize08_Leftover(t *testing.T) {
 	compactionResizeFactor := float32(.8)
+	logger, _ := test.NewNullLogger()
 	sg := &SegmentGroup{
+		logger:                  logger,
 		segments:                createSegments(),
 		maxSegmentSize:          300 * GiB,
 		compactLeftOverSegments: true,
