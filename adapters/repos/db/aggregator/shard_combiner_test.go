@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
@@ -246,4 +247,191 @@ func createRandomSlice() []float64 {
 		array[i] = rand.Float64() * 1000
 	}
 	return array
+}
+
+func scNumericalShard(numbers []float64) *aggregation.Result {
+	agg := newNumericalAggregator()
+	for _, number := range numbers {
+		agg.AddFloat64(number)
+	}
+
+	prop := aggregation.Property{Type: aggregation.PropertyTypeNumerical}
+	addNumericalAggregations(&prop, []aggregation.Aggregator{
+		aggregation.CountAggregator, aggregation.SumAggregator,
+		aggregation.MinimumAggregator, aggregation.MaximumAggregator,
+		aggregation.MeanAggregator, aggregation.MedianAggregator, aggregation.ModeAggregator,
+	}, agg)
+
+	return &aggregation.Result{Groups: []aggregation.Group{{
+		Count:      len(numbers),
+		Properties: map[string]aggregation.Property{"num": prop},
+	}}}
+}
+
+func scUint32(v uint32) *uint32 {
+	return &v
+}
+
+func scTextProp(cardinality *uint32) aggregation.Property {
+	return aggregation.Property{
+		Type: aggregation.PropertyTypeText,
+		TextAggregation: aggregation.Text{
+			Count: 3,
+			Items: []aggregation.TextOccurrence{{Value: "b", Occurs: 1}, {Value: "a", Occurs: 2}},
+		},
+		ApproximateCardinality: cardinality,
+	}
+}
+
+func scCardinalityOnlyProp(cardinality *uint32) aggregation.Property {
+	return aggregation.Property{ApproximateCardinality: cardinality}
+}
+
+func TestShardCombinerApproximateCardinality(t *testing.T) {
+	tests := []struct {
+		name      string
+		groupedBy interface{} // nil for an ungrouped aggregation
+		shards    []aggregation.Property
+		expType   aggregation.PropertyType
+		expCard   *uint32
+		expText   bool
+	}{
+		{
+			name:    "single shard, cardinality only",
+			shards:  []aggregation.Property{scCardinalityOnlyProp(scUint32(42))},
+			expCard: scUint32(42),
+		},
+		{
+			name: "largest shard estimate wins",
+			shards: []aggregation.Property{
+				scCardinalityOnlyProp(scUint32(10)),
+				scCardinalityOnlyProp(scUint32(90)),
+				scCardinalityOnlyProp(scUint32(30)),
+			},
+			expCard: scUint32(90),
+		},
+		{
+			name: "shard without an estimate does not drop the estimate",
+			shards: []aggregation.Property{
+				scCardinalityOnlyProp(scUint32(7)),
+				scCardinalityOnlyProp(nil),
+			},
+			expCard: scUint32(7),
+		},
+		{
+			name: "shard without an estimate first",
+			shards: []aggregation.Property{
+				scCardinalityOnlyProp(nil),
+				scCardinalityOnlyProp(scUint32(7)),
+			},
+			expCard: scUint32(7),
+		},
+		{
+			name:    "no shard reports an estimate",
+			shards:  []aggregation.Property{scCardinalityOnlyProp(nil), scCardinalityOnlyProp(nil)},
+			expCard: nil,
+		},
+		{
+			name: "typed shard then cardinality-only shard",
+			shards: []aggregation.Property{
+				scTextProp(scUint32(5)),
+				scCardinalityOnlyProp(scUint32(9)),
+			},
+			expType: aggregation.PropertyTypeText,
+			expCard: scUint32(9),
+			expText: true,
+		},
+		{
+			name: "cardinality-only shard then typed shard",
+			shards: []aggregation.Property{
+				scCardinalityOnlyProp(scUint32(9)),
+				scTextProp(scUint32(5)),
+			},
+			expType: aggregation.PropertyTypeText,
+			expCard: scUint32(9),
+			expText: true,
+		},
+		{
+			name:      "grouped, cardinality only",
+			groupedBy: "some-group",
+			shards: []aggregation.Property{
+				scCardinalityOnlyProp(scUint32(10)),
+				scCardinalityOnlyProp(scUint32(90)),
+			},
+			expCard: scUint32(90),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := make([]*aggregation.Result, len(tt.shards))
+			for i, prop := range tt.shards {
+				group := aggregation.Group{
+					Count:      1,
+					Properties: map[string]aggregation.Property{"prop": prop},
+				}
+				if tt.groupedBy != nil {
+					group.GroupedBy = &aggregation.GroupedBy{Value: tt.groupedBy, Path: []string{"prop"}}
+				}
+				results[i] = &aggregation.Result{Groups: []aggregation.Group{group}}
+			}
+
+			var combined *aggregation.Result
+			require.NotPanics(t, func() { combined = NewShardCombiner().Do(results) })
+
+			require.Len(t, combined.Groups, 1)
+			assert.Equal(t, len(tt.shards), combined.Groups[0].Count)
+
+			prop := combined.Groups[0].Properties["prop"]
+			assert.Equal(t, tt.expType, prop.Type)
+			assert.Equal(t, tt.expCard, prop.ApproximateCardinality)
+
+			if tt.expText {
+				assert.Equal(t, 3, prop.TextAggregation.Count)
+				require.Len(t, prop.TextAggregation.Items, 2)
+				// finalizeText must still run for a property that also carries an estimate
+				assert.Equal(t, "a", prop.TextAggregation.Items[0].Value)
+			}
+		})
+	}
+}
+
+func TestShardCombinerApproximateCardinalityWithNumericalProp(t *testing.T) {
+	tests := []struct {
+		name             string
+		cardinalityFirst bool
+	}{
+		{name: "typed shard first"},
+		{name: "cardinality-only shard first", cardinalityFirst: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			typed := scNumericalShard([]float64{1, 2, 3})
+			typedProp := typed.Groups[0].Properties["num"]
+			typedProp.ApproximateCardinality = scUint32(2)
+			typed.Groups[0].Properties["num"] = typedProp
+
+			cardinalityOnly := &aggregation.Result{Groups: []aggregation.Group{{
+				Count:      1,
+				Properties: map[string]aggregation.Property{"num": scCardinalityOnlyProp(scUint32(11))},
+			}}}
+
+			results := []*aggregation.Result{typed, cardinalityOnly}
+			if tt.cardinalityFirst {
+				results = []*aggregation.Result{cardinalityOnly, typed}
+			}
+
+			var combined *aggregation.Result
+			require.NotPanics(t, func() { combined = NewShardCombiner().Do(results) })
+
+			require.Len(t, combined.Groups, 1)
+			merged := combined.Groups[0].Properties["num"]
+			assert.Equal(t, aggregation.PropertyTypeNumerical, merged.Type)
+			assert.Equal(t, scUint32(11), merged.ApproximateCardinality)
+			assert.NotContains(t, merged.NumericalAggregations, "_numericalAggregator")
+			assert.Equal(t, 3.0, merged.NumericalAggregations["count"])
+			assert.InDelta(t, 2.0, merged.NumericalAggregations["mean"], 0.0001)
+		})
+	}
 }
