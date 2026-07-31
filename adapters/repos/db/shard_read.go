@@ -915,12 +915,8 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 		return "", errors.Errorf("objects bucket not found")
 	}
 
-	keyBuf := bytes.NewBuffer(nil)
-	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
-	if err != nil {
-		return "", fmt.Errorf("write doc id to buffer: %w", err)
-	}
-	docIDBytes := keyBuf.Bytes()
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
 	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
 	if err != nil {
 		return "", fmt.Errorf("get object by doc id: %w", err)

@@ -12,8 +12,6 @@
 package inverted
 
 import (
-	"bytes"
-	"encoding/binary"
 	"slices"
 	"sync"
 
@@ -276,36 +274,26 @@ func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	return out, nil
 }
 
-// BoolArray requires no analysis, so it's actually just a simple conversion to a
-// little-endian ordered byte slice
+// BoolArray requires no analysis, so it's actually just a simple conversion to
+// one 0/1 byte per value
 func (a *Analyzer) BoolArray(in []bool) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
-		b := bytes.NewBuffer(nil)
-		err := binary.Write(b, binary.LittleEndian, &in[i])
-		if err != nil {
-			return nil, err
-		}
-		out[i] = Countable{Data: b.Bytes()}
+		b := make([]byte, 1)
+		putBoolKey(b, in[i])
+		out[i] = Countable{Data: b}
 	}
 
 	return out, nil
 }
 
 // Bool requires no analysis, so it's actually just a simple conversion to a
-// little-endian ordered byte slice
+// single 0/1 byte
 func (a *Analyzer) Bool(in bool) ([]Countable, error) {
-	b := bytes.NewBuffer(nil)
-	err := binary.Write(b, binary.LittleEndian, &in)
-	if err != nil {
-		return nil, err
-	}
+	b := make([]byte, 1)
+	putBoolKey(b, in)
 
-	return []Countable{
-		{
-			Data: b.Bytes(),
-		},
-	}, nil
+	return []Countable{{Data: b}}, nil
 }
 
 // RefCount does not index the content of the refs, but only the count with 0

@@ -12,7 +12,6 @@
 package storobj
 
 import (
-	"bytes"
 	"encoding/binary"
 	"strconv"
 
@@ -141,11 +140,10 @@ func extractLastUpdateTimeUnix(data []byte) ([]string, bool, error) {
 }
 
 func extractTimeUnix(data []byte, propertyName string) ([]string, bool, error) {
-	var timeUnix int64
-	r := bytes.NewReader(data)
-	if err := binary.Read(r, binary.LittleEndian, &timeUnix); err != nil {
+	if len(data) < 8 {
 		return nil, false, errors.Errorf("cannot parse %s property", propertyName)
 	}
+	timeUnix := int64(binary.LittleEndian.Uint64(data))
 	return []string{strconv.FormatInt(timeUnix, 10)}, true, nil
 }
 
