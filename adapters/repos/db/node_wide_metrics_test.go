@@ -47,6 +47,21 @@ func newActivityTestIndex(className string, partitioningEnabled bool) *Index {
 	}
 }
 
+// newWarmActivityObserver returns an observer that has already observed a
+// multi-tenant collection, so its tenant maps are allocated and reused from
+// here on.
+func newWarmActivityObserver(tenants int) (*nodeWideMetricsObserver, *Index, *DB) {
+	logger, _ := test.NewNullLogger()
+	col := newActivityTestIndex("Col1", true)
+	for i := 0; i < tenants; i++ {
+		col.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
+	}
+	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col}}
+	o := newNodeWideMetricsObserver(db)
+	o.observeActivity()
+	return o, col, db
+}
+
 func TestShardActivity(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	db := &DB{
@@ -561,47 +576,36 @@ func TestShardActivityUsageIsIndependent(t *testing.T) {
 }
 
 // Recycling a tenant map keeps the buckets of the largest tenant count its
-// collection ever held, so a collection that drained has to get a new one.
+// collection ever held, so a collection that drained has to be handed a new map
+// instead. Map identity is what shows that it was.
 func TestShardActivityTenantMapReuse(t *testing.T) {
 	const peak = 40
 
 	address := func(m any) uintptr { return reflect.ValueOf(m).Pointer() }
 
-	// a collection whose tenant maps are allocated and reused from here on
-	warm := func() (*nodeWideMetricsObserver, *Index, *DB) {
-		logger, _ := test.NewNullLogger()
-		col := newActivityTestIndex("Col1", true)
-		for i := 0; i < peak; i++ {
-			col.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
-		}
-		db := &DB{logger: logger, indices: map[string]*Index{"Col1": col}}
-		o := newNodeWideMetricsObserver(db)
-		o.observeActivity()
-		return o, col, db
-	}
-
 	tests := []struct {
 		name string
 		// how many of the initial tenants are left once the drain is done, how
-		// many tenants leave per cycle (0 removes them all in one), and how many
-		// tenants are added on top
+		// many tenants leave per cycle (0 removes them all in one), how many
+		// tenants are added on top, and the peak the collection settles on
 		keep         int
 		perCycle     int
 		add          int
 		wantReplaced bool
+		wantPeak     int
 	}{
-		{name: "most tenants stay", keep: 30},
-		{name: "down to exactly a quarter", keep: peak / 4},
-		{name: "just past a quarter", keep: peak/4 - 1, wantReplaced: true},
-		{name: "down to a single tenant", keep: 1, wantReplaced: true},
-		{name: "every tenant leaves", keep: 0, wantReplaced: true},
-		{name: "a few tenants leave per cycle", keep: 1, perCycle: 4, wantReplaced: true},
-		{name: "collection grows", keep: peak, add: peak},
+		{name: "most tenants stay", keep: 30, wantPeak: peak},
+		{name: "down to exactly a quarter", keep: peak / 4, wantPeak: peak},
+		{name: "just past a quarter", keep: peak/4 - 1, wantReplaced: true, wantPeak: peak/4 - 1},
+		{name: "down to a single tenant", keep: 1, wantReplaced: true, wantPeak: 1},
+		{name: "every tenant leaves", keep: 0, wantReplaced: true, wantPeak: 0},
+		{name: "a few tenants leave per cycle", keep: 1, perCycle: 4, wantReplaced: true, wantPeak: 1},
+		{name: "collection grows", keep: peak, add: peak, wantPeak: 2 * peak},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			o, col, _ := warm()
+			o, col, _ := newWarmActivityObserver(peak)
 			// holding on to the maps keeps a replacement from landing on the same
 			// address
 			snapshotBefore := o.activitySnapshot["Col1"]
@@ -627,7 +631,9 @@ func TestShardActivityTenantMapReuse(t *testing.T) {
 			// so it is replaced on the cycle after
 			o.observeActivity()
 
-			require.Len(t, o.Usage(tenantactivity.UsageFilterAll)["Col1"], tt.keep+tt.add,
+			usage := o.Usage(tenantactivity.UsageFilterAll)
+			require.Contains(t, usage, "Col1")
+			require.Len(t, usage["Col1"], tt.keep+tt.add,
 				"every surviving tenant should still be reported")
 			require.Equal(t, tt.wantReplaced,
 				address(o.activitySnapshot["Col1"]) != address(snapshotBefore),
@@ -635,6 +641,21 @@ func TestShardActivityTenantMapReuse(t *testing.T) {
 			require.Equal(t, tt.wantReplaced,
 				address(o.usage["Col1"]) != address(usageBefore),
 				"usage map replaced")
+			// a peak that stayed above the tenants that are left would either keep
+			// replacing the maps every cycle or leave them sized for tenants that
+			// are gone
+			require.Equal(t, tt.wantPeak, o.tenantPeaks["Col1"])
+
+			t.Run("idle cycles change nothing", func(t *testing.T) {
+				settledSnapshot := o.activitySnapshot["Col1"]
+				settledUsage := o.usage["Col1"]
+				for i := 0; i < 3; i++ {
+					o.observeActivity()
+				}
+				require.Equal(t, address(settledSnapshot), address(o.activitySnapshot["Col1"]))
+				require.Equal(t, address(settledUsage), address(o.usage["Col1"]))
+				require.Equal(t, tt.wantPeak, o.tenantPeaks["Col1"])
+			})
 		})
 	}
 
@@ -642,7 +663,7 @@ func TestShardActivityTenantMapReuse(t *testing.T) {
 	// map has to carry them over instead of reporting every tenant that is left
 	// as newly active.
 	t.Run("a surviving tenant keeps its record", func(t *testing.T) {
-		o, col, _ := warm()
+		o, col, _ := newWarmActivityObserver(peak)
 
 		survivor := col.shards.Load("tenant-0").(*Shard)
 		survivor.activityTrackerRead.Add(1)
@@ -670,7 +691,7 @@ func TestShardActivityTenantMapReuse(t *testing.T) {
 	})
 
 	t.Run("a removed collection leaves no peak behind", func(t *testing.T) {
-		o, _, db := warm()
+		o, _, db := newWarmActivityObserver(peak)
 		require.Contains(t, o.tenantPeaks, "Col1")
 
 		delete(db.indices, "Col1")
@@ -691,17 +712,7 @@ func TestShardActivityObserveAllocations(t *testing.T) {
 		runs              = 10
 	)
 
-	logger, _ := test.NewNullLogger()
-	col1 := newActivityTestIndex("Col1", true)
-	for i := 0; i < tenants; i++ {
-		col1.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
-	}
-
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
-	o := newNodeWideMetricsObserver(db)
-
-	// the maps are allocated on the first cycle and reused from then on
-	o.observeActivity()
+	o, _, _ := newWarmActivityObserver(tenants)
 
 	var before, after runtime.MemStats
 	runtime.GC()
@@ -732,15 +743,7 @@ func TestShardActivityUsageAllocations(t *testing.T) {
 		maxBytesPerTenant = 140
 	)
 
-	logger, _ := test.NewNullLogger()
-	col1 := newActivityTestIndex("Col1", true)
-	for i := 0; i < tenants; i++ {
-		col1.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
-	}
-
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
-	o := newNodeWideMetricsObserver(db)
-	o.observeActivity()
+	o, col1, _ := newWarmActivityObserver(tenants)
 
 	for i := 0; i < readers; i++ {
 		col1.shards.Load(fmt.Sprintf("tenant-%d", i)).(*Shard).activityTrackerRead.Add(1)

@@ -38,13 +38,15 @@ type nodeWideMetricsObserver struct {
 	// allocating new ones.
 	activitySnapshot activityByCollection
 
-	// The most tenants each collection has held since its tenant maps were last
+	// The most tenants each collection has held since its counters map was last
 	// replaced. Cleared and pruned maps keep their buckets, so a collection down
-	// to less than a quarter of its peak gets fresh ones. Only the observeShards
+	// to less than a quarter of this gets fresh maps: the usage map on the cycle
+	// the drop shows, the counters map on the next. Only the observeShards
 	// goroutine touches it.
 	tenantPeaks map[string]int
 
-	activityLock sync.Mutex
+	// Guards usage only. The two fields above are written outside it.
+	activityLock sync.RWMutex
 	// Tenant usage as of the most recent cycle. Each cycle updates it in place
 	// instead of building a new one, so repeated observations do not allocate.
 	usage usageByCollection
@@ -273,8 +275,8 @@ func (o *nodeWideMetricsObserver) updateUsage(currentActivity activityByCollecti
 	}
 }
 
-// Whether a collection has lost so many tenants that reusing its maps would
-// keep far more buckets than the tenants that are left need.
+// Whether a collection is down to less than a quarter of the tenants it peaked
+// at, so that reusing its maps would keep far more buckets than it needs.
 func (o *nodeWideMetricsObserver) lostMostTenants(class string, live int) bool {
 	return live*4 < o.tenantPeaks[class]
 }
@@ -349,9 +351,12 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 			tenants = make(activityByTenant)
 		case o.lostMostTenants(cn, len(tenants)):
 			// len is last cycle's tenant count, as this cycle's is only known once
-			// the map has been filled
-			tenants = make(activityByTenant, len(tenants))
-			delete(o.tenantPeaks, cn)
+			// the map has been filled. The replacement's size becomes the peak the
+			// next drop is measured against, so a collection that keeps draining
+			// keeps shrinking.
+			size := len(tenants)
+			tenants = make(activityByTenant, size)
+			o.tenantPeaks[cn] = size
 		default:
 			clear(tenants)
 		}
@@ -410,8 +415,8 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 		return tenantactivity.ByCollection{}
 	}
 
-	o.activityLock.Lock()
-	defer o.activityLock.Unlock()
+	o.activityLock.RLock()
+	defer o.activityLock.RUnlock()
 
 	usage := make(tenantactivity.ByCollection, len(o.usage))
 	for class, tenants := range o.usage {
