@@ -41,6 +41,10 @@ type Text struct {
 	// CutoffExceeded reports that the property holds more distinct values
 	// than the requested top-occurrences cutoff allowed; Items is then empty.
 	CutoffExceeded bool `json:"cutoffExceeded,omitempty"`
+	// ValuesComplete reports that Items holds every value of the property in
+	// this shard rather than the top ones, which is what lets a shard combiner
+	// count the collection's distinct values.
+	ValuesComplete bool `json:"valuesComplete,omitempty"`
 }
 
 type PropertyType string

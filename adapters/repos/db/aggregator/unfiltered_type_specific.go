@@ -451,9 +451,17 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		TextAggregation: aggregation.Text{},
 	}
 
-	agg := newTextAggregator(extractLimitFromTopOccs(prop.Aggregators))
+	// the shard keeps every value it saw, not just the top ones: only the
+	// merged list tells the shard combiner the collection's distinct count,
+	// and the walk already bounds the list to the cutoff
+	agg := newTextAggregator(int(prop.TopOccurrencesCutoff))
 	emit := func(key []byte, docCount int) error {
 		return agg.AddTextCount(decodeInvertedKey(key, dt), docCount)
+	}
+	complete := func() aggregation.Text {
+		res := agg.Res()
+		res.ValuesComplete = true
+		return res
 	}
 
 	if b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String())); b != nil {
@@ -471,7 +479,7 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 			return &out, nil
 		}
 
-		out.TextAggregation = agg.Res()
+		out.TextAggregation = complete()
 		return &out, nil
 	}
 
@@ -486,7 +494,7 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 			return &out, nil
 		}
 		if exact {
-			out.TextAggregation = agg.Res()
+			out.TextAggregation = complete()
 			return &out, nil
 		}
 		// churn voided the stored counts (agg untouched); scan objects instead

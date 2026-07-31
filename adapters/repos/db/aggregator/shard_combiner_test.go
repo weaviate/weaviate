@@ -65,7 +65,7 @@ func TestShardCombinerMergeDates(t *testing.T) {
 }
 
 func testDates(t *testing.T, dates1, dates2 []string, tt TestStructDates) {
-	sc := NewShardCombiner()
+	sc := NewShardCombiner(aggregation.Params{})
 	dateMap1 := createDateAgg(dates1)
 	dateMap2 := createDateAgg(dates2)
 
@@ -203,7 +203,7 @@ func TestShardCombinerMergeNil(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			combinedResults := NewShardCombiner().Do(tt.results)
+			combinedResults := NewShardCombiner(aggregation.Params{}).Do(tt.results)
 			assert.Equal(t, len(combinedResults.Groups), tt.totalResults)
 		})
 	}
@@ -298,7 +298,7 @@ func TestShardCombinerMergeTextCutoff(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			combined := NewShardCombiner().Do(tt.results)
+			combined := NewShardCombiner(aggregation.Params{}).Do(tt.results)
 
 			require.Len(t, combined.Groups, 1)
 			prop, ok := combined.Groups[0].Properties[propName]
@@ -316,8 +316,156 @@ func TestShardCombinerMergeTextCutoff(t *testing.T) {
 	}
 }
 
+// A shard only counts the values it holds, so the cutoff can only be decided
+// once every shard's list is merged.
+func TestShardCombinerTopOccurrencesCutoffAcrossShards(t *testing.T) {
+	const propName = "someProp"
+
+	complete := func(items ...aggregation.TextOccurrence) aggregation.Text {
+		text := aggregation.Text{Items: items, ValuesComplete: true}
+		for _, item := range items {
+			text.Count += item.Occurs
+		}
+		return text
+	}
+
+	shard := func(text aggregation.Text) *aggregation.Result {
+		return &aggregation.Result{
+			Groups: []aggregation.Group{{
+				Count: text.Count,
+				Properties: map[string]aggregation.Property{
+					propName: {
+						Type:            aggregation.PropertyTypeText,
+						SchemaType:      "text",
+						TextAggregation: text,
+					},
+				},
+			}},
+		}
+	}
+
+	occ := func(value string, occurs int) aggregation.TextOccurrence {
+		return aggregation.TextOccurrence{Value: value, Occurs: occurs}
+	}
+
+	params := func(cutoff uint32, limit int) aggregation.Params {
+		return aggregation.Params{Properties: []aggregation.ParamProperty{{
+			Name:                 propName,
+			Aggregators:          []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(&limit)},
+			TopOccurrencesCutoff: cutoff,
+		}}}
+	}
+
+	tests := []struct {
+		name     string
+		params   aggregation.Params
+		results  []*aggregation.Result
+		expected aggregation.Text
+	}{
+		{
+			name:   "shards under the cutoff, union over it",
+			params: params(3, 10),
+			results: []*aggregation.Result{
+				shard(complete(occ("a", 2), occ("b", 1))),
+				shard(complete(occ("c", 2), occ("d", 1))),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+		{
+			name:   "shards sharing values stay under the cutoff",
+			params: params(3, 10),
+			results: []*aggregation.Result{
+				shard(complete(occ("a", 2), occ("b", 1))),
+				shard(complete(occ("a", 3), occ("c", 1))),
+			},
+			expected: aggregation.Text{
+				Count:          7,
+				Items:          []aggregation.TextOccurrence{occ("a", 5), occ("b", 1), occ("c", 1)},
+				ValuesComplete: true,
+			},
+		},
+		{
+			name:   "union exactly at the cutoff passes",
+			params: params(3, 10),
+			results: []*aggregation.Result{
+				shard(complete(occ("a", 1), occ("b", 1))),
+				shard(complete(occ("c", 1))),
+			},
+			expected: aggregation.Text{
+				Count:          3,
+				Items:          []aggregation.TextOccurrence{occ("a", 1), occ("b", 1), occ("c", 1)},
+				ValuesComplete: true,
+			},
+		},
+		{
+			name:   "merged list is cut to the requested limit",
+			params: params(10, 2),
+			results: []*aggregation.Result{
+				shard(complete(occ("a", 5), occ("b", 1))),
+				shard(complete(occ("c", 3), occ("d", 1))),
+			},
+			expected: aggregation.Text{
+				Count:          10,
+				Items:          []aggregation.TextOccurrence{occ("a", 5), occ("c", 3)},
+				ValuesComplete: true,
+			},
+		},
+		{
+			// the object-scan fallback lists top values, not all of them, so
+			// the union proves nothing about the collection's cardinality
+			name:   "a shard that could not evaluate the cutoff drops it",
+			params: params(2, 10),
+			results: []*aggregation.Result{
+				shard(complete(occ("a", 2))),
+				shard(aggregation.Text{Count: 4, Items: []aggregation.TextOccurrence{occ("b", 3), occ("c", 1)}}),
+			},
+			expected: aggregation.Text{
+				Count: 6,
+				Items: []aggregation.TextOccurrence{occ("b", 3), occ("a", 2), occ("c", 1)},
+			},
+		},
+		{
+			name:   "one shard over the cutoff keeps the sentinel",
+			params: params(3, 10),
+			results: []*aggregation.Result{
+				shard(complete(occ("a", 2))),
+				shard(aggregation.Text{CutoffExceeded: true}),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+		{
+			name:   "no cutoff requested leaves the merge alone",
+			params: aggregation.Params{},
+			results: []*aggregation.Result{
+				shard(complete(occ("a", 2), occ("b", 1))),
+				shard(complete(occ("c", 2), occ("d", 1))),
+			},
+			expected: aggregation.Text{
+				Count: 6,
+				Items: []aggregation.TextOccurrence{occ("a", 2), occ("c", 2), occ("b", 1), occ("d", 1)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			combined := NewShardCombiner(tt.params).Do(tt.results)
+
+			require.Len(t, combined.Groups, 1)
+			prop, ok := combined.Groups[0].Properties[propName]
+			require.True(t, ok)
+
+			text := prop.TextAggregation
+			assert.Equal(t, tt.expected.CutoffExceeded, text.CutoffExceeded)
+			assert.Equal(t, tt.expected.Count, text.Count)
+			assert.Equal(t, tt.expected.Items, text.Items)
+			assert.Equal(t, tt.expected.ValuesComplete, text.ValuesComplete)
+		})
+	}
+}
+
 func testNumbers(t *testing.T, numbers1, numbers2 []float64, testMode bool) {
-	sc := NewShardCombiner()
+	sc := NewShardCombiner(aggregation.Params{})
 	numberMap1 := createNumericalAgg(numbers1)
 	numberMap2 := createNumericalAgg(numbers2)
 

@@ -95,6 +95,29 @@ func TestPropertyValuesFromInvertedCutoff(t *testing.T) {
 			{Value: "green", Occurs: 2},
 			{Value: "blue", Occurs: 1},
 		}, res.TextAggregation.Items)
+		assert.True(t, res.TextAggregation.ValuesComplete)
+	})
+
+	// the shard combiner counts the collection's distinct values from the
+	// merged lists, so a shard under the cutoff must hand over all of them
+	// however few top occurrences were asked for
+	t.Run("every value survives the top-occurrences limit", func(t *testing.T) {
+		b := newBucket(t, "manyValues")
+		values := []string{"v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7"}
+		require.Greater(t, len(values), limit)
+		for i, v := range values {
+			require.NoError(t, b.RoaringSetAddList([]byte(v), []uint64{uint64(i)}))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+
+		res, err := ua.propertyValuesFromInverted(ctx, aggregation.ParamProperty{
+			Name: "manyValues", Aggregators: topOccs, TopOccurrencesCutoff: 10,
+		}, schema.DataTypeText)
+		require.NoError(t, err)
+		require.False(t, res.TextAggregation.CutoffExceeded)
+		require.True(t, res.TextAggregation.ValuesComplete)
+		assert.Len(t, res.TextAggregation.Items, len(values))
+		assert.Equal(t, len(values), res.TextAggregation.Count)
 	})
 
 	t.Run("cutoff below the cardinality: sentinel instead of values", func(t *testing.T) {
