@@ -1140,6 +1140,51 @@ func TestDynamicAbortedUpgradeCleansPartialCommitLog(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "partial hnsw commit log should have been removed")
 }
 
+// An upgrade that builds the HNSW successfully but fails to persist the
+// upgraded state must tear the new index down like any other aborted
+// upgrade: it is never installed, so its commit log and resources would
+// otherwise be orphaned.
+func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	const id = "upgrade-persist-fail-test"
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+
+	vectors, _ := testinghelpers.RandomVecs(200, 0, 8)
+	idx := newUpgradeTestDynamic(t, rootPath, id, "", db, vectors, func() (hnsw.CommitLogger, error) {
+		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+	})
+	t.Cleanup(func() {
+		idx.Shutdown(context.Background())
+	})
+
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	// close the bbolt db so persisting the upgraded state fails after the
+	// HNSW has been fully built
+	require.NoError(t, db.Close())
+
+	called := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() {
+		close(called)
+	}))
+
+	select {
+	case <-called:
+	case <-time.After(30 * time.Second):
+		t.Fatal("upgrade callback was not called")
+	}
+
+	require.False(t, idx.upgraded.Load(), "upgrade should have been aborted")
+
+	_, err = os.Stat(hnswCommitLogDirectory(rootPath, id))
+	require.True(t, os.IsNotExist(err), "partial hnsw commit log should have been removed")
+}
+
 // A crashed upgrade never runs the abort cleanup, so a partial HNSW commit
 // log can still be on disk at the next shard load. init() must remove it
 // unless the vector is positively marked as upgraded — otherwise the partial
