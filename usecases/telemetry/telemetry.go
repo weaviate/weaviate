@@ -43,7 +43,7 @@ const (
 )
 
 type nodesStatusGetter interface {
-	LocalNodeStatus(ctx context.Context, className, shardName, output string) *models.NodeStatus
+	LocalNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error)
 }
 
 // Telemeter is responsible for managing the transmission of telemetry data
@@ -400,7 +400,10 @@ func (tel *Telemeter) determineModule(name string, cfg interface{}) string {
 }
 
 func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
-	status := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", "", verbosity.OutputVerbose)
+	status, err := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", "", verbosity.OutputVerbose)
+	if err != nil {
+		return 0, err
+	}
 	if status == nil || status.Stats == nil {
 		return 0, fmt.Errorf("received nil node stats")
 	}
