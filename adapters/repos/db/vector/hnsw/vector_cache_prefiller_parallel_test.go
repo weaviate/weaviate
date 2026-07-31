@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -206,7 +207,9 @@ func TestParallelPrefillEligible(t *testing.T) {
 		{"muvera does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
 		{"muvera without multivector flag does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
 		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
-		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
+		// an exact fit would leave count == maxSize, which replaceIfFull wipes
+		{"cache exactly fits nodes keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, false},
+		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
 		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
 	}
 	for _, tt := range tests {
@@ -235,7 +238,8 @@ func TestMuveraParallelPrefillEligible(t *testing.T) {
 		{"non-muvera is not", func(in *parallelPrefillInputs) { in.muvera = false }, false},
 		{"single-vector is not", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = false }, false},
 		{"bounded cache keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
-		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
+		{"cache exactly fits nodes keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, false},
+		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -513,9 +517,10 @@ func TestPrefillCacheParallelAbortsUnderMemoryPressure(t *testing.T) {
 	require.Equal(t, int64(prefillAllocCheckEvery), c.CountVectors())
 }
 
-// TestPrefillCacheParallelStopsWhenCompressionActivates: once h.compressed flips, the
-// uncompressed cache is no longer the live cache and the scan must stop loading into it.
-func TestPrefillCacheParallelStopsWhenCompressionActivates(t *testing.T) {
+// TestPrefillCacheParallelSkipsWhenAlreadyCompressed: an index that is already
+// compressed when the scan starts must not load a single vector into the
+// uncompressed cache.
+func TestPrefillCacheParallelSkipsWhenAlreadyCompressed(t *testing.T) {
 	store := newTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	for i := uint64(0); i < 50; i++ {
@@ -538,6 +543,58 @@ func TestPrefillCacheParallelStopsWhenCompressionActivates(t *testing.T) {
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 	require.Equal(t, int64(0), c.CountVectors())
+}
+
+// compressionFlippingCache flips the index's compressed flag from inside the cache
+// write, after a fixed number of stores. Compression activating mid-scan is
+// otherwise a timing race the test cannot place.
+type compressionFlippingCache struct {
+	cache.Cache[float32]
+	h         *hnsw
+	flipAfter int64
+	stored    atomic.Int64
+}
+
+func (c *compressionFlippingCache) PreloadIfAbsent(id uint64, vec []float32) bool {
+	stored := c.Cache.PreloadIfAbsent(id, vec)
+	if stored && c.stored.Add(1) == c.flipAfter {
+		c.h.compressed.Store(true)
+	}
+	return stored
+}
+
+// TestPrefillCacheParallelStopsWhenCompressionActivatesMidScan: the compression guard
+// exists for a flag that flips while a long scan is running, not just for an index
+// already compressed at entry. The scan must abandon the rest of the bucket, leaving a
+// partial cache, and still report success — the vectors it skipped load on demand.
+func TestPrefillCacheParallelStopsWhenCompressionActivatesMidScan(t *testing.T) {
+	const n = 50
+	const flipAfter = 10
+
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTestObject(t, bucket, i, []float32{float32(i)}, nil)
+	}
+	// no FlushAndSwitch: memtable-only data yields no quantile seeds, so the scan
+	// runs as a single sequential range and the flip lands at an exact store count
+
+	logger, _ := test.NewNullLogger()
+	inner := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	inner.Grow(n)
+
+	h := &hnsw{
+		store:             store,
+		nodes:             make([]*vertex, n),
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+	}
+	h.cache = &compressionFlippingCache{Cache: inner, h: h, flipAfter: flipAfter}
+
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	require.True(t, h.compressed.Load(), "the wrapper never reached the flip point")
+	require.Equal(t, int64(flipAfter), inner.CountVectors())
 }
 
 func putMuveraVector(t *testing.T, bucket *lsmkv.Bucket, id uint64, vec []float32) {

@@ -97,7 +97,7 @@ func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	if in.multivector || in.muvera {
 		return false
 	}
-	return in.cacheMaxSize >= in.nodeCount
+	return cacheFitsNodes(in)
 }
 
 // muveraParallelPrefillEligible is the pure decision core of useMuveraParallelPrefill.
@@ -105,7 +105,14 @@ func muveraParallelPrefillEligible(in parallelPrefillInputs) bool {
 	if !in.muvera {
 		return false
 	}
-	return in.cacheMaxSize >= in.nodeCount
+	return cacheFitsNodes(in)
+}
+
+// cacheFitsNodes requires headroom beyond the node count rather than an exact fit:
+// filling the last slot leaves count == maxSize, which replaceIfFull reads as a full
+// cache and wipes within one deletion interval, discarding the whole scan.
+func cacheFitsNodes(in parallelPrefillInputs) bool {
+	return in.cacheMaxSize > in.nodeCount
 }
 
 // prefillCacheParallel populates the uncompressed vector cache via a parallel cursor

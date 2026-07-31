@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -118,7 +119,15 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 		h.prefillSkipDebug("undecodable header", err)
 		return nil, false
 	}
-	if !ok || schemaLen < prefillTargetedMinSchemaLen || tailStart >= e.ValueSize {
+	if ok && tailStart >= e.ValueSize {
+		// the front sections decoded cleanly but place the tail past the value end,
+		// so the row is corrupt: a whole-value decode here would read a neighbouring
+		// row's bytes rather than fail
+		h.prefillSkipDebug("vector tail beyond value end",
+			fmt.Errorf("tail offset %d, value size %d", tailStart, e.ValueSize))
+		return nil, false
+	}
+	if !ok || schemaLen < prefillTargetedMinSchemaLen {
 		return h.wholeVectorFromEntry(e, targetVector)
 	}
 
@@ -146,7 +155,14 @@ func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry) ([]float32, boo
 		h.prefillSkipDebug("undecodable header", err)
 		return nil, false
 	}
-	if !ok || need > e.ValueSize {
+	if ok && need > e.ValueSize {
+		// declared vector crosses the value end: the row is corrupt, and a
+		// whole-value decode would read a neighbouring row's bytes rather than fail
+		h.prefillSkipDebug("legacy vector beyond value end",
+			fmt.Errorf("needs %d bytes, value size %d", need, e.ValueSize))
+		return nil, false
+	}
+	if !ok {
 		return h.wholeVectorFromEntry(e, "")
 	}
 

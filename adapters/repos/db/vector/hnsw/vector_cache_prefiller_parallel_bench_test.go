@@ -90,6 +90,9 @@ func buildPrefillBenchStore(tb testing.TB, cfg prefillBenchConfig, opts ...lsmkv
 		append([]lsmkv.BucketOption{
 			lsmkv.WithStrategy(lsmkv.StrategyReplace),
 			lsmkv.WithSecondaryIndices(1),
+			// the real objects bucket tracks net additions, and without it
+			// EstimatedEntrySize reports 0, so the routing gate could never fire here
+			lsmkv.WithCalcCountNetAdditions(true),
 		}, opts...)...))
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
@@ -152,6 +155,15 @@ func runSerialPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig)
 	require.Equal(tb, int64(cfg.n), c.CountVectors())
 }
 
+// pinCursorScan forces prefillCacheParallel onto the merged-cursor scan. The bench
+// payloads clear the routing gate, so with the flag exported the "parallel-scan"
+// variants would silently measure the targeted scan against itself. Call it from the
+// b.Run closure, never inside the b.N loop: Setenv registers a cleanup per call.
+func pinCursorScan(tb testing.TB) {
+	tb.Helper()
+	tb.Setenv("HNSW_PREFILL_TARGETED_READS", "")
+}
+
 func runParallelPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) {
 	tb.Helper()
 	logger, _ := test.NewNullLogger()
@@ -196,6 +208,7 @@ func BenchmarkPrefillNamedVectorsLargeProps(b *testing.B) {
 		benchRuns(b, cfg.n, func(tb testing.TB) { runSerialPrefill(tb, store, cfg) })
 	})
 	b.Run("parallel-scan", func(b *testing.B) {
+		pinCursorScan(b)
 		benchRuns(b, cfg.n, func(tb testing.TB) { runParallelPrefill(tb, store, cfg) })
 	})
 	b.Run("targeted-scan", func(b *testing.B) {
@@ -204,6 +217,7 @@ func BenchmarkPrefillNamedVectorsLargeProps(b *testing.B) {
 
 	preadStore := buildPrefillBenchStore(b, cfg, lsmkv.WithPread(true), lsmkv.WithMinMMapSize(0))
 	b.Run("pread/parallel-scan", func(b *testing.B) {
+		pinCursorScan(b)
 		benchRuns(b, cfg.n, func(tb testing.TB) { runParallelPrefill(tb, preadStore, cfg) })
 	})
 	b.Run("pread/targeted-scan", func(b *testing.B) {

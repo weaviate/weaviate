@@ -537,9 +537,8 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	// Drop/Shutdown cancel via prefillCancel and wait on prefillWG so no scan cursor
-	// can outlive the cache or the lsmkv store (the shard-drop path never cancels the
-	// PostStartup ctx before closing segments).
+	// Registered here rather than inside the goroutine below: stopPrefill must be
+	// able to observe this prefill the moment prefillCache returns. See stopPrefill.
 	prefillCtx, cancel := context.WithCancel(ctx)
 	h.prefillCancel.Store(&cancel)
 	h.prefillWG.Add(1)

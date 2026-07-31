@@ -765,10 +765,13 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-// stopPrefill cancels an in-flight cache prefill and waits for it to exit. Must run
-// before the cache is dropped or the store shut down: the shard-drop path never
-// cancels the PostStartup context before closing lsmkv segments, and a scan cursor
-// opened after segment close would read unmapped memory.
+// stopPrefill cancels an in-flight cache prefill and waits for it to exit. The wait
+// is the load-bearing half: a scan only polls its context between rows and can be
+// blocked in a read, so cancellation alone still leaves a cursor touching segment
+// memory. Must run before the cache is dropped or the store shut down — a scan
+// reading a closed lsmkv segment reads unmapped memory. Cancellation is not
+// guaranteed to arrive from the caller's context either: the hfresh centroid index
+// runs PostStartup on context.Background().
 func (h *hnsw) stopPrefill() {
 	if cancel := h.prefillCancel.Load(); cancel != nil {
 		(*cancel)()

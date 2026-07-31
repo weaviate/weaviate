@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -98,6 +99,11 @@ func TestPrefillTargetedMatchesCursorScan(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// The baseline runs through prefillCacheParallel, which consults the
+			// ambient flag: with it exported the large-schema cases would route the
+			// baseline to the targeted scan too and compare it against itself.
+			t.Setenv("HNSW_PREFILL_TARGETED_READS", "")
+
 			store := newTestObjectsStore(t)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
@@ -162,6 +168,8 @@ func TestPrefillTargetedMatchesCursorScan(t *testing.T) {
 			}
 
 			viaCursor := collect(func(h *hnsw) error {
+				require.False(t, h.useTargetedPrefillScan(bucket),
+					"baseline must take the cursor scan or the comparison is vacuous")
 				return h.prefillCacheParallel(context.Background())
 			})
 			viaTargeted := collect(func(h *hnsw) error {
@@ -200,6 +208,77 @@ func TestPrefillTargetedHNSWExclusions(t *testing.T) {
 	require.NoError(t, prefillTargeted(t, h, "custom"))
 
 	requireCacheContains(t, c, exp)
+}
+
+// TestPrefillCacheParallelRoutesToTargetedScan exercises the routing glue itself:
+// every other targeted test calls the scan directly, so nothing covers the branch
+// in prefillCacheParallel, the gate's polarity, or the target vector it forwards.
+//
+// The discriminator is the targeted scan's HNSW-side filter — a doc with no live
+// node and an HNSW-tombstoned doc are both served by the bucket but must not be
+// cached. The cursor path has no such filter, so the flag-off case caching them is
+// what proves this test is sensitive to the routing decision and not merely to the
+// prefill being correct.
+func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
+	const (
+		indexedCount = 10 // docs 0..9
+		tombstonedID = 5
+		unindexedID  = 20
+		nodesLen     = unindexedID + 1
+	)
+
+	cases := []struct {
+		name     string
+		flag     string
+		targeted bool
+	}{
+		{"flag on routes to the targeted scan", "true", true},
+		{"flag off stays on the cursor scan", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HNSW_PREFILL_TARGETED_READS", tc.flag)
+
+			store := newTestObjectsStore(t)
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+			served := map[uint64][]float32{} // everything the bucket hands to a scan
+			live := map[uint64]bool{}
+			for i := uint64(0); i < indexedCount; i++ {
+				vec := []float32{float32(i), float32(i) + 0.5}
+				putTargetedObject(t, bucket, i, i, 16<<10, nil, map[string][]float32{"custom": vec})
+				served[i] = vec
+				live[i] = true
+			}
+			putTargetedObject(t, bucket, unindexedID, unindexedID, 16<<10, nil,
+				map[string][]float32{"custom": {5, 5}})
+			served[unindexedID] = []float32{5, 5}
+			// only flushed segments count towards EstimatedEntrySize, and the 16KB
+			// payloads are what carry it past the gate's minimum
+			require.NoError(t, bucket.FlushAndSwitch())
+
+			want := maps.Clone(served)
+			if tc.targeted {
+				delete(want, tombstonedID)
+				delete(want, unindexedID)
+			}
+
+			logger, _ := test.NewNullLogger()
+			c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+			c.Grow(nodesLen)
+			// id "vectors_custom" makes getTargetVector yield "custom": a call site
+			// forwarding the wrong target would decode no vector at all
+			h := newTargetedTestIndex(store, c, "vectors_custom", live, nodesLen)
+			h.tombstones[tombstonedID] = struct{}{}
+
+			require.Equal(t, tc.targeted, h.useTargetedPrefillScan(bucket),
+				"bucket does not put prefillCacheParallel on the expected path")
+			require.NoError(t, h.prefillCacheParallel(context.Background()))
+
+			requireCacheContains(t, c, want)
+		})
+	}
 }
 
 // TestUseTargetedPrefillScanGate: the env flag alone is not enough — small-entry
