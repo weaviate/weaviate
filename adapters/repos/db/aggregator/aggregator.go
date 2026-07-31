@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -125,24 +126,31 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 		}
 	}
 
-	if !wantsCardinality {
+	// the estimate is whole-bucket, so it would repeat identically on every
+	// group: under group_by the flag is ignored and the request runs exactly as
+	// it would without it
+	if !wantsCardinality || a.params.GroupBy != nil {
 		return a.dispatch(ctx, a.params.Properties)
 	}
 
-	normal := dispatchableProperties(a.params.Properties)
-
-	if err := a.validateCardinalityOnlyProperties(); err != nil {
+	if err := a.validateCardinalityProperties(); err != nil {
 		return nil, err
+	}
+
+	normal := dispatchableProperties(a.params.Properties)
+	if len(normal) == 0 && !a.params.IncludeMetaCount {
+		// a dispatch here would search, fetch objects and aggregate nothing, to
+		// produce the single empty group it always starts from
+		res := &aggregation.Result{Groups: make([]aggregation.Group, 1)}
+		a.addApproximateCardinalities(res)
+		return res, nil
 	}
 
 	res, err := a.dispatch(ctx, normal)
 	if err != nil {
 		return nil, err
 	}
-	// the estimate is whole-bucket, so it would repeat identically on every group
-	if a.params.GroupBy == nil {
-		a.addApproximateCardinalities(res)
-	}
+	a.addApproximateCardinalities(res)
 	return res, nil
 }
 
@@ -184,15 +192,14 @@ func (a *Aggregator) dispatch(ctx context.Context, props []aggregation.ParamProp
 	return newUnfilteredAggregator(agg).Do(ctx)
 }
 
-// validateCardinalityOnlyProperties rejects unknown property names, which would
-// otherwise pass silently: a cardinality-only property never reaches
-// aggTypeOfProperty, the only schema lookup the dispatch path performs.
-// Existence is the only check — the estimate counts bucket keys, so it stays
-// valid for properties no aggregator supports.
-func (a *Aggregator) validateCardinalityOnlyProperties() error {
+// validateCardinalityProperties rejects every property requesting an estimate
+// that cannot be produced: an unknown name, or one whose values never land in a
+// bucket the estimate can read. Both would otherwise pass silently — the
+// dispatch path only looks a property up when it has an aggregator to run.
+func (a *Aggregator) validateCardinalityProperties() error {
 	names := make([]schema.PropertyName, 0, len(a.params.Properties))
 	for _, p := range a.params.Properties {
-		if p.ApproximateCardinality && len(p.Aggregators) == 0 {
+		if p.ApproximateCardinality {
 			names = append(names, p.Name)
 		}
 	}
@@ -205,12 +212,41 @@ func (a *Aggregator) validateCardinalityOnlyProperties() error {
 		return fmt.Errorf("could not find class %s in schema", a.params.ClassName)
 	}
 	for _, name := range names {
-		if _, err := schema.GetPropertyByName(class, name.String()); err != nil {
+		prop, err := schema.GetPropertyByName(class, name.String())
+		if err != nil {
 			return errors.Wrapf(err, "property %s", name)
+		}
+		if !hasCardinalityIndex(prop) {
+			return fmt.Errorf("property %s: approximate cardinality requires a "+
+				"filterable or searchable inverted index", name)
 		}
 	}
 
 	return nil
+}
+
+// hasCardinalityIndex reports whether the property's values reach a filterable
+// or searchable LSM bucket, the only place the estimate reads keys from. Geo
+// coordinates live in a dedicated geo index and nested objects in their own
+// bucket namespace; blobs and phone numbers are never analyzed at all.
+func hasCardinalityIndex(prop *models.Property) bool {
+	if !inverted.HasFilterableIndex(prop) && !inverted.HasSearchableIndex(prop) {
+		return false
+	}
+	if schema.IsRefDataType(prop.DataType) {
+		return true
+	}
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray,
+		schema.DataTypeInt, schema.DataTypeIntArray,
+		schema.DataTypeNumber, schema.DataTypeNumberArray,
+		schema.DataTypeBoolean, schema.DataTypeBooleanArray,
+		schema.DataTypeDate, schema.DataTypeDateArray,
+		schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		return true
+	default:
+		return false
+	}
 }
 
 // addApproximateCardinalities attaches the estimate to every property that
@@ -224,10 +260,14 @@ func (a *Aggregator) addApproximateCardinalities(res *aggregation.Result) {
 		est, err := a.approximateCardinality(p.Name)
 		if err != nil {
 			a.logger.WithField("action", "aggregate_approximate_cardinality").
-				WithField("property", p.Name.String()).Error(err)
+				WithField("property", p.Name.String()).
+				Errorf("could not estimate approximate cardinality: %v", err)
 			continue
 		}
 		if est == nil {
+			a.logger.WithField("action", "aggregate_approximate_cardinality").
+				WithField("property", p.Name.String()).
+				Debug("no filterable or searchable bucket on this shard")
 			continue
 		}
 		name := p.Name.String()
@@ -258,12 +298,22 @@ func (a *Aggregator) approximateCardinality(name schema.PropertyName) (*uint32, 
 		lastErr error
 	)
 	for _, bn := range bucketNames {
-		b, release := a.store.AcquireBucketForRead(bn)
-		if b == nil {
+		// GetKeysCount panics when a lazily loaded segment fails to load, and
+		// the recovered request must not leave the bucket pinned: Bucket.Shutdown
+		// drains pins without a timeout, so a leaked one hangs every later
+		// shutdown or bucket replacement on that bucket.
+		est, exists, err := func() (uint32, bool, error) {
+			b, release := a.store.AcquireBucketForRead(bn)
+			defer release()
+			if b == nil {
+				return 0, false, nil
+			}
+			est, err := b.GetKeysCount()
+			return est, true, err
+		}()
+		if !exists {
 			continue
 		}
-		est, err := b.GetKeysCount()
-		release()
 		if err != nil {
 			lastErr = err
 			continue

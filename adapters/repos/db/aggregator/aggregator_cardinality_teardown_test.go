@@ -55,7 +55,8 @@ func TestApproximateCardinality_ConcurrentBucketTeardown(t *testing.T) {
 	load()
 
 	b := store.Bucket(bucketName)
-	for i := 0; i < 2000; i++ {
+	const distinct = 2000
+	for i := 0; i < distinct; i++ {
 		key := []byte(fmt.Sprintf("value-%06d", i))
 		require.NoError(t, b.RoaringSetAddList(key, []uint64{uint64(i)}))
 	}
@@ -63,8 +64,16 @@ func TestApproximateCardinality_ConcurrentBucketTeardown(t *testing.T) {
 
 	agg := &Aggregator{store: store}
 
+	// the reader reports no estimate for a bucket it cannot find, so without a
+	// baseline a name it never resolves would churn through the loop unexercised
+	est, err := agg.approximateCardinality(schema.PropertyName(prop))
+	require.NoError(t, err)
+	require.NotNil(t, est)
+	require.InDelta(t, distinct, float64(*est), distinct*0.05)
+
 	stop := make(chan struct{})
 	done := make(chan struct{})
+	var estimated int
 	go func() {
 		defer close(done)
 		for {
@@ -74,7 +83,10 @@ func TestApproximateCardinality_ConcurrentBucketTeardown(t *testing.T) {
 			default:
 			}
 			// A nil estimate mid-teardown is fine; racing or crashing is not.
-			_, _ = agg.approximateCardinality(schema.PropertyName(prop))
+			est, err := agg.approximateCardinality(schema.PropertyName(prop))
+			if err == nil && est != nil {
+				estimated++
+			}
 		}
 	}()
 
@@ -85,4 +97,5 @@ func TestApproximateCardinality_ConcurrentBucketTeardown(t *testing.T) {
 
 	close(stop)
 	<-done
+	require.Positive(t, estimated, "reader never reached a loaded bucket")
 }
