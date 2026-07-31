@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -48,6 +49,8 @@ func TestCalculateUnloadedDimensionsUsageDoesNotWrite(t *testing.T) {
 		// minWALSize is the smallest write-ahead-log the seeded bucket may leave
 		// behind; 0 expects none
 		minWALSize int64
+		// residue adds the leftovers of a crash to the seeded bucket directory
+		residue func(t *testing.T, bucketPath string)
 	}{
 		{name: "dimensions flushed to a segment", docIDs: 3, flush: true},
 		{name: "dimensions in a small write-ahead-log", docIDs: 3, minWALSize: 1},
@@ -58,6 +61,20 @@ func TestCalculateUnloadedDimensionsUsageDoesNotWrite(t *testing.T) {
 			minWALSize: 4097,
 		},
 		{name: "no dimensions bucket at all"},
+		{
+			// a crash between writing a segment and removing the log it was written from
+			// leaves a segment that may be incomplete, so the log is what counts
+			name:       "partially written segment next to its write-ahead-log",
+			docIDs:     3,
+			minWALSize: 1,
+			residue:    writePartialSegmentForWAL,
+		},
+		{
+			name:    "leftovers of an interrupted segment cleanup next to a flushed segment",
+			docIDs:  3,
+			flush:   true,
+			residue: writeCleanupLeftovers,
+		},
 	}
 
 	for _, tt := range tests {
@@ -71,6 +88,9 @@ func TestCalculateUnloadedDimensionsUsageDoesNotWrite(t *testing.T) {
 			if tt.docIDs > 0 {
 				seedDimensionsBucket(t, bucketPath, targetVector, dims, tt.docIDs, tt.flush)
 				want = types.Dimensionality{Dimensions: dims, Count: tt.docIDs}
+			}
+			if tt.residue != nil {
+				tt.residue(t, bucketPath)
 			}
 
 			walSize := totalWALSize(t, bucketPath)
@@ -120,6 +140,38 @@ func seedDimensionsBucket(t *testing.T, bucketPath, targetVector string, dims ui
 	require.NoError(t, b.Shutdown(ctx))
 }
 
+// writePartialSegmentForWAL puts a segment file next to the write-ahead-log it would have
+// been written from, holding too few bytes to be readable.
+func writePartialSegmentForWAL(t *testing.T, bucketPath string) {
+	t.Helper()
+
+	logs, err := filepath.Glob(filepath.Join(bucketPath, "*.wal"))
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+
+	segment := strings.TrimSuffix(logs[0], ".wal") + ".db"
+	require.NoError(t, os.WriteFile(segment, []byte("partially written"), 0o600))
+}
+
+// writeCleanupLeftovers adds what a crash in the middle of a segment cleanup leaves behind:
+// the rewritten segment, a bloom filter marked for deletion and a scratch directory.
+func writeCleanupLeftovers(t *testing.T, bucketPath string) {
+	t.Helper()
+
+	segments, err := filepath.Glob(filepath.Join(bucketPath, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, segments, 1)
+
+	contents, err := os.ReadFile(segments[0])
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(segments[0]+".tmp", contents, 0o600))
+
+	bloom := strings.TrimSuffix(segments[0], ".db") + ".bloom.0000000000000" + lsmkv.DeleteMarkerSuffix
+	require.NoError(t, os.WriteFile(bloom, []byte("marked for deletion"), 0o600))
+
+	require.NoError(t, os.Mkdir(filepath.Join(bucketPath, "segment-x.scratch.d"), 0o700))
+}
+
 func totalWALSize(t *testing.T, dir string) int64 {
 	t.Helper()
 
@@ -135,8 +187,8 @@ func totalWALSize(t *testing.T, dir string) int64 {
 	return total
 }
 
-// dirSnapshot maps every file in dir to a hash of its contents. A directory that does not
-// exist maps to nil.
+// dirSnapshot maps every file in dir to a hash of its contents and every subdirectory to a
+// fixed marker. A directory that does not exist maps to nil.
 func dirSnapshot(t *testing.T, dir string) map[string]string {
 	t.Helper()
 
@@ -148,6 +200,10 @@ func dirSnapshot(t *testing.T, dir string) map[string]string {
 
 	snapshot := map[string]string{}
 	for _, entry := range entries {
+		if entry.IsDir() {
+			snapshot[entry.Name()] = "directory"
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		require.NoError(t, err)
 		snapshot[entry.Name()] = fmt.Sprintf("%x", sha256.Sum256(data))

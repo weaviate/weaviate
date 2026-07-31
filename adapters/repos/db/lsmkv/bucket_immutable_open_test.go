@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -136,6 +137,237 @@ func TestOpenImmutableBucketWithReadOnlyWAL(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrPermission)
 }
 
+// TestOpenImmutableBucketWithCrashResidue covers the leftovers a crash mid-flush,
+// mid-compaction or mid-cleanup leaves in a bucket directory. Recovering from them is a
+// write, so an immutable open must read around them and leave them for the owner of the
+// shard — which then still recovers from them.
+func TestOpenImmutableBucketWithCrashResidue(t *testing.T) {
+	wantValues := map[string]string{"k1": "v1", "k2": "v2"}
+
+	tests := []struct {
+		name string
+		// seed adds the leftovers of an interrupted operation to a directory holding two
+		// flushed segments
+		seed func(t *testing.T, dir, older, newer string)
+		// wantSegments is how many segments an immutable open reads the values from; the
+		// rest of the data comes from the write-ahead-logs it merged into the memtable
+		wantSegments int
+	}{
+		{
+			name: "compacted segment next to both its sources",
+			seed: func(t *testing.T, dir, older, newer string) {
+				writeFile(t, dir, compactedName(older, newer)+".tmp", compactedSegment(t))
+			},
+			// the compaction may still have been writing the file, so both sources count
+			wantSegments: 2,
+		},
+		{
+			name: "compacted segment whose older source is marked for deletion",
+			seed: func(t *testing.T, dir, older, newer string) {
+				writeFile(t, dir, compactedName(older, newer)+".tmp", compactedSegment(t))
+				markSegmentDeleted(t, dir, older)
+			},
+			// the compacted segment replaces the source that is still there
+			wantSegments: 1,
+		},
+		{
+			name: "compacted segment whose sources are both marked for deletion",
+			seed: func(t *testing.T, dir, older, newer string) {
+				writeFile(t, dir, compactedName(older, newer)+".tmp", compactedSegment(t))
+				markSegmentDeleted(t, dir, older)
+				markSegmentDeleted(t, dir, newer)
+			},
+			wantSegments: 1,
+		},
+		{
+			name: "rewritten segment left over from a cleanup",
+			seed: func(t *testing.T, dir, older, newer string) {
+				writeFile(t, dir, newer+".tmp", readFile(t, dir, newer))
+			},
+			wantSegments: 2,
+		},
+		{
+			name: "precomputed bloom filter left over from a cleanup",
+			seed: func(t *testing.T, dir, older, newer string) {
+				writeFile(t, dir, bloomName(newer)+".tmp", []byte("partially written"))
+			},
+			wantSegments: 2,
+		},
+		{
+			name: "sidecar marked for deletion",
+			seed: func(t *testing.T, dir, older, newer string) {
+				markDeleted(t, dir, bloomName(newer))
+			},
+			wantSegments: 2,
+		},
+		{
+			name: "stale scratch directory",
+			seed: func(t *testing.T, dir, older, newer string) {
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "segment-x.scratch.d"), 0o700))
+			},
+			wantSegments: 2,
+		},
+		{
+			name: "segment shadowed by its write-ahead-log",
+			seed: func(t *testing.T, dir, older, newer string) {
+				writeFile(t, dir, walName(older), walBytes(t, []walEntry{{"k1", "v1"}}))
+			},
+			// the shadowed segment is left out, its log carries k1 instead
+			wantSegments: 1,
+		},
+		{
+			name: "leftovers of several interrupted operations",
+			seed: func(t *testing.T, dir, older, newer string) {
+				writeFile(t, dir, compactedName(older, newer)+".tmp", compactedSegment(t))
+				writeFile(t, dir, newer+".tmp", readFile(t, dir, newer))
+				writeFile(t, dir, bloomName(newer)+".tmp", []byte("partially written"))
+				markDeleted(t, dir, bloomName(newer))
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "segment-x.scratch.d"), 0o700))
+				writeFile(t, dir, walName(older), walBytes(t, []walEntry{{"k1", "v1"}}))
+			},
+			wantSegments: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, older, newer := seedTwoSegments(t)
+			tt.seed(t, dir, older, newer)
+			before := dirSnapshot(t, dir)
+
+			// without bloom filters, as the usage module opens these buckets
+			b := openAndReadValues(t, dir, wantValues,
+				WithImmutable(true), WithUseBloomFilter(false))
+			// reading a key twice over is harmless, but counting it twice is not
+			require.Len(t, b.disk.segments, tt.wantSegments)
+			require.NoError(t, b.Shutdown(context.Background()))
+
+			require.Equal(t, before, dirSnapshot(t, dir),
+				"an immutable open must not add, change or remove a file")
+
+			// the leftovers are still there to be recovered from by the owner of the shard
+			readValues(t, dir, wantValues)
+			requireRecovered(t, dir)
+		})
+	}
+}
+
+// requireRecovered requires that a writable open has cleaned up every leftover: no temporary
+// file, no file marked for deletion and no scratch directory is left in dir.
+func requireRecovered(t *testing.T, dir string) {
+	t.Helper()
+
+	for name := range dirSnapshot(t, dir) {
+		require.NotEqual(t, ".tmp", filepath.Ext(name), "leftover after recovery")
+		require.NotEqual(t, DeleteMarkerSuffix, filepath.Ext(name), "leftover after recovery")
+		require.NotContains(t, name, ".scratch.d", "leftover after recovery")
+	}
+}
+
+// seedTwoSegments builds a bucket directory holding two flushed segments, the older one with
+// k1 and the newer one with k2, and returns it along with the two segment file names.
+func seedTwoSegments(t *testing.T) (dir, older, newer string) {
+	t.Helper()
+
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+
+	dir = filepath.Join(t.TempDir(), "bucket")
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+
+	for _, e := range []walEntry{{"k1", "v1"}, {"k2", "v2"}} {
+		require.NoError(t, b.Put([]byte(e.key), []byte(e.value)))
+		require.NoError(t, b.FlushMemtable())
+	}
+	require.NoError(t, b.Shutdown(ctx))
+
+	segments := segmentNames(t, dir)
+	require.Len(t, segments, 2)
+	return dir, segments[0], segments[1]
+}
+
+// compactedSegment returns the contents of the segment that compacting the two segments of a
+// seedTwoSegments directory produces.
+func compactedSegment(t *testing.T) []byte {
+	t.Helper()
+
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+
+	dir, _, _ := seedTwoSegments(t)
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+
+	compacted, err := b.disk.compactOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, compacted)
+	require.NoError(t, b.Shutdown(ctx))
+
+	segments := segmentNames(t, dir)
+	require.Len(t, segments, 1)
+	return readFile(t, dir, segments[0])
+}
+
+// segmentNames returns the segment file names in dir, oldest first.
+func segmentNames(t *testing.T, dir string) []string {
+	t.Helper()
+
+	// ids are fixed-width unix-nano, so the names sort chronologically
+	names, err := filepath.Glob(filepath.Join(dir, "segment-*.db"))
+	require.NoError(t, err)
+
+	sort.Strings(names)
+	for i, name := range names {
+		names[i] = filepath.Base(name)
+	}
+	return names
+}
+
+// compactedName is the name of the segment file compacting older and newer produces.
+func compactedName(older, newer string) string {
+	return fmt.Sprintf("segment-%s_%s.db", segmentID(older), segmentID(newer))
+}
+
+func bloomName(segment string) string {
+	return fmt.Sprintf("segment-%s.bloom", segmentID(segment))
+}
+
+func walName(segment string) string {
+	return fmt.Sprintf("segment-%s.wal", segmentID(segment))
+}
+
+// markSegmentDeleted marks a segment file and its bloom filter for deletion, as the switch
+// after a compaction does.
+func markSegmentDeleted(t *testing.T, dir, segment string) {
+	t.Helper()
+
+	markDeleted(t, dir, segment)
+	markDeleted(t, dir, bloomName(segment))
+}
+
+func markDeleted(t *testing.T, dir, name string) {
+	t.Helper()
+
+	marker := fmt.Sprintf("%s.%013d%s", name, 0, DeleteMarkerSuffix)
+	require.NoError(t, os.Rename(filepath.Join(dir, name), filepath.Join(dir, marker)))
+}
+
+func writeFile(t *testing.T, dir, name string, contents []byte) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), contents, 0o600))
+}
+
+func readFile(t *testing.T, dir, name string) []byte {
+	t.Helper()
+
+	contents, err := os.ReadFile(filepath.Join(dir, name))
+	require.NoError(t, err)
+	return contents
+}
+
 // recordingCallbackGroup notes the ids registered on it and otherwise does nothing.
 type recordingCallbackGroup struct {
 	cyclemanager.CycleCallbackGroup
@@ -228,6 +460,15 @@ func TestOpenImmutableBucketWithCleanupIntervalOnReadOnlyDir(t *testing.T) {
 func readValues(t *testing.T, dir string, want map[string]string, opts ...BucketOption) {
 	t.Helper()
 
+	b := openAndReadValues(t, dir, want, opts...)
+	require.NoError(t, b.Shutdown(context.Background()))
+}
+
+// openAndReadValues opens a bucket on dir and requires every wanted key to read back. The
+// caller shuts the returned bucket down.
+func openAndReadValues(t *testing.T, dir string, want map[string]string, opts ...BucketOption) *Bucket {
+	t.Helper()
+
 	ctx := context.Background()
 	noopCB := cyclemanager.NewCallbackGroupNoop()
 
@@ -241,7 +482,7 @@ func readValues(t *testing.T, dir string, want map[string]string, opts ...Bucket
 		require.Equal(t, value, string(got), "key %q", key)
 	}
 
-	require.NoError(t, b.Shutdown(ctx))
+	return b
 }
 
 // seedBucketDir builds a bucket directory holding one write-ahead-log per entry in logs, in
@@ -304,8 +545,8 @@ func walBytes(t *testing.T, entries []walEntry) []byte {
 	return data
 }
 
-// dirSnapshot maps every file in dir to a hash of its contents. A directory that does not
-// exist maps to nil.
+// dirSnapshot maps every file in dir to a hash of its contents and every subdirectory to a
+// fixed marker. A directory that does not exist maps to nil.
 func dirSnapshot(t *testing.T, dir string) map[string]string {
 	t.Helper()
 
@@ -317,6 +558,10 @@ func dirSnapshot(t *testing.T, dir string) map[string]string {
 
 	snapshot := map[string]string{}
 	for _, entry := range entries {
+		if entry.IsDir() {
+			snapshot[entry.Name()] = "directory"
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		require.NoError(t, err)
 		snapshot[entry.Name()] = fmt.Sprintf("%x", sha256.Sum256(data))

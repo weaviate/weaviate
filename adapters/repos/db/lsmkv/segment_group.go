@@ -89,6 +89,7 @@ type SegmentGroup struct {
 	useBloomFilter           bool // see bucket for more details
 	calcCountNetAdditions    bool // see bucket for more details
 	compactLeftOverSegments  bool // see bucket for more details
+	immutable                bool // see bucket for more details
 	enableChecksumValidation bool
 	MinMMapSize              int64
 	keepLevelCompaction      bool // see bucket for more details
@@ -137,6 +138,7 @@ type sgConfig struct {
 	useBloomFilter               bool
 	calcCountNetAdditions        bool
 	forceCompaction              bool
+	immutable                    bool
 	keepLevelCompaction          bool
 	maxSegmentSize               int64
 	cleanupInterval              time.Duration
@@ -171,6 +173,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		useBloomFilter:               cfg.useBloomFilter,
 		calcCountNetAdditions:        cfg.calcCountNetAdditions,
 		compactLeftOverSegments:      cfg.forceCompaction,
+		immutable:                    cfg.immutable,
 		maxSegmentSize:               cfg.maxSegmentSize,
 		cleanupInterval:              cfg.cleanupInterval,
 		enableChecksumValidation:     cfg.enableChecksumValidation,
@@ -189,23 +192,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		deleteMarkerCounter:          deleteMarkerCounter,
 	}
 
-	// Clean up stale scratch directories left behind by a prior version that
-	// used scratch files during compaction/flushing. These are no longer
-	// created, but may linger after an upgrade if the process crashed mid-
-	// compaction before the old code could remove them.
-	if entries, err := os.ReadDir(cfg.dir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() && strings.HasSuffix(e.Name(), ".scratch.d") {
-				p := filepath.Join(cfg.dir, e.Name())
-				if err := os.RemoveAll(p); err != nil {
-					logger.WithError(err).WithField("path", p).
-						Warn("failed to remove stale scratch directory")
-				}
-			}
-		}
+	if !sg.immutable {
+		removeStaleScratchDirs(cfg.dir, logger)
 	}
 
 	segmentIndex := 0
+
+	// compacted segments a read-only open mounts under their .tmp name, in place of the
+	// source segments an interrupted switch already took away
+	compactedSegments := map[string]struct{}{}
 
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
@@ -215,9 +210,27 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			continue
 		}
 
-		potentialCompactedSegmentFileName := strings.TrimSuffix(entry, ".tmp")
+		jointSegmentsIDs := compactionSourceIDs(entry)
 
-		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
+		if sg.immutable {
+			// Renaming the compacted segment over its sources is a write, so a read-only
+			// open reads it where it is instead — but only once the switch has taken a
+			// source away, as until then the compaction may still have been writing it.
+			if remaining, started := compactionSwitchStarted(jointSegmentsIDs, files); started {
+				compactedSegments[entry] = struct{}{}
+				for _, name := range remaining {
+					delete(files, name)
+				}
+
+				logger.WithField("action", "lsm_segment_init").
+					WithField("path", filepath.Join(sg.dir, entry)).
+					Info("read a compacted LSM segment in place of its source segments, " +
+						"because a read-only open cannot complete the compaction")
+			}
+			continue
+		}
+
+		if jointSegmentsIDs == nil {
 			// A non-.db segment .tmp (e.g. a precomputed segment-X.bloom.tmp) is a
 			// leftover from a crash during a compaction/cleanup switch — no such
 			// work runs during init — so remove it. The derived files are
@@ -229,9 +242,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			}
 			continue
 		}
-
-		jointSegments := segmentID(potentialCompactedSegmentFileName)
-		jointSegmentsIDs := strings.Split(jointSegments, "_")
 
 		if len(jointSegmentsIDs) == 1 {
 			// cleanup leftover, to be removed
@@ -365,20 +375,26 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 	for _, entry := range fileList {
 		if filepath.Ext(entry) == DeleteMarkerSuffix {
+			if sg.immutable {
+				// a read-only open leaves the file for the owner of the bucket to delete
+				continue
+			}
+
 			// marked for deletion, but never actually deleted. Delete now.
 			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
 				// don't abort if the delete fails, we can still continue (albeit
 				// without freeing disk space that should have been freed)
-				sg.logger.WithError(err).WithFields(logrus.Fields{
+				sg.logger.WithFields(logrus.Fields{
 					"action": "lsm_segment_init_deleted_previously_marked_files",
 					"file":   entry,
-				}).Error("failed to delete file already marked for deletion")
+				}).Errorf("failed to delete file already marked for deletion: %v", err)
 			}
 			continue
 
 		}
 
-		if filepath.Ext(entry) != ".db" {
+		_, compacted := compactedSegments[entry]
+		if filepath.Ext(entry) != ".db" && !compacted {
 			// skip, this could be commit log, etc.
 			continue
 		}
@@ -390,6 +406,12 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		walFileName += ".wal"
 		_, ok := files[walFileName]
 		if ok {
+			if sg.immutable {
+				// the write-ahead-log is read instead, so the partially written segment
+				// stays on disk untouched
+				continue
+			}
+
 			// the segment will be recovered from the WAL
 			err := os.Remove(filepath.Join(sg.dir, entry))
 			if err != nil {
@@ -567,6 +589,54 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
+}
+
+// removeStaleScratchDirs cleans up scratch directories left behind by a prior version that
+// used scratch files during compaction/flushing. These are no longer created, but may
+// linger after an upgrade if the process crashed mid-compaction before the old code could
+// remove them.
+func removeStaleScratchDirs(dir string, logger logrus.FieldLogger) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasSuffix(e.Name(), ".scratch.d") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if err := os.RemoveAll(p); err != nil {
+			logger.WithField("path", p).Warnf("failed to remove stale scratch directory: %v", err)
+		}
+	}
+}
+
+// compactionSourceIDs returns the ids of the segments whose compaction produced the segment
+// file entry, or nil if entry does not name a segment.
+func compactionSourceIDs(entry string) []string {
+	segmentFileName := strings.TrimSuffix(entry, ".tmp")
+	if filepath.Ext(segmentFileName) != ".db" {
+		return nil
+	}
+	return strings.Split(segmentID(segmentFileName), "_")
+}
+
+// compactionSwitchStarted reports whether the switch replacing the segments with the given
+// ids by their compacted segment had already begun, and returns the ones still on disk. The
+// compacted segment is fsynced and closed before the first source is marked for deletion, so
+// a missing source means it is complete and holds the only copy of their data.
+func compactionSwitchStarted(sourceIDs []string, files map[string]int64) (remaining []string, started bool) {
+	if len(sourceIDs) != 2 {
+		return nil, false
+	}
+
+	for _, id := range sourceIDs {
+		if found, name := segmentExistsWithID(id, files); found {
+			remaining = append(remaining, name)
+		}
+	}
+	return remaining, len(remaining) < len(sourceIDs)
 }
 
 func (sg *SegmentGroup) pauseCompaction(ctx context.Context) error {

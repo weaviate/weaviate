@@ -390,6 +390,7 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			mmapContents:                 b.mmapContents,
 			keepTombstones:               b.keepTombstones,
 			forceCompaction:              b.forceCompaction,
+			immutable:                    b.immutable,
 			useBloomFilter:               b.useBloomFilter,
 			calcCountNetAdditions:        b.calcCountNetAdditions,
 			maxSegmentSize:               b.maxSegmentSize,

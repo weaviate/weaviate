@@ -346,9 +346,10 @@ func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 // created, write-ahead-logs are opened read-only and merged into the active
 // memtable instead of being flushed to segments, and shutdown neither fsyncs
 // nor deletes anything. Compaction and segment cleanup never run, so
-// WithSegmentsCleanupInterval is ignored. Segment files are still repaired on
-// load when a crash left the directory inconsistent, and missing .bloom /
-// .cna / .metadata sidecars are still recomputed and written.
+// WithSegmentsCleanupInterval is ignored. What a crash left behind is read
+// around rather than repaired: temporary files, files marked for deletion and
+// a segment shadowed by its write-ahead-log all stay where they are. A missing
+// .bloom / .cna / .metadata sidecar is still recomputed and written.
 //
 // This is distinct from the shard-level read-only status
 // (storagestate.StatusReadOnly) which temporarily halts flushes during
