@@ -207,9 +207,16 @@ func (b *Bucket) replayCommitLogsIntoMemtable(sg *SegmentGroup, walFileNames []s
 	return nil
 }
 
-// readCommitLogFile opens a write-ahead-log read-only and reads it into mt.
+// readCommitLogFile opens a write-ahead-log read-only and reads it into mt. A log the owner
+// of the directory removed since the bucket listed its files is left out.
 func (b *Bucket) readCommitLogFile(path string, mt *Memtable) error {
 	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		b.logger.WithField("action", "lsm_recover_from_active_wal").
+			WithField("path", path).
+			Warn("write-ahead-log was removed while the bucket was being opened, leaving it out")
+		return nil
+	}
 	if err != nil {
 		return errors.Wrap(err, "open write-ahead-log")
 	}

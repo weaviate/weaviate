@@ -115,6 +115,119 @@ func TestOpenImmutableBucketWithWAL(t *testing.T) {
 	}
 }
 
+// The owner of the directory deletes a write-ahead-log once the flush that wrote its segment
+// is through, which can happen between the listing an immutable open takes and the moment it
+// reads the logs in that listing. The open then has to leave the log out and hand back the
+// rest of the bucket — failing reports the whole shard as empty to the usage module.
+func TestOpenImmutableBucketWithVanishedWAL(t *testing.T) {
+	tests := []struct {
+		name string
+		// vanished are the indexes of the seeded logs that go away after the listing
+		vanished   []int
+		wantValues map[string]string
+	}{
+		{
+			name:       "every log still there",
+			wantValues: map[string]string{"k1": "v1", "k2": "v2"},
+		},
+		{
+			name:       "the older log vanished",
+			vanished:   []int{0},
+			wantValues: map[string]string{"k2": "v2"},
+		},
+		{
+			name:       "the newer log vanished",
+			vanished:   []int{1},
+			wantValues: map[string]string{"k1": "v1"},
+		},
+		{
+			name:       "every log vanished",
+			vanished:   []int{0, 1},
+			wantValues: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := seedBucketDir(t, [][]walEntry{{{"k1", "v1"}}, {{"k2", "v2"}}}, 0)
+
+			logs := namesWithExt(t, dir, ".wal")
+			for _, i := range tt.vanished {
+				vanishFile(t, dir, logs[i])
+			}
+			before := dirSnapshot(t, dir)
+
+			b := openAndReadValues(t, dir, tt.wantValues, WithImmutable(true))
+			for _, key := range []string{"k1", "k2"} {
+				if _, wanted := tt.wantValues[key]; wanted {
+					continue
+				}
+				got, err := b.Get([]byte(key))
+				require.NoError(t, err)
+				require.Nil(t, got, "key %q", key)
+			}
+			require.NoError(t, b.Shutdown(context.Background()))
+
+			require.Equal(t, before, dirSnapshot(t, dir),
+				"an immutable open must not add, change or remove a file")
+		})
+	}
+}
+
+// A segment is left out while the log it was flushed from is there, because a crash can have
+// interrupted the flush. Once the owner deletes that log the flush is through, so the segment
+// holds the log's entries and has to be read in its place.
+func TestOpenImmutableBucketWithVanishedWALNextToItsSegment(t *testing.T) {
+	tests := []struct {
+		name         string
+		vanished     bool
+		wantSegments int
+	}{
+		{name: "log still there", wantSegments: 1},
+		{name: "log vanished", vanished: true, wantSegments: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, older, _ := seedTwoSegments(t)
+			// the flush of the older segment has not deleted its log yet
+			writeFile(t, dir, walName(older), walBytes(t, []walEntry{{"k1", "v1"}}))
+			if tt.vanished {
+				vanishFile(t, dir, walName(older))
+			}
+			before := dirSnapshot(t, dir)
+
+			b := openAndReadValues(t, dir, map[string]string{"k1": "v1", "k2": "v2"},
+				WithImmutable(true), WithUseBloomFilter(false))
+			// reading a key twice over is harmless, but counting it twice is not
+			require.Len(t, b.disk.segments, tt.wantSegments)
+			require.NoError(t, b.Shutdown(context.Background()))
+
+			require.Equal(t, before, dirSnapshot(t, dir),
+				"an immutable open must not add, change or remove a file")
+		})
+	}
+}
+
+// Only a log that is gone may be left out. One that is still there but cannot be opened
+// fails the open instead of quietly dropping its data from the bucket.
+func TestOpenImmutableBucketWithUnreadableWAL(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read permission this test relies on")
+	}
+
+	dir := seedBucketDir(t, [][]walEntry{{{"k1", "v1"}}}, 0)
+	logs := namesWithExt(t, dir, ".wal")
+	require.Len(t, logs, 1)
+	require.NoError(t, os.Chmod(filepath.Join(dir, logs[0]), 0o000))
+
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+	_, err := NewBucketCreator().NewBucket(ctx, dir, "", testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace), WithImmutable(true))
+	require.ErrorIs(t, err, os.ErrPermission)
+}
+
 // A write-ahead-log the process may not write to is the sharpest statement of the contract:
 // an immutable open must still read it, a writable open must fail on it.
 func TestOpenImmutableBucketWithReadOnlyWAL(t *testing.T) {
@@ -123,16 +236,15 @@ func TestOpenImmutableBucketWithReadOnlyWAL(t *testing.T) {
 	}
 
 	dir := seedBucketDir(t, [][]walEntry{{{"k1", "v1"}}}, 0)
-	logs, err := filepath.Glob(filepath.Join(dir, "*.wal"))
-	require.NoError(t, err)
+	logs := namesWithExt(t, dir, ".wal")
 	require.Len(t, logs, 1)
-	require.NoError(t, os.Chmod(logs[0], 0o444))
+	require.NoError(t, os.Chmod(filepath.Join(dir, logs[0]), 0o444))
 
 	readValues(t, dir, map[string]string{"k1": "v1"}, WithImmutable(true))
 
 	ctx := context.Background()
 	noopCB := cyclemanager.NewCallbackGroupNoop()
-	_, err = NewBucketCreator().NewBucket(ctx, dir, "", testLogger(), nil, noopCB, noopCB,
+	_, err := NewBucketCreator().NewBucket(ctx, dir, "", testLogger(), nil, noopCB, noopCB,
 		WithStrategy(StrategyReplace))
 	require.ErrorIs(t, err, os.ErrPermission)
 }
@@ -309,7 +421,7 @@ func seedTwoSegments(t *testing.T) (dir, older, newer string) {
 	}
 	require.NoError(t, b.Shutdown(ctx))
 
-	segments := segmentNames(t, dir)
+	segments := namesWithExt(t, dir, ".db")
 	require.Len(t, segments, 2)
 	return dir, segments[0], segments[1]
 }
@@ -332,17 +444,17 @@ func compactedSegment(t *testing.T) []byte {
 	require.True(t, compacted)
 	require.NoError(t, b.Shutdown(ctx))
 
-	segments := segmentNames(t, dir)
+	segments := namesWithExt(t, dir, ".db")
 	require.Len(t, segments, 1)
 	return readFile(t, dir, segments[0])
 }
 
-// segmentNames returns the segment file names in dir, oldest first.
-func segmentNames(t *testing.T, dir string) []string {
+// namesWithExt returns the names of the files in dir carrying the given extension, sorted.
+// Segment ids are fixed-width unix-nano, so segment names come out oldest first.
+func namesWithExt(t *testing.T, dir, ext string) []string {
 	t.Helper()
 
-	// ids are fixed-width unix-nano, so the names sort chronologically
-	names, err := filepath.Glob(filepath.Join(dir, "segment-*.db"))
+	names, err := filepath.Glob(filepath.Join(dir, "*"+ext))
 	require.NoError(t, err)
 
 	sort.Strings(names)
@@ -379,6 +491,16 @@ func markDeleted(t *testing.T, dir, name string) {
 
 	marker := fmt.Sprintf("%s.%013d%s", name, 0, DeleteMarkerSuffix)
 	require.NoError(t, os.Rename(filepath.Join(dir, name), filepath.Join(dir, marker)))
+}
+
+// vanishFile replaces a file with a symlink to a name that does not exist, so a listing still
+// reports it while opening it fails the way it does for a file the owner removed in between.
+func vanishFile(t *testing.T, dir, name string) {
+	t.Helper()
+
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.Symlink(path+".gone", path))
 }
 
 func writeFile(t *testing.T, dir, name string, contents []byte) {
@@ -589,6 +711,10 @@ func dirSnapshot(t *testing.T, dir string) map[string]string {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if os.IsNotExist(err) {
+			snapshot[entry.Name()] = "vanished"
+			continue
+		}
 		require.NoError(t, err)
 		snapshot[entry.Name()] = fmt.Sprintf("%x", sha256.Sum256(data))
 	}
@@ -597,15 +723,5 @@ func dirSnapshot(t *testing.T, dir string) map[string]string {
 
 func countFilesWithExt(t *testing.T, dir, ext string) int {
 	t.Helper()
-
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-
-	count := 0
-	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) == ext {
-			count++
-		}
-	}
-	return count
+	return len(namesWithExt(t, dir, ext))
 }

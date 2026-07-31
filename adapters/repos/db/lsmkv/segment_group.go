@@ -405,6 +405,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		walFileName, _, _ := strings.Cut(entry, ".")
 		walFileName += ".wal"
 		_, ok := files[walFileName]
+		if ok && sg.immutable {
+			// The listing can name a log the owner has since deleted, which it only does
+			// once the flush that wrote this segment is through. Ask the disk rather than
+			// the listing, so a segment is not left out for a log that is no longer there.
+			if _, err := os.Stat(filepath.Join(sg.dir, walFileName)); os.IsNotExist(err) {
+				delete(files, walFileName)
+				ok = false
+			}
+		}
 		if ok {
 			if sg.immutable {
 				// the write-ahead-log is read instead, so the partially written segment
