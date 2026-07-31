@@ -134,6 +134,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 		wantShardCount    int64
 		wantScanned       int32
 		wantClassReported bool
+		wantOrder         []string
 		wantErr           error
 	}{
 		{
@@ -157,6 +158,15 @@ func TestLocalNodeShardStats(t *testing.T) {
 		{
 			name: "all shards of an index", class: "", shards: []string{"s1", "s2", "s3"},
 			wantShards: 3, wantShardCount: 3, wantScanned: 3, wantClassReported: true,
+		},
+		{
+			// a diff of two scans shows what changed, not a reshuffled list
+			name: "collections and shards reported in a fixed order", class: "",
+			shards: []string{"s3", "s1", "s6", "s4", "s2", "s5"}, extraIndices: 3,
+			wantShards: 9, wantShardCount: 9, wantScanned: 6, wantClassReported: true,
+			wantOrder: []string{
+				"extra0", "extra2", "s1", "s2", "s3", "s4", "s5", "s6", "extra1",
+			},
 		},
 		{
 			// a shard created after the read, or one already gone from the schema
@@ -269,8 +279,14 @@ func TestLocalNodeShardStats(t *testing.T) {
 			if tt.withNilIndex {
 				db.indices["gone"] = nil
 			}
+			// the extras sort on both sides of the collection under test, so a scan
+			// that stops at it is told apart from one that carries on
 			for i := 0; i < tt.extraIndices; i++ {
-				extra, _ := shardedIndex(t, fmt.Sprintf("Other%d", i),
+				extraClass := fmt.Sprintf("Head%d", i)
+				if i%2 == 1 {
+					extraClass = fmt.Sprintf("Tail%d", i)
+				}
+				extra, _ := shardedIndex(t, extraClass,
 					[]string{fmt.Sprintf("extra%d", i)}, nil, nil, false)
 				db.indices[extra.ID()] = extra
 			}
@@ -333,6 +349,13 @@ func TestLocalNodeShardStats(t *testing.T) {
 				assert.Equal(t, tt.wantShardCount, stats.ObjectCount, "object count")
 			}
 			require.Len(t, shards, tt.wantShards)
+			if tt.wantOrder != nil {
+				reported := make([]string, len(shards))
+				for i, shard := range shards {
+					reported[i] = shard.Name
+				}
+				assert.Equal(t, tt.wantOrder, reported, "order of the reported shards")
+			}
 			assert.Equal(t, tt.wantScanned, scanned.Load(), "shards scanned")
 			classReported := slices.ContainsFunc(shards, func(s *models.NodeShardStatus) bool {
 				return s.Class == className

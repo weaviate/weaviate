@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -157,7 +159,10 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 	var objectCount, shardCount int64
 	if className == "" {
 		// scanning every shard takes far too long to hold indexLock
-		for name, idx := range db.copyIndices() {
+		indices := db.copyIndices()
+		// a fixed order keeps repeated scans from reshuffling the reported collections
+		for _, name := range slices.Sorted(maps.Keys(indices)) {
+			idx := indices[name]
 			if idx == nil {
 				db.logger.WithField("action", "local_node_status_for_all").
 					Warningf("no resource found for index %q", name)
@@ -278,10 +283,12 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		return replicationFactor
 	}
 
-	for name, shard := range shards {
+	// a fixed order keeps repeated scans from reshuffling the reported shards
+	for _, name := range slices.Sorted(maps.Keys(shards)) {
 		if ctx.Err() != nil {
 			return totalCount, shardCount, context.Cause(ctx)
 		}
+		shard := shards[name]
 
 		// Don't force load a lazy shard to get nodes status
 		if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.isLoaded() {
