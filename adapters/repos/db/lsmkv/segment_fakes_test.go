@@ -351,36 +351,33 @@ func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	panic("not implemented")
 }
 
-func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error) {
+func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error) {
 	f.getCounter++
 	if f.strategy != segmentindex.StrategyRoaringSet {
-		return roaringset.BitmapLayer{}, nil, fmt.Errorf("not a roaring set segment")
+		return nil, nil, fmt.Errorf("not a roaring set segment")
 	}
 
 	if val, ok := f.roaringStore[string(key)]; ok {
-		return roaringset.BitmapLayer{
-			Additions: val.Clone(),
-		}, func() { f.roaringSetReleases++ }, nil
+		return val.Clone(), func() { f.roaringSetReleases++ }, nil
 	}
 
-	return roaringset.BitmapLayer{}, nil, lsmkv.NotFound
+	return nil, nil, lsmkv.NotFound
 }
 
-func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
+func (f *fakeSegment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
 	f.getCounter++
 	if f.roaringSetMergeErr != nil {
 		return f.roaringSetMergeErr
 	}
-	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
+	bm, _, err := f.roaringSetGet(key, bitmapBufPool)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
 			return nil
 		}
+		return err
 	}
 
-	input.Additions.
-		AndNotConc(layer.Deletions, maxConc).
-		OrConc(layer.Additions, maxConc)
+	additions.OrConc(bm, maxConc)
 
 	return nil
 }

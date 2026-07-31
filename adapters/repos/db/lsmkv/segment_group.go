@@ -26,6 +26,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -944,34 +945,35 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-// roaringSetGet folds all disk segments holding key into a single BitmapLayer:
-// the first segment with the key becomes the base (additions cloned into a
-// pooled buffer with headroom), every later segment merges into it in place.
-// If no segment has the key, a zero BitmapLayer and noop release are returned.
-// Only Additions is fully folded; Deletions is the first segment's deletions,
-// retained solely so its buffer gets released — not the flattened deletions.
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayer, release func(), err error) {
+// roaringSetGet folds all disk segments holding key into a single additions
+// bitmap: the first segment with the key becomes the base (additions cloned
+// into a pooled buffer with headroom), every later segment applies its
+// deletions and additions onto it in place. Disk reads produce additions
+// only — the base segment's own deletions are never read, as they cannot
+// mask anything older. If no segment has the key, a nil bitmap and noop
+// release are returned.
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (bm *sroar.Bitmap, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
-		return out, noopRelease, nil
+		return nil, noopRelease, nil
 	}
 
 	// acquired (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
-	// can't leak the first layer's pooled buffer.
+	// can't leak the base bitmap's pooled buffer.
 	acquired := noopRelease
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
+		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
 		if getErr == nil {
-			out = layer
-			acquired = layerRelease
+			bm = baseBM
+			acquired = baseRelease
 			i++
 			break
 		}
 		if !errors.Is(getErr, lsmkv.NotFound) {
-			return roaringset.BitmapLayer{}, noopRelease, getErr
+			return nil, noopRelease, getErr
 		}
 	}
 	defer func() {
@@ -981,13 +983,13 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	}()
 
 	for ; i < ln; i++ {
-		if mergeErr := segments[i].roaringSetMergeWith(key, out, sg.bitmapBufPool, maxConc); mergeErr != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, bm, sg.bitmapBufPool, maxConc); mergeErr != nil {
 			err = mergeErr
-			return roaringset.BitmapLayer{}, noopRelease, err
+			return nil, noopRelease, err
 		}
 	}
 
-	return out, acquired, nil
+	return bm, acquired, nil
 }
 
 func (sg *SegmentGroup) count() int {
