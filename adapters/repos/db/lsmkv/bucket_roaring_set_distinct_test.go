@@ -14,7 +14,10 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -112,6 +115,31 @@ func TestRoaringSetEachDistinctKey(t *testing.T) {
 		assert.Zero(t, calls)
 	})
 
+	// GetKeysCount's bloom component is a maximum-likelihood estimate, and this
+	// key set is one it overshoots on, so a bucket sitting exactly at the limit
+	// must not be rejected on the estimate alone.
+	t.Run("overshooting estimate at the limit still walks", func(t *testing.T) {
+		const keys = 396
+		b := newBucket(t, StrategyRoaringSet)
+		for i := 0; i < keys; i++ {
+			require.NoError(t, b.RoaringSetAddList(
+				[]byte(fmt.Sprintf("value-%06d", i)), []uint64{uint64(i)}))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+
+		estimate, err := b.GetKeysCount()
+		require.NoError(t, err)
+		require.Greater(t, estimate, uint32(keys),
+			"key set no longer overshoots; pick another that does")
+
+		got, exceeded := collect(t, b, keys)
+		require.False(t, exceeded)
+		require.Len(t, got, keys)
+		for i := 0; i < keys; i++ {
+			assert.Equal(t, 1, got[fmt.Sprintf("value-%06d", i)])
+		}
+	})
+
 	t.Run("wrong strategy errors", func(t *testing.T) {
 		b := newBucket(t, StrategyReplace)
 		_, err := b.RoaringSetEachDistinctKey(ctx, 10, func([]byte, int) error { return nil })
@@ -125,4 +153,123 @@ func TestRoaringSetEachDistinctKey(t *testing.T) {
 		_, err := b.RoaringSetEachDistinctKey(cancelled, 10, func([]byte, int) error { return nil })
 		require.ErrorIs(t, err, context.Canceled)
 	})
+}
+
+// The walk collects raw slices aliasing segment data under a pinned view and
+// re-reads them in a later merge pass, so flushes and compactions swapping
+// layers mid-walk must neither tear a read nor drop a key.
+func TestRoaringSetEachDistinctKeyConcurrent(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithUseBloomFilter(true))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = b.Shutdown(ctx) })
+	b.SetMemtableThreshold(1e9)
+
+	const (
+		keys       = 12
+		docsPerKey = 8
+	)
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%02d", i)) }
+
+	// each key keeps its first doc for the whole run and every other doc it
+	// ever holds falls in its own range, so under any consistent view all keys
+	// are live with a count in [1, docsPerKey]
+	for i := range keys {
+		require.NoError(t, b.RoaringSetAddList(key(i), []uint64{uint64(i * docsPerKey)}))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+
+	stop := make(chan struct{})
+	errs := make(chan error, 2)
+	var flushes, compactions atomic.Int64
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for n := 0; ; n++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			i := n % keys
+			docID := uint64(i*docsPerKey + 1 + n%(docsPerKey-1))
+			var err error
+			if n%2 == 0 {
+				err = b.RoaringSetAddList(key(i), []uint64{docID})
+			} else {
+				err = b.RoaringSetRemoveOne(key(i), docID)
+			}
+			if err == nil && n%64 == 63 {
+				if err = b.FlushAndSwitch(); err == nil {
+					flushes.Add(1)
+				}
+			}
+			if err != nil {
+				errs <- err
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			compacted, err := b.disk.compactOnce(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if compacted {
+				compactions.Add(1)
+			} else {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	walks := 0
+	for ; walks < 500 && time.Now().Before(deadline); walks++ {
+		seen := map[string]int{}
+		exceeded, err := b.RoaringSetEachDistinctKey(ctx, keys*4,
+			func(k []byte, liveCount int) error {
+				if _, dup := seen[string(k)]; dup {
+					return fmt.Errorf("key %q emitted twice in one walk", k)
+				}
+				seen[string(k)] = liveCount
+				return nil
+			})
+		require.NoError(t, err)
+		require.False(t, exceeded)
+		require.Len(t, seen, keys)
+		for i := range keys {
+			count := seen[string(key(i))]
+			require.GreaterOrEqualf(t, count, 1, "key %s vanished", key(i))
+			require.LessOrEqualf(t, count, docsPerKey, "key %s holds foreign docs", key(i))
+		}
+	}
+
+	close(stop)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.Greater(t, walks, 20, "too few walks to have raced the writer")
+	require.NotZero(t, flushes.Load(), "no segment was rolled, the walks raced nothing")
+	require.NotZero(t, compactions.Load(), "no compaction ran, the walks raced nothing")
 }

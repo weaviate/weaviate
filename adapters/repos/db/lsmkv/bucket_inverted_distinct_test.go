@@ -124,6 +124,31 @@ func TestInvertedEachDistinctKey(t *testing.T) {
 		assert.Empty(t, got)
 	})
 
+	// GetKeysCount's bloom component is a maximum-likelihood estimate, and this
+	// key set is one it overshoots on, so a bucket sitting exactly at the limit
+	// must not be rejected on the estimate alone.
+	t.Run("overshooting estimate at the limit still walks", func(t *testing.T) {
+		const keys = 432
+		b := newInverted(t)
+		for i := 0; i < keys; i++ {
+			addDocs(t, b, fmt.Sprintf("term-%06d", i), uint64(i))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+
+		estimate, err := b.GetKeysCount()
+		require.NoError(t, err)
+		require.Greater(t, estimate, uint32(keys),
+			"key set no longer overshoots; pick another that does")
+
+		got, exceeded, exact := collect(t, b, keys)
+		require.False(t, exceeded)
+		require.True(t, exact)
+		require.Len(t, got, keys)
+		for i := 0; i < keys; i++ {
+			assert.Equal(t, 1, got[fmt.Sprintf("term-%06d", i)])
+		}
+	})
+
 	t.Run("far over the limit rejects via the bloom bound", func(t *testing.T) {
 		b := newInverted(t)
 		for i := 0; i < 3000; i++ {

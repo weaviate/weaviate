@@ -2816,7 +2816,9 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 // the counts it can derive: the exactly counted keys of the memtables and of
 // the small disk segments that carry no bloom filter, the remaining segments'
 // unioned filters, and — while the union has room left — the filter with the
-// exact keys added in. All are lower bounds, so the largest is the tightest.
+// exact keys added in. Only the exactly counted parts are lower bounds: a
+// bloom-derived count is a maximum-likelihood estimate that overshoots about
+// as often as it undershoots, so the largest is an estimate, not a bound.
 //
 // All layers come from one pinned view, so a flush in flight cannot drop the
 // keys of a memtable it moves.
@@ -2860,6 +2862,34 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 	}
 
 	return best, nil
+}
+
+// keysCountClearlyExceeds reports whether the bucket's estimated key count
+// clears maxDistinct by more than GetKeysCount's own error, the only case in
+// which a distinct-key walk may be skipped. An unavailable estimate never
+// rejects.
+func (b *Bucket) keysCountClearlyExceeds(maxDistinct int) bool {
+	count, err := b.GetKeysCount()
+	if err != nil {
+		return false
+	}
+	return uint64(count) > distinctKeysRejectAbove(maxDistinct)
+}
+
+// distinctKeysRejectAbove is the estimated key count a bucket must exceed to
+// be rejected without a walk. The margin covers the bloom estimator's noise
+// (sd about 0.4*sqrt(n), so 12.5% with a floor of 64 is many sigma at every
+// scale) and costs nothing: a bucket landing inside it is settled by the walk,
+// which bails after maxDistinct+1 distinct keys.
+func distinctKeysRejectAbove(maxDistinct int) uint64 {
+	if maxDistinct <= 0 {
+		return 0
+	}
+	margin := maxDistinct / 8
+	if margin < 64 {
+		margin = 64
+	}
+	return uint64(maxDistinct) + uint64(margin)
 }
 
 // exactKeys holds key sets counted exactly rather than estimated: the view's
@@ -2965,7 +2995,7 @@ func (b *Bucket) InvertedEachDistinctKey(ctx context.Context, maxDistinct int,
 		return false, false, nil
 	}
 
-	if lower, err := b.GetKeysCount(); err == nil && lower > uint32(maxDistinct) {
+	if b.keysCountClearlyExceeds(maxDistinct) {
 		return true, false, nil
 	}
 

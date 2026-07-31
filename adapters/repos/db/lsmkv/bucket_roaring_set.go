@@ -120,10 +120,11 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 // RoaringSetEachDistinctKey calls fn once per distinct key with the key's
 // live doc count, in no particular order, giving up once the bucket holds
 // more than maxDistinct distinct keys — the return is then (true, nil) and
-// fn may not have been called at all. The bloom lower bound rejects clearly
-// larger buckets before any scan. Keys whose docs are all deleted count
-// toward the limit but are not passed to fn; the key passed to fn aliases
-// internal storage, so copy it before retaining.
+// fn may not have been called at all. A bloom-derived key-count estimate
+// rejects buckets clearing the limit by more than its own error before any
+// scan. Keys whose docs are all deleted count toward the limit but are not
+// passed to fn; the key passed to fn aliases internal storage, so copy it
+// before retaining.
 //
 // Distinct keys come from allocation-free per-segment walks that collect
 // each key's raw serialized regions as they pass; only the surviving
@@ -138,7 +139,7 @@ func (b *Bucket) RoaringSetEachDistinctKey(ctx context.Context, maxDistinct int,
 		return false, err
 	}
 
-	if lower, err := b.GetKeysCount(); err == nil && lower > uint32(maxDistinct) {
+	if b.keysCountClearlyExceeds(maxDistinct) {
 		return true, nil
 	}
 
