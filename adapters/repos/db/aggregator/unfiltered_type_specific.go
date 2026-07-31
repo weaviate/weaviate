@@ -433,14 +433,15 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 }
 
 // propertyValuesFromInverted lists the property's values from its inverted
-// index instead of scanning every object: the filterable roaringset bucket
-// when the property has one (distinct values are its keys, live doc counts
-// their bitmaps' cardinalities), otherwise the searchable bucket's stored
-// posting counts when provably churn-free. Past prop.TopOccurrencesCutoff
-// distinct values it reports CutoffExceeded instead of values; deleted
-// values count toward the cutoff until compaction reclaims them. Keys decode
-// per data type into the value's string form; for text they are the indexed
-// terms, identical to stored values for untokenized properties.
+// index: the filterable roaringset bucket whenever the property has one
+// (distinct values are its keys, live doc counts their bitmaps'
+// cardinalities — exact under any churn), otherwise the searchable bucket's
+// stored posting counts when provably churn-free, otherwise the object
+// scan. Past prop.TopOccurrencesCutoff distinct values it reports
+// CutoffExceeded instead of values; deleted values count toward the cutoff
+// until compaction reclaims them. Keys decode per data type into the
+// value's string form; for text they are the indexed terms, identical to
+// stored values for untokenized properties.
 func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 	prop aggregation.ParamProperty, dt schema.DataType,
 ) (*aggregation.Property, error) {
@@ -455,10 +456,6 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		return agg.AddTextCount(decodeInvertedKey(key, dt), docCount)
 	}
 
-	// The filterable roaringset bucket answers whenever the property has
-	// one: its layer fold is exact under any churn. The searchable bucket's
-	// stored posting counts serve searchable-only properties, guarded by
-	// their churn gate; everything else falls back to the object scan.
 	if b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String())); b != nil {
 		defer release()
 		if b.Strategy() != lsmkv.StrategyRoaringSet {

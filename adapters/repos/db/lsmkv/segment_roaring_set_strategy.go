@@ -119,8 +119,8 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 	return nil
 }
 
-// roaringSetNodeSize returns the byte size of the key's segment node, or 0
-// when the segment does not hold the key.
+// roaringSetNodeSize returns the byte size of the key's node, 0 when the
+// segment does not hold the key.
 func (s *segment) roaringSetNodeSize(key []byte) int {
 	if s.strategy != segmentindex.StrategyRoaringSet {
 		return 0

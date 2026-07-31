@@ -91,8 +91,6 @@ type Segment interface {
 	// fold more layers into it in place; 0 sizes it for the layer alone.
 	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool, addMinCap int) (roaringset.BitmapLayer, func(), error)
 	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
-	// roaringSetNodeSize returns the byte size of the key's segment node, or
-	// 0 when the segment does not hold the key.
 	roaringSetNodeSize(key []byte) int
 
 	// map/bmw specific

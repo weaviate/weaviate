@@ -603,9 +603,9 @@ func (s *segment) getDocCount(key []byte) uint64 {
 	return binary.LittleEndian.Uint64(buffer)
 }
 
-// eachDocCount yields every key's stored posting doc count via a sequential
-// index walk — one 8-byte read per row, no per-key index descent. Keys alias
-// the index data; copy before retaining. fn's error aborts the walk.
+// eachDocCount yields every key's stored posting doc count via one
+// sequential index walk — no per-key descent. Keys alias the index data;
+// fn's error aborts the walk.
 func (s *segment) eachDocCount(fn func(key []byte, docCount uint64) error) error {
 	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
 		return nil
