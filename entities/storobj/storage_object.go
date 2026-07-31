@@ -1550,7 +1550,10 @@ func readTargetVectorAt(rw *byteops.ReadWriter, pos, segEnd uint64, name string,
 	}
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
+	// a nil buffer must allocate even for a zero-length vector: buffer[:0] on nil
+	// yields nil, which callers holding the result in a map would see as an absent
+	// vector rather than an empty one
+	if buffer != nil && cap(buffer) >= int(vecLen) {
 		out = buffer[:vecLen]
 	} else {
 		out = make([]float32, vecLen)
@@ -1659,27 +1662,46 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		return unmarshalSingleTargetVector(&rw, targetVector, buffer)
 	}
 
-	// since we know the version and know that the blob is not len(0), we can
-	// assume that we can directly access the vector length field. The only
-	// situation where this is not accessible would be on corrupted data - where
-	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	vecStart, vecEnd, vecLen, err := legacyVectorBounds(in)
+	if err != nil {
+		return nil, err
+	}
 	if vecLen == 0 {
 		return nil, fmt.Errorf("vector length is 0")
 	}
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
+	if cap(buffer) >= vecLen {
 		out = buffer[:vecLen]
 	} else {
 		out = make([]float32, vecLen)
 	}
-	vecStart := 44
-	vecEnd := vecStart + int(vecLen*4)
 
 	byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 
 	return out, nil
+}
+
+// legacyVectorBounds locates the legacy vector's byte range and dimension count.
+// The dimension count is widened before scaling: the on-disk field is a uint16 and
+// the writer permits maxVectorLength (65535) dimensions, so a uint16 multiplication
+// wraps from 16384 dimensions upwards. in is also frequently a subslice of an
+// mmapped segment whose capacity runs past the value, so an unchecked end reads the
+// neighbouring object's bytes rather than panicking.
+func legacyVectorBounds(in []byte) (start, end, dims int, err error) {
+	if len(in) < marshallerV1HeaderLen+2 {
+		return 0, 0, 0, fmt.Errorf("object of %d bytes is too short to hold a vector length", len(in))
+	}
+
+	dims = int(binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2]))
+	start = marshallerV1HeaderLen + 2
+	end = start + dims*byteops.Uint32Len
+
+	if end > len(in) {
+		return 0, 0, 0, fmt.Errorf("legacy vector of %d dimensions exceeds the %d byte object",
+			dims, len(in))
+	}
+	return start, end, dims, nil
 }
 
 func incrementPos(in []byte, pos int, size int) int {
@@ -1708,18 +1730,14 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 		return nil, errors.Errorf("unsupported marshaller version %d", version)
 	}
 
-	// since we know the version and know that the blob is not len(0), we can
-	// assume that we can directly access the vector length field. The only
-	// situation where this is not accessible would be on corrupted data - where
-	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	vecStart, vecEnd, vecLen, err := legacyVectorBounds(in)
+	if err != nil {
+		return nil, err
+	}
 
 	var out []float32
-	vecStart := 44
-	vecEnd := vecStart + int(vecLen*4)
-
 	if vecLen > 0 {
-		if cap(buffer) >= int(vecLen) {
+		if cap(buffer) >= vecLen {
 			out = buffer[:vecLen]
 		} else {
 			out = make([]float32, vecLen)
