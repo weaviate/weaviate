@@ -70,6 +70,7 @@ type memtable interface {
 	SetTombstone(docId uint64) error
 	GetPropLengths() (uint64, uint64)
 	GetKeys() ([][]byte, error)
+	eachDocCount(fn func(key []byte, docCount uint64) error) (tombstoned bool, err error)
 
 	newCursor() innerCursorReplace
 	newBlockingCursor() (innerCursorReplace, func())
@@ -826,4 +827,43 @@ func (m *Memtable) GetKeys() ([][]byte, error) {
 	}
 
 	return [][]byte{}, nil
+}
+
+// eachDocCount calls fn once per map key with the number of postings a flush
+// would write for it: the non-tombstone pairs of the deduped value list, the
+// same values flushDataInverted counts. A tombstone pair stops the walk and is
+// reported instead, because it cancels a posting an older layer may already
+// have counted, which a caller summing stored counts cannot undo.
+func (m *Memtable) eachDocCount(fn func(key []byte, docCount uint64) error) (tombstoned bool, err error) {
+	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
+		return false, err
+	}
+
+	m.RLock()
+	if m.keyMap == nil || m.keyMap.root == nil {
+		m.RUnlock()
+		return false, nil
+	}
+	// the nodes are copies holding their own deduped values, so the walk can
+	// let writers back in
+	nodes := m.keyMap.flattenInOrder()
+	m.RUnlock()
+
+	for _, node := range nodes {
+		count := uint64(0)
+		for i := range node.values {
+			if node.values[i].Tombstone {
+				return true, nil
+			}
+			count++
+		}
+		if count == 0 {
+			continue
+		}
+		if err := fn(node.key, count); err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
 }
