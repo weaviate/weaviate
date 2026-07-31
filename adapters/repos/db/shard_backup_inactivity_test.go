@@ -65,14 +65,14 @@ func TestShard_HaltForTransferExtendsInactivityDeadline(t *testing.T) {
 	})
 	s := shd.(*Shard)
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour, nil))
 
 	// Stands in for a halt whose preparation outlasted the remaining budget.
 	s.haltForTransferMux.Lock()
 	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
 	s.haltForTransferMux.Unlock()
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour, nil))
 
 	s.haltForTransferMux.Lock()
 	deadline := s.haltForTransferInactivityDeadline
