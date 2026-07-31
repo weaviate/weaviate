@@ -228,6 +228,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QuerySlowLogEnabled:          m.db.config.QuerySlowLogEnabled,
 			QuerySlowLogThreshold:        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:       m.db.config.InvertedSorterDisabled,
+			QueryBatchedContainsEnabled:  m.db.config.QueryBatchedContainsEnabled,
 			LazyPropertyLengthsEnabled:   m.db.config.LazyPropertyLengthsEnabled,
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
 			HFreshEnabled:                m.db.config.HFreshEnabled,
