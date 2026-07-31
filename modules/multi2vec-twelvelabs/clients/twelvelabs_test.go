@@ -109,6 +109,22 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, "header-key", handler.gotAPIKey)
 	})
 
+	t.Run("when the base URL is passed via header", func(t *testing.T) {
+		handler := &fakeHandler{t: t}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+		c := New("apiKey", 0, nullLogger())
+		ctx := context.WithValue(context.Background(),
+			"X-Twelvelabs-Baseurl", []string{server.URL})
+
+		_, err := c.Vectorize(ctx, []string{"text"}, nil,
+			fakeClassConfig{classConfig: map[string]any{"baseURL": "http://unreachable.example.com"}},
+		)
+
+		require.Nil(t, err)
+		assert.Equal(t, "text", handler.gotText)
+	})
+
 	t.Run("when no API key is configured", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
