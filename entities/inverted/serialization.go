@@ -27,6 +27,15 @@ import (
 // finite value) and has no meaningful sort position. Callers must not pass NaN;
 // its equality and range semantics through this encoding are undefined.
 func LexicographicallySortableFloat64(in float64) ([]byte, error) {
+	out := make([]byte, 8)
+	PutLexicographicallySortableFloat64(out, in)
+	return out, nil
+}
+
+// PutLexicographicallySortableFloat64 is the allocation-free variant of
+// [LexicographicallySortableFloat64], writing the 8-byte key into dst. dst
+// must be at least 8 bytes; it panics otherwise.
+func PutLexicographicallySortableFloat64(dst []byte, in float64) {
 	// Normalize negative zero (-0.0) to positive zero (0.0). IEEE 754 defines
 	// -0.0 == 0.0, but their bit representations differ. Without this
 	// normalization -0.0 would encode to a byte sequence that sorts before all
@@ -44,9 +53,7 @@ func LexicographicallySortableFloat64(in float64) ([]byte, error) {
 		bits = ^bits
 	}
 
-	out := make([]byte, 8)
-	binary.BigEndian.PutUint64(out, bits)
-	return out, nil
+	binary.BigEndian.PutUint64(dst, bits)
 }
 
 // ParseLexicographicallySortableFloat64 reverses the changes in
@@ -75,9 +82,16 @@ func ParseLexicographicallySortableFloat64(in []byte) (float64, error) {
 // must be flipped
 func LexicographicallySortableInt64(in int64) ([]byte, error) {
 	out := make([]byte, 8)
-	// flip the sign
-	binary.BigEndian.PutUint64(out, uint64(in)^(1<<63))
+	PutLexicographicallySortableInt64(out, in)
 	return out, nil
+}
+
+// PutLexicographicallySortableInt64 is the allocation-free variant of
+// [LexicographicallySortableInt64], writing the 8-byte key into dst. dst must
+// be at least 8 bytes; it panics otherwise.
+func PutLexicographicallySortableInt64(dst []byte, in int64) {
+	// flip the sign
+	binary.BigEndian.PutUint64(dst, uint64(in)^(1<<63))
 }
 
 // ParseLexicographicallySortableInt64 reverses the changes in
