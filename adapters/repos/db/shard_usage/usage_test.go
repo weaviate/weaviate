@@ -14,6 +14,7 @@ package shardusage
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -642,4 +643,49 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 		_, err = CalculateTargetVectorDimensionsFromBucket(ctx, b, "text")
 		require.Error(t, err)
 	})
+}
+
+// Only the current format version is served; any other is rejected so the caller recomputes.
+func TestLoadComputedUsageData(t *testing.T) {
+	tests := []struct {
+		name    string
+		version int
+		wantErr bool
+	}{
+		{
+			name:    "current version",
+			version: types.UsageDiskVersion,
+		},
+		{
+			name:    "version written by an earlier release",
+			version: 1,
+			wantErr: true,
+		},
+		{
+			name:    "version from a newer release",
+			version: types.UsageDiskVersion + 1,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indexPath := t.TempDir()
+			shardName := "shard"
+			require.NoError(t, os.MkdirAll(filepath.Join(indexPath, shardName), 0o755))
+
+			stored := &types.ShardUsage{Name: shardName, ObjectsCount: 7, ObjectsStorageBytes: 1234}
+			data, err := json.Marshal(&types.UsageDisk{Version: tt.version, ShardUsage: stored})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(usageTmpFilePath(indexPath, shardName), data, 0o600))
+
+			loaded, err := LoadComputedUsageData(indexPath, shardName)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, stored, loaded)
+		})
+	}
 }
