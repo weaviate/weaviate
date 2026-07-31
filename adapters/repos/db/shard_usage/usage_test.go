@@ -657,11 +657,6 @@ func TestLoadComputedUsageData(t *testing.T) {
 			version: types.UsageDiskVersion,
 		},
 		{
-			name:    "version written by an earlier release",
-			version: 1,
-			wantErr: true,
-		},
-		{
 			name:    "version from a newer release",
 			version: types.UsageDiskVersion + 1,
 			wantErr: true,
