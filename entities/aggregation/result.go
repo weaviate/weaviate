@@ -29,9 +29,10 @@ type Property struct {
 	SchemaType            string                 `json:"schemaType"`
 	ReferenceAggregation  Reference              `json:"referenceAggregation"`
 	DateAggregations      map[string]interface{} `json:"dateAggregation"`
-	// ApproximateCardinality is a lower-bound bloom-filter estimate of the
-	// property's distinct inverted-index keys, ignoring filters and search.
-	// nil unless requested.
+	// ApproximateCardinality is a bloom-filter estimate of the property's
+	// distinct inverted-index keys; keys of deleted or updated values are
+	// retained until compaction, so it can exceed the number of distinct
+	// values currently live. nil unless requested.
 	ApproximateCardinality *uint32 `json:"approximateCardinality,omitempty"`
 }
 

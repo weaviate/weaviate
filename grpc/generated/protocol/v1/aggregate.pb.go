@@ -399,12 +399,17 @@ type AggregateRequest_Aggregation struct {
 	//	*AggregateRequest_Aggregation_Date_
 	//	*AggregateRequest_Aggregation_Reference_
 	Aggregation isAggregateRequest_Aggregation_Aggregation `protobuf_oneof:"aggregation"`
-	// Request a cheap bloom-filter estimate of this property's distinct values.
-	// It is a lower bound, not an exact distinct count: it counts
-	// inverted-index keys (tokens, for tokenized text), ignores filters and
-	// search, and where two filters cannot be combined — most often across
-	// shards, or between segments of different sizes — it reports the largest
-	// rather than their union. Ignored when group_by is set.
+	// Request a cheap bloom-filter estimate of this property's distinct
+	// inverted-index keys (tokens, for tokenized text), computed without
+	// scanning objects. Filters and search are ignored, and where two
+	// bloom filters cannot be combined — most often across shards, or
+	// between segments of different sizes — the largest is reported
+	// rather than their union; both effects undercount the keys actually
+	// present. Keys of deleted or updated values are retained until
+	// compaction, so the estimate can exceed the number of distinct
+	// values currently live. Ignored when group_by is set. During a
+	// rolling upgrade, shards on nodes predating this field ignore it and
+	// fall back to normal aggregation.
 	ApproximateCardinality bool `protobuf:"varint,8,opt,name=approximate_cardinality,json=approximateCardinality,proto3" json:"approximate_cardinality,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
@@ -1307,8 +1312,11 @@ type AggregateReply_Aggregations_Aggregation struct {
 	//	*AggregateReply_Aggregations_Aggregation_Date_
 	//	*AggregateReply_Aggregations_Aggregation_Reference_
 	Aggregation isAggregateReply_Aggregations_Aggregation_Aggregation `protobuf_oneof:"aggregation"`
-	// Lower-bound estimate of this property's distinct values, set when
-	// approximate_cardinality was requested on a non-group-by aggregation.
+	// Bloom-filter estimate of this property's distinct inverted-index
+	// keys; see approximate_cardinality on the request for accuracy
+	// caveats. Set when requested on a non-group-by aggregation, unless
+	// the shard's estimate was transiently unavailable, in which case it
+	// is omitted rather than failing the aggregation.
 	ApproximateCardinality *int64 `protobuf:"varint,8,opt,name=approximate_cardinality,json=approximateCardinality,proto3,oneof" json:"approximate_cardinality,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
