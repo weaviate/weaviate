@@ -15,7 +15,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -192,15 +194,30 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int6
 		if !strings.HasPrefix(directory, "vector") {
 			continue
 		}
-		fullPath := filepath.Join(lsmPath, directory)
-
-		files, _, err := diskio.GetFileWithSizes(fullPath)
+		size, err := bucketSize(filepath.Join(lsmPath, directory))
 		if err != nil {
 			return 0, err
 		}
-		for _, size := range files {
-			totalSize += size
-		}
+		totalSize += int64(size)
+	}
+	return totalSize, nil
+}
+
+// bucketSize sums the sizes of the files in a bucket directory. A bucket that was deleted
+// after the directory listing was taken counts as zero, so dropping one property or vector
+// bucket does not zero out the whole shard's usage.
+func bucketSize(bucketPath string) (uint64, error) {
+	files, _, err := diskio.GetFileWithSizes(bucketPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	totalSize := uint64(0)
+	for _, size := range files {
+		totalSize += uint64(size)
 	}
 	return totalSize, nil
 }
@@ -256,7 +273,13 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 	totalSize := uint64(0)
 
 	// get the storage of all lsm properties that are not objects or vector
-	includedPrefixes := []string{helpers.DimensionsBucketLSM, helpers.BucketFromPropNameLSM("")}
+	includedPrefixes := []string{
+		helpers.DimensionsBucketLSM,
+		helpers.BucketFromPropNameLSM(""),
+		// nested buckets use "property." not "property_", so the prefix above misses them
+		helpers.BucketNestedFromPropNameLSM(""),
+		helpers.BucketNestedMetaFromPropNameLSM(""),
+	}
 
 	// check all folders and add their sizes
 	for _, directory := range directories {
@@ -267,14 +290,11 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 			continue
 		}
 
-		fullPath := filepath.Join(lsmPath, directory)
-		files, _, err := diskio.GetFileWithSizes(fullPath)
+		size, err := bucketSize(filepath.Join(lsmPath, directory))
 		if err != nil {
 			return 0, err
 		}
-		for _, size := range files {
-			totalSize += uint64(size)
-		}
+		totalSize += size
 	}
 	return totalSize, nil
 }

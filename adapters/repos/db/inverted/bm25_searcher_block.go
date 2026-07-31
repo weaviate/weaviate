@@ -104,10 +104,20 @@ func (b *BM25Searcher) wandBlock(
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
+	// generateQueryTermsAndStats already rejected the operator if the searched
+	// properties disagree on tokenization, so a non-empty term list here is the
+	// shared term/index space the merge needs.
+	crossPropAnd := len(qterms.crossPropQueryTerms) > 0
+
 	for tokenization, propNames := range qterms.propNamesByTokenization {
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
 			tokenTerms, duplicateBoosts := qterms.queryTermsByTokenization[tokenization], qterms.duplicateBoostsByTokenization[tokenization]
+			if crossPropAnd {
+				// Every group tokenizes the query to the same terms but not
+				// necessarily in the same order, and the merge keys on term index.
+				tokenTerms, duplicateBoosts = qterms.crossPropQueryTerms, qterms.crossPropDuplicateBoosts
+			}
 			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
 			for i, term := range tokenTerms {
 				duplicateBoostsByTerm[term] = duplicateBoosts[i]
@@ -128,7 +138,7 @@ func (b *BM25Searcher) wandBlock(
 				termCounts = append(termCounts, tokenTerms)
 
 				minimumOrTokensMatch := params.MinimumOrTokensMatch
-				if params.SearchOperator == common_filters.SearchOperatorAnd {
+				if common_filters.IsAndOperator(params.SearchOperator) {
 					minimumOrTokensMatch = len(tokenTerms)
 				}
 
@@ -172,9 +182,10 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, false, fmt.Errorf("after createBlockTerm: %w", ctx.Err())
 	}
 
-	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
-	internalLimit := limit
-	if limit == 0 {
+	// For unlimited queries, inflate the limit to the total candidate count so the
+	// top-K heap can hold every match.
+	unlimited := limit == 0
+	if unlimited {
 		for _, perProperty := range allResults {
 			for _, perSegment := range perProperty {
 				for _, perTerm := range perSegment {
@@ -184,9 +195,18 @@ func (b *BM25Searcher) wandBlock(
 				}
 			}
 		}
-		internalLimit = limit
+	}
 
-	} else {
+	// The cross-property pass produces the final global top-K in one shot, so it
+	// uses the true limit and skips combineResults' per-property merge.
+	if crossPropAnd {
+		objects, scores, err := b.wandBlockCrossPropAnd(ctx, allResults, qterms.crossPropQueryTerms, qstats.averagePropLength, limit, params, additional)
+		return objects, scores, false, err
+	}
+
+	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
+	internalLimit := limit
+	if !unlimited {
 		// TODO: the limit is increased by 10 to make sure candidates that are on the edge of the limit are not missed for multi-property search
 		// the proper fix is to either make sure that the limit is always high enough, or force a rerank of the top results from all properties
 		defaultLimit := int(math.Max(float64(limit)*1.1, float64(limit+10)))
@@ -235,7 +255,7 @@ func (b *BM25Searcher) wandBlock(
 
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
-				if params.SearchOperator == common_filters.SearchOperatorAnd {
+				if common_filters.IsAndOperator(params.SearchOperator) {
 					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], qstats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
 					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], qstats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
@@ -321,6 +341,32 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 		return nil, nil, err
 	}
 	return combinedObjects, combinedScores, nil
+}
+
+// wandBlockCrossPropAnd bypasses combineResults: MergedTerm.Score already folds in
+// the per-property max + cross-property sum that combineResults would otherwise apply.
+func (b *BM25Searcher) wandBlockCrossPropAnd(ctx context.Context, allResults [][][]*lsmkv.SegmentBlockMax, queryTerms []string, averagePropLength float64, limit int, params searchparams.KeywordRanking, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	mergedTerms, ok := lsmkv.BuildCrossPropMergedTerms(allResults, len(queryTerms))
+	if !ok {
+		return []*storobj.Object{}, []float32{}, nil
+	}
+
+	topKHeap := lsmkv.DoBlockMaxAndCrossProp(ctx, limit, mergedTerms, averagePropLength, params.AdditionalExplanations, len(queryTerms), b.logger)
+
+	ids, scores, explanations, err := b.getTopKIds(topKHeap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// getTopKIds returns an empty (not per-id) explanations slice when explanations
+	// were not requested; downstream indexing is positional, so collapse it to nil.
+	if len(explanations) != len(ids) {
+		explanations = nil
+	}
+
+	ids, scores, explanations = b.sortResultsByScore(ids, scores, explanations)
+	objLimit := int(math.Min(float64(limit), float64(len(ids))))
+	return b.getObjectsAndScores(ids, scores, explanations, queryTerms, additional, objLimit)
 }
 
 type aggregate func(float32, float32) float32

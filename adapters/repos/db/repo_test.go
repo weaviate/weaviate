@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -85,17 +84,8 @@ func TestDB_scanStartupProgress(t *testing.T) {
 		return s
 	}
 
-	// indexWith builds a db.indices entry holding the given shards. A background
-	// closingCtx keeps ForEachShard from short-circuiting.
-	indexWith := func(logger logrus.FieldLogger, className string, shards map[string]ShardLike) map[string]*Index {
-		idx := &Index{
-			Config:     IndexConfig{ClassName: schema.ClassName(className)},
-			logger:     logger,
-			closingCtx: context.Background(),
-		}
-		for name, shard := range shards {
-			idx.shards.Store(name, shard)
-		}
+	indexWith := func(t *testing.T, logger logrus.FieldLogger, className string, shards map[string]ShardLike) map[string]*Index {
+		idx := newTestIndex(t, logger, className, nil, shards)
 		return map[string]*Index{idx.ID(): idx}
 	}
 
@@ -115,7 +105,7 @@ func TestDB_scanStartupProgress(t *testing.T) {
 				"Eager": stateWith(sharding.Physical{Name: "s1", BelongsToNodes: []string{localNode}}),
 			},
 			indices: func(t *testing.T, logger logrus.FieldLogger) map[string]*Index {
-				return indexWith(logger, "Eager", map[string]ShardLike{"s1": NewMockShardLike(t)})
+				return indexWith(t, logger, "Eager", map[string]ShardLike{"s1": NewMockShardLike(t)})
 			},
 			wantLoaded: 1,
 			wantTotal:  1,
@@ -127,7 +117,7 @@ func TestDB_scanStartupProgress(t *testing.T) {
 				"Lazy": stateWith(sharding.Physical{Name: "s1", BelongsToNodes: []string{localNode}}),
 			},
 			indices: func(t *testing.T, logger logrus.FieldLogger) map[string]*Index {
-				return indexWith(logger, "Lazy", map[string]ShardLike{"s1": &LazyLoadShard{}})
+				return indexWith(t, logger, "Lazy", map[string]ShardLike{"s1": &LazyLoadShard{}})
 			},
 			wantLoaded: 0,
 			wantTotal:  0,

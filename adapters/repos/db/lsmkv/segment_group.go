@@ -41,6 +41,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// baseLayerHeadroomFactor sizes the base layer's pooled buffer with 25%
+// headroom so the in-place merges of later layers usually fit without
+// reallocating off-pool.
+const baseLayerHeadroomFactor = 1.25
+
 type SegmentGroup struct {
 	segments []Segment
 
@@ -105,11 +110,14 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
-	bm25config                     *schema.BM25Config
-	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
-	writeSegmentInfoIntoFileName   bool
-	writeMetadata                  bool
-	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
+	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
+	// base layer; built once at construction
+	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
+	bm25config                   *schema.BM25Config
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
+	writeSegmentInfoIntoFileName bool
+	writeMetadata                bool
+	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// averagePropLength caches the live-set property-length sum and count for BM25
@@ -183,6 +191,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sequentialAccess:             cfg.sequentialAccess,
 		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
+		bitmapBufPoolWithHeadroom:    roaringset.NewBitmapBufPoolFactorWrapper(b.bitmapBufPool, baseLayerHeadroomFactor),
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
@@ -1057,31 +1066,34 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayers, release func(), err error) {
+// roaringSetGet folds all disk segments holding key into a single BitmapLayer:
+// the first segment with the key becomes the base (additions cloned into a
+// pooled buffer with headroom), every later segment merges into it in place.
+// If no segment has the key, a zero BitmapLayer and noop release are returned.
+// Only Additions is fully folded; Deletions is the first segment's deletions,
+// retained solely so its buffer gets released — not the flattened deletions.
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayer, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
-		return nil, noopRelease, nil
+		return out, noopRelease, nil
 	}
 
 	// acquired (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
 	// can't leak the first layer's pooled buffer.
 	acquired := noopRelease
-	// use bigger buffer for first layer, to make space for further merges
-	// with following layers
-	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, getErr := segments[i].roaringSetGet(key, bitmapBufPool)
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
 		if getErr == nil {
-			out = append(out, layer)
+			out = layer
 			acquired = layerRelease
 			i++
 			break
 		}
 		if !errors.Is(getErr, lsmkv.NotFound) {
-			return nil, noopRelease, getErr
+			return roaringset.BitmapLayer{}, noopRelease, getErr
 		}
 	}
 	defer func() {
@@ -1091,9 +1103,9 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	}()
 
 	for ; i < ln; i++ {
-		if mergeErr := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); mergeErr != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, out, sg.bitmapBufPool, maxConc); mergeErr != nil {
 			err = mergeErr
-			return nil, noopRelease, err
+			return roaringset.BitmapLayer{}, noopRelease, err
 		}
 	}
 

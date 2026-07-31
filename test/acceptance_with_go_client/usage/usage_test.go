@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
@@ -503,6 +506,7 @@ func TestRestart(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+		WithWeaviateEnv(entcfg.EnvNestedFilteringPreview, "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -527,6 +531,24 @@ func TestRestart(t *testing.T) {
 				Name:     "first",
 				DataType: []string{string(schema.DataTypeText)},
 			},
+			{
+				Name:     "cars",
+				DataType: []string{string(schema.DataTypeObjectArray)},
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:            "make",
+						DataType:        []string{string(schema.DataTypeText)},
+						Tokenization:    models.NestedPropertyTokenizationField,
+						IndexFilterable: new(true),
+					},
+					{
+						Name:            "model",
+						DataType:        []string{string(schema.DataTypeText)},
+						Tokenization:    models.NestedPropertyTokenizationField,
+						IndexFilterable: new(true),
+					},
+				},
+			},
 		},
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
@@ -538,7 +560,8 @@ func TestRestart(t *testing.T) {
 	}
 	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
 
-	// add some data
+	// add some data. Only even tenants get nested values, leaving the odd ones as
+	// a baseline with the same schema and object count.
 	for i, tenant := range tenants {
 		objs := make([]*models.Object, 10)
 		for j := range objs {
@@ -546,24 +569,37 @@ func TestRestart(t *testing.T) {
 			for k := range vector {
 				vector[k] = float32(i+j+k) / 10000.0
 			}
+			props := map[string]any{
+				"first": fmt.Sprintf("hello%d-%d", i, j),
+			}
+			if i%2 == 0 {
+				props["cars"] = nestedCars(i, j)
+			}
 			objs[j] = &models.Object{
-				Class: className,
-				Properties: map[string]interface{}{
-					"first": fmt.Sprintf("hello%d-%d", i, j),
-				},
-				Vector: vector,
-				Tenant: tenant.Name,
+				Class:      className,
+				Properties: props,
+				Vector:     vector,
+				Tenant:     tenant.Name,
 			}
 		}
 
-		_, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+		batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
 		require.NoError(t, err)
+		for _, r := range batchResp {
+			require.NotNil(t, r.Result)
+			require.NotNil(t, r.Result.Status)
+			require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+		}
 	}
+
+	loaded := strings.ToLower(models.TenantActivityStatusACTIVE)
+	fromDisk := strings.ToLower(models.TenantActivityStatusINACTIVE)
 
 	// collect with concurrent shard readers, compare with the default report after restart
 	usage, err := getDebugUsageWithPort(debug, 4)
 	require.NoError(t, err)
 	require.NotNil(t, usage)
+	assertNestedIndexStorageCounted(t, usage, className, loaded)
 
 	require.NoError(t, compose.Stop(ctx, compose.GetWeaviate().Name(), nil))
 
@@ -574,6 +610,77 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, usage2)
 	require.NoError(t, ReportsDifference(usage, usage2))
+	assertNestedIndexStorageCounted(t, usage2, className, loaded)
+
+	// cold tenants are measured from the bucket directories instead of the shard
+	cold := make([]models.Tenant, len(tenants))
+	for i := range tenants {
+		cold[i] = models.Tenant{Name: tenants[i].Name, ActivityStatus: models.TenantActivityStatusCOLD}
+	}
+	// the restart gave the container a new mapped port
+	c, err = client.NewClient(client.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
+	require.NoError(t, err)
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).WithTenants(cold...).Do(ctx))
+
+	usage3, err := getDebugUsageWithPort(compose.GetWeaviate().DebugURI())
+	require.NoError(t, err)
+	require.NotNil(t, usage3)
+	assertNestedIndexStorageCounted(t, usage3, className, fromDisk)
+}
+
+// nestedCars keeps every leaf value distinct, so each entry adds its own keys to
+// the nested property buckets.
+func nestedCars(tenant, object int) []any {
+	cars := make([]any, 20)
+	for i := range cars {
+		cars[i] = map[string]any{
+			"make":  fmt.Sprintf("make-%d-%d-%d", tenant, object, i),
+			"model": fmt.Sprintf("model-%d-%d-%d", tenant, object, i),
+		}
+	}
+	return cars
+}
+
+func collectionShards(t *testing.T, report *usagetypes.Report, className string) usagetypes.ShardsUsage {
+	t.Helper()
+
+	for _, col := range report.Collections {
+		if col != nil && col.Name == className {
+			return col.Shards
+		}
+	}
+	require.FailNow(t, "collection missing from usage report: "+className)
+	return nil
+}
+
+// assertNestedIndexStorageCounted checks that tenants with nested values report more
+// than double the index storage of those without — nested data lives only in the
+// property.nested_ / property.nestedmeta_ buckets, so skipping those makes the two
+// groups equal. wantStatus is active for a loaded shard, inactive for one from disk.
+func assertNestedIndexStorageCounted(t *testing.T, report *usagetypes.Report, className, wantStatus string) {
+	t.Helper()
+
+	// per shard rather than summed, so one shard reporting nothing cannot hide
+	var smallestNested, largestBaseline uint64
+	for _, shard := range collectionShards(t, report, className) {
+		require.Equal(t, wantStatus, shard.Status, "shard %s", shard.Name)
+		require.GreaterOrEqual(t, shard.FullShardStorageBytes, shard.IndexStorageBytes,
+			"shard %s full storage must contain its index storage", shard.Name)
+
+		tenant, err := strconv.Atoi(strings.TrimPrefix(shard.Name, "tenant"))
+		require.NoError(t, err)
+		if tenant%2 == 0 {
+			if smallestNested == 0 || shard.IndexStorageBytes < smallestNested {
+				smallestNested = shard.IndexStorageBytes
+			}
+		} else if shard.IndexStorageBytes > largestBaseline {
+			largestBaseline = shard.IndexStorageBytes
+		}
+	}
+
+	require.Greater(t, largestBaseline, uint64(0), "baseline tenants should report index storage")
+	require.Greater(t, smallestNested, 2*largestBaseline,
+		"every tenant with nested values must report the nested property buckets on top of the baseline")
 }
 
 func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {

@@ -253,17 +253,18 @@ func newShutdownTestIndex(t *testing.T, shardErrs map[string]error) *Index {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	idx := &Index{
-		logger:         logger,
-		shards:         shardMap{},
-		backupLock:     esync.NewKeyRWLocker(),
-		closingCtx:     ctx,
-		closingCancel:  cancel,
-		cycleCallbacks: newTestCycleCallbacks(logger),
+	shards := make(map[string]ShardLike, len(shardErrs))
+	for name, err := range shardErrs {
+		shard := NewMockShardLike(t)
+		shard.EXPECT().Name().Return(name).Maybe()
+		shard.EXPECT().Shutdown(mock.Anything).Return(err).Once()
+		shards[name] = shard
 	}
+
+	idx := newTestIndex(t, logger, "", nil, shards)
+	idx.backupLock = esync.NewKeyRWLocker()
+	idx.cycleCallbacks = newTestCycleCallbacks(logger)
+
 	for _, cycle := range testCycles(idx.cycleCallbacks) {
 		cycle.Start()
 	}
@@ -273,13 +274,6 @@ func newShutdownTestIndex(t *testing.T, shardErrs map[string]error) *Index {
 			require.NoError(t, cycle.StopAndWait(context.Background()))
 		}
 	})
-
-	for name, err := range shardErrs {
-		shard := NewMockShardLike(t)
-		shard.EXPECT().Name().Return(name).Maybe()
-		shard.EXPECT().Shutdown(mock.Anything).Return(err).Once()
-		idx.shards.Store(name, shard)
-	}
 	return idx
 }
 
@@ -499,5 +493,32 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			_, _, err = checkpoints.Get("shard1", "")
 			require.Error(t, err)
 		})
+	}
+}
+
+// TestIndexShutdownAbortsInFlightReader pins that Shutdown requests the close
+// before waiting for closeLock, so a reader holding closeLock.RLock can abort
+// rather than hold up DB shutdown, which runs with the DB-wide index lock held.
+func TestIndexShutdownAbortsInFlightReader(t *testing.T) {
+	idx := newShutdownTestIndex(t, nil)
+
+	reading := make(chan struct{})
+	go func() {
+		idx.closeLock.RLock()
+		defer idx.closeLock.RUnlock()
+
+		close(reading)
+		<-idx.closeRequestedCtx.Done()
+	}()
+	<-reading
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- idx.Shutdown(context.Background()) }()
+
+	select {
+	case err := <-shutdownDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown is blocked behind an in-flight reader")
 	}
 }
