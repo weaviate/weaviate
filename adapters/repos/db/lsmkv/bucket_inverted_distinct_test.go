@@ -14,10 +14,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -236,61 +233,13 @@ func TestInvertedEachDistinctKeyConcurrentIngest(t *testing.T) {
 	}
 	require.NoError(t, b.FlushAndSwitch())
 
-	stop := make(chan struct{})
-	errs := make(chan error, 2)
-	var flushes, compactions atomic.Int64
-	var wg sync.WaitGroup
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	highest := map[string]int{}
+	walkUnderChurn(t, b, func(n int) error {
 		// every doc id is written once, for one key: nothing is ever deleted or
 		// rewritten, so counts only ever grow
-		for n := keys; ; n++ {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-
-			err := b.MapSet(key(n%keys), NewMapPairFromDocIdAndTf(uint64(n), 1, 1, false))
-			if err == nil && n%64 == 63 {
-				if err = b.FlushAndSwitch(); err == nil {
-					flushes.Add(1)
-				}
-			}
-			if err != nil {
-				errs <- err
-				return
-			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-
-			compacted, err := b.disk.compactOnce(ctx)
-			if err != nil {
-				errs <- err
-				return
-			}
-			if compacted {
-				compactions.Add(1)
-			} else {
-				time.Sleep(time.Millisecond)
-			}
-		}
-	}()
-
-	highest := map[string]int{}
-	deadline := time.Now().Add(2 * time.Second)
-	walks := 0
-	for ; walks < 500 && time.Now().Before(deadline); walks++ {
+		docID := uint64(keys + n)
+		return b.MapSet(key(n%keys), NewMapPairFromDocIdAndTf(docID, 1, 1, false))
+	}, func() {
 		seen := map[string]int{}
 		exceeded, exact, err := b.InvertedEachDistinctKey(ctx, keys*4,
 			func(k []byte, docCount int) error {
@@ -310,17 +259,7 @@ func TestInvertedEachDistinctKeyConcurrentIngest(t *testing.T) {
 				"key %s lost docs it had already reported", key(i))
 			highest[string(key(i))] = count
 		}
-	}
-
-	close(stop)
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-	require.Greater(t, walks, 20, "too few walks to have raced the writer")
-	require.NotZero(t, flushes.Load(), "no segment was rolled, the walks raced nothing")
-	require.NotZero(t, compactions.Load(), "no compaction ran, the walks raced nothing")
+	})
 
 	total := 0
 	for _, count := range highest {

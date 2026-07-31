@@ -14,10 +14,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -185,65 +182,14 @@ func TestRoaringSetEachDistinctKeyConcurrent(t *testing.T) {
 	}
 	require.NoError(t, b.FlushAndSwitch())
 
-	stop := make(chan struct{})
-	errs := make(chan error, 2)
-	var flushes, compactions atomic.Int64
-	var wg sync.WaitGroup
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		for n := 0; ; n++ {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-
-			i := n % keys
-			docID := uint64(i*docsPerKey + 1 + n%(docsPerKey-1))
-			var err error
-			if n%2 == 0 {
-				err = b.RoaringSetAddList(key(i), []uint64{docID})
-			} else {
-				err = b.RoaringSetRemoveOne(key(i), docID)
-			}
-			if err == nil && n%64 == 63 {
-				if err = b.FlushAndSwitch(); err == nil {
-					flushes.Add(1)
-				}
-			}
-			if err != nil {
-				errs <- err
-				return
-			}
+	walkUnderChurn(t, b, func(n int) error {
+		i := n % keys
+		docID := uint64(i*docsPerKey + 1 + n%(docsPerKey-1))
+		if n%2 == 0 {
+			return b.RoaringSetAddList(key(i), []uint64{docID})
 		}
-	}()
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-
-			compacted, err := b.disk.compactOnce(ctx)
-			if err != nil {
-				errs <- err
-				return
-			}
-			if compacted {
-				compactions.Add(1)
-			} else {
-				time.Sleep(time.Millisecond)
-			}
-		}
-	}()
-
-	deadline := time.Now().Add(2 * time.Second)
-	walks := 0
-	for ; walks < 500 && time.Now().Before(deadline); walks++ {
+		return b.RoaringSetRemoveOne(key(i), docID)
+	}, func() {
 		seen := map[string]int{}
 		exceeded, err := b.RoaringSetEachDistinctKey(ctx, keys*4,
 			func(k []byte, liveCount int) error {
@@ -261,15 +207,5 @@ func TestRoaringSetEachDistinctKeyConcurrent(t *testing.T) {
 			require.GreaterOrEqualf(t, count, 1, "key %s vanished", key(i))
 			require.LessOrEqualf(t, count, docsPerKey, "key %s holds foreign docs", key(i))
 		}
-	}
-
-	close(stop)
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-	require.Greater(t, walks, 20, "too few walks to have raced the writer")
-	require.NotZero(t, flushes.Load(), "no segment was rolled, the walks raced nothing")
-	require.NotZero(t, compactions.Load(), "no compaction ran, the walks raced nothing")
+	})
 }
