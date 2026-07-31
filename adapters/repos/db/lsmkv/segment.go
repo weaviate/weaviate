@@ -77,11 +77,11 @@ type Segment interface {
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
-	// targeted-scan support (bucket_targeted_scan.go): index walk, newest-wins
-	// key probe, and a byte-range read that is zero-copy in mmap mode and fills
-	// *buf (grown in place as needed) via pread otherwise.
-	scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error
-	hasKeyReplace(key []byte) (bool, error)
+	// targeted-scan support (bucket_targeted_scan.go): index walk, index split
+	// for weighted task sizing, and a byte-range read that is zero-copy in mmap
+	// mode and fills *buf (grown in place as needed) via pread otherwise.
+	scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error
+	indexNodeSplits(parts int) [][2]int
 	readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
@@ -176,6 +176,19 @@ type diskIndex interface {
 	// The key passed to fn is a subslice of the underlying data and must not
 	// be retained or modified by the caller.
 	ForEachKey(fn func(key []byte))
+
+	// ForEachNodeInRange walks the serialized nodes packed in data[from:to) —
+	// on-disk order, not key order — without allocating. The key passed to fn is
+	// a subslice of the underlying data, valid only for the duration of fn.
+	ForEachNodeInRange(from, to int, fn func(key []byte, start, end uint64) error) error
+
+	// SplitNodeRanges returns node-aligned [from,to) byte ranges partitioning the
+	// whole index into at most parts pieces of roughly equal byte size, for use
+	// with ForEachNodeInRange.
+	SplitNodeRanges(parts int) [][2]int
+
+	// Contains reports whether key is present, without materializing it.
+	Contains(key []byte) (bool, error)
 }
 
 type segmentConfig struct {

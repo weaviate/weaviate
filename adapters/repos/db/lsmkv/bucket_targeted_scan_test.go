@@ -14,10 +14,13 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,6 +38,50 @@ func targetedTestValue(id uint64, fillerLen int) []byte {
 		v[8+i] = byte((id + uint64(i)) % 251)
 	}
 	return v
+}
+
+func targetedPut(t *testing.T, b *Bucket, id uint64, fillerLen int) {
+	t.Helper()
+	require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
+}
+
+// a zero-length value is a live entry, not a deletion
+func targetedPutEmpty(t *testing.T, b *Bucket, id uint64) {
+	t.Helper()
+	require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), []byte{}))
+}
+
+// collectMergedCursor is the reference visibility ScanTargetedReplace must match:
+// value -> occurrence count over Bucket.Cursor's merged view.
+func collectMergedCursor(t *testing.T, b *Bucket) map[string]int {
+	t.Helper()
+	expected := map[string]int{}
+	c := b.Cursor()
+	defer c.Close()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		expected[string(v)]++
+	}
+	return expected
+}
+
+// scanCollect runs a full scan, reading each entry's whole value, in the same
+// value -> count shape as collectMergedCursor.
+func scanCollect(t *testing.T, b *Bucket, peekSize, parallel int) map[string]int {
+	t.Helper()
+	var mu sync.Mutex
+	got := map[string]int{}
+	require.NoError(t, b.ScanTargetedReplace(context.Background(), peekSize, parallel,
+		func(e *TargetedScanEntry) error {
+			raw, err := e.ReadRange(0, 0)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			got[string(raw)]++
+			mu.Unlock()
+			return nil
+		}, nullLogger()))
+	return got
 }
 
 // TestScanTargetedReplace verifies merged-cursor visibility plus the entry
@@ -57,13 +104,8 @@ func TestScanTargetedReplace(t *testing.T) {
 			b := newReusableTestBucket(t, ctx, mode.opts...)
 			defer b.Shutdown(ctx)
 
-			put := func(id uint64, fillerLen int) {
-				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
-			}
-			// a zero-length value is a live entry, not a deletion
-			putEmpty := func(id uint64) {
-				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), []byte{}))
-			}
+			put := func(id uint64, fillerLen int) { targetedPut(t, b, id, fillerLen) }
+			putEmpty := func(id uint64) { targetedPutEmpty(t, b, id) }
 			// segment 1: ids 0..39, plus empties at 100..102
 			for i := uint64(0); i < 40; i++ {
 				put(i, int(i)*7%300)
@@ -94,16 +136,10 @@ func TestScanTargetedReplace(t *testing.T) {
 			putEmpty(45)
 			putEmpty(110)
 
-			expected := map[string]int{}
-			c := b.Cursor()
-			for k, v := c.First(); k != nil; k, v = c.Next() {
-				expected[string(v)]++
-				_ = k
-			}
-			c.Close()
+			expected := collectMergedCursor(t, b)
 
-			// parallel=1 splits nothing, 4 exercises the single-seed split, 16 the
-			// multi-seed path (sorted/deduped quantile bounds, both-bounded ranges)
+			// parallel=1 keeps each segment as a single task, 4 and 16 split each
+			// segment's index into multiple node-aligned byte ranges
 			for _, parallel := range []int{1, 4, 16} {
 				const peekSize = 16
 				var mu sync.Mutex
@@ -186,12 +222,8 @@ func TestScanTargetedReplaceFlushingMemtable(t *testing.T) {
 	b := newReusableTestBucket(t, ctx)
 	defer b.Shutdown(ctx)
 
-	put := func(id uint64, fillerLen int) {
-		require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
-	}
-	putEmpty := func(id uint64) {
-		require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), []byte{}))
-	}
+	put := func(id uint64, fillerLen int) { targetedPut(t, b, id, fillerLen) }
+	putEmpty := func(id uint64) { targetedPutEmpty(t, b, id) }
 
 	// segment: ids 0..19
 	for i := uint64(0); i < 20; i++ {
@@ -224,27 +256,7 @@ func TestScanTargetedReplaceFlushingMemtable(t *testing.T) {
 		put(i, 80)
 	}
 
-	expected := map[string]int{}
-	c := b.Cursor()
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		expected[string(v)]++
-		_ = k
-	}
-	c.Close()
-
-	var mu sync.Mutex
-	got := map[string]int{}
-	require.NoError(t, b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
-		raw, err := e.ReadRange(0, 0)
-		if err != nil {
-			return err
-		}
-		mu.Lock()
-		got[string(raw)]++
-		mu.Unlock()
-		return nil
-	}, nullLogger()))
-	require.Equal(t, expected, got)
+	require.Equal(t, collectMergedCursor(t, b), scanCollect(t, b, 16, 4))
 
 	// finish the parked flush the same way FlushAndSwitch would, so Shutdown
 	// sees a normal bucket
@@ -272,9 +284,7 @@ func TestScanTargetedReplaceLazySegments(t *testing.T) {
 	}
 
 	b := newB()
-	put := func(id uint64, fillerLen int) {
-		require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
-	}
+	put := func(id uint64, fillerLen int) { targetedPut(t, b, id, fillerLen) }
 	for i := uint64(0); i < 30; i++ {
 		put(i, 50)
 	}
@@ -298,27 +308,106 @@ func TestScanTargetedReplaceLazySegments(t *testing.T) {
 	release()
 	require.True(t, isLazy, "reopen with lazy loading must yield lazy segments")
 
-	expected := map[string]int{}
-	c := b.Cursor()
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		expected[string(v)]++
-		_ = k
-	}
-	c.Close()
+	require.Equal(t, collectMergedCursor(t, b), scanCollect(t, b, 16, 4))
+}
 
-	var mu sync.Mutex
-	got := map[string]int{}
-	require.NoError(t, b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
-		raw, err := e.ReadRange(0, 0)
+// BenchmarkScanTargetedReplace scans one flushed ~200k-row segment, peek 16,
+// parallel 4.
+//
+// Run with:
+//
+//	go test -tags integrationTest -run x -bench BenchmarkScanTargetedReplace ./adapters/repos/db/lsmkv/
+func BenchmarkScanTargetedReplace(b *testing.B) {
+	ctx := context.Background()
+	dir := b.TempDir()
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace))
+	require.NoError(b, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9)
+
+	const rows = 200_000
+	for i := uint64(0); i < rows; i++ {
+		require.NoError(b, bucket.Put([]byte(fmt.Sprintf("key-%08d", i)), targetedTestValue(i, 56)))
+	}
+	require.NoError(b, bucket.FlushAndSwitch())
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var count atomic.Int64
+		err := bucket.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+			count.Add(1)
+			return nil
+		}, nullLogger())
 		if err != nil {
-			return err
+			b.Fatal(err)
 		}
-		mu.Lock()
-		got[string(raw)]++
-		mu.Unlock()
-		return nil
-	}, nullLogger()))
-	require.Equal(t, expected, got)
+		if count.Load() != rows {
+			b.Fatalf("scanned %d rows, want %d", count.Load(), rows)
+		}
+	}
+}
+
+// TestScanTargetedReplaceCorruptValueLength corrupts a node's stored value
+// length on disk: the scan must report it rather than size a read from it.
+func TestScanTargetedReplaceCorruptValueLength(t *testing.T) {
+	ctx := context.Background()
+
+	modes := []struct {
+		name string
+		opts []BucketOption
+	}{
+		{"mmap", nil},
+		{"pread", []BucketOption{WithPread(true), WithMinMMapSize(0)}},
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			dir := t.TempDir()
+			newB := func() *Bucket {
+				o := append([]BucketOption{WithStrategy(StrategyReplace)}, mode.opts...)
+				b, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), o...)
+				require.NoError(t, err)
+				b.SetMemtableThreshold(1e9)
+				return b
+			}
+
+			b := newB()
+			key := []byte("key-000")
+			require.NoError(t, b.Put(key, targetedTestValue(0, 100)))
+			require.NoError(t, b.FlushAndSwitch())
+
+			segments, release := b.disk.getConsistentViewOfSegments()
+			require.Len(t, segments, 1)
+			seg := segments[0].(*segment)
+			node, err := seg.index.Get(key)
+			require.NoError(t, err)
+			path := seg.getPath()
+			release()
+			require.NoError(t, b.Shutdown(ctx))
+
+			// the 8-byte little-endian value length follows the node's tombstone byte
+			f, err := os.OpenFile(path, os.O_WRONLY, 0)
+			require.NoError(t, err)
+			_, err = f.WriteAt(bytes.Repeat([]byte{0xFF}, 8), int64(node.Start)+1)
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+
+			b = newB()
+			defer b.Shutdown(ctx)
+
+			var served atomic.Int64
+			err = b.ScanTargetedReplace(ctx, 16, 1, func(e *TargetedScanEntry) error {
+				served.Add(1)
+				return nil
+			}, nullLogger())
+			require.ErrorContains(t, err, "value length")
+			require.Zero(t, served.Load(), "the corrupt row must not be served")
+		})
+	}
 }
 
 func TestEstimatedEntrySize(t *testing.T) {
@@ -339,7 +428,9 @@ func TestEstimatedEntrySize(t *testing.T) {
 		segments, release := b.disk.getConsistentViewOfSegments()
 		var size int64
 		for _, seg := range segments {
-			size += seg.Size()
+			size += int64(seg.payloadSize())
+			// the estimate must exclude the index tree
+			require.Less(t, int64(seg.payloadSize()), seg.Size())
 		}
 		release()
 		require.Equal(t, size/entries, b.EstimatedEntrySize())

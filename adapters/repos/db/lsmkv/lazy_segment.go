@@ -309,14 +309,14 @@ func (s *lazySegment) quantileKeys(q int) [][]byte {
 	return s.segment.quantileKeys(q)
 }
 
-func (s *lazySegment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
+func (s *lazySegment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error {
 	s.mustLoad()
-	return s.segment.scanNodeRanges(start, end, fn)
+	return s.segment.scanIndexNodes(from, to, fn)
 }
 
-func (s *lazySegment) hasKeyReplace(key []byte) (bool, error) {
+func (s *lazySegment) indexNodeSplits(parts int) [][2]int {
 	s.mustLoad()
-	return s.segment.hasKeyReplace(key)
+	return s.segment.indexNodeSplits(parts)
 }
 
 func (s *lazySegment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {

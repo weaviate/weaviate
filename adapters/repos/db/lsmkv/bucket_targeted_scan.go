@@ -12,17 +12,15 @@
 package lsmkv
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"slices"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -31,7 +29,8 @@ import (
 // and every slice it hands out are valid only until the callback returns.
 type TargetedScanEntry struct {
 	ValueSize uint64
-	// Peek holds the first min(peekSize, ValueSize) bytes of the value.
+	// Peek holds the first min(peekSize, ValueSize) bytes of the value. Peek stays
+	// valid across ReadRange calls: they read into a separate scratch buffer.
 	Peek []byte
 
 	seg        Segment // nil for memtable entries
@@ -92,7 +91,7 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 
 	tasks := buildTargetedScanTasks(segments, parallel)
 	if len(tasks) == 0 {
-		return nil
+		return ctx.Err()
 	}
 
 	// worker panics become errors + a context cancel, so a failing task cannot
@@ -104,13 +103,16 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 			return scanTargetedSegmentRange(egCtx, task, peekSize, hideSets, fn)
 		})
 	}
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 // targetedScanSnapshot grabs the (active, flushing, segments) triple under one
 // flushLock hold — the same point-in-time snapshot Bucket.Cursor takes. The
-// deferred unlock matters: incRef on a lazy segment can panic on a load error,
-// and a skipped RUnlock would wedge the bucket's flush path permanently.
+// deferred unlock releases this function's own hold if acquiring the segment
+// view panics (a lazy segment's load error).
 func (b *Bucket) targetedScanSnapshot() ([]innerCursorReplace, []Segment, func()) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -126,20 +128,26 @@ func (b *Bucket) targetedScanSnapshot() ([]innerCursorReplace, []Segment, func()
 }
 
 type targetedScanTask struct {
-	seg        Segment
-	start, end []byte // key range [start,end); nil = open-ended
+	seg      Segment
+	from, to int // byte range over seg's index, for scanIndexNodes
 	// newer holds the segments written after seg, newest first; a key present in
 	// any of them hides seg's row
 	newer []Segment
 }
 
-// buildTargetedScanTasks splits each segment into enough key ranges that the total
-// task count reaches the requested parallelism even when few segments exist.
+// buildTargetedScanTasks splits each segment's index into byte ranges so the total
+// task count reaches the requested parallelism even when few segments exist. Ranges
+// are sized by each segment's share of the total index bytes, so a segment with a
+// large index gets proportionally more tasks than a small one.
 func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask {
 	if len(segments) == 0 {
 		return nil
 	}
-	rangesPerSeg := (parallel + len(segments) - 1) / len(segments)
+
+	var totalIndexSize int64
+	for _, seg := range segments {
+		totalIndexSize += int64(seg.indexSize())
+	}
 
 	var tasks []targetedScanTask
 	for segIdx, seg := range segments {
@@ -148,23 +156,19 @@ func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask
 		for j := len(segments) - 1; j > segIdx; j-- {
 			newer = append(newer, segments[j])
 		}
-		seeds := [][]byte{}
-		if rangesPerSeg > 1 {
-			// quantileKeys yields index-traversal (preorder) order; ranges need
-			// sorted, unique bounds or they overlap and nodes get visited twice
-			seeds = seg.quantileKeys(rangesPerSeg - 1)
-			slices.SortFunc(seeds, bytes.Compare)
-			seeds = slices.CompactFunc(seeds, bytes.Equal)
+
+		parts := 1
+		if totalIndexSize > 0 {
+			share := float64(parallel) * float64(seg.indexSize()) / float64(totalIndexSize)
+			if rounded := int(math.Round(share)); rounded > 1 {
+				parts = rounded
+			}
 		}
-		if len(seeds) == 0 {
-			tasks = append(tasks, targetedScanTask{seg: seg, newer: newer})
-			continue
+
+		// an empty index yields no ranges, so such a segment contributes no task
+		for _, r := range seg.indexNodeSplits(parts) {
+			tasks = append(tasks, targetedScanTask{seg: seg, from: r[0], to: r[1], newer: newer})
 		}
-		tasks = append(tasks, targetedScanTask{seg: seg, end: seeds[0], newer: newer})
-		for i := 0; i < len(seeds)-1; i++ {
-			tasks = append(tasks, targetedScanTask{seg: seg, start: seeds[i], end: seeds[i+1], newer: newer})
-		}
-		tasks = append(tasks, targetedScanTask{seg: seg, start: seeds[len(seeds)-1], newer: newer})
 	}
 	return tasks
 }
@@ -243,7 +247,7 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 
 	const checkContextEveryN = 1024
 	rows := 0
-	return task.seg.scanNodeRanges(task.start, task.end, func(n segmentNodeRange) error {
+	return task.seg.scanIndexNodes(task.from, task.to, func(n segmentNodeRange) error {
 		rows++
 		if rows%checkContextEveryN == 0 {
 			if err := ctx.Err(); err != nil {
@@ -256,7 +260,7 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 			}
 		}
 		for _, newer := range task.newer {
-			has, err := newer.hasKeyReplace(n.Key)
+			has, err := newer.existsKey(n.Key)
 			if err != nil {
 				return err
 			}
@@ -266,8 +270,9 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 		}
 
 		// one read covers the 9-byte node header (tombstone + value length) plus
-		// the value prefix
-		headEnd := n.Start + uint64(9+peekSize)
+		// the value prefix; peekSize converts to uint64 before the addition so an
+		// oversized int cannot overflow it
+		headEnd := n.Start + 9 + uint64(peekSize)
 		if headEnd > n.End {
 			headEnd = n.End
 		}
@@ -307,59 +312,33 @@ func checkNodeValueLen(valueLen uint64, n segmentNodeRange) error {
 }
 
 // segmentNodeRange is one node within a segment; Key comes from the in-memory
-// index, available before any value bytes are read.
+// index, available before any value bytes are read. Key is a subslice of the
+// index buffer, valid only for the duration of the yielding callback.
 type segmentNodeRange struct {
 	Key        []byte
 	Start, End uint64
 }
 
-// scanNodeRanges visits the primary index over key range [start,end) — nil bounds
-// (not merely empty) are open-ended — in key order, yielding each node's byte range
-// without reading any value bytes. Yielded ranges are validated against the
-// segment's data bounds, so a corrupt index offset surfaces as an error here
-// rather than sizing a read downstream.
-func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
-	node, err := s.index.Seek(start)
-	for {
-		if err != nil {
-			if errors.Is(err, entlsmkv.NotFound) {
-				return nil
-			}
-			return err
-		}
-		if end != nil && bytes.Compare(node.Key, end) >= 0 {
-			return nil
-		}
-		// ordered so the subtraction cannot wrap on End < Start
-		if node.End <= node.Start || node.End-node.Start < 9 ||
-			node.Start < s.dataStartPos || node.End > s.dataEndPos {
+// scanIndexNodes visits the primary index nodes packed in byte range [from,to) —
+// on-disk order, not key order — yielding each node's byte range without reading
+// any value bytes. Yielded ranges are validated against the segment's data
+// bounds, so a corrupt index offset surfaces as an error here rather than
+// sizing a read downstream.
+func (s *segment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error {
+	return s.index.ForEachNodeInRange(from, to, func(key []byte, start, end uint64) error {
+		// ordered so the subtraction cannot wrap on end < start
+		if end <= start || end-start < 9 || start < s.dataStartPos || end > s.dataEndPos {
 			return fmt.Errorf("targeted scan: node [%d,%d) outside data bounds [%d,%d) or smaller than its header",
-				node.Start, node.End, s.dataStartPos, s.dataEndPos)
+				start, end, s.dataStartPos, s.dataEndPos)
 		}
-		if err := fn(segmentNodeRange{Key: node.Key, Start: node.Start, End: node.End}); err != nil {
-			return err
-		}
-		node, err = s.index.Next(node.Key)
-	}
+		return fn(segmentNodeRange{Key: key, Start: start, End: end})
+	})
 }
 
-// hasKeyReplace: does the segment hold an entry (live or tombstoned) for key,
-// answered from the in-memory bloom filter and index only. Index errors are
-// propagated — treating them as "absent" would serve superseded rows.
-func (s *segment) hasKeyReplace(key []byte) (bool, error) {
-	if s.strategy != segmentindex.StrategyReplace {
-		return false, nil
-	}
-	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return false, nil
-	}
-	if _, err := s.index.Get(key); err != nil {
-		if errors.Is(err, entlsmkv.NotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
+// indexNodeSplits returns node-aligned byte ranges over the primary index, for
+// use with scanIndexNodes; see segmentindex.DiskTree.SplitNodeRanges.
+func (s *segment) indexNodeSplits(parts int) [][2]int {
+	return s.index.SplitNodeRanges(parts)
 }
 
 // readRange serves the segment bytes in [offset.start, offset.end). In mmap mode
@@ -387,15 +366,16 @@ func (s *segment) readRange(offset nodeOffset, operation string, buf *[]byte) ([
 }
 
 // EstimatedEntrySize is the average on-disk bytes per net entry across flushed
-// segments (file size over net additions); 0 with no flushed entries or when the
-// bucket does not track net additions (see WithCalcCountNetAdditions).
+// segments (payload size over net additions — the index tree is excluded); 0 with
+// no flushed entries or when the bucket does not track net additions (see
+// WithCalcCountNetAdditions).
 func (b *Bucket) EstimatedEntrySize() int64 {
 	segments, release := b.disk.getConsistentViewOfSegments()
 	defer release()
 
 	var size, count int64
 	for _, seg := range segments {
-		size += seg.Size()
+		size += int64(seg.payloadSize())
 		count += int64(seg.getCountNetAdditions())
 	}
 	if count <= 0 {

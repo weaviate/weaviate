@@ -146,15 +146,7 @@ func (s *segment) existsKey(key []byte) (bool, error) {
 		return false, nil
 	}
 
-	_, err := s.index.Get(key)
-
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, lsmkv.NotFound) {
-		return false, nil
-	}
-	return false, err
+	return s.index.Contains(key)
 }
 
 // exists checks if a key exists and is not deleted, without reading the full value.
