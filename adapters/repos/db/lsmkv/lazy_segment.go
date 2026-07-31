@@ -325,15 +325,15 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 }
 
 func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
-) (roaringset.BitmapLayer, func(), error) {
+) (*sroar.Bitmap, func(), error) {
 	s.mustLoad()
 	return s.segment.roaringSetGet(key, bitmapBufPool)
 }
 
-func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
+func (s *lazySegment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	s.mustLoad()
-	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool, maxConc)
+	return s.segment.roaringSetMergeWith(key, additions, bitmapBufPool, maxConc)
 }
 
 func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
