@@ -32,11 +32,24 @@ type nodeWideMetricsObserver struct {
 	// Goroutines spawned by nodeWideMetricsObserver must exit after receiving on this channel.
 	shutdown chan struct{}
 
-	activityLock          sync.Mutex
-	activityTracker       activityByCollection
-	lastTenantUsage       tenantactivity.ByCollection
-	lastTenantUsageReads  tenantactivity.ByCollection
-	lastTenantUsageWrites tenantactivity.ByCollection
+	// The tenant maps that the most recent cycle filled, kept so the next cycle
+	// can refill them instead of allocating new ones. The counters a cycle
+	// compares against are kept in usage. Only the observeShards goroutine
+	// touches it.
+	activitySnapshot activityByCollection
+
+	// The most tenants each collection has held since its counters map was last
+	// replaced. Cleared and pruned maps keep their buckets, so a collection down
+	// to less than a quarter of this gets fresh maps: the usage map on the cycle
+	// the drop shows, the counters map on the next. Only the observeShards
+	// goroutine touches it.
+	tenantPeaks map[string]int
+
+	// Guards usage only. The two fields above are written outside it.
+	activityLock sync.RWMutex
+	// Tenant usage as of the most recent cycle. Each cycle updates it in place
+	// instead of building a new one, so repeated observations do not allocate.
+	usage usageByCollection
 }
 
 // internal types used for tenant activity aggregation, not exposed to the user
@@ -47,10 +60,26 @@ type (
 		read  int32
 		write int32
 	}
+
+	usageByCollection map[string]usageByTenant
+	usageByTenant     map[string]tenantUsage
+	// tenantUsage holds what the next cycle needs to compute a delta: the counter
+	// values last seen, and the timestamps derived from them.
+	tenantUsage struct {
+		read         int32
+		write        int32
+		lastActivity time.Time
+		lastRead     time.Time
+		lastWrite    time.Time
+	}
 )
 
 func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
-	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
+	return &nodeWideMetricsObserver{
+		db:          db,
+		shutdown:    make(chan struct{}),
+		tenantPeaks: map[string]int{},
+	}
 }
 
 // Start goroutines for periodically polling node-wide metrics.
@@ -164,8 +193,7 @@ func (o *nodeWideMetricsObserver) observeActivity() {
 	o.activityLock.Lock()
 	defer o.activityLock.Unlock()
 
-	o.lastTenantUsage, o.lastTenantUsageReads, o.lastTenantUsageWrites = o.analyzeActivityDelta(current)
-	o.activityTracker = current
+	o.updateUsage(current)
 
 	took := time.Since(start)
 	o.db.logger.WithFields(logrus.Fields{
@@ -203,115 +231,184 @@ func (o *nodeWideMetricsObserver) logActivity(col, tenant, activityType string, 
 	logBase.Logf(level, "tenant %s activity change: %s", tenant, activityType)
 }
 
-func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityByCollection) (total, reads, writes tenantactivity.ByCollection) {
-	previousActivity := o.activityTracker
-	if previousActivity == nil {
-		previousActivity = make(activityByCollection)
-	}
-
+// Update the usage state from the newly observed counters. Collections and
+// tenants that no longer appear are deleted, the rest are updated in place, so
+// repeated observations do not allocate. A collection that lost most of its
+// tenants gets a new map, carrying over the records of the tenants that are
+// left.
+func (o *nodeWideMetricsObserver) updateUsage(currentActivity activityByCollection) {
 	now := time.Now()
 
-	// create a new map, this way we will automatically drop anything that
-	// doesn't appear in the new list anymore
-	newUsageTotal := make(tenantactivity.ByCollection)
-	newUsageReads := make(tenantactivity.ByCollection)
-	newUsageWrites := make(tenantactivity.ByCollection)
+	if o.usage == nil {
+		o.usage = make(usageByCollection, len(currentActivity))
+	}
 
-	for class, current := range currentActivity {
-		newUsageTotal[class] = make(tenantactivity.ByTenant)
-		newUsageReads[class] = make(tenantactivity.ByTenant)
-		newUsageWrites[class] = make(tenantactivity.ByTenant)
-
-		for tenant, act := range current {
-			if _, ok := previousActivity[class]; !ok {
-				previousActivity[class] = make(activityByTenant)
-			}
-
-			previous, ok := previousActivity[class][tenant]
-			if !ok {
-				// this tenant didn't appear on the previous list, so we need to consider
-				// it recently active
-				newUsageTotal[class][tenant] = now
-
-				// only track detailed value if the value is greater than the initial
-				// value, otherwise we consider it just an activation without any user
-				// activity
-				if act.read > 1 {
-					newUsageReads[class][tenant] = now
-					o.logActivity(class, tenant, "read", act.read)
-				}
-				if act.write > 1 {
-					newUsageWrites[class][tenant] = now
-					o.logActivity(class, tenant, "write", act.write)
-				}
-
-				if act.read == 1 && act.write == 1 {
-					// no specific activity, just an activation
-					o.logActivity(class, tenant, "activation", 1)
-				}
-				continue
-			}
-
-			if act.read == previous.read && act.write == previous.write {
-				// unchanged, we can copy the current state
-				newUsageTotal[class][tenant] = o.lastTenantUsage[class][tenant]
-
-				// only copy previous reads+writes if they existed before
-				if lastRead, ok := o.lastTenantUsageReads[class][tenant]; ok {
-					newUsageReads[class][tenant] = lastRead
-				}
-				if lastWrite, ok := o.lastTenantUsageWrites[class][tenant]; ok {
-					newUsageWrites[class][tenant] = lastWrite
-				}
-			} else {
-				// activity changed we need to update it
-				newUsageTotal[class][tenant] = now
-				if act.read > previous.read {
-					newUsageReads[class][tenant] = now
-					o.logActivity(class, tenant, "read", act.read)
-				} else if lastRead, ok := o.lastTenantUsageReads[class][tenant]; ok {
-					newUsageReads[class][tenant] = lastRead
-				}
-
-				if act.write > previous.write {
-					newUsageWrites[class][tenant] = now
-					o.logActivity(class, tenant, "write", act.write)
-				} else if lastWrite, ok := o.lastTenantUsageWrites[class][tenant]; ok {
-					newUsageWrites[class][tenant] = lastWrite
-				}
-
-			}
+	// drop whatever doesn't appear in the new list anymore
+	for class := range o.usage {
+		if _, ok := currentActivity[class]; !ok {
+			delete(o.usage, class)
+			delete(o.tenantPeaks, class)
 		}
 	}
 
-	return newUsageTotal, newUsageReads, newUsageWrites
+	for class, current := range currentActivity {
+		previous := o.usage[class]
+
+		byTenant := previous
+		if byTenant == nil || o.lostMostTenants(class, len(current)) {
+			byTenant = make(usageByTenant, len(current))
+			o.usage[class] = byTenant
+		} else {
+			for tenant := range byTenant {
+				if _, ok := current[tenant]; !ok {
+					delete(byTenant, tenant)
+				}
+			}
+		}
+		o.tenantPeaks[class] = max(o.tenantPeaks[class], len(current))
+
+		for tenant, act := range current {
+			// each record is read before it is overwritten, so previous can be the
+			// map being written to
+			byTenant[tenant] = o.tenantUsageDelta(class, tenant, act, previous, now)
+		}
+	}
+}
+
+// Whether a collection is down to less than a quarter of the tenants it peaked
+// at, so that reusing its maps would keep far more buckets than it needs.
+func (o *nodeWideMetricsObserver) lostMostTenants(class string, live int) bool {
+	return live*4 < o.tenantPeaks[class]
+}
+
+// Derive a tenant's usage from its current counters and its record from the
+// previous cycle. lastActivity moves when either counter changes, lastRead and
+// lastWrite only when their own counter increases.
+func (o *nodeWideMetricsObserver) tenantUsageDelta(class, tenant string, act activity, previous usageByTenant, now time.Time) tenantUsage {
+	prev, ok := previous[tenant]
+	if !ok {
+		// this tenant didn't appear on the previous list, so we need to consider
+		// it recently active
+		usage := tenantUsage{read: act.read, write: act.write, lastActivity: now}
+
+		// only track detailed value if the value is greater than the initial
+		// value, otherwise we consider it just an activation without any user
+		// activity
+		if act.read > 1 {
+			usage.lastRead = now
+			o.logActivity(class, tenant, "read", act.read)
+		}
+		if act.write > 1 {
+			usage.lastWrite = now
+			o.logActivity(class, tenant, "write", act.write)
+		}
+
+		if act.read == 1 && act.write == 1 {
+			// no specific activity, just an activation
+			o.logActivity(class, tenant, "activation", 1)
+		}
+		return usage
+	}
+
+	usage := prev
+	usage.read, usage.write = act.read, act.write
+	if act.read == prev.read && act.write == prev.write {
+		// unchanged, keep the previous timestamps
+		return usage
+	}
+
+	// activity changed we need to update it
+	usage.lastActivity = now
+	if act.read > prev.read {
+		usage.lastRead = now
+		o.logActivity(class, tenant, "read", act.read)
+	}
+	if act.write > prev.write {
+		usage.lastWrite = now
+		o.logActivity(class, tenant, "write", act.write)
+	}
+
+	return usage
 }
 
 func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 	o.db.indexLock.RLock()
 	defer o.db.indexLock.RUnlock()
 
-	current := make(activityByCollection)
+	previous := o.activitySnapshot
+	current := make(activityByCollection, len(o.db.indices))
 	for _, index := range o.db.indices {
 		if !index.partitioningEnabled {
 			continue
 		}
 		cn := index.Config.ClassName.String()
-		current[cn] = make(activityByTenant)
+
+		// the previous counters are already kept in o.usage, so the map they were
+		// read from can be refilled instead of allocated again
+		tenants := previous[cn]
+		switch {
+		case tenants == nil:
+			tenants = make(activityByTenant)
+		case o.lostMostTenants(cn, len(tenants)):
+			// len is last cycle's tenant count, as this cycle's is only known once
+			// the map has been filled. The replacement's size becomes the peak the
+			// next drop is measured against, so a collection that keeps draining
+			// keeps shrinking.
+			size := len(tenants)
+			tenants = make(activityByTenant, size)
+			o.tenantPeaks[cn] = size
+		default:
+			clear(tenants)
+		}
+		current[cn] = tenants
+
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			index.shardCreateLocks.RLock(name)
 			defer index.shardCreateLocks.RUnlock(name)
 
 			act := activity{}
 			act.read, act.write = shard.Activity()
-			current[cn][name] = act
+			tenants[name] = act
 			return nil
 		})
 	}
+	o.activitySnapshot = current
 
 	return current
 }
 
+// A zero time means the tenant saw no activity of that kind.
+func (u tenantUsage) timestampFor(filter tenantactivity.UsageFilter) time.Time {
+	switch filter {
+	case tenantactivity.UsageFilterOnlyReads:
+		return u.lastRead
+	case tenantactivity.UsageFilterOnlyWrites:
+		return u.lastWrite
+	default:
+		return u.lastActivity
+	}
+}
+
+// How many tenants a filter reports. Every tenant has a total-activity
+// timestamp, but a read or write filter typically matches only a few of them, so
+// counting keeps Usage's result map from reserving space for the rest.
+func (tenants usageByTenant) countMatching(filter tenantactivity.UsageFilter) int {
+	if filter == tenantactivity.UsageFilterAll {
+		return len(tenants)
+	}
+
+	count := 0
+	for _, u := range tenants {
+		if !u.timestampFor(filter).IsZero() {
+			count++
+		}
+	}
+	return count
+}
+
+// Usage returns a copy: every cycle rewrites the observer's own maps in place,
+// so handing those out would let a caller range over a map while a cycle writes
+// to it, aborting the process with "concurrent map iteration and map write".
 func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
 	if o == nil {
 		// not loaded yet, requests could come in before the db is initialized yet
@@ -319,20 +416,21 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 		return tenantactivity.ByCollection{}
 	}
 
-	o.activityLock.Lock()
-	defer o.activityLock.Unlock()
+	o.activityLock.RLock()
+	defer o.activityLock.RUnlock()
 
-	switch filter {
-
-	case tenantactivity.UsageFilterOnlyReads:
-		return o.lastTenantUsageReads
-	case tenantactivity.UsageFilterOnlyWrites:
-		return o.lastTenantUsageWrites
-	case tenantactivity.UsageFilterAll:
-		return o.lastTenantUsage
-	default:
-		return o.lastTenantUsage
+	usage := make(tenantactivity.ByCollection, len(o.usage))
+	for class, tenants := range o.usage {
+		byTenant := make(tenantactivity.ByTenant, tenants.countMatching(filter))
+		for tenant, u := range tenants {
+			if ts := u.timestampFor(filter); !ts.IsZero() {
+				byTenant[tenant] = ts
+			}
+		}
+		usage[class] = byTenant
 	}
+
+	return usage
 }
 
 // ----------------------------------------------------------------------------
