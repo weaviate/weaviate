@@ -825,7 +825,10 @@ type AggregateRequest_Aggregation_Text struct {
 	// otherwise. Counts are live per-value document counts, but values
 	// whose documents were all deleted count toward the cutoff until
 	// compaction reclaims them. Ignores filters, search and group_by
-	// (unfiltered aggregations only).
+	// (unfiltered aggregations only). The cutoff is evaluated per shard, so
+	// a collection whose shards each stay under it can hold more distinct
+	// values than the cutoff and still reply with values and no
+	// top_occurences_cutoff_exceeded.
 	TopOccurencesCutoff *uint32 `protobuf:"varint,5,opt,name=top_occurences_cutoff,json=topOccurencesCutoff,proto3,oneof" json:"top_occurences_cutoff,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache

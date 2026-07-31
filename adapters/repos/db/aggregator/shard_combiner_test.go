@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
@@ -204,6 +205,113 @@ func TestShardCombinerMergeNil(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			combinedResults := NewShardCombiner().Do(tt.results)
 			assert.Equal(t, len(combinedResults.Groups), tt.totalResults)
+		})
+	}
+}
+
+func TestShardCombinerMergeTextCutoff(t *testing.T) {
+	const propName = "someProp"
+
+	shard := func(text aggregation.Text) *aggregation.Result {
+		return &aggregation.Result{
+			Groups: []aggregation.Group{{
+				Count: text.Count,
+				Properties: map[string]aggregation.Property{
+					propName: {
+						Type:            aggregation.PropertyTypeText,
+						SchemaType:      "text",
+						TextAggregation: text,
+					},
+				},
+			}},
+		}
+	}
+
+	occ := func(value string, occurs int) aggregation.TextOccurrence {
+		return aggregation.TextOccurrence{Value: value, Occurs: occurs}
+	}
+
+	tests := []struct {
+		name     string
+		results  []*aggregation.Result
+		expected aggregation.Text
+	}{
+		{
+			name: "single shard, not exceeded",
+			results: []*aggregation.Result{
+				shard(aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}}),
+			},
+			expected: aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}},
+		},
+		{
+			name: "single shard, exceeded",
+			results: []*aggregation.Result{
+				shard(aggregation.Text{CutoffExceeded: true}),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+		{
+			name: "neither shard exceeded",
+			results: []*aggregation.Result{
+				shard(aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}}),
+				shard(aggregation.Text{Count: 5, Items: []aggregation.TextOccurrence{occ("b", 4), occ("c", 1)}}),
+			},
+			expected: aggregation.Text{
+				Count: 12,
+				Items: []aggregation.TextOccurrence{occ("b", 6), occ("a", 5), occ("c", 1)},
+			},
+		},
+		{
+			name: "first shard exceeded",
+			results: []*aggregation.Result{
+				shard(aggregation.Text{CutoffExceeded: true}),
+				shard(aggregation.Text{Count: 5, Items: []aggregation.TextOccurrence{occ("b", 4), occ("c", 1)}}),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+		{
+			name: "second shard exceeded",
+			results: []*aggregation.Result{
+				shard(aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}}),
+				shard(aggregation.Text{CutoffExceeded: true}),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+		{
+			name: "both shards exceeded",
+			results: []*aggregation.Result{
+				shard(aggregation.Text{CutoffExceeded: true}),
+				shard(aggregation.Text{CutoffExceeded: true}),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+		{
+			name: "three shards, middle one exceeded",
+			results: []*aggregation.Result{
+				shard(aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}}),
+				shard(aggregation.Text{CutoffExceeded: true}),
+				shard(aggregation.Text{Count: 5, Items: []aggregation.TextOccurrence{occ("b", 4), occ("c", 1)}}),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			combined := NewShardCombiner().Do(tt.results)
+
+			require.Len(t, combined.Groups, 1)
+			prop, ok := combined.Groups[0].Properties[propName]
+			require.True(t, ok)
+
+			text := prop.TextAggregation
+			assert.Equal(t, tt.expected.CutoffExceeded, text.CutoffExceeded)
+			assert.Equal(t, tt.expected.Count, text.Count)
+			assert.Equal(t, tt.expected.Items, text.Items)
+			if tt.expected.CutoffExceeded {
+				assert.Empty(t, text.Items)
+				assert.Zero(t, text.Count)
+			}
 		})
 	}
 }

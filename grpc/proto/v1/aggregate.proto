@@ -48,7 +48,10 @@ message AggregateRequest {
       // otherwise. Counts are live per-value document counts, but values
       // whose documents were all deleted count toward the cutoff until
       // compaction reclaims them. Ignores filters, search and group_by
-      // (unfiltered aggregations only).
+      // (unfiltered aggregations only). The cutoff is evaluated per shard, so
+      // a collection whose shards each stay under it can hold more distinct
+      // values than the cutoff and still reply with values and no
+      // top_occurences_cutoff_exceeded.
       optional uint32 top_occurences_cutoff = 5;
     }
     message Boolean {

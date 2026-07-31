@@ -294,11 +294,16 @@ func (sc *ShardCombiner) finalizeBoolean(combined *aggregation.Boolean) {
 }
 
 func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
-	first.Count += second.Count
-
 	// one shard over the cutoff makes the value list incomplete for the whole
-	// collection
-	first.CutoffExceeded = first.CutoffExceeded || second.CutoffExceeded
+	// collection, so the merge collapses to the same sentinel a single exceeded
+	// shard emits — keeping the other shards' values would hand out a silently
+	// truncated vocabulary with per-shard counts
+	if first.CutoffExceeded || second.CutoffExceeded {
+		*first = aggregation.Text{CutoffExceeded: true}
+		return
+	}
+
+	first.Count += second.Count
 
 	for _, textOcc := range second.Items {
 		pos := getPosOfTextOcc(first.Items, textOcc.Value)
