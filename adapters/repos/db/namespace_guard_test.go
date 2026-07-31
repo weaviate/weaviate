@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -196,7 +197,11 @@ func TestNewIndexCarriesNamespaceLookup(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// The constructor reaches site (iii), which looks the state up, so a
+			// qualified name consults the exister before the assertions below.
 			e := namespaces.NewMockExister(t)
+			e.EXPECT().GetNamespace("alpha").
+				Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true).Maybe()
 			idx := newIndexForNamespaceTest(t, tc.className, e)
 
 			require.Equal(t, tc.wantNamespace, idx.namespace,
@@ -252,12 +257,10 @@ func TestDesiredOpen(t *testing.T) {
 	}
 }
 
-// dbForDesiredOpen builds the minimum DB DesiredOpenLocalShards reads: a schema
-// reader over one class's sharding state, plus the namespace lookup.
-func dbForDesiredOpen(t *testing.T, className string, e namespaces.Exister, partitioningEnabled bool, shards map[string]sharding.Physical) *DB {
+// readerForShards serves one class's sharding state to the code under test.
+func readerForShards(t *testing.T, className string, partitioningEnabled bool, shards map[string]sharding.Physical) *schemaUC.MockSchemaReader {
 	t.Helper()
 
-	logger, _ := logrustest.NewNullLogger()
 	state := &sharding.State{Physical: shards, PartitioningEnabled: partitioningEnabled}
 	state.SetLocalName("node1")
 
@@ -266,12 +269,32 @@ func dbForDesiredOpen(t *testing.T, className string, e namespaces.Exister, part
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(&models.Class{Class: className}, state)
 		}).Maybe()
-
-	return &DB{logger: logger, schemaReader: reader, namespacesExister: e}
+	return reader
 }
 
+// dbForDesiredOpen builds the minimum DB DesiredOpenLocalShards reads: a schema
+// reader over one class's sharding state, plus the namespace lookup.
+func dbForDesiredOpen(t *testing.T, className string, e namespaces.Exister, partitioningEnabled bool, shards map[string]sharding.Physical) *DB {
+	t.Helper()
+
+	logger, _ := logrustest.NewNullLogger()
+	return &DB{
+		logger:            logger,
+		schemaReader:      readerForShards(t, className, partitioningEnabled, shards),
+		namespacesExister: e,
+	}
+}
+
+// localPhysical carries no activity status, the shape every single-tenant shard
+// has and the empty-counts-as-HOT cell for a tenant.
 func localPhysical(name string) sharding.Physical {
 	return sharding.Physical{Name: name, BelongsToNodes: []string{"node1"}}
+}
+
+func hotPhysical(name string) sharding.Physical {
+	p := localPhysical(name)
+	p.Status = models.TenantActivityStatusHOT
+	return p
 }
 
 func coldPhysical(name string) sharding.Physical {
@@ -706,5 +729,247 @@ func TestWorkerReopenAdmission(t *testing.T) {
 
 		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerResume))
 		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), namespaces.ErrNamespaceResuming)
+	})
+}
+
+// indexForBootTest builds the minimum Index initAndStoreShards needs. Lazy
+// loading keeps shard construction off disk, so what the test observes is which
+// shards were registered, not what they contain.
+func indexForBootTest(t *testing.T, className string, e namespaces.Exister, reader schemaUC.SchemaReader) (*Index, *logrustest.Hook) {
+	t.Helper()
+
+	logger, hook := logrustest.NewNullLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	return &Index{
+		Config: IndexConfig{
+			ClassName:            schema.ClassName(className),
+			RootPath:             t.TempDir(),
+			EnableLazyLoadShards: true,
+		},
+		namespace:         namespacing.NamespaceFromQualified(className),
+		namespacesExister: e,
+		logger:            logger,
+		schemaReader:      reader,
+		shardCreateLocks:  esync.NewKeyRWLocker(),
+		closingCtx:        ctx,
+	}, hook
+}
+
+func registeredShards(t *testing.T, idx *Index) []string {
+	t.Helper()
+
+	var names []string
+	require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	}))
+	sort.Strings(names)
+	return names
+}
+
+// Site (iii) is boot: the constructor registers a class's local shards before
+// any request can reach the index. It filters on ShardsShouldBeOpen rather than
+// the request-path check, so a resuming namespace keeps its HOT shards —
+// otherwise nothing reopens and a resume could never finish.
+func TestGuardSiteIII(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	// empty1 is the Exit 42 boot half: a tenant with no status counts as HOT here.
+	mixed := map[string]sharding.Physical{
+		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"), "cold1": coldPhysical("cold1"),
+	}
+
+	tests := []struct {
+		name       string
+		className  string
+		state      api.NamespaceState
+		namespaced bool
+		want       []string
+	}{
+		{
+			name: "a suspended class registers nothing", className: class,
+			state: api.NamespaceStateSuspended, namespaced: true,
+		},
+		{
+			name: "a deleting class registers nothing", className: class,
+			state: api.NamespaceStateDeleting, namespaced: true,
+		},
+		{
+			// Red if the filter is the request-path check, which rejects resuming.
+			name: "a resuming class keeps its HOT shards", className: class,
+			state: api.NamespaceStateResuming, namespaced: true,
+			want: []string{"empty1", "hot1"},
+		},
+		{
+			name: "an active class keeps its HOT shards", className: class,
+			state: api.NamespaceStateActive, namespaced: true,
+			want: []string{"empty1", "hot1"},
+		},
+		{
+			name: "an unqualified class keeps its HOT shards", className: "Product",
+			want: []string{"empty1", "hot1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var e namespaces.Exister
+			if tc.namespaced {
+				e = existerWithState(t, tc.state)
+			}
+			idx, _ := indexForBootTest(t, tc.className, e,
+				readerForShards(t, tc.className, true, mixed))
+
+			require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: tc.className}, nil))
+			assert.Equal(t, tc.want, registeredShards(t, idx))
+
+			if len(tc.want) == 0 {
+				// An index with nothing to load is ready. Left false, it would stop
+				// the node-wide object count for every other index too.
+				assert.True(t, idx.allShardsReady.Load(),
+					"a class that registers no shards must still report ready")
+			}
+		})
+	}
+
+	t.Run("a lookup miss registers nothing and logs", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+		idx, hook := indexForBootTest(t, class, e, readerForShards(t, class, true, mixed))
+
+		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
+		assert.Empty(t, registeredShards(t, idx))
+		assert.True(t, idx.allShardsReady.Load())
+
+		entry := hook.LastEntry()
+		require.NotNil(t, entry, "a lookup miss must be logged")
+		assert.Equal(t, logrus.ErrorLevel, entry.Level)
+	})
+
+	// Registering no Read expectation asserts the sharding state is never read:
+	// when nothing may be open, boot must not walk every tenant to learn that.
+	t.Run("a suspended class is decided without reading the sharding state", func(t *testing.T) {
+		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateSuspended),
+			schemaUC.NewMockSchemaReader(t))
+
+		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
+		assert.Empty(t, registeredShards(t, idx))
+	})
+}
+
+// The two sites read an empty tenant status differently: boot normalizes it to
+// HOT and loads, while the multi-tenant reload compares Status raw and unloads.
+// WS4a changes neither, so both halves are pinned here — a later unification of
+// the two filters cannot happen silently.
+func TestEmptyTenantStatusPerSite(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	t.Run("boot loads a tenant with no status", func(t *testing.T) {
+		shards := map[string]sharding.Physical{"empty1": localPhysical("empty1")}
+		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateActive),
+			readerForShards(t, class, true, shards))
+
+		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
+		assert.Equal(t, []string{"empty1"}, registeredShards(t, idx))
+	})
+
+	t.Run("the multi-tenant reload unloads a tenant with no status", func(t *testing.T) {
+		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateActive),
+			schemaUC.NewMockSchemaReader(t))
+
+		shard := NewMockShardLike(t)
+		shard.EXPECT().Shutdown(mock.Anything).Return(nil)
+		idx.shards.Store("empty1", shard)
+
+		sg := schemaUC.NewMockSchemaGetter(t)
+		sg.EXPECT().NodeName().Return("node1")
+		m := &Migrator{db: &DB{schemaGetter: sg}}
+
+		incoming := &sharding.State{Physical: map[string]sharding.Physical{"empty1": localPhysical("empty1")}}
+		require.NoError(t, m.updateIndexTenantsStatus(ctx, idx, incoming))
+
+		assert.Empty(t, registeredShards(t, idx), "the tenant must have been unloaded")
+	})
+}
+
+// A class whose shards no loading path will open must not count toward startup
+// progress: nothing ever loads them, so the gauge would never complete.
+func TestLocalShardsToLoad(t *testing.T) {
+	const class = "alpha:Product"
+
+	mixed := map[string]sharding.Physical{
+		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"), "cold1": coldPhysical("cold1"),
+	}
+
+	tests := []struct {
+		name         string
+		className    string
+		state        api.NamespaceState
+		namespaced   bool
+		singleTenant bool
+		shards       map[string]sharding.Physical
+		want         int64
+	}{
+		{name: "an active class counts its HOT shards", className: class, state: api.NamespaceStateActive, namespaced: true, want: 2},
+		{name: "a suspended class counts none", className: class, state: api.NamespaceStateSuspended, namespaced: true},
+		{name: "a deleting class counts none", className: class, state: api.NamespaceStateDeleting, namespaced: true},
+		{
+			// Not 0: a resuming namespace's shards do reopen, so they still count.
+			name: "a resuming class counts its HOT shards", className: class,
+			state: api.NamespaceStateResuming, namespaced: true, want: 2,
+		},
+		{name: "an unqualified class counts its HOT shards", className: "Product", want: 2},
+		{
+			// The producible single-tenant shape: initPhysical builds Physical{Name}
+			// with no status, so every local shard counts. A single-tenant shard
+			// carrying a status is what the two predicates would disagree about, and
+			// InitState cannot build it.
+			name: "a single-tenant class counts every local shard", className: class,
+			state: api.NamespaceStateActive, namespaced: true, singleTenant: true,
+			shards: map[string]sharding.Physical{"s1": localPhysical("s1"), "s2": localPhysical("s2")},
+			want:   2,
+		},
+		{
+			name: "a suspended single-tenant class counts none", className: class,
+			state: api.NamespaceStateSuspended, namespaced: true, singleTenant: true,
+			shards: map[string]sharding.Physical{"s1": localPhysical("s1")},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var e namespaces.Exister
+			if tc.namespaced {
+				e = existerWithState(t, tc.state)
+			}
+			shards := tc.shards
+			if shards == nil {
+				shards = mixed
+			}
+			db := dbForDesiredOpen(t, tc.className, e, !tc.singleTenant, shards)
+
+			assert.Equal(t, tc.want, db.localShardsToLoad(tc.className))
+		})
+	}
+
+	t.Run("a lookup miss counts none and logs", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+		logger, hook := logrustest.NewNullLogger()
+		db := &DB{
+			logger:            logger,
+			schemaReader:      readerForShards(t, class, true, mixed),
+			namespacesExister: e,
+		}
+
+		assert.Zero(t, db.localShardsToLoad(class))
+
+		entry := hook.LastEntry()
+		require.NotNil(t, entry, "a lookup miss must be logged")
+		assert.Equal(t, logrus.ErrorLevel, entry.Level)
 	})
 }

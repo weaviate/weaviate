@@ -546,6 +546,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	var localShards []shardInfo
 	className := i.Config.ClassName.String()
 
+	if !i.shardsShouldBeOpen() {
+		// Nothing loads, and leaving the flag false suppresses the node-wide
+		// object count for every index on this node.
+		i.allShardsReady.Store(true)
+		return nil
+	}
+
 	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
