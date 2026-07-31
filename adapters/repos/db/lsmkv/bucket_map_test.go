@@ -25,6 +25,7 @@ func TestMapWritePathRefCount(t *testing.T) {
 		strategy: StrategyMapCollection,
 		disk:     &SegmentGroup{logger: logger, segments: []Segment{}},
 		active:   newTestMemtableMap(nil),
+		logger:   nullLogger(),
 	}
 
 	expectedRefs := 0

@@ -67,6 +67,7 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyRoaringSetRange,
+		logger:   nullLogger(),
 	}
 
 	// Open the reader that should see key1..key3 only and stay stable
@@ -174,6 +175,7 @@ func TestRoaringSetRangeReaderConsistentViewInMemo(t *testing.T) {
 		strategy:             StrategyRoaringSetRange,
 		keepSegmentsInMemory: true,
 		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+		logger:               nullLogger(),
 	}
 
 	// Open the reader that should see key1..key3 only and stay stable
@@ -460,6 +462,7 @@ func TestRoaringSetRangeWritePathRefCount(t *testing.T) {
 		strategy: StrategyRoaringSetRange,
 		disk:     &SegmentGroup{logger: logger, segments: []Segment{}},
 		active:   newTestMemtableRoaringSetRange(nil),
+		logger:   nullLogger(),
 	}
 
 	expectedRefs := 0

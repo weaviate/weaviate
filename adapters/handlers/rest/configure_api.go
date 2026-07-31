@@ -112,6 +112,7 @@ import (
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
+	modmulti2vectwelvelabs "github.com/weaviate/weaviate/modules/multi2vec-twelvelabs"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
@@ -207,8 +208,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Error("failed to initialize OpenTelemetry")
+			WithField("action", "startup").
+			Errorf("failed to initialize OpenTelemetry: %v", err)
 	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -240,7 +241,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		sink, err := armonprometheus.NewPrometheusSinkFrom(opts)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
+			appState.Logger.WithField("action", "startup").Fatalf("failed to create prometheus sink for raft metrics: %v", err)
 		}
 
 		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal/dependency packages.
@@ -253,7 +254,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		_, err = armonmetrics.NewGlobal(cfg, sink)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create metric registry raft metrics")
+			appState.Logger.WithField("action", "startup").Fatalf("failed to create metric registry raft metrics: %v", err)
 		}
 
 		// only monitoring tool supported at the moment is prometheus
@@ -315,8 +316,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		})
 		if err != nil {
 			appState.Logger.
-				WithField("action", "startup").WithError(err).
-				Fatal("sentry initialization failed")
+				WithField("action", "startup").
+				Fatalf("sentry initialization failed: %v", err)
 		}
 
 		sentry.ConfigureScope(func(scope *sentry.Scope) {
@@ -402,8 +403,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		metricsRegisterer, appState.Logger, grpcDialOpts...)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create gRPC connection manager")
+			Fatalf("failed to create gRPC connection manager: %v", err)
 	}
 	appState.GRPCConnManager = grpcConnManager
 
@@ -426,8 +426,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		replMetricsReg, appState.Logger, replDialOpts...)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create replication gRPC connection manager")
+			Fatalf("failed to create replication gRPC connection manager: %v", err)
 	}
 
 	appState.ReplGRPCConnManager = replConnManager
@@ -525,6 +524,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryBatchedContainsEnabled:                  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
 		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
@@ -534,8 +534,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid new DB")
+			WithField("action", "startup").
+			Fatalf("invalid new DB: %v", err)
 	}
 
 	appState.DB = repo
@@ -571,8 +571,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize schema repo")
+			WithField("action", "startup").
+			Fatalf("could not initialize schema repo: %v", err)
 		os.Exit(1)
 	}
 
@@ -580,8 +580,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize classifications repo")
+			WithField("action", "startup").
+			Fatalf("could not initialize classifications repo: %v", err)
 		os.Exit(1)
 	}
 
@@ -596,8 +596,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("raft-join", appState.ServerConfig.Config.Raft.Join).
-			WithError(err).
-			Fatal("parsing raft-join")
+			Fatalf("parsing raft-join %q: %v", appState.ServerConfig.Config.Raft.Join, err)
 		os.Exit(1)
 	}
 
@@ -739,8 +738,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize schema manager")
+			WithField("action", "startup").
+			Fatalf("could not initialize schema manager: %v", err)
 		os.Exit(1)
 	}
 
@@ -817,8 +816,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
-				WithError(err).
-				Fatal("could not open cloud meta store")
+				Fatalf("could not open cloud meta store: %v", err)
 			metaStoreReady.failure(err)
 		} else {
 			metaStoreReady.success()
@@ -839,9 +837,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
 		appState.Logger.
-			WithError(err).
 			WithField("action", "adjustFilterablePropSettings").
-			Fatal("migration failed")
+			Fatalf("migration failed: %v", err)
 		os.Exit(1)
 	}
 
@@ -865,7 +862,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")
 			if err := metaStoreReady.waitForMetaStore(); err != nil {
-				l.WithError(err).Error("Reindexing inverted indexes skipped")
+				l.Errorf("Reindexing inverted indexes skipped: %v", err)
 				return
 			}
 			l.Info("Reindexing inverted indexes")
@@ -895,12 +892,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
-			l.WithError(err).Error("Configuring crons skipped")
+			l.Errorf("Configuring crons skipped: %v", err)
 			return
 		}
 		l.Info("Configuring crons")
 		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator); err != nil {
-			l.WithError(err).Fatal("Configuring crons failed")
+			l.Fatalf("Configuring crons failed: %v", err)
 		}
 	}, appState.Logger)
 
@@ -992,8 +989,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-			appState.Logger.WithError(err).WithField("action", "startup").
-				Error("failed to start distributed task scheduler")
+			appState.Logger.WithField("action", "startup").
+				Errorf("failed to start distributed task scheduler: %v", err)
 			return
 		}
 
@@ -1657,7 +1654,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	appState.ServerConfig = serverConfig
 	err = serverConfig.LoadConfig(options, logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithError(err).Error("could not load config")
+		logger.WithField("action", "startup").Errorf("could not load config: %v", err)
 		logger.Exit(1)
 	}
 	// Initialize runtime config and load overridden config
@@ -1665,7 +1662,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
-			WithField("path", dataPath).Error("cannot create data directory")
+			WithField("path", dataPath).
+			Errorf("cannot create data directory %q: %v", dataPath, err)
 		logger.Exit(1)
 	}
 
@@ -1704,7 +1702,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	if err = configureAuthorizer(appState); err != nil {
-		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
+		logger.WithField("action", "startup").Errorf("cannot configure authorizer: %v", err)
 		logger.Exit(1)
 	}
 	appState.Crons = configureCrons(appState, serverShutdownCtx)
@@ -1724,8 +1722,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithError(err).
-			Error("could not init cluster state")
+		logger.WithField("action", "startup").
+			Errorf("could not init cluster state: %v", err)
 		logger.Exit(1)
 	}
 
@@ -1737,8 +1735,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	// Register enabled modules
 	if err := registerModules(appState); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
+			WithField("action", "startup").
+			Fatalf("modules didn't load: %v", err)
 	}
 	// while we accept an overall longer startup, e.g. due to a recovery, we
 	// still want to limit the module startup context, as that's mostly service
@@ -1748,15 +1746,15 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	if err := initModules(moduleCtx, appState); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
+			WithField("action", "startup").
+			Fatalf("modules didn't initialize: %v", err)
 	}
 	// now that modules are loaded we can run the remaining config validation
 	// which is module dependent
 	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid config")
+			WithField("action", "startup").
+			Fatalf("invalid config: %v", err)
 	}
 
 	// Initialize runtime config hooks and start runtime config background process
@@ -1819,6 +1817,7 @@ func registerModules(appState *state.State) error {
 		modtext2multivecjinaai.Name,
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
+		modmulti2vectwelvelabs.Name,
 		modmulti2multivecjinaai.Name,
 		modmulti2multivecweaviate.Name,
 		modmulti2vecaws.Name,
@@ -2072,6 +2071,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecvoyageai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vectwelvelabs.Name]; ok {
+		appState.Modules.Register(modmulti2vectwelvelabs.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vectwelvelabs.Name).
 			Debug("enabled module")
 	}
 
@@ -2669,6 +2676,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.QueryBatchedContainsEnabled = appState.ServerConfig.Config.QueryBatchedContainsEnabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
