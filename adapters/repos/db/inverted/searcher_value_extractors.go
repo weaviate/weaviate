@@ -12,8 +12,6 @@
 package inverted
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"time"
 
@@ -51,19 +49,18 @@ func (s *Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
 	return ent.LexicographicallySortableUint64(uint64(value))
 }
 
-// assumes an untyped bool and stores as bool64
+// assumes an untyped bool and stores as a single 0/1 byte, matching the
+// indexed representation written by Analyzer.Bool
 func (s *Searcher) extractBoolValue(in interface{}) ([]byte, error) {
 	value, ok := in.(bool)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be bool, got %T", in)
 	}
 
-	buf := bytes.NewBuffer(nil)
-	if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
-		return nil, errors.Wrap(err, "encode bool as binary")
+	if value {
+		return []byte{1}, nil
 	}
-
-	return buf.Bytes(), nil
+	return []byte{0}, nil
 }
 
 // assumes a time.Time date and stores as string-formatted int64, if it
