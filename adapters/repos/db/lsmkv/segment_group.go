@@ -723,16 +723,32 @@ func (sg *SegmentGroup) add(path string) error {
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
 	// incRef under the RLock so the refs are taken before any compaction (which
 	// holds the write lock) can swap these segments out. refCount is atomic, so no
 	// separate refcount lock is needed.
+	//
+	// A lazy segment's incRef panics when its file cannot be loaded; the pins
+	// already taken must be unwound before the panic leaves this frame, or those
+	// segments stay pinned for the lifetime of the process.
+	pinned := 0
+	defer func() {
+		if pinned == len(segments) {
+			return
+		}
+		for _, seg := range segments[:pinned] {
+			seg.decRef()
+		}
+	}()
+
 	for _, seg := range segments {
 		seg.incRef()
+		pinned++
 	}
-	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
 		for _, seg := range segments {

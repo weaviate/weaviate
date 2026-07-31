@@ -12,11 +12,14 @@
 package aggregator
 
 import (
+	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -61,17 +64,99 @@ func TestDispatchableProperties(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.out, dispatchableProperties(tt.in))
+			in := slices.Clone(tt.in)
+			got := dispatchableProperties(tt.in)
+			assert.Equal(t, tt.out, got)
+			assert.Equal(t, in, tt.in, "input must not be mutated")
+			if len(got) > 0 && len(tt.in) > 0 {
+				// the result is handed to a shallow Aggregator copy that owns its
+				// property list, so it must never share the caller's backing array
+				assert.NotSame(t, &tt.in[0], &got[0], "result must be a fresh slice")
+			}
 		})
 	}
 }
 
-func TestValidateCardinalityOnlyProperties(t *testing.T) {
+// Under group_by the cardinality flag is ignored: the request dispatches as if
+// it were absent, so validation never runs and the cardinality-only
+// short-circuit never fires. Grouping by a cross-ref path is rejected inside
+// the grouper before it reads anything, which makes reaching dispatch
+// observable without a store.
+func TestDoIgnoresCardinalityUnderGroupBy(t *testing.T) {
+	crossRef := &filters.Path{
+		Class:    "MyClass",
+		Property: "ofClass",
+		Child:    &filters.Path{Class: "OtherClass", Property: "name"},
+	}
+
+	tests := []struct {
+		name  string
+		props []aggregation.ParamProperty
+	}{
+		{
+			// would be rejected by validation: geo values reach no countable bucket
+			name:  "cardinality-only property of an unsupported type",
+			props: []aggregation.ParamProperty{{Name: "location", ApproximateCardinality: true}},
+		},
+		{
+			// would be rejected by validation: not in the schema
+			name:  "cardinality on an unknown property",
+			props: []aggregation.ParamProperty{{Name: "titel", ApproximateCardinality: true}},
+		},
+		{
+			name: "cardinality alongside aggregators",
+			props: []aggregation.ParamProperty{
+				{Name: "title", ApproximateCardinality: true, Aggregators: []aggregation.Aggregator{{Type: "count"}}},
+			},
+		},
+		{
+			name:  "no cardinality requested",
+			props: []aggregation.ParamProperty{{Name: "title", Aggregators: []aggregation.Aggregator{{Type: "count"}}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// no ReadOnlyClass expectation: a validation lookup fails the test
+			a := &Aggregator{
+				getSchema: schemaUC.NewMockSchemaGetter(t),
+				params: aggregation.Params{
+					ClassName:  "MyClass",
+					Properties: tt.props,
+					GroupBy:    crossRef,
+				},
+			}
+
+			_, err := a.Do(context.Background())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "grouping by cross-refs not supported")
+		})
+	}
+}
+
+func TestValidateCardinalityProperties(t *testing.T) {
+	falsePtr, truePtr := new(bool), new(bool)
+	*truePtr = true
+
+	const noIndex = "approximate cardinality requires a filterable or searchable inverted index"
+
 	class := &models.Class{
 		Class: "MyClass",
 		Properties: []*models.Property{
 			{Name: "title", DataType: []string{"text"}},
 			{Name: "location", DataType: []string{"geoCoordinates"}},
+			{
+				Name: "notes", DataType: []string{"text"},
+				IndexFilterable: falsePtr, IndexSearchable: falsePtr,
+			},
+			{
+				Name: "price", DataType: []string{"number"},
+				IndexFilterable: falsePtr, IndexRangeFilters: truePtr,
+			},
+			{Name: "image", DataType: []string{"blob"}},
+			{Name: "meta", DataType: []string{"object"}},
+			{Name: "ofClass", DataType: []string{"OtherClass"}},
+			{Name: "ident", DataType: []string{"uuid"}},
 		},
 	}
 
@@ -96,17 +181,55 @@ func TestValidateCardinalityOnlyProperties(t *testing.T) {
 			errContains:  "titel",
 		},
 		{
-			// cardinality is a bucket key count, so a type no aggregator supports is fine
-			name:         "non-aggregatable cardinality-only property",
+			// geo values are indexed in a dedicated geo index, so no bucket holds
+			// their distinct values and an estimate would confidently report 0
+			name:         "geo property",
 			props:        []aggregation.ParamProperty{{Name: "location", ApproximateCardinality: true}},
+			expectLookup: true,
+			errContains:  noIndex,
+		},
+		{
+			name:         "text property with both inverted indexes disabled",
+			props:        []aggregation.ParamProperty{{Name: "notes", ApproximateCardinality: true}},
+			expectLookup: true,
+			errContains:  noIndex,
+		},
+		{
+			// the rangeable bucket stores per-bit bitmaps, not the values themselves
+			name:         "rangeable-only number property",
+			props:        []aggregation.ParamProperty{{Name: "price", ApproximateCardinality: true}},
+			expectLookup: true,
+			errContains:  noIndex,
+		},
+		{
+			name:         "blob property",
+			props:        []aggregation.ParamProperty{{Name: "image", ApproximateCardinality: true}},
+			expectLookup: true,
+			errContains:  noIndex,
+		},
+		{
+			name:         "object property",
+			props:        []aggregation.ParamProperty{{Name: "meta", ApproximateCardinality: true}},
+			expectLookup: true,
+			errContains:  noIndex,
+		},
+		{
+			name:         "reference property",
+			props:        []aggregation.ParamProperty{{Name: "ofClass", ApproximateCardinality: true}},
 			expectLookup: true,
 		},
 		{
-			// the normal dispatch path validates this one via aggTypeOfProperty
+			name:         "uuid property",
+			props:        []aggregation.ParamProperty{{Name: "ident", ApproximateCardinality: true}},
+			expectLookup: true,
+		},
+		{
 			name: "unknown property that also has aggregators",
 			props: []aggregation.ParamProperty{
 				{Name: "titel", ApproximateCardinality: true, Aggregators: []aggregation.Aggregator{{Type: "count"}}},
 			},
+			expectLookup: true,
+			errContains:  "titel",
 		},
 		{
 			name:  "no cardinality requested",
@@ -140,7 +263,7 @@ func TestValidateCardinalityOnlyProperties(t *testing.T) {
 				},
 			}
 
-			err := a.validateCardinalityOnlyProperties()
+			err := a.validateCardinalityProperties()
 			if tt.errContains == "" {
 				require.NoError(t, err)
 				return

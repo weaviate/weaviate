@@ -181,7 +181,8 @@ func TestCursorInMemWithTombstones(t *testing.T) {
 	})
 	active.key.setTombstone([]byte("ccc"), nil, nil)
 
-	b := Bucket{active: active, disk: &SegmentGroup{}, strategy: StrategyReplace}
+	logger, _ := test.NewNullLogger()
+	b := Bucket{active: active, disk: &SegmentGroup{logger: logger}, strategy: StrategyReplace}
 
 	// plain in-mem cursor skips the tombstone
 	plain := map[string]string{}

@@ -218,11 +218,13 @@ func TestGRPCAggregateReply(t *testing.T) {
 	tests := []struct {
 		name      string
 		res       interface{}
+		isGroupby bool
 		outRes    *pb.AggregateReply
 		wantError error
 	}{
 		{
-			name: "meta count",
+			name:      "meta count",
+			isGroupby: true,
 			res: &aggregation.Result{
 				Groups: []aggregation.Group{
 					{
@@ -243,7 +245,8 @@ func TestGRPCAggregateReply(t *testing.T) {
 			},
 		},
 		{
-			name: "text top occurrences cutoff exceeded",
+			name:      "text top occurrences cutoff exceeded",
+			isGroupby: true,
 			res: &aggregation.Result{
 				Groups: []aggregation.Group{
 					{
@@ -285,7 +288,11 @@ func TestGRPCAggregateReply(t *testing.T) {
 			},
 		},
 		{
-			name: "approximate cardinality only property",
+			// Defensive only: the aggregator attaches estimates exclusively when
+			// params.GroupBy == nil, so production never reaches this branch with
+			// a cardinality set.
+			name:      "approximate cardinality only property, grouped",
+			isGroupby: true,
 			res: &aggregation.Result{
 				Groups: []aggregation.Group{
 					{
@@ -316,11 +323,136 @@ func TestGRPCAggregateReply(t *testing.T) {
 				},
 			},
 		},
+		{
+			// The shape production actually emits: a non-group-by request takes
+			// the SingleResult branch.
+			name: "approximate cardinality only property, single result",
+			res: &aggregation.Result{
+				Groups: []aggregation.Group{
+					{
+						Count: 5,
+						Properties: map[string]aggregation.Property{
+							"first": {ApproximateCardinality: ptr(uint32(42))},
+						},
+					},
+				},
+			},
+			outRes: &pb.AggregateReply{
+				Result: &pb.AggregateReply_SingleResult{
+					SingleResult: &pb.AggregateReply_Single{
+						ObjectsCount: ptInt64(5),
+						Aggregations: &pb.AggregateReply_Aggregations{
+							Aggregations: []*pb.AggregateReply_Aggregations_Aggregation{
+								{
+									Property:               "first",
+									ApproximateCardinality: ptInt64(42),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "typed aggregation and approximate cardinality on the same property",
+			res: &aggregation.Result{
+				Groups: []aggregation.Group{
+					{
+						Count: 3,
+						Properties: map[string]aggregation.Property{
+							"first": {
+								Type:       aggregation.PropertyTypeText,
+								SchemaType: "text",
+								TextAggregation: aggregation.Text{
+									Count: 3,
+									Items: []aggregation.TextOccurrence{
+										{Value: "a", Occurs: 2},
+										{Value: "b", Occurs: 1},
+									},
+								},
+								ApproximateCardinality: ptr(uint32(7)),
+							},
+						},
+					},
+				},
+			},
+			outRes: &pb.AggregateReply{
+				Result: &pb.AggregateReply_SingleResult{
+					SingleResult: &pb.AggregateReply_Single{
+						ObjectsCount: ptInt64(3),
+						Aggregations: &pb.AggregateReply_Aggregations{
+							Aggregations: []*pb.AggregateReply_Aggregations_Aggregation{
+								{
+									Property: "first",
+									Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Text_{
+										Text: &pb.AggregateReply_Aggregations_Aggregation_Text{
+											Count: ptInt64(3),
+											Type:  ptr("text"),
+											TopOccurences: &pb.AggregateReply_Aggregations_Aggregation_Text_TopOccurrences{
+												Items: []*pb.AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence{
+													{Value: "a", Occurs: 2},
+													{Value: "b", Occurs: 1},
+												},
+											},
+										},
+									},
+									ApproximateCardinality: ptInt64(7),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "typed aggregation without cardinality leaves the field unset",
+			res: &aggregation.Result{
+				Groups: []aggregation.Group{
+					{
+						Count: 2,
+						Properties: map[string]aggregation.Property{
+							"flag": {
+								Type:       aggregation.PropertyTypeBoolean,
+								SchemaType: "boolean",
+								BooleanAggregation: aggregation.Boolean{
+									Count: 2, TotalTrue: 1, TotalFalse: 1,
+									PercentageTrue: 0.5, PercentageFalse: 0.5,
+								},
+							},
+						},
+					},
+				},
+			},
+			outRes: &pb.AggregateReply{
+				Result: &pb.AggregateReply_SingleResult{
+					SingleResult: &pb.AggregateReply_Single{
+						ObjectsCount: ptInt64(2),
+						Aggregations: &pb.AggregateReply_Aggregations{
+							Aggregations: []*pb.AggregateReply_Aggregations_Aggregation{
+								{
+									Property: "flag",
+									Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Boolean_{
+										Boolean: &pb.AggregateReply_Aggregations_Aggregation_Boolean{
+											Count:           ptInt64(2),
+											Type:            ptr("boolean"),
+											TotalTrue:       ptInt64(1),
+											TotalFalse:      ptInt64(1),
+											PercentageTrue:  ptr(0.5),
+											PercentageFalse: ptr(0.5),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			replier := NewAggregateReplier(nil, nil, nil)
-			result, err := replier.Aggregate(tt.res, true)
+			result, err := replier.Aggregate(tt.res, tt.isGroupby)
 			if tt.wantError != nil {
 				require.Error(t, err)
 				assert.EqualError(t, tt.wantError, err.Error())

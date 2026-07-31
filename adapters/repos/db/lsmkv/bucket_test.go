@@ -240,10 +240,11 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 }
 
 func TestBucket_MemtableCountWithFlushing(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		// by using an empty segment group for the disk portion, we can test the
 		// memtable portion in isolation
-		disk: &SegmentGroup{},
+		disk: &SegmentGroup{logger: logger},
 	}
 
 	tests := []struct {
@@ -879,7 +880,9 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
+	logger, _ := test.NewNullLogger()
 	diskSegments := &SegmentGroup{
+		logger:   logger,
 		strategy: StrategyReplace,
 		segments: []Segment{
 			newFakeReplaceSegment(map[string][]byte{
@@ -1022,11 +1025,13 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		active: newTestMemtableReplace(map[string][]byte{
 			"key1": []byte("value1"),
 		}),
 		disk: &SegmentGroup{
+			logger:   logger,
 			strategy: StrategyReplace,
 			segments: []Segment{},
 		},
@@ -1093,7 +1098,9 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	diskSegments := &SegmentGroup{
+		logger: logger,
 		segments: []Segment{
 			newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
 				"key1": bitmapFromSlice([]uint64{1}),
@@ -1199,11 +1206,13 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		active: newTestMemtableRoaringSet(map[string][]uint64{
 			"key1": {1},
 		}),
 		disk: &SegmentGroup{
+			logger:   logger,
 			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSet,
@@ -1258,6 +1267,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	key1 := uint64(1)
 	createValidateReader := func(reader ReaderRoaringSetRange, expected map[uint64][]uint64) func(*testing.T) {
 		return func(t *testing.T) {
@@ -1273,6 +1283,7 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 	}
 
 	diskSegments := &SegmentGroup{
+		logger: logger,
 		segments: []Segment{
 			newFakeRoaringSetRangeSegment(map[uint64]*sroar.Bitmap{
 				key1: roaringset.NewBitmap(1),
@@ -1375,6 +1386,7 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo(t *testing
 	b := Bucket{
 		active: initialMemtable,
 		disk: &SegmentGroup{
+			logger:                         logger,
 			segments:                       []Segment{},
 			roaringSetRangeSegmentInMemory: segInMemo,
 		},
@@ -1449,12 +1461,14 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo(t *testing
 func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	key1 := uint64(1)
 	b := Bucket{
 		active: newTestMemtableRoaringSetRange(map[uint64][]uint64{
 			key1: {1},
 		}),
 		disk: &SegmentGroup{
+			logger:   logger,
 			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSetRange,
@@ -1527,6 +1541,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 			key1: {1},
 		}),
 		disk: &SegmentGroup{
+			logger:                         logger,
 			segments:                       []Segment{},
 			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger),
 		},
@@ -1581,7 +1596,9 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 func TestBucketSetStrategyConsistentView(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	diskSegments := &SegmentGroup{
+		logger: logger,
 		segments: []Segment{
 			newFakeSetSegment(map[string][][]byte{
 				"key1": {[]byte("d1")},
@@ -1689,9 +1706,11 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		active: newTestMemtableSet(map[string][][]byte{"key1": {[]byte("v1")}}),
 		disk: &SegmentGroup{
+			logger:   logger,
 			segments: []Segment{},
 		},
 		strategy: StrategySetCollection,
@@ -1745,7 +1764,9 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
+	logger, _ := test.NewNullLogger()
 	diskSegments := &SegmentGroup{
+		logger: logger,
 		segments: []Segment{
 			newFakeMapSegment(map[string][]MapPair{
 				"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
@@ -1864,7 +1885,9 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
+	logger, _ := test.NewNullLogger()
 	diskSegments := &SegmentGroup{
+		logger: logger,
 		segments: []Segment{
 			newFakeMapSegment(map[string][]MapPair{
 				"key1": {mapFromDocPointers(0, 1.0, 3)},
@@ -1980,11 +2003,13 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		active: newTestMemtableMap(map[string][]MapPair{"key1": {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}),
 		disk: &SegmentGroup{
+			logger:   logger,
 			segments: []Segment{},
 		},
 		strategy: StrategyMapCollection,
@@ -2048,6 +2073,7 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 	ctx := context.Background()
 
 	diskSegments := &SegmentGroup{
+		logger: logrus.New(),
 		segments: []Segment{
 			newFakeInvertedSegment(map[string][]MapPair{
 				"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false), NewMapPairFromDocIdAndTf(10, 10, 1, false)},
@@ -2152,11 +2178,13 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		active: newTestMemtableInverted(map[string][]MapPair{
 			"key1": {NewMapPairFromDocIdAndTf(0, 3, 1, false)},
 		}),
 		disk: &SegmentGroup{
+			logger:   logger,
 			segments: []Segment{},
 		},
 		strategy: StrategyInverted,
@@ -3039,10 +3067,11 @@ func TestApplyToObjectDigestsRejectsNonUUIDKey(t *testing.T) {
 		{name: "longerThanUUID", key: "0123456789abcdef0"},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			active := newTestMemtableReplace(map[string][]byte{test.key: []byte("value")})
-			b := Bucket{active: active, disk: &SegmentGroup{}, strategy: StrategyReplace}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			active := newTestMemtableReplace(map[string][]byte{tt.key: []byte("value")})
+			logger, _ := test.NewNullLogger()
+			b := Bucket{active: active, disk: &SegmentGroup{logger: logger}, strategy: StrategyReplace}
 
 			folded := 0
 			err := b.ApplyToObjectDigests(context.Background(), func() {}, func([]byte, int64) error {

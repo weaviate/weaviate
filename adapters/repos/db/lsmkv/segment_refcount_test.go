@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,7 +75,8 @@ func TestSegmentGroupConsistentViewConcurrent(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		segs = append(segs, newFakeReplaceSegment(map[string][]byte{"k": []byte("v")}))
 	}
-	sg := &SegmentGroup{strategy: StrategyReplace, segments: segs}
+	logger, _ := test.NewNullLogger()
+	sg := &SegmentGroup{logger: logger, strategy: StrategyReplace, segments: segs}
 
 	const readers = 32
 	const iters = 10000

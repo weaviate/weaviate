@@ -810,9 +810,13 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 func (m *Memtable) GetKeys() ([][]byte, error) {
 	m.RLock()
 	defer m.RUnlock()
-	if m.primaryIndex != nil && m.primaryIndex.root != nil {
-		return m.primaryIndex.keysInOrder(), nil
+
+	// a roaringsetrange memtable stores its values as per-bit bitmaps, so it has
+	// no key set to walk and an empty result would read as "no keys"
+	if m.strategy == StrategyRoaringSetRange {
+		return nil, fmt.Errorf("GetKeys unsupported for strategy %q", m.strategy)
 	}
+
 	if m.key != nil && m.key.root != nil {
 		return m.key.keysInOrder(), nil
 	}

@@ -2818,7 +2818,9 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 // unioned filters, and — while the union has room left — the filter with the
 // exact keys added in. Only the exactly counted parts are lower bounds: a
 // bloom-derived count is a maximum-likelihood estimate that overshoots about
-// as often as it undershoots, so the largest is an estimate, not a bound.
+// as often as it undershoots, so the result is an estimate, not a bound. The
+// index also retains the keys of deleted and updated values until compaction
+// prunes them, so it can exceed the number of distinct live values.
 //
 // All layers come from one pinned view, so a flush in flight cannot drop the
 // keys of a memtable it moves.

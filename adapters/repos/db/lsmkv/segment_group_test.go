@@ -36,11 +36,14 @@ import (
 func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
+
 	// initial segment
 	segmentData := map[string][]byte{
 		"key1": []byte("value1"),
 	}
 	sg := &SegmentGroup{
+		logger:   logger,
 		strategy: StrategyReplace,
 		segments: []Segment{newFakeReplaceSegment(segmentData)},
 	}
@@ -128,11 +131,14 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
+
 	// initial segment
 	segmentData := map[string]*sroar.Bitmap{
 		"key1": bitmapFromSlice([]uint64{1}),
 	}
 	sg := &SegmentGroup{
+		logger:   logger,
 		segments: []Segment{newFakeRoaringSetSegment(segmentData)},
 	}
 
@@ -239,7 +245,8 @@ func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 		})
 		seg1.roaringSetMergeErr = mergeErr
 
-		sg := &SegmentGroup{}
+		logger, _ := test.NewNullLogger()
+		sg := &SegmentGroup{logger: logger}
 		segments := []Segment{seg0, seg1}
 
 		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
@@ -263,7 +270,8 @@ func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 			"key1": bitmapFromSlice([]uint64{4, 5, 6}),
 		})
 
-		sg := &SegmentGroup{}
+		logger, _ := test.NewNullLogger()
+		sg := &SegmentGroup{logger: logger}
 		segments := []Segment{seg0, seg1}
 
 		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
@@ -290,6 +298,7 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentAddition(t *tes
 		key1: roaringset.NewBitmap(1),
 	}
 	sg := &SegmentGroup{
+		logger:   logger,
 		segments: []Segment{newFakeRoaringSetRangeSegment(segmentData, sroar.NewBitmap())},
 	}
 
@@ -409,11 +418,14 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testi
 func TestSegmentGroup_Set_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
+
 	// initial segment
 	segmentData := map[string][][]byte{
 		"key1": {[]byte("v1")},
 	}
 	sg := &SegmentGroup{
+		logger:   logger,
 		segments: []Segment{newFakeSetSegment(segmentData)},
 	}
 
@@ -509,11 +521,14 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 func TestSegmentGroup_Map_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	t.Parallel()
 
+	logger, _ := test.NewNullLogger()
+
 	// initial segment
 	segmentData := map[string][]MapPair{
 		"key1": {{Key: []byte("k1"), Value: []byte("v1")}},
 	}
 	sg := &SegmentGroup{
+		logger:   logger,
 		segments: []Segment{newFakeMapSegment(segmentData)},
 	}
 
@@ -630,11 +645,14 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 	t.Parallel()
 	ctx := context.Background()
 
+	logger, _ := test.NewNullLogger()
+
 	// initial segment
 	segmentData := map[string][]MapPair{
 		"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false)},
 	}
 	sg := &SegmentGroup{
+		logger:   logger,
 		segments: []Segment{newFakeInvertedSegment(segmentData)},
 	}
 
@@ -726,10 +744,12 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 
 func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 	t.Run("key found in segment", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
 		segmentData := map[string][]byte{
 			"key1": []byte("value1"),
 		}
 		sg := &SegmentGroup{
+			logger:   logger,
 			strategy: StrategyReplace,
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
@@ -742,10 +762,12 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 	})
 
 	t.Run("key not found in any segment", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
 		segmentData := map[string][]byte{
 			"key1": []byte("value1"),
 		}
 		sg := &SegmentGroup{
+			logger:   logger,
 			strategy: StrategyReplace,
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
@@ -766,7 +788,9 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 		seg2 := newFakeReplaceSegment(map[string][]byte{
 			"key1": []byte("new-value"),
 		})
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
+			logger:   logger,
 			strategy: StrategyReplace,
 			segments: []Segment{seg1, seg2}, // seg2 is newer (higher index)
 		}
@@ -779,10 +803,12 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 	})
 
 	t.Run("exists and get return consistent results", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
 		segmentData := map[string][]byte{
 			"key1": []byte("value1"),
 		}
 		sg := &SegmentGroup{
+			logger:   logger,
 			strategy: StrategyReplace,
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
@@ -810,7 +836,9 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 		seg2 := newFakeReplaceSegment(map[string][]byte{
 			"key2": []byte("value2"),
 		})
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
+			logger:   logger,
 			strategy: StrategyReplace,
 			segments: []Segment{seg1, seg2},
 		}

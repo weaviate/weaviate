@@ -83,12 +83,17 @@ message AggregateRequest {
       Date date = 6;
       Reference reference = 7;
     }
-    // Request a cheap bloom-filter estimate of this property's distinct values.
-    // It is a lower bound, not an exact distinct count: it counts
-    // inverted-index keys (tokens, for tokenized text), ignores filters and
-    // search, and where two filters cannot be combined — most often across
-    // shards, or between segments of different sizes — it reports the largest
-    // rather than their union. Ignored when group_by is set.
+    // Request a cheap bloom-filter estimate of this property's distinct
+    // inverted-index keys (tokens, for tokenized text), computed without
+    // scanning objects. Filters and search are ignored, and where two
+    // bloom filters cannot be combined — most often across shards, or
+    // between segments of different sizes — the largest is reported
+    // rather than their union; both effects undercount the keys actually
+    // present. Keys of deleted or updated values are retained until
+    // compaction, so the estimate can exceed the number of distinct
+    // values currently live. Ignored when group_by is set. During a
+    // rolling upgrade, shards on nodes predating this field ignore it and
+    // fall back to normal aggregation.
     bool approximate_cardinality = 8;
   }
   message GroupBy {
@@ -194,8 +199,11 @@ message AggregateReply {
         Date date = 6;
         Reference reference = 7;
       }
-      // Lower-bound estimate of this property's distinct values, set when
-      // approximate_cardinality was requested on a non-group-by aggregation.
+      // Bloom-filter estimate of this property's distinct inverted-index
+      // keys; see approximate_cardinality on the request for accuracy
+      // caveats. Set when requested on a non-group-by aggregation, unless
+      // the shard's estimate was transiently unavailable, in which case it
+      // is omitted rather than failing the aggregation.
       optional int64 approximate_cardinality = 8;
     }
     repeated Aggregation aggregations = 1;

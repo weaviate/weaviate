@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"path"
@@ -21,6 +22,68 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// memtableKeyWriter writes keys value-<i> for i in [start, end) into a memtable
+// of one strategy. Each strategy lands in a different binary search tree, and
+// Memtable.GetKeys walks whichever one holds data.
+type memtableKeyWriter struct {
+	name     string
+	strategy string
+	addKeys  func(t *testing.T, m *Memtable, start, end int)
+}
+
+// memtableKeyWriters covers every tree GetKeys can walk: key (replace),
+// keyMulti (set), keyMap (map and inverted) and roaringSet.
+var memtableKeyWriters = []memtableKeyWriter{
+	{
+		name:     "replace",
+		strategy: StrategyReplace,
+		addKeys: func(t *testing.T, m *Memtable, start, end int) {
+			for i := start; i < end; i++ {
+				require.NoError(t, m.put(cardinalityKey(i), []byte(fmt.Sprintf("doc-%06d", i))))
+			}
+		},
+	},
+	{
+		name:     "set",
+		strategy: StrategySetCollection,
+		addKeys: func(t *testing.T, m *Memtable, start, end int) {
+			for i := start; i < end; i++ {
+				require.NoError(t, m.append(cardinalityKey(i),
+					[]value{{value: []byte(fmt.Sprintf("doc-%06d", i))}}))
+			}
+		},
+	},
+	{
+		name:     "map",
+		strategy: StrategyMapCollection,
+		addKeys: func(t *testing.T, m *Memtable, start, end int) {
+			for i := start; i < end; i++ {
+				require.NoError(t, m.appendMapSorted(cardinalityKey(i),
+					NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+			}
+		},
+	},
+	{
+		name:     "inverted",
+		strategy: StrategyInverted,
+		addKeys: func(t *testing.T, m *Memtable, start, end int) {
+			for i := start; i < end; i++ {
+				require.NoError(t, m.appendMapSorted(cardinalityKey(i),
+					NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+			}
+		},
+	},
+	{
+		name:     "roaringset",
+		strategy: StrategyRoaringSet,
+		addKeys: func(t *testing.T, m *Memtable, start, end int) {
+			for i := start; i < end; i++ {
+				require.NoError(t, m.roaringSetAddOne(cardinalityKey(i), uint64(i)))
+			}
+		},
+	},
+}
 
 // The memtables are counted exactly, including the keys a switch leaves in both
 // of them, so every case here asserts the true count rather than a tolerance.
@@ -42,27 +105,45 @@ func TestMemtableKeysDistinct(t *testing.T) {
 		{name: "partially overlapping", activeKeys: 3000, flushingKeys: 3000, overlap: 1200, distinct: 4800},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			const flushingBase = 1000000
-			// the active memtable starts at the base for the overlapping keys and
-			// runs past the flushing range for the rest
-			view := BucketConsistentView{}
-			if tt.flushingKeys > 0 {
-				view.Flushing = newPopulatedMemtable(t, flushingBase, flushingBase+tt.flushingKeys)
-				view.Active = newPopulatedMemtable(t, flushingBase, flushingBase+tt.overlap)
-				addKeys(t, view.Active.(*Memtable),
-					flushingBase+tt.flushingKeys, flushingBase+tt.flushingKeys+tt.activeKeys-tt.overlap)
-			} else {
-				view.Active = newPopulatedMemtable(t, 0, tt.activeKeys)
+	for _, w := range memtableKeyWriters {
+		t.Run(w.name, func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					const flushingBase = 1000000
+					// the active memtable starts at the base for the overlapping keys and
+					// runs past the flushing range for the rest
+					view := BucketConsistentView{}
+					if tt.flushingKeys > 0 {
+						view.Flushing = newPopulatedMemtable(t, w, flushingBase, flushingBase+tt.flushingKeys)
+						view.Active = newPopulatedMemtable(t, w, flushingBase, flushingBase+tt.overlap)
+						w.addKeys(t, view.Active.(*Memtable),
+							flushingBase+tt.flushingKeys, flushingBase+tt.flushingKeys+tt.activeKeys-tt.overlap)
+					} else {
+						view.Active = newPopulatedMemtable(t, w, 0, tt.activeKeys)
+					}
+
+					memKeys, err := collectMemtableKeys(view)
+					require.NoError(t, err)
+					for i, set := range memKeys.sets {
+						requireSortedDistinct(t, set, "memtable %d", i)
+					}
+
+					assert.Equal(t, uint32(tt.distinct), memKeys.distinct())
+				})
 			}
-
-			memKeys, err := collectMemtableKeys(view)
-			require.NoError(t, err)
-
-			assert.Equal(t, uint32(tt.distinct), memKeys.distinct())
 		})
 	}
+
+	// A roaringsetrange memtable keeps per-bit bitmaps instead of a key set, so
+	// GetKeys must fail rather than report it as empty.
+	t.Run("roaringsetrange is rejected", func(t *testing.T) {
+		m := newMemtableForStrategy(t, StrategyRoaringSetRange)
+		_, err := m.GetKeys()
+		require.Error(t, err)
+
+		_, err = collectMemtableKeys(BucketConsistentView{Active: m})
+		require.Error(t, err)
+	})
 }
 
 // exactKeys generalizes beyond the two memtables: bloom-less disk segments add
@@ -123,28 +204,41 @@ func TestDistinctKeysRejectAbove(t *testing.T) {
 	}
 }
 
-// newPopulatedMemtable returns a roaringset memtable holding keys value-<i> for
-// i in [start, end).
-func newPopulatedMemtable(t *testing.T, start, end int) *Memtable {
+func cardinalityKey(i int) []byte {
+	return []byte(fmt.Sprintf("value-%06d", i))
+}
+
+// requireSortedDistinct pins the invariant exactKeys.distinct() merges on:
+// break it and the count is silently wrong rather than an error.
+func requireSortedDistinct(t *testing.T, keys [][]byte, msg string, args ...any) {
+	t.Helper()
+	for i := 1; i < len(keys); i++ {
+		require.Negativef(t, bytes.Compare(keys[i-1], keys[i]),
+			"%s: keys must be ascending and free of duplicates, but %q at %d does not precede %q",
+			fmt.Sprintf(msg, args...), keys[i-1], i-1, keys[i])
+	}
+}
+
+func newMemtableForStrategy(t *testing.T, strategy string) *Memtable {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	memPath := path.Join(t.TempDir(), "fake")
 
-	cl, err := newCommitLogger(memPath, StrategyRoaringSet, 0)
+	cl, err := newCommitLogger(memPath, strategy, 0)
 	require.NoError(t, err)
 	m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
 		path:     memPath,
-		strategy: StrategyRoaringSet,
+		strategy: strategy,
 	})
 	require.NoError(t, err)
-
-	addKeys(t, m, start, end)
 	return m
 }
 
-func addKeys(t *testing.T, m *Memtable, start, end int) {
+// newPopulatedMemtable returns a memtable of the writer's strategy holding keys
+// value-<i> for i in [start, end).
+func newPopulatedMemtable(t *testing.T, w memtableKeyWriter, start, end int) *Memtable {
 	t.Helper()
-	for i := start; i < end; i++ {
-		require.NoError(t, m.roaringSetAddOne([]byte(fmt.Sprintf("value-%06d", i)), uint64(i)))
-	}
+	m := newMemtableForStrategy(t, w.strategy)
+	w.addKeys(t, m, start, end)
+	return m
 }

@@ -15,13 +15,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMapWritePathRefCount(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	b := Bucket{
 		strategy: StrategyMapCollection,
-		disk:     &SegmentGroup{segments: []Segment{}},
+		disk:     &SegmentGroup{logger: logger, segments: []Segment{}},
 		active:   newTestMemtableMap(nil),
 	}
 
