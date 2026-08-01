@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -263,25 +264,53 @@ func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 
 // TestLiveOpIDs_ReturnsActiveOpIDs pins the sweep input: LiveOpIDs returns op IDs
 // of active drop tasks and excludes terminal ones (whose ops should be swept).
-func TestLiveOpIDs_ReturnsActiveOpIDs(t *testing.T) {
-	active := &distributedtask.Task{
-		Namespace: db.DropVectorIndexNamespace,
-		Payload:   mustPayloadWithOp(t, "C", "opActive", "v1"),
-		Status:    distributedtask.TaskStatusStarted,
+// TestLiveOpIDs_SpansRoundsWhileMarkerPending pins the liveness contract the
+// strip-resume feature leans on: active rounds' ops are live, and a TERMINAL
+// round's op stays live while its target's marker still stands (its pending
+// set is the next round's resume point). Once the marker is gone — finalize,
+// or a re-created live name — the op is sweepable. A failed leader read
+// keeps ops alive (fail open: liveness feeds a destructive sweep).
+func TestLiveOpIDs_SpansRoundsWhileMarkerPending(t *testing.T) {
+	task := func(op, target string, status distributedtask.TaskStatus) *distributedtask.Task {
+		return &distributedtask.Task{
+			Namespace: db.DropVectorIndexNamespace,
+			Payload:   mustPayloadWithOp(t, "C", op, target),
+			Status:    status,
+		}
 	}
-	done := &distributedtask.Task{
-		Namespace: db.DropVectorIndexNamespace,
-		Payload:   mustPayloadWithOp(t, "C", "opDone", "v2"),
-		Status:    distributedtask.TaskStatusFinished,
-	}
-	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
-		db.DropVectorIndexNamespace: {active, done},
+	tasks := map[string][]*distributedtask.Task{db.DropVectorIndexNamespace: {
+		task("opActive", "v1", distributedtask.TaskStatusStarted),
+		task("opFailedPending", "v1", distributedtask.TaskStatusFailed),    // marker for v1 stands → resume point
+		task("opDoneFinalized", "v2", distributedtask.TaskStatusFinished),  // v2 absent from the class → finalized
+		task("opCancelledLive", "v3", distributedtask.TaskStatusCancelled), // v3 re-created live → fenced + sweepable
 	}}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster}
+	cluster := &fakeClusterDropClient{tasks: tasks}
+	enq := &dropVectorIndexEnqueuer{
+		clusterService: cluster,
+		schemaState: &fakeShardingState{vectorCfg: map[string]models.VectorConfig{
+			"v1": dropped(),
+			"v3": {VectorIndexType: "hnsw"},
+		}},
+	}
 
 	live, err := enq.LiveOpIDs(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, map[string]struct{}{"opActive": {}}, live)
+	require.Equal(t, map[string]struct{}{
+		"opActive":        {},
+		"opFailedPending": {},
+	}, live)
+
+	t.Run("leader read failure keeps terminal ops alive", func(t *testing.T) {
+		enq := &dropVectorIndexEnqueuer{
+			clusterService: cluster,
+			schemaState:    &fakeShardingState{err: errors.New("no leader")},
+		}
+		live, err := enq.LiveOpIDs(context.Background())
+		require.NoError(t, err)
+		require.Contains(t, live, "opFailedPending")
+		require.Contains(t, live, "opDoneFinalized",
+			"an unverifiable marker must not authorize a sweep")
+	})
 }
 
 func mustPayloadWithOp(t *testing.T, collection, opID string, targets ...string) []byte {

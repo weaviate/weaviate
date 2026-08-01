@@ -183,9 +183,16 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 	// json.Marshals taskPayload itself (bytes would be double-encoded into a JSON
 	// string and fail to decode in CheckConflict / the provider).
 	payload := db.DropVectorIndexTaskPayload{
-		Collection:    collection,
-		Targets:       targets,
-		OpID:          uuid.NewString(),
+		Collection: collection,
+		Targets:    targets,
+		// One op identity per drop EPOCH, not per round: every round of the
+		// same drop shares the op, so a round re-arming after an interrupted
+		// strip (deactivated tenant, failed round) finds the recorded
+		// pending set and RESUMES from it — the arm is idempotent
+		// (HasPendingSnapshot) and load-time recovery preserves progress. A
+		// fresh epoch (new drop of a re-created name, expired records) means
+		// a fresh op and a full clean.
+		OpID:          epoch,
 		UnitToNode:    unitToNode,
 		UnitToShard:   unitToShard,
 		DropEpochID:   epoch,
@@ -338,15 +345,34 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 	}
 	live := map[string]struct{}{}
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
-		if !task.Status.IsActive() {
-			continue
-		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
 			warnSkippedPayload(e.logger, "live-op-ids", task.ID, err)
 			continue
 		}
-		live[p.OpID] = struct{}{}
+		if task.Status.IsActive() {
+			live[p.OpID] = struct{}{}
+			continue
+		}
+		// A terminal round's op stays live while its marker is still
+		// pending: the op's pending set is the RESUME POINT for the next
+		// round (an interrupted strip continues instead of restarting).
+		// Once the marker falls — finalize, or a finalize+re-create that
+		// revived the name — the op goes orphan and the sweep collects it.
+		// A superseded old-epoch op alongside a NEW drop's marker also stays
+		// until then: it strips the same target name, which is idempotent,
+		// and the transformer's dropped-target check fences it the moment
+		// the name goes live.
+		still, err := e.stillDroppedTargets(p.Collection, p.Targets)
+		if err != nil {
+			// Fail open: liveness feeds a destructive sweep, and "keep" is
+			// the reversible direction.
+			live[p.OpID] = struct{}{}
+			continue
+		}
+		if len(still) > 0 {
+			live[p.OpID] = struct{}{}
+		}
 	}
 	return live, nil
 }

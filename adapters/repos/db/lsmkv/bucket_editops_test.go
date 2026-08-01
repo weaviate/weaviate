@@ -169,7 +169,7 @@ func TestBucket_RegisterEditOp_CompletesInterruptedSnapshot(t *testing.T) {
 // recovery runs through the real newSegmentGroup wiring (not just a direct call):
 // after reopening the bucket, a live op whose only snapshot row is stale gets the
 // current on-disk segments re-queued and the stale row pruned.
-func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T) {
+func TestBucket_RecoverEditOps_OnReopen_ResumesFromRecordedPending(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -191,11 +191,12 @@ func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T)
 	segs := segIDsOf(bucket)
 	require.Len(t, segs, 2)
 
-	// Crash-window state: op registered, but only a now-absent segment snapshotted.
+	// Interrupted-strip state: one segment already stripped (row removed),
+	// one still pending, plus a stale row for an absent segment.
 	editOps := bucket.disk.editOps
 	require.NoError(t, editOps.RegisterOp("op1",
 		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
-	require.NoError(t, editOps.SnapshotSegments("op1", []string{"9999999999999999999"}))
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{segs[1], "9999999999999999999"}))
 	require.NoError(t, bucket.Shutdown(ctx))
 
 	reopened := open()
@@ -203,8 +204,9 @@ func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T)
 
 	pending, err := reopened.EditOpPending("op1")
 	require.NoError(t, err)
-	require.ElementsMatch(t, segs, pending,
-		"reopen recovery must re-snapshot current segments and drop the stale row")
+	require.ElementsMatch(t, []string{segs[1]}, pending,
+		"recovery keeps the recorded pending set (the resume point): the stripped "+
+			"segment must NOT be re-pended and the stale row is pruned")
 }
 
 // TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen pins the multi-node data-loss
@@ -334,7 +336,7 @@ func TestBucket_RecoverEditOps_ProviderErrorSkipsSweep(t *testing.T) {
 // crash-window recovery: a live op that is missing a segment (the merged output
 // from a crash between switchOnDisk and RecordCompaction) gets it re-queued, and
 // a stale pending row for a now-absent segment is pruned.
-func TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment(t *testing.T) {
+func TestSegmentGroup_RecoverEditOps_LeavesUnknownSegmentsAlone(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -357,16 +359,18 @@ func TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment(t *testing.T) {
 	editOps := bucket.disk.editOps
 	require.NoError(t, editOps.RegisterOp("op1",
 		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
-	// Crash-window state: op knows only the first segment; the second is a merged
-	// output it was never told about. Plus a stale row for an absent segment.
+	// The op knows only the first segment; the second is outside its pending
+	// set (either already stripped, or created after the arm — clean by the
+	// write-path guards). Plus a stale row for an absent segment.
 	require.NoError(t, editOps.SnapshotSegments("op1", []string{segs[0], "9999999999999999999"}))
 
 	require.NoError(t, bucket.disk.recoverEditOps(ctx))
 
 	pending, err := editOps.Pending("op1")
 	require.NoError(t, err)
-	require.ElementsMatch(t, segs, pending,
-		"recovery re-queues every current segment and prunes the stale row")
+	require.ElementsMatch(t, []string{segs[0]}, pending,
+		"recovery must not re-pend segments outside the recorded set (they are "+
+			"stripped-or-post-arm); only the stale row is pruned")
 }
 
 // TestBucket_ListFiles_ExcludesEditOpsSidecar: the sidecar is live-writable bolt
@@ -433,4 +437,57 @@ func TestBucket_EditOpQuarantined_RequiresEditOps(t *testing.T) {
 
 	_, err = bucket.EditOpQuarantined("op1")
 	require.ErrorContains(t, err, "edit ops not enabled")
+}
+
+// TestBucket_EditOps_StripResumesAcrossReopen pins the resume feature end to
+// end at the bucket level: a strip interrupted mid-way (half the segments
+// done) picks up from the recorded pending set after a close/reopen cycle —
+// the re-arm is a no-op (HasPendingSnapshot), recovery keeps the rows, and
+// only the remainder is drained.
+func TestBucket_EditOps_StripResumesAcrossReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	open := func() *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace), WithClassName("MyClass"))
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	bucket := open()
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 2)
+
+	// Arm through the production path: flush + register + snapshot.
+	require.NoError(t, bucket.RegisterEditOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+
+	// Strip one segment, then get interrupted (deactivation → clean close).
+	require.NoError(t, bucket.disk.editOps.MarkSegmentDone("op1", segs[0]))
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	// Reactivation: reopen + idempotent re-arm of the SAME op.
+	reopened := open()
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+	require.NoError(t, reopened.RegisterEditOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+
+	pending, err := reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{segs[1]}, pending,
+		"the resumed op must only owe the segments the interruption left unstripped")
+
+	// Drain the remainder: the op is fully done without ever re-touching segs[0].
+	require.NoError(t, reopened.disk.editOps.MarkSegmentDone("op1", segs[1]))
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending)
 }

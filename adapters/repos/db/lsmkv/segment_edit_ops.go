@@ -781,18 +781,30 @@ func (s *SegmentEditOps) closeAndRemoveLocked() {
 	}
 }
 
-// Recover runs the load-time bookkeeping: sweep ops with no live task, prune rows
-// for segments gone from disk (Reconcile), then re-snapshot every surviving op
-// over segIDs. resolveLive is called only when ops exist (it may be a remote
-// lookup); a nil result skips the sweep. The reload between Reconcile and the
-// re-snapshot is load-bearing: the sweep mutates the op set, and re-snapshotting
-// a swept op would resurrect it.
+// Recover runs the load-time bookkeeping: sweep ops with no live task, then
+// prune pending rows for segments gone from disk (Reconcile). resolveLive is
+// called only when ops exist (it may be a remote lookup); a nil result skips
+// the sweep.
 //
-// The re-snapshot deliberately covers ALL current segments, resetting per-segment
-// progress: completion is encoded as absence from pending, which is
-// indistinguishable from the crash-window merged output this recovery exists to
-// re-queue. Re-cleaning is idempotent; correctness is bought with restart-time
-// rework. Quarantined segments are NOT re-pended (see addPendingRowsTx).
+// The surviving pending sets are kept AS RECORDED — they are authoritative
+// per-segment progress, which is what makes an interrupted strip resume
+// instead of restarting. Absence from pending firmly means "clean", because
+// segment identity survives every rewrite path:
+//
+//   - a cleanup rewrite keeps the segment's ID, and a compaction's output
+//     takes the RIGHT input's ID, so a pending row keeps naming the file
+//     that carries the data — including across the crash window between the
+//     on-disk rename and the bolt commit (the left row goes ENOENT and its
+//     content lives in the file the right row still names);
+//   - the compaction-completion bolt tx maintains the rows transactionally
+//     during normal operation;
+//   - segments created after the op was armed are clean by construction:
+//     the arm flushed the memtable before its atomic register+snapshot
+//     (RegisterOpWithSnapshot), and post-marker writes are stripped/rejected
+//     by the write-path guards — the same guarantee shard-name-keyed
+//     coverage inheritance already relies on.
+//
+// Quarantined segments stay quarantined (see addPendingRowsTx).
 func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
 	ops, err := s.LoadOps()
 	if err != nil {
@@ -826,16 +838,6 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh 
 	}
 	if err := s.Reconcile(existing, liveOpIDs); err != nil {
 		return err
-	}
-	if liveOpIDs != nil {
-		if ops, err = s.LoadOps(); err != nil {
-			return err
-		}
-	}
-	for _, op := range ops {
-		if err := s.SnapshotSegments(op.ID, segIDs); err != nil {
-			return err
-		}
 	}
 	// Reconcile's orphan sweep deletes ops in its own transaction, bypassing
 	// DeleteOp's remove-when-empty — re-check here so a load-time sweep of the

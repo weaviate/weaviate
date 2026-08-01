@@ -569,18 +569,17 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 	case distributedtask.TaskStatusSwapping, distributedtask.TaskStatusFinished:
 		// Success — proceed.
 	default:
-		// FAILED/CANCELLED: the schema marker stays for an operator retry, but the
-		// op must NOT stay armed — a later successful re-drop (fresh op ID) would
-		// free the name while this op lingers, and it would strip a re-created
-		// same-name vector on the next compaction. Best-effort: an unloaded shard's
-		// op is caught by the orphan sweep on load (this task is terminal, so it is
-		// absent from the live-op set).
-		if err := p.deleteLocalEditOps(payload); err != nil {
-			logger.Warnf("drop-vector: task-completion: deleting %s task's edit op failed (orphan sweep on shard load will catch it): %v",
-				task.Status, err)
-		}
+		// FAILED/CANCELLED: the schema marker stays, and so do the local edit
+		// ops — their pending sets are the RESUME POINT for the next round.
+		// Op identity is the drop epoch, so the re-enqueued round re-arms the
+		// SAME op (idempotently) and drains only what this round left
+		// unstripped. The op cannot outlive its purpose: liveness keys on the
+		// marker, so the sweep collects it once the marker falls, and a
+		// re-drop of a re-created name runs under a fresh epoch (the
+		// marker-introduction purge guarantees a clean record slate), whose
+		// own op never collides with this one.
 		logger.WithField("status", task.Status).
-			Info("drop-vector: task-completion: task did not succeed; edit ops deleted, schema marker left for operator")
+			Info("drop-vector: task-completion: task did not succeed; edit ops kept as the next round's resume point, schema marker stays")
 		p.nudgeReconcile()
 		return nil
 	}

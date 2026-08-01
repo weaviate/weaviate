@@ -806,7 +806,11 @@ func TestOnGroupCompleted_VerifyMemoizedPerTask(t *testing.T) {
 // the schema marker (operator retry) but MUST delete the edit op — a lingering op
 // would survive a later successful re-drop (fresh op ID), and once that re-drop
 // frees the name it would strip a re-created same-name vector.
-func TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema(t *testing.T) {
+func TestOnTaskCompleted_TerminalTasks_KeepOpsAndSchema(t *testing.T) {
+	// FAILED/CANCELLED rounds keep BOTH the marker and the local edit ops:
+	// the ops' pending sets are the next round's resume point (op identity is
+	// the drop epoch, so the re-enqueued round re-arms the same op and drains
+	// only the remainder). The sweep collects the op once the marker falls.
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusFailed,
 		distributedtask.TaskStatusCancelled,
@@ -818,7 +822,8 @@ func TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema(t *testing.T) {
 
 			p.OnTaskCompleted(dropTask(status, nil))
 			require.False(t, fin.called, "%s task must not mutate schema", status)
-			require.Equal(t, []string{"op1"}, bucket.deleted, "%s task must disarm its edit op", status)
+			require.Empty(t, bucket.deleted,
+				"%s task must keep its edit op — it is the resume point", status)
 		})
 	}
 }
