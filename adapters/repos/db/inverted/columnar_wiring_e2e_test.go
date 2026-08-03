@@ -128,6 +128,83 @@ func sampleUniqueValues(numDocs, size int) []string {
 	return vals
 }
 
+// BenchmarkColumnarLayers measures ContainsAny resolution cost as index tiers are
+// added: base (on disk) → base + a populated active memtable → base + several
+// flushed runs + a populated active memtable. Each variant runs the SAME query
+// (drawn from the base), so the delta is the pure overhead of scanning/overlaying
+// the extra tiers, not different match counts. Run:
+//
+//	go test -tags integrationTest -run '^$' -bench 'ColumnarLayers' \
+//	    -benchmem -benchtime 20x -count 3 ./adapters/repos/db/inverted/
+func BenchmarkColumnarLayers(b *testing.B) {
+	const (
+		baseDocs   = 300_000
+		runDocs    = 10_000 // keys per flushed run
+		activeDocs = 10_000 // unflushed keys in the active memtable
+		numRuns    = 3      // below foldRunsThreshold, so they stay as runs
+	)
+
+	// populate adds `runs` flushed runs then an unflushed active memtable to the
+	// searcher's bucket, using docIDs past the base so they don't collide.
+	populate := func(store *lsmkv.Store, runs int) {
+		bkt := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+		next := baseDocs
+		for r := 0; r < runs; r++ {
+			for i := 0; i < runDocs; i++ {
+				require.NoError(b, bkt.RoaringSetAddList([]byte(benchValue(next)), []uint64{uint64(next)}))
+				next++
+			}
+			require.NoError(b, bkt.FlushAndSwitch())
+		}
+		for i := 0; i < activeDocs; i++ {
+			require.NoError(b, bkt.RoaringSetAddList([]byte(benchValue(next)), []uint64{uint64(next)}))
+			next++
+		}
+	}
+
+	baseOnly, _ := newUniqueTextSearcher(b, baseDocs)
+
+	withActive, activeStore := newUniqueTextSearcher(b, baseDocs)
+	populate(activeStore, 0) // active memtable only
+
+	layered, layeredStore := newUniqueTextSearcher(b, baseDocs)
+	populate(layeredStore, numRuns) // runs + active
+
+	variants := []struct {
+		name string
+		s    *Searcher
+	}{
+		{"base", baseOnly},
+		{"base+active", withActive},
+		{"base+3runs+active", layered},
+	}
+
+	os.Setenv(entcfg.EnvEnableColumnarContains, "true")
+	defer os.Unsetenv(entcfg.EnvEnableColumnarContains)
+	ctx := context.Background()
+
+	for _, size := range []int{1_000, 10_000, 100_000} {
+		values := sampleUniqueValues(baseDocs, size)
+		filter := containsFilter(filters.ContainsAny, values)
+		for _, v := range variants {
+			b.Run(fmt.Sprintf("%s/N=%d", v.name, size), func(b *testing.B) {
+				al, err := v.s.DocIDs(ctx, filter, additional.Properties{}, className)
+				require.NoError(b, err)
+				al.Close()
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					al, err := v.s.DocIDs(ctx, filter, additional.Properties{}, className)
+					if err != nil {
+						b.Fatal(err)
+					}
+					al.Close()
+				}
+			})
+		}
+	}
+}
+
 // BenchmarkColumnarWiring_DocIDs measures the full Searcher.DocIDs path for
 // ContainsAny on a strictly-unique text property, comparing the standard fold
 // (flag off) against the resident columnar accelerator (flag on). This is the
