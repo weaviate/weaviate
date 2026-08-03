@@ -237,3 +237,38 @@ func testDropRejections() func(t *testing.T) {
 		})
 	}
 }
+
+// testZeroTenantDrop pins the tenant-less escape: dropping a vector on an MT
+// collection with NO tenants finalizes directly (no cleanup task can ever
+// exist to drive it) instead of leaving an immortal marker. Tenants created
+// afterwards see the final schema.
+func testZeroTenantDrop() func(t *testing.T) {
+	return func(t *testing.T) {
+		const className = "DropVectorIndexZeroTenants"
+
+		deleteParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
+		defer helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
+
+		cls := &models.Class{
+			Class:              className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec": noneVectorConfig(), "sibling": noneVectorConfig(),
+			},
+		}
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+			clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
+		require.NoError(t, err)
+
+		dropTargetVector(t, className, "vec")
+		eventuallyTargetVectorRemoved(t, className, "vec")
+
+		// A tenant created afterwards lives on the finalized schema.
+		helper.CreateTenants(t, className, []*models.Tenant{{Name: "late"}})
+		cur, err := helper.GetClassWithoutAssert(t, className, "")
+		require.NoError(t, err)
+		require.NotContains(t, cur.VectorConfig, "vec")
+		require.Contains(t, cur.VectorConfig, "sibling")
+	}
+}

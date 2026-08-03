@@ -80,6 +80,7 @@ func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("concurrent drops", testConcurrentDrops())
 	t.Run("delete class mid-drop", testDeleteClassMidDrop())
 	t.Run("drop rejections", testDropRejections())
+	t.Run("zero tenant drop", testZeroTenantDrop())
 	t.Run("last vector drop to vectorless", testLastVectorDropToVectorless())
 	t.Run("tenant mutation during drop", testTenantMutationDuringDrop())
 	t.Run("cold tenant deferred finalize", testColdTenantDeferredFinalize())

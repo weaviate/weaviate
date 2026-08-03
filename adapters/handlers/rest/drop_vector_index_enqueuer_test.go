@@ -410,6 +410,66 @@ func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
 	require.Empty(t, cluster.gotTaskID, "no task should be enqueued when there are no active shards")
 }
 
+// TestEnqueueDropVectorIndex_ZeroTenants_FinalizesDirectly pins the escape
+// for MT collections with NO tenants at all (never created, or all deleted
+// after the marker landed): no cleanup task can ever exist to drive the
+// finalize, so the enqueuer removes the dropped entries directly — the FSM
+// removal gate allows the empty-shard-set case for exactly this. Tenants
+// that merely exist-but-inactive must NOT trigger it.
+func TestEnqueueDropVectorIndex_ZeroTenants_FinalizesDirectly(t *testing.T) {
+	t.Run("no tenants: direct finalize, no task", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{})}
+		fin := &fakeEnqueuerFinalizer{}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: fin}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.Equal(t, [][]string{{"v1"}}, fin.calls, "the marker must be finalized directly")
+		require.Empty(t, cluster.gotTaskID)
+	})
+
+	t.Run("inactive tenants exist: marker stays, no finalize", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{
+			"cold": {Status: models.TenantActivityStatusCOLD, BelongsToNodes: []string{"n1"}},
+		})}
+		fin := &fakeEnqueuerFinalizer{}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: fin}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.Empty(t, fin.calls, "a cold tenant's data must not be stranded by a premature finalize")
+		require.Empty(t, cluster.gotTaskID)
+	})
+
+	t.Run("no finalizer wired: no-op, no panic", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{})}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+		require.Empty(t, cluster.gotTaskID)
+	})
+
+	t.Run("finalize failure surfaces", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{}
+		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{})}
+		fin := &fakeEnqueuerFinalizer{err: errors.New("gate refused")}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: fin}
+
+		require.ErrorContains(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}), "gate refused")
+	})
+}
+
+type fakeEnqueuerFinalizer struct {
+	calls [][]string
+	err   error
+}
+
+func (f *fakeEnqueuerFinalizer) RemoveDroppedVectorConfig(_ context.Context, _ string, targets []string) error {
+	f.calls = append(f.calls, targets)
+	return f.err
+}
+
 // TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors confirms the empty
 // no-op is scoped to MT: a non-MT collection with no shards is a real error.
 func TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors(t *testing.T) {

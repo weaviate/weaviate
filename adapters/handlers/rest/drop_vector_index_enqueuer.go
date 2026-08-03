@@ -37,6 +37,17 @@ type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
 	schemaState    schemaStateQuerier
 	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
+	// finalizer removes dropped VectorConfig entries directly — the escape
+	// for MT collections with ZERO tenants, where no cleanup task can ever
+	// exist to drive the finalize. Installed post-construction
+	// (SetFinalizer): the schema manager does not exist yet when the
+	// enqueuer is built. Nil-safe.
+	finalizer dropVectorFinalizer
+}
+
+// dropVectorFinalizer is the slice of the schema finalizer the enqueuer uses.
+type dropVectorFinalizer interface {
+	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -59,6 +70,12 @@ type schemaStateQuerier interface {
 
 func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
 	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
+}
+
+// SetFinalizer installs the direct-finalize hook (see the field doc). Must be
+// called before ClusterService.Open, alongside the rest of the wiring.
+func (e *dropVectorIndexEnqueuer) SetFinalizer(f dropVectorFinalizer) {
+	e.finalizer = f
 }
 
 // logInfo logs an enqueue-path decision (nil-safe like every logger use here).
@@ -144,15 +161,32 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 	}
 	shardOwnership := activeShardOwnership(state)
 	if len(shardOwnership) == 0 {
-		// All-cold MT collection: no active shard to strip now, and the marker is
-		// already applied — a no-op success, not an error. Reconciliation re-enqueues
-		// once tenants are active. A non-MT collection always has shards, so an empty
-		// map there is a real problem.
-		if state.PartitioningEnabled {
-			e.logInfo(collection, "drop-vector enqueue: no active tenant to clean; the marker stays until a tenant is activated")
+		// A non-MT collection always has shards, so an empty map there is a
+		// real problem.
+		if !state.PartitioningEnabled {
+			return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
+		}
+		if len(state.Physical) == 0 {
+			// ZERO tenants (never created, or all deleted after the marker
+			// landed): no cleanup task can ever exist, so nothing would
+			// drive the finalize — remove the entries directly. There is no
+			// data to strip, and the FSM removal gate explicitly allows the
+			// empty-shard-set case for exactly this reason.
+			if e.finalizer == nil {
+				e.logInfo(collection, "drop-vector enqueue: collection has no tenants but no finalizer is wired; the marker stays")
+				return nil
+			}
+			if err := e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets); err != nil {
+				return fmt.Errorf("drop-vector enqueue: finalize tenant-less collection %q: %w", collection, err)
+			}
+			e.logInfo(collection, "drop-vector enqueue: collection has no tenants; dropped vector entries removed directly")
 			return nil
 		}
-		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
+		// Tenants exist but none is active: the marker is already applied —
+		// a no-op success, not an error. Reconciliation re-enqueues once a
+		// tenant is activated.
+		e.logInfo(collection, "drop-vector enqueue: all tenants inactive; the marker stays until a tenant is activated")
+		return nil
 	}
 
 	epoch, cleaned := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
