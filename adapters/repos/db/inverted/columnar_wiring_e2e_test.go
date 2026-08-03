@@ -48,24 +48,43 @@ func newUniqueTextSearcher(tb testing.TB, numDocs int) (*Searcher, *lsmkv.Store)
 		config.DefaultQueryBitmapBufsMaxBufSize, config.DefaultQueryBitmapBufsMaxMemory)
 	tb.Cleanup(bufPoolClose)
 
-	store, err := lsmkv.New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(tb, err)
-	tb.Cleanup(func() { store.Shutdown(context.Background()) })
-
 	name := helpers.BucketFromPropNameLSM(benchPropName)
+	newStore := func() *lsmkv.Store {
+		store, err := lsmkv.New(dir, dir, logger, nil, nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop())
+		require.NoError(tb, err)
+		return store
+	}
+
+	// Phase 1: write + flush the corpus to disk, then close — so the data lives
+	// in disk segments, not a memtable.
+	{
+		store := newStore()
+		require.NoError(tb, store.CreateOrLoadBucket(context.Background(), name,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+			lsmkv.WithBitmapBufPool(bufPool),
+		))
+		bucket := store.Bucket(name)
+		for i := 0; i < numDocs; i++ {
+			require.NoError(tb, bucket.RoaringSetAddList([]byte(benchValue(i)), []uint64{uint64(i)}))
+		}
+		require.NoError(tb, bucket.FlushAndSwitch())
+		require.NoError(tb, store.Shutdown(context.Background()))
+	}
+
+	// Phase 2: reopen — the accelerator factory now builds its base from the
+	// flushed disk segments (like a server restart), so the base carries the
+	// corpus rather than it all arriving as a run. This is the realistic
+	// always-on shape.
+	store := newStore()
+	tb.Cleanup(func() { store.Shutdown(context.Background()) })
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), name,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithBitmapBufPool(bufPool),
 		lsmkv.WithContainsAcceleratorFactory(columnarTestFactory(numDocs)),
 	))
-	bucket := store.Bucket(name)
-	for i := 0; i < numDocs; i++ {
-		require.NoError(tb, bucket.RoaringSetAddList([]byte(benchValue(i)), []uint64{uint64(i)}))
-	}
-	require.NoError(tb, bucket.FlushAndSwitch())
 
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, newFakeMaxIDGetter(uint64(numDocs+1)))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
@@ -83,8 +102,9 @@ func sortedDocIDs(al helpers.AllowList) []uint64 {
 }
 
 // columnarTestFactory builds the accelerator at bucket open for tests. The base
-// is empty at open (data is written+flushed afterwards, arriving via AbsorbFlush);
-// non-unique corpora decline on the flush and detach.
+// covers whatever disk segments exist at open (all corpus on reopen; empty on a
+// fresh bucket, where data then arrives via AbsorbFlush). Non-unique corpora
+// decline on the flush and detach.
 func columnarTestFactory(numDocs int) lsmkv.ContainsAcceleratorFactory {
 	return func(bkt *lsmkv.Bucket) lsmkv.ContainsAnyResolver {
 		idx, err := columnar.BuildFromBucket(bkt, uint64(numDocs+1), true)
