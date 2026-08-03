@@ -150,7 +150,13 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		}
 		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
 		tempBucket := r.shard.Store().Bucket(tempBucketName)
-		tempBucket.FlushMemtable()
+		// Surface flush errors so a cancelled/failed flush doesn't get
+		// followed by a read-only marker + rename, which would leave the
+		// reindex workflow in an inconsistent state.
+		if err := tempBucket.FlushMemtable(ctx); err != nil {
+			r.logError(err, "failed flushing temp bucket")
+			return fmt.Errorf("flush temp bucket %q: %w", tempBucketName, err)
+		}
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 
 		if reindexProperties[i].NewIndex {

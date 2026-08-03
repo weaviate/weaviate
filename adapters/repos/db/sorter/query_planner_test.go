@@ -209,7 +209,7 @@ func TestQueryPlanner(t *testing.T) {
 				require.Nil(t, err)
 			}
 
-			require.Nil(t, objectsB.FlushAndSwitch())
+			require.Nil(t, objectsB.FlushAndSwitch(context.Background()))
 
 			var bm helpers.AllowList
 			if !tc.nilBitmap {

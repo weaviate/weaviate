@@ -47,7 +47,7 @@ func TestTombstoneWALReuse(t *testing.T) {
 			require.NoError(t, b.MapSet([]byte("word1"), NewMapPairFromDocIdAndTf(docId, 1, 1, false)))
 			require.NoError(t, b.MapSet([]byte("word2"), NewMapPairFromDocIdAndTf(docId, 2, 2, false)))
 
-			err = b.FlushAndSwitch()
+			err = b.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 
 			require.NoError(t, b.Shutdown(ctx))
