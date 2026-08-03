@@ -280,10 +280,9 @@ func boolShardResult(grouped bool, groupValue string, totalTrue, totalFalse int)
 	return &aggregation.Result{Groups: []aggregation.Group{group}}
 }
 
-// A boolean property with no non-null values yields Count==0, and the combiner
-// used to divide by it. The resulting NaN is unrepresentable in JSON, so it
-// panicked the whole GraphQL response in the go-swagger producer rather than
-// failing the single field.
+// A boolean property with no non-null values yields Count==0; percentages must
+// stay 0 rather than NaN, which cannot be encoded as JSON and would fail the
+// entire response rather than the single field.
 func TestShardCombinerBooleanNoValues(t *testing.T) {
 	tests := []struct {
 		name    string
