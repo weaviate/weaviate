@@ -258,8 +258,10 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		resolved, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
-			// Returning this cancels the error group context shared with the
-			// request's other shards, aborting their repairs mid-flight.
+			// Logged, not propagated: a repair failure is per object and has
+			// already decremented that object's vote count, which is what
+			// withholds IsConsistent below. Reporting it here would fail the
+			// whole request and cancel the shards still repairing.
 			f.log.WithField("op", "repair_batch").WithField("class", f.class).
 				WithField("shard", batch.Shard).WithField("uuids", ids).Error(err)
 		}
