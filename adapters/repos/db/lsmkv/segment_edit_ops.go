@@ -482,6 +482,28 @@ func (s *SegmentEditOps) addPendingRowsTx(tx *bolt.Tx, opID string, segIDs []str
 	return nil
 }
 
+// PendForAllOps durably records segID as pending for EVERY registered op in
+// one transaction. WAL recovery calls this BEFORE the flush deletes the WAL:
+// the flush target's segment ID derives from the WAL name, so the cover can
+// be made durable first — a crash after the WAL delete then leaves the row,
+// never a clean-looking segment holding pre-arm bytes. Crash-loop safe:
+// re-pending is idempotent (existing rows kept, quarantine honored), and a
+// row whose flush never produced a segment is pruned by Reconcile.
+func (s *SegmentEditOps) PendForAllOps(segID string) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+		ops, err := s.loadOpsTx(tx)
+		if err != nil {
+			return err
+		}
+		for _, op := range ops {
+			if err := s.addPendingTx(tx, op.ID, segID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // HasPendingSnapshot reports whether opID's segments have been snapshotted (its
 // pending sub-bucket exists, even if now empty). Only a snapshot creates that
 // sub-bucket, so this — not descriptor presence — is the correct "resume may skip
@@ -901,17 +923,15 @@ func (s *SegmentEditOps) closeAndRemoveLocked() {
 //     by the write-path guards — the same guarantee shard-name-keyed
 //     coverage inheritance already relies on.
 //
-// The one exception is walSegIDs — segments WAL recovery flushed moments
-// before this call. A WAL can hold PRE-ARM bytes outside every snapshot: a
-// failed cycle flush leaves its memtable in b.flushing, a later switch
-// (including the arm's own flush) overwrites the field, and the orphaned
-// WAL's bytes are then in no segment and no pending row. Such segments are
-// pended for every surviving op — for post-arm WALs that is an idempotent
-// re-clean of one small segment; for the orphan shape it is the difference
-// between stripping the data and it surviving finalize.
+// Segments born from WAL replay are no exception, but need nothing here:
+// WAL recovery durably pends them for every op BEFORE the flush deletes the
+// WAL (PendForAllOps) — a WAL can hold PRE-ARM bytes outside every snapshot
+// (a failed cycle flush's memtable, clobbered in b.flushing by a later
+// switch), and only a pend committed before the WAL delete survives every
+// crash window.
 //
 // Quarantined segments stay quarantined (see addPendingRowsTx).
-func (s *SegmentEditOps) Recover(segIDs, walSegIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
+func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
 	ops, err := s.LoadOps()
 	if err != nil {
 		return err
@@ -945,28 +965,6 @@ func (s *SegmentEditOps) Recover(segIDs, walSegIDs []string, resolveLive, resolv
 	if err := s.Reconcile(existing, liveOpIDs); err != nil {
 		return err
 	}
-
-	// Pend the WAL-recovered segments (see the godoc) for the ops that
-	// SURVIVED the sweep — re-read, an orphaned op must not be resurrected
-	// into pending. Only IDs actually on disk qualify.
-	var walToPend []string
-	for _, id := range walSegIDs {
-		if _, ok := existing[id]; ok {
-			walToPend = append(walToPend, id)
-		}
-	}
-	if len(walToPend) > 0 {
-		survivors, err := s.LoadOps()
-		if err != nil {
-			return err
-		}
-		for _, op := range survivors {
-			if err := s.SnapshotSegments(op.ID, walToPend); err != nil {
-				return err
-			}
-		}
-	}
-
 	// Reconcile's orphan sweep deletes ops in its own transaction, bypassing
 	// DeleteOp's remove-when-empty — re-check here so a load-time sweep of the
 	// last op doesn't leave an empty sidecar open forever.

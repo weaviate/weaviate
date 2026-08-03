@@ -171,7 +171,7 @@ func TestRecover_SweepOfLastOpRemovesSidecar(t *testing.T) {
 
 	// No live task for the op: the sweep removes it during Recover.
 	noneLive := func() map[string]struct{} { return map[string]struct{}{} }
-	require.NoError(t, ops.Recover(nil, nil, noneLive, noneLive))
+	require.NoError(t, ops.Recover(nil, noneLive, noneLive))
 
 	_, err = os.Stat(sidecar)
 	require.ErrorIs(t, err, os.ErrNotExist, "sweeping the last op must also remove the sidecar file")

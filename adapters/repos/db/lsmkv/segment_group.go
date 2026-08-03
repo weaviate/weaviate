@@ -108,12 +108,6 @@ type SegmentGroup struct {
 	// BuildCurrentTransformer). nil unless edit ops are enabled for this segment
 	// group.
 	editOps *SegmentEditOps
-	// walRecoveredSegmentIDs are the segments WAL recovery flushed at this load
-	// (populated before recoverEditOps runs, construction is single-threaded).
-	// Recovery pends them for every surviving op: an orphaned WAL (a failed
-	// flush's memtable clobbered by a later switch) can hold pre-arm bytes no
-	// snapshot ever covered — see mayRecoverFromCommitLogs.
-	walRecoveredSegmentIDs []string
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
@@ -824,11 +818,10 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 // same-name vector), then prune rows for segments gone from disk
 // (SegmentEditOps.Recover). Surviving pending sets are kept as recorded — they
 // are the resume point of an interrupted strip; see Recover for why absence
-// from pending firmly means "clean" across every rewrite and crash window.
-// The one addition: segments WAL recovery just flushed are pended for every
-// surviving op — their bytes may predate the arm and no snapshot covers them.
-// Runs before the compaction cycle registers, so no pass races the
-// segment-set read.
+// from pending firmly means "clean" across every rewrite and crash window
+// (segments born from WAL replay were already durably pended by the recovery
+// itself; see mayRecoverFromCommitLogs). Runs before the compaction cycle
+// registers, so no pass races the segment-set read.
 func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	if sg.editOps == nil {
 		return nil
@@ -836,7 +829,7 @@ func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	sg.maintenanceLock.RLock()
 	ids := sg.currentSegmentIDsLocked()
 	sg.maintenanceLock.RUnlock()
-	return sg.editOps.Recover(ids, sg.walRecoveredSegmentIDs,
+	return sg.editOps.Recover(ids,
 		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, false) },
 		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, true) })
 }

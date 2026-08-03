@@ -706,6 +706,21 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 
 	for _, segID := range segmentOrder {
 		rows := bySegment[segID]
+		// Only rows of ops the transformer was built from can be completed by
+		// this pass (see the godoc). A segment with NO such row is skipped
+		// outright: rewriting it would strip nothing and mark nothing done —
+		// reported as progress, that is an endless full rewrite of the same
+		// segment on every prompt re-run, starving built-op rows on later
+		// segments. warnMissingTransformers already surfaces the state.
+		var strippedRows []PendingSegment
+		for _, row := range rows {
+			if _, ok := built[row.OpID]; ok {
+				strippedRows = append(strippedRows, row)
+			}
+		}
+		if len(strippedRows) == 0 {
+			continue
+		}
 		idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
 		if cerr != nil {
 			if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
@@ -717,7 +732,10 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 					Warnf("edit-ops cleanup interrupted before completing segment %q (not counted as a failed attempt): %v", segID, cerr)
 				return false, true, nil
 			}
-			if e := c.bumpOrQuarantine(rows, cerr); e != nil {
+			// Only the rows this pass was working for accrue the failure;
+			// factory-less rows must not drift toward quarantine over
+			// rewrites that never ran their transform.
+			if e := c.bumpOrQuarantine(strippedRows, cerr); e != nil {
 				return false, true, e
 			}
 			return false, true, nil
@@ -758,14 +776,6 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 				}
 			}
 			return false, true, fmt.Errorf("replace cleaned segment: %w", e)
-		}
-		// Only rows of ops the transformer was built from were stripped by
-		// this rewrite (see the godoc); the rest stay pending.
-		var strippedRows []PendingSegment
-		for _, row := range rows {
-			if _, ok := built[row.OpID]; ok {
-				strippedRows = append(strippedRows, row)
-			}
 		}
 		if kept := len(rows) - len(strippedRows); kept > 0 {
 			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
