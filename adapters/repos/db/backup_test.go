@@ -400,7 +400,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 		// Simulate what backupShardWithoutHardlinks does: hold lock + set flag.
 		for _, name := range shards {
 			idx.backupLock.Lock(name)
-			idx.backupProtectedShards.Store(name, struct{}{})
+			idx.backupProtectedShards.Store(name, "test-backup")
 		}
 		// Set backup state so ReleaseBackup has something to reset.
 		idx.lastBackup.Store(&BackupState{BackupID: "test-backup", InProgress: true})
@@ -438,24 +438,116 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 const releaseBackupUnlockChildEnv = "WEAVIATE_TEST_RELEASE_BACKUP_UNLOCK_CHILD"
 
-// Regression test: concurrent ReleaseBackup calls must not double-unlock a shard.
-//
-// The double unlock is a fatal error, not a panic, so it cannot be recovered in
-// process. The workload therefore runs in a child (this binary re-executed
-// under an env guard) and the parent reports the child's crash.
-func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
-	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
-		releaseBackupConcurrentUnlockWorkload(t)
-		return
-	}
+// runReleaseBackupWorkloadInChild re-executes this binary to run just the
+// calling test, so a workload that dies takes the child down instead of the
+// suite. An unlock too many is a fatal error, not a panic, and recover()
+// cannot catch it.
+func runReleaseBackupWorkloadInChild(t *testing.T) {
+	t.Helper()
 
 	cmd := exec.Command(os.Args[0], "-test.run", "^"+t.Name()+"$", "-test.v")
 	cmd.Env = append(os.Environ(), releaseBackupUnlockChildEnv+"=1")
 	out, err := cmd.CombinedOutput()
 
-	require.NoError(t, err, "concurrent ReleaseBackup killed the child process:\n%s", out)
+	require.NoError(t, err, "child process did not survive the workload:\n%s", out)
 	require.Contains(t, string(out), "--- PASS: "+t.Name(),
 		"child did not run the workload:\n%s", out)
+}
+
+// Regression test: concurrent ReleaseBackup calls must not double-unlock a shard.
+func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
+	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
+		releaseBackupConcurrentUnlockWorkload(t)
+		return
+	}
+	runReleaseBackupWorkloadInChild(t)
+}
+
+// Regression test: a ReleaseBackup still traversing must not release a shard
+// that a later backup has already re-protected.
+func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
+	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
+		releaseBackupCrossGenerationWorkload(t)
+		return
+	}
+	runReleaseBackupWorkloadInChild(t)
+}
+
+// releaseBackupCrossGenerationWorkload releases one backup from two goroutines
+// while a second backup re-protects the same shards behind them.
+func releaseBackupCrossGenerationWorkload(t *testing.T) {
+	const (
+		trials         = 200
+		shardsPerTrial = 512
+		className      = "MyClass"
+		firstBackup    = "backup1"
+		secondBackup   = "backup2"
+	)
+
+	logger, _ := tlog.NewNullLogger()
+	rootDir := t.TempDir()
+	ctx := context.Background()
+
+	names := make([]string, shardsPerTrial)
+	for s := range names {
+		names[s] = "shard" + strconv.Itoa(s)
+	}
+
+	for trial := 0; trial < trials; trial++ {
+		idx := &Index{
+			Config: IndexConfig{RootPath: rootDir, ClassName: className},
+			getSchema: &fakeSchemaGetter{
+				schema: schema.Schema{
+					Objects: &models.Schema{Classes: []*models.Class{{Class: className}}},
+				},
+			},
+			logger:           logger,
+			backupLock:       esync.NewKeyRWLocker(),
+			shardCreateLocks: esync.NewKeyRWLocker(),
+			closingCtx:       context.Background(),
+		}
+
+		for _, name := range names {
+			idx.backupLock.Lock(name)
+			idx.backupProtectedShards.Store(name, firstBackup)
+		}
+		idx.lastBackup.Store(&BackupState{BackupID: firstBackup, InProgress: true})
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for r := 0; r < 2; r++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				assert.NoError(t, idx.ReleaseBackup(ctx, firstBackup))
+			}()
+		}
+
+		// The second backup re-protects each shard as the first one frees it.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for _, name := range names {
+				idx.backupLock.Lock(name)
+				idx.backupProtectedShards.Store(name, secondBackup)
+			}
+		}()
+
+		close(start)
+		wg.Wait()
+
+		// The second backup locked and stored every shard, so every shard must
+		// still be protected. A missing one was released by a first-backup
+		// caller that saw the re-protected key mid-Range.
+		for _, name := range names {
+			if _, ok := idx.backupProtectedShards.Load(name); !ok {
+				t.Fatalf("trial %d: shard %s lost %s's protection",
+					trial, name, secondBackup)
+			}
+		}
+	}
 }
 
 func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
@@ -495,7 +587,7 @@ func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
 		// backed up without hardlinks: lock held, shard flagged as protected.
 		for _, name := range names {
 			idx.backupLock.Lock(name)
-			idx.backupProtectedShards.Store(name, struct{}{})
+			idx.backupProtectedShards.Store(name, backupID)
 		}
 		idx.lastBackup.Store(&BackupState{BackupID: backupID, InProgress: true})
 

@@ -473,7 +473,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
-		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
+		sd, err := i.backupShardWithoutHardlinks(ctx, name, backupID, classBaseDescrs)
 		if err != nil {
 			if errors.Is(err, errShardNoLocalData) {
 				i.logger.WithField("shard", name).Debug("skipping shard with no local data")
@@ -501,7 +501,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 //
 // For inactive shards, backupProtectedShards is set and backupLock.Lock is held
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
-func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name, backupID string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
@@ -525,7 +525,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		if shard == nil {
 			// Not in shardMap => back up from disk if directory exists.
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
-			i.backupProtectedShards.Store(name, struct{}{})
+			i.backupProtectedShards.Store(name, backupID)
 			unlockOnReturn = false
 			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 		}
@@ -537,7 +537,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 			defer releaseBlock()
 			if !lazyShard.loaded {
 				// Shard is in the map but not loaded; protect and keep lock held.
-				i.backupProtectedShards.Store(name, struct{}{})
+				i.backupProtectedShards.Store(name, backupID)
 				unlockOnReturn = false
 				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 			}
@@ -671,13 +671,15 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	// Release non-hardlink backup protections: clear the protection flag and
 	// release the held backupLock.Lock for each protected shard.
 	//
-	// LoadAndDelete keeps the claim atomic: ReleaseBackup runs concurrently
-	// (one goroutine per class), and a second Unlock on an already unlocked
-	// shard is a fatal error that recover() cannot catch.
+	// CompareAndDelete claims the shard for this backup in one atomic step.
+	// ReleaseBackup runs concurrently (one goroutine per class), so without a
+	// claim two callers unlock the same shard once each and the second Unlock
+	// hits an unlocked RWMutex — a fatal error recover() cannot catch. Matching
+	// on the backup ID also keeps a slow caller from releasing a shard that a
+	// later backup has already re-protected, which Range is free to show it.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
-		name := key.(string)
-		if _, loaded := i.backupProtectedShards.LoadAndDelete(key); loaded {
-			i.backupLock.Unlock(name)
+		if i.backupProtectedShards.CompareAndDelete(key, id) {
+			i.backupLock.Unlock(key.(string))
 		}
 		return true
 	})
