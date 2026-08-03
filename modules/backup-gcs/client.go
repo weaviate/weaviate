@@ -319,62 +319,6 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 	return nil
 }
 
-// WriteToFile downloads an object and store its content in destPath
-// The file destPath will be created if it doesn't exit
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) (err error) {
-	bucket, err := g.findBucket(ctx, overrideBucket)
-	if err != nil {
-		return fmt.Errorf("writetofile: find bucket: %w ", err)
-	}
-
-	// validate destination path
-	if st, err := os.Stat(destPath); err == nil {
-		if st.IsDir() {
-			return fmt.Errorf("file is a directory")
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	// create empty file
-	dir := path.Dir(destPath)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return fmt.Errorf("os.mkdir for writetofile %q: %w", dir, err)
-	}
-	file, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("os.create for writetofile %q: %w", destPath, err)
-	}
-
-	// make sure to close and delete in case we return early
-	closeAndRemove := true
-	defer func() {
-		if closeAndRemove {
-			file.Close()
-			os.Remove(destPath)
-		}
-	}()
-
-	// create reader
-	object := g.makeObjectName(overridePath, []string{backupID, key})
-	rc, err := bucket.Object(object).NewReader(ctx)
-	if err != nil {
-		return fmt.Errorf("create reader for writetofile %q: %w", object, err)
-	}
-	defer rc.Close()
-
-	// transfer content to the file
-	if _, err := io.Copy(file, rc); err != nil {
-		return fmt.Errorf("io.Copy for writetofile:%q %q: %w", destPath, object, err)
-	}
-	closeAndRemove = false
-	if err = file.Close(); err != nil {
-		return fmt.Errorf("f.Close for writetofile %q: %w", destPath, err)
-	}
-
-	return nil
-}
-
 func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
 	// Close the reader when done. Use CloseWithError to signal any error to the
 	// producer so it sees the actual error instead of "closed pipe".

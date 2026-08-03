@@ -254,35 +254,6 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, 
 	return nil
 }
 
-func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	containerName, err := a.resolveContainer(overrideBucket)
-	if err != nil {
-		return err
-	}
-
-	dir := path.Dir(destPath)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "make dir %s", dir)
-	}
-
-	file, err := os.Create(destPath)
-	if err != nil {
-		return backup.NewErrInternal(errors.Wrapf(err, "create file: %q", destPath))
-	}
-	defer file.Close()
-
-	objectName := a.makeObjectName(overridePath, []string{backupID, key})
-	_, err = a.client.DownloadFile(ctx, containerName, objectName, file, nil)
-	if err != nil {
-		if bloberror.HasCode(err, bloberror.BlobNotFound) {
-			return backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
-		}
-		return backup.NewErrInternal(errors.Wrapf(err, "download file for object %s", objectName))
-	}
-
-	return nil
-}
-
 func (a *azureClient) getBlockSize(ctx context.Context) int64 {
 	blockSize := defaultBlockSize
 	blockSizeStr := modulecomponents.GetValueFromContext(ctx, "X-Azure-Block-Size")

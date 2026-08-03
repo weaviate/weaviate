@@ -74,33 +74,40 @@ func (m *Module) getObjectPath(ctx context.Context, path, backupID, key string) 
 	return metaPath, nil
 }
 
-func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
-	source, err := os.Open(sourcePath)
-	defer func() error {
-		return source.Close()
-	}()
+// writeFileViaTemp collects r in a temp file and renames it onto destPath once it
+// is complete, so a write that returns an error leaves no partial file at destPath
+// and keeps whatever was already there. A machine crash can still leave the temp
+// file behind, as nothing is synced to disk.
+func (m *Module) writeFileViaTemp(destPath string, r io.Reader, perm os.FileMode) (int64, error) {
+	tmpPath := destPath + ".tmp"
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
-		return 0, errors.Wrapf(err, "open file %s", sourcePath)
+		return 0, fmt.Errorf("open file %q: %w", tmpPath, err)
 	}
 
-	if _, err := os.Stat(destinationPath); err != nil {
-		if err := os.MkdirAll(path.Dir(destinationPath), os.ModePerm); err != nil {
-			return 0, errors.Wrapf(err, "make dir %s", destinationPath)
+	renamed := false
+	defer func() {
+		if renamed {
+			return
 		}
-	}
-
-	destination, err := os.Create(destinationPath)
-	defer func() error {
-		return destination.Close()
+		f.Close()
+		if rmErr := os.Remove(tmpPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			m.logger.Warnf("remove temp file %q: %v", tmpPath, rmErr)
+		}
 	}()
-	if err != nil {
-		return 0, errors.Wrapf(err, "create destination file %s", destinationPath)
-	}
 
-	written, err := io.Copy(destination, source)
+	written, err := io.Copy(f, r)
 	if err != nil {
-		return 0, errors.Wrapf(err, "copy file from %s to %s", sourcePath, destinationPath)
+		return written, fmt.Errorf("write file %q: %w", destPath, err)
 	}
+	// Close reports write errors that io.Copy is too early to see.
+	if err := f.Close(); err != nil {
+		return written, fmt.Errorf("close file %q: %w", destPath, err)
+	}
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return written, fmt.Errorf("rename to %q: %w", destPath, err)
+	}
+	renamed = true
 
 	return written, nil
 }
@@ -139,26 +146,6 @@ func (m *Module) Initialize(ctx context.Context, backupID, overrideBucket, overr
 	return nil
 }
 
-func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	basePath, err := m.resolvePath(overridePath)
-	if err != nil {
-		return err
-	}
-	objectPath := filepath.Join(basePath, backupID, key)
-
-	bytesWritten, err := m.copyFile(objectPath, destPath)
-	if err != nil {
-		return err
-	}
-
-	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
-	if err == nil {
-		metric.Add(float64(bytesWritten))
-	}
-
-	return nil
-}
-
 func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
 	// Close the reader when done. Use CloseWithError to signal any error to the
 	// producer so it sees the actual error instead of "closed pipe".
@@ -175,38 +162,10 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return 0, fmt.Errorf("make dir %q: %w", dir, err)
 	}
-	// Collect the content in a temp file and rename it into place once it is
-	// complete. A failed write then leaves no partial file at backupPath, and
-	// whatever was already stored under that key stays intact.
-	tmpPath := backupPath + ".tmp"
-	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.ModePerm)
+	written, err = m.writeFileViaTemp(backupPath, r, os.ModePerm)
 	if err != nil {
-		return 0, fmt.Errorf("open file %q: %w", tmpPath, err)
+		return written, err
 	}
-
-	renamed := false
-	defer func() {
-		if renamed {
-			return
-		}
-		f.Close()
-		if rmErr := os.Remove(tmpPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			m.logger.Warnf("remove temp file %q: %v", tmpPath, rmErr)
-		}
-	}()
-
-	written, err = io.Copy(f, r)
-	if err != nil {
-		return written, fmt.Errorf("write file %q: %w", backupPath, err)
-	}
-	// Close reports write errors that io.Copy is too early to see.
-	if err = f.Close(); err != nil {
-		return written, fmt.Errorf("close file %q: %w", backupPath, err)
-	}
-	if err = os.Rename(tmpPath, backupPath); err != nil {
-		return written, fmt.Errorf("rename to %q: %w", backupPath, err)
-	}
-	renamed = true
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
 		GetMetricWithLabelValues(m.Name(), "class"); err == nil {

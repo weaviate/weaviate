@@ -432,12 +432,6 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overri
 	return b, nil
 }
 
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	f.Lock()
-	defer f.Unlock()
-	return nil
-}
-
 func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
