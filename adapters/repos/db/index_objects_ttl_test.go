@@ -76,6 +76,18 @@ func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 	if batchFn == nil {
 		batchFn = func(context.Context, []strfmt.UUID) error { return nil }
 	}
+	// batchFn cases model a batch that deletes everything it is handed.
+	return newTestLoopWithDeleted(t, mgr, autoActivation, findFn,
+		func(ctx context.Context, uuids []strfmt.UUID) (int32, error) {
+			return int32(len(uuids)), batchFn(ctx, uuids)
+		})
+}
+
+func newTestLoopWithDeleted(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
+	findFn func(ctx context.Context) ([]strfmt.UUID, error),
+	batchFn func(ctx context.Context, uuids []strfmt.UUID) (int32, error),
+) tenantTTLLoop {
+	t.Helper()
 	return tenantTTLLoop{
 		class:                 "MyClass",
 		tenant:                "tenant_0",
@@ -83,6 +95,55 @@ func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 		mgr:                   mgr,
 		findUUIDs:             findFn,
 		processBatch:          batchFn,
+	}
+}
+
+// A sweep repeats find-then-delete until a find comes back empty. When the deletes do not
+// remove anything the same candidates come back every time, so the sweep must stop rather than
+// repeat forever: the node reports "deletion ongoing" until its sweep returns, and the
+// scheduler skips every TTL round cluster-wide while any node reports that.
+func TestTenantTTLLoop_StopsWhenBatchDeletesNothing(t *testing.T) {
+	tests := []struct {
+		name      string
+		deleted   int32
+		wantFinds int
+	}{
+		{name: "batch deletes nothing", deleted: 0, wantFinds: 1},
+		{name: "batch deletes some", deleted: 1, wantFinds: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &fakeTTLTenantsManager{statusMap: map[string]string{"tenant_0": models.TenantActivityStatusHOT}}
+
+			finds := 0
+			loop := newTestLoopWithDeleted(t, mgr, false,
+				func(ctx context.Context) ([]strfmt.UUID, error) {
+					finds++
+					if finds > 20 {
+						// Backstop so a loop that never terminates fails on the count below
+						// instead of hanging the suite.
+						return nil, errors.New("sweep did not stop")
+					}
+					if tt.deleted > 0 && finds > 1 {
+						return nil, nil // progress was made, nothing left to find
+					}
+					return []strfmt.UUID{"uuid-1"}, nil
+				},
+				func(ctx context.Context, uuids []strfmt.UUID) (int32, error) {
+					return tt.deleted, nil
+				})
+
+			ec := errorcompounder.New()
+			loop.run(context.Background(), ec)
+
+			assert.Equal(t, tt.wantFinds, finds)
+			if tt.deleted == 0 {
+				require.ErrorIs(t, ec.ToError(), errTTLNoProgress)
+			} else {
+				assert.NoError(t, ec.ToError())
+			}
+		})
 	}
 }
 

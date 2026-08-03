@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	objectsclient "github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
@@ -102,7 +103,7 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	const ttlDeletionTimeout = 60 * time.Second
 
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		objs, err := helper.GetObjects(t, class.Class)
+		objs, err := listTTLObjects(t, class.Class)
 		require.NoError(ct, err)
 		require.Len(ct, objs, numNotExpiredObjs)
 	}, ttlDeletionTimeout, 500*time.Millisecond)
@@ -121,7 +122,7 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	}
 
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		objs, err := helper.GetObjects(t, class.Class)
+		objs, err := listTTLObjects(t, class.Class)
 		require.NoError(ct, err)
 		require.Len(ct, objs, numNotExpiredObjs)
 	}, ttlDeletionTimeout, 500*time.Millisecond)
@@ -460,6 +461,20 @@ func TestObjectTTLUpdateTTL(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, objs, numNotExpiredObjects)
 	}, time.Second*5, 500*time.Millisecond)
+}
+
+// listTTLObjects lists the collection with an explicit limit. The default REST list limit
+// (QUERY_DEFAULTS_LIMIT, 20 in the test containers) is lower than the number of objects these
+// tests create, so an unbounded list saturates and reports a count that hides how many objects
+// actually survived.
+func listTTLObjects(t *testing.T, class string) ([]*models.Object, error) {
+	limit := int64(1000)
+	params := objectsclient.NewObjectsListParams().WithClass(&class).WithLimit(&limit)
+	resp, err := helper.Client(t).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload.Objects, nil
 }
 
 func deleteTTL(t *testing.T, node string, deletionTime time.Time, ownNode bool) {

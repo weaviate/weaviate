@@ -40,6 +40,24 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
+// remoteCallTimeout bounds the two cluster-internal control calls a scheduled round makes
+// (status probe and dispatch). Without it they only stop at the shared cluster client's
+// MINIMUM_INTERNAL_TIMEOUT, 30s by default. Rounds run one at a time and the scheduler drops
+// every tick that arrives while one is in flight, so a peer that is slow to answer stops TTL
+// deletion on all nodes for as long as the call takes, not just on that peer.
+const remoteCallTimeout = 3 * time.Second
+
+// ttlSchemaReader reads the collections the coordinator has to sweep.
+type ttlSchemaReader interface {
+	ReadSchema(reader func(models.Class, uint64)) error
+}
+
+// ttlNodeLister names the local node and the cluster it belongs to.
+type ttlNodeLister interface {
+	NodeName() string
+	Nodes() []string
+}
+
 func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter, db *db.DB,
 	logger logrus.FieldLogger, clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
 ) *Coordinator {
@@ -57,8 +75,8 @@ func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.Sc
 }
 
 type Coordinator struct {
-	schemaReader      schemaUC.SchemaReader
-	schemaGetter      schemaUC.SchemaGetter
+	schemaReader      ttlSchemaReader
+	schemaGetter      ttlNodeLister
 	db                *db.DB
 	objectTTLOngoing  atomic.Bool
 	logger            logrus.FieldLogger
@@ -299,7 +317,9 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 	if c.objectTTLLastNode != "" {
 		l := l.WithField("last_node", c.objectTTLLastNode)
 
-		ttlOngoing, err := c.remoteObjectTTL.CheckIfStillRunning(ctx, c.objectTTLLastNode)
+		probeCtx, cancel := context.WithTimeout(ctx, remoteCallTimeout)
+		ttlOngoing, err := c.remoteObjectTTL.CheckIfStillRunning(probeCtx, c.objectTTLLastNode)
+		cancel()
 		if err != nil {
 			l.Errorf("Checking objectTTL running status failed: %v", err)
 			// proceed with deletion
@@ -322,8 +342,13 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 		})
 	}
 
+	// The node flags itself as running before it answers, so a client-side timeout here never
+	// loses a run: the next round's status probe sees it and skips as usual.
+	startCtx, cancel := context.WithTimeout(ctx, remoteCallTimeout)
+	defer cancel()
+
 	c.objectTTLLastNode = node
-	return c.remoteObjectTTL.StartRemoteDelete(ctx, node, ttlCollections)
+	return c.remoteObjectTTL.StartRemoteDelete(startCtx, node, ttlCollections)
 }
 
 func (c *Coordinator) extractTtlDataFromCollection(ttlConfig *models.ObjectTTLConfig, ttlTime time.Time,

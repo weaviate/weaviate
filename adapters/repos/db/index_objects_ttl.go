@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -39,6 +40,15 @@ type ttlTenantsManager interface {
 // partitioned leader cannot block the goroutine indefinitely.
 const ttlDeactivateTimeout = 30 * time.Second
 
+// errTTLNoProgress ends a sweep that keeps finding the same expired objects but deletes none
+// of them. The sweep repeats find-then-delete until a find comes back empty, so a batch that
+// deletes nothing would otherwise repeat forever, sleeping ObjectsTTLPauseDuration (a minute
+// by default) every ObjectsTTLPauseEveryNoBatches rounds. That matters beyond the wasted work:
+// a node reports "deletion ongoing" until its sweep returns, and the scheduler skips every
+// round while any node reports that, so one spinning sweep stops TTL deletion on all nodes.
+// Stopping here gives up the round; the next scheduled one retries from scratch.
+var errTTLNoProgress = errors.New("no expired object could be deleted, stopping sweep")
+
 // tenantTTLLoop manages the TTL deletion loop for a single multi-tenant shard.
 //
 // When autoActivationEnabled is true and the tenant was COLD at the start of the loop, the
@@ -50,7 +60,7 @@ type tenantTTLLoop struct {
 	autoActivationEnabled bool
 	mgr                   ttlTenantsManager
 	findUUIDs             func(ctx context.Context) ([]strfmt.UUID, error)
-	processBatch          func(ctx context.Context, uuids []strfmt.UUID) error
+	processBatch          func(ctx context.Context, uuids []strfmt.UUID) (deleted int32, err error)
 }
 
 // shardIsLazyUnloaded reports whether the named shard is a lazy shard not yet materialized.
@@ -127,9 +137,14 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						}
 						return tenants2uuids[tenant], nil
 					},
-					processBatch: func(ctx context.Context, uuids []strfmt.UUID) error {
+					processBatch: func(ctx context.Context, uuids []strfmt.UUID) (int32, error) {
+						deleted := int32(0)
+						countBatch := func(count int32) {
+							deleted += count
+							countDeleted(count)
+						}
 						if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, "", tenant,
-							uuids, countDeleted, replProps, schemaVersion); err != nil {
+							uuids, countBatch, replProps, schemaVersion); err != nil {
 							ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, tenant)
 						}
 						processedBatches++
@@ -139,7 +154,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 							t1 := time.Now()
 							t2, sleepErr := sleepWithCtx(ctx, pauseDur)
 							if sleepErr != nil {
-								return sleepErr // caller adds to ec and stops the loop
+								return deleted, sleepErr // caller adds to ec and stops the loop
 							}
 							i.logger.WithFields(logrus.Fields{
 								"action":     "objects_ttl_deletion",
@@ -148,7 +163,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 							}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
 							processedBatches = 0
 						}
-						return nil
+						return deleted, nil
 					},
 				}
 				loop.run(ctx, ec)
@@ -179,11 +194,16 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 			shardIdx := len(shards2uuids) - 1
 			anyUuidsFetched := false
+			deletedThisRound := new(atomic.Int32)
 			wg := new(sync.WaitGroup)
 			f := func(shard string, uuids []strfmt.UUID) {
 				defer wg.Done()
+				countRound := func(count int32) {
+					deletedThisRound.Add(count)
+					countDeleted(count)
+				}
 				if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
-					uuids, countDeleted, replProps, schemaVersion); err != nil {
+					uuids, countRound, replProps, schemaVersion); err != nil {
 					ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, shard)
 				}
 			}
@@ -215,6 +235,10 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 			wg.Wait()
 
 			if !anyUuidsFetched {
+				return nil
+			}
+			if deletedThisRound.Load() == 0 {
+				ec.AddGroups(errTTLNoProgress, class.Class)
 				return nil
 			}
 
@@ -402,8 +426,13 @@ func (l *tenantTTLLoop) findAndDelete(ctx context.Context, ec errorcompounder.Er
 		return true
 	}
 
-	if err := l.processBatch(ctx, uuids); err != nil {
+	deleted, err := l.processBatch(ctx, uuids)
+	if err != nil {
 		ec.AddGroups(err, l.class, l.tenant)
+		return true
+	}
+	if deleted == 0 {
+		ec.AddGroups(errTTLNoProgress, l.class, l.tenant)
 		return true
 	}
 	return false
