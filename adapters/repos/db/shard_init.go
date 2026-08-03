@@ -281,12 +281,47 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		}
 		propNames, ok := readRecoveryPropertyNames(dirPath)
 		if !ok {
+			// No payload to read (predates payload persistence, or the file
+			// was lost). Skipping would let the bucket-existence default in
+			// [Shard.IsRangeableLocallyReady] call a half-built bucket
+			// ready, so mark every property the dir name could name
+			// instead — over-marking only costs a slower filterable
+			// fallback; under-marking risks silently empty range filters.
+			markPropsNotReadyFromDirName(s, strings.TrimPrefix(base, prefix))
 			continue
 		}
 		for _, propName := range propNames {
 			s.setRangeableLocallyReady(propName, false)
 		}
 	}
+}
+
+// markPropsNotReadyFromDirName marks every property of the shard's class
+// whose name could appear in a tracker dir's props-suffix as not locally
+// ready. [migrationDirWithProps] joins multiple property names with `_`,
+// so the suffix cannot be decoded unambiguously for names that themselves
+// contain `_` — `price_cents` (one property) is indistinguishable from
+// `[price, cents]` (two). Every candidate is marked.
+func markPropsNotReadyFromDirName(s *Shard, propsSuffix string) {
+	if s.class == nil {
+		return
+	}
+	for _, prop := range s.class.Properties {
+		if prop == nil || !propNameCouldBeInDirSuffix(propsSuffix, prop.Name) {
+			continue
+		}
+		s.setRangeableLocallyReady(prop.Name, false)
+	}
+}
+
+func propNameCouldBeInDirSuffix(propsSuffix, propName string) bool {
+	if propName == "" {
+		return false
+	}
+	return propsSuffix == propName ||
+		strings.HasPrefix(propsSuffix, propName+"_") ||
+		strings.HasSuffix(propsSuffix, "_"+propName) ||
+		strings.Contains(propsSuffix, "_"+propName+"_")
 }
 
 // readRecoveryPropertyNames extracts the `Properties` slice from a
