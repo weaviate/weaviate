@@ -542,6 +542,16 @@ func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
 	runReleaseBackupWorkloadInChild(t)
 }
 
+// Regression test: two backups releasing at once must not both unlock a shard
+// only the older one protected.
+func TestReleaseBackupOverlappingSweepsUnlockEachShardOnce(t *testing.T) {
+	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
+		releaseBackupOverlappingSweepWorkload(t)
+		return
+	}
+	runReleaseBackupWorkloadInChild(t)
+}
+
 func backupTestShardNames(n int) []string {
 	names := make([]string, n)
 	for s := range names {
@@ -591,6 +601,53 @@ func spawnBackupReleasers(t *testing.T, wg *sync.WaitGroup, start <-chan struct{
 			<-start
 			assert.NoError(t, idx.ReleaseBackup(context.Background(), backupID))
 		}()
+	}
+}
+
+func releaseBackupOverlappingSweepWorkload(t *testing.T) {
+	const (
+		trials         = 200
+		shardsPerTrial = 512
+		firstBackup    = "backup1"
+		secondBackup   = "backup2"
+	)
+
+	rootDir := t.TempDir()
+	names := backupTestShardNames(shardsPerTrial)
+
+	for trial := 0; trial < trials; trial++ {
+		idx := newBackupTestIndex(t, rootDir, names, firstBackup)
+
+		// The first backup ends with its sweep still pending, so the second one
+		// runs and ends while the first's shards are all still protected. Sweeping
+		// older generations too is what frees a stranded shard, and it is also what
+		// puts both sweeps on the same entries.
+		firstSweep, claimed := idx.claimBackup(firstBackup)
+		require.True(t, claimed)
+		_, err := idx.initBackup(secondBackup)
+		require.NoError(t, err)
+		secondSweep, claimed := idx.claimBackup(secondBackup)
+		require.True(t, claimed)
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, gen := range []uint64{firstSweep, secondSweep} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				idx.releaseProtectedShards(gen)
+			}()
+		}
+		close(start)
+		requireWaitGroupDone(t, &wg, fmt.Sprintf("trial %d: sweeps did not finish", trial))
+
+		for _, name := range names {
+			if _, protected := idx.backupProtectedShards.Load(name); protected {
+				t.Fatalf("trial %d: shard %s still protected after both sweeps", trial, name)
+			}
+		}
+		requireBackupLocksFreeConcurrently(t, idx, names)
 	}
 }
 
