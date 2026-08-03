@@ -295,10 +295,22 @@ type Index struct {
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
 
-	// backupProtectedShards tracks shard names protected during non-hardlink backup.
+	// backupProtectedShards maps the name of each shard protected during a
+	// non-hardlink backup to the generation of the backup that protected it.
 	// Activation and destructive status changes are blocked until ReleaseBackup.
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
 	backupProtectedShards sync.Map
+
+	// backupStateMu serialises starting a backup, protecting a shard for it, and
+	// releasing it, so a shard is never protected for a backup that already ended
+	// and every protected shard is unlocked exactly once. Reads of
+	// backupProtectedShards do not take it.
+	backupStateMu sync.Mutex
+
+	// backupGeneration numbers the backups run on this index. Backup IDs cannot
+	// identify a backup: they are user-supplied and only unique per (backend,
+	// bucket, path), so two backups of this index can share one.
+	backupGeneration atomic.Uint64
 
 	metrics          *Metrics
 	centralJobQueue  chan job
