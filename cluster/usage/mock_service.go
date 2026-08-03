@@ -17,7 +17,6 @@ import (
 	context "context"
 
 	mock "github.com/stretchr/testify/mock"
-
 	types "github.com/weaviate/weaviate/cluster/usage/types"
 )
 
@@ -131,8 +130,7 @@ func (_c *MockService_Usage_Call) RunAndReturn(run func(context.Context, bool) (
 func NewMockService(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockService {
+}) *MockService {
 	mock := &MockService{}
 	mock.Mock.Test(t)
 

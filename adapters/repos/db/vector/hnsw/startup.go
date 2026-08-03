@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
@@ -449,6 +450,13 @@ func (h *hnsw) multiVectorForNodeID(ctx context.Context, nodeID uint64) ([]float
 	docID, relativeID := h.compressor.GetKeys(nodeID)
 	vecs, err := h.MultiVectorForIDThunk(ctx, docID)
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			// key not-found errors by the requested node id, not the internal
+			// docID fetch
+			return nil, storobj.NewErrNotFoundf(nodeID,
+				"multi-vector recovery (docID %d): %v", docID, err)
+		}
 		return nil, errors.Wrapf(err, "multi-vector recovery for nodeID %d (docID %d)", nodeID, docID)
 	}
 	if int(relativeID) >= len(vecs) {
@@ -529,7 +537,13 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
+	ctx, cancelPrefill := context.WithCancel(ctx)
+	stopOnIndexShutdown := context.AfterFunc(h.shutdownCtx, cancelPrefill)
+
 	prefillCacheFunc := func() {
+		defer stopOnIndexShutdown()
+		defer cancelPrefill()
+
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
 			"duration": 60 * time.Minute,
@@ -547,7 +561,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			// cursor instead of looking up every vector by id (disk-seek bound).
 			err = h.prefillCacheParallel(ctx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}
 
 		if err != nil {
@@ -568,6 +582,10 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		enterrors.GoWrapper(prefillCacheFunc, h.logger)
+		h.prefillWg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer h.prefillWg.Done()
+			prefillCacheFunc()
+		}, h.logger)
 	}
 }

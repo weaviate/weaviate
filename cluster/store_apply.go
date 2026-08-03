@@ -413,6 +413,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.UpdateUnitProgress(&cmd)
 		}
+	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
+		f = func() {
+			ret.Error = st.applyClusterIDSet(&cmd)
+		}
 
 	default:
 		// This could occur when a new command has been introduced in a later app version
@@ -437,4 +441,17 @@ func (st *Store) Apply(l *raft.Log) any {
 	wg.Wait()
 
 	return ret
+}
+
+// applyClusterIDSet applies a TYPE_CLUSTER_ID_SET log entry, set-once.
+func (st *Store) applyClusterIDSet(cmd *api.ApplyRequest) error {
+	req := &api.SetClusterIDRequest{}
+	if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("unmarshal cluster-id set command: %w", err)
+	}
+	if req.ClusterId == "" {
+		return fmt.Errorf("empty cluster_id in cluster-id set command")
+	}
+	st.setClusterID(req.ClusterId)
+	return nil
 }

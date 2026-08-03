@@ -101,10 +101,14 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 	sg.segments = newSegments
 	sg.maintenanceLock.Unlock()
 
-	// Update metrics for the newly added segments.
+	// Update metrics and the average-property-length accounting for the newly
+	// added segments. The accounting has to land before the deferred
+	// resumeCompaction: a compaction that retires a prepended segment subtracts
+	// its contribution, which must have been added first.
 	for _, seg := range initialized {
 		sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
 		sg.metrics.ObserveSegmentSize(sg.strategy, seg.Size())
+		sg.countSegmentAveragePropLength(seg)
 	}
 
 	return nil

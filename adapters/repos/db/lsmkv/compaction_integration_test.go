@@ -21,8 +21,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -428,11 +426,12 @@ func TestCompaction(t *testing.T) {
 				WithStrategy(StrategyRoaringSetRange),
 			},
 		},
-		// Inverted
+		// Inverted. Sizes shrank (was 8627 / 8931) because compaction now drops
+		// deleted docs' per-doc property lengths instead of carrying them forever.
 		{
 			name: "compactionInvertedStrategy",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionInvertedStrategy(ctx, t, opts, 8627, 8627)
+				compactionInvertedStrategy(ctx, t, opts, 8447, 8447)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyInverted),
@@ -441,7 +440,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionInvertedStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionInvertedStrategy(ctx, t, opts, 8931, 8931)
+				compactionInvertedStrategy(ctx, t, opts, 8751, 8751)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyInverted),
@@ -480,11 +479,6 @@ func TestCompaction(t *testing.T) {
 		},
 	}
 	tests.run(ctx, t)
-}
-
-func nullLogger() logrus.FieldLogger {
-	log, _ := test.NewNullLogger()
-	return log
 }
 
 func copyByteSlice(src []byte) []byte {

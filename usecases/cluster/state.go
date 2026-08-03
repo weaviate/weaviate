@@ -20,11 +20,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+)
+
+var (
+	joinInitialInterval = time.Second
+	joinTimeout         = 60 * time.Second
 )
 
 // NodeResolver provides read-only access to cluster nodes and their addresses.
@@ -105,6 +112,8 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
+	// RaftBootstrapTimeout bounds the startup join retry; mirrors RAFT_BOOTSTRAP_TIMEOUT.
+	RaftBootstrapTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -197,29 +206,50 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		}).Errorf("memberlist not created: %v", err)
 		return nil, errors.Wrap(err, "create memberlist")
 	}
+
+	// memberlist.Create has bound the gossip sockets. Any error from here on
+	// returns a nil State, so no caller is left with a handle to close them
+	defer func() {
+		if err == nil {
+			return
+		}
+		if shutdownErr := state.list.Shutdown(); shutdownErr != nil {
+			logger.WithField("action", "memberlist_init").
+				Warnf("memberlist shutdown after failed init: %v", shutdownErr)
+		}
+	}()
+
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")
 	}
 
 	if len(joinAddr) > 0 {
+		timeout := userConfig.RaftBootstrapTimeout
+		if timeout <= 0 {
+			timeout = joinTimeout
+		}
 		joinHost := extractHost(joinAddr[0])
-		_, err := net.LookupIP(joinHost)
-		if err != nil {
+		if _, err := net.LookupIP(joinHost); err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
 				"remote_hostname": joinAddr[0],
-			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
-					"if this is the first node of a new cluster, but problematic otherwise.")
-		} else {
+			}).Warnf("specified hostname to join cluster cannot be resolved. This is fine "+
+				"if this is the first node of a new cluster, but problematic otherwise: %v", err)
+		} else if err := backoff.Retry(func() error {
+			// Retry for every seed: even a single node can be racing DNS after a
+			// reschedule, where the join target briefly points at a dead pod IP.
 			_, err := state.list.Join(joinAddr)
-			if err != nil {
-				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
-					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
-				return nil, errors.Wrap(err, "join cluster")
+			return err
+		}, utils.NewExponentialBackoff(joinInitialInterval, timeout)); err != nil {
+			entry := logger.WithFields(logrus.Fields{
+				"action":          "memberlist_init",
+				"remote_hostname": joinAddr,
+			})
+			if userConfig.RaftBootstrapExpect <= 1 {
+				entry.Warnf("memberlist join not successful, continuing as single-node cluster: %v", err)
+			} else {
+				entry.Warnf("memberlist join not successful, periodic rejoin will retry: %v", err)
 			}
 		}
 	}

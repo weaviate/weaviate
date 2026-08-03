@@ -311,6 +311,12 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
+	// Deferred before backupLock so it runs after the unlock: dropping the last
+	// shard reference can run the shard teardown inline, and doing that under
+	// backupLock blocks every write to the shard for the teardown's duration.
+	releaseShard := func() {}
+	defer func() { releaseShard() }()
+
 	i.backupLock.Lock(name)
 	defer i.backupLock.Unlock(name)
 
@@ -363,7 +369,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	if err != nil {
 		return nil, fmt.Errorf("prevent shutdown of shard %v: %w", name, err)
 	}
-	defer release()
+	releaseShard = release
 
 	i.shardCreateLocks.Unlock(name)
 	shardCreateLocksHeld = false
@@ -705,7 +711,9 @@ func (i *Index) resetBackupState() {
 }
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	i.ForEachShard(func(name string, shard ShardLike) error {
+	// Only loaded shards have maintenance cycles to resume; a cold shard has
+	// none, so skip it rather than force-load every shard after a backup.
+	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)

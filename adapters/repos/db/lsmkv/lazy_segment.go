@@ -244,6 +244,11 @@ func (s *lazySegment) markForDeletion() error {
 	return s.segment.markForDeletion()
 }
 
+func (s *lazySegment) markForDeletionExceptSegment() error {
+	s.mustLoad()
+	return s.segment.markForDeletionExceptSegment()
+}
+
 func (s *lazySegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
 	s.mustLoad()
 	return s.segment.MergeTombstones(other)
@@ -320,10 +325,10 @@ func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	return s.segment.roaringSetGet(key, bitmapBufPool)
 }
 
-func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	s.mustLoad()
-	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
+	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool, maxConc)
 }
 
 func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {

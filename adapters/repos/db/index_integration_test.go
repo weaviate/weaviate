@@ -235,6 +235,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	})
 	require.Nil(t, err)
 
+	// A cold shard materializes its directory at load, not on add-property;
+	// force-load it before comparing on-disk files.
+	require.NoError(t, index.LoadLocalShard(context.TODO(), shardName, false))
+
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 

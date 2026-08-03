@@ -14,6 +14,7 @@ package shardusage
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -448,23 +450,29 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	require.NoError(t, err)
 
-	key := make([]byte, 4+4)
-	copy(key, "text")
-	binary.LittleEndian.PutUint32(key[4:], 128)
-	require.NoError(t, b.RoaringSetAddOne(key, 1))
+	writeDims(t, b, "text", 128, []uint64{1})
 	require.NoError(t, b.FlushMemtable())
 	require.NoError(t, b.Shutdown(ctx))
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	errs := make(chan error, 80)
-	for range 8 {
-		wg.Add(1)
+	for range 4 {
+		wg.Add(2)
 		go func() {
 			defer wg.Done()
 			<-start
 			for range 10 {
 				if _, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, "text"); err != nil {
+					errs <- err
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			for range 10 {
+				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}); err != nil {
 					errs <- err
 				}
 			}
@@ -475,5 +483,204 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		require.NoError(t, err)
+	}
+}
+
+// writeDims writes the dimensions-bucket row of a target vector, in whichever strategy the
+// bucket uses.
+func writeDims(t *testing.T, b *lsmkv.Bucket, targetVector string, dims uint32, docIDs []uint64) {
+	t.Helper()
+
+	key := make([]byte, len(targetVector)+4)
+	copy(key, targetVector)
+	binary.LittleEndian.PutUint32(key[len(targetVector):], dims)
+
+	if b.Strategy() == lsmkv.StrategyMapCollection {
+		for _, docID := range docIDs {
+			docIDBytes := make([]byte, 8)
+			binary.LittleEndian.PutUint64(docIDBytes, docID)
+			require.NoError(t, b.MapSet(key, lsmkv.MapPair{Key: docIDBytes, Value: []byte{}}))
+		}
+		return
+	}
+	for _, docID := range docIDs {
+		require.NoError(t, b.RoaringSetAddOne(key, docID))
+	}
+}
+
+func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tenantName := "tenant"
+
+	dirName := t.TempDir()
+	bucketFolder := shardPathDimensionsLSM(dirName, tenantName)
+	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketFolder, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+	require.NoError(t, err)
+
+	writeDims(t, b, "text", 128, []uint64{1, 2, 3, 4, 5})
+	writeDims(t, b, "image", 512, []uint64{1, 2, 3})
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Shutdown(ctx))
+
+	targetVectors := []string{"text", "image", "missing"}
+	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors)
+	require.NoError(t, err)
+	require.Len(t, all, len(targetVectors))
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"])
+	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"])
+	assert.Equal(t, types.Dimensionality{}, all["missing"])
+
+	// parity with the single-vector variant
+	for _, targetVector := range targetVectors {
+		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector)
+		require.NoError(t, err)
+		assert.Equal(t, all[targetVector], single, targetVector)
+	}
+
+	// no target vectors → nothing to calculate, no bucket open
+	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
+	require.NoError(t, err)
+	assert.Nil(t, none)
+}
+
+// TestCalculateTargetVectorDimensionsFromBucket pins that a vector name which is a prefix of a
+// longer name still reports its own dimensions and object count: its dimension bytes sort after
+// the longer name's keys ("texts…" before "text\x80…" at 384 dimensions), so the scan has to skip
+// past those instead of stopping at them. Every vector gets its own dimensions and object count,
+// so a scan that lands on a neighbour's key cannot pass.
+func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	stored := []struct {
+		targetVector string
+		dims         uint32
+		docIDs       []uint64
+	}{
+		{targetVector: "image", dims: 512, docIDs: []uint64{1, 2, 3, 4}},
+		{targetVector: "text", dims: 384, docIDs: []uint64{1, 2, 3}},
+		{targetVector: "texts", dims: 256, docIDs: []uint64{4, 5}},
+		{targetVector: "textbook", dims: 192, docIDs: []uint64{1, 2, 3, 4, 5}},
+		{targetVector: "", dims: 128, docIDs: []uint64{1, 2, 3, 4, 5, 6}},
+	}
+
+	tests := []struct {
+		name         string
+		targetVector string
+		expected     types.Dimensionality
+	}{
+		{
+			name:         "no other name shares the prefix",
+			targetVector: "image",
+			expected:     types.Dimensionality{Dimensions: 512, Count: 4},
+		},
+		{
+			name:         "name is a prefix of two longer names",
+			targetVector: "text",
+			expected:     types.Dimensionality{Dimensions: 384, Count: 3},
+		},
+		{
+			name:         "name extends a shorter name",
+			targetVector: "texts",
+			expected:     types.Dimensionality{Dimensions: 256, Count: 2},
+		},
+		{
+			name:         "name extends a shorter name and precedes a sibling",
+			targetVector: "textbook",
+			expected:     types.Dimensionality{Dimensions: 192, Count: 5},
+		},
+		{
+			name:         "unnamed vector alongside named ones",
+			targetVector: "",
+			expected:     types.Dimensionality{Dimensions: 128, Count: 6},
+		},
+		{
+			name:         "vector without entries",
+			targetVector: "missing",
+			expected:     types.Dimensionality{},
+		},
+	}
+
+	// unloaded shards are read from segments only, loaded ones can still hold the entries in the
+	// memtable
+	for _, strategy := range []string{lsmkv.StrategyRoaringSet, lsmkv.StrategyMapCollection} {
+		for _, flushed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/flushed=%v", strategy, flushed), func(t *testing.T) {
+				b, err := lsmkv.NewBucketCreator().NewBucket(ctx, filepath.Join(t.TempDir(), "dimensions"), "",
+					logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+					lsmkv.WithStrategy(strategy))
+				require.NoError(t, err)
+				defer b.Shutdown(ctx)
+
+				for _, entry := range stored {
+					writeDims(t, b, entry.targetVector, entry.dims, entry.docIDs)
+				}
+				if flushed {
+					require.NoError(t, b.FlushMemtable())
+				}
+
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, tt.targetVector)
+						require.NoError(t, err)
+						assert.Equal(t, tt.expected, dimensionality)
+					})
+				}
+			})
+		}
+	}
+
+	t.Run("unsupported strategy", func(t *testing.T) {
+		b, err := lsmkv.NewBucketCreator().NewBucket(ctx, filepath.Join(t.TempDir(), "dimensions"), "",
+			logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		require.NoError(t, err)
+		defer b.Shutdown(ctx)
+
+		_, err = CalculateTargetVectorDimensionsFromBucket(ctx, b, "text")
+		require.Error(t, err)
+	})
+}
+
+// Only the current format version is served; any other is rejected so the caller recomputes.
+func TestLoadComputedUsageData(t *testing.T) {
+	tests := []struct {
+		name    string
+		version int
+		wantErr bool
+	}{
+		{
+			name:    "current version",
+			version: types.UsageDiskVersion,
+		},
+		{
+			name:    "version from a newer release",
+			version: types.UsageDiskVersion + 1,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indexPath := t.TempDir()
+			shardName := "shard"
+			require.NoError(t, os.MkdirAll(filepath.Join(indexPath, shardName), 0o755))
+
+			stored := &types.ShardUsage{Name: shardName, ObjectsCount: 7, ObjectsStorageBytes: 1234}
+			data, err := json.Marshal(&types.UsageDisk{Version: tt.version, ShardUsage: stored})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(usageTmpFilePath(indexPath, shardName), data, 0o600))
+
+			loaded, err := LoadComputedUsageData(indexPath, shardName)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, stored, loaded)
+		})
 	}
 }

@@ -67,7 +67,7 @@ func TestReadOnlyTombstonesSnapshotFreshnessAndSharing(t *testing.T) {
 
 // Because ReadOnlyTombstones now hands every reader the same shared bitmap, the
 // invariant guarding correctness is that no one mutates it in place. Run under
-// -race: concurrent SetTombstone writers flip tombstonesDirty (driving readers
+// -race: concurrent SetTombstone writers clear the snapshot (driving readers
 // through the exclusive-lock rebuild) while readers assert the snapshot they
 // hold never changes underneath them.
 func TestReadOnlyTombstonesConcurrentReadWrite(t *testing.T) {
@@ -190,7 +190,7 @@ func BenchmarkReadOnlyTombstonesSnapshot(b *testing.B) {
 	})
 
 	// The contended write-heavy case the single-threaded read_after_delete cannot
-	// show: a delete before every read flips tombstonesDirty, so concurrent
+	// show: a delete before every read clears the snapshot, so concurrent
 	// readers serialize on the exclusive Lock to rebuild the snapshot.
 	b.Run("read_after_delete_parallel", func(b *testing.B) {
 		b.ReportAllocs()

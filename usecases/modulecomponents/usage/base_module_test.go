@@ -19,12 +19,14 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/usecases/config"
 	configruntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -103,4 +105,46 @@ func TestBaseModule_RuntimeOverridesConcurrencyReachesService(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("usage service did not receive the shard concurrency from runtime overrides")
 	}
+}
+
+// TestBaseModule_SkipsOverlappingCollection verifies a collection tick is skipped
+// while the previous cycle is still running, and allowed again once it finishes.
+func TestBaseModule_SkipsOverlappingCollection(t *testing.T) {
+	mockStorage := NewMockStorageBackend(t)
+	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Once()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	mockService := clusterusage.NewMockService(t)
+	mockService.EXPECT().Usage(mock.Anything, false).RunAndReturn(
+		func(context.Context, bool) (*types.Report, error) {
+			close(started)
+			<-release
+			return &types.Report{}, nil
+		}).Once()
+
+	module := NewBaseModule("test-module", mockStorage)
+	metrics := NewMetrics(prometheus.NewRegistry(), "test-module")
+
+	cfg := &config.Config{}
+	cfg.Cluster.Hostname = "test-node"
+	cfg.Persistence.DataPath = t.TempDir()
+	require.NoError(t, ParseCommonUsageConfig(cfg))
+	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logrus.New(), metrics))
+	// set the service directly to avoid starting the periodic collector
+	module.usageService = mockService
+
+	require.True(t, module.tryCollectAndUpload(context.Background()))
+	<-started
+
+	assert.False(t, module.tryCollectAndUpload(context.Background()))
+	assert.Equal(t, float64(1),
+		testutil.ToFloat64(metrics.OperationTotal.WithLabelValues("collect_and_upload", "skipped")))
+
+	close(release)
+	assert.Eventually(t, func() bool {
+		return !module.collectionInFlight.Load()
+	}, 5*time.Second, 10*time.Millisecond, "in-flight flag was not cleared after the cycle finished")
+	assert.Equal(t, float64(1),
+		testutil.ToFloat64(metrics.OperationTotal.WithLabelValues("collect_and_upload", "success")))
 }

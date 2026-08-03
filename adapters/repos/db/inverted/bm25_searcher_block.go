@@ -73,87 +73,139 @@ func (b *BM25Searcher) wandBlock(
 		return objects, scores, true, err
 	}
 
-	allResults := make([][][]*lsmkv.SegmentBlockMax, 0, len(params.Properties))
-	termCounts := make([][]string, 0, len(params.Properties))
-	minimumOrTokensMatchByProperty := make([]int, 0, len(params.Properties))
+	type blockTermJob struct {
+		propName        string
+		queryTerms      []string
+		duplicateBoosts []int
+	}
+	// jobs of the same tokenization are contiguous; the group's idf
+	// accumulation happens after the parallel join
+	type tokenizationGroup struct {
+		queryTerms      []string
+		duplicateBoosts []int
+		start, end      int
+	}
+
+	// generateQueryTermsAndStats already rejected the operator if the searched
+	// properties disagree on tokenization, so a non-empty term list here is the
+	// shared queryTerms/index space the merge needs.
+	crossPropAnd := len(stats.crossPropQueryTerms) > 0
+
+	jobs := make([]blockTermJob, 0, len(params.Properties))
+	groups := make([]tokenizationGroup, 0, len(stats.propNamesByTokenization))
+	for tokenization, propNames := range stats.propNamesByTokenization {
+		if len(propNames) == 0 {
+			continue
+		}
+		queryTerms, duplicateBoosts := stats.queryTermsByTokenization[tokenization], stats.duplicateBoostsByTokenization[tokenization]
+		if crossPropAnd {
+			// Every group tokenizes the query to the same terms but not
+			// necessarily in the same order, and the merge keys on term index.
+			queryTerms, duplicateBoosts = stats.crossPropQueryTerms, stats.crossPropDuplicateBoosts
+		}
+		group := tokenizationGroup{queryTerms: queryTerms, duplicateBoosts: duplicateBoosts, start: len(jobs)}
+		for _, propName := range propNames {
+			jobs = append(jobs, blockTermJob{propName: propName, queryTerms: queryTerms, duplicateBoosts: duplicateBoosts})
+		}
+		group.end = len(jobs)
+		groups = append(groups, group)
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
+	}
+
+	allResults := make([][][]*lsmkv.SegmentBlockMax, len(jobs))
+	termCounts := make([][]string, len(jobs))
+	minimumOrTokensMatchByProperty := make([]int, len(jobs))
+	perJobIdfCounts := make([]map[string]uint64, len(jobs))
 
 	// These locks are the segmentCompactions locks for the searched properties
 	// The old search process locked the compactions and read the full postings list into memory.
 	// We don't do that anymore, as the goal of BlockMaxWAND is to avoid reading the full postings list into memory.
 	// The locks are needed here instead of at DoBlockMaxWand only, as we separate term creation from the actual search.
 	// TODO: We should consider if we can remove these locks and only lock at DoBlockMaxWand
-	releaseCallbacks := make(map[string]func(), len(params.Properties))
+	releaseCallbacks := make([]func(), len(jobs))
 
 	defer func() {
 		for _, release := range releaseCallbacks {
-			release()
+			if release != nil {
+				release()
+			}
 		}
 	}()
 
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
-	for tokenization, propNames := range stats.propNamesByTokenization {
-		if len(propNames) > 0 {
-			lenAllResults := len(allResults)
-			queryTerms, duplicateBoosts := stats.queryTermsByTokenization[tokenization], stats.duplicateBoostsByTokenization[tokenization]
-			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
-			for i, term := range queryTerms {
-				duplicateBoostsByTerm[term] = duplicateBoosts[i]
+
+	// each property is a distinct bucket, so term creation (the per-segment
+	// index descents) is independent across jobs; the derived context cancels
+	// sibling jobs on the first error
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(b.logger, ctx)
+	eg.SetLimit(_NUMCPU)
+	for i, job := range jobs {
+		termCounts[i] = job.queryTerms
+		minimumOrTokensMatchByProperty[i] = params.MinimumOrTokensMatch
+		if common_filters.IsAndOperator(params.SearchOperator) {
+			minimumOrTokensMatchByProperty[i] = len(job.queryTerms)
+		}
+
+		eg.Go(func() error {
+			// jobs queued behind the SetLimit semaphore still run after a
+			// sibling error cancels egCtx; bail before the index descents
+			if err := egCtx.Err(); err != nil {
+				return err
 			}
-			globalIdfCounts := make(map[string]uint64, len(queryTerms))
-			nonZeroTerms := make(map[string]uint64, len(queryTerms))
-			for _, propName := range propNames {
-				results, idfCounts, release, err := b.createBlockTerm(stats.N, filterDocIds, queryTerms, propName, stats.propertyBoosts[propName], duplicateBoosts, b.config, ctx)
-				if err != nil {
-					return nil, nil, false, err
-				}
+			results, idfCounts, release, err := b.createBlockTerm(stats.N, filterDocIds, job.queryTerms, job.propName, stats.propertyBoosts[job.propName], job.duplicateBoosts, b.config, egCtx)
+			if err != nil {
+				return err
+			}
+			releaseCallbacks[i] = release
+			allResults[i] = results
+			perJobIdfCounts[i] = idfCounts
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, nil, false, err
+	}
 
-				if release != nil {
-					releaseCallbacks[propName] = release
-				}
-
-				allResults = append(allResults, results)
-				termCounts = append(termCounts, queryTerms)
-
-				minimumOrTokensMatch := params.MinimumOrTokensMatch
-				if params.SearchOperator == common_filters.SearchOperatorAnd {
-					minimumOrTokensMatch = len(queryTerms)
-				}
-
-				minimumOrTokensMatchByProperty = append(minimumOrTokensMatchByProperty, minimumOrTokensMatch)
-				for _, term := range queryTerms {
-					globalIdfCounts[term] += idfCounts[term]
-					if idfCounts[term] > 0 {
-						nonZeroTerms[term]++
-					}
+	for _, group := range groups {
+		duplicateBoostsByTerm := make(map[string]int, len(group.duplicateBoosts))
+		for i, term := range group.queryTerms {
+			duplicateBoostsByTerm[term] = group.duplicateBoosts[i]
+		}
+		globalIdfCounts := make(map[string]uint64, len(group.queryTerms))
+		nonZeroTerms := make(map[string]uint64, len(group.queryTerms))
+		for i := group.start; i < group.end; i++ {
+			for _, term := range group.queryTerms {
+				globalIdfCounts[term] += perJobIdfCounts[i][term]
+				if perJobIdfCounts[i][term] > 0 {
+					nonZeroTerms[term]++
 				}
 			}
-			globalIdfs := make(map[string]float64, len(queryTerms))
-			for term := range globalIdfCounts {
-				if nonZeroTerms[term] == 0 {
+		}
+		globalIdfs := make(map[string]float64, len(group.queryTerms))
+		for term := range globalIdfCounts {
+			if nonZeroTerms[term] == 0 {
+				continue
+			}
+			n := globalIdfCounts[term] / nonZeroTerms[term]
+
+			globalIdfs[term] = terms.Idf(float64(n), stats.N) * float64(duplicateBoostsByTerm[term])
+		}
+		for _, result := range allResults[group.start:group.end] {
+			if len(result) == 0 {
+				continue
+			}
+			for j := range result {
+				if len(result[j]) == 0 {
 					continue
 				}
-				n := globalIdfCounts[term] / nonZeroTerms[term]
-
-				globalIdfs[term] = terms.Idf(float64(n), stats.N) * float64(duplicateBoostsByTerm[term])
-			}
-			for _, result := range allResults[lenAllResults:] {
-				if len(result) == 0 {
-					continue
-				}
-				for j := range result {
-					if len(result[j]) == 0 {
-						continue
-					}
-					for k := range result[j] {
-						if result[j][k] != nil {
-							result[j][k].SetIdf(globalIdfs[result[j][k].QueryTerm()])
-						}
+				for k := range result[j] {
+					if result[j][k] != nil {
+						result[j][k].SetIdf(globalIdfs[result[j][k].QueryTerm()])
 					}
 				}
 			}
-			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
 		}
 	}
 
@@ -161,9 +213,10 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, false, fmt.Errorf("after createBlockTerm: %w", ctx.Err())
 	}
 
-	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
-	internalLimit := limit
-	if limit == 0 {
+	// For unlimited queries, inflate the limit to the total candidate count so the
+	// top-K heap can hold every match.
+	unlimited := limit == 0
+	if unlimited {
 		for _, perProperty := range allResults {
 			for _, perSegment := range perProperty {
 				for _, perTerm := range perSegment {
@@ -173,9 +226,18 @@ func (b *BM25Searcher) wandBlock(
 				}
 			}
 		}
-		internalLimit = limit
+	}
 
-	} else {
+	// The cross-property pass produces the final global top-K in one shot, so it
+	// uses the true limit and skips combineResults' per-property merge.
+	if crossPropAnd {
+		objects, scores, err := b.wandBlockCrossPropAnd(ctx, allResults, stats.crossPropQueryTerms, stats.averagePropLength, limit, params, additional)
+		return objects, scores, false, err
+	}
+
+	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
+	internalLimit := limit
+	if !unlimited {
 		// TODO: the limit is increased by 10 to make sure candidates that are on the edge of the limit are not missed for multi-property search
 		// the proper fix is to either make sure that the limit is always high enough, or force a rerank of the top results from all properties
 		defaultLimit := int(math.Max(float64(limit)*1.1, float64(limit+10)))
@@ -196,7 +258,7 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 
-	eg := enterrors.NewErrorGroupWrapper(b.logger)
+	eg = enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
 	allIds := make([][][]uint64, len(allResults))
@@ -224,7 +286,7 @@ func (b *BM25Searcher) wandBlock(
 
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
-				if params.SearchOperator == common_filters.SearchOperatorAnd {
+				if common_filters.IsAndOperator(params.SearchOperator) {
 					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
 					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
@@ -309,6 +371,32 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 		return nil, nil, err
 	}
 	return combinedObjects, combinedScores, nil
+}
+
+// wandBlockCrossPropAnd bypasses combineResults: MergedTerm.Score already folds in
+// the per-property max + cross-property sum that combineResults would otherwise apply.
+func (b *BM25Searcher) wandBlockCrossPropAnd(ctx context.Context, allResults [][][]*lsmkv.SegmentBlockMax, queryTerms []string, averagePropLength float64, limit int, params searchparams.KeywordRanking, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	mergedTerms, ok := lsmkv.BuildCrossPropMergedTerms(allResults, len(queryTerms))
+	if !ok {
+		return []*storobj.Object{}, []float32{}, nil
+	}
+
+	topKHeap := lsmkv.DoBlockMaxAndCrossProp(ctx, limit, mergedTerms, averagePropLength, params.AdditionalExplanations, len(queryTerms), b.logger)
+
+	ids, scores, explanations, err := b.getTopKIds(topKHeap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// getTopKIds returns an empty (not per-id) explanations slice when explanations
+	// were not requested; downstream indexing is positional, so collapse it to nil.
+	if len(explanations) != len(ids) {
+		explanations = nil
+	}
+
+	ids, scores, explanations = b.sortResultsByScore(ids, scores, explanations)
+	objLimit := int(math.Min(float64(limit), float64(len(ids))))
+	return b.getObjectsAndScores(ids, scores, explanations, queryTerms, additional, objLimit)
 }
 
 type aggregate func(float32, float32) float32

@@ -67,6 +67,7 @@ type Segment interface {
 	getInvertedData() *segmentInvertedData
 	isLoaded() bool
 	markForDeletion() error
+	markForDeletionExceptSegment() error
 	stripTmpExtensions(leftSegmentID, rightSegmentID string) error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() innerCursorCollection
@@ -83,7 +84,7 @@ type Segment interface {
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
-	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
+	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
 
 	// map/bmw specific
 	hasKey(key []byte) bool
@@ -137,6 +138,10 @@ type segment struct {
 	refCount         atomic.Int64
 
 	deleteMarkerSuffix string
+
+	// set when the .db was overwritten in place by a newer segment, so drop must
+	// not look for a ".deleteme" copy of it. See markForDeletionExceptSegment.
+	segmentFileSuperseded bool
 }
 
 type diskIndex interface {
@@ -450,27 +455,26 @@ func (s *segment) close() error {
 	return nil
 }
 
+// sidecarPaths returns the paths of the files derived from the segment: bloom
+// filters, count net additions and metadata.
+func (s *segment) sidecarPaths() []string {
+	paths := make([]string, 0, 3+int(s.secondaryIndexCount))
+	paths = append(paths, s.bloomFilterPath())
+	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		paths = append(paths, s.bloomFilterSecondaryPath(i))
+	}
+	return append(paths, s.countNetPath(), s.metadataPath())
+}
+
 func (s *segment) dropImmediately() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
-			return fmt.Errorf("drop bloom filter: %w", err)
+	for _, path := range s.sidecarPaths() {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("drop %s: %w", filepath.Base(path), err)
 		}
-	}
-
-	if err := os.RemoveAll(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop count net additions file: %w", err)
-	}
-
-	if err := os.RemoveAll(s.metadataPath()); err != nil {
-		return fmt.Errorf("drop metadata file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -488,22 +492,16 @@ func (s *segment) dropMarked() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := s.removeAllMarked(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop previously marked bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := s.removeAllMarked(s.bloomFilterSecondaryPath(i)); err != nil {
-			return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
+	for _, path := range s.sidecarPaths() {
+		if err := s.removeAllMarked(path); err != nil {
+			return fmt.Errorf("drop previously marked %s: %w", filepath.Base(path), err)
 		}
 	}
 
-	if err := s.removeAllMarked(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop previously marked count net additions file: %w", err)
-	}
-
-	if err := s.removeAllMarked(s.metadataPath()); err != nil {
-		return fmt.Errorf("drop previously marked metadata file: %w", err)
+	if s.segmentFileSuperseded {
+		// .db was overwritten in place; no ".deleteme" copy to remove, the old
+		// inode is freed by the preceding close().
+		return nil
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -531,33 +529,8 @@ func (s *segment) removeMarked(path string) error {
 }
 
 func (s *segment) markForDeletion() error {
-	// support for persisting bloom filters and cnas was added in v1.17,
-	// therefore the files may not be present on segments created with previous
-	// versions. If we get a not exist error, we ignore it.
-	if err := s.markDeleted(s.bloomFilterPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark bloom filter deleted: %w", err)
-		}
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := s.markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("mark secondary bloom filter deleted: %w", err)
-			}
-		}
-	}
-
-	if err := s.markDeleted(s.countNetPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark count net additions file deleted: %w", err)
-		}
-	}
-
-	if err := s.markDeleted(s.metadataPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark metadata file deleted: %w", err)
-		}
+	if err := s.markSidecarsForDeletion(); err != nil {
+		return err
 	}
 
 	// for the segment itself, we're not accepting a NotExists error. If there
@@ -565,6 +538,32 @@ func (s *segment) markForDeletion() error {
 	// don't want to ignore it.
 	if err := s.markDeleted(s.path); err != nil {
 		return fmt.Errorf("mark segment deleted: %w", err)
+	}
+
+	return nil
+}
+
+// markForDeletionExceptSegment marks the sidecars for deletion but leaves the
+// .db in place, for the in-place cleanup switch where the new segment overwrites
+// the old .db at the same path (see segment_group_replacer.go switchOnDisk).
+func (s *segment) markForDeletionExceptSegment() error {
+	if err := s.markSidecarsForDeletion(); err != nil {
+		return err
+	}
+	s.segmentFileSuperseded = true
+	return nil
+}
+
+// markSidecarsForDeletion renames the derived files (bloom filters, CNA,
+// metadata) to their ".deleteme" markers.
+func (s *segment) markSidecarsForDeletion() error {
+	// support for persisting bloom filters and cnas was added in v1.17,
+	// therefore the files may not be present on segments created with previous
+	// versions. If we get a not exist error, we ignore it.
+	for _, path := range s.sidecarPaths() {
+		if err := s.markDeleted(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("mark %s deleted: %w", filepath.Base(path), err)
+		}
 	}
 
 	return nil

@@ -63,6 +63,7 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyReplace,
+		logger:   nullLogger(),
 	}
 
 	cursor := b.Cursor()

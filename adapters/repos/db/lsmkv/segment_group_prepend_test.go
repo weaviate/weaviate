@@ -222,7 +222,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 					case <-stop:
 						return
 					default:
-						bm, release, err := tgtBucket.RoaringSetGet([]byte("key-tgt"))
+						bm, release, err := tgtBucket.RoaringSetGet(t.Context(), []byte("key-tgt"))
 						if err != nil {
 							readErrors <- err
 							return
@@ -443,7 +443,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		//   - Source removed 2, but target (newer) added 2 → 2 present
 		//   - Source added 10, target didn't touch it → 10 present
 		//   - Target added 20, source didn't touch it → 20 present
-		bm, release, err := tgtBucket.RoaringSetGet([]byte("key-x"))
+		bm, release, err := tgtBucket.RoaringSetGet(t.Context(), []byte("key-x"))
 		require.NoError(t, err)
 		defer release()
 
@@ -876,10 +876,93 @@ func createTestBucket(t *testing.T, ctx context.Context, dir, strategy string) *
 // returns a bitmap containing all expected values.
 func assertRoaringSetContains(t *testing.T, b *Bucket, key []byte, expected []uint64) {
 	t.Helper()
-	bm, release, err := b.RoaringSetGet(key)
+	bm, release, err := b.RoaringSetGet(t.Context(), key)
 	require.NoError(t, err)
 	defer release()
 	for _, v := range expected {
 		assert.True(t, bm.Contains(v), "expected bitmap to contain %d for key %q", v, key)
 	}
+}
+
+// TestSegmentGroup_PrependSegments_InvertedAveragePropertyLength pins that
+// prepended StrategyInverted segments are folded into the avgdl accounting.
+// PrependSegmentsFromBucket makes them live in the group, so their documents
+// count toward the BM25 denominator exactly as a flushed segment's would;
+// leaving them uncounted under-reports avgdl for the whole shard.
+func TestSegmentGroup_PrependSegments_InvertedAveragePropertyLength(t *testing.T) {
+	ctx := context.Background()
+	term := []byte("shared")
+
+	// source: 100 docs, property length 10 each
+	srcDir := t.TempDir()
+	src := createTestBucket(t, ctx, srcDir, StrategyInverted)
+	for id := 0; id < 100; id++ {
+		require.NoError(t, src.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 10, false)))
+	}
+	require.NoError(t, src.FlushAndSwitch())
+	require.NoError(t, src.Shutdown(ctx))
+
+	// target: 10 docs of its own, property length 20 each
+	tgtDir := t.TempDir()
+	tgt := createTestBucket(t, ctx, tgtDir, StrategyInverted)
+	defer tgt.Shutdown(ctx)
+	for id := 1000; id < 1010; id++ {
+		require.NoError(t, tgt.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 20, false)))
+	}
+	require.NoError(t, tgt.FlushAndSwitch())
+
+	_, count := tgt.disk.GetAveragePropertyLength()
+	require.Equal(t, uint64(10), count, "control: only the target's own docs so far")
+
+	require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+
+	avg, count := tgt.disk.GetAveragePropertyLength()
+	require.Equal(t, uint64(110), count, "prepended segments must be counted into the avgdl accounting")
+	require.InDelta(t, (100*10.0+10*20.0)/110.0, avg, 1e-9)
+}
+
+// TestSegmentGroup_PrependSegments_InvertedCompactionDoesNotUnderflow pins the
+// consequence of the above: reconcileAveragePropertyLength subtracts a retired
+// segment's contribution at compaction, so a prepended segment that was never
+// counted underflows the running total to a wrapped uint64 — a garbage BM25
+// denominator for the whole shard, not merely an under-count.
+func TestSegmentGroup_PrependSegments_InvertedCompactionDoesNotUnderflow(t *testing.T) {
+	ctx := context.Background()
+	term := []byte("shared")
+
+	// source: 97 docs, all of which the target will tombstone
+	srcDir := t.TempDir()
+	src := createTestBucket(t, ctx, srcDir, StrategyInverted)
+	for id := 0; id < 97; id++ {
+		require.NoError(t, src.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 10, false)))
+	}
+	require.NoError(t, src.FlushAndSwitch())
+	require.NoError(t, src.Shutdown(ctx))
+
+	// target: 3 live docs of its own
+	tgtDir := t.TempDir()
+	tgt := createTestBucket(t, ctx, tgtDir, StrategyInverted)
+	defer tgt.Shutdown(ctx)
+	for id := 1000; id < 1003; id++ {
+		require.NoError(t, tgt.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 20, false)))
+	}
+	require.NoError(t, tgt.FlushAndSwitch())
+	require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+
+	// tombstone every prepended doc, then force the compaction that reclaims them
+	for id := 0; id < 97; id++ {
+		require.NoError(t, tgt.MapDeleteKey(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 1, true).Key))
+	}
+	require.NoError(t, tgt.FlushAndSwitch())
+	for {
+		compacted, err := tgt.disk.compactOnce(ctx)
+		require.NoError(t, err)
+		if !compacted {
+			break
+		}
+	}
+
+	avg, count := tgt.disk.GetAveragePropertyLength()
+	require.Equal(t, uint64(3), count, "denominator must be the 3 survivors, not an underflowed uint64")
+	require.InDelta(t, 20.0, avg, 1e-9)
 }

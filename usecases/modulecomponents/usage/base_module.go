@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -55,6 +57,9 @@ type BaseModule struct {
 	// mu mutex to protect shared fields to run concurrently the collection and upload
 	// to avoid interval overlap for the tickers
 	mu sync.RWMutex
+	// collectionInFlight guards against overlapping collection cycles when a
+	// report takes longer than the collection interval
+	collectionInFlight atomic.Bool
 }
 
 // NewBaseModule creates a new base module instance
@@ -210,17 +215,10 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 				"interval":     b.interval.String(),
 			}).Debug("collection ticker fired - starting collection cycle")
 
-			enterrors.GoWrapper(func() {
-				if err := b.collectAndUploadUsage(ctx); err != nil {
-					b.logger.WithError(err).Error("Failed to collect and upload usage data")
-					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
-				} else {
-					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
-				}
-			}, b.logger)
-
-			// save last push date
-			b.storeLastPushDate()
+			if b.tryCollectAndUpload(ctx) {
+				// save last push date
+				b.storeLastPushDate()
+			}
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
@@ -240,6 +238,28 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// tryCollectAndUpload starts a collection cycle in the background unless the
+// previous one is still running, in which case the tick is skipped.
+func (b *BaseModule) tryCollectAndUpload(ctx context.Context) bool {
+	if !b.collectionInFlight.CompareAndSwap(false, true) {
+		b.logger.Warn("previous usage collection still in progress - skipping this cycle")
+		b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "skipped").Inc()
+		return false
+	}
+
+	enterrors.GoWrapper(func() {
+		defer b.collectionInFlight.Store(false)
+		defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessUsageCollection)()
+		if err := b.collectAndUploadUsage(ctx); err != nil {
+			b.logger.Errorf("Failed to collect and upload usage data: %v", err)
+			b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
+		} else {
+			b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
+		}
+	}, b.logger)
+	return true
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {

@@ -42,6 +42,7 @@ import (
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -760,7 +761,9 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		TrackVectorDimensions: true,
 		EnableLazyLoadShards:  false, // we have to make sure lazyload shard disabled to load directly
 		MaxReuseWalSize:       4096,  // with recovery from .wal
-
+		// Left at 0, the commit logger switches and condenses on every maintenance
+		// tick, so the measured commit log size changes mid-test.
+		HNSWMaxLogSize: config.DefaultPersistenceHNSWMaxLogSize,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
@@ -801,8 +804,6 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// but we don't need DB for this test. Gimicky, but it does the job.
 	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 	publishVectorMetricsFromDB(t, db)
-	// Give time for HNSW commit logger condensing process to finish
-	time.Sleep(1 * time.Second)
 	// Test active shard vector storage size
 	activeShard, release, err := index.GetShard(ctx, tenantNamePopulated)
 	require.NoError(t, err)
@@ -870,6 +871,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		TrackVectorDimensions: true,
 		MaxReuseWalSize:       4096,
 		EnableLazyLoadShards:  true, // we have to make sure lazyload enabled
+		HNSWMaxLogSize:        config.DefaultPersistenceHNSWMaxLogSize,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,

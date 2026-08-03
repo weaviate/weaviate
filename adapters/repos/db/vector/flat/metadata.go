@@ -549,8 +549,10 @@ func (index *flat) restoreRQ1FromMsgpack(rq1Data *RQ1Data) error {
 		return errors.Wrap(err, "restore binary rotational quantizer from msgpack")
 	}
 
-	index.compressed.Store(true)
+	// quantizer before compressed flag: readers access it lock-free after
+	// observing Compressed() == true
 	index.quantizer = &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
+	index.compressed.Store(true)
 	return nil
 }
 
@@ -570,7 +572,9 @@ func (index *flat) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		return errors.Wrap(err, "restore rotational quantizer from msgpack")
 	}
 
-	index.compressed.Store(true)
+	// quantizer before compressed flag: readers access it lock-free after
+	// observing Compressed() == true
 	index.quantizer = &RotationalQuantizerWrapper{RotationalQuantizer: rq}
+	index.compressed.Store(true)
 	return nil
 }

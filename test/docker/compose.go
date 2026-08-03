@@ -50,6 +50,7 @@ import (
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
+	modmulti2vectwelvelabs "github.com/weaviate/weaviate/modules/multi2vec-twelvelabs"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -162,6 +163,7 @@ type Compose struct {
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
+	weaviateHostGateway            bool
 }
 
 func New() *Compose {
@@ -295,6 +297,12 @@ func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecTwelveLabs(apiKey string) *Compose {
+	d.weaviateEnvs["TWELVELABS_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vectwelvelabs.Name)
 	return d
 }
 
@@ -623,6 +631,19 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+// WithWeaviateHostGateway adds a "host.docker.internal:host-gateway" entry to
+// every Weaviate container, letting container-side clients (e.g. the telemetry
+// pusher via TELEMETRY_URL) reach a server bound on the test host. Opt-in, so
+// existing tests are unaffected.
+//
+// Unlike testcontainers HostAccessPorts (which starts a per-container sshd
+// sidecar torn down on Stop), this is a plain extra-host entry that survives
+// container Stop/Start, so it works with the restart-based tests.
+func (d *Compose) WithWeaviateHostGateway() *Compose {
+	d.weaviateHostGateway = true
+	return d
+}
+
 // WithWeaviateFiles copies the given files into each Weaviate container
 // before it starts. Useful for injecting configuration files such as runtime
 // override YAML.
@@ -712,7 +733,16 @@ func (d *Compose) WithAutoschema() *Compose {
 }
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
-	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
+	// Telemetry is off by default so nothing reaches the real endpoint. Setting
+	// TELEMETRY_URL opts in and redirects every payload to that sink. An explicit
+	// DISABLE_TELEMETRY (either value) always wins.
+	if _, ok := d.weaviateEnvs["DISABLE_TELEMETRY"]; !ok {
+		if d.weaviateEnvs["TELEMETRY_URL"] != "" {
+			d.weaviateEnvs["DISABLE_TELEMETRY"] = "false"
+		} else {
+			d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
+		}
+	}
 	// Each cluster gets its own subnet (10.<octet>.0.0/16). Two networks can
 	// still draw the same random octet — including several within one test
 	// binary — so re-roll and retry when Docker reports an overlap.
@@ -974,7 +1004,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1022,7 +1052,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	cs := make([]*DockerContainer, size)
 	image := os.Getenv(envTestWeaviateImage)
 	networkName := settings["network"]
-	settings["DISABLE_TELEMETRY"] = "true"
+	// Start already resolves DISABLE_TELEMETRY; default it only if unset.
+	if _, ok := settings["DISABLE_TELEMETRY"]; !ok {
+		settings["DISABLE_TELEMETRY"] = "true"
+	}
 	settings["DEBUG_ENDPOINTS_ENABLED"] = "true"
 	if d.withWeaviateBasicAuth {
 		settings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
@@ -1139,7 +1172,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
-				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, d.weaviateHostGateway)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

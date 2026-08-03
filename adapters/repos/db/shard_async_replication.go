@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -1132,7 +1134,9 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	defer s.asyncReplicationStatsMux.RUnlock()
 
 	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
-	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
+	// a fixed order keeps repeated reads from reshuffling the reported targets
+	for _, targetNodeName := range slices.Sorted(maps.Keys(s.asyncReplicationStatsByTargetNode)) {
+		asyncReplicationStats := s.asyncReplicationStatsByTargetNode[targetNodeName]
 		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
 			ObjectsPropagated:       uint64(max(0, asyncReplicationStats.localObjectsPropagationCount-asyncReplicationStats.objectsNotResolved)),
 			StartDiffTimeUnixMillis: asyncReplicationStats.hashtreeDiffStartTime.UnixMilli(),
@@ -1474,6 +1478,8 @@ func (s *Shard) hashBeat(
 
 	s.metrics.IncAsyncReplicationIterationCount()
 	s.metrics.IncAsyncReplicationIterationRunning()
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessAsyncReplication)()
 
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
