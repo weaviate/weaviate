@@ -866,6 +866,28 @@ func TestOnTaskCompleted_TerminalTasks_KeepOpsAndSchema(t *testing.T) {
 			"a quarantine verdict contradicts completion; the op still covers unstripped data")
 	})
 
+	t.Run("RF>1: a drained replica keeps its op while a sibling replica is incomplete", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, &fakeFinalizer{}, newFakeRecorder())
+
+		task := dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+			"u1":  {Status: distributedtask.UnitStatusCompleted},
+			"u1b": {Status: distributedtask.UnitStatusFailed},
+		})
+		payload := &DropVectorIndexTaskPayload{
+			Collection:  "Collection",
+			Targets:     []string{"v1"},
+			OpID:        "op1",
+			UnitToNode:  map[string]string{"u1": "node1", "u1b": "node2"},
+			UnitToShard: map[string]string{"u1": "shard1", "u1b": "shard1"},
+		}
+		task.Payload, _ = payload.encode()
+
+		p.OnTaskCompleted(task)
+		require.Empty(t, bucket.deleted,
+			"coverage needs every replica's unit; the uncovered shard is re-armed here next round and must find its resume point")
+	})
+
 	t.Run("a failed unit's op is kept even when a sibling completed", func(t *testing.T) {
 		done := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
 		partial := &fakeEditOpBucket{pendingSeq: [][]string{{"s3"}}}

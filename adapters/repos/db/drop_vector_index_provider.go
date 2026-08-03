@@ -682,11 +682,11 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 		// under a fresh epoch (the marker-introduction purge guarantees a
 		// clean record slate), whose own op never collides with this one.
 		//
-		// COMPLETED units are the exception: their shards enter the epoch's
-		// inherited coverage (this record is retained while the marker
-		// stands), so no later round re-arms them — disarm now, or every
-		// future replace compaction pays a full object decode for nothing,
-		// indefinitely if a cold tenant holds the marker open.
+		// Shards whose EVERY replica unit completed are the exception: they
+		// enter the epoch's inherited coverage (this record is retained
+		// while the marker stands), so no later round re-arms them — disarm
+		// now, or every future replace compaction pays a full object decode
+		// for nothing, indefinitely if a cold tenant holds the marker open.
 		p.deleteCompletedUnitEditOps(task, payload)
 		logger.WithField("status", task.Status).
 			Info("drop-vector: task-completion: task did not succeed; incomplete units' edit ops kept as the next round's resume point, schema marker stays")
@@ -889,10 +889,16 @@ func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPa
 	return ShardsNotCovered(shardNames, payload.CoveredShards()), nil
 }
 
-// deleteCompletedUnitEditOps disarms the op on this node's loaded shards whose
-// units COMPLETED in a terminal (FAILED/CANCELLED) round — those shards are in
-// the epoch's inherited coverage, so no later round of this drop touches them,
-// and a kept op would only cost decode work on every future compaction.
+// deleteCompletedUnitEditOps disarms the op on this node's loaded shards that
+// entered the epoch's inherited coverage in a terminal (FAILED/CANCELLED)
+// round — no later round of this drop touches them, and a kept op would only
+// cost decode work on every future compaction. Coverage requires EVERY
+// replica's unit complete (CompletedUnitShards), and the disarm gate must
+// match it exactly: under RF>1, gating on the local unit alone would destroy
+// a resume point the next round immediately needs — a failed sibling replica
+// leaves the shard uncovered, so that round re-arms it HERE and would
+// re-strip the already-drained replica from scratch, every round until the
+// sibling succeeds.
 // Belt: a shard whose op still has pending or quarantined rows is skipped —
 // completion implies both are empty, so anything else means the op still
 // covers unstripped data and deleting it could resurrect the dropped vector.
@@ -902,15 +908,20 @@ func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPa
 func (p *DropVectorIndexProvider) deleteCompletedUnitEditOps(
 	task *distributedtask.Task, payload *DropVectorIndexTaskPayload,
 ) {
+	covered := make(map[string]struct{})
+	for _, shard := range CompletedUnitShards(task, payload) {
+		covered[shard] = struct{}{}
+	}
 	var shardNames []string
 	for unitID, node := range payload.UnitToNode {
 		if node != p.localNode {
 			continue
 		}
-		if unit, ok := task.Units[unitID]; !ok || unit.Status != distributedtask.UnitStatusCompleted {
+		shard := payload.UnitToShard[unitID]
+		if _, ok := covered[shard]; !ok {
 			continue
 		}
-		shardNames = append(shardNames, payload.UnitToShard[unitID])
+		shardNames = append(shardNames, shard)
 	}
 	if len(shardNames) == 0 {
 		return
