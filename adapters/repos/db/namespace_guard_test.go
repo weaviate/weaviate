@@ -197,8 +197,9 @@ func TestNewIndexCarriesNamespaceLookup(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// The constructor reaches site (iii), which looks the state up, so a
-			// qualified name consults the exister before the assertions below.
+			// The constructor calls into initAndStoreShards, which looks the state
+			// up, so a qualified name consults the exister before the assertions
+			// below.
 			e := namespaces.NewMockExister(t)
 			e.EXPECT().GetNamespace("alpha").
 				Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true).Maybe()
@@ -472,9 +473,9 @@ func TestDesiredOpenLocalShardsReadError(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// indexForGuardSite builds the minimum Index initLocalShardWithForcedLoading
+// indexForGuardTest builds the minimum Index initLocalShardWithForcedLoading
 // needs before it reaches the resident-shard branch.
-func indexForGuardSite(t *testing.T, className string, e namespaces.Exister) *Index {
+func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *Index {
 	t.Helper()
 
 	logger, _ := logrustest.NewNullLogger()
@@ -500,7 +501,7 @@ func existerWithState(t *testing.T, state api.NamespaceState) namespaces.Exister
 // is refused rather than force-loaded. Seeding a zero-value LazyLoadShard makes
 // that observable: reaching the branch would call Load on it, which cannot
 // succeed, so a namespace error proves the guard ran first.
-func TestGuardSiteI(t *testing.T) {
+func TestGuardLoadPath(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
@@ -527,7 +528,7 @@ func TestGuardSiteI(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
 			if tc.resident {
 				idx.shards.Store("t1", &LazyLoadShard{})
 			}
@@ -540,7 +541,7 @@ func TestGuardSiteI(t *testing.T) {
 	t.Run("a lookup miss refuses", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-		idx := indexForGuardSite(t, class, e)
+		idx := indexForGuardTest(t, class, e)
 
 		err := idx.initLocalShardWithForcedLoading(ctx, &models.Class{Class: class}, "t1", true, false, callerUserRequest)
 		require.ErrorIs(t, err, errNamespaceRowMissing)
@@ -549,7 +550,7 @@ func TestGuardSiteI(t *testing.T) {
 	// The allow side: without it, a guard that refused every in-band load would
 	// pass every refuse-only assertion above.
 	t.Run("an active namespace admits the load", func(t *testing.T) {
-		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateActive))
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateActive))
 		idx.shards.Store("t1", &LazyLoadShard{})
 
 		err := idx.requireNamespaceAllowsShardLoad(callerUserRequest)
@@ -557,7 +558,7 @@ func TestGuardSiteI(t *testing.T) {
 	})
 
 	t.Run("an unqualified class name admits the load", func(t *testing.T) {
-		idx := indexForGuardSite(t, "Product", nil)
+		idx := indexForGuardTest(t, "Product", nil)
 
 		err := idx.requireNamespaceAllowsShardLoad(callerUserRequest)
 		require.NoError(t, err)
@@ -582,7 +583,7 @@ func TestReplicationExempt(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
 
 			err := idx.requireNamespaceAllowsShardLoad(callerReplication)
 			if tc.wantErr != nil {
@@ -596,7 +597,7 @@ func TestReplicationExempt(t *testing.T) {
 	t.Run("a lookup miss is refused", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-		idx := indexForGuardSite(t, class, e)
+		idx := indexForGuardTest(t, class, e)
 
 		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerReplication), errNamespaceRowMissing)
 	})
@@ -604,23 +605,24 @@ func TestReplicationExempt(t *testing.T) {
 	// The exemption is per entry point, not per namespace: the same suspended
 	// shard a movement may load is still refused to a request.
 	t.Run("the same suspended shard is refused to a request", func(t *testing.T) {
-		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
 
 		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerReplication))
 		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), namespaces.ErrNamespaceSuspended)
 	})
 }
 
-// Site (ii) is the read/write request path, which has two load points the load
-// path does not cover: the ensureInit creation, and preventShutdown loading a
-// resident lazy shard even when ensureInit is false. The guard sits above both.
+// getOptInitLocalShard is the read/write request path, which has two load points
+// the load path does not cover: the ensureInit creation, and preventShutdown
+// loading a resident lazy shard even when ensureInit is false. The guard sits
+// above both.
 //
 // Each case is discriminating in its own way. Without a resident shard and with
 // ensureInit false the function otherwise returns no shard and no error, so a
 // refusal there is red if the guard moves into the ensureInit branch. With a
 // resident zero-value LazyLoadShard, reaching preventShutdown panics on Load, so
 // a namespace error rather than a panic is what proves the guard ran first.
-func TestGuardSiteII(t *testing.T) {
+func TestGuardRequestPath(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
@@ -636,7 +638,7 @@ func TestGuardSiteII(t *testing.T) {
 
 	for _, tc := range refused {
 		t.Run("a read refuses "+tc.name+" with no resident shard", func(t *testing.T) {
-			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
 
 			shard, release, err := idx.GetShard(ctx, "t1")
 			require.ErrorIs(t, err, tc.wantErr)
@@ -645,7 +647,7 @@ func TestGuardSiteII(t *testing.T) {
 		})
 
 		t.Run("a read refuses "+tc.name+" holding a resident lazy shard", func(t *testing.T) {
-			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
 			lazy := &LazyLoadShard{}
 			idx.shards.Store("t1", lazy)
 
@@ -657,7 +659,7 @@ func TestGuardSiteII(t *testing.T) {
 		})
 
 		t.Run("a write refuses "+tc.name, func(t *testing.T) {
-			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
 
 			_, _, err := idx.getOrInitShard(ctx, "t1")
 			require.ErrorIs(t, err, tc.wantErr)
@@ -667,7 +669,7 @@ func TestGuardSiteII(t *testing.T) {
 	t.Run("a lookup miss refuses", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-		idx := indexForGuardSite(t, class, e)
+		idx := indexForGuardTest(t, class, e)
 		idx.shards.Store("t1", &LazyLoadShard{})
 
 		_, _, err := idx.GetShard(ctx, "t1")
@@ -678,7 +680,7 @@ func TestGuardSiteII(t *testing.T) {
 	// without a collaborator, so it is what the admitted states assert on: a guard
 	// refusing every read would pass every refusal above.
 	t.Run("an active namespace admits the read", func(t *testing.T) {
-		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateActive))
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateActive))
 
 		shard, _, err := idx.GetShard(ctx, "t1")
 		require.NoError(t, err)
@@ -686,7 +688,7 @@ func TestGuardSiteII(t *testing.T) {
 	})
 
 	t.Run("an unqualified class name admits the read", func(t *testing.T) {
-		idx := indexForGuardSite(t, "Product", nil)
+		idx := indexForGuardTest(t, "Product", nil)
 
 		shard, _, err := idx.GetShard(ctx, "t1")
 		require.NoError(t, err)
@@ -712,7 +714,7 @@ func TestWorkerReopenAdmission(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			idx := indexForGuardSite(t, class, existerWithState(t, tc.state))
+			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
 
 			err := idx.requireNamespaceAllowsShardLoad(callerResume)
 			if tc.wantErr != nil {
@@ -725,7 +727,7 @@ func TestWorkerReopenAdmission(t *testing.T) {
 
 	// The split that goes red if the two accessors are ever collapsed into one.
 	t.Run("resuming admits the reopen while refusing a request", func(t *testing.T) {
-		idx := indexForGuardSite(t, class, existerWithState(t, api.NamespaceStateResuming))
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateResuming))
 
 		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerResume))
 		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), namespaces.ErrNamespaceResuming)
@@ -769,15 +771,16 @@ func registeredShards(t *testing.T, idx *Index) []string {
 	return names
 }
 
-// Site (iii) is boot: the constructor registers a class's local shards before
-// any request can reach the index. It filters on ShardsShouldBeOpen rather than
-// the request-path check, so a resuming namespace keeps its HOT shards —
-// otherwise nothing reopens and a resume could never finish.
-func TestGuardSiteIII(t *testing.T) {
+// initAndStoreShards runs at boot: the constructor registers a class's local
+// shards before any request can reach the index. It filters on
+// ShardsShouldBeOpen rather than the request-path check, so a resuming namespace
+// keeps its HOT shards — otherwise nothing reopens and a resume could never
+// finish.
+func TestGuardBoot(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
-	// empty1 is the Exit 42 boot half: a tenant with no status counts as HOT here.
+	// empty1 pins that a tenant with no status counts as HOT on boot.
 	mixed := map[string]sharding.Physical{
 		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"), "cold1": coldPhysical("cold1"),
 	}
@@ -860,11 +863,11 @@ func TestGuardSiteIII(t *testing.T) {
 	})
 }
 
-// The two sites read an empty tenant status differently: boot normalizes it to
-// HOT and loads, while the multi-tenant reload compares Status raw and unloads.
-// WS4a changes neither, so both halves are pinned here — a later unification of
-// the two filters cannot happen silently.
-func TestEmptyTenantStatusPerSite(t *testing.T) {
+// Boot and the multi-tenant reload read an empty tenant status differently: boot
+// normalizes it to HOT and loads, while the reload compares Status raw and
+// unloads. Neither filter changes here, so both behaviours are pinned — a later
+// unification of the two cannot happen silently.
+func TestEmptyTenantStatusBootVsReload(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
@@ -979,7 +982,7 @@ func TestLocalShardsToLoad(t *testing.T) {
 func dbForReopen(t *testing.T, className string, e namespaces.Exister) (*DB, *Index) {
 	t.Helper()
 
-	idx := indexForGuardSite(t, className, e)
+	idx := indexForGuardTest(t, className, e)
 	sg := schemaUC.NewMockSchemaGetter(t)
 	sg.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className}).Maybe()
 	idx.getSchema = sg
@@ -1062,8 +1065,8 @@ func TestReopenShard(t *testing.T) {
 
 	// KNOWN BUG, pre-existing and shared with LoadLocalShard: the resident-shard
 	// branch returns before the backupProtectedShards gate, so a lazy shard that a
-	// backup holds is loaded anyway. Asserted as it behaves today so the branch
-	// stays green; WS4b's backup work inverts this to require the refusal.
+	// backup holds is loaded anyway. Asserted as it behaves today; the fix depends
+	// on unloading shards on suspend, which does not exist yet.
 	t.Run("a resident lazy shard is reopened despite backup protection", func(t *testing.T) {
 		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateResuming))
 		idx.shards.Store("t1", &LazyLoadShard{loaded: true})
