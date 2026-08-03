@@ -82,14 +82,13 @@ type MigrationStrategy interface {
 	ShouldProcessProperty(property *inverted.Property) bool
 
 	// MakeAddCallback creates a double-write callback for property additions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
-	MakeAddCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onAddToPropertyValueIndex
+	// See [doubleWriteScope] for what the scope carries; scope.forTargetStrategy
+	// is true during the ingest phase and false during the backup phase.
+	MakeAddCallback(scope doubleWriteScope) onAddToPropertyValueIndex
 
 	// MakeDeleteCallback creates a double-write callback for property deletions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
-	MakeDeleteCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onDeleteFromPropertyValueIndex
+	// scope.forTargetStrategy has the same meaning as in MakeAddCallback.
+	MakeDeleteCallback(scope doubleWriteScope) onDeleteFromPropertyValueIndex
 
 	// PreReindexHook is called before the reindex/ingest phase begins on a shard.
 	// e.g. shard.markSearchableBlockmaxProperties(props...)

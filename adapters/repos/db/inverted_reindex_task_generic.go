@@ -172,6 +172,12 @@ type ShardReindexTaskGeneric struct {
 	// instance is later invoked from OnGroupCompleted's swap phase).
 	skipSwapOnFinish atomic.Bool
 
+	// swapStarted records that this task instance entered [runtimeSwap]. It
+	// gates the canonical-name fallback in [resolveDoubleWriteBucket] — see
+	// that doc for why. Atomic: runtimeSwap runs on the task worker
+	// goroutine while the double-write callbacks fire on request goroutines.
+	swapStarted atomic.Bool
+
 	// callbackDisableFuncs collects the disable functions returned by
 	// registerAddToPropertyValueIndex / registerDeleteFromPropertyValueIndex.
 	// They are called after a runtime swap to stop the double-write callbacks.
@@ -1875,6 +1881,16 @@ func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
 ) error {
+	// Arm the canonical-name fallback in the double-write callbacks BEFORE
+	// anything can call SwapBucketPointer, so no instant exists where a
+	// sidecar entry is gone while the flag still reads false — that instant
+	// would drop the mirror writes weaviate/weaviate#11688 fixed. Resumed
+	// swaps re-enter this same function, so they are covered too. A swap
+	// that fails before touching any pointer leaves the flag set, which is
+	// harmless: it only restores the unconditional fallback, and the defer
+	// below disables the callbacks anyway.
+	t.swapStarted.Store(true)
+
 	// Always disable the double-write callbacks registered by this task
 	// instance, regardless of whether the swap completes successfully.
 	//
@@ -2693,8 +2709,16 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 		propsByName[props[i]] = struct{}{}
 	}
 
-	addCb := t.strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy)
-	delCb := t.strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy)
+	scope := doubleWriteScope{
+		bucketNamer:       bucketNamer,
+		sourceBucketName:  t.strategy.SourceBucketName,
+		propsByName:       propsByName,
+		forTargetStrategy: forTargetStrategy,
+		swapStarted:       t.swapStarted.Load,
+		warnOnce:          &sync.Once{},
+	}
+	addCb := t.strategy.MakeAddCallback(scope)
+	delCb := t.strategy.MakeDeleteCallback(scope)
 
 	var disable func()
 	if forTargetStrategy {

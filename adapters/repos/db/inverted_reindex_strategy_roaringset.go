@@ -80,15 +80,12 @@ func (s *RoaringSetRefreshStrategy) ShouldProcessProperty(property *inverted.Pro
 	return property.HasFilterableIndex
 }
 
-func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+func (s *RoaringSetRefreshStrategy) MakeAddCallback(scope doubleWriteScope) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
@@ -101,15 +98,12 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 	}
 }
 
-func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(scope doubleWriteScope) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}

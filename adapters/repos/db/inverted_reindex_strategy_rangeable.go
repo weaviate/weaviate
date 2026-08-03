@@ -113,16 +113,13 @@ func (s *FilterableToRangeableStrategy) ShouldProcessProperty(property *inverted
 	return true
 }
 
-func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+func (s *FilterableToRangeableStrategy) MakeAddCallback(scope doubleWriteScope) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — the property may be
 		// IndexFilterable=false, and we still need to populate the
 		// rangeable bucket from the live write. Scope is enforced via
 		// propsByName.
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
@@ -135,13 +132,10 @@ func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string)
 	}
 }
 
-func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+func (s *FilterableToRangeableStrategy) MakeDeleteCallback(scope doubleWriteScope) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — see MakeAddCallback.
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
