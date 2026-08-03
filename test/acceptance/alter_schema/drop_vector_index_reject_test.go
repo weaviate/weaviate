@@ -13,10 +13,11 @@ package alterschema
 
 import (
 	"testing"
-	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -135,6 +136,22 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 				helper.AssertRequestOk(t, resp, err, nil)
 			})
 
+			// RegisterEditOp flushes the memtable before snapshotting pending
+			// segments, so inserting here (no wait needed) lands this object in
+			// the drop's pending set — deferring the finalizer to its first 30s
+			// poll tick and keeping the "none" marker present for the check below.
+			t.Run("insert object with the vector", func(t *testing.T) {
+				obj := &models.Object{
+					ID:         strfmt.UUID("00000000-0000-0000-0000-000000000101"),
+					Class:      className,
+					Properties: map[string]any{"name": "object-0"},
+					Vectors:    models.Vectors{"my_vector": []float32{0.1, 0.2, 0.3, 0.4}},
+				}
+				_, err := helper.Client(t).Objects.ObjectsCreate(
+					clobjects.NewObjectsCreateParams().WithBody(obj), nil)
+				require.NoError(t, err)
+			})
+
 			t.Run("drop vector index", func(t *testing.T) {
 				params := clschema.NewSchemaObjectsVectorsDeleteParams().
 					WithClassName(className).
@@ -144,19 +161,19 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 			})
 
 			t.Run("verify vector index is dropped", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					cls := helper.GetClass(t, className)
-					cfg, ok := cls.VectorConfig["my_vector"]
-					assert.True(collect, ok, "vector config should still exist")
-					if ok {
-						assert.Equal(collect, "none", cfg.VectorIndexType)
-					}
-				}, 15*time.Second, 200*time.Millisecond)
+				helper.AssertVectorIndexDropped(t, className, "my_vector")
 			})
 
 			t.Run("attempt to re-create dropped vector via update is rejected", func(t *testing.T) {
 				cls := helper.GetClass(t, className)
 				require.NotNil(t, cls)
+
+				// Guard: without the "none" marker the update below is a fresh add,
+				// not a genuine re-creation, and require.Error would pass for the
+				// wrong reason.
+				cfg, ok := cls.VectorConfig["my_vector"]
+				require.True(t, ok, "dropped vector entry must still exist for the re-creation to be a re-creation")
+				require.Equal(t, "none", cfg.VectorIndexType, "dropped vector must carry the 'none' marker before re-creation is attempted")
 
 				// Try to flip the dropped vector back to "hnsw".
 				// The parser rejects this as an invalid re-creation of a

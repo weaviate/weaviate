@@ -68,6 +68,7 @@ Moved to Go (don't need the python-client surface):
 """
 
 import json as _json
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -191,15 +192,31 @@ def _assign_admin_role(http_port: int, qualified_user: str) -> None:
     RBAC is mandatory on NS clusters, so without a role the user is denied on
     every data/schema/ref op. Mirrors helper.AssignRoleToUser in
     createNamespacedUser (test/acceptance/namespace/collection_alias_test.go).
+
+    Absorbs a 404: createUser returns once the *leader* applied it, so this
+    node's own user store can still be behind when the assign lands, and the
+    assign handler resolves the target user against local state.
     """
-    r = _http(
-        "POST",
-        f"{_rest_base(http_port)}/authz/users/{qualified_user}/assign",
-        headers=_admin_headers(),
-        json_body={"roles": ["admin"], "userType": "db"},
-    )
-    if r.status_code not in (200, 201):
+    deadline = time.time() + 10.0
+    last: Optional[_RestResponse] = None
+    while time.time() < deadline:
+        r = _http(
+            "POST",
+            f"{_rest_base(http_port)}/authz/users/{qualified_user}/assign",
+            headers=_admin_headers(),
+            json_body={"roles": ["admin"], "userType": "db"},
+        )
+        if r.status_code in (200, 201):
+            return
+        if r.status_code == 404:
+            last = r
+            time.sleep(0.05)
+            continue
         r.raise_for_status()
+    raise AssertionError(
+        f"could not assign admin role to {qualified_user} within 10s: "
+        f"{last.status_code if last else 'no response'}: {last.text if last else ''}"
+    )
 
 
 def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str:
@@ -207,9 +224,14 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
 
     Absorbs two transients:
       - 409 (stale user from prior run): delete once + retry.
-      - 422 "namespace does not exist": local FSM hasn't applied the
-        create-namespace entry yet even though _wait_for_namespace got 200
-        from the RAFT-served GET; poll until local apply catches up.
+      - 422: this node's FSM hasn't applied the create-namespace entry yet.
+        _wait_for_namespace's 200 does not rule that out — it reads through a
+        leader-served RAFT query, while createUser checks the *local* map.
+
+    The 422 arm keys on status alone. Matching the body was what broke this
+    helper once already: the namespace copy is deliberately neutral so it
+    cannot leak tenancy, which also makes it free to change. A permanent 422
+    still fails, just at the deadline instead of on the first attempt.
     """
     qualified = f"{namespace}:{user_id}"
     deleted = False
@@ -239,7 +261,7 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
             deleted = True
             deadline = time.time() + 10.0
             continue
-        if r.status_code == 422 and "does not exist" in r.text:
+        if r.status_code == 422:
             last = r
             time.sleep(0.05)
             continue
@@ -290,6 +312,128 @@ def _wait_for_key(key: str) -> None:
                 f"apikey not recognized on node {http_port} within 10s: "
                 f"{last.status_code if last else 'no response'}"
             )
+
+
+# A create is forwarded to the leader and returns as soon as the leader
+# applied it, so the node that served the request can answer the *next* call
+# from a stale local FSM. Neither window is reachable from a black-box test
+# against a live cluster, so the two setup helpers that have to ride them out
+# are driven through a scripted transport below.
+
+_NEUTRAL_422 = '{"error":[{"message":"instance unavailable"}]}'
+_LEGACY_422 = '{"error":[{"message":"namespace \\"customer1\\" does not exist"}]}'
+_CREATED_201 = '{"apikey":"fake-key"}'
+_USER_404 = '{"error":[{"message":"username to assign role to doesn\'t exist"}]}'
+
+# 10s deadline / 0.05s poll, with a clock that only moves when the helper
+# sleeps. Both exhaustion paths therefore land on exactly this many attempts.
+_POLLS_TO_DEADLINE = 200
+
+
+class _FakeClock:
+    """Stands in for the module's `time` so a retry deadline elapses in poll
+    steps rather than in wall time."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def scripted_rest(monkeypatch) -> Callable[[Dict[str, List[Tuple[int, str]]]], List[str]]:
+    """Install a scripted _http plus the fake clock, and hand back the live
+    call log.
+
+    Scripts are keyed "<METHOD> <url fragment>" because the user endpoints
+    differ only by verb. A script's last entry repeats forever, so a
+    permanent-failure case needs exactly one entry.
+    """
+    calls: List[str] = []
+
+    def _install(scripts: Dict[str, List[Tuple[int, str]]]) -> List[str]:
+        def _fake_http(
+            method: str,
+            url: str,
+            headers: Optional[Dict[str, str]] = None,
+            json_body: Optional[dict] = None,
+        ) -> _RestResponse:
+            for key, script in scripts.items():
+                verb, _, fragment = key.partition(" ")
+                if verb == method and fragment in url:
+                    calls.append(key)
+                    status, body = script[0] if len(script) == 1 else script.pop(0)
+                    return _RestResponse(status, body.encode("utf-8"))
+            raise AssertionError(f"unscripted request: {method} {url}")
+
+        monkeypatch.setattr(sys.modules[__name__], "time", _FakeClock())
+        monkeypatch.setattr(sys.modules[__name__], "_http", _fake_http)
+        return calls
+
+    return _install
+
+
+@pytest.mark.parametrize(
+    "create_script,want_err,want_attempts",
+    [
+        # The state the cluster is actually in when the fixture races the
+        # local apply. Neutral copy is the only thing the server offers here.
+        ([(422, _NEUTRAL_422), (201, _CREATED_201)], None, 2),
+        # The wording this helper used to key on. Still a lag signal.
+        ([(422, _LEGACY_422), (201, _CREATED_201)], None, 2),
+        # A 422 that never clears must still fail, and must carry the body.
+        ([(422, _NEUTRAL_422)], "instance unavailable", _POLLS_TO_DEADLINE),
+        # Anything else is not an apply-lag signal: fail on the first attempt
+        # rather than burning the deadline.
+        ([(403, '{"error":[{"message":"forbidden"}]}')], "HTTP 403", 1),
+    ],
+    ids=["neutral 422 retried", "legacy 422 retried", "permanent 422 fails", "403 fails fast"],
+)
+def test_create_namespaced_user_rides_out_namespace_apply_lag(
+    scripted_rest, create_script, want_err, want_attempts
+) -> None:
+    calls = scripted_rest(
+        {
+            "POST /users/db/": create_script,
+            "POST /authz/users/": [(200, "")],
+        }
+    )
+
+    if want_err is None:
+        assert _create_namespaced_user(8190, "u1", NS1) == "fake-key"
+    else:
+        with pytest.raises(AssertionError, match=want_err):
+            _create_namespaced_user(8190, "u1", NS1)
+
+    assert calls.count("POST /users/db/") == want_attempts
+
+
+@pytest.mark.parametrize(
+    "assign_script,want_err,want_attempts",
+    [
+        # The user exists on the leader but not yet on the node being asked.
+        ([(404, _USER_404), (200, "")], None, 2),
+        ([(404, _USER_404)], "404", _POLLS_TO_DEADLINE),
+        ([(500, '{"error":[{"message":"AddRolesForUser: boom"}]}')], "HTTP 500", 1),
+    ],
+    ids=["404 retried", "permanent 404 fails", "500 fails fast"],
+)
+def test_assign_admin_role_rides_out_user_apply_lag(
+    scripted_rest, assign_script, want_err, want_attempts
+) -> None:
+    calls = scripted_rest({"POST /authz/users/": assign_script})
+
+    if want_err is None:
+        _assign_admin_role(8190, f"{NS1}:u1")
+    else:
+        with pytest.raises(AssertionError, match=want_err):
+            _assign_admin_role(8190, f"{NS1}:u1")
+
+    assert calls.count("POST /authz/users/") == want_attempts
 
 
 @pytest.fixture(scope="module")

@@ -14,6 +14,7 @@ package namespace
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,11 +38,11 @@ import (
 // setup_test.go; the same MinIO bucket also backs export.
 const s3Backend = "s3"
 
-// waitBackupCreated issues root's backup-create for a class, retrying while it
-// 422s. The coordinator runs one backup at a time cluster-wide, so a parallel
-// test's backup makes create reject with "already in progress". The 422 rejects
-// before any staging, so the same ID is safe to resend. Any other error fails
-// the test immediately.
+// waitBackupCreated issues root's backup-create for a class, retrying only the
+// coordinator's "already in progress" 422. The coordinator runs one backup at a
+// time cluster-wide, so a parallel test's backup makes create reject with that
+// message. The 422 rejects before any staging, so the same ID is safe to
+// resend. Any other error, including any other 422, fails the test immediately.
 func waitBackupCreated(t *testing.T, className, backupID string) *backups.BackupsCreateOK {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -55,10 +56,29 @@ func waitBackupCreated(t *testing.T, className, backupID string) *backups.Backup
 		var unproc *backups.BackupsCreateUnprocessableEntity
 		require.Truef(t, errors.As(err, &unproc),
 			"root backup-create failed with non-transient error: %T: %v", err, err)
+		msg := backup422Messages(unproc)
+		require.Containsf(t, msg, "already in progress",
+			"root backup-create failed with non-transient 422: %s", msg)
 		require.Falsef(t, time.Now().After(deadline),
-			"root backup-create still 422 after 30s: %s", unproc.Payload.Error[0].Message)
+			"root backup-create still 422 after 30s: %s", msg)
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// backup422Messages flattens the 422 payload into its human-readable messages;
+// the generated Error() prints payload pointers, so the messages must be
+// pulled out of the payload items.
+func backup422Messages(unproc *backups.BackupsCreateUnprocessableEntity) string {
+	if unproc.Payload == nil {
+		return ""
+	}
+	msgs := make([]string, 0, len(unproc.Payload.Error))
+	for _, item := range unproc.Payload.Error {
+		if item != nil {
+			msgs = append(msgs, item.Message)
+		}
+	}
+	return strings.Join(msgs, "; ")
 }
 
 // TestNamespaces_RBACSurfaces locks the contract that a namespaced user holding
@@ -292,11 +312,13 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 		// Root backs up the same namespaced class and the backup reaches SUCCESS.
 		// The ID carries a unique suffix so reruns against the shared, persisted
 		// bucket don't collide.
+		// waitBackupCreated (not a bare create): parallel tests in this package
+		// also run real backups, and the coordinator 422s a create while another
+		// backup is in flight anywhere on the cluster.
 		backupID := fmt.Sprintf("cr-root-backup-%s-%d", ns1, time.Now().UnixNano())
-		// Waits out a parallel test holding the cluster-wide single-backup slot.
-		ok := waitBackupCreated(t, ownClass, backupID)
-		require.NotNil(t, ok.Payload)
-		require.Contains(t, ok.Payload.Classes, ownClass)
+		okResp := waitBackupCreated(t, ownClass, backupID)
+		require.NotNil(t, okResp.Payload)
+		require.Contains(t, okResp.Payload.Classes, ownClass)
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
 	})
 

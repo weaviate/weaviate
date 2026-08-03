@@ -14,7 +14,6 @@ package alterschema
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -208,15 +207,7 @@ func testDropVectorIndex(compose *docker.DockerCompose, verifySchemaAfterDrop bo
 
 				if verifySchemaAfterDrop {
 					t.Run("verify vector index dropped in schema", func(t *testing.T) {
-						assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-							cls := helper.GetClass(t, className)
-							cfg, ok := cls.VectorConfig[tc.name]
-							assert.True(collect, ok, "vector config %q should still exist in schema", tc.name)
-							if ok {
-								assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none' for dropped index %q", tc.name)
-								assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil for dropped index %q", tc.name)
-							}
-						}, 15*time.Second, 200*time.Millisecond, "schema should reflect dropped vector index %q", tc.name)
+						helper.AssertVectorIndexDropped(t, className, tc.name)
 					})
 				}
 
@@ -244,24 +235,9 @@ func testDropVectorIndex(compose *docker.DockerCompose, verifySchemaAfterDrop bo
 			})
 		}
 
-		// After dropping all 4, verify the class still has all vector entries
-		// but with dropped (empty) index configuration.
 		if verifySchemaAfterDrop {
 			t.Run("verify schema after all drops", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					cls := helper.GetClass(t, className)
-					if !assert.Len(collect, cls.VectorConfig, 4) {
-						return
-					}
-					for _, name := range []string{"hnsw", "hnsw_rq8", "flat", "flat_rq1"} {
-						cfg, ok := cls.VectorConfig[name]
-						assert.True(collect, ok, "vector config %q should still exist", name)
-						if ok {
-							assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none' for %q", name)
-							assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil for %q", name)
-						}
-					}
-				}, 15*time.Second, 200*time.Millisecond, "schema should reflect all dropped vector indexes")
+				helper.AssertVectorIndexDropped(t, className, "hnsw", "hnsw_rq8", "flat", "flat_rq1")
 			})
 		}
 
