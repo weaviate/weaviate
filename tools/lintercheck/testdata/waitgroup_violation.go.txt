@@ -1,0 +1,15 @@
+package pkg
+
+import "sync"
+
+// Known-bad: an early return or panic here would strand Wait below. Don't
+// spell the flagged call in this comment either: the linter matches comment
+// text too, excluding only letters, spaces, and dots.
+func Violation() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		wg.Done()
+	}()
+	wg.Wait()
+}
