@@ -103,8 +103,7 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 	return t.root.flattenInOrder()
 }
 
-// keysInOrder returns the keys ascending, aliasing the nodes' keys and
-// skipping the value copies flattenInOrder makes.
+// keysInOrder returns the keys ascending, aliasing the nodes' keys.
 func (t *binarySearchTree) keysInOrder() [][]byte {
 	if t.root == nil {
 		return nil

@@ -537,7 +537,13 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
+	ctx, cancelPrefill := context.WithCancel(ctx)
+	stopOnIndexShutdown := context.AfterFunc(h.shutdownCtx, cancelPrefill)
+
 	prefillCacheFunc := func() {
+		defer stopOnIndexShutdown()
+		defer cancelPrefill()
+
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
 			"duration": 60 * time.Minute,
@@ -555,7 +561,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			// cursor instead of looking up every vector by id (disk-seek bound).
 			err = h.prefillCacheParallel(ctx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}
 
 		if err != nil {
@@ -576,6 +582,10 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		enterrors.GoWrapper(prefillCacheFunc, h.logger)
+		h.prefillWg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer h.prefillWg.Done()
+			prefillCacheFunc()
+		}, h.logger)
 	}
 }

@@ -279,7 +279,12 @@ type Bucket struct {
 	sequentialAccess bool
 }
 
-func NewBucketCreator() *Bucket { return &Bucket{} }
+// bucketCreator satisfies BucketCreator without being a Bucket itself: a Bucket
+// that has not been through NewBucket has no logger, no memtables and no
+// segment group, so it must never be handed out as one.
+type bucketCreator struct{}
+
+func NewBucketCreator() BucketCreator { return bucketCreator{} }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
@@ -287,7 +292,7 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (b *Bucket, err error) {
@@ -653,10 +658,7 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	// logger nil-guard: test buckets are built as bare literals without one, and
-	// under load this slow-lock branch can fire (RLock timed >100ms) where it never
-	// would in production; a nil FieldLogger would then panic on WithFields.
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond && b.logger != nil {
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
 		b.logger.WithFields(logrus.Fields{
 			"duration": duration,
 			"action":   "lsm_bucket_get_acquire_flush_lock",
@@ -2812,18 +2814,10 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
 }
 
-// GetKeysCount estimates the bucket's distinct key count, taking the best of
-// the counts it can derive: the exactly counted keys of the memtables and of
-// the small disk segments that carry no bloom filter, the remaining segments'
-// unioned filters, and — while the union has room left — the filter with the
-// exact keys added in. Only the exactly counted parts are lower bounds: a
-// bloom-derived count is a maximum-likelihood estimate that overshoots about
-// as often as it undershoots, so the result is an estimate, not a bound. The
-// index also retains the keys of deleted and updated values until compaction
-// prunes them, so it can exceed the number of distinct live values.
-//
-// All layers come from one pinned view, so a flush in flight cannot drop the
-// keys of a memtable it moves.
+// GetKeysCount estimates the bucket's distinct key count from one pinned view.
+// Bloom-derived counts are maximum-likelihood estimates rather than bounds, and
+// the index retains the keys of deleted and updated values until compaction
+// prunes them, so the result can exceed the number of distinct live values.
 func (b *Bucket) GetKeysCount() (uint32, error) {
 	if !b.useBloomFilter {
 		return 0, fmt.Errorf("bloom filter not enabled")
@@ -2850,12 +2844,10 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 		return best, nil
 	}
 
-	// The exact keys go straight into the disk filter to estimate the union:
-	// diskBloom is a copy owned by this call, and its own estimate is already
-	// in best. Overfilling it costs accuracy gradually and then all at once —
-	// at full saturation ApproximatedSize evaluates ln(0), whose uint32
-	// conversion is platform-defined — so the union only competes while there
-	// is room left.
+	// diskBloom is a copy owned by this call, so it can absorb the exact keys.
+	// A saturated filter makes ApproximatedSize evaluate ln(0), whose uint32
+	// conversion is platform-defined, so the union only competes while there is
+	// room left.
 	exact.addTo(diskBloom)
 	if !bloomSaturated(diskBloom) {
 		if est := diskBloom.ApproximatedSize(); est > best {
@@ -2866,10 +2858,9 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 	return best, nil
 }
 
-// keysCountClearlyExceeds reports whether the bucket's estimated key count
-// clears maxDistinct by more than GetKeysCount's own error, the only case in
-// which a distinct-key walk may be skipped. An unavailable estimate never
-// rejects.
+// keysCountClearlyExceeds reports whether the key count clears maxDistinct by
+// more than GetKeysCount's own error, the only case in which a distinct-key
+// walk may be skipped.
 func (b *Bucket) keysCountClearlyExceeds(maxDistinct int) bool {
 	count, err := b.GetKeysCount()
 	if err != nil {
@@ -2878,11 +2869,9 @@ func (b *Bucket) keysCountClearlyExceeds(maxDistinct int) bool {
 	return uint64(count) > distinctKeysRejectAbove(maxDistinct)
 }
 
-// distinctKeysRejectAbove is the estimated key count a bucket must exceed to
-// be rejected without a walk. The margin covers the bloom estimator's noise
-// (sd about 0.4*sqrt(n), so 12.5% with a floor of 64 is many sigma at every
-// scale) and costs nothing: a bucket landing inside it is settled by the walk,
-// which bails after maxDistinct+1 distinct keys.
+// distinctKeysRejectAbove widens maxDistinct by the bloom estimator's noise (sd
+// about 0.4*sqrt(n)). Counts landing inside the margin are settled by the walk,
+// which bails after maxDistinct+1 distinct keys anyway.
 func distinctKeysRejectAbove(maxDistinct int) uint64 {
 	if maxDistinct <= 0 {
 		return 0
@@ -2894,10 +2883,9 @@ func distinctKeysRejectAbove(maxDistinct int) uint64 {
 	return uint64(maxDistinct) + uint64(margin)
 }
 
-// exactKeys holds key sets counted exactly rather than estimated: the view's
-// memtables and any disk segments too small to carry a bloom filter. Each set
-// is sorted ascending and holds each key once. Collected once, so counting
-// the keys and feeding them to a filter does not read them twice.
+// exactKeys holds key sets counted rather than estimated: memtables and disk
+// segments too small to carry a bloom filter. Each set is sorted ascending and
+// holds each key once.
 type exactKeys struct {
 	sets  [][][]byte
 	total int
@@ -2933,9 +2921,8 @@ func (ek exactKeys) addTo(keysBloom *bloom.BloomFilter) {
 	}
 }
 
-// distinct counts the collected keys exactly: a k-way merge of the sorted
-// sets removes the duplicates keys written again after a memtable switch or
-// flush leave across layers — no sketch needed.
+// distinct counts the union of the sets exactly: a key rewritten after a
+// memtable switch or flush appears in more than one set.
 func (ek exactKeys) distinct() uint32 {
 	switch len(ek.sets) {
 	case 0:

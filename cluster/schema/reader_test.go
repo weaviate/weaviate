@@ -13,6 +13,7 @@ package schema
 
 import (
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
@@ -21,11 +22,16 @@ import (
 )
 
 func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
+	// what a full retry round of SchemaReader.Read costs: 3 retries, 50ms apart
+	const retryWindow = 150 * time.Millisecond
+
 	tests := []struct {
-		name          string
-		setupSchema   func(*schema) string
-		readerCalled  bool
-		expectedError string
+		name                 string
+		setupSchema          func(*schema) string
+		retryIfClassNotFound bool
+		readerCalled         bool
+		expectedError        string
+		retried              bool
 	}{
 		{
 			name: "valid non-partitioned state",
@@ -44,7 +50,8 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "ValidClass"
 			},
-			readerCalled: true,
+			retryIfClassNotFound: true,
+			readerCalled:         true,
 		},
 		{
 			name: "valid partitioned state",
@@ -60,7 +67,8 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "PartitionedClass"
 			},
-			readerCalled: true,
+			retryIfClassNotFound: true,
+			readerCalled:         true,
 		},
 		{
 			name: "partitioned with nil physical",
@@ -74,7 +82,8 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "PartitionedNilPhysical"
 			},
-			readerCalled: true,
+			retryIfClassNotFound: true,
+			readerCalled:         true,
 		},
 		{
 			name: "non-partitioned with nil physical",
@@ -89,8 +98,9 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "NilPhysical"
 			},
-			readerCalled:  false,
-			expectedError: "invalid sharding state: physical shards unavailable",
+			retryIfClassNotFound: true,
+			readerCalled:         false,
+			expectedError:        "invalid sharding state: physical shards unavailable",
 		},
 		{
 			name: "non-partitioned with empty physical",
@@ -105,8 +115,9 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "EmptyPhysical"
 			},
-			readerCalled:  false,
-			expectedError: "invalid sharding state: physical shards unavailable",
+			retryIfClassNotFound: true,
+			readerCalled:         false,
+			expectedError:        "invalid sharding state: physical shards unavailable",
 		},
 		{
 			name: "non-partitioned with nil virtual",
@@ -123,8 +134,9 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "NilVirtual"
 			},
-			readerCalled:  false,
-			expectedError: "invalid sharding state: virtual shards unavailable",
+			retryIfClassNotFound: true,
+			readerCalled:         false,
+			expectedError:        "invalid sharding state: virtual shards unavailable",
 		},
 		{
 			name: "non-partitioned with empty virtual",
@@ -141,16 +153,28 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "EmptyVirtual"
 			},
-			readerCalled:  false,
-			expectedError: "invalid sharding state: virtual shards unavailable",
+			retryIfClassNotFound: true,
+			readerCalled:         false,
+			expectedError:        "invalid sharding state: virtual shards unavailable",
 		},
 		{
-			name: "class not found",
+			name: "class not found with retry",
 			setupSchema: func(s *schema) string {
 				return "NonExistentClass"
 			},
-			readerCalled:  false,
-			expectedError: "class not found",
+			retryIfClassNotFound: true,
+			readerCalled:         false,
+			expectedError:        "class not found",
+			retried:              true,
+		},
+		{
+			name: "class not found without retry",
+			setupSchema: func(s *schema) string {
+				return "NonExistentClass"
+			},
+			retryIfClassNotFound: false,
+			readerCalled:         false,
+			expectedError:        "class not found",
 		},
 	}
 
@@ -169,7 +193,9 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 			}
 
 			// WHEN
-			err := reader.Read(className, true, readerCallback)
+			start := time.Now()
+			err := reader.Read(className, tt.retryIfClassNotFound, readerCallback)
+			elapsed := time.Since(start)
 
 			// THEN
 			if tt.expectedError != "" {
@@ -180,6 +206,12 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 			}
 
 			require.Equal(t, tt.readerCalled, readerCalled)
+
+			if tt.retried {
+				require.GreaterOrEqual(t, elapsed, retryWindow)
+			} else {
+				require.Less(t, elapsed, retryWindow)
+			}
 		})
 	}
 }

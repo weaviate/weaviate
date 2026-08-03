@@ -101,14 +101,14 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 
 		combinedProp := combinedGroups[pos].Properties[propName]
 
-		// a cardinality-only property carries no type, which must not clobber
-		// the type another shard set
+		// a cardinality-only property carries no type; it must not clobber the
+		// type another shard set
 		if prop.Type != "" {
 			combinedProp.Type = prop.Type
 		}
 
-		// Shard estimates cannot be unioned, so the collection-wide value is the
-		// largest of them — a lower bound that ignores cross-shard overlap.
+		// estimates cannot be unioned across shards, so take the largest: a
+		// lower bound that ignores cross-shard overlap
 		if prop.ApproximateCardinality != nil {
 			if combinedProp.ApproximateCardinality == nil ||
 				*prop.ApproximateCardinality > *combinedProp.ApproximateCardinality {
@@ -140,7 +140,7 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 			sc.mergeRefProp(
 				&combinedProp.ReferenceAggregation, &prop.ReferenceAggregation)
 		case "":
-			// cardinality-only property
+			// cardinality-only property; the default arm panics
 		default:
 			panic("unknown prop type: " + prop.Type)
 		}
@@ -420,7 +420,7 @@ func (sc *ShardCombiner) finalizeGroup(group *aggregation.Group) {
 		case aggregation.PropertyTypeReference:
 			continue
 		case "":
-			// cardinality-only property
+			// cardinality-only property; the default arm panics
 		default:
 			panic("Unknown prop type: " + prop.Type)
 		}

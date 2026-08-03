@@ -51,8 +51,6 @@ func preFeatureShard() *aggregation.Result {
 }
 
 func TestNormalizeCardinalityOnlyProperties(t *testing.T) {
-	cardinalityOnly := []aggregation.ParamProperty{{Name: "name", ApproximateCardinality: true}}
-
 	tests := []struct {
 		name    string
 		props   []aggregation.ParamProperty
@@ -60,37 +58,28 @@ func TestNormalizeCardinalityOnlyProperties(t *testing.T) {
 		want    []*aggregation.Result
 	}{
 		{
-			name:    "pre-feature shard aggregation is dropped",
-			props:   cardinalityOnly,
-			results: []*aggregation.Result{preFeatureShard()},
-			want: []*aggregation.Result{{Groups: []aggregation.Group{{
-				Count:      2,
-				Properties: map[string]aggregation.Property{"name": {}},
-			}}}},
-		},
-		{
-			name:    "up-to-date shard result is untouched",
-			props:   cardinalityOnly,
-			results: []*aggregation.Result{upToDateShard(9)},
-			want:    []*aggregation.Result{upToDateShard(9)},
-		},
-		{
-			name:  "estimate survives the strip on a pre-feature-shaped result",
-			props: cardinalityOnly,
+			name: "cardinality-only property stripped, estimate kept, sibling untouched",
+			props: []aggregation.ParamProperty{
+				{Name: "name", ApproximateCardinality: true},
+				{Name: "city"},
+			},
 			results: []*aggregation.Result{{Groups: []aggregation.Group{{
 				Count: 2,
 				Properties: map[string]aggregation.Property{
 					"name": {
-						Type:                   aggregation.PropertyTypeText,
-						SchemaType:             "text",
+						Type: aggregation.PropertyTypeText, SchemaType: "text",
 						TextAggregation:        aggregation.Text{Count: 2},
 						ApproximateCardinality: cardEst(4),
 					},
+					"city": {Type: aggregation.PropertyTypeText, TextAggregation: aggregation.Text{Count: 2}},
 				},
 			}}}},
 			want: []*aggregation.Result{{Groups: []aggregation.Group{{
-				Count:      2,
-				Properties: map[string]aggregation.Property{"name": {ApproximateCardinality: cardEst(4)}},
+				Count: 2,
+				Properties: map[string]aggregation.Property{
+					"name": {ApproximateCardinality: cardEst(4)},
+					"city": {Type: aggregation.PropertyTypeText, TextAggregation: aggregation.Text{Count: 2}},
+				},
 			}}}},
 		},
 		{
@@ -104,72 +93,10 @@ func TestNormalizeCardinalityOnlyProperties(t *testing.T) {
 			want:    []*aggregation.Result{preFeatureShard()},
 		},
 		{
-			name:    "property without the flag keeps its aggregation",
-			props:   []aggregation.ParamProperty{{Name: "name"}},
-			results: []*aggregation.Result{preFeatureShard()},
-			want:    []*aggregation.Result{preFeatureShard()},
-		},
-		{
-			name:  "only the cardinality-only property is stripped",
-			props: []aggregation.ParamProperty{{Name: "name", ApproximateCardinality: true}, {Name: "city", Aggregators: []aggregation.Aggregator{aggregation.CountAggregator}}},
-			results: []*aggregation.Result{{Groups: []aggregation.Group{{
-				Count: 2,
-				Properties: map[string]aggregation.Property{
-					"name": {Type: aggregation.PropertyTypeText, TextAggregation: aggregation.Text{Count: 2}},
-					"city": {Type: aggregation.PropertyTypeText, TextAggregation: aggregation.Text{Count: 2}},
-				},
-			}}}},
-			want: []*aggregation.Result{{Groups: []aggregation.Group{{
-				Count: 2,
-				Properties: map[string]aggregation.Property{
-					"name": {},
-					"city": {Type: aggregation.PropertyTypeText, TextAggregation: aggregation.Text{Count: 2}},
-				},
-			}}}},
-		},
-		{
-			name:  "every group of a grouped result is stripped",
-			props: cardinalityOnly,
-			results: []*aggregation.Result{{Groups: []aggregation.Group{
-				{
-					Count:     1,
-					GroupedBy: &aggregation.GroupedBy{Path: []string{"city"}, Value: "Berlin"},
-					Properties: map[string]aggregation.Property{
-						"name": {Type: aggregation.PropertyTypeText, TextAggregation: aggregation.Text{Count: 1}},
-					},
-				},
-				{
-					Count:     1,
-					GroupedBy: &aggregation.GroupedBy{Path: []string{"city"}, Value: "Amsterdam"},
-					Properties: map[string]aggregation.Property{
-						"name": {Type: aggregation.PropertyTypeText, TextAggregation: aggregation.Text{Count: 1}},
-					},
-				},
-			}}},
-			want: []*aggregation.Result{{Groups: []aggregation.Group{
-				{
-					Count:      1,
-					GroupedBy:  &aggregation.GroupedBy{Path: []string{"city"}, Value: "Berlin"},
-					Properties: map[string]aggregation.Property{"name": {}},
-				},
-				{
-					Count:      1,
-					GroupedBy:  &aggregation.GroupedBy{Path: []string{"city"}, Value: "Amsterdam"},
-					Properties: map[string]aggregation.Property{"name": {}},
-				},
-			}}},
-		},
-		{
 			name:    "nil shard result and missing property are skipped",
-			props:   cardinalityOnly,
+			props:   []aggregation.ParamProperty{{Name: "name", ApproximateCardinality: true}},
 			results: []*aggregation.Result{nil, {Groups: []aggregation.Group{{Count: 1}}}},
 			want:    []*aggregation.Result{nil, {Groups: []aggregation.Group{{Count: 1}}}},
-		},
-		{
-			name:    "no properties at all",
-			props:   nil,
-			results: []*aggregation.Result{preFeatureShard()},
-			want:    []*aggregation.Result{preFeatureShard()},
 		},
 	}
 

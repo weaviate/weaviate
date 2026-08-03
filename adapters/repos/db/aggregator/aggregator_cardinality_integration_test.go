@@ -27,7 +27,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // bloom estimates are within a few percent of the true key count at these sizes
@@ -51,19 +53,9 @@ func TestApproximateCardinality(t *testing.T) {
 		wantNil    bool
 		wantErr    bool
 	}{
+		// the two buckets index the same values differently, so the estimate is
+		// the larger of the two, not their sum — in either order
 		{
-			name:       "filterable bucket only",
-			filterable: &bucketSpec{distinct: 5000},
-			expect:     5000,
-		},
-		{
-			name:       "searchable bucket only",
-			searchable: &bucketSpec{distinct: 3000},
-			expect:     3000,
-		},
-		{
-			// the two buckets index the same values differently, so the estimate
-			// is the larger of the two, not their sum
 			name:       "both buckets, searchable larger",
 			filterable: &bucketSpec{distinct: 500},
 			searchable: &bucketSpec{distinct: 4000},
@@ -86,11 +78,8 @@ func TestApproximateCardinality(t *testing.T) {
 			expect:     3000,
 		},
 		{
-			name:       "the only bucket errors",
-			filterable: &bucketSpec{distinct: 2000, noBloom: true},
-			wantErr:    true,
-		},
-		{
+			// no readable bucket must surface as an error, not as a silent "no
+			// estimate" indistinguishable from a property this shard never indexed
 			name:       "every bucket errors",
 			filterable: &bucketSpec{distinct: 2000, noBloom: true},
 			searchable: &bucketSpec{distinct: 3000, noBloom: true},
@@ -158,6 +147,8 @@ func TestAddApproximateCardinalities(t *testing.T) {
 		},
 	}
 
+	// the first group has no property map at all, the second already holds
+	// aggregations that must survive the attachment
 	res := &aggregation.Result{Groups: []aggregation.Group{
 		{},
 		{Properties: map[string]aggregation.Property{
@@ -170,21 +161,66 @@ func TestAddApproximateCardinalities(t *testing.T) {
 
 	require.Len(t, res.Groups, 2)
 	for i, group := range res.Groups {
-		t.Run(fmt.Sprintf("group %d", i), func(t *testing.T) {
-			require.NotNil(t, group.Properties[counted].ApproximateCardinality)
-			assert.InDelta(t, distinct, float64(*group.Properties[counted].ApproximateCardinality),
-				distinct*cardinalityTolerancePct/100)
+		msg := fmt.Sprintf("group %d", i)
+		require.NotNil(t, group.Properties[counted].ApproximateCardinality, msg)
+		assert.InDelta(t, distinct, float64(*group.Properties[counted].ApproximateCardinality),
+			distinct*cardinalityTolerancePct/100, msg)
 
-			assert.Nil(t, group.Properties[untouched].ApproximateCardinality)
-			assert.NotContains(t, group.Properties, broken,
-				"a bucket that cannot be counted must not produce an entry")
-			assert.NotContains(t, group.Properties, absent)
-		})
+		assert.Nil(t, group.Properties[untouched].ApproximateCardinality, msg)
+		assert.NotContains(t, group.Properties, broken,
+			"a bucket that cannot be counted must not produce an entry: %s", msg)
+		assert.NotContains(t, group.Properties, absent, msg)
 	}
 
-	// aggregations already computed for the property survive the attachment
 	assert.Equal(t, aggregation.PropertyTypeText, res.Groups[1].Properties[counted].Type)
 	assert.Equal(t, aggregation.PropertyTypeText, res.Groups[1].Properties[untouched].Type)
+}
+
+// A cardinality-only request skips dispatch, which is where the object count
+// comes from, so asking for both must still dispatch.
+func TestDoCardinalityOnlyWithObjectsCount(t *testing.T) {
+	const prop = "title"
+	const distinct, objects = 1000, 7
+
+	ctx := context.Background()
+	store := newCardinalityStore(ctx, t)
+	createFilterableBucket(ctx, t, store, prop, bucketSpec{distinct: distinct})
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := 0; i < objects; i++ {
+		require.NoError(t, objectsBucket.Put([]byte(fmt.Sprintf("obj-%03d", i)), []byte("x")))
+	}
+
+	class := &models.Class{
+		Class:      "MyClass",
+		Properties: []*models.Property{{Name: prop, DataType: []string{"text"}}},
+	}
+	getSchema := schemaUC.NewMockSchemaGetter(t)
+	getSchema.EXPECT().ReadOnlyClass("MyClass").Return(class).Maybe()
+
+	logger, _ := test.NewNullLogger()
+	a := &Aggregator{
+		logger:    logger,
+		store:     store,
+		getSchema: getSchema,
+		params: aggregation.Params{
+			ClassName:        "MyClass",
+			IncludeMetaCount: true,
+			Properties: []aggregation.ParamProperty{
+				{Name: prop, ApproximateCardinality: true},
+			},
+		},
+	}
+
+	res, err := a.Do(ctx)
+	require.NoError(t, err)
+	require.Len(t, res.Groups, 1)
+	assert.Equal(t, objects, res.Groups[0].Count)
+
+	estimate := res.Groups[0].Properties[prop].ApproximateCardinality
+	require.NotNil(t, estimate)
+	assert.InDelta(t, distinct, float64(*estimate), distinct*cardinalityTolerancePct/100)
 }
 
 func newCardinalityStore(ctx context.Context, t *testing.T) *lsmkv.Store {

@@ -154,16 +154,14 @@ func (s *segment) loadBloomFilterFromDisk() error {
 	return nil
 }
 
-// getBloomFilter returns nil if the segment was built without one. Shared with
-// every concurrent reader, so callers must not mutate it.
+// getBloomFilter returns nil if the segment has none. Shared with every
+// concurrent reader, so callers must not mutate it.
 func (s *segment) getBloomFilter() *bloom.BloomFilter {
 	return s.bloomFilter
 }
 
-// getKeysSorted returns the primary index's keys ascending. The keys alias the
-// segment's data, so they are valid only while the segment is pinned. Meant
-// for small in-memory segments that carry no bloom filter; on a large segment
-// it touches every index node.
+// getKeysSorted returns the primary index's keys ascending. They alias the
+// segment's data, so they are valid only while it is pinned.
 func (s *segment) getKeysSorted() [][]byte {
 	keys := make([][]byte, 0, s.index.KeyCount())
 	s.index.ForEachKey(func(key []byte) {
@@ -173,15 +171,11 @@ func (s *segment) getKeysSorted() [][]byte {
 	return keys
 }
 
-// combineBloomFilters unions the pinned segments' filters per (m, k) geometry
-// — Merge rejects anything else — and returns the candidate with the largest
-// estimate: normally a union, or a single segment's filter when its
-// geometry's union saturated. Nil if no segment carries a filter. The result
-// is always an unsaturated copy: safe to mutate, and safe to call
-// ApproximatedSize on, which at full saturation evaluates ln(0) with a
-// platform-defined uint32 result. Segments without a filter (small files read
-// fully into memory) have their keys collected into exact instead, so they
-// are counted, not estimated. Loads any lazily loaded segment it touches.
+// combineBloomFilters returns an unsaturated, mutable copy of the
+// largest-estimating filter it can build from the pinned segments: a union per
+// (m, k) geometry — Merge rejects mismatched ones — or a single segment's
+// filter. Nil if no segment carries a filter; segments without one contribute
+// their keys to exact instead.
 func combineBloomFilters(segments []Segment, exact *exactKeys) *bloom.BloomFilter {
 	type geometry struct{ m, k uint }
 	var (
@@ -196,8 +190,8 @@ func combineBloomFilters(segments []Segment, exact *exactKeys) *bloom.BloomFilte
 			continue
 		}
 		if bloomSaturated(bf) {
-			// sized for its own key count (~50% fill), so this cannot happen;
-			// skip rather than poison a union
+			// sized for its own key count, so this should not happen; skip
+			// rather than poison a union
 			continue
 		}
 		if est := bf.ApproximatedSize(); largestSingle == nil || est > largestSingleEst {
@@ -226,9 +220,8 @@ func combineBloomFilters(segments []Segment, exact *exactKeys) *bloom.BloomFilte
 			best, bestEst = u, est
 		}
 	}
-	// An unsaturated union bounds its own members, but not another geometry's:
-	// when the largest filter's union saturated, a small surviving union must
-	// not displace the larger single-filter bound.
+	// a union bounds only its own geometry, so a surviving small union must not
+	// displace a larger single filter whose union saturated
 	if largestSingle != nil && (best == nil || largestSingleEst > bestEst) {
 		return largestSingle.Copy()
 	}

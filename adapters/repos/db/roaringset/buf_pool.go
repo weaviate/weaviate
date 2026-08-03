@@ -619,13 +619,13 @@ func newPromBufDisposableMetrics(metrics *monitoring.PrometheusMetrics) *promBuf
 }
 
 func (m *promBufDisposableMetrics) bufCreated(sizeInBytes int) {
-	s := uint64(sizeInBytes)
-	ceil := uint64(1 << bits.Len64(s))
-	if s^ceil != 0 {
-		ceil *= 2
+	// smallest power of two >= sizeInBytes, so the label names the same size
+	// class the pooled tiers use
+	ceil := uint64(1)
+	if sizeInBytes > 1 {
+		ceil = 1 << bits.Len64(uint64(sizeInBytes)-1)
 	}
-	size := humanize.IBytes(ceil)
-	m.usageCounter.WithLabelValues(size, "disposable_created").Inc()
+	m.usageCounter.WithLabelValues(humanize.IBytes(ceil), "disposable_created").Inc()
 }
 
 type bufDisposableNoopMetrics struct{}

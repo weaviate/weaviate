@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -70,6 +71,10 @@ type Aggregator struct {
 	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
 	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
 	bucketPinResolver inverted.SearchableBucketPinningResolver
+	// batchedContainsEnabled is propagated to the inverted.Searcher built
+	// by this aggregator. Nil (the default) means the batched Contains
+	// resolution stays off.
+	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
 // WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
@@ -77,6 +82,13 @@ func (a *Aggregator) WithSearchableBucketPinningResolver(
 	r inverted.SearchableBucketPinningResolver,
 ) *Aggregator {
 	a.bucketPinResolver = r
+	return a
+}
+
+// WithBatchedContainsEnabled: nil (the default) keeps the batched Contains
+// resolution off. See [inverted.Searcher.WithBatchedContainsEnabled].
+func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Aggregator {
+	a.batchedContainsEnabled = v
 	return a
 }
 
@@ -126,9 +138,8 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 		}
 	}
 
-	// the estimate is whole-bucket, so it would repeat identically on every
-	// group: under group_by the flag is ignored and the request runs exactly as
-	// it would without it
+	// the estimate is whole-bucket and would repeat identically on every group,
+	// so group_by ignores the flag
 	if !wantsCardinality || a.params.GroupBy != nil {
 		return a.dispatch(ctx, a.params.Properties)
 	}
@@ -139,8 +150,7 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 
 	normal := dispatchableProperties(a.params.Properties)
 	if len(normal) == 0 && !a.params.IncludeMetaCount {
-		// a dispatch here would search, fetch objects and aggregate nothing, to
-		// produce the single empty group it always starts from
+		// dispatching would fetch objects only to produce this empty group
 		res := &aggregation.Result{Groups: make([]aggregation.Group, 1)}
 		a.addApproximateCardinalities(res)
 		return res, nil
@@ -154,10 +164,8 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	return res, nil
 }
 
-// dispatchableProperties drops cardinality-only properties: the bloom
-// estimate needs no object scan. A property that requested no cardinality
-// stays in even without aggregators, as it would without the flag on its
-// siblings.
+// dispatchableProperties drops cardinality-only properties: the estimate needs
+// no object scan.
 func dispatchableProperties(props []aggregation.ParamProperty) []aggregation.ParamProperty {
 	normal := make([]aggregation.ParamProperty, 0, len(props))
 	for _, p := range props {
@@ -192,10 +200,9 @@ func (a *Aggregator) dispatch(ctx context.Context, props []aggregation.ParamProp
 	return newUnfilteredAggregator(agg).Do(ctx)
 }
 
-// validateCardinalityProperties rejects every property requesting an estimate
-// that cannot be produced: an unknown name, or one whose values never land in a
-// bucket the estimate can read. Both would otherwise pass silently — the
-// dispatch path only looks a property up when it has an aggregator to run.
+// validateCardinalityProperties rejects unknown properties and ones with no
+// bucket to read. The dispatch path only resolves a property that has an
+// aggregator to run, so otherwise both pass silently.
 func (a *Aggregator) validateCardinalityProperties() error {
 	names := make([]schema.PropertyName, 0, len(a.params.Properties))
 	for _, p := range a.params.Properties {
@@ -226,9 +233,8 @@ func (a *Aggregator) validateCardinalityProperties() error {
 }
 
 // hasCardinalityIndex reports whether the property's values reach a filterable
-// or searchable LSM bucket, the only place the estimate reads keys from. Geo
-// coordinates live in a dedicated geo index and nested objects in their own
-// bucket namespace; blobs and phone numbers are never analyzed at all.
+// or searchable bucket, the only place the estimate reads keys from. Geo,
+// object, blob and phone number values do not.
 func hasCardinalityIndex(prop *models.Property) bool {
 	if !inverted.HasFilterableIndex(prop) && !inverted.HasSearchableIndex(prop) {
 		return false
@@ -250,8 +256,7 @@ func hasCardinalityIndex(prop *models.Property) bool {
 }
 
 // addApproximateCardinalities attaches the estimate to every property that
-// requested it. Best-effort: a property whose bucket is missing or errors is
-// left without an estimate rather than failing the whole aggregation.
+// requested it, skipping ones whose bucket is missing or errors.
 func (a *Aggregator) addApproximateCardinalities(res *aggregation.Result) {
 	for _, p := range a.params.Properties {
 		if !p.ApproximateCardinality {
@@ -283,9 +288,8 @@ func (a *Aggregator) addApproximateCardinalities(res *aggregation.Result) {
 	}
 }
 
-// approximateCardinality returns the highest distinct-key estimate across the
-// property's filterable and searchable buckets, or nil if it has neither on
-// this shard. An error is only returned if every existing bucket errored.
+// approximateCardinality returns the highest estimate across the property's
+// filterable and searchable buckets, or nil if it has neither on this shard.
 func (a *Aggregator) approximateCardinality(name schema.PropertyName) (*uint32, error) {
 	bucketNames := []string{
 		helpers.BucketFromPropNameLSM(name.String()),
@@ -298,10 +302,8 @@ func (a *Aggregator) approximateCardinality(name schema.PropertyName) (*uint32, 
 		lastErr error
 	)
 	for _, bn := range bucketNames {
-		// GetKeysCount panics when a lazily loaded segment fails to load, and
-		// the recovered request must not leave the bucket pinned: Bucket.Shutdown
-		// drains pins without a timeout, so a leaked one hangs every later
-		// shutdown or bucket replacement on that bucket.
+		// GetKeysCount can panic, and Bucket.Shutdown drains pins with no
+		// timeout: a pin leaked past the panic wedges shutdown.
 		est, exists, err := func() (uint32, bool, error) {
 			b, release := a.store.AcquireBucketForRead(bn)
 			defer release()

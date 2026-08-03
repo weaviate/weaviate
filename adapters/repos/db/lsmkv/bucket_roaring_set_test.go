@@ -38,6 +38,7 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 		strategy: StrategyRoaringSet,
 		disk:     &SegmentGroup{logger: logger, segments: []Segment{}},
 		active:   newTestMemtableRoaringSet(nil),
+		logger:   nullLogger(),
 	}
 
 	expectedRefs := 0
@@ -99,6 +100,7 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		b := Bucket{
 			strategy: StrategyRoaringSet,
 			disk:     &SegmentGroup{logger: logger, segments: []Segment{diskSeg}},
+			logger:   nullLogger(),
 		}
 		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
 
@@ -125,6 +127,7 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		b := Bucket{
 			strategy: StrategyRoaringSet,
 			disk:     &SegmentGroup{logger: logger, segments: []Segment{diskSeg}},
+			logger:   nullLogger(),
 		}
 		view := BucketConsistentView{Active: active, Flushing: flushing, Disk: []Segment{diskSeg}}
 
@@ -146,6 +149,7 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		b := Bucket{
 			strategy: StrategyRoaringSet,
 			disk:     &SegmentGroup{logger: logger, segments: []Segment{diskSeg}},
+			logger:   nullLogger(),
 		}
 		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
 

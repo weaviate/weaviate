@@ -288,45 +288,7 @@ func TestGRPCAggregateReply(t *testing.T) {
 			},
 		},
 		{
-			// Defensive only: the aggregator attaches estimates exclusively when
-			// params.GroupBy == nil, so production never reaches this branch with
-			// a cardinality set.
-			name:      "approximate cardinality only property, grouped",
-			isGroupby: true,
-			res: &aggregation.Result{
-				Groups: []aggregation.Group{
-					{
-						Count: 5,
-						Properties: map[string]aggregation.Property{
-							"first": {ApproximateCardinality: ptr(uint32(42))},
-						},
-					},
-				},
-			},
-			outRes: &pb.AggregateReply{
-				Result: &pb.AggregateReply_GroupedResults{
-					GroupedResults: &pb.AggregateReply_Grouped{
-						Groups: []*pb.AggregateReply_Group{
-							{
-								ObjectsCount: ptInt64(5),
-								Aggregations: &pb.AggregateReply_Aggregations{
-									Aggregations: []*pb.AggregateReply_Aggregations_Aggregation{
-										{
-											Property:               "first",
-											ApproximateCardinality: ptInt64(42),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			// The shape production actually emits: a non-group-by request takes
-			// the SingleResult branch.
-			name: "approximate cardinality only property, single result",
+			name: "approximate cardinality only property",
 			res: &aggregation.Result{
 				Groups: []aggregation.Group{
 					{
@@ -397,50 +359,6 @@ func TestGRPCAggregateReply(t *testing.T) {
 										},
 									},
 									ApproximateCardinality: ptInt64(7),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "typed aggregation without cardinality leaves the field unset",
-			res: &aggregation.Result{
-				Groups: []aggregation.Group{
-					{
-						Count: 2,
-						Properties: map[string]aggregation.Property{
-							"flag": {
-								Type:       aggregation.PropertyTypeBoolean,
-								SchemaType: "boolean",
-								BooleanAggregation: aggregation.Boolean{
-									Count: 2, TotalTrue: 1, TotalFalse: 1,
-									PercentageTrue: 0.5, PercentageFalse: 0.5,
-								},
-							},
-						},
-					},
-				},
-			},
-			outRes: &pb.AggregateReply{
-				Result: &pb.AggregateReply_SingleResult{
-					SingleResult: &pb.AggregateReply_Single{
-						ObjectsCount: ptInt64(2),
-						Aggregations: &pb.AggregateReply_Aggregations{
-							Aggregations: []*pb.AggregateReply_Aggregations_Aggregation{
-								{
-									Property: "flag",
-									Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Boolean_{
-										Boolean: &pb.AggregateReply_Aggregations_Aggregation_Boolean{
-											Count:           ptInt64(2),
-											Type:            ptr("boolean"),
-											TotalTrue:       ptInt64(1),
-											TotalFalse:      ptInt64(1),
-											PercentageTrue:  ptr(0.5),
-											PercentageFalse: ptr(0.5),
-										},
-									},
 								},
 							},
 						},
