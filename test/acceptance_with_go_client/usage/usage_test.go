@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"acceptance_tests_with_client/internal/wvhost"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -32,8 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestTenantStatusChanges(t *testing.T) {
@@ -1220,4 +1220,171 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 func sanitizeName(name string) string {
 	name = strings.ReplaceAll(name, "/", "_")
 	return name
+}
+
+func TestUsageMuvera(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateWithDebugPort().
+		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
+	require.NoError(t, err)
+	debug := compose.GetWeaviate().DebugURI()
+
+	className := t.Name() + "Class"
+	tenantName := "tenant"
+	muveraVec := "muvera"
+	colbertVec := "colbert"
+	regularVec := "regular"
+
+	const (
+		numObjects  = 20
+		tokenDim    = 32
+		fixedTokens = 3
+
+		ksim         = 4
+		dprojections = 16
+		repetitions  = 10
+		encodedDims  = repetitions * (1 << ksim) * dprojections // what MUVERA holds in memory per object
+	)
+
+	// the MUVERA vector reports its fixed encoded dimensionality, the plain multi-vector keeps
+	// reporting raw per-object dims, and the single vector is a control
+	expected := map[string]usagetypes.Dimensionality{
+		muveraVec:  {Dimensions: encodedDims, Count: numObjects},
+		colbertVec: {Dimensions: fixedTokens * tokenDim, Count: numObjects},
+		regularVec: {Dimensions: tokenDim, Count: numObjects},
+	}
+
+	multivectorIndexConfig := func(muvera bool) map[string]any {
+		cfg := map[string]any{"enabled": true}
+		if muvera {
+			cfg["muvera"] = map[string]any{
+				"enabled":      true,
+				"ksim":         ksim,
+				"dprojections": dprojections,
+				"repetitions":  repetitions,
+			}
+		}
+		return map[string]any{"multivector": cfg}
+	}
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{schema.DataTypeText.String()},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			muveraVec: {
+				Vectorizer:        map[string]any{"none": map[string]any{}},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: multivectorIndexConfig(true),
+			},
+			colbertVec: {
+				Vectorizer:        map[string]any{"none": map[string]any{}},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: multivectorIndexConfig(false),
+			},
+			regularVec: {
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+				VectorIndexType: "hnsw",
+			},
+		},
+		// the COLD/HOT cycle below routes the report through the unloaded-shard path
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName}).Do(ctx))
+
+	objs := make([]*models.Object, numObjects)
+	for i := range numObjects {
+		objs[i] = &models.Object{
+			Class:  className,
+			ID:     strfmt.UUID(uuid.NewString()),
+			Tenant: tenantName,
+			Properties: map[string]any{
+				"name": fmt.Sprintf("name %d", i),
+			},
+			Vectors: models.Vectors{
+				// varying token counts spread the raw dimension rows over several per-object
+				// totals, so a report that only picks up one row cannot reach the full count
+				muveraVec:  generateRandomMultiVector(2+i%3, tokenDim),
+				colbertVec: generateRandomMultiVector(fixedTokens, tokenDim),
+				regularVec: generateRandomVector(tokenDim),
+			},
+		}
+	}
+	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+	require.NoError(t, err)
+	for _, r := range batchResp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+	testAllObjectsIndexed(t, c, className)
+
+	// asserting the status pins which report path served the shard: active = loaded, inactive =
+	// read from disk without loading
+	assertUsage := func(t require.TestingT, expectedStatus string) {
+		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.Len(t, colUsage.Shards, 1)
+		shard := colUsage.Shards[0]
+		require.Equal(t, strings.ToLower(expectedStatus), shard.Status)
+		if expectedStatus == models.TenantActivityStatusACTIVE {
+			require.Equal(t, int64(numObjects), shard.ObjectsCount)
+		}
+		require.Equal(t, expected, namedVectorDimensionalities(t, shard))
+
+		for _, v := range shard.NamedVectors {
+			if v.Name != muveraVec {
+				continue
+			}
+			require.NotNil(t, v.MultiVectorConfig, "muvera vector must report its multi-vector config")
+			require.NotNil(t, v.MultiVectorConfig.MuveraConfig)
+			assert.True(t, v.MultiVectorConfig.MuveraConfig.Enabled)
+			assert.Equal(t, ksim, v.MultiVectorConfig.MuveraConfig.KSim)
+			assert.Equal(t, dprojections, v.MultiVectorConfig.MuveraConfig.DProjections)
+			assert.Equal(t, repetitions, v.MultiVectorConfig.MuveraConfig.Repetitions)
+		}
+	}
+
+	// the schema-level tenant status flips before the local shard finishes its activation or
+	// deactivation, so reports around a transition are polled until they converge
+	assertUsageEventually := func(expectedStatus string) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assertUsage(ct, expectedStatus)
+		}, 30*time.Second, 500*time.Millisecond)
+	}
+
+	assertUsageEventually(models.TenantActivityStatusACTIVE)
+
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+	assertUsageEventually(models.TenantActivityStatusINACTIVE)
+	// a second cold report is served from the on-disk usage cache instead of recomputing
+	assertUsage(t, models.TenantActivityStatusINACTIVE)
+
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
+	assertUsageEventually(models.TenantActivityStatusACTIVE)
+}
+
+func generateRandomMultiVector(tokens, dimensionality int) [][]float32 {
+	multiVector := make([][]float32, tokens)
+	for i := range multiVector {
+		multiVector[i] = generateRandomVector(dimensionality)
+	}
+	return multiVector
 }
