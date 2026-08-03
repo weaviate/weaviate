@@ -439,7 +439,7 @@ func TestSegmentEditOps_Recover_StaleCacheDoesNotDeleteLiveOp(t *testing.T) {
 
 	stale := func() map[string]struct{} { return map[string]struct{}{} }          // pre-commit view
 	fresh := func() map[string]struct{} { return map[string]struct{}{"opX": {}} } // authoritative
-	require.NoError(t, s.Recover([]string{"100"}, stale, fresh))
+	require.NoError(t, s.Recover([]string{"100"}, nil, stale, fresh))
 
 	ops, err := s.LoadOps()
 	require.NoError(t, err)

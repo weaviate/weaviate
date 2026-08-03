@@ -101,8 +101,15 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 	// pre-strip bytes OUTSIDE the pending-segment bookkeeping, and a drop that
 	// already recorded those bytes as stripped would see them resurrect — with
 	// nothing left to re-clean them once its op is gone. With ops present,
-	// flush EVERY recovered WAL into a segment; the sidecar recovery that runs
-	// after this (see newSegmentGroup) then re-pends them all.
+	// flush EVERY recovered WAL into a segment and record the created segment
+	// IDs (sg.walRecoveredSegmentIDs); the sidecar recovery that runs after
+	// this (see newSegmentGroup) pends exactly those segments for every
+	// surviving op. That re-pend is load-bearing: a WAL can hold PRE-ARM bytes
+	// the arm's snapshot never covered — a failed cycle flush leaves its
+	// memtable in b.flushing, the next switch (including the arm's own flush)
+	// overwrites the field, and the orphaned WAL's data is then in no segment
+	// and no pending row. Without the re-pend such a segment reads as clean
+	// and the dropped vector survives finalize.
 	sidecarHasOps := false
 	if sg.editOps != nil {
 		hasOps, opsErr := sg.editOps.HasOps()
@@ -195,6 +202,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 				if err := sg.add(segmentPath); err != nil {
 					return err
 				}
+				sg.walRecoveredSegmentIDs = append(sg.walRecoveredSegmentIDs, segmentID(segmentPath))
 			}
 
 			if b.strategy == StrategyReplace && b.monitorCount {

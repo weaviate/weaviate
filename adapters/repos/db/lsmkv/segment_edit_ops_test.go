@@ -533,7 +533,7 @@ func TestSegmentEditOps_Recover_CompactionCrashWindow(t *testing.T) {
 
 	// Crash after switchOnDisk of the 100+200 merge: disk = {200 (merged), 300}.
 	noLive := func() map[string]struct{} { return nil }
-	require.NoError(t, s.Recover([]string{"200", "300"}, noLive, noLive))
+	require.NoError(t, s.Recover([]string{"200", "300"}, nil, noLive, noLive))
 
 	pending, err := s.Pending("op1")
 	require.NoError(t, err)
@@ -591,7 +591,7 @@ func TestSegmentEditOps_RecoverMigratesLegacyCompactionRows(t *testing.T) {
 	require.NoError(t, s.MarkSegmentDone("op2", "500"))
 
 	noLive := func() map[string]struct{} { return nil }
-	require.NoError(t, s.Recover([]string{"200", "500", "600"}, noLive, noLive))
+	require.NoError(t, s.Recover([]string{"200", "500", "600"}, nil, noLive, noLive))
 
 	p1, err := s.Pending("op1")
 	require.NoError(t, err)
@@ -621,7 +621,7 @@ func TestSegmentEditOps_QuarantineSurvivesReSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"200"}, pending, "re-snapshot must not resurrect the quarantined segment")
 
-	require.NoError(t, s.Recover([]string{"100", "200"}, func() map[string]struct{} { return nil }, func() map[string]struct{} { return nil }))
+	require.NoError(t, s.Recover([]string{"100", "200"}, nil, func() map[string]struct{} { return nil }, func() map[string]struct{} { return nil }))
 	pending, err = s.Pending("op1")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"200"}, pending, "Recover must not resurrect the quarantined segment")

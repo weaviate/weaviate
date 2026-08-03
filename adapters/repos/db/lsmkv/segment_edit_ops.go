@@ -901,8 +901,17 @@ func (s *SegmentEditOps) closeAndRemoveLocked() {
 //     by the write-path guards — the same guarantee shard-name-keyed
 //     coverage inheritance already relies on.
 //
+// The one exception is walSegIDs — segments WAL recovery flushed moments
+// before this call. A WAL can hold PRE-ARM bytes outside every snapshot: a
+// failed cycle flush leaves its memtable in b.flushing, a later switch
+// (including the arm's own flush) overwrites the field, and the orphaned
+// WAL's bytes are then in no segment and no pending row. Such segments are
+// pended for every surviving op — for post-arm WALs that is an idempotent
+// re-clean of one small segment; for the orphan shape it is the difference
+// between stripping the data and it surviving finalize.
+//
 // Quarantined segments stay quarantined (see addPendingRowsTx).
-func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
+func (s *SegmentEditOps) Recover(segIDs, walSegIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
 	ops, err := s.LoadOps()
 	if err != nil {
 		return err
@@ -936,6 +945,28 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh 
 	if err := s.Reconcile(existing, liveOpIDs); err != nil {
 		return err
 	}
+
+	// Pend the WAL-recovered segments (see the godoc) for the ops that
+	// SURVIVED the sweep — re-read, an orphaned op must not be resurrected
+	// into pending. Only IDs actually on disk qualify.
+	var walToPend []string
+	for _, id := range walSegIDs {
+		if _, ok := existing[id]; ok {
+			walToPend = append(walToPend, id)
+		}
+	}
+	if len(walToPend) > 0 {
+		survivors, err := s.LoadOps()
+		if err != nil {
+			return err
+		}
+		for _, op := range survivors {
+			if err := s.SnapshotSegments(op.ID, walToPend); err != nil {
+				return err
+			}
+		}
+	}
+
 	// Reconcile's orphan sweep deletes ops in its own transaction, bypassing
 	// DeleteOp's remove-when-empty — re-check here so a load-time sweep of the
 	// last op doesn't leave an empty sidecar open forever.

@@ -53,15 +53,18 @@ func TestRegisterEditOp_RefusedOnClosingBucket(t *testing.T) {
 
 // TestWALRecovery_FlushesLastWALUnderLiveOps pins the recovery contract:
 // with ops in the sidecar, EVERY recovered WAL — including the one that
-// would otherwise seed the live memtable — is flushed into segments, where
-// compaction (and its op transformer) can reach the bytes. The segments are
-// NOT pended under the op: a WAL can only coexist with an op for post-arm
-// writes (the arm's flush+snapshot is synchronous and serialized under
-// flushAndSwitchMu, so pre-arm bytes are always inside the snapshotted
-// segment set), and post-arm writes are stripped/rejected by the write-path
-// guards. This test constructs the op through a side-channel handle — a
-// shape the production arm cannot produce — precisely to pin that recovery
-// does not re-pend what it flushes.
+// would otherwise seed the live memtable — is flushed into segments, and
+// those segments are PENDED for every surviving op. The re-pend is
+// load-bearing: a WAL on disk under a live op is not necessarily post-arm.
+// A failed cycle flush leaves its memtable in b.flushing, a later switch
+// (including the arm's own flush) overwrites the field, and the orphaned
+// WAL's pre-arm bytes are then in no segment and no pending row — recovery
+// would flush them into a segment that reads as clean, and the dropped
+// vector would survive finalize. For a genuinely post-arm WAL the re-pend
+// costs one idempotent re-clean of one small segment. The op here is
+// registered through a side-channel handle to keep the WAL alive across the
+// close — the same "WAL bytes the arm's flush never saw" shape the clobbered
+// b.flushing produces in production.
 func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -72,9 +75,6 @@ func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	// the exact shape an interrupted close leaves behind.
 	require.NoError(t, b1.Put([]byte("k1"), []byte("v1")))
 
-	// Register the op through a separate sidecar handle: going through the
-	// bucket would FlushAndSwitch and drain the very WAL this test needs to
-	// survive the close.
 	ext := newSegmentEditOps(dir, "TestClass")
 	require.NoError(t, ext.RegisterOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
 	require.NoError(t, ext.Close())
@@ -84,14 +84,16 @@ func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b2.Shutdown(ctx)) }()
 
+	// The flush must have happened: no data may sit in the live memtable
+	// outside compaction's reach while an op is armed.
+	segs := segIDsOf(b2)
+	require.NotEmpty(t, segs, "recovered WAL bytes must land in a segment")
+
 	require.NotNil(t, b2.disk.editOps)
 	pending, err := b2.disk.editOps.Pending("op1")
 	require.NoError(t, err)
-	require.Empty(t, pending,
-		"recovery keeps the recorded pending set; WAL-recovered segments are post-arm and must not be re-pended")
-	// The flush itself must still have happened: no data may sit in the live
-	// memtable outside compaction's reach while an op is armed.
-	require.NotEmpty(t, segIDsOf(b2), "recovered WAL bytes must land in a segment")
+	require.ElementsMatch(t, segs, pending,
+		"WAL-recovered segments may hold pre-arm bytes no snapshot covered; they must be pended for the surviving op")
 
 	v, err := b2.Get([]byte("k1"))
 	require.NoError(t, err)
@@ -169,7 +171,7 @@ func TestRecover_SweepOfLastOpRemovesSidecar(t *testing.T) {
 
 	// No live task for the op: the sweep removes it during Recover.
 	noneLive := func() map[string]struct{} { return map[string]struct{}{} }
-	require.NoError(t, ops.Recover(nil, noneLive, noneLive))
+	require.NoError(t, ops.Recover(nil, nil, noneLive, noneLive))
 
 	_, err = os.Stat(sidecar)
 	require.ErrorIs(t, err, os.ErrNotExist, "sweeping the last op must also remove the sidecar file")
