@@ -438,6 +438,10 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 const releaseBackupUnlockChildEnv = "WEAVIATE_TEST_RELEASE_BACKUP_UNLOCK_CHILD"
 
 // Regression test: concurrent ReleaseBackup calls must not double-unlock a shard.
+//
+// The double unlock is a fatal error, not a panic, so it cannot be recovered in
+// process. The workload therefore runs in a child (this binary re-executed
+// under an env guard) and the parent reports the child's crash.
 func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
 	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
 		releaseBackupConcurrentUnlockWorkload(t)

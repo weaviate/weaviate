@@ -672,8 +672,8 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	// release the held backupLock.Lock for each protected shard.
 	//
 	// LoadAndDelete keeps the claim atomic: ReleaseBackup runs concurrently
-	// (one goroutine per class), and a second Unlock on an already-unlocked
-	// shard is a fatal, unrecoverable panic.
+	// (one goroutine per class), and a second Unlock on an already unlocked
+	// shard is a fatal error that recover() cannot catch.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
 		name := key.(string)
 		if _, loaded := i.backupProtectedShards.LoadAndDelete(key); loaded {
