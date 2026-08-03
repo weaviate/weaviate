@@ -85,6 +85,9 @@ func (f *fakeEditOpBucket) EditOpPending(opID string) ([]string, error) {
 		f.callIdx++
 		return f.script[i].vals, f.script[i].err
 	}
+	if len(f.pendingSeq) == 0 {
+		return nil, nil // unconfigured fake: nothing pending
+	}
 	i := f.callIdx
 	if i >= len(f.pendingSeq) {
 		i = len(f.pendingSeq) - 1

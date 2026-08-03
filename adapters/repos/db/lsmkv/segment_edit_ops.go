@@ -351,15 +351,20 @@ func chainTransformers(transformers []valueTransformer) valueTransformer {
 
 // RecordCompaction does the post-merge bookkeeping for a leftID+rightID merge
 // in one bolt tx (the sequenced step after rename + in-memory swap). It marks
-// the merged inputs done for every op, and re-queues the merged output for any
-// op absent from builtOps (registered after the transformer was built, so not
-// stripped) that had a pending input. Membership — not a timestamp — gates
-// this, since the compactor clock and the leader-assigned CreatedAt differ.
-// The merged output is renamed to the RIGHT input's ID (stripTmpExtension),
-// so the re-queue uses rightID — a row under any other name would never match
-// a live segment again: the drain would stall on it until a restart, whose
-// load-time prune would then drop it and the drop would complete without
-// stripping the merged output's data.
+// the merged inputs done for every op — quarantine rows included: the inputs
+// no longer exist, and a stale quarantine row would fail every later round
+// until a re-arm dropped it — and re-queues the merged output for any op
+// absent from builtOps (registered after the transformer was built, so not
+// stripped) that had a pending OR quarantined input. Membership — not a
+// timestamp — gates this, since the compactor clock and the leader-assigned
+// CreatedAt differ. A quarantined input counts because the merge rewrote its
+// data into a NEW file the verdict knows nothing about; the merged output is
+// covered as ordinary pending with a fresh retry budget. The output is
+// renamed to the RIGHT input's ID (stripTmpExtension), so the re-queue uses
+// rightID — a row under any other name would never match a live segment
+// again: the drain would stall on it until a restart, whose load-time prune
+// would then drop it and the drop would complete without stripping the merged
+// output's data.
 //
 // Crash window: if the process dies after switchOnDisk but before this commit,
 // the rows are untouched — the left row goes ENOENT (pruned at load) and the
@@ -377,8 +382,18 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 			return err
 		}
 		for _, op := range ops {
-			leftWasPending := s.pendingContainsTx(tx, op.ID, leftID)
-			rightWasPending := s.pendingContainsTx(tx, op.ID, rightID)
+			inputWasPending := s.pendingContainsTx(tx, op.ID, leftID) ||
+				s.pendingContainsTx(tx, op.ID, rightID)
+			inputWasQuarantined := false
+			if quarantined := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(op.ID)); quarantined != nil {
+				inputWasQuarantined = quarantined.Get([]byte(leftID)) != nil ||
+					quarantined.Get([]byte(rightID)) != nil
+				for _, segID := range []string{leftID, rightID} {
+					if err := quarantined.Delete([]byte(segID)); err != nil {
+						return err
+					}
+				}
+			}
 
 			if err := s.markSegmentDoneTx(tx, op.ID, leftID); err != nil {
 				return err
@@ -387,7 +402,7 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 				return err
 			}
 
-			if _, wasBuilt := built[op.ID]; !wasBuilt && (leftWasPending || rightWasPending) {
+			if _, wasBuilt := built[op.ID]; !wasBuilt && (inputWasPending || inputWasQuarantined) {
 				if err := s.addPendingTx(tx, op.ID, rightID); err != nil {
 					return err
 				}
@@ -876,8 +891,10 @@ func (s *SegmentEditOps) closeAndRemoveLocked() {
 //     that carries the data — including across the crash window between the
 //     on-disk rename and the bolt commit (the left row goes ENOENT and its
 //     content lives in the file the right row still names);
-//   - the compaction-completion bolt tx maintains the rows transactionally
-//     during normal operation;
+//   - the compaction-completion bolt tx maintains the rows transactionally,
+//     and compaction and cleanup are serialized on the segment group's single
+//     compact-or-cleanup goroutine — no two rewrites can race one row, which
+//     is what lets a row's presence/absence be read as ground truth at all;
 //   - segments created after the op was armed are clean by construction:
 //     the arm flushed the memtable before its atomic register+snapshot
 //     (RegisterOpWithSnapshot), and post-marker writes are stripped/rejected
@@ -1090,15 +1107,17 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 // live segment — one conservative re-clean of this shard instead of a silent
 // under-strip. Quarantine rows need no migration: cleanup never bumps a row
 // whose segment is missing, so a phantom can never have been quarantined.
+// The downgrade direction is safe without any of this: an older binary
+// re-snapshots every live segment at load, which re-covers anything a
+// post-upgrade sidecar recorded.
 func (s *SegmentEditOps) migrateLegacyCompactionRowsTx(tx *bolt.Tx, existingSegmentIDs map[string]struct{}) error {
 	pending := tx.Bucket(editOpsBucketPending)
 	type phantomRow struct {
 		opID, segID, rightID string
-		raw                  []byte
 	}
 	var phantoms []phantomRow
 	if err := pending.ForEachBucket(func(opID []byte) error {
-		return pending.Bucket(opID).ForEach(func(segID, raw []byte) error {
+		return pending.Bucket(opID).ForEach(func(segID, _ []byte) error {
 			id := string(segID)
 			if _, ok := existingSegmentIDs[id]; ok {
 				return nil
@@ -1107,10 +1126,7 @@ func (s *SegmentEditOps) migrateLegacyCompactionRowsTx(tx *bolt.Tx, existingSegm
 			if i < 0 {
 				return nil // plain missing segment; pruneMissingSegments handles it
 			}
-			phantoms = append(phantoms, phantomRow{
-				opID: string(opID), segID: id, rightID: id[i+1:],
-				raw: append([]byte(nil), raw...),
-			})
+			phantoms = append(phantoms, phantomRow{opID: string(opID), segID: id, rightID: id[i+1:]})
 			return nil
 		})
 	}); err != nil {
@@ -1121,19 +1137,18 @@ func (s *SegmentEditOps) migrateLegacyCompactionRowsTx(tx *bolt.Tx, existingSegm
 	}
 	resnapshot := map[string]struct{}{}
 	for _, row := range phantoms {
-		sub := pending.Bucket([]byte(row.opID))
-		if err := sub.Delete([]byte(row.segID)); err != nil {
+		if err := pending.Bucket([]byte(row.opID)).Delete([]byte(row.segID)); err != nil {
 			return err
 		}
 		if s.logger != nil {
 			s.logger.WithField("op_id", row.opID).WithField("row", row.segID).
-				Warnf("edit-ops recover: migrating legacy compaction re-queue row from an older binary")
+				Warn("edit-ops recover: migrating legacy compaction re-queue row from an older binary")
 		}
 		if _, ok := existingSegmentIDs[row.rightID]; ok {
-			if sub.Get([]byte(row.rightID)) == nil {
-				if err := sub.Put([]byte(row.rightID), row.raw); err != nil {
-					return err
-				}
+			// addPendingRowsTx keeps an existing row's accrued retries and
+			// honors a standing quarantine verdict on the target ID.
+			if err := s.addPendingTx(tx, row.opID, row.rightID); err != nil {
+				return err
 			}
 			continue
 		}

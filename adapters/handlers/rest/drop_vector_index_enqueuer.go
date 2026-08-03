@@ -73,7 +73,9 @@ func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaStat
 }
 
 // SetFinalizer installs the direct-finalize hook (see the field doc). Must be
-// called before ClusterService.Open, alongside the rest of the wiring.
+// called before the drop-vector reconcile loop starts and before the REST API
+// serves — the only two paths that enqueue (restore-time shard loads during
+// ClusterService.Open use LiveOpIDs, never this).
 func (e *dropVectorIndexEnqueuer) SetFinalizer(f dropVectorFinalizer) {
 	e.finalizer = f
 }
@@ -173,13 +175,21 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 			// data to strip, and the FSM removal gate explicitly allows the
 			// empty-shard-set case for exactly this reason.
 			if e.finalizer == nil {
-				e.logInfo(collection, "drop-vector enqueue: collection has no tenants but no finalizer is wired; the marker stays")
+				// Warn, not info: with no finalizer, NOTHING can ever remove
+				// this marker — a wiring regression here silently
+				// reintroduces the immortal-marker bug.
+				if e.logger != nil {
+					e.logger.WithField("collection", collection).
+						Warn("drop-vector enqueue: collection has no tenants but no finalizer is wired; the marker cannot be removed")
+				}
 				return nil
 			}
 			if err := e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets); err != nil {
 				return fmt.Errorf("drop-vector enqueue: finalize tenant-less collection %q: %w", collection, err)
 			}
-			e.logInfo(collection, "drop-vector enqueue: collection has no tenants; dropped vector entries removed directly")
+			e.logInfo(collection, fmt.Sprintf(
+				"drop-vector enqueue: collection has no tenants; direct removal of dropped vector entries %v applied "+
+					"(a no-op on a lagging local view — reconciliation retries then)", targets))
 			return nil
 		}
 		// Tenants exist but none is active: the marker is already applied —
@@ -419,7 +429,7 @@ type classLookup struct {
 // pending set is that round's resume point. A superseded old-epoch op alongside
 // a NEW drop's marker also stays until that marker leaves the schema too: it
 // strips the same target name, which is idempotent, and the transformer's
-// dropped-target check fences it the moment the name goes live. Fails open on
+// dropped-target check stops it from touching the name once it is live. Fails open on
 // a leader read error:
 // liveness feeds a destructive sweep, and "keep" is the reversible direction.
 func (e *dropVectorIndexEnqueuer) opStillNeeded(

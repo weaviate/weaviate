@@ -490,8 +490,8 @@ func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtas
 
 // newestMatchingRecord reports whether task carries the highest raft Version
 // among namespaceTasks records for its (collection, targets) — the record
-// EpochAndInheritedCoverage inherits the epoch from. Matching mirrors that
-// function; undecodable siblings are skipped, so they cannot suppress an
+// EpochAndInheritedCoverage inherits the epoch from, matched by the same
+// SameDrop rule. Undecodable siblings are skipped, so they cannot suppress an
 // anchor.
 func newestMatchingRecord(task *distributedtask.Task, payload *DropVectorIndexTaskPayload,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
@@ -504,8 +504,7 @@ func newestMatchingRecord(task *distributedtask.Task, payload *DropVectorIndexTa
 		if err != nil {
 			continue
 		}
-		if strings.EqualFold(otherPayload.Collection, payload.Collection) &&
-			SameTargetSet(otherPayload.Targets, payload.Targets) {
+		if SameDrop(otherPayload, payload.Collection, payload.Targets) {
 			return false
 		}
 	}
@@ -555,10 +554,16 @@ func (p *DropVectorIndexProvider) retainVerdictForDrop(payload *DropVectorIndexT
 	return retain
 }
 
+// retainVerdictKey scopes the memo to one drop EPOCH, not just the name pair:
+// a finalize followed by a re-create and re-drop within one memo window would
+// otherwise serve the old drop's stale "expire" verdict to the fresh drop's
+// records — deleting the new resume anchor (rework, not data loss). Legacy
+// records without an epoch share the empty-epoch key, which only groups them
+// more coarsely.
 func retainVerdictKey(payload *DropVectorIndexTaskPayload) string {
 	targets := append([]string(nil), payload.Targets...)
 	sort.Strings(targets)
-	return payload.Collection + "\x00" + strings.Join(targets, "\x00")
+	return payload.DropEpochID + "\x00" + payload.Collection + "\x00" + strings.Join(targets, "\x00")
 }
 
 // shardLocallyLoaded reports whether the shard is currently loaded on this
@@ -976,8 +981,21 @@ func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTas
 				Info("drop-vector: shard not loaded for edit-op delete; the sweep on its next load disarms it")
 			continue
 		}
-		if err := bucket.DeleteEditOp(payload.OpID); err != nil {
+		deleted, pendingRows, quarantinedRows, err := bucket.DeleteEditOpIfDrained(payload.OpID)
+		if err != nil {
 			return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)
+		}
+		if !deleted {
+			// A successful task implies every op drained; rows here contradict
+			// the bookkeeping. Success semantics still require the op gone
+			// before the schema flip frees the name — delete anyway, loudly,
+			// instead of swallowing the contradiction.
+			p.logger.WithField("collection", payload.Collection).WithField("shard", shardName).
+				Warnf("drop-vector: completed task's edit op still had %d pending / %d quarantined segments; deleting it anyway",
+					pendingRows, quarantinedRows)
+			if err := bucket.DeleteEditOp(payload.OpID); err != nil {
+				return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)
+			}
 		}
 	}
 	return nil

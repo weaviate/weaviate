@@ -73,6 +73,43 @@ func TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending(t *testing
 	assert.ElementsMatch(t, []string{"999"}, pLate) // unchanged; merged not added
 }
 
+// TestSegmentEditOps_RecordCompaction_ClearsQuarantineOfMergedInputs pins the
+// quarantine bookkeeping of a merge: the inputs no longer exist, so their
+// quarantine rows must go in the same transaction — a stale row would fail
+// every later round until a re-arm dropped it. For an op IN the transformer
+// set the merge itself stripped the output, so nothing is re-queued; for an
+// op ABSENT from it a quarantined input counts like a pending one — the
+// merge rewrote that data into a new file the verdict knows nothing about,
+// so the output is re-queued as ordinary pending with a fresh retry budget.
+func TestSegmentEditOps_RecordCompaction_ClearsQuarantineOfMergedInputs(t *testing.T) {
+	editOps := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
+
+	built := OpDescriptor{Type: "remove_target_vectors", CreatedAt: 100}
+	require.NoError(t, editOps.RegisterOp("built", built))
+	require.NoError(t, editOps.RegisterOp("late", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 300}))
+	require.NoError(t, editOps.SnapshotSegments("built", []string{"100", "200"}))
+	require.NoError(t, editOps.SnapshotSegments("late", []string{"100", "200"}))
+	require.NoError(t, editOps.Quarantine("built", "100"))
+	require.NoError(t, editOps.Quarantine("late", "100"))
+	require.NoError(t, editOps.MarkSegmentDone("late", "200")) // only the quarantined input remains
+
+	require.NoError(t, editOps.RecordCompaction("100", "200", []ActiveOp{{ID: "built", Descriptor: built}}))
+
+	q, err := editOps.Quarantined()
+	require.NoError(t, err)
+	assert.Empty(t, q, "no quarantine row may outlive its merged-away segment")
+
+	pBuilt, err := editOps.Pending("built")
+	require.NoError(t, err)
+	assert.Empty(t, pBuilt, "the merge stripped the output for the built op")
+
+	pLate, err := editOps.Pending("late")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"200"}, pLate,
+		"a quarantined input of a late op still forces the re-queue — clearing its row without one would under-strip")
+}
+
 // TestSegmentEditOps_RecordCompaction_ReQueuesLateOpWithEarlyCreatedAt pins the
 // fix for the clock-mismatch race: an op that registered after the transformer
 // was built (so it is absent from builtOps) must be re-queued even when its

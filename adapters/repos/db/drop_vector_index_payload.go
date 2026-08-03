@@ -35,7 +35,13 @@ const DropVectorIndexNamespace = "drop-vector-index"
 type DropVectorIndexTaskPayload struct {
 	Collection string   `json:"collection"`
 	Targets    []string `json:"targets"`
-	OpID       string   `json:"opId"`
+	// OpID keys the per-shard edit-ops bookkeeping. Invariant since the
+	// strip-resume change: OpID == DropEpochID, so every round of one drop
+	// re-arms the SAME op and resumes its recorded progress. Records written
+	// by older versions carry a per-round uuid here instead — readers must
+	// treat the field as opaque and never assume the equality on decoded
+	// payloads.
+	OpID string `json:"opId"`
 
 	// UnitToNode maps a unit ID to the node that owns it; UnitToShard maps the
 	// same unit ID to the shard it covers. One unit per (shard, node).
@@ -197,9 +203,7 @@ func EpochCoveredShards(tasks []*distributedtask.Task, collection string, target
 		if err != nil {
 			continue
 		}
-		if !strings.EqualFold(p.Collection, collection) ||
-			!SameTargetSet(p.Targets, targets) ||
-			p.DropEpochID != epoch {
+		if !SameDrop(p, collection, targets) || p.DropEpochID != epoch {
 			continue
 		}
 		if terminalWithPartialWork(task.Status) {
@@ -213,6 +217,17 @@ func EpochCoveredShards(tasks []*distributedtask.Task, collection string, target
 		}
 	}
 	return covered
+}
+
+// SameDrop reports whether a record's payload belongs to the drop identified
+// by (collection, targets): the collection matches case-insensitively, the
+// targets as an exact set (case-sensitive identifiers). THE single matching
+// rule shared by epoch inheritance, the coverage union, and the retainer's
+// newest-record anchor — if these ever used different rules, a record one of
+// them counts could be invisible to another, silently breaking resume or
+// coverage.
+func SameDrop(p *DropVectorIndexTaskPayload, collection string, targets []string) bool {
+	return strings.EqualFold(p.Collection, collection) && SameTargetSet(p.Targets, targets)
 }
 
 // terminalWithPartialWork matches the two terminal states a round can reach
@@ -259,7 +274,7 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 			}
 			continue
 		}
-		if !strings.EqualFold(p.Collection, collection) || !SameTargetSet(p.Targets, targets) {
+		if !SameDrop(p, collection, targets) {
 			continue
 		}
 		if newest == nil || task.Version > newestVersion {

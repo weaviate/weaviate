@@ -316,11 +316,20 @@ func testAllTenantsDeletedMidDrop() func(t *testing.T) {
 		// Guaranteed still in flight: the first poll tick is 30s away.
 		require.NoError(t, helper.DeleteTenants(t, className, []string{tenant1, tenant2}))
 
+		// Vacuous-pass guard: had the drop already finalized, this would be
+		// the plain zero-tenant journey, not the deleted-mid-drop one. The
+		// marker must still be pending right after the deletion.
+		cur, err := helper.GetClassWithoutAssert(t, className, "")
+		require.NoError(t, err)
+		cfg, present := cur.VectorConfig[dropped]
+		require.True(t, present, "the marker must still be pending when the last tenant is deleted")
+		require.Equal(t, "none", cfg.VectorIndexType)
+
 		eventuallyTargetVectorRemoved(t, className, dropped)
 
 		// A tenant created afterwards lives on the finalized schema.
 		helper.CreateTenants(t, className, []*models.Tenant{{Name: "late"}})
-		cur, err := helper.GetClassWithoutAssert(t, className, "")
+		cur, err = helper.GetClassWithoutAssert(t, className, "")
 		require.NoError(t, err)
 		require.NotContains(t, cur.VectorConfig, dropped)
 		require.Contains(t, cur.VectorConfig, sibling)
