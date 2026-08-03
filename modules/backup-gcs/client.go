@@ -343,8 +343,11 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 	written, err = io.Copy(writer, r)
 	if err != nil {
 		// Cancelling abandons the upload. Closing the writer instead would finalize it,
-		// storing the bytes copied so far as a complete object.
+		// storing the bytes copied so far as a complete object. Closing afterwards is
+		// what ends the writer's trace span, and cannot revive the upload: the request
+		// it would take needs the context that was just cancelled.
 		cancel()
+		writer.Close()
 		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 

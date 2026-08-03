@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -29,6 +30,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/api/option"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -317,4 +320,61 @@ func TestWriteUploadsOnlyCompleteObjects(t *testing.T) {
 			}
 		})
 	}
+}
+
+// recordingExporter collects the names of spans that were ended.
+type recordingExporter struct {
+	mu    sync.Mutex
+	names []string
+}
+
+func (e *recordingExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, s := range spans {
+		e.names = append(e.names, s.Name())
+	}
+	return nil
+}
+
+func (e *recordingExporter) Shutdown(context.Context) error { return nil }
+
+func (e *recordingExporter) endedSpans() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.names...)
+}
+
+// The writer's span is only ended by closing it, so abandoning an upload has to
+// close the writer as well or the span for every failed write is lost.
+func TestWriteEndsWriterSpan(t *testing.T) {
+	const bucketName = "test-bucket"
+
+	exporter := &recordingExporter{}
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { otel.SetTracerProvider(previous) })
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/upload/storage/v1/b/"+bucketName+"/o", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"kind":"storage#object","bucket":%q,"name":"backup-1/chunk-0"}`, bucketName)
+	})
+
+	ctx := context.Background()
+	g := newFakeGCSClient(t, bucketName, mux)
+
+	readErr := errors.New("scan failed")
+	r := &stubReader{payload: bytes.NewReader([]byte("truncated-par")), readErr: readErr}
+	_, err := g.Write(ctx, "backup-1", "chunk-0", "", "", r)
+	require.ErrorIs(t, err, readErr)
+
+	var writerSpans int
+	for _, name := range exporter.endedSpans() {
+		if strings.HasSuffix(name, "Object.Writer") {
+			writerSpans++
+		}
+	}
+	assert.Equal(t, 1, writerSpans, "the writer span must be ended on the error path")
 }
