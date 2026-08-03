@@ -39,7 +39,7 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
+	m.indexOverhead += uint64(m.roaringSet.insert(key, roaringset.Insert{Additions: values}))
 
 	m.roaringSetAdjustMeta(len(values))
 	return nil
@@ -64,7 +64,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Additions: array})
+	m.indexOverhead += uint64(m.roaringSet.insert(key, roaringset.Insert{Additions: array}))
 
 	m.roaringSetAdjustMeta(cardinality)
 	return nil
@@ -91,7 +91,7 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Deletions: values})
+	m.indexOverhead += uint64(m.roaringSet.insert(key, roaringset.Insert{Deletions: values}))
 
 	m.roaringSetAdjustMeta(len(values))
 	return nil
@@ -115,7 +115,7 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Deletions: array})
+	m.indexOverhead += uint64(m.roaringSet.insert(key, roaringset.Insert{Deletions: array}))
 
 	m.roaringSetAdjustMeta(cardinality)
 	return nil
@@ -138,10 +138,10 @@ func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, del
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{
+	m.indexOverhead += uint64(m.roaringSet.insert(key, roaringset.Insert{
 		Additions: additions,
 		Deletions: deletions,
-	})
+	}))
 
 	m.roaringSetAdjustMeta(len(additions) + len(deletions))
 	return nil
@@ -153,10 +153,14 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return roaringset.BitmapLayer{}, err
 	}
 
+	if m.lockFreeReads {
+		return m.roaringSet.get(key)
+	}
+
 	m.RLock()
 	defer m.RUnlock()
 
-	return m.roaringSet.Get(key)
+	return m.roaringSet.get(key)
 }
 
 func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {

@@ -67,6 +67,11 @@ func newValueLog[V any](first V) *valueLog[V] {
 	return vl
 }
 
+func newEmptyValueLog[V any]() *valueLog[V] {
+	c := &valueChunk[V]{entries: make([]V, firstValueChunkSize)}
+	return &valueLog[V]{head: c, tail: c}
+}
+
 // append adds v to the log and returns the number of value slots newly allocated
 // (0 unless the chunk was full and a new one had to be created). writer-only.
 func (vl *valueLog[V]) append(v V) int {
@@ -96,6 +101,13 @@ func (vl *valueLog[V]) snapshot() []V {
 	for c := vl.head; c != nil; c = c.next.Load() {
 		n := int(c.n.Load())
 		out = append(out, c.entries[:n]...)
+		if n < len(c.entries) {
+			// The chunk was not full at the moment n was loaded. The writer may
+			// have filled it and linked a successor since; following next would
+			// splice newer entries after a gap of unseen ones, so stop here —
+			// what was gathered is a consistent prefix.
+			break
+		}
 	}
 	return out
 }
@@ -176,6 +188,58 @@ func (s *skipList[V]) insert(key []byte, v V) int {
 		preds[lvl].next[lvl].Store(n)
 	}
 	return firstValueChunkSize // the new node's first value chunk
+}
+
+// insertMany adds all of vs under key in one descent and returns the number of
+// value slots newly allocated. Unlike repeated insert calls, an empty vs still
+// materializes the key (with an empty value log), matching the red-black trees,
+// which create a node even when handed no values. writer-only.
+func (s *skipList[V]) insertMany(key []byte, vs []V) int {
+	var preds [skipListMaxHeight]*skipListNode[V]
+	x := s.head
+	for lvl := s.height - 1; lvl >= 0; lvl-- {
+		for {
+			nxt := x.next[lvl].Load()
+			if nxt == nil || bytes.Compare(nxt.key, key) >= 0 {
+				break
+			}
+			x = nxt
+		}
+		preds[lvl] = x
+	}
+
+	if nxt := x.next[0].Load(); nxt != nil && bytes.Equal(nxt.key, key) {
+		slots := 0
+		for _, v := range vs {
+			slots += nxt.vlog.append(v)
+		}
+		return slots
+	}
+
+	h := s.randomHeight()
+	n := &skipListNode[V]{
+		key:  key,
+		vlog: newEmptyValueLog[V](),
+		next: make([]atomic.Pointer[skipListNode[V]], h),
+	}
+	slots := firstValueChunkSize
+	// the node is not yet linked, so these appends are invisible until publication
+	for _, v := range vs {
+		slots += n.vlog.append(v)
+	}
+	if h > s.height {
+		for lvl := s.height; lvl < h; lvl++ {
+			preds[lvl] = s.head
+		}
+		s.height = h
+	}
+	for lvl := 0; lvl < h; lvl++ {
+		n.next[lvl].Store(preds[lvl].next[lvl].Load())
+	}
+	for lvl := 0; lvl < h; lvl++ {
+		preds[lvl].next[lvl].Store(n)
+	}
+	return slots
 }
 
 // get is lock-free. It descends from the max height (unused upper levels are
