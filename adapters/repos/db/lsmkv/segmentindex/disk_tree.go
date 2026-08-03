@@ -292,3 +292,25 @@ func (t *DiskTree) ForEachKey(fn func(key []byte)) {
 		bufferPos += nodeSize
 	}
 }
+
+// ForEachNodeOffset iterates over all keys with their payload (start, end)
+// offsets without allocating, in on-disk (serialized) order, not sorted.
+// The key aliases the underlying data and must not be retained or modified.
+// fn's error aborts the walk and is returned.
+func (t *DiskTree) ForEachNodeOffset(fn func(key []byte, start, end uint64) error) error {
+	bufferPos := 0
+	for bufferPos+TREE_KEY_STORE_OVERHEAD <= len(t.data) {
+		keyLen := int(binary.LittleEndian.Uint32(t.data[bufferPos:]))
+		nodeSize := keyLen + TREE_KEY_STORE_OVERHEAD
+		if bufferPos+nodeSize > len(t.data) {
+			break
+		}
+		start := binary.LittleEndian.Uint64(t.data[bufferPos+4+keyLen:])
+		end := binary.LittleEndian.Uint64(t.data[bufferPos+4+keyLen+8:])
+		if err := fn(t.data[bufferPos+4:bufferPos+4+keyLen], start, end); err != nil {
+			return err
+		}
+		bufferPos += nodeSize
+	}
+	return nil
+}

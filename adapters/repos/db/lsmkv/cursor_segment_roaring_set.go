@@ -21,6 +21,10 @@ func (s *segment) newRoaringSetCursor() roaringset.SegmentCursor {
 		&roaringSetSeeker{s.index})
 }
 
+func (s *segment) newRoaringSetRawCursor() *roaringset.SegmentCursorRaw {
+	return roaringset.NewSegmentCursorRaw(s.contents[s.dataStartPos:s.dataEndPos])
+}
+
 func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
 	segments, release := sg.getConsistentViewOfSegments()
 

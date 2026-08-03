@@ -98,6 +98,19 @@ func (sn *SegmentNode) AdditionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, f
 	return pool.CloneBytesToBuf(buf)
 }
 
+// AdditionsCloneToBufWithMinCap is [SegmentNode.AdditionsCloneToBuf] with a
+// caller-chosen minimum buffer capacity, for clones that will grow — e.g. a
+// merge accumulator sized for the whole fold instead of the first operand.
+func (sn *SegmentNode) AdditionsCloneToBufWithMinCap(pool BitmapBufPool, minCap int) (*sroar.Bitmap, func()) {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil, nil
+	}
+	return CloneBytesToBufWithMinCap(pool, buf, minCap)
+}
+
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
 // creates a copy of the underlying buffer. This is safe to use indefinitely,
 // but much slower than [*SegmentNode.Additions] as it requires copying all the

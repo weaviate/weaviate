@@ -18,10 +18,12 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
-type ShardCombiner struct{}
+type ShardCombiner struct {
+	params aggregation.Params
+}
 
-func NewShardCombiner() *ShardCombiner {
-	return &ShardCombiner{}
+func NewShardCombiner(params aggregation.Params) *ShardCombiner {
+	return &ShardCombiner{params: params}
 }
 
 func (sc *ShardCombiner) Do(results []*aggregation.Result) *aggregation.Result {
@@ -59,6 +61,7 @@ func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) *aggreg
 	}
 
 	sc.finalizeGroup(&combined.Groups[0])
+	sc.applyTopOccurrencesCutoffs(results, &combined.Groups[0])
 	return &combined
 }
 
@@ -294,6 +297,14 @@ func (sc *ShardCombiner) finalizeBoolean(combined *aggregation.Boolean) {
 }
 
 func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
+	// one shard over the cutoff makes the collection's value list incomplete;
+	// keeping the other shards' values would hand out a silently truncated
+	// vocabulary with per-shard counts
+	if first.CutoffExceeded || second.CutoffExceeded {
+		*first = aggregation.Text{CutoffExceeded: true}
+		return
+	}
+
 	first.Count += second.Count
 
 	for _, textOcc := range second.Items {
@@ -308,6 +319,73 @@ func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
 
 func (sc *ShardCombiner) mergeRefProp(first, second *aggregation.Reference) {
 	first.PointingTo = append(first.PointingTo, second.PointingTo...)
+}
+
+// applyTopOccurrencesCutoffs enforces the distinct-value cutoffs on the merged
+// value lists, since a collection can hold more distinct values than the cutoff
+// although no single shard did. A shard that could not evaluate the cutoff
+// contributes top values rather than all of them, which proves nothing about
+// the collection, so the cutoff is dropped instead of guessed at.
+func (sc *ShardCombiner) applyTopOccurrencesCutoffs(results []*aggregation.Result,
+	combined *aggregation.Group,
+) {
+	for _, paramProp := range sc.params.Properties {
+		cutoff := int(paramProp.TopOccurrencesCutoff)
+		if cutoff <= 0 {
+			continue
+		}
+
+		name := paramProp.Name.String()
+		prop, ok := combined.Properties[name]
+		if !ok || prop.Type != aggregation.PropertyTypeText ||
+			prop.TextAggregation.CutoffExceeded {
+			continue
+		}
+		if !shardValuesComplete(results, name) {
+			continue
+		}
+
+		if len(prop.TextAggregation.Items) > cutoff {
+			prop.TextAggregation = aggregation.Text{CutoffExceeded: true}
+		} else {
+			prop.TextAggregation = topOccurrences(prop.TextAggregation,
+				extractLimitFromTopOccs(paramProp.Aggregators))
+		}
+		combined.Properties[name] = prop
+	}
+}
+
+// shardValuesComplete reports whether every shard holding the property listed
+// all of its values.
+func shardValuesComplete(results []*aggregation.Result, propName string) bool {
+	for _, shard := range results {
+		if shard == nil || len(shard.Groups) == 0 {
+			continue
+		}
+		prop, ok := shard.Groups[0].Properties[propName]
+		if !ok || prop.Type != aggregation.PropertyTypeText {
+			continue
+		}
+		if !prop.TextAggregation.ValuesComplete && !prop.TextAggregation.CutoffExceeded {
+			return false
+		}
+	}
+	return true
+}
+
+// topOccurrences cuts a complete value list down to the requested limit,
+// through the aggregator the single-shard path uses so both order the same.
+func topOccurrences(text aggregation.Text, limit int) aggregation.Text {
+	agg := newTextAggregator(limit)
+	for _, item := range text.Items {
+		if err := agg.AddTextCount(item.Value, item.Occurs); err != nil {
+			return text
+		}
+	}
+
+	out := agg.Res()
+	out.ValuesComplete = true
+	return out
 }
 
 func (sc *ShardCombiner) finalizeText(combined *aggregation.Text) {

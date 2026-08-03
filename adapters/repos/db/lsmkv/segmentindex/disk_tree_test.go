@@ -14,6 +14,7 @@ package segmentindex
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 	"runtime/debug"
@@ -23,6 +24,47 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDiskTreeForEachNodeOffset(t *testing.T) {
+	keys := []Key{
+		{Key: []byte("aaa"), ValueStart: 1, ValueEnd: 2},
+		{Key: []byte("abc"), ValueStart: 4, ValueEnd: 5},
+		{Key: []byte("foobar"), ValueStart: 17, ValueEnd: 18},
+		{Key: []byte("zzz"), ValueStart: 34, ValueEnd: 35},
+		{Key: []byte("zzzz"), ValueStart: 100, ValueEnd: 102},
+	}
+	var buf bytes.Buffer
+	_, err := MarshalSortedKeysFromKeys(&buf, keys)
+	require.NoError(t, err)
+	tree := NewDiskTree(buf.Bytes())
+
+	got := map[string][2]uint64{}
+	require.NoError(t, tree.ForEachNodeOffset(func(key []byte, start, end uint64) error {
+		got[string(key)] = [2]uint64{start, end}
+		return nil
+	}))
+	require.Len(t, got, len(keys))
+	for _, k := range keys {
+		assert.Equal(t, [2]uint64{uint64(k.ValueStart), uint64(k.ValueEnd)}, got[string(k.Key)])
+		node, err := tree.Get(k.Key)
+		require.NoError(t, err)
+		assert.Equal(t, [2]uint64{node.Start, node.End}, got[string(k.Key)])
+	}
+
+	calls := 0
+	sentinel := errors.New("stop")
+	err = tree.ForEachNodeOffset(func([]byte, uint64, uint64) error {
+		calls++
+		return sentinel
+	})
+	require.ErrorIs(t, err, sentinel)
+	require.Equal(t, 1, calls)
+
+	require.NoError(t, NewDiskTree(nil).ForEachNodeOffset(func([]byte, uint64, uint64) error {
+		t.Fatal("fn must not run on empty tree")
+		return nil
+	}))
+}
 
 // A corrupt or truncated on-disk index must never crash the node: every read
 // path (Get, Seek/Next, AllKeys) has to return NotFound or an error instead of
@@ -189,10 +231,11 @@ func FuzzDiskTreeRead(f *testing.F) {
 		tree := NewDiskTree(data)
 
 		var (
-			allKeys    [][]byte
-			allKeysErr error
-			eachKeys   [][]byte
-			keyCount   int
+			allKeys        [][]byte
+			allKeysErr     error
+			eachKeys       [][]byte
+			nodeOffsetKeys [][]byte
+			keyCount       int
 		)
 		requireTerminates(t, func() {
 			_, _ = tree.Get(query)
@@ -203,8 +246,14 @@ func FuzzDiskTreeRead(f *testing.F) {
 			tree.ForEachKey(func(key []byte) {
 				eachKeys = append(eachKeys, key)
 			})
+			_ = tree.ForEachNodeOffset(func(key []byte, start, end uint64) error {
+				nodeOffsetKeys = append(nodeOffsetKeys, key)
+				return nil
+			})
 			_ = tree.QuantileKeys(8)
 		})
+
+		assert.Equal(t, eachKeys, nodeOffsetKeys, "ForEachNodeOffset disagrees with ForEachKey")
 
 		if allKeysErr != nil {
 			// AllKeys reports a node header it cannot parse, where KeyCount and

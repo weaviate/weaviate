@@ -79,6 +79,16 @@ func (a *textAggregator) AddText(value string) error {
 	return nil
 }
 
+// AddTextCount records count occurrences of value in one step, for callers
+// that already hold aggregated counts (the inverted-index path).
+func (a *textAggregator) AddTextCount(value string, count int) error {
+	a.Lock()
+	defer a.Unlock()
+	a.count += uint64(count)
+	a.itemCounter[value] += count
+	return nil
+}
+
 func (a *textAggregator) insertOrdered(elem aggregation.TextOccurrence) {
 	if len(a.topPairs) == 0 {
 		a.topPairs = []aggregation.TextOccurrence{elem}

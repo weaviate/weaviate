@@ -818,8 +818,25 @@ type AggregateRequest_Aggregation_Text struct {
 	Type               bool                   `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
 	TopOccurences      bool                   `protobuf:"varint,3,opt,name=top_occurences,json=topOccurences,proto3" json:"top_occurences,omitempty"`
 	TopOccurencesLimit *uint32                `protobuf:"varint,4,opt,name=top_occurences_limit,json=topOccurencesLimit,proto3,oneof" json:"top_occurences_limit,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Compute top_occurences from the property's inverted index instead of
+	// scanning objects, giving up once the property holds more than this
+	// many distinct values — the reply then carries
+	// top_occurences_cutoff_exceeded instead of values. Costs milliseconds
+	// for low-cardinality properties where the object scan costs seconds.
+	// Works for text, int, number, boolean, date and uuid properties (and
+	// their arrays); the reply always arrives in the text branch with
+	// values rendered as strings. Text values are the indexed terms:
+	// identical to stored values for untokenized properties, tokens
+	// otherwise. Counts are live per-value document counts, but values
+	// whose documents were all deleted count toward the cutoff until
+	// compaction reclaims them. Ignores filters, search and group_by
+	// (unfiltered aggregations only). Across shards it is enforced on the
+	// merged value list; a shard falling back to the object scan cannot
+	// evaluate it, and the reply then carries values without the flag
+	// whatever the cardinality.
+	TopOccurencesCutoff *uint32 `protobuf:"varint,5,opt,name=top_occurences_cutoff,json=topOccurencesCutoff,proto3,oneof" json:"top_occurences_cutoff,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation_Text) Reset() {
@@ -876,6 +893,13 @@ func (x *AggregateRequest_Aggregation_Text) GetTopOccurences() bool {
 func (x *AggregateRequest_Aggregation_Text) GetTopOccurencesLimit() uint32 {
 	if x != nil && x.TopOccurencesLimit != nil {
 		return *x.TopOccurencesLimit
+	}
+	return 0
+}
+
+func (x *AggregateRequest_Aggregation_Text) GetTopOccurencesCutoff() uint32 {
+	if x != nil && x.TopOccurencesCutoff != nil {
+		return *x.TopOccurencesCutoff
 	}
 	return 0
 }
@@ -1678,8 +1702,11 @@ type AggregateReply_Aggregations_Aggregation_Text struct {
 	Count         *int64                                                       `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
 	Type          *string                                                      `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
 	TopOccurences *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences `protobuf:"bytes,3,opt,name=top_occurences,json=topOccurences,proto3,oneof" json:"top_occurences,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Set when top_occurences_cutoff was requested and the property has
+	// more distinct values than it allowed; top_occurences is then absent.
+	TopOccurencesCutoffExceeded *bool `protobuf:"varint,4,opt,name=top_occurences_cutoff_exceeded,json=topOccurencesCutoffExceeded,proto3,oneof" json:"top_occurences_cutoff_exceeded,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Text) Reset() {
@@ -1731,6 +1758,13 @@ func (x *AggregateReply_Aggregations_Aggregation_Text) GetTopOccurences() *Aggre
 		return x.TopOccurences
 	}
 	return nil
+}
+
+func (x *AggregateReply_Aggregations_Aggregation_Text) GetTopOccurencesCutoffExceeded() bool {
+	if x != nil && x.TopOccurencesCutoffExceeded != nil {
+		return *x.TopOccurencesCutoffExceeded
+	}
+	return false
 }
 
 type AggregateReply_Aggregations_Aggregation_Boolean struct {
@@ -2257,7 +2291,7 @@ var File_v1_aggregate_proto protoreflect.FileDescriptor
 
 const file_v1_aggregate_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/aggregate.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\"\xd6\x14\n" +
+	"\x12v1/aggregate.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\"\xa9\x15\n" +
 	"\x10AggregateRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -2285,7 +2319,7 @@ const file_v1_aggregate_proto_rawDesc = "" +
 	"\n" +
 	"near_depth\x180 \x01(\v2\x1c.weaviate.v1.NearDepthSearchH\x00R\tnearDepth\x12C\n" +
 	"\fnear_thermal\x181 \x01(\v2\x1e.weaviate.v1.NearThermalSearchH\x00R\vnearThermal\x127\n" +
-	"\bnear_imu\x182 \x01(\v2\x1a.weaviate.v1.NearIMUSearchH\x00R\anearImu\x1a\xf4\v\n" +
+	"\bnear_imu\x182 \x01(\v2\x1a.weaviate.v1.NearIMUSearchH\x00R\anearImu\x1a\xc7\f\n" +
 	"\vAggregation\x12\x1a\n" +
 	"\bproperty\x18\x01 \x01(\tR\bproperty\x12E\n" +
 	"\x03int\x18\x02 \x01(\v21.weaviate.v1.AggregateRequest.Aggregation.IntegerH\x00R\x03int\x12J\n" +
@@ -2312,13 +2346,15 @@ const file_v1_aggregate_proto_rawDesc = "" +
 	"\x04mode\x18\x05 \x01(\bR\x04mode\x12\x16\n" +
 	"\x06median\x18\x06 \x01(\bR\x06median\x12\x18\n" +
 	"\amaximum\x18\a \x01(\bR\amaximum\x12\x18\n" +
-	"\aminimum\x18\b \x01(\bR\aminimum\x1a\xa7\x01\n" +
+	"\aminimum\x18\b \x01(\bR\aminimum\x1a\xfa\x01\n" +
 	"\x04Text\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\bR\x05count\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\bR\x04type\x12%\n" +
 	"\x0etop_occurences\x18\x03 \x01(\bR\rtopOccurences\x125\n" +
-	"\x14top_occurences_limit\x18\x04 \x01(\rH\x00R\x12topOccurencesLimit\x88\x01\x01B\x17\n" +
-	"\x15_top_occurences_limit\x1a\xc7\x01\n" +
+	"\x14top_occurences_limit\x18\x04 \x01(\rH\x00R\x12topOccurencesLimit\x88\x01\x01\x127\n" +
+	"\x15top_occurences_cutoff\x18\x05 \x01(\rH\x01R\x13topOccurencesCutoff\x88\x01\x01B\x17\n" +
+	"\x15_top_occurences_limitB\x18\n" +
+	"\x16_top_occurences_cutoff\x1a\xc7\x01\n" +
 	"\aBoolean\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\bR\x05count\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\bR\x04type\x12\x1d\n" +
@@ -2350,13 +2386,13 @@ const file_v1_aggregate_proto_rawDesc = "" +
 	"\t_group_byB\b\n" +
 	"\x06_limitB\n" +
 	"\n" +
-	"\b_filters\"\xda\x1b\n" +
+	"\b_filters\"\xc7\x1c\n" +
 	"\x0eAggregateReply\x12\x12\n" +
 	"\x04took\x18\x01 \x01(\x02R\x04took\x12I\n" +
 	"\rsingle_result\x18\x02 \x01(\v2\".weaviate.v1.AggregateReply.SingleH\x00R\fsingleResult\x12N\n" +
-	"\x0fgrouped_results\x18\x03 \x01(\v2#.weaviate.v1.AggregateReply.GroupedH\x00R\x0egroupedResults\x1a\x85\x13\n" +
+	"\x0fgrouped_results\x18\x03 \x01(\v2#.weaviate.v1.AggregateReply.GroupedH\x00R\x0egroupedResults\x1a\xf2\x13\n" +
 	"\fAggregations\x12X\n" +
-	"\faggregations\x18\x01 \x03(\v24.weaviate.v1.AggregateReply.Aggregations.AggregationR\faggregations\x1a\x9a\x12\n" +
+	"\faggregations\x18\x01 \x03(\v24.weaviate.v1.AggregateReply.Aggregations.AggregationR\faggregations\x1a\x87\x13\n" +
 	"\vAggregation\x12\x1a\n" +
 	"\bproperty\x18\x01 \x01(\tR\bproperty\x12P\n" +
 	"\x03int\x18\x02 \x01(\v2<.weaviate.v1.AggregateReply.Aggregations.Aggregation.IntegerH\x00R\x03int\x12U\n" +
@@ -2403,11 +2439,12 @@ const file_v1_aggregate_proto_rawDesc = "" +
 	"\b_maximumB\n" +
 	"\n" +
 	"\b_minimumB\x06\n" +
-	"\x04_sum\x1a\x96\x03\n" +
+	"\x04_sum\x1a\x83\x04\n" +
 	"\x04Text\x12\x19\n" +
 	"\x05count\x18\x01 \x01(\x03H\x00R\x05count\x88\x01\x01\x12\x17\n" +
 	"\x04type\x18\x02 \x01(\tH\x01R\x04type\x88\x01\x01\x12t\n" +
-	"\x0etop_occurences\x18\x03 \x01(\v2H.weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrencesH\x02R\rtopOccurences\x88\x01\x01\x1a\xbd\x01\n" +
+	"\x0etop_occurences\x18\x03 \x01(\v2H.weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrencesH\x02R\rtopOccurences\x88\x01\x01\x12H\n" +
+	"\x1etop_occurences_cutoff_exceeded\x18\x04 \x01(\bH\x03R\x1btopOccurencesCutoffExceeded\x88\x01\x01\x1a\xbd\x01\n" +
 	"\x0eTopOccurrences\x12l\n" +
 	"\x05items\x18\x01 \x03(\v2V.weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrenceR\x05items\x1a=\n" +
 	"\rTopOccurrence\x12\x14\n" +
@@ -2415,7 +2452,8 @@ const file_v1_aggregate_proto_rawDesc = "" +
 	"\x06occurs\x18\x02 \x01(\x03R\x06occursB\b\n" +
 	"\x06_countB\a\n" +
 	"\x05_typeB\x11\n" +
-	"\x0f_top_occurences\x1a\xc0\x02\n" +
+	"\x0f_top_occurencesB!\n" +
+	"\x1f_top_occurences_cutoff_exceeded\x1a\xc0\x02\n" +
 	"\aBoolean\x12\x19\n" +
 	"\x05count\x18\x01 \x01(\x03H\x00R\x05count\x88\x01\x01\x12\x17\n" +
 	"\x04type\x18\x02 \x01(\tH\x01R\x04type\x88\x01\x01\x12\"\n" +
@@ -2541,7 +2579,6 @@ var (
 		(*GeoCoordinatesFilter)(nil),                                                      // 39: weaviate.v1.GeoCoordinatesFilter
 	}
 )
-
 var file_v1_aggregate_proto_depIdxs = []int32{
 	2,  // 0: weaviate.v1.AggregateRequest.aggregations:type_name -> weaviate.v1.AggregateRequest.Aggregation
 	3,  // 1: weaviate.v1.AggregateRequest.group_by:type_name -> weaviate.v1.AggregateRequest.GroupBy

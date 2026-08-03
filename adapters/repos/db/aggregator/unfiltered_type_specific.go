@@ -14,12 +14,16 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -426,6 +430,126 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 	}
 
 	return nil
+}
+
+// propertyValuesFromInverted lists the property's values from its inverted
+// index: the filterable roaringset bucket whenever the property has one
+// (distinct values are its keys, live doc counts their bitmaps'
+// cardinalities — exact under any churn), otherwise the searchable bucket's
+// stored posting counts when provably churn-free, otherwise the object
+// scan. Past prop.TopOccurrencesCutoff distinct values it reports
+// CutoffExceeded instead of values; deleted values count toward the cutoff
+// until compaction reclaims them. Keys decode per data type into the
+// value's string form; for text they are the indexed terms, identical to
+// stored values for untokenized properties.
+func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
+	prop aggregation.ParamProperty, dt schema.DataType,
+) (*aggregation.Property, error) {
+	out := aggregation.Property{
+		Type:            aggregation.PropertyTypeText,
+		SchemaType:      string(dt),
+		TextAggregation: aggregation.Text{},
+	}
+
+	// every value the shard saw, not just the top ones: only the merged list
+	// tells the combiner the collection's distinct count
+	agg := newTextAggregator(int(prop.TopOccurrencesCutoff))
+	emit := func(key []byte, docCount int) error {
+		return agg.AddTextCount(decodeInvertedKey(key, dt), docCount)
+	}
+	complete := func() aggregation.Text {
+		res := agg.Res()
+		res.ValuesComplete = true
+		return res
+	}
+
+	if b, release := ua.store.AcquireBucketForRead(helpers.BucketFromPropNameLSM(prop.Name.String())); b != nil {
+		defer release()
+		if b.Strategy() != lsmkv.StrategyRoaringSet {
+			return ua.property(ctx, withoutCutoff(prop))
+		}
+
+		exceeded, err := b.RoaringSetEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff), emit)
+		if err != nil {
+			return nil, err
+		}
+		if exceeded {
+			out.TextAggregation = aggregation.Text{CutoffExceeded: true}
+			return &out, nil
+		}
+
+		out.TextAggregation = complete()
+		return &out, nil
+	}
+
+	if sb, sbRelease := ua.store.AcquireBucketForRead(helpers.BucketSearchableFromPropNameLSM(prop.Name.String())); sb != nil {
+		exceeded, exact, err := sb.InvertedEachDistinctKey(ctx, int(prop.TopOccurrencesCutoff), emit)
+		sbRelease()
+		if err != nil {
+			return nil, err
+		}
+		if exceeded {
+			out.TextAggregation = aggregation.Text{CutoffExceeded: true}
+			return &out, nil
+		}
+		if exact {
+			out.TextAggregation = complete()
+			return &out, nil
+		}
+		// churn voided the stored counts (agg untouched); scan objects instead
+	}
+
+	return ua.property(ctx, withoutCutoff(prop))
+}
+
+func withoutCutoff(prop aggregation.ParamProperty) aggregation.ParamProperty {
+	prop.TopOccurrencesCutoff = 0
+	return prop
+}
+
+// invertedValuesDecodable reports whether the type's filterable-bucket keys
+// decode back into value strings.
+func invertedValuesDecodable(dt schema.DataType) bool {
+	switch dt {
+	case schema.DataTypeText, schema.DataTypeTextArray,
+		schema.DataTypeInt, schema.DataTypeIntArray,
+		schema.DataTypeNumber, schema.DataTypeNumberArray,
+		schema.DataTypeBoolean, schema.DataTypeBooleanArray,
+		schema.DataTypeDate, schema.DataTypeDateArray,
+		schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		return true
+	default:
+		return false
+	}
+}
+
+// decodeInvertedKey renders a filterable-bucket key as the string form of the
+// property value it indexes. Undecodable keys fall back to their raw bytes.
+func decodeInvertedKey(key []byte, dt schema.DataType) string {
+	switch dt {
+	case schema.DataTypeInt, schema.DataTypeIntArray:
+		if v, err := entinverted.ParseLexicographicallySortableInt64(key); err == nil {
+			return strconv.FormatInt(v, 10)
+		}
+	case schema.DataTypeNumber, schema.DataTypeNumberArray:
+		if v, err := entinverted.ParseLexicographicallySortableFloat64(key); err == nil {
+			return strconv.FormatFloat(v, 'g', -1, 64)
+		}
+	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+		if len(key) == 1 {
+			return strconv.FormatBool(key[0] != 0)
+		}
+	case schema.DataTypeDate, schema.DataTypeDateArray:
+		if v, err := entinverted.ParseLexicographicallySortableInt64(key); err == nil {
+			return time.Unix(0, v).UTC().Format(time.RFC3339Nano)
+		}
+	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		if v, err := uuid.FromBytes(key); err == nil {
+			return v.String()
+		}
+	default:
+	}
+	return string(key)
 }
 
 func (ua unfilteredAggregator) textProperty(ctx context.Context,

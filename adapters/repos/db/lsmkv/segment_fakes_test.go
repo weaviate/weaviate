@@ -249,6 +249,10 @@ func (f *fakeSegment) getKeysSorted() [][]byte {
 	panic("not implemented")
 }
 
+func (f *fakeSegment) newRoaringSetRawCursor() *roaringset.SegmentCursorRaw {
+	panic("not implemented")
+}
+
 func (f *fakeSegment) isLoaded() bool {
 	panic("not implemented")
 }
@@ -360,7 +364,7 @@ func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	panic("not implemented")
 }
 
-func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error) {
+func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool, addMinCap int) (roaringset.BitmapLayer, func(), error) {
 	f.getCounter++
 	if f.strategy != segmentindex.StrategyRoaringSet {
 		return roaringset.BitmapLayer{}, nil, fmt.Errorf("not a roaring set segment")
@@ -375,12 +379,23 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	return roaringset.BitmapLayer{}, nil, lsmkv.NotFound
 }
 
+func (f *fakeSegment) roaringSetNodeSize(key []byte) int {
+	if f.strategy != segmentindex.StrategyRoaringSet {
+		return 0
+	}
+
+	if val, ok := f.roaringStore[string(key)]; ok {
+		return val.LenInBytes()
+	}
+	return 0
+}
+
 func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
 	f.getCounter++
 	if f.roaringSetMergeErr != nil {
 		return f.roaringSetMergeErr
 	}
-	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
+	layer, _, err := f.roaringSetGet(key, bitmapBufPool, 0)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
 			return nil
@@ -409,6 +424,19 @@ func (s *fakeSegment) getDocCount(key []byte) uint64 {
 	}
 
 	return uint64(len(s.collectionStore[string(key)]))
+}
+
+func (s *fakeSegment) eachDocCount(fn func(key []byte, docCount uint64) error) error {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil
+	}
+
+	for key, vals := range s.collectionStore {
+		if err := fn([]byte(key), uint64(len(vals))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *fakeSegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {

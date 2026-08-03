@@ -2814,10 +2814,10 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
 }
 
-// GetKeysCount estimates the bucket's distinct key count, taking the largest
-// of the bounds it can derive from one pinned view. The index retains the keys
-// of deleted and updated values until compaction prunes them, so the result
-// can exceed the number of distinct live values.
+// GetKeysCount estimates the bucket's distinct key count from one pinned view.
+// Bloom-derived counts are maximum-likelihood estimates rather than bounds, and
+// the index retains the keys of deleted and updated values until compaction
+// prunes them, so the result can exceed the number of distinct live values.
 func (b *Bucket) GetKeysCount() (uint32, error) {
 	if !b.useBloomFilter {
 		return 0, fmt.Errorf("bloom filter not enabled")
@@ -2856,6 +2856,31 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 	}
 
 	return best, nil
+}
+
+// keysCountClearlyExceeds reports whether the key count clears maxDistinct by
+// more than GetKeysCount's own error, the only case in which a distinct-key
+// walk may be skipped.
+func (b *Bucket) keysCountClearlyExceeds(maxDistinct int) bool {
+	count, err := b.GetKeysCount()
+	if err != nil {
+		return false
+	}
+	return uint64(count) > distinctKeysRejectAbove(maxDistinct)
+}
+
+// distinctKeysRejectAbove widens maxDistinct by the bloom estimator's noise (sd
+// about 0.4*sqrt(n)). Counts landing inside the margin are settled by the walk,
+// which bails after maxDistinct+1 distinct keys anyway.
+func distinctKeysRejectAbove(maxDistinct int) uint64 {
+	if maxDistinct <= 0 {
+		return 0
+	}
+	margin := maxDistinct / 8
+	if margin < 64 {
+		margin = 64
+	}
+	return uint64(maxDistinct) + uint64(margin)
 }
 
 // exactKeys holds key sets counted rather than estimated: memtables and disk
@@ -2936,4 +2961,107 @@ func (ek exactKeys) distinct() uint32 {
 
 func bloomSaturated(keysBloom *bloom.BloomFilter) bool {
 	return keysBloom.BitSet().Count() >= keysBloom.Cap()
+}
+
+// errDistinctKeysExceeded aborts a segment walk once maxDistinct is hit; it
+// never escapes InvertedEachDistinctKey.
+var errDistinctKeysExceeded = errors.New("distinct keys exceeded")
+
+// InvertedEachDistinctKey calls fn once per distinct key with the key's doc
+// count, summed from the rows' stored posting counts plus what the memtables
+// would flush — no posting or bitmap decode. It gives up as exceeded past
+// maxDistinct distinct keys, and as exact=false when the sum cannot be proven
+// live: summing assumes no key counts the same doc twice, which holds only
+// while nothing is deleted, since an update to a searchable property deletes
+// its old postings before adding the new ones. Any tombstone therefore voids
+// it, in a segment or an unflushed one in a memtable, as does a non-inverted
+// strategy. fn only runs on an exact walk, and its key aliases internal
+// storage.
+func (b *Bucket) InvertedEachDistinctKey(ctx context.Context, maxDistinct int,
+	fn func(key []byte, docCount int) error,
+) (exceeded, exact bool, err error) {
+	if b.strategy != StrategyInverted {
+		return false, false, nil
+	}
+
+	if b.keysCountClearlyExceeds(maxDistinct) {
+		return true, false, nil
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	memtables, count := viewMemtables(view)
+	for i := range count {
+		tombstones, err := memtables[i].ReadOnlyTombstones()
+		if err != nil {
+			return false, false, err
+		}
+		if tombstones != nil && !tombstones.IsEmpty() {
+			return false, false, nil
+		}
+	}
+	for _, seg := range view.Disk {
+		tombstones, err := seg.ReadOnlyTombstones()
+		if err != nil {
+			return false, false, err
+		}
+		if tombstones != nil && !tombstones.IsEmpty() {
+			return false, false, nil
+		}
+	}
+
+	const ctxCheckEvery = 1 << 12
+	visited := 0
+	dfSum := map[string]uint64{}
+	sum := func(key []byte, df uint64) error {
+		if visited++; visited%ctxCheckEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		if _, ok := dfSum[string(key)]; !ok && len(dfSum) == maxDistinct {
+			return errDistinctKeysExceeded
+		}
+		dfSum[string(key)] += df
+		return nil
+	}
+
+	for _, seg := range view.Disk {
+		err := seg.eachDocCount(sum)
+		if errors.Is(err, errDistinctKeysExceeded) {
+			return true, false, nil
+		}
+		if err != nil {
+			return false, false, err
+		}
+	}
+	// a tombstone written since the check above still voids the sum, so the
+	// walk reports the pairs it passes rather than trusting the earlier read
+	for i := range count {
+		tombstoned, err := memtables[i].eachDocCount(sum)
+		if errors.Is(err, errDistinctKeysExceeded) {
+			return true, false, nil
+		}
+		if err != nil {
+			return false, false, err
+		}
+		if tombstoned {
+			return false, false, nil
+		}
+	}
+
+	for key, df := range dfSum {
+		if err := ctx.Err(); err != nil {
+			return false, false, err
+		}
+		if df == 0 {
+			continue
+		}
+		if err := fn([]byte(key), int(df)); err != nil {
+			return false, false, err
+		}
+	}
+
+	return false, true, nil
 }

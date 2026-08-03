@@ -113,14 +113,14 @@ func TestNormalizeCardinalityOnlyProperties(t *testing.T) {
 func TestNormalizeCardinalityOnlyPropertiesBeforeCombine(t *testing.T) {
 	props := []aggregation.ParamProperty{{Name: "name", ApproximateCardinality: true}}
 
-	leaked := NewShardCombiner().Do([]*aggregation.Result{upToDateShard(9), preFeatureShard()})
+	leaked := NewShardCombiner(aggregation.Params{}).Do([]*aggregation.Result{upToDateShard(9), preFeatureShard()})
 	require.Len(t, leaked.Groups, 1)
 	assert.Equal(t, aggregation.PropertyTypeText, leaked.Groups[0].Properties["name"].Type,
 		"without normalization the pre-feature shard's type wins")
 
 	results := []*aggregation.Result{upToDateShard(9), preFeatureShard()}
 	NormalizeCardinalityOnlyProperties(props, results)
-	combined := NewShardCombiner().Do(results)
+	combined := NewShardCombiner(aggregation.Params{}).Do(results)
 
 	require.Len(t, combined.Groups, 1)
 	assert.Equal(t, 5, combined.Groups[0].Count)

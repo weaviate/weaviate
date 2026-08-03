@@ -240,6 +240,35 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "top occurrences with cardinality cutoff",
+			req: &pb.AggregateRequest{
+				Collection: mixedVectorsClass,
+				Aggregations: []*pb.AggregateRequest_Aggregation{
+					{
+						Property: "first",
+						Aggregation: &pb.AggregateRequest_Aggregation_Text_{
+							Text: &pb.AggregateRequest_Aggregation_Text{
+								TopOccurences:       true,
+								TopOccurencesLimit:  ptr(uint32(10)),
+								TopOccurencesCutoff: ptr(uint32(50)),
+							},
+						},
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName: schema.ClassName(mixedVectorsClass),
+				Properties: []aggregation.ParamProperty{
+					{
+						Name:                 "first",
+						Aggregators:          []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(ptr(10))},
+						TopOccurrencesCutoff: 50,
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "approximate cardinality only",
 			req: &pb.AggregateRequest{
 				Collection: mixedVectorsClass,

@@ -104,6 +104,10 @@ type ParamProperty struct {
 	// ApproximateCardinality requests a bloom-filter estimate of the property's
 	// distinct inverted-index keys, computed without the per-type object scan.
 	ApproximateCardinality bool `json:"approximateCardinality,omitempty"`
+	// TopOccurrencesCutoff, when non-zero, computes text top occurrences from
+	// the inverted index instead of the object scan, giving up once more than
+	// this many distinct values are seen.
+	TopOccurrencesCutoff uint32 `json:"topOccurrencesCutoff,omitempty"`
 }
 
 type Aggregator struct {

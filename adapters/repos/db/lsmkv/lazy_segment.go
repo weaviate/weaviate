@@ -243,6 +243,11 @@ func (s *lazySegment) getKeysSorted() [][]byte {
 	return s.segment.getKeysSorted()
 }
 
+func (s *lazySegment) newRoaringSetRawCursor() *roaringset.SegmentCursorRaw {
+	s.mustLoad()
+	return s.segment.newRoaringSetRawCursor()
+}
+
 func (s *lazySegment) isLoaded() bool {
 	s.mux.Lock()
 	defer s.mux.Unlock()
@@ -335,10 +340,15 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool, addMinCap int,
 ) (roaringset.BitmapLayer, func(), error) {
 	s.mustLoad()
-	return s.segment.roaringSetGet(key, bitmapBufPool)
+	return s.segment.roaringSetGet(key, bitmapBufPool, addMinCap)
+}
+
+func (s *lazySegment) roaringSetNodeSize(key []byte) int {
+	s.mustLoad()
+	return s.segment.roaringSetNodeSize(key)
 }
 
 func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
@@ -424,6 +434,11 @@ func (s *lazySegment) newSegmentBlockMax(node *segmentindex.Node, key []byte, qu
 func (s *lazySegment) getDocCount(key []byte) uint64 {
 	s.mustLoad()
 	return s.segment.getDocCount(key)
+}
+
+func (s *lazySegment) eachDocCount(fn func(key []byte, docCount uint64) error) error {
+	s.mustLoad()
+	return s.segment.eachDocCount(fn)
 }
 
 func (s *lazySegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {

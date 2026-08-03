@@ -103,14 +103,11 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
-	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
-	// base layer; built once at construction
-	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
-	bm25config                   *schema.BM25Config
-	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
-	writeSegmentInfoIntoFileName bool
-	writeMetadata                bool
-	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
+	bm25config                     *schema.BM25Config
+	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
+	writeSegmentInfoIntoFileName   bool
+	writeMetadata                  bool
+	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// averagePropLength caches the live-set property-length sum and count for BM25
@@ -183,7 +180,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sequentialAccess:             cfg.sequentialAccess,
 		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
-		bitmapBufPoolWithHeadroom:    roaringset.NewBitmapBufPoolFactorWrapper(b.bitmapBufPool, baseLayerHeadroomFactor),
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
@@ -973,6 +969,16 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 		return out, noopRelease, nil
 	}
 
+	// The first hit's additions buffer is the in-place accumulator for every
+	// later segment's merge, so size it for the whole fold: the union's
+	// serialized size never exceeds the sum of the key's node sizes.
+	addMinCap := 0
+	if ln > 1 {
+		for _, seg := range segments {
+			addMinCap += seg.roaringSetNodeSize(key)
+		}
+	}
+
 	// acquired (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
 	// can't leak the first layer's pooled buffer.
@@ -980,7 +986,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPool, addMinCap)
 		if getErr == nil {
 			out = layer
 			acquired = layerRelease

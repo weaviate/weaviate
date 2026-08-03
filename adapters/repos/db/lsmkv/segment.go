@@ -67,6 +67,7 @@ type Segment interface {
 	getInvertedData() *segmentInvertedData
 	getBloomFilter() *bloom.BloomFilter
 	getKeysSorted() [][]byte
+	newRoaringSetRawCursor() *roaringset.SegmentCursorRaw
 	isLoaded() bool
 	markForDeletion() error
 	markForDeletionExceptSegment() error
@@ -86,12 +87,16 @@ type Segment interface {
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
-	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
+	// addMinCap sizes the additions clone's pooled buffer for callers that
+	// fold more layers into it in place; 0 sizes it for the layer alone.
+	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool, addMinCap int) (roaringset.BitmapLayer, func(), error)
 	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
+	roaringSetNodeSize(key []byte) int
 
 	// map/bmw specific
 	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
+	eachDocCount(fn func(key []byte, docCount uint64) error) error
 	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
 	isPropertyLengthsLoaded() bool
@@ -177,6 +182,11 @@ type diskIndex interface {
 	// The key passed to fn is a subslice of the underlying data and must not
 	// be retained or modified by the caller.
 	ForEachKey(fn func(key []byte))
+
+	// ForEachNodeOffset iterates over all keys with their payload (start, end)
+	// offsets, in on-disk order, without allocating. Keys alias the index
+	// data. fn's error aborts the walk and is returned.
+	ForEachNodeOffset(fn func(key []byte, start, end uint64) error) error
 }
 
 type segmentConfig struct {
