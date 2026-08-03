@@ -65,6 +65,7 @@ type editOpBucket interface {
 	EditOpPending(opID string) ([]string, error)
 	EditOpQuarantined(opID string) ([]string, error)
 	DeleteEditOp(opID string) error
+	DeleteEditOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error)
 }
 
 // dropVectorShards is the slice of *DB the provider needs: locate the edit-ops
@@ -899,9 +900,10 @@ func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPa
 // leaves the shard uncovered, so that round re-arms it HERE and would
 // re-strip the already-drained replica from scratch, every round until the
 // sibling succeeds.
-// Belt: a shard whose op still has pending or quarantined rows is skipped —
-// completion implies both are empty, so anything else means the op still
-// covers unstripped data and deleting it could resurrect the dropped vector.
+// Belt: the delete is gated on the op having no pending and no quarantined
+// rows, atomically (DeleteEditOpIfDrained) — completion implies both are
+// empty, so anything else means the op still covers unstripped data and
+// deleting it could resurrect the dropped vector.
 // Best-effort: a failure is logged and the op left to the post-finalize orphan
 // sweep (the dropped-target fence keeps a lingering op inert once the marker
 // falls and the name is re-created).
@@ -937,23 +939,14 @@ func (p *DropVectorIndexProvider) deleteCompletedUnitEditOps(
 		if !ok {
 			continue // unloaded; the sweep on its next load disarms it once the marker leaves the schema
 		}
-		pending, err := bucket.EditOpPending(payload.OpID)
+		deleted, pendingRows, quarantinedRows, err := bucket.DeleteEditOpIfDrained(payload.OpID)
 		if err != nil {
-			logger.Warnf("drop-vector: task-completion: read pending before disarming shard %q: %v", shardName, err)
-			continue
-		}
-		quarantined, err := bucket.EditOpQuarantined(payload.OpID)
-		if err != nil {
-			logger.Warnf("drop-vector: task-completion: read quarantine before disarming shard %q: %v", shardName, err)
-			continue
-		}
-		if len(pending) > 0 || len(quarantined) > 0 {
-			logger.Warnf("drop-vector: task-completion: unit completed but shard %q still has %d pending / %d quarantined segments; keeping its edit op",
-				shardName, len(pending), len(quarantined))
-			continue
-		}
-		if err := bucket.DeleteEditOp(payload.OpID); err != nil {
 			logger.Warnf("drop-vector: task-completion: disarm completed unit's edit op on shard %q: %v", shardName, err)
+			continue
+		}
+		if !deleted {
+			logger.Warnf("drop-vector: task-completion: unit completed but shard %q still has %d pending / %d quarantined segments; keeping its edit op",
+				shardName, pendingRows, quarantinedRows)
 		}
 	}
 }

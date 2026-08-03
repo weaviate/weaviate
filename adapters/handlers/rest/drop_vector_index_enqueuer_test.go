@@ -320,6 +320,17 @@ func TestLiveOpIDs_SpansRoundsWhileMarkerPending(t *testing.T) {
 		require.Equal(t, 2, state.classReads,
 			"a failed read is memoized too: a partitioned leader costs one RPC per collection, not one per record")
 	})
+
+	t.Run("no tasks at all: empty non-nil set means sweep everything", func(t *testing.T) {
+		enq := &dropVectorIndexEnqueuer{
+			clusterService: &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{}},
+			schemaState:    &fakeShardingState{},
+		}
+		live, err := enq.LiveOpIDs(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, live, "nil means 'liveness unknown, sweep disabled' — a clean empty answer must not be conflated with it")
+		require.Empty(t, live)
+	})
 }
 
 func mustPayloadWithOp(t *testing.T, collection, opID string, targets ...string) []byte {
@@ -435,47 +446,65 @@ func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
 // removal gate allows the empty-shard-set case for exactly this. Tenants
 // that merely exist-but-inactive must NOT trigger it.
 func TestEnqueueDropVectorIndex_ZeroTenants_FinalizesDirectly(t *testing.T) {
-	t.Run("no tenants: direct finalize, no task", func(t *testing.T) {
-		cluster := &fakeClusterDropClient{}
-		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{})}
-		fin := &fakeEnqueuerFinalizer{}
-		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: fin}
+	coldTenant := map[string]sharding.Physical{
+		"cold": {Status: models.TenantActivityStatusCOLD, BelongsToNodes: []string{"n1"}},
+	}
+	tests := []struct {
+		name          string
+		shards        map[string]sharding.Physical
+		finalizer     *fakeEnqueuerFinalizer // nil = not wired
+		wantErr       string
+		wantFinalized bool
+	}{
+		{
+			name:          "no tenants: direct finalize, no task",
+			shards:        map[string]sharding.Physical{},
+			finalizer:     &fakeEnqueuerFinalizer{},
+			wantFinalized: true,
+		},
+		{
+			// A cold tenant's data must not be stranded by a premature finalize.
+			name:      "inactive tenants exist: marker stays, no finalize",
+			shards:    coldTenant,
+			finalizer: &fakeEnqueuerFinalizer{},
+		},
+		{
+			name:   "no finalizer wired: no-op, no panic",
+			shards: map[string]sharding.Physical{},
+		},
+		{
+			name:      "finalize failure surfaces",
+			shards:    map[string]sharding.Physical{},
+			finalizer: &fakeEnqueuerFinalizer{err: errors.New("gate refused")},
+			wantErr:   "gate refused",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &fakeClusterDropClient{}
+			state := &fakeShardingState{state: shardingState(true, tt.shards)}
+			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+			if tt.finalizer != nil {
+				enq.finalizer = tt.finalizer
+			}
 
-		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
-		require.Equal(t, [][]string{{"v1"}}, fin.calls, "the marker must be finalized directly")
-		require.Empty(t, cluster.gotTaskID)
-	})
-
-	t.Run("inactive tenants exist: marker stays, no finalize", func(t *testing.T) {
-		cluster := &fakeClusterDropClient{}
-		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{
-			"cold": {Status: models.TenantActivityStatusCOLD, BelongsToNodes: []string{"n1"}},
-		})}
-		fin := &fakeEnqueuerFinalizer{}
-		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: fin}
-
-		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
-		require.Empty(t, fin.calls, "a cold tenant's data must not be stranded by a premature finalize")
-		require.Empty(t, cluster.gotTaskID)
-	})
-
-	t.Run("no finalizer wired: no-op, no panic", func(t *testing.T) {
-		cluster := &fakeClusterDropClient{}
-		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{})}
-		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
-
-		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
-		require.Empty(t, cluster.gotTaskID)
-	})
-
-	t.Run("finalize failure surfaces", func(t *testing.T) {
-		cluster := &fakeClusterDropClient{}
-		state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{})}
-		fin := &fakeEnqueuerFinalizer{err: errors.New("gate refused")}
-		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: fin}
-
-		require.ErrorContains(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}), "gate refused")
-	})
+			err := enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, cluster.gotTaskID, "no task may be enqueued on the zero/inactive-tenant paths")
+			if tt.finalizer == nil {
+				return
+			}
+			if tt.wantFinalized {
+				require.Equal(t, [][]string{{"v1"}}, tt.finalizer.calls, "the marker must be finalized directly")
+			} else {
+				require.Empty(t, tt.finalizer.calls)
+			}
+		})
+	}
 }
 
 type fakeEnqueuerFinalizer struct {

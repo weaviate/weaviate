@@ -735,10 +735,6 @@ func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) er
 		if len(segIDs) == 0 {
 			return nil
 		}
-		pending, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
-		if err != nil {
-			return err
-		}
 		for _, segID := range segIDs {
 			if err := sub.Delete([]byte(segID)); err != nil {
 				return err
@@ -746,14 +742,9 @@ func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) er
 			if _, ok := live[segID]; !ok {
 				continue
 			}
-			if pending.Get([]byte(segID)) != nil {
-				continue
-			}
-			enc, err := json.Marshal(PendingSegment{})
-			if err != nil {
-				return err
-			}
-			if err := pending.Put([]byte(segID), enc); err != nil {
+			// The quarantine row is gone (above), so addPendingRowsTx's
+			// quarantine-skip cannot undo the requeue.
+			if err := s.addPendingTx(tx, opID, segID); err != nil {
 				return err
 			}
 		}
@@ -787,14 +778,40 @@ func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 // unit here completed, or an orphan sweep. A terminal round's INCOMPLETE
 // units keep their ops — the recorded pending sets are the resume points.
 func (s *SegmentEditOps) DeleteOp(opID string) error {
+	_, _, _, err := s.deleteOp(opID, false)
+	return err
+}
+
+// DeleteOpIfDrained deletes opID only when it has no pending and no
+// quarantined rows, verified and acted on in ONE transaction — separate
+// read-then-delete calls would let a row land in between and be deleted with
+// the op, dropping cover for unstripped data. Reports whether the op was
+// deleted (an absent op counts as deleted: nothing left to disarm) and, when
+// kept, the row counts that vetoed the delete.
+func (s *SegmentEditOps) DeleteOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error) {
+	return s.deleteOp(opID, true)
+}
+
+// deleteOp removes an operation and its rows; with onlyIfDrained it first
+// counts the op's pending and quarantined rows inside the same transaction
+// and keeps everything when either is non-zero.
+func (s *SegmentEditOps) deleteOp(opID string, onlyIfDrained bool) (deleted bool, pending, quarantined int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ok, err := s.openIfExistsLocked()
 	if err != nil || !ok {
-		return err
+		return err == nil, 0, 0, err // no sidecar: nothing to disarm
 	}
 	empty := false
 	if err := s.db.Update(func(tx *bolt.Tx) error {
+		if onlyIfDrained {
+			pending = countSubRows(tx.Bucket(editOpsBucketPending), opID)
+			quarantined = countSubRows(tx.Bucket(editOpsBucketQuarantine), opID)
+			if pending > 0 || quarantined > 0 {
+				return nil
+			}
+		}
+		deleted = true
 		if err := tx.Bucket(editOpsBucketOperations).Delete([]byte(opID)); err != nil {
 			return err
 		}
@@ -808,9 +825,9 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 		empty = k == nil
 		return nil
 	}); err != nil {
-		return err
+		return false, 0, 0, err
 	}
-	if empty {
+	if deleted && empty {
 		// The last op is gone: remove the sidecar file entirely. Leaving it
 		// costs a permanent fd + mmap on every shard that ever saw a drop
 		// (openIfExists reopens it on every load and cleanup pass, forever).
@@ -818,7 +835,7 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 		// a later RegisterOp simply re-creates the file.
 		s.closeAndRemoveLocked()
 	}
-	return nil
+	return deleted, pending, quarantined, nil
 }
 
 // closeAndRemoveLocked closes the bolt handle and deletes the sidecar file.
@@ -1161,6 +1178,18 @@ func pruneMissingSegments(parent *bolt.Bucket, existingSegmentIDs map[string]str
 		}
 	}
 	return nil
+}
+
+// countSubRows returns the number of rows in parent's opID sub-bucket (0 when
+// absent).
+func countSubRows(parent *bolt.Bucket, opID string) int {
+	sub := parent.Bucket([]byte(opID))
+	if sub == nil {
+		return 0
+	}
+	n := 0
+	_ = sub.ForEach(func(_, _ []byte) error { n++; return nil })
+	return n
 }
 
 func deleteSubBucket(parent *bolt.Bucket, opID string) error {

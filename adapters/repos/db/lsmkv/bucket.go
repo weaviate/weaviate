@@ -553,6 +553,18 @@ func (b *Bucket) DeleteEditOp(opID string) error {
 	return b.disk.editOps.DeleteOp(opID)
 }
 
+// DeleteEditOpIfDrained is DeleteEditOp gated, in one transaction, on the op
+// having no pending and no quarantined rows — the caller's "this op is
+// drained" belief is verified atomically with the delete instead of across
+// separate reads. Reports whether the op was deleted and, when kept, the row
+// counts that vetoed it.
+func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error) {
+	if !b.HasEditOps() {
+		return false, 0, 0, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.DeleteOpIfDrained(opID)
+}
+
 // EditOpQuarantined returns the segment IDs the cleanup driver quarantined
 // (retry budget exhausted) for opID; they still carry the dropped data, so the
 // caller must fail rather than treat empty pending as success.

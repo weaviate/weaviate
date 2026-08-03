@@ -120,21 +120,43 @@ func (f *fakeEditOpBucket) DeleteEditOp(opID string) error {
 	return nil
 }
 
+func (f *fakeEditOpBucket) DeleteEditOpIfDrained(opID string) (bool, int, int, error) {
+	pending, err := f.EditOpPending(opID)
+	if err != nil {
+		return false, 0, 0, err
+	}
+	quarantined, err := f.EditOpQuarantined(opID)
+	if err != nil {
+		return false, 0, 0, err
+	}
+	if len(pending) > 0 || len(quarantined) > 0 {
+		return false, len(pending), len(quarantined), nil
+	}
+	if err := f.DeleteEditOp(opID); err != nil {
+		return false, 0, 0, err
+	}
+	return true, 0, 0, nil
+}
+
 type removedCall struct {
 	collection, shard string
 	targets           []string
 }
 
 type fakeShards struct {
-	bucket    editOpBucket
-	buckets   map[string]editOpBucket // per-shard override; takes precedence over bucket
-	bucketErr error
-	mu        sync.Mutex
-	removed   []removedCall
-	removeErr map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
+	bucket     editOpBucket
+	buckets    map[string]editOpBucket // per-shard override; takes precedence over bucket
+	bucketErr  error
+	resolveErr error // when set, the bucket resolution itself fails
+	mu         sync.Mutex
+	removed    []removedCall
+	removeErr  map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
 }
 
 func (f *fakeShards) resolve(shardNames []string) (map[string]editOpBucket, error) {
+	if f.resolveErr != nil {
+		return nil, f.resolveErr
+	}
 	if f.bucketErr != nil {
 		// Simulates "shard not locally available": absent from the result map.
 		return map[string]editOpBucket{}, nil
@@ -829,41 +851,97 @@ func TestOnTaskCompleted_TerminalTasks_KeepOpsAndSchema(t *testing.T) {
 		})
 	}
 
-	t.Run("a completed unit's drained op is disarmed", func(t *testing.T) {
+	// One completed unit; what varies is the shard's sidecar state (and its
+	// reachability). Only a drained, reachable op may be disarmed — every
+	// other row fails toward keeping it (the reversible direction).
+	disarmCases := []struct {
+		name        string
+		shards      *fakeShards
+		bucket      *fakeEditOpBucket
+		wantDeleted bool
+	}{
+		{
+			// The completed unit's shard is epoch-covered; no later round returns for its op.
+			name:        "a completed unit's drained op is disarmed",
+			bucket:      &fakeEditOpBucket{pendingSeq: [][]string{{}}},
+			wantDeleted: true,
+		},
+		{
+			// Pending rows contradict completion; the op still covers unstripped data.
+			name:   "residual pending rows keep the op",
+			bucket: &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}},
+		},
+		{
+			// A quarantine verdict contradicts completion the same way.
+			name:   "a quarantined segment keeps the op",
+			bucket: &fakeEditOpBucket{pendingSeq: [][]string{{}}, quarantined: []string{"s9"}},
+		},
+		{
+			name:   "a pending read error keeps the op",
+			bucket: &fakeEditOpBucket{pendingErr: errors.New("bolt read failed")},
+		},
+		{
+			name:   "a quarantine read error keeps the op",
+			bucket: &fakeEditOpBucket{pendingSeq: [][]string{{}}, quarantinedErr: errors.New("bolt read failed")},
+		},
+		{
+			// deleteErr surfaces from the gated delete; the sweep collects the op later.
+			name:   "a delete failure leaves the op to the sweep",
+			bucket: &fakeEditOpBucket{pendingSeq: [][]string{{}}, deleteErr: errors.New("bolt write failed")},
+		},
+		{
+			name:   "an unloaded shard is left to the sweep on its next load",
+			shards: &fakeShards{bucketErr: errors.New("not loaded")},
+			bucket: &fakeEditOpBucket{pendingSeq: [][]string{{}}},
+		},
+		{
+			name:   "a bucket resolution error skips the disarm entirely",
+			shards: &fakeShards{resolveErr: errors.New("listing failed")},
+			bucket: &fakeEditOpBucket{pendingSeq: [][]string{{}}},
+		},
+	}
+	for _, tt := range disarmCases {
+		t.Run(tt.name, func(t *testing.T) {
+			shards := tt.shards
+			if shards == nil {
+				shards = &fakeShards{}
+			}
+			if shards.bucket == nil {
+				shards.bucket = tt.bucket
+			}
+			fin := &fakeFinalizer{}
+			p := newTestDropProvider(shards, fin, newFakeRecorder())
+
+			p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+				"u1": {Status: distributedtask.UnitStatusCompleted},
+			}))
+			require.False(t, fin.called)
+			if tt.wantDeleted {
+				require.Equal(t, []string{"op1"}, tt.bucket.deleted)
+			} else {
+				require.Empty(t, tt.bucket.deleted)
+			}
+		})
+	}
+
+	t.Run("units of other nodes are ignored", func(t *testing.T) {
 		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
-		fin := &fakeFinalizer{}
-		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, &fakeFinalizer{}, newFakeRecorder())
 
-		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+		task := dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
 			"u1": {Status: distributedtask.UnitStatusCompleted},
-		}))
-		require.False(t, fin.called)
-		require.Equal(t, []string{"op1"}, bucket.deleted,
-			"the completed unit's shard is epoch-covered; no later round returns for its op")
-	})
+		})
+		payload := &DropVectorIndexTaskPayload{
+			Collection:  "Collection",
+			Targets:     []string{"v1"},
+			OpID:        "op1",
+			UnitToNode:  map[string]string{"u1": "node2"},
+			UnitToShard: map[string]string{"u1": "shard1"},
+		}
+		task.Payload, _ = payload.encode()
 
-	t.Run("a completed unit with residual pending rows keeps its op", func(t *testing.T) {
-		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}}
-		fin := &fakeFinalizer{}
-		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
-
-		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
-			"u1": {Status: distributedtask.UnitStatusCompleted},
-		}))
-		require.Empty(t, bucket.deleted,
-			"pending rows contradict completion; the op still covers unstripped data")
-	})
-
-	t.Run("a completed unit with a quarantined segment keeps its op", func(t *testing.T) {
-		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}, quarantined: []string{"s9"}}
-		fin := &fakeFinalizer{}
-		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
-
-		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
-			"u1": {Status: distributedtask.UnitStatusCompleted},
-		}))
-		require.Empty(t, bucket.deleted,
-			"a quarantine verdict contradicts completion; the op still covers unstripped data")
+		p.OnTaskCompleted(task)
+		require.Empty(t, bucket.deleted, "node2's completed unit is node2's to disarm")
 	})
 
 	t.Run("RF>1: a drained replica keeps its op while a sibling replica is incomplete", func(t *testing.T) {

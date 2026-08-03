@@ -272,3 +272,57 @@ func testZeroTenantDrop() func(t *testing.T) {
 		require.Contains(t, cur.VectorConfig, "sibling")
 	}
 }
+
+// testAllTenantsDeletedMidDrop pins the OTHER zero-tenant journey: tenants
+// existed when the marker landed (a cleanup task is in flight), then every
+// tenant is deleted mid-drop. The round's units die with their shards and no
+// later task can ever exist, so only the enqueuer's zero-tenant escape can
+// remove the marker — without it the collection keeps an immortal marker.
+func testAllTenantsDeletedMidDrop() func(t *testing.T) {
+	return func(t *testing.T) {
+		const (
+			className = "DropVectorIndexAllTenantsDeleted"
+			dropped   = "vec"
+			sibling   = "sibling"
+			tenant1   = "tenant1"
+			tenant2   = "tenant2"
+			dim       = 8
+		)
+
+		deleteParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
+		defer helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
+
+		createMTDropClass(t, className, dropped, sibling, tenant1, tenant2)
+		for ten, tenant := range map[int]string{0: tenant1, 1: tenant2} {
+			batch := make([]*models.Object, 5)
+			for i := range 5 {
+				batch[i] = &models.Object{
+					ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-0000-01%02d-0000000015%02d", ten, i)),
+					Class:      className,
+					Tenant:     tenant,
+					Properties: map[string]any{"name": fmt.Sprintf("object-%d", i)},
+					Vectors: models.Vectors{
+						dropped: randVec(dim, float32(i)),
+						sibling: randVec(dim, float32(i+100)),
+					},
+				}
+			}
+			helper.CreateObjectsBatch(t, batch)
+		}
+		time.Sleep(3 * time.Second) // past the 1s dirty-flush
+
+		dropTargetVector(t, className, dropped)
+		// Guaranteed still in flight: the first poll tick is 30s away.
+		require.NoError(t, helper.DeleteTenants(t, className, []string{tenant1, tenant2}))
+
+		eventuallyTargetVectorRemoved(t, className, dropped)
+
+		// A tenant created afterwards lives on the finalized schema.
+		helper.CreateTenants(t, className, []*models.Tenant{{Name: "late"}})
+		cur, err := helper.GetClassWithoutAssert(t, className, "")
+		require.NoError(t, err)
+		require.NotContains(t, cur.VectorConfig, dropped)
+		require.Contains(t, cur.VectorConfig, sibling)
+	}
+}

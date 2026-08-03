@@ -519,6 +519,60 @@ func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName))
 }
 
+// TestSegmentEditOps_Recover_CompactionCrashWindow pins the crash window the
+// Recover godoc argues: a crash between a compaction's on-disk switch and its
+// bolt commit leaves the rows for BOTH inputs while disk holds only the
+// merged output (which takes the right input's ID). Recovery must keep the
+// right row — it names the file now carrying both inputs' data — and prune
+// only the left one; re-pending anything else would restart finished work.
+func TestSegmentEditOps_Recover_CompactionCrashWindow(t *testing.T) {
+	s := newTestEditOps(t)
+	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200", "300"}))
+	require.NoError(t, s.MarkSegmentDone("op1", "300")) // already stripped before the crash
+
+	// Crash after switchOnDisk of the 100+200 merge: disk = {200 (merged), 300}.
+	noLive := func() map[string]struct{} { return nil }
+	require.NoError(t, s.Recover([]string{"200", "300"}, noLive, noLive))
+
+	pending, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200"}, pending,
+		"the merged output stays covered by the right input's row; the left row is pruned and stripped progress stays done")
+}
+
+// TestSegmentEditOps_DeleteOpIfDrained pins the atomic disarm gate: the
+// drained check and the delete share one transaction, and any pending or
+// quarantined row vetoes the delete — deleting alongside a row would drop
+// cover for unstripped data.
+func TestSegmentEditOps_DeleteOpIfDrained(t *testing.T) {
+	s := newTestEditOps(t)
+	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200"}))
+	require.NoError(t, s.Quarantine("op1", "200"))
+
+	deleted, pending, quarantined, err := s.DeleteOpIfDrained("op1")
+	require.NoError(t, err)
+	require.False(t, deleted)
+	require.Equal(t, 1, pending)
+	require.Equal(t, 1, quarantined)
+
+	require.NoError(t, s.MarkSegmentDone("op1", "100"))
+	deleted, _, quarantined, err = s.DeleteOpIfDrained("op1")
+	require.NoError(t, err)
+	require.False(t, deleted, "a quarantine row alone must veto the delete")
+	require.Equal(t, 1, quarantined)
+
+	require.NoError(t, s.RequeueQuarantined("op1", nil)) // segment gone from disk: row dropped
+	deleted, _, _, err = s.DeleteOpIfDrained("op1")
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	deleted, _, _, err = s.DeleteOpIfDrained("opUnknown")
+	require.NoError(t, err)
+	require.True(t, deleted, "an absent op has nothing to disarm")
+}
+
 // TestSegmentEditOps_RecoverMigratesLegacyCompactionRows pins the
 // cross-version heal: a sidecar written by a pre-resume binary can carry a
 // "<left>_<right>" compaction re-queue row — a name no live segment ever has.
