@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -511,16 +512,30 @@ func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
 		close(start)
 		wg.Wait()
 
-		// TryRLock only succeeds once the write lock is gone, so it catches a
-		// shard that was never released as well.
 		for _, name := range names {
 			if _, protected := idx.backupProtectedShards.Load(name); protected {
 				t.Fatalf("trial %d: shard %s still protected after ReleaseBackup", trial, name)
 			}
-			if !idx.backupLock.TryRLock(name) {
-				t.Fatalf("trial %d: backupLock on %s still held after ReleaseBackup", trial, name)
+		}
+
+		// A still-held write lock blocks RLock forever, so a shard that was
+		// released too few times surfaces as a timeout here. reacquired doubles
+		// as the index of the shard the prober is stuck on.
+		var reacquired atomic.Int64
+		probed := make(chan struct{})
+		go func() {
+			for _, name := range names {
+				idx.backupLock.RLock(name)
+				idx.backupLock.RUnlock(name)
+				reacquired.Add(1)
 			}
-			idx.backupLock.RUnlock(name)
+			close(probed)
+		}()
+		select {
+		case <-probed:
+		case <-time.After(30 * time.Second):
+			t.Fatalf("trial %d: backupLock on %s still held after ReleaseBackup",
+				trial, names[reacquired.Load()])
 		}
 	}
 }
