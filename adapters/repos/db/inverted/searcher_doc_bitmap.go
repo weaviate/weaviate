@@ -21,7 +21,6 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -341,19 +340,18 @@ func (s *Searcher) resolveContainsColumnar(b containsBatchBucket,
 	if !ok {
 		return docBitmap{}, false
 	}
-
-	resolver := bkt.GetOrBuildContainsAnyAccelerator(view, func() lsmkv.ContainsAnyResolver {
-		idx, err := columnar.BuildFromBucket(bkt, s.bitmapFactory.MaxID(), true)
-		if err != nil {
-			return nil // decline (e.g. non-unique property); caller uses the fold
-		}
-		return idx
-	})
+	resolver := bkt.ContainsAnyAccelerator()
 	if resolver == nil {
-		return docBitmap{}, false
+		return docBitmap{}, false // no accelerator: flag off, non-roaringset, or declined
 	}
 
+	// base + absorbed flushes, then layer the live active/flushing memtables so
+	// unflushed writes are reflected.
 	result := resolver.ResolveContainsAny(pv.containsValues)
+	result, err := bkt.LayerMemtablesOverBase(view, pv.containsValues, result)
+	if err != nil {
+		return docBitmap{}, false
+	}
 	return docBitmap{docIDs: result, release: noopRelease, isDenyList: false}, true
 }
 

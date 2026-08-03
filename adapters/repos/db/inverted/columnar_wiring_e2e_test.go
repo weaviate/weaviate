@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -58,6 +59,7 @@ func newUniqueTextSearcher(tb testing.TB, numDocs int) (*Searcher, *lsmkv.Store)
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), name,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithBitmapBufPool(bufPool),
+		lsmkv.WithContainsAcceleratorFactory(columnarTestFactory(numDocs)),
 	))
 	bucket := store.Bucket(name)
 	for i := 0; i < numDocs; i++ {
@@ -78,6 +80,19 @@ func sortedDocIDs(al helpers.AllowList) []uint64 {
 	got := al.Slice()
 	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
 	return got
+}
+
+// columnarTestFactory builds the accelerator at bucket open for tests. The base
+// is empty at open (data is written+flushed afterwards, arriving via AbsorbFlush);
+// non-unique corpora decline on the flush and detach.
+func columnarTestFactory(numDocs int) lsmkv.ContainsAcceleratorFactory {
+	return func(bkt *lsmkv.Bucket) lsmkv.ContainsAnyResolver {
+		idx, err := columnar.BuildFromBucket(bkt, uint64(numDocs+1), true)
+		if err != nil {
+			return nil
+		}
+		return idx
+	}
 }
 
 // sampleUniqueValues picks `size` unique values spread across [0,numDocs).
@@ -172,17 +187,52 @@ func TestColumnarWiring_DocIDsMatchesFold(t *testing.T) {
 			"columnar accelerator must match the fold at N=%d", size)
 	}
 
-	// prove the accelerator actually served: after the flag-on queries above it
-	// must be cached on the bucket, so a get-or-build with a build that fails the
-	// test returns a non-nil resolver WITHOUT rebuilding.
+	// prove the accelerator actually served: it is attached at open and kept
+	// live across the flush (via AbsorbFlush), so it is present on the bucket.
 	bkt := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	view := bkt.GetConsistentView()
-	defer view.ReleaseView()
-	resolver := bkt.GetOrBuildContainsAnyAccelerator(view, func() lsmkv.ContainsAnyResolver {
-		t.Fatal("accelerator should already be cached; build must not be called")
-		return nil
-	})
-	require.NotNil(t, resolver, "columnar accelerator must be cached after flag-on queries")
+	require.NotNil(t, bkt.ContainsAnyAccelerator(),
+		"columnar accelerator must be attached and serving")
+}
+
+// TestColumnarWiring_UnflushedWrites pins that the accelerator serves correctly
+// when there are unflushed writes in the active memtable — new keys and a delete
+// — via the memtable overlay, matching the fold, without falling back.
+func TestColumnarWiring_UnflushedWrites(t *testing.T) {
+	const numDocs = 5_000
+	searcher, store := newUniqueTextSearcher(t, numDocs)
+	ctx := context.Background()
+	bucket := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+
+	// unflushed writes into the active memtable (no FlushAndSwitch): two new
+	// keys, and a delete of a doc that lives in the flushed run.
+	require.NoError(t, bucket.RoaringSetAddList([]byte(benchValue(numDocs)), []uint64{uint64(numDocs)}))
+	require.NoError(t, bucket.RoaringSetAddList([]byte(benchValue(numDocs+1)), []uint64{uint64(numDocs + 1)}))
+	require.NoError(t, bucket.RoaringSetRemoveOne([]byte(benchValue(5)), 5))
+
+	values := []string{
+		benchValue(1),           // flushed, still present → 1
+		benchValue(5),           // deleted in memtable → nothing
+		benchValue(numDocs),     // new, unflushed → numDocs
+		benchValue(numDocs + 1), // new, unflushed → numDocs+1
+	}
+
+	run := func(flag string) []uint64 {
+		t.Setenv(entcfg.EnvEnableColumnarContains, flag)
+		al, err := searcher.DocIDs(ctx, containsFilter(filters.ContainsAny, values),
+			additional.Properties{}, className)
+		require.NoError(t, err)
+		defer al.Close()
+		return sortedDocIDs(al)
+	}
+
+	fold := run("")
+	col := run("true")
+
+	require.Equal(t, fold, col, "columnar + memtable overlay must match the fold with unflushed writes")
+	require.Equal(t, []uint64{1, uint64(numDocs), uint64(numDocs + 1)}, col,
+		"flushed(1) kept, deleted(5) gone, unflushed new keys present")
+	require.NotNil(t, bucket.ContainsAnyAccelerator(),
+		"unflushed writes must not detach the accelerator")
 }
 
 // TestColumnarWiring_DeclinesNonUnique pins that a non-unique property (a key
@@ -206,15 +256,9 @@ func TestColumnarWiring_DeclinesNonUnique(t *testing.T) {
 	require.Equal(t, []uint64{11, 17}, got,
 		"non-unique key must fall back to the fold and keep BOTH docIDs")
 
-	// the accelerator must be cached as declined (nil resolver) for this bucket.
+	// the non-unique flush must have detached the accelerator, so the bucket has
+	// none and ContainsAny falls back to the fold.
 	bkt := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	view := bkt.GetConsistentView()
-	defer view.ReleaseView()
-	built := false
-	resolver := bkt.GetOrBuildContainsAnyAccelerator(view, func() lsmkv.ContainsAnyResolver {
-		built = true
-		return nil
-	})
-	require.Nil(t, resolver, "non-unique property must resolve to a nil (declined) accelerator")
-	require.False(t, built, "decline must be cached, not rebuilt")
+	require.Nil(t, bkt.ContainsAnyAccelerator(),
+		"non-unique property must detach the accelerator on flush")
 }

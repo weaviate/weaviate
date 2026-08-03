@@ -12,95 +12,114 @@
 package lsmkv
 
 import (
-	"sort"
+	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // ContainsAnyResolver is a resident accelerator for batched ContainsAny
-// resolution on a roaringset bucket: it maps the bucket's keys to docIDs in a
-// columnar layout and resolves a batch of sorted query keys without per-key
-// segment lookups. It is implemented by the inverted/columnar package and
-// attached to a bucket by the query layer — lsmkv holds it behind this
-// interface because it cannot import columnar (which imports lsmkv).
+// resolution on a roaringset bucket: a columnar key→docID index that resolves a
+// batch of sorted query keys without per-key segment lookups. Implemented by the
+// inverted/columnar package and attached to a bucket at open via a factory —
+// lsmkv holds it behind this interface because it cannot import columnar (which
+// imports lsmkv).
+//
+// It covers only flushed data: the disk segments present at build (the base),
+// plus every memtable flushed since, fed in via AbsorbFlush. Live active/flushing
+// memtables are layered separately by LayerMemtablesOverBase at read time.
 type ContainsAnyResolver interface {
 	// ResolveContainsAny returns the docIDs whose key is in sortedKeys (encoded,
-	// ascending). The returned bitmap is owned by the caller.
+	// ascending), over the base plus all absorbed flushes. Caller owns the result.
 	ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap
+	// AbsorbFlush copies a just-flushed memtable (iterated via its roaringset
+	// cursor) into the index so its data stays served without re-reading disk.
+	AbsorbFlush(cursor roaringset.InnerCursor) error
 }
 
-// containsAccelerator pairs a resolver with the identity of the disk segment set
-// it was built from, so staleness can be detected after a flush or compaction.
-// A nil resolver is a cached "declined" outcome (e.g. the property is not unique)
-// so build is not retried until the segment set changes.
+// ContainsAcceleratorFactory builds an accelerator for a freshly opened bucket
+// (disk segments loaded, memtables empty — so the base is disk-only for free).
+// Returns nil to decline (e.g. the property is not unique). Supplied by the
+// query layer, which can import columnar.
+type ContainsAcceleratorFactory func(b *Bucket) ContainsAnyResolver
+
 type containsAccelerator struct {
 	resolver ContainsAnyResolver
-	segPaths []string // sorted paths of the disk segments the resolver was built from
 }
 
-// HasUnflushedData reports whether the view carries writes not yet on disk
-// (non-empty active or flushing memtable). A base-only accelerator built from
-// disk segments is only correct to serve when this is false.
-func (cv BucketConsistentView) HasUnflushedData() bool {
-	if cv.Flushing != nil && cv.Flushing.Size() > 0 {
-		return true
+// initContainsAccelerator builds and attaches the accelerator at bucket open, if
+// a factory was configured and the strategy is roaringset. Called once during
+// bucket construction, before any flush, so the flush hook always has a target.
+func (b *Bucket) initContainsAccelerator() {
+	if b.strategy != StrategyRoaringSet || b.containsAccFactory == nil {
+		return
 	}
-	return cv.Active != nil && cv.Active.Size() > 0
+	if resolver := b.containsAccFactory(b); resolver != nil {
+		b.containsAcc.Store(&containsAccelerator{resolver: resolver})
+	}
 }
 
-// segmentSetIdentity returns the sorted disk-segment paths — a stable identity
-// that changes on any flush (new segment file) or compaction (merged file).
-func segmentSetIdentity(disk []Segment) []string {
-	paths := make([]string, len(disk))
-	for i, s := range disk {
-		paths[i] = s.getPath()
-	}
-	sort.Strings(paths)
-	return paths
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// GetOrBuildContainsAnyAccelerator returns a resolver that can serve the given
-// view, or nil if the bucket cannot be accelerated for it. It returns nil
-// immediately when the view has unflushed data (the base-only accelerator cannot
-// layer memtables yet). Otherwise it returns the cached resolver if it was built
-// from exactly this disk segment set, or calls build() once and caches the
-// outcome — including a nil "declined" result (e.g. a non-unique property), so
-// build is not retried until the segments change via flush or compaction.
-//
-// Consistency note: build() is expected to snapshot the bucket itself; under a
-// concurrent flush its data and this view's staleness tag could diverge by one
-// generation. That race is benign for the current single-writer tests/benchmarks
-// and closes when memtable layering removes the fully-flushed requirement.
-func (b *Bucket) GetOrBuildContainsAnyAccelerator(
-	view BucketConsistentView, build func() ContainsAnyResolver,
-) ContainsAnyResolver {
-	if view.HasUnflushedData() {
+// ContainsAnyAccelerator returns the bucket's attached accelerator, or nil if
+// none (no factory, the factory declined, or a flush detached it). Lock-free.
+func (b *Bucket) ContainsAnyAccelerator() ContainsAnyResolver {
+	acc := b.containsAcc.Load()
+	if acc == nil {
 		return nil
 	}
-	segs := segmentSetIdentity(view.Disk)
+	return acc.resolver
+}
 
-	b.containsAccMu.RLock()
-	acc := b.containsAcc
-	b.containsAccMu.RUnlock()
-	if acc != nil && equalStrings(acc.segPaths, segs) {
-		return acc.resolver // may be nil (previously declined for this segment set)
+// absorbFlushIntoAccelerator feeds a just-flushed memtable to the accelerator.
+// Called from the flush path with the flushing memtable still in hand. If the
+// accelerator declines (e.g. the flush revealed a non-unique key), it is
+// detached — the index may now be missing docIDs, so ContainsAny falls back to
+// the fold from here on.
+func (b *Bucket) absorbFlushIntoAccelerator(flushing memtable) error {
+	acc := b.containsAcc.Load()
+	if acc == nil || acc.resolver == nil {
+		return nil
 	}
+	if err := acc.resolver.AbsorbFlush(flushing.newRoaringSetCursor()); err != nil {
+		b.containsAcc.Store(nil)
+		return err
+	}
+	return nil
+}
 
-	resolver := build()
-	b.containsAccMu.Lock()
-	b.containsAcc = &containsAccelerator{resolver: resolver, segPaths: segs}
-	b.containsAccMu.Unlock()
-	return resolver
+// LayerMemtablesOverBase applies the active + flushing memtables (oldest→newest)
+// over a base ContainsAny result for the given query keys, returning the net
+// result. The base covers flushed data only; this adds the unflushed writes.
+//
+// Under 1-doc-per-key, per tier: base = (base AndNot tier.dels) Or tier.adds. The
+// order (flushing then active) matters — a docID added in flushing and deleted in
+// active must not survive. base is mutated in place and returned.
+func (b *Bucket) LayerMemtablesOverBase(view BucketConsistentView, keys [][]byte,
+	base *sroar.Bitmap,
+) (*sroar.Bitmap, error) {
+	for _, mt := range []memtable{view.Flushing, view.Active} {
+		if mt == nil {
+			continue
+		}
+		adds := sroar.NewBitmap()
+		dels := sroar.NewBitmap()
+		for _, key := range keys {
+			layer, err := mt.roaringSetGet(key)
+			if err != nil {
+				if errors.Is(err, entlsmkv.NotFound) {
+					continue
+				}
+				return nil, err
+			}
+			if layer.Additions != nil {
+				adds.Or(layer.Additions)
+			}
+			if layer.Deletions != nil {
+				dels.Or(layer.Deletions)
+			}
+		}
+		base.AndNot(dels)
+		base.Or(adds)
+	}
+	return base, nil
 }
