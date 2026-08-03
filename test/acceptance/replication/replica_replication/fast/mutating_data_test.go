@@ -146,7 +146,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 			replication.NewReplicationDetailsParams().WithID(opId),
 			nil,
 		)
-		require.Nil(t, err, "failed to get replication operation %s", opId)
+		require.Nil(ct, err, "failed to get replication operation %s", opId)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
 

@@ -154,8 +154,8 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 			require.Nil(ct, err)
 			require.Equal(ct, http.StatusOK, resp.Code())
 			require.NotNil(ct, resp.Payload)
-			require.Equal(t, paragraphClass.Class, resp.Payload.ShardingState.Collection)
-			require.Equal(t, shardsCount, len(resp.Payload.ShardingState.Shards))
+			require.Equal(ct, paragraphClass.Class, resp.Payload.ShardingState.Collection)
+			require.Equal(ct, shardsCount, len(resp.Payload.ShardingState.Shards))
 
 			for _, shard := range resp.Payload.ShardingState.Shards {
 				require.Equal(ct, 3, len(shard.Replicas), "expected shard to have 3 replicas")
@@ -222,7 +222,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 			require.Nil(ct, err)
 			require.Equal(ct, http.StatusOK, resp.Code())
 			require.NotNil(ct, resp.Payload)
-			require.Equal(t, shardsCount, len(resp.Payload.ShardingState.Shards))
+			require.Equal(ct, shardsCount, len(resp.Payload.ShardingState.Shards))
 
 			for _, shard := range resp.Payload.ShardingState.Shards {
 				require.Equal(ct, 1, len(shard.Replicas), "expected shard to have 1 replica")
@@ -356,9 +356,9 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 					WithCollection(&paragraphClass.Class), nil)
 			require.Nil(ct, err)
 			require.Equal(ct, http.StatusOK, resp.Code())
-			require.NotNil(t, resp.Payload)
-			require.Equal(t, paragraphClass.Class, resp.Payload.ShardingState.Collection)
-			require.Equal(t, len(tenants), len(resp.Payload.ShardingState.Shards))
+			require.NotNil(ct, resp.Payload)
+			require.Equal(ct, paragraphClass.Class, resp.Payload.ShardingState.Collection)
+			require.Equal(ct, len(tenants), len(resp.Payload.ShardingState.Shards))
 
 			for _, shard := range resp.Payload.ShardingState.Shards {
 				require.Equal(ct, 3, len(shard.Replicas), "expected shard to have 3 replicas")
@@ -426,8 +426,8 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 					WithCollection(&paragraphClass.Class), nil)
 			require.Nil(ct, err)
 			require.Equal(ct, http.StatusOK, resp.Code())
-			require.NotNil(t, resp.Payload)
-			require.Equal(t, len(tenants), len(resp.Payload.ShardingState.Shards))
+			require.NotNil(ct, resp.Payload)
+			require.Equal(ct, len(tenants), len(resp.Payload.ShardingState.Shards))
 
 			for _, shard := range resp.Payload.ShardingState.Shards {
 				require.Equal(ct, 1, len(shard.Replicas), "expected shard to have 1 replica")

@@ -55,7 +55,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 				GetCollectionShardingState(replication.
 					NewGetCollectionShardingStateParams().
 					WithCollection(&paragraphClass.Class), nil)
-			require.Nil(t, err)
+			require.Nil(ct, err)
 			replicaPresent := false
 			for _, shard := range shardingState.Payload.ShardingState.Shards {
 				if shard.Shard != *req.Shard {
@@ -87,7 +87,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 	// Wait until the replication operation is READY
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-		require.Nil(t, err)
+		require.Nil(ct, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
 	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
@@ -143,7 +143,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 			GetCollectionShardingState(replication.
 				NewGetCollectionShardingStateParams().
 				WithCollection(&paragraphClass.Class), nil)
-		require.Nil(t, err)
+		require.Nil(ct, err)
 		replicaPresent := false
 		for _, shard := range shardingState.Payload.ShardingState.Shards {
 			if shard.Shard != *req.Shard {
@@ -175,7 +175,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 	// Wait until the replication operation is READY
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-		require.Nil(t, err)
+		require.Nil(ct, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
 	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
