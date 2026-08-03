@@ -424,5 +424,8 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return dimensionality, err
+	}
 	return dimensionality, nil
 }
