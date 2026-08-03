@@ -1608,9 +1608,10 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
 		userLister = appState.APIKey.Dynamic
 	}
-	// roleLister lets the scheduler resolve includeRoles selectors. appState.RBAC
-	// is a typed nil when RBAC is disabled; keep the interface untyped-nil so
-	// includeRoles requests are rejected with a clear error rather than panicking.
+	// roleLister lets the scheduler resolve includeRoles selectors. Assign it only
+	// when RBAC is on: putting a nil *rbac.Manager into the interface would leave
+	// roleLister non-nil, so the scheduler's nil check would miss it and an
+	// includeRoles request would panic instead of being rejected with a clear error.
 	var roleLister backup.RoleLister
 	if appState.RBAC != nil {
 		roleLister = appState.RBAC

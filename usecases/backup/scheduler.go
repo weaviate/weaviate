@@ -642,15 +642,14 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	return cs, nil
 }
 
-// backupSelections is what a backup request resolves to. Zero value is all-nil:
-// no users/roles (ordinary class-only backup) matching the empty→nil convention
-// in resolveUsers/resolveRoles.
+// backupSelections is what a backup request resolves to. Nil users and roles
+// mean an ordinary class-only backup.
 type backupSelections struct {
 	classes, users, roles []string
 }
 
 // validateBackupRequest resolves the request into concrete classes, users, and
-// roles. users/roles are empty unless includeUsers/includeRoles were supplied.
+// roles. Users and roles stay empty unless includeUsers/includeRoles were given.
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (selections backupSelections, err error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
 		return selections, errLocalBackendDBRO
@@ -766,8 +765,8 @@ func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
 	return users, nil
 }
 
-// resolveRoles expands includeRoles selectors. Empty input → nil (ordinary
-// backup; full RBAC snapshot is the participant's default).
+// resolveRoles expands includeRoles selectors. Empty input returns nil, leaving
+// the participant on its default of a full RBAC snapshot.
 func (s *Scheduler) resolveRoles(includeRoles []string) ([]string, error) {
 	if len(includeRoles) == 0 {
 		return nil, nil
@@ -782,11 +781,12 @@ func (s *Scheduler) resolveRoles(includeRoles []string) ([]string, error) {
 	return resolveRoleSelectors(includeRoles, allRoles)
 }
 
-// resolveRoleSelectors mirrors resolveUserSelectors ('*'/'?' wildcards, dedup,
-// exact selectors must exist, non-empty list matching nothing errors) with two
-// RBAC-specific rules: an explicit built-in selector is rejected, and wildcard
-// expansion draws from custom roles only so '*'/'?' never select a built-in
-// (restore re-applies built-ins from env/code regardless).
+// resolveRoleSelectors follows resolveUserSelectors: '*'/'?' wildcards, dedup,
+// exact selectors must exist, and a non-empty list matching nothing is an error.
+//
+// Built-in roles are the exception. Naming one explicitly is rejected, and
+// wildcards expand over custom roles only, so '*' never picks up a built-in.
+// Restore re-applies the built-ins from env and code either way.
 func resolveRoleSelectors(includeRoles, allRoles []string) ([]string, error) {
 	if dup := findDuplicate(includeRoles); dup != "" {
 		return nil, fmt.Errorf("role list 'includeRoles' contains duplicate: %s", dup)
@@ -1033,9 +1033,10 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 		}
 	}
 
-	// casbin merges colliding rows silently on restore, so dry-run the RBAC
-	// blobs through the same strip-and-collide logic the nodes apply. This is
-	// the only fail-loud gate before a graduation restore fuses two namespaces.
+	// casbin merges colliding rows on restore without reporting anything, so run
+	// the RBAC blobs through the same strip-and-collide logic the nodes apply.
+	// This is the only check that runs before any node stages data. The same
+	// strip runs again per node at apply time and refuses the blob there too.
 	if rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
 		for _, blob := range rbacBlobs {
 			if err := rbac.ValidateNamespaceStrip(blob); err != nil {
@@ -1053,8 +1054,8 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 
 // fetchSchema retrieves and returns the latest schema for all classes
 // In pre-raft scenarios where schema may diverge, some guesswork is necessary.
-// It also returns the per-node dynamic-user and RBAC snapshot blobs (each
-// deduped; empty when the backup carries no users / no roles).
+// It also returns the per-node dynamic-user and RBAC snapshot blobs, deduped,
+// and empty when the backup carries no users or no roles.
 func (s *Scheduler) fetchSchema(
 	ctx context.Context,
 	backend string,

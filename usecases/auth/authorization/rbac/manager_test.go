@@ -133,11 +133,13 @@ func TestSnapshotAndRestore(t *testing.T) {
 	}
 }
 
-// TestSnapshotRolesFilter pins the variadic Snapshot(roles...) filter: a
-// zero-arg call is the byte-identical full snapshot; a named set selects p-rows
-// by p[0] and g-rows (assignments plus the db:wv_internal_empty placeholder) by
-// g[1]; an unknown role fails loud rather than shipping a partial blob; and a
-// subset blob round-trips through Restore to exactly the selected roles.
+// TestSnapshotRolesFilter covers Snapshot(roles...):
+//   - with no args the result is the full snapshot, byte for byte
+//   - naming roles keeps their p-rows (matched on p[0]) and g-rows (matched on
+//     g[1]), which brings the assignments and the db:wv_internal_empty
+//     placeholder along too
+//   - an unknown role is an error, not a blob quietly missing a role
+//   - a subset blob restores to exactly the roles that were named
 func TestSnapshotRolesFilter(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -175,9 +177,9 @@ func TestSnapshotRolesFilter(t *testing.T) {
 		got, err := m.Snapshot()
 		require.NoError(t, err)
 
-		// Reference: the canonical full-snapshot encoding straight from casbin.
-		// Rerouting the empty-filter path through the per-role filter (which
-		// reorders/regroups rows) would diverge from this byte-for-byte.
+		// Compare against the encoding casbin produces directly. Routing the
+		// no-args path through the per-role filter would reorder and regroup the
+		// rows, and it would no longer match this byte for byte.
 		p, err := m.casbin.GetPolicy()
 		require.NoError(t, err)
 		g, err := m.casbin.GetGroupingPolicy()
@@ -196,9 +198,6 @@ func TestSnapshotRolesFilter(t *testing.T) {
 		require.NoError(t, json.Unmarshal(blob, &snap))
 		assert.ElementsMatch(t, roleP(t, m, "customAdmin"), snap.Policy)
 		assert.ElementsMatch(t, roleG(t, m, "customAdmin"), snap.GroupingPolicy)
-		for _, p := range snap.Policy {
-			assert.NotEqual(t, conv.PrefixRoleName("editor"), p[0])
-		}
 	})
 
 	t.Run("empty role is selected via its placeholder g-row", func(t *testing.T) {
@@ -247,20 +246,6 @@ func TestSnapshotRolesFilter(t *testing.T) {
 		assert.Empty(t, roleP(t, dst, "editor"))
 		assert.Empty(t, roleG(t, dst, "editor"))
 	})
-
-	t.Run("full snapshot restore is unregressed", func(t *testing.T) {
-		src := seed(t)
-		blob, err := src.Snapshot()
-		require.NoError(t, err)
-
-		dst, err := setupTestManager(t, logger)
-		require.NoError(t, err)
-		require.NoError(t, dst.Restore(blob, false))
-
-		assert.NotEmpty(t, roleP(t, dst, "customAdmin"))
-		assert.NotEmpty(t, roleP(t, dst, "editor"))
-		assert.NotEmpty(t, roleG(t, dst, "emptyRole"))
-	})
 }
 
 // getPolicyDelta returns the policies that are in b but not in a
@@ -294,11 +279,11 @@ func equalPolicies(a, b []string) bool {
 	return true
 }
 
-// TestStripRBACSnapshot pins the graduation strip over the casbin blob: the
-// N-aware rule (only namespaces named by a role name strip, so global OIDC
-// identities and the placeholder survive), the full-row rewrite (p[0]/p[1]/
-// g[0]/g[1]), and the four fail-loud collision classes casbin would otherwise
-// merge silently.
+// TestStripRBACSnapshot covers the strip over a casbin blob: which namespaces
+// strip (only ones a role name mentions, so global OIDC identities and the
+// placeholder survive), that every column is rewritten (p[0], p[1], g[0], g[1]),
+// and the four kinds of collision that are rejected rather than left for casbin
+// to merge silently.
 func TestStripRBACSnapshot(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -308,9 +293,9 @@ func TestStripRBACSnapshot(t *testing.T) {
 		wantErr []string // substrings; empty means the strip must succeed
 	}{
 		{
-			// p[0] role, p[1] resource, g[0] subject and g[1] role all lose the
-			// ns1 qualifier; the db:wv_internal_empty placeholder (namespace "")
-			// survives so the role keeps a row.
+			// The role, the resource, the subject and the role reference all lose
+			// the ns1 prefix. The db:wv_internal_empty placeholder has no namespace,
+			// so it survives and the role keeps a row.
 			name: "clean single-namespace strip rewrites every column",
 			in: snapshot{
 				Policy: [][]string{{"role:ns1:editor", "data/collections/ns1:Movies/shards/*/objects/*", "R", "data"}},
@@ -326,12 +311,11 @@ func TestStripRBACSnapshot(t *testing.T) {
 			},
 		},
 		{
-			// N is derived from role names only, so a namespace not named by any
-			// role never strips: a global OIDC "a:b" and a db subject in an
-			// unnamed namespace (assigned only this role) stay qualified: the
-			// intentional under-strip residue, not an error. Group subjects are
-			// global and untouched.
-			name: "N-aware subject rules leave non-N and global subjects intact",
+			// Namespaces are taken from role names only, so a namespace no role
+			// mentions is never stripped. The global OIDC "a:b" and the db subject
+			// in ns2 stay qualified, which is intended and not an error. Group
+			// subjects are global and left alone.
+			name: "a namespace no role mentions stays qualified, as do global subjects",
 			in: snapshot{
 				Policy: [][]string{{"role:ns1:editor", "roles/ns1:editor", "R", "roles"}},
 				GroupingPolicy: [][]string{
@@ -350,8 +334,9 @@ func TestStripRBACSnapshot(t *testing.T) {
 			},
 		},
 		{
-			// A whole-cluster blob carries genuine built-in rows; they strip to
-			// themselves (no namespaced source) and must not be flagged.
+			// A whole-cluster blob carries real built-in rows. They have no
+			// namespace to lose, so they strip to themselves and must not be
+			// reported as a collision.
 			name: "built-in rows are a no-op alongside a namespaced role",
 			in: snapshot{
 				Policy: [][]string{
@@ -367,7 +352,7 @@ func TestStripRBACSnapshot(t *testing.T) {
 			wantG: [][]string{{"db:wv_internal_empty", "role:editor"}},
 		},
 		{
-			name: "class 1: two namespaces' roles with distinct perms fuse",
+			name: "two namespaces' roles with distinct perms fuse",
 			in: snapshot{Policy: [][]string{
 				{"role:ns1:editor", "data/collections/ns1:A", "R", "data"},
 				{"role:ns2:editor", "data/collections/ns2:B", "R", "data"},
@@ -375,9 +360,10 @@ func TestStripRBACSnapshot(t *testing.T) {
 			wantErr: []string{"role:ns1:editor", "role:ns2:editor", `"editor"`},
 		},
 		{
-			// Even when the stripped rows are byte-identical, two distinct source
-			// role names collapsing to one must fail: casbin would dedupe silently.
-			name: "class 2: two namespaces' roles with identical rows dedupe",
+			// Two different role names collapsing to one must fail even when the
+			// stripped rows are identical, because casbin would dedupe them without
+			// reporting anything.
+			name: "two namespaces' roles with identical rows dedupe",
 			in: snapshot{Policy: [][]string{
 				{"role:ns1:editor", "data/collections/ns1:A", "R", "data"},
 				{"role:ns2:editor", "data/collections/ns2:A", "R", "data"},
@@ -385,16 +371,16 @@ func TestStripRBACSnapshot(t *testing.T) {
 			wantErr: []string{"role:ns1:editor", "role:ns2:editor", `"editor"`},
 		},
 		{
-			name: "class 3: a namespaced role strips onto a built-in name",
+			name: "a namespaced role strips onto a built-in name",
 			in: snapshot{Policy: [][]string{
 				{"role:ns1:viewer", "*", "R", "*"},
 			}},
 			wantErr: []string{"built-in role", `"viewer"`, "role:ns1:viewer"},
 		},
 		{
-			// Distinct roles so no role collision fires: the error must be
-			// attributable to the subject class alone.
-			name: "class 4: two namespaced principals fuse into one subject",
+			// The two roles differ, so no role collision fires and the error can
+			// only have come from the subjects.
+			name: "two namespaced principals fuse into one subject",
 			in: snapshot{GroupingPolicy: [][]string{
 				{"db:ns1:bob", "role:ns1:editor"},
 				{"db:ns2:bob", "role:ns2:auditor"},
@@ -420,9 +406,9 @@ func TestStripRBACSnapshot(t *testing.T) {
 	}
 }
 
-// TestValidateNamespaceStrip pins the coordinator-side dry run: it returns the
-// exact collision error a real strip-restore would hit, decodes without touching
-// any store, and no-ops on an empty blob.
+// TestValidateNamespaceStrip covers the coordinator's dry run: it returns the
+// same collision error a real strip-restore would hit, needs no store to do it,
+// and does nothing on an empty blob.
 func TestValidateNamespaceStrip(t *testing.T) {
 	marshal := func(t *testing.T, s snapshot) []byte {
 		b, err := json.Marshal(s)
@@ -454,10 +440,10 @@ func TestValidateNamespaceStrip(t *testing.T) {
 	})
 }
 
-// TestRestoreStripNamespaces drives the graduation restore end to end through
-// casbin: a namespaced backup restored with stripNamespaces=true lands the
-// unqualified role, its resource, and its assigned subject, with the empty-role
-// placeholder intact.
+// TestRestoreStripNamespaces drives a stripping restore end to end through
+// casbin. A namespaced backup restored with stripNamespaces=true must land the
+// unqualified role, its resource and its assigned subject, and keep the
+// empty-role placeholder.
 func TestRestoreStripNamespaces(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	src, err := setupNSEnabledTestManager(t, logger)
@@ -470,7 +456,7 @@ func TestRestoreStripNamespaces(t *testing.T) {
 	blob, err := src.Snapshot()
 	require.NoError(t, err)
 
-	dst, err := setupTestManager(t, logger) // namespacesEnabled=false → strip path
+	dst, err := setupTestManager(t, logger) // namespacesEnabled=false, so Restore strips
 	require.NoError(t, err)
 	require.NoError(t, dst.Restore(blob, true))
 
@@ -492,9 +478,56 @@ func TestRestoreStripNamespaces(t *testing.T) {
 	assert.Contains(t, subjects, "db:wv_internal_empty", "placeholder must survive")
 }
 
-// TestRestoreStripFalseUnchanged pins the RAFT-path invariant: stripNamespaces=
-// false leaves qualifiers intact, so the RAFT snapshot-restore path (which always
-// passes false) is byte-faithful to the pre-strip restore.
+// TestRestoreStripCollisionLeavesTargetIntact checks that a colliding strip is
+// rejected without the target's policies being touched. That holds only because
+// Restore calls stripRBACSnapshot before ClearPolicy. Swap the two and the
+// restore wipes the target's roles and assignments, then reports the error.
+// Nothing else in this suite catches that reordering.
+func TestRestoreStripCollisionLeavesTargetIntact(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	src, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+	// Two namespaces own a role that strips to the same name with different
+	// permissions, so the strip must refuse the whole snapshot.
+	require.NoError(t, src.CreateRolesPermissions(map[string][]authorization.Policy{
+		"ns1:editor": {{Resource: "data/collections/ns1:Movies/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
+		"ns2:editor": {{Resource: "data/collections/ns2:Books/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
+	}))
+
+	blob, err := src.Snapshot()
+	require.NoError(t, err)
+
+	dst, err := setupTestManager(t, logger) // namespacesEnabled=false, so Restore strips
+	require.NoError(t, err)
+	require.NoError(t, dst.CreateRolesPermissions(map[string][]authorization.Policy{
+		"incumbent": {{Resource: "data/collections/Archive/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
+	}))
+	require.NoError(t, dst.AddRolesForUser(conv.UserNameWithTypeFromId("resident", authentication.AuthTypeDb), []string{"incumbent"}))
+
+	incumbentP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName("incumbent"))
+	require.NoError(t, err)
+	require.NotEmpty(t, incumbentP)
+	incumbentG, err := dst.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName("incumbent"))
+	require.NoError(t, err)
+	require.NotEmpty(t, incumbentG)
+
+	err = dst.Restore(blob, true)
+	require.Error(t, err)
+	for _, want := range []string{"role:ns1:editor", "role:ns2:editor", `"editor"`} {
+		assert.Contains(t, err.Error(), want, "the error must name the collision, not just the role")
+	}
+
+	gotP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName("incumbent"))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, incumbentP, gotP, "a rejected restore must not drop the target's permissions")
+	gotG, err := dst.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName("incumbent"))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, incumbentG, gotG, "a rejected restore must not drop the target's assignments")
+}
+
+// TestRestoreStripFalseUnchanged covers the RAFT path. With stripNamespaces=false
+// the namespace prefixes stay intact, so RAFT snapshot restore, which always
+// passes false, behaves exactly as it did before the strip was added.
 func TestRestoreStripFalseUnchanged(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	src, err := setupNSEnabledTestManager(t, logger)

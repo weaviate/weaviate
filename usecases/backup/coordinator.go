@@ -84,8 +84,8 @@ type UserLister interface {
 }
 
 // RoleLister resolves includeRoles selectors. ListAllRoles returns every role
-// name (custom and built-in) — the candidate set selectors match against. Nil
-// when RBAC is disabled.
+// name, custom and built-in, which is the list selectors match against. Nil when
+// RBAC is disabled.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
 }

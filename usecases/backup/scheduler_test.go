@@ -1764,9 +1764,9 @@ func TestResolveUsers(t *testing.T) {
 func TestResolveRoleSelectors(t *testing.T) {
 	t.Parallel()
 
-	// allRoles is what ListAllRoles returns: custom roles plus every built-in.
-	// The built-ins must never surface, whether selected explicitly or by a
-	// wildcard (restore re-applies them from env/code).
+	// What ListAllRoles returns: custom roles plus every built-in. No built-in may
+	// ever come out of the resolver, whether it was named directly or matched by a
+	// wildcard. Restore re-applies them from env and code anyway.
 	allRoles := []string{
 		"ns1:reader", "ns1:writer", "ns2:auditor", "dave",
 		authorization.Viewer, authorization.Admin, authorization.Root, authorization.ReadOnly,
@@ -1845,8 +1845,9 @@ func TestResolveRoleSelectors(t *testing.T) {
 	}
 }
 
-// resolveRoles wraps resolveRoleSelectors with the empty-input and RBAC-disabled
-// handling, plus surfacing a lister failure rather than shipping a partial set.
+// resolveRoles adds three things on top of resolveRoleSelectors: empty input,
+// RBAC being disabled, and a failing lister, which must error rather than return
+// a partial set.
 func TestResolveRoles(t *testing.T) {
 	t.Parallel()
 
@@ -2014,11 +2015,12 @@ func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
 	})
 }
 
-// Scheduler.Backup must resolve includeRoles and stamp them on the global
-// descriptor so participants filter the RBAC blob to that set. Ordinary backups
-// (no includeRoles) must record no roles, keeping the whole-cluster snapshot
-// default. This is the guard that resolveRoles is actually wired into the create
-// path (a broken plumbing hop would leave the filter silently ineffective).
+// Scheduler.Backup must resolve includeRoles and record them on the global
+// descriptor, which is how participants know to filter the RBAC blob. A backup
+// without includeRoles must record no roles and keep the whole-cluster default.
+//
+// This is the test that resolveRoles is actually wired into the create path. If
+// it were not, the filter would do nothing and nothing else would complain.
 func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 	t.Parallel()
 
@@ -2101,9 +2103,10 @@ func makeUserSnapshot(t *testing.T, ids ...string) []byte {
 }
 
 // makeRbacSnapshot builds a real RBAC snapshot blob from a set of role names, so
-// the coordinator dry-run exercises the exact apply-time strip logic. Collision
-// is name-based: two roles in different namespaces that strip to the same short
-// name collide; a single-namespace set is clean.
+// the coordinator dry-run runs the same strip logic the nodes do at apply time.
+// Whether it collides depends only on the names: two roles in different
+// namespaces that strip to the same short name collide, a single-namespace set
+// does not.
 func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -2417,8 +2420,8 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			wantErr:   []string{`"Movies"`, `"alice"`},
 		},
 		{
-			// casbin merges colliding roles silently, so the coordinator dry-run
-			// is the only fail-loud gate before graduation fuses two namespaces.
+			// casbin merges colliding roles without reporting anything, so this
+			// dry-run is the only place the merge is caught before it happens.
 			name:      "RoleSnapshotCollisionRejects",
 			rbacBlobs: [][]byte{collidingRoles},
 			wantErr:   []string{"roles:", `"editor"`},
@@ -2634,10 +2637,11 @@ func TestFetchSchemaFailsClosed(t *testing.T) {
 	assert.Nil(t, rbacBlobs)
 }
 
-// TestFetchSchemaCollectsRbacBlobs pins that fetchSchema gathers the per-node
-// RBAC blob on both the leader and union paths, deduping identical blobs on the
-// union path exactly like the user blobs. Without this the coordinator roles
-// dry-run is blind and a collision only surfaces mid-restore on a node.
+// TestFetchSchemaCollectsRbacBlobs covers fetchSchema gathering the per-node RBAC
+// blob on both the leader path and the union path, deduping identical blobs on
+// the union path the same way it does for user blobs. If it did not, the
+// coordinator dry-run would see nothing and a collision would only show up
+// mid-restore on a node.
 func TestFetchSchemaCollectsRbacBlobs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -2655,7 +2659,7 @@ func TestFetchSchemaCollectsRbacBlobs(t *testing.T) {
 				nodeB: {Classes: []string{"ClassB"}},
 			},
 		}
-		// Both nodes carry the same RBAC blob (RAFT-replicated), so it dedupes to one.
+		// RAFT replicates RBAC, so both nodes carry the same blob and it dedupes to one.
 		mkNode := func(cls string) []byte {
 			b, err := json.Marshal(backup.BackupDescriptor{
 				ID: backupID, Status: backup.Success,

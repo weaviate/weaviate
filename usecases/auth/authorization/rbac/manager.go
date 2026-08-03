@@ -465,10 +465,11 @@ type snapshot struct {
 	Version        int        `json:"version"`
 }
 
-// Snapshot serialises the RBAC state for RAFT snapshots and backups. Zero roles
-// captures the whole store; a non-empty set filters to those roles' casbin `p` rows (by p[0])
-// and `g` rows (by g[1], which carries the assignments plus the db:wv_internal_empty
-// placeholder).
+// Snapshot serialises the RBAC state for RAFT snapshots and backups. Called with
+// no roles it captures the whole store. Called with roles it keeps only those
+// roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
+// hold the role name, so the assignments and the db:wv_internal_empty placeholder
+// come along too.
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
@@ -503,8 +504,9 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 			}
-			// A live role always has >=1 row (the db:wv_internal_empty placeholder g-row),
-			// so zero rows means it is absent here: fail loud rather than ship a partial blob.
+			// Every live role has at least the db:wv_internal_empty placeholder g-row,
+			// so no rows at all means the role is not here. Fail rather than ship a
+			// backup that is quietly missing a role.
 			if len(ps) == 0 && len(gs) == 0 {
 				return nil, fmt.Errorf("role %q not found in snapshot source", name)
 			}
@@ -521,8 +523,8 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ListAllRoles returns every role name known to the store (custom and built-in),
-// the candidate set includeRoles selectors resolve against.
+// ListAllRoles returns every role name known to the store, custom and built-in.
+// includeRoles selectors are matched against this list.
 func (m *Manager) ListAllRoles() ([]string, error) {
 	roles, err := m.GetRoles()
 	if err != nil {
@@ -546,6 +548,9 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
+	// Keep this above the write lock and ClearPolicy below. A colliding snapshot
+	// has to be refused while the target's state is still untouched, otherwise a
+	// rejected restore wipes the target's roles and then returns an error.
 	if stripNamespaces {
 		stripped, err := stripRBACSnapshot(snapshot)
 		if err != nil {

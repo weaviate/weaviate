@@ -368,10 +368,10 @@ func (r *recordingRbacRestorer) Restore(_ []byte, stripNamespaces bool) error {
 	return nil
 }
 
-// TestRestoreThreadsRbacStripFlag pins the new restore-side hop: restoreAll must
-// forward its stripNamespaces argument (derived per node as !namespacesEnabled)
-// to the RBAC sourcer, not drop it. A missed thread would silently skip the
-// graduation strip while every other test stays green.
+// TestRestoreThreadsRbacStripFlag covers restoreAll passing its stripNamespaces
+// argument, which each node derives as !namespacesEnabled, through to the RBAC
+// sourcer. Dropping it would skip the strip entirely and no other test would
+// notice.
 func TestRestoreThreadsRbacStripFlag(t *testing.T) {
 	t.Parallel()
 	for _, strip := range []bool{true, false} {
