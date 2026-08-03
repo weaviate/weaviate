@@ -28,19 +28,19 @@ func TestColumnarIndexPOC_ResidentSize(t *testing.T) {
 	const n = benchCorpusSize
 
 	numeric := newNumericFixture(t, n)
-	numIdx, err := columnar.BuildFromBucket(numeric.bucket)
+	numIdx, err := columnar.BuildFromBucket(numeric.bucket, uint64(numeric.numDocs+1))
 	require.NoError(t, err)
 
 	textF := newContainsFixture(t, n)
 	textBucket := textF.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	textIdx, err := columnar.BuildFromBucket(textBucket)
+	textIdx, err := columnar.BuildFromBucket(textBucket, uint64(textF.numDocs+1))
 	require.NoError(t, err)
 
 	report := func(name string, idx *columnar.ColumnarIndex) {
 		keys := idx.Len()
 		total := idx.Size()
-		t.Logf("%s: keys=%d width=%d prefix=%d resident=%.2f MB (%.1f bytes/key)",
-			name, keys, idx.KeyWidth(), idx.KeyPrefixLen(),
+		t.Logf("%s: keys=%d keyWidth=%d prefix=%d docWidth=%d resident=%.2f MB (%.1f bytes/key)",
+			name, keys, idx.KeyWidth(), idx.KeyPrefixLen(), idx.DocIDWidth(),
 			float64(total)/1024/1024, float64(total)/float64(keys))
 	}
 	report("numeric(fixed)", numIdx)
