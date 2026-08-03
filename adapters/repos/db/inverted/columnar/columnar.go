@@ -28,6 +28,7 @@ package columnar
 
 import (
 	"bytes"
+	"fmt"
 	"math/bits"
 	"sort"
 
@@ -172,12 +173,54 @@ func (c *prefixKeyColumn) prefixLen() int { return len(c.prefix) }
 
 func (c *prefixKeyColumn) sizeBytes() int { return cap(c.data) + cap(c.prefix) }
 
+// docIDColumn stores one docID per key packed at a fixed narrow byte width,
+// big-endian. The width is the minimum bytes needed to hold maxDocID — since
+// every docID is < maxDocID, the high 8-w bytes are zero for all of them and
+// are dropped (leading-zero elision). Unlike the key column this needs no
+// ordering: docs are fetched by rank (docs[i*w:(i+1)*w]) and only the collected
+// output is sorted, so any consistent encoding works.
+type docIDColumn struct {
+	w    int // bytes per docID, 1..8
+	data []byte
+}
+
+func (c *docIDColumn) len() int { return len(c.data) / c.w }
+
+func (c *docIDColumn) at(i int) uint64 {
+	off := i * c.w
+	var v uint64
+	for b := 0; b < c.w; b++ {
+		v = v<<8 | uint64(c.data[off+b])
+	}
+	return v
+}
+
+// append encodes id big-endian into w bytes and appends them.
+func (c *docIDColumn) append(id uint64) {
+	var buf [8]byte
+	for b := c.w - 1; b >= 0; b-- {
+		buf[b] = byte(id)
+		id >>= 8
+	}
+	c.data = append(c.data, buf[:c.w]...)
+}
+
+func (c *docIDColumn) sizeBytes() int { return cap(c.data) }
+
+// bytesForMax is the minimum byte width that can hold every value in [0, max].
+func bytesForMax(max uint64) int {
+	if max == 0 {
+		return 1
+	}
+	return (bits.Len64(max) + 7) / 8
+}
+
 // columnarSegment is one immutable columnar unit: two positionally-matched
-// columns. keys is sorted ascending; values[i] is the sole docID for keys[i]
-// (the 1-doc-per-key POC assumption). Search keys → position i → values[i].
+// columns. keys is sorted ascending; docs.at(i) is the sole docID for keys[i]
+// (the 1-doc-per-key POC assumption). Search keys → position i → docs.at(i).
 type columnarSegment struct {
-	keys   keyColumn
-	values []uint64
+	keys keyColumn
+	docs *docIDColumn
 }
 
 // ColumnarIndex is the resident accelerator for one property. POC: base tier
@@ -192,26 +235,36 @@ type ColumnarIndex struct {
 // its net docID set; under the 1-doc-per-key assumption that is exactly one
 // docID, taken as the bitmap minimum.
 //
+// maxDocID is an upper bound on every docID in the bucket (the shard's monotonic
+// docID counter). It sets the docID column's byte width up front, so docs are
+// packed narrow during the pass with no re-pack — no scan needed to learn the
+// width, since every docID is < maxDocID by construction. A docID exceeding
+// maxDocID violates that contract and is rejected rather than silently truncated.
+//
 // The key backing is chosen from the observed key widths: if every key is the
 // same width the denser fixedKeyColumn is used (no offset table), otherwise the
 // variable-length blobKeyColumn. Both consume the same contiguous blob.
-func BuildFromBucket(bucket *lsmkv.Bucket) (*ColumnarIndex, error) {
+func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64) (*ColumnarIndex, error) {
 	c := bucket.CursorRoaringSet()
 	defer c.Close()
 
 	offsets := []uint32{0}
 	var blob []byte
-	var values []uint64
+	docs := &docIDColumn{w: bytesForMax(maxDocID)}
 	uniformWidth := -1 // -1 unset, -2 mixed, >=0 the common width
 
 	for k, bm := c.First(); k != nil; k, bm = c.Next() {
 		if bm.IsEmpty() {
 			continue
 		}
+		id := bm.Minimum()
+		if id > maxDocID {
+			return nil, fmt.Errorf("docID %d exceeds maxDocID %d", id, maxDocID)
+		}
 		// copy the key: the cursor may reuse its key buffer across Next().
 		blob = append(blob, k...)
 		offsets = append(offsets, uint32(len(blob)))
-		values = append(values, bm.Minimum())
+		docs.append(id)
 
 		if uniformWidth == -1 {
 			uniformWidth = len(k)
@@ -221,7 +274,7 @@ func BuildFromBucket(bucket *lsmkv.Bucket) (*ColumnarIndex, error) {
 	}
 
 	return &ColumnarIndex{
-		base: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), values: values},
+		base: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs},
 	}, nil
 }
 
@@ -278,11 +331,14 @@ func (idx *ColumnarIndex) KeyWidth() int { return idx.base.keys.width() }
 // across the base tier's keys (0 if none). Exposed for measurement/tests.
 func (idx *ColumnarIndex) KeyPrefixLen() int { return idx.base.keys.prefixLen() }
 
+// DocIDWidth reports the byte width the docID column packs each docID at.
+func (idx *ColumnarIndex) DocIDWidth() int { return idx.base.docs.w }
+
 // Size reports the resident heap held by the base tier's backing arrays (key
 // column + docID column), by capacity. This is the process-lifetime footprint
 // the index costs per property per shard.
 func (idx *ColumnarIndex) Size() int {
-	return idx.base.keys.sizeBytes() + cap(idx.base.values)*8
+	return idx.base.keys.sizeBytes() + idx.base.docs.sizeBytes()
 }
 
 // Len reports the number of keys held by the base tier.
@@ -314,7 +370,7 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 			case cmp > 0: // query key absent from the corpus — advance the query
 				qi++
 			default: // match
-				out = append(out, seg.values[si])
+				out = append(out, seg.docs.at(si))
 				si++
 				qi++
 			}
@@ -323,7 +379,7 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 		for _, q := range keys {
 			i := seg.keys.searchGE(q)
 			if i < n && seg.keys.compare(i, q) == 0 {
-				out = append(out, seg.values[i])
+				out = append(out, seg.docs.at(i))
 			}
 		}
 	}
