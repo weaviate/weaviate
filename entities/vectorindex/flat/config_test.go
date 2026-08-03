@@ -341,6 +341,18 @@ func Test_FlatUserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "cannot enable multiple quantization methods at the same time",
 		},
+
+		{
+			// Regression test: a `null` distance was previously silently accepted
+			// and resolved to the default distance metric instead of being
+			// rejected. See weaviate/weaviate#11732.
+			name: "with null distance",
+			input: map[string]interface{}{
+				"distance": nil,
+			},
+			expectErr:    true,
+			expectErrMsg: "\"distance\" must be a string",
+		},
 	}
 
 	for _, test := range tests {

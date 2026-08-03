@@ -401,6 +401,18 @@ func Test_DynamicUserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "PQ is not currently supported for flat indices",
 		},
+
+		{
+			// Regression test: a `null` distance was previously silently accepted
+			// and resolved to the default distance metric instead of being
+			// rejected. See weaviate/weaviate#11732.
+			name: "with null distance",
+			input: map[string]interface{}{
+				"distance": nil,
+			},
+			expectErr:    true,
+			expectErrMsg: "\"distance\" must be a string",
+		},
 	}
 
 	for _, test := range tests {

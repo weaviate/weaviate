@@ -331,6 +331,17 @@ func Test_UserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "invalid hfresh config: maxPostingSizeKB is '1025' but must be less than 1024",
 		},
+		{
+			// Regression test: a `null` distance was previously silently accepted
+			// and resolved to the default distance metric instead of being
+			// rejected. See weaviate/weaviate#11732.
+			name: "with null distance",
+			input: map[string]interface{}{
+				"distance": nil,
+			},
+			expectErr:    true,
+			expectErrMsg: "\"distance\" must be a string",
+		},
 	}
 
 	for _, test := range tests {
