@@ -328,17 +328,28 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	return i.marshalBackupMetadata(desc, stateBytes)
 }
 
-// backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
-// it checks the shardMap to determine whether the shard is active (loaded in memory) or
-// inactive (on disk only), and uses the appropriate backup path.
+// backupShardLocked takes the index's backup locks for one shard, decides
+// whether it is loaded, and runs the matching branch. Both descriptor paths go
+// through it so a lock-ordering fix lands in one place.
 //
-// For active shards, shardCreateLocks is released early (after acquiring the
-// preventShutdown refcount) so concurrent queries — which RLock the same per-shard
-// key in getOptInitLocalShard — don't block for the snapshot duration. See
-// weaviate/0-weaviate-issues#234.
-func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string, gate *reindexGate) (*backup.ShardDescriptor, error) {
-	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
-
+// Lock order is closeLock → backupLock → shardCreateLocks. inactive runs with
+// both held, and for a lazy shard with loading blocked, so the files it lists
+// from disk cannot move under it. active runs with shardCreateLocks released,
+// because concurrent queries RLock the same key in getOptInitLocalShard and
+// would otherwise block for the whole snapshot (weaviate/0-weaviate-issues#234),
+// and with a shutdown refcount held in its place: UnloadLocalShard takes only
+// shardCreateLocks, so without the refcount it could shut the shard down mid-branch.
+//
+// protectInactive keeps backupLock held past return and registers the shard in
+// backupProtectedShards. ReleaseBackup undoes both. It is for callers whose
+// listed files stay in the live shard directory; the hardlink path has already
+// linked them into staging and does not need it.
+func (i *Index) backupShardLocked(
+	name string,
+	protectInactive bool,
+	inactive func(sd *backup.ShardDescriptor) error,
+	active func(shard ShardLike, sd *backup.ShardDescriptor) error,
+) (*backup.ShardDescriptor, error) {
 	// Deferred before backupLock so it runs after the unlock: dropping the last
 	// shard reference can run the shard teardown inline, and doing that under
 	// backupLock blocks every write to the shard for the teardown's duration.
@@ -346,7 +357,12 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	defer func() { releaseShard() }()
 
 	i.backupLock.Lock(name)
-	defer i.backupLock.Unlock(name)
+	unlockOnReturn := true
+	defer func() {
+		if unlockOnReturn {
+			i.backupLock.Unlock(name)
+		}
+	}()
 
 	i.shardCreateLocks.Lock(name)
 	shardCreateLocksHeld := true
@@ -358,41 +374,37 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 
 	var sd backup.ShardDescriptor
 
-	shard := i.shards.Load(name)
-
-	if shard == nil {
-		// Not in shardMap => back up from disk if directory exists.
-		if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot, gate); err != nil {
+	runInactive := func() (*backup.ShardDescriptor, error) {
+		if protectInactive {
+			i.backupProtectedShards.Store(name, struct{}{})
+			unlockOnReturn = false
+		}
+		if err := inactive(&sd); err != nil {
 			return nil, err
 		}
 		return &sd, nil
 	}
 
-	// For unloaded LazyLoadShards, block concurrent loading so we can safely
-	// read files from disk without the LSM store being opened underneath us.
-	// Read paths don't use backupLock.RLock, so backupLock.Lock alone is not
-	// sufficient to prevent concurrent lazy loading.
+	shard := i.shards.Load(name)
+	if shard == nil {
+		return runInactive()
+	}
+
+	// An unloaded LazyLoadShard must not open its LSM store while we read its
+	// files from disk. Read paths don't take backupLock, so blocking the lazy
+	// load is what keeps them out.
 	if lazyShard, ok := shard.(*LazyLoadShard); ok {
 		releaseBlock := lazyShard.blockLoading()
 		if !lazyShard.loaded {
-			// Shard is in the map but not loaded; read from disk.
 			defer releaseBlock()
-			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot, gate); err != nil {
-				return nil, err
-			}
-			return &sd, nil
+			return runInactive()
 		}
-		// Shard is already loaded => release immediately and use the active path.
-		// We release early (rather than defer) because CreateBackupSnapshot may
-		// take time and holding the loading mutex would unnecessarily block other
-		// shards from loading. The loaded check is safe because blockLoading()
-		// holds the LazyLoadShard mutex.
+		// Released here rather than deferred: the active branch can be slow and
+		// holding the loading mutex would block unrelated shards from loading.
+		// Reading loaded is safe because blockLoading holds the shard's mutex.
 		releaseBlock()
 	}
 
-	// Acquire preventShutdown before releasing shardCreateLocks: UnloadLocalShard
-	// holds only shardCreateLocks (not backupLock), so without the refcount it could
-	// call Shard.Shutdown between our release and CreateBackupSnapshot.
 	release, err := shard.preventShutdown()
 	if err != nil {
 		return nil, fmt.Errorf("prevent shutdown of shard %v: %w", name, err)
@@ -402,16 +414,32 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	i.shardCreateLocks.Unlock(name)
 	shardCreateLocksHeld = false
 
-	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot, gate)
-	if err != nil {
-		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
+	if err := active(shard, &sd); err != nil {
+		return nil, err
 	}
-
-	if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
-		return nil, fmt.Errorf("gather shard %v file info: %w", name, err)
-	}
-
 	return &sd, nil
+}
+
+// backupShardWithHardlinks backs up a single shard using hardlinks. Compaction
+// resumes as soon as the snapshot is linked, so the listed files do not need
+// protecting for the upload's duration.
+func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string, gate *reindexGate) (*backup.ShardDescriptor, error) {
+	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
+
+	return i.backupShardLocked(name, false,
+		func(sd *backup.ShardDescriptor) error {
+			return i.backupInactiveShardWithHardlinks(name, sd, shardBaseDescr, stagingRoot, gate)
+		},
+		func(shard ShardLike, sd *backup.ShardDescriptor) error {
+			files, err := shard.CreateBackupSnapshot(ctx, sd, stagingRoot, gate)
+			if err != nil {
+				return fmt.Errorf("snapshot shard %v: %w", name, err)
+			}
+			if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
+				return fmt.Errorf("gather shard %v file info: %w", name, err)
+			}
+			return nil
+		})
 }
 
 // backupInactiveShardWithHardlinks backs up an inactive (unloaded) shard by reading
@@ -516,84 +544,30 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 	return i.marshalBackupMetadata(desc, stateBytes)
 }
 
-// backupShardWithoutHardlinks backs up a single shard without hardlinks. Compaction
-// for active shards is paused and stays paused until ReleaseBackup is called.
-//
-// For inactive shards, backupProtectedShards is set and backupLock.Lock is held
-// until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
+// backupShardWithoutHardlinks backs up a single shard without hardlinks. The
+// listed files stay in the live shard directory for the whole upload, so an
+// active shard stays halted and an inactive one stays protected, both until
+// ReleaseBackup.
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, gate *reindexGate) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
-	i.backupLock.Lock(name)
-	unlockOnReturn := true
-	defer func() {
-		if unlockOnReturn {
-			i.backupLock.Unlock(name)
-		}
-	}()
-
-	// Acquire shardCreateLocks to atomically check shard state and protect
-	// inactive shards. This prevents concurrent activation from racing.
-	i.shardCreateLocks.Lock(name)
-	shardCreateLocksHeld := true
-	defer func() {
-		if shardCreateLocksHeld {
-			i.shardCreateLocks.Unlock(name)
-		}
-	}()
-
-	var sd backup.ShardDescriptor
-
-	shard := i.shards.Load(name)
-
-	if shard == nil {
-		// Not in shardMap => back up from disk if directory exists.
-		// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
-		i.backupProtectedShards.Store(name, struct{}{})
-		unlockOnReturn = false
-		if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr, gate); err != nil {
-			return nil, err
-		}
-		return &sd, nil
-	}
-
-	// For unloaded LazyLoadShards, block concurrent loading so we can safely
-	// read files from disk. See backupShardWithHardlinks for details.
-	if lazyShard, ok := shard.(*LazyLoadShard); ok {
-		releaseBlock := lazyShard.blockLoading()
-		if !lazyShard.loaded {
-			// Shard is in the map but not loaded; protect and keep lock held.
-			defer releaseBlock()
-			i.backupProtectedShards.Store(name, struct{}{})
-			unlockOnReturn = false
-			if err := i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr, gate); err != nil {
-				return nil, err
+	return i.backupShardLocked(name, true,
+		func(sd *backup.ShardDescriptor) error {
+			return i.backupInactiveShardWithoutHardlinks(name, sd, shardBaseDescr, gate)
+		},
+		func(shard ShardLike, sd *backup.ShardDescriptor) error {
+			if err := shard.HaltForTransfer(ctx, false, 0, gate); err != nil {
+				return fmt.Errorf("halt shard %v for backup: %w", name, err)
 			}
-			return &sd, nil
-		}
-		// Shard is already loaded => release immediately and use the active path.
-		releaseBlock()
-	}
-
-	i.shardCreateLocks.Unlock(name)
-	shardCreateLocksHeld = false
-
-	// Active path => halt compaction (stays paused until ReleaseBackup).
-	// backupLock.Lock is released on return (unlockOnReturn=true).
-	if err := shard.HaltForTransfer(ctx, false, 0, gate); err != nil {
-		return nil, fmt.Errorf("halt shard %v for backup: %w", name, err)
-	}
-
-	files, err := shard.ListBackupFiles(ctx, &sd)
-	if err != nil {
-		return nil, fmt.Errorf("list backup files shard %v: %w", name, err)
-	}
-
-	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
-		return nil, fmt.Errorf("gather shard %v file info: %w", name, err)
-	}
-
-	return &sd, nil
+			files, err := shard.ListBackupFiles(ctx, sd)
+			if err != nil {
+				return fmt.Errorf("list backup files shard %v: %w", name, err)
+			}
+			if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+				return fmt.Errorf("gather shard %v file info: %w", name, err)
+			}
+			return nil
+		})
 }
 
 // backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading

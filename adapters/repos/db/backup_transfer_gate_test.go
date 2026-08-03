@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -61,7 +62,51 @@ func transferGateShardName(i int) string {
 // errShardNoLocalData first, and the loop swallows that error. A build count
 // taken on such a fixture says nothing about the gate, so the tests below
 // assert on it explicitly rather than letting it pass as a hoist.
-func newTransferGateTestIndex(t *testing.T, shards int, withShardDirs, liveReindex bool) (*Index, *atomic.Int64, *atomic.Int64) {
+// gateProbe records the shard names a fixture's activity lookup is asked
+// about. Without it a lookup that ignores its arguments cannot tell "probed
+// shard N" apart from "probed shard 0, N times".
+type gateProbe struct {
+	mu    sync.Mutex
+	names []string
+}
+
+func (p *gateProbe) record(shardName string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.names = append(p.names, shardName)
+}
+
+// probed returns the recorded names, sorted and deduplicated.
+func (p *gateProbe) probed() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(p.names))
+	for _, n := range p.names {
+		if _, ok := seen[n]; ok {
+			continue
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// transferGateShardNames returns the fixture's shard names in order.
+func transferGateShardNames(shards int) []string {
+	names := make([]string, shards)
+	for s := 0; s < shards; s++ {
+		names[s] = transferGateShardName(s)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// liveOnEveryShard is the fixture lookup for "a reindex is running everywhere".
+func liveOnEveryShard(string) bool { return true }
+
+func newTransferGateTestIndex(t *testing.T, shards int, withShardDirs bool, live func(shardName string) bool) (*Index, *atomic.Int64, *atomic.Int64, *gateProbe) {
 	t.Helper()
 
 	rootDir := t.TempDir()
@@ -82,10 +127,14 @@ func newTransferGateTestIndex(t *testing.T, shards int, withShardDirs, liveReind
 	}
 
 	activityBuilds, cleanupBuilds := &atomic.Int64{}, &atomic.Int64{}
+	probe := &gateProbe{}
 	db := &DB{}
 	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		activityBuilds.Add(1)
-		return func(string, string) bool { return liveReindex }, nil
+		return func(_, shardName string) bool {
+			probe.record(shardName)
+			return live != nil && live(shardName)
+		}, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		cleanupBuilds.Add(1)
@@ -93,7 +142,7 @@ func newTransferGateTestIndex(t *testing.T, shards int, withShardDirs, liveReind
 	})
 	idx.db = db
 
-	return idx, activityBuilds, cleanupBuilds
+	return idx, activityBuilds, cleanupBuilds, probe
 }
 
 // TestColdTransfer_BuildsReindexLookupOncePerShardSet pins that one cold
@@ -119,7 +168,7 @@ func TestColdTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 	for _, tc := range tests {
 		for _, path := range coldTransferPaths {
 			t.Run(tc.name+"/"+path.name, func(t *testing.T) {
-				idx, activityBuilds, cleanupBuilds := newTransferGateTestIndex(t, tc.shards, tc.withShardDirs, false)
+				idx, activityBuilds, cleanupBuilds, probe := newTransferGateTestIndex(t, tc.shards, tc.withShardDirs, nil)
 
 				var desc backup.ClassDescriptor
 				require.NoError(t, path.run(context.Background(), idx, &desc))
@@ -138,6 +187,11 @@ func TestColdTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 				require.Equalf(t, tc.wantBuilds, cleanupBuilds.Load(),
 					"expected %d cleanup lookup build(s) for %d shards, got %d",
 					tc.wantBuilds, tc.shards, cleanupBuilds.Load())
+
+				if tc.withShardDirs {
+					require.Equal(t, transferGateShardNames(tc.shards), probe.probed(),
+						"one gate must still be asked about every shard by its own name")
+				}
 			})
 		}
 	}
@@ -186,6 +240,7 @@ func TestHotTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 		{
 			name: "without hardlinks",
 			expectGateConsumer: func(m *MockShardLike, shardName string, idx *Index, record func(*reindexGate)) {
+				m.EXPECT().preventShutdown().Return(func() {}, nil)
 				m.EXPECT().
 					HaltForTransfer(mock.Anything, false, mock.Anything, mock.Anything).
 					RunAndReturn(func(_ context.Context, _ bool, _ time.Duration, gate *reindexGate) error {
@@ -255,17 +310,20 @@ func TestHotTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 				"one backup must hand the same gate to all %d hot shards, got %d distinct gates",
 				shards, len(distinct))
 
-			// Resolving every gate the backup handed out counts the DTM
-			// queries it costs: one per distinct gate, since resolution is
-			// behind sync.Once. Done here rather than inside the mock because
-			// testify reflects over its arguments to build mismatch messages,
-			// and that read races the concurrent resolve on the hardlink path.
+			// The mocks never resolve the gate, so the loop itself costs no
+			// queries; the identity assertion above is what carries the
+			// invariant. Resolving each gate the backup handed out converts
+			// that identity into the query count it implies, since resolution
+			// is behind sync.Once. Done here rather than inside the mock
+			// because testify reflects over its arguments to build mismatch
+			// messages, and that read races the concurrent resolve.
+			require.Zero(t, builds.Load(), "mocked shards do not resolve the gate")
 			for _, g := range seen {
 				g.anyLiveReindexForShard(className, "any-shard")
 			}
 
 			require.Equalf(t, int64(1), builds.Load(),
-				"one backup must cost one ListDistributedTasks query for all %d hot shards, got %d",
+				"the one gate handed to all %d hot shards resolves to one ListDistributedTasks query, got %d",
 				shards, builds.Load())
 		})
 	}
@@ -324,7 +382,7 @@ func TestColdTransfer_PopulatedShardsReachTheGate(t *testing.T) {
 	for _, path := range coldTransferPaths {
 		t.Run(path.name, func(t *testing.T) {
 			t.Run("shards holding data are refused", func(t *testing.T) {
-				idx, activityBuilds, _ := newTransferGateTestIndex(t, 4, true, true)
+				idx, activityBuilds, _, _ := newTransferGateTestIndex(t, 4, true, liveOnEveryShard)
 
 				var desc backup.ClassDescriptor
 				err := path.run(context.Background(), idx, &desc)
@@ -336,7 +394,7 @@ func TestColdTransfer_PopulatedShardsReachTheGate(t *testing.T) {
 			})
 
 			t.Run("shards with no local data short-circuit before the gate", func(t *testing.T) {
-				idx, activityBuilds, _ := newTransferGateTestIndex(t, 4, false, true)
+				idx, activityBuilds, _, _ := newTransferGateTestIndex(t, 4, false, liveOnEveryShard)
 
 				var desc backup.ClassDescriptor
 				require.NoError(t, path.run(context.Background(), idx, &desc),
