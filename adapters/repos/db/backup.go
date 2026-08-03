@@ -521,9 +521,8 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, ba
 	var shard ShardLike
 	var sd backup.ShardDescriptor
 
-	// inactive reports that the shard was already backed up from disk. The active
-	// path below must then be skipped: it would dereference a nil shard, or run a
-	// second backup over a shard the inactive path has protected and left locked.
+	// inactive reports that the shard was already backed up from disk, so the
+	// active path below (nil shard, already locked) must be skipped.
 	inactive, err := func() (bool, error) {
 		// Acquire shardCreateLocks to atomically check shard state and protect
 		// inactive shards. This prevents concurrent activation from racing.
@@ -673,16 +672,14 @@ func backupStagingDir(rootPath, backupID string, className schema.ClassName) str
 	return filepath.Join(rootPath, name)
 }
 
-// ReleaseBackup marks the specified backup as inactive and restarts all async
-// background and maintenance processes. It is a no-op if the backup is not the
-// one running on this index, which is the common case: the uploader fires
-// several releasers per backup and never waits for them.
+// ReleaseBackup marks the given backup inactive and restarts maintenance
+// processes. It is a no-op unless id names the backup currently running on
+// this index; the uploader fires several releasers per backup without waiting.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 
-	// Claimed before the work below, so a releaser that outlived its own backup
-	// does not delete a staging dir or resume compaction under a later one. Both
-	// would corrupt that backup: it is still reading the files they touch.
+	// Claimed first so a releaser that outlived its own backup can't delete a
+	// later backup's staging dir or resume its compaction.
 	gen, claimed := i.claimBackup(id)
 	if !claimed {
 		return nil
@@ -702,13 +699,10 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	return i.resumeMaintenanceCycles(ctx)
 }
 
-// claimBackup ends the backup identified by id and reports the generation it ran
-// under. Only the first caller for a given backup claims it, so the several
-// releasers the uploader fires per backup do not each try to end it.
-//
-// An ID is all a releaser carries, so one that arrives after a later backup
-// reused the same ID ends that backup instead. Nothing here can tell the two
-// apart; closing it needs the release call to say which backup it belongs to.
+// claimBackup ends the backup id if it's still running here and reports its
+// generation; only the first caller succeeds. id alone can't distinguish
+// backups, so a releaser delayed past its own backup's end may instead claim
+// a later backup that reused the same id.
 func (i *Index) claimBackup(id string) (uint64, bool) {
 	i.backupStateMu.Lock()
 	defer i.backupStateMu.Unlock()
@@ -721,14 +715,10 @@ func (i *Index) claimBackup(id string) (uint64, bool) {
 	return st.Generation, true
 }
 
-// releaseProtectedShards unlocks each shard protected by backup generation gen
-// or an older one, and clears its flag. A newer generation is left alone: the
-// backup that protected it is still reading those files. Older ones are swept up
-// so a shard cannot stay locked for a backup that is long gone.
-//
-// CompareAndDelete keeps each unlock to exactly one: two releases can overlap,
-// and a shard can be re-protected while Range walks past it. A second Unlock of
-// the same backupLock is a fatal error recover() cannot catch.
+// releaseProtectedShards unlocks shards protected by generation gen or older,
+// leaving newer (still-running) backups' shards locked. CompareAndDelete caps
+// each shard at one Unlock, since a repeat Unlock of the same backupLock is a
+// fatal error recover() cannot catch.
 func (i *Index) releaseProtectedShards(gen uint64) {
 	i.backupProtectedShards.Range(func(key, value any) bool {
 		if protectedBy, ok := value.(uint64); ok && protectedBy <= gen {
@@ -740,14 +730,10 @@ func (i *Index) releaseProtectedShards(gen uint64) {
 	})
 }
 
-// protectShard blocks activation of shard name and records that its
-// backupLock.Lock is held on behalf of backup generation backupGen, for
-// ReleaseBackup to release later.
-//
-// It fails if backupGen is no longer the backup running on this index. That
-// backup's releaser has already run, so nothing would ever clear the flag or
-// unlock the shard, leaving a tenant that can be neither activated nor written
-// until the process restarts.
+// protectShard holds name's backupLock on behalf of backup generation
+// backupGen, for ReleaseBackup to release later. It fails once backupGen has
+// already ended: nothing would then unlock it, leaving the shard stuck until
+// the process restarts.
 func (i *Index) protectShard(name string, backupGen uint64) error {
 	i.backupStateMu.Lock()
 	defer i.backupStateMu.Unlock()
