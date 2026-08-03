@@ -161,6 +161,7 @@ type RuntimeOverrides struct {
 // Config outline of the config file
 type Config struct {
 	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	BackupGCS                        BackupGCS                `json:"backup_gcs" yaml:"backup_gcs"`
 	Name                             string                   `json:"name" yaml:"name"`
 	Debug                            bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -880,6 +881,32 @@ type Backup struct {
 	// least-privilege credentials that can write but lack DeleteObject.
 	// Env: BACKUP_SKIP_ACCESS_CHECK.
 	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
+}
+
+const (
+	// DefaultBackupGCSGRPCConnPool is higher than the SDK's default of one
+	// channel, which caps throughput wherever DirectPath does not apply.
+	DefaultBackupGCSGRPCConnPool = 4
+
+	// MaxBackupGCSGRPCConnPool bounds the pool because every channel is a
+	// connection held for the process lifetime, and the GCS module builds one
+	// client for backups and one for exports.
+	MaxBackupGCSGRPCConnPool = 64
+)
+
+// BackupGCS configures which GCS API the backup-gcs module talks to. The
+// GCS_MODULE_ prefix marks it as covering both clients that module builds, the
+// backup one and the export one, unlike the backup-only BACKUP_GCS_BUCKET.
+type BackupGCS struct {
+	// UseGRPC switches from the JSON/HTTP API to the gRPC API. The throughput
+	// gRPC adds comes from DirectPath, which only applies inside GCP, and from
+	// spreading requests over GRPCConnPool channels.
+	// Env: GCS_MODULE_TRANSPORT (http or grpc).
+	UseGRPC bool `json:"use_grpc" yaml:"use_grpc"`
+
+	// GRPCConnPool is how many gRPC channels each client opens.
+	// Env: GCS_MODULE_GRPC_CONN_POOL.
+	GRPCConnPool int `json:"grpc_conn_pool" yaml:"grpc_conn_pool"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

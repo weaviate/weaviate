@@ -450,6 +450,102 @@ func TestEnvironmentSkipAccessCheck(t *testing.T) {
 	})
 }
 
+func TestEnvironmentBackupGCS(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      map[string]string
+		expected BackupGCS
+		wantErr  string
+	}{
+		{
+			name:     "unset selects http",
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "empty selects http",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "http",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "grpc",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "transport is case insensitive and trimmed",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": " gRPC "},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:    "unknown transport is rejected",
+			env:     map[string]string{"GCS_MODULE_TRANSPORT": "https"},
+			wantErr: `GCS_MODULE_TRANSPORT must be "http" or "grpc". Got: https`,
+		},
+		{
+			name:     "connection pool overrides the default",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "16"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+		},
+		{
+			name:     "connection pool of one is accepted",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "1"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 1},
+		},
+		{
+			name:     "connection pool at the cap is accepted",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "64"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: MaxBackupGCSGRPCConnPool},
+		},
+		{
+			name:    "connection pool of zero is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "0"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64. Got: 0",
+		},
+		{
+			name:    "negative connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "-1"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "connection pool past the cap is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "65"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "absurd connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "9223372036854775807"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "non-numeric connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "many"},
+			wantErr: "parse GCS_MODULE_GRPC_CONN_POOL as int",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+				t.Setenv(key, tt.env[key])
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, conf.BackupGCS)
+		})
+	}
+}
+
 func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	tests := []struct {
 		name        string

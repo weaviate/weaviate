@@ -710,6 +710,10 @@ func FromEnv(config *Config) error {
 
 	config.parseExportConfig()
 
+	if err := config.parseBackupGCSConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -2299,4 +2303,36 @@ func (c *Config) parseExportConfig() {
 	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
 		c.Export.SkipAccessCheck = true
 	}
+}
+
+const (
+	gcsModuleTransportEnv  = "GCS_MODULE_TRANSPORT"
+	gcsModuleTransportHTTP = "http"
+	gcsModuleTransportGRPC = "grpc"
+)
+
+func (c *Config) parseBackupGCSConfig() error {
+	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
+	case "", gcsModuleTransportHTTP:
+	case gcsModuleTransportGRPC:
+		c.BackupGCS.UseGRPC = true
+	default:
+		return fmt.Errorf("%s must be %q or %q. Got: %v",
+			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)
+	}
+
+	if err := parseIntVerify("GCS_MODULE_GRPC_CONN_POOL", DefaultBackupGCSGRPCConnPool,
+		func(val int) { c.BackupGCS.GRPCConnPool = val },
+		validateBackupGCSConnPool); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateBackupGCSConnPool(val int, envName string) error {
+	if val < 1 || val > MaxBackupGCSGRPCConnPool {
+		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", envName, MaxBackupGCSGRPCConnPool, val)
+	}
+	return nil
 }
