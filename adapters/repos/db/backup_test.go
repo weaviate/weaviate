@@ -472,54 +472,78 @@ func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
 	runReleaseBackupWorkloadInChild(t)
 }
 
+// backupTestShardNames builds n shard names.
+func backupTestShardNames(n int) []string {
+	names := make([]string, n)
+	for s := range names {
+		names[s] = "shard" + strconv.Itoa(s)
+	}
+	return names
+}
+
+// newBackupTestIndex returns an Index holding every shard's backupLock with the
+// shard flagged as protected by backupID, the state
+// backupShardWithoutHardlinks leaves behind for a shard it backed up without
+// hardlinks.
+func newBackupTestIndex(t *testing.T, rootDir string, names []string, backupID string) *Index {
+	t.Helper()
+
+	const className = "MyClass"
+	logger, _ := tlog.NewNullLogger()
+
+	idx := &Index{
+		Config: IndexConfig{RootPath: rootDir, ClassName: className},
+		getSchema: &fakeSchemaGetter{
+			schema: schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{{Class: className}}},
+			},
+		},
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		closingCtx:       context.Background(),
+	}
+
+	for _, name := range names {
+		idx.backupLock.Lock(name)
+		idx.backupProtectedShards.Store(name, backupID)
+	}
+	idx.lastBackup.Store(&BackupState{BackupID: backupID, InProgress: true})
+
+	return idx
+}
+
+// spawnBackupReleasers starts n goroutines that each release backupID once
+// start is closed, so the releases overlap.
+func spawnBackupReleasers(t *testing.T, wg *sync.WaitGroup, start <-chan struct{}, idx *Index, backupID string, n int) {
+	for r := 0; r < n; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			assert.NoError(t, idx.ReleaseBackup(context.Background(), backupID))
+		}()
+	}
+}
+
 func releaseBackupCrossGenerationWorkload(t *testing.T) {
 	const (
 		trials         = 200
 		shardsPerTrial = 512
-		className      = "MyClass"
+		releasers      = 2
 		firstBackup    = "backup1"
 		secondBackup   = "backup2"
 	)
 
-	logger, _ := tlog.NewNullLogger()
 	rootDir := t.TempDir()
-	ctx := context.Background()
-
-	names := make([]string, shardsPerTrial)
-	for s := range names {
-		names[s] = "shard" + strconv.Itoa(s)
-	}
+	names := backupTestShardNames(shardsPerTrial)
 
 	for trial := 0; trial < trials; trial++ {
-		idx := &Index{
-			Config: IndexConfig{RootPath: rootDir, ClassName: className},
-			getSchema: &fakeSchemaGetter{
-				schema: schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{{Class: className}}},
-				},
-			},
-			logger:           logger,
-			backupLock:       esync.NewKeyRWLocker(),
-			shardCreateLocks: esync.NewKeyRWLocker(),
-			closingCtx:       context.Background(),
-		}
-
-		for _, name := range names {
-			idx.backupLock.Lock(name)
-			idx.backupProtectedShards.Store(name, firstBackup)
-		}
-		idx.lastBackup.Store(&BackupState{BackupID: firstBackup, InProgress: true})
+		idx := newBackupTestIndex(t, rootDir, names, firstBackup)
 
 		start := make(chan struct{})
 		var wg sync.WaitGroup
-		for r := 0; r < 2; r++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				<-start
-				assert.NoError(t, idx.ReleaseBackup(ctx, firstBackup))
-			}()
-		}
+		spawnBackupReleasers(t, &wg, start, idx, firstBackup, releasers)
 
 		// The second backup re-protects each shard as the first one frees it.
 		wg.Add(1)
@@ -552,51 +576,18 @@ func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
 		trials         = 200
 		shardsPerTrial = 512
 		releasers      = 4
-		className      = "MyClass"
 		backupID       = "backup1"
 	)
 
-	logger, _ := tlog.NewNullLogger()
 	rootDir := t.TempDir()
-	ctx := context.Background()
-
-	names := make([]string, shardsPerTrial)
-	for s := range names {
-		names[s] = "shard" + strconv.Itoa(s)
-	}
+	names := backupTestShardNames(shardsPerTrial)
 
 	for trial := 0; trial < trials; trial++ {
-		idx := &Index{
-			Config: IndexConfig{RootPath: rootDir, ClassName: className},
-			getSchema: &fakeSchemaGetter{
-				schema: schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{{Class: className}}},
-				},
-			},
-			logger:           logger,
-			backupLock:       esync.NewKeyRWLocker(),
-			shardCreateLocks: esync.NewKeyRWLocker(),
-			closingCtx:       context.Background(),
-		}
-
-		// Same state backupShardWithoutHardlinks leaves behind for a shard it
-		// backed up without hardlinks: lock held, shard flagged as protected.
-		for _, name := range names {
-			idx.backupLock.Lock(name)
-			idx.backupProtectedShards.Store(name, backupID)
-		}
-		idx.lastBackup.Store(&BackupState{BackupID: backupID, InProgress: true})
+		idx := newBackupTestIndex(t, rootDir, names, backupID)
 
 		start := make(chan struct{})
 		var wg sync.WaitGroup
-		for r := 0; r < releasers; r++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				<-start
-				assert.NoError(t, idx.ReleaseBackup(ctx, backupID))
-			}()
-		}
+		spawnBackupReleasers(t, &wg, start, idx, backupID, releasers)
 		close(start)
 		wg.Wait()
 
