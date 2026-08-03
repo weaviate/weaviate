@@ -12,10 +12,13 @@
 package aggregator
 
 import (
+	"encoding/json"
+	"math"
 	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
@@ -246,4 +249,100 @@ func createRandomSlice() []float64 {
 		array[i] = rand.Float64() * 1000
 	}
 	return array
+}
+
+func boolShardResult(grouped bool, groupValue string, totalTrue, totalFalse int) *aggregation.Result {
+	count := totalTrue + totalFalse
+	b := aggregation.Boolean{}
+	if count > 0 {
+		b = aggregation.Boolean{
+			Count:           count,
+			TotalTrue:       totalTrue,
+			TotalFalse:      totalFalse,
+			PercentageTrue:  float64(totalTrue) / float64(count),
+			PercentageFalse: float64(totalFalse) / float64(count),
+		}
+	}
+
+	group := aggregation.Group{
+		Count: count,
+		Properties: map[string]aggregation.Property{
+			"boolProp": {
+				Type:               aggregation.PropertyTypeBoolean,
+				BooleanAggregation: b,
+			},
+		},
+	}
+	if grouped {
+		group.GroupedBy = &aggregation.GroupedBy{Value: groupValue}
+	}
+
+	return &aggregation.Result{Groups: []aggregation.Group{group}}
+}
+
+// A boolean property with no non-null values yields Count==0, and the combiner
+// used to divide by it. The resulting NaN is unrepresentable in JSON, so it
+// panicked the whole GraphQL response in the go-swagger producer rather than
+// failing the single field.
+func TestShardCombinerBooleanNoValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		grouped bool
+		results []*aggregation.Result
+	}{
+		{
+			name:    "single shard, property present but never set",
+			results: []*aggregation.Result{boolShardResult(false, "", 0, 0)},
+		},
+		{
+			name: "multiple shards, property never set in any shard",
+			results: []*aggregation.Result{
+				boolShardResult(false, "", 0, 0),
+				boolShardResult(false, "", 0, 0),
+			},
+		},
+		{
+			name:    "grouped, group has no values for the property",
+			grouped: true,
+			results: []*aggregation.Result{boolShardResult(true, "groupA", 0, 0)},
+		},
+		{
+			name:    "grouped, one group populated and one empty",
+			grouped: true,
+			results: []*aggregation.Result{
+				boolShardResult(true, "groupA", 3, 1),
+				boolShardResult(true, "groupB", 0, 0),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			combined := NewShardCombiner().Do(tt.results)
+
+			for _, group := range combined.Groups {
+				b := group.Properties["boolProp"].BooleanAggregation
+				assert.False(t, math.IsNaN(b.PercentageTrue), "percentageTrue is NaN")
+				assert.False(t, math.IsNaN(b.PercentageFalse), "percentageFalse is NaN")
+
+				// NaN is not encodable, so it takes the entire response down.
+				_, err := json.Marshal(group.Properties)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestShardCombinerBooleanMergesPercentages(t *testing.T) {
+	combined := NewShardCombiner().Do([]*aggregation.Result{
+		boolShardResult(false, "", 3, 1),
+		boolShardResult(false, "", 1, 5),
+	})
+
+	b := combined.Groups[0].Properties["boolProp"].BooleanAggregation
+	assert.Equal(t, 10, b.Count)
+	assert.Equal(t, 4, b.TotalTrue)
+	assert.Equal(t, 6, b.TotalFalse)
+	assert.InDelta(t, 0.4, b.PercentageTrue, 1e-9)
+	assert.InDelta(t, 0.6, b.PercentageFalse, 1e-9)
 }

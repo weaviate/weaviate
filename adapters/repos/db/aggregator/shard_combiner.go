@@ -273,6 +273,13 @@ func (sc *ShardCombiner) mergeBooleanProp(combined, source *aggregation.Boolean)
 }
 
 func (sc *ShardCombiner) finalizeBoolean(combined *aggregation.Boolean) {
+	// A property that is never set has no values to take a percentage of. The
+	// resulting NaN cannot be encoded as JSON, which fails the entire response
+	// rather than the single field.
+	if combined.Count == 0 {
+		return
+	}
+
 	combined.PercentageFalse = float64(combined.TotalFalse) / float64(combined.Count)
 	combined.PercentageTrue = float64(combined.TotalTrue) / float64(combined.Count)
 }
