@@ -451,9 +451,8 @@ func (ua unfilteredAggregator) propertyValuesFromInverted(ctx context.Context,
 		TextAggregation: aggregation.Text{},
 	}
 
-	// the shard keeps every value it saw, not just the top ones: only the
-	// merged list tells the shard combiner the collection's distinct count,
-	// and the walk already bounds the list to the cutoff
+	// every value the shard saw, not just the top ones: only the merged list
+	// tells the combiner the collection's distinct count
 	agg := newTextAggregator(int(prop.TopOccurrencesCutoff))
 	emit := func(key []byte, docCount int) error {
 		return agg.AddTextCount(decodeInvertedKey(key, dt), docCount)

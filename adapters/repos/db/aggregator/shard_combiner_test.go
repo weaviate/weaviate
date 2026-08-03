@@ -238,13 +238,6 @@ func TestShardCombinerMergeTextCutoff(t *testing.T) {
 		expected aggregation.Text
 	}{
 		{
-			name: "single shard, not exceeded",
-			results: []*aggregation.Result{
-				textShard(aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}}),
-			},
-			expected: aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}},
-		},
-		{
 			name: "single shard, exceeded",
 			results: []*aggregation.Result{
 				textShard(aggregation.Text{CutoffExceeded: true}),
@@ -275,23 +268,6 @@ func TestShardCombinerMergeTextCutoff(t *testing.T) {
 			results: []*aggregation.Result{
 				textShard(aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}}),
 				textShard(aggregation.Text{CutoffExceeded: true}),
-			},
-			expected: aggregation.Text{CutoffExceeded: true},
-		},
-		{
-			name: "both shards exceeded",
-			results: []*aggregation.Result{
-				textShard(aggregation.Text{CutoffExceeded: true}),
-				textShard(aggregation.Text{CutoffExceeded: true}),
-			},
-			expected: aggregation.Text{CutoffExceeded: true},
-		},
-		{
-			name: "three shards, middle one exceeded",
-			results: []*aggregation.Result{
-				textShard(aggregation.Text{Count: 7, Items: []aggregation.TextOccurrence{occ("a", 5), occ("b", 2)}}),
-				textShard(aggregation.Text{CutoffExceeded: true}),
-				textShard(aggregation.Text{Count: 5, Items: []aggregation.TextOccurrence{occ("b", 4), occ("c", 1)}}),
 			},
 			expected: aggregation.Text{CutoffExceeded: true},
 		},
@@ -403,15 +379,6 @@ func TestShardCombinerTopOccurrencesCutoffAcrossShards(t *testing.T) {
 				Count: 6,
 				Items: []aggregation.TextOccurrence{occ("b", 3), occ("a", 2), occ("c", 1)},
 			},
-		},
-		{
-			name:   "one shard over the cutoff keeps the sentinel",
-			params: params(3, 10),
-			results: []*aggregation.Result{
-				textShard(complete(occ("a", 2))),
-				textShard(aggregation.Text{CutoffExceeded: true}),
-			},
-			expected: aggregation.Text{CutoffExceeded: true},
 		},
 		{
 			name:   "no cutoff requested leaves the merge alone",

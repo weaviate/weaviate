@@ -22,10 +22,10 @@ import (
 )
 
 // walkUnderChurn calls walkOnce in a loop while a writer rolls segments and a
-// compactor swaps them underneath it. write receives a counter it can turn
-// into whatever keys and doc ids the walk expects. It fails the test unless
-// the walks actually raced a flush and a compaction, so a walk that stopped
-// seeing churn cannot pass by doing nothing.
+// compactor swaps them underneath it, write turning the counter it receives
+// into whatever keys and doc ids the walk expects. It fails unless the walks
+// really did race a flush and a compaction, so one that stopped seeing churn
+// cannot pass by doing nothing.
 func walkUnderChurn(t *testing.T, b *Bucket, write func(n int) error, walkOnce func()) {
 	t.Helper()
 

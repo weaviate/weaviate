@@ -112,9 +112,8 @@ func TestRoaringSetEachDistinctKey(t *testing.T) {
 		assert.Zero(t, calls)
 	})
 
-	// GetKeysCount's bloom component is a maximum-likelihood estimate, and this
-	// key set is one it overshoots on, so a bucket sitting exactly at the limit
-	// must not be rejected on the estimate alone.
+	// a key set the bloom estimate overshoots on: a bucket sitting exactly at
+	// the limit must not be rejected on the estimate alone
 	t.Run("overshooting estimate at the limit still walks", func(t *testing.T) {
 		const keys = 396
 		b := newBucket(t, StrategyRoaringSet)

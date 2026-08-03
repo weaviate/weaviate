@@ -297,10 +297,9 @@ func (sc *ShardCombiner) finalizeBoolean(combined *aggregation.Boolean) {
 }
 
 func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
-	// one shard over the cutoff makes the value list incomplete for the whole
-	// collection, so the merge collapses to the same sentinel a single exceeded
-	// shard emits — keeping the other shards' values would hand out a silently
-	// truncated vocabulary with per-shard counts
+	// one shard over the cutoff makes the collection's value list incomplete;
+	// keeping the other shards' values would hand out a silently truncated
+	// vocabulary with per-shard counts
 	if first.CutoffExceeded || second.CutoffExceeded {
 		*first = aggregation.Text{CutoffExceeded: true}
 		return
@@ -322,12 +321,11 @@ func (sc *ShardCombiner) mergeRefProp(first, second *aggregation.Reference) {
 	first.PointingTo = append(first.PointingTo, second.PointingTo...)
 }
 
-// applyTopOccurrencesCutoffs enforces the requested distinct-value cutoffs on
-// the merged value lists. A shard only counts its own values, so a collection
-// can hold more distinct values than the cutoff although no single shard did.
-// Shards that could not evaluate the cutoff — the object scan lists top values,
-// not all of them — leave the merged list unable to prove anything, so the
-// cutoff is dropped rather than guessed at.
+// applyTopOccurrencesCutoffs enforces the distinct-value cutoffs on the merged
+// value lists, since a collection can hold more distinct values than the cutoff
+// although no single shard did. A shard that could not evaluate the cutoff
+// contributes top values rather than all of them, which proves nothing about
+// the collection, so the cutoff is dropped instead of guessed at.
 func (sc *ShardCombiner) applyTopOccurrencesCutoffs(results []*aggregation.Result,
 	combined *aggregation.Group,
 ) {

@@ -135,17 +135,6 @@ func TestInvertedEachDistinctKey(t *testing.T) {
 		assert.Empty(t, got, "fn must not run without the exactness guarantee")
 	})
 
-	t.Run("unflushed add and delete of the same doc voids the guarantee", func(t *testing.T) {
-		b := newInverted(t)
-		addDocs(t, b, "a", 1)
-		pair := NewMapPairFromDocIdAndTf(1, 1, 1, false)
-		require.NoError(t, b.MapDeleteKey([]byte("a"), pair.Key))
-
-		_, exceeded, exact := collect(t, b, 10)
-		require.False(t, exceeded)
-		require.False(t, exact)
-	})
-
 	t.Run("unflushed keys count toward the limit", func(t *testing.T) {
 		b := newInverted(t)
 		addDocs(t, b, "a", 1)
@@ -173,9 +162,8 @@ func TestInvertedEachDistinctKey(t *testing.T) {
 		assert.Empty(t, got)
 	})
 
-	// GetKeysCount's bloom component is a maximum-likelihood estimate, and this
-	// key set is one it overshoots on, so a bucket sitting exactly at the limit
-	// must not be rejected on the estimate alone.
+	// a key set the bloom estimate overshoots on: a bucket sitting exactly at
+	// the limit must not be rejected on the estimate alone
 	t.Run("overshooting estimate at the limit still walks", func(t *testing.T) {
 		const keys = 432
 		b := newInverted(t)

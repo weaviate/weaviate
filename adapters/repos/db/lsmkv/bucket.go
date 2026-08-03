@@ -2968,18 +2968,15 @@ func bloomSaturated(keysBloom *bloom.BloomFilter) bool {
 var errDistinctKeysExceeded = errors.New("distinct keys exceeded")
 
 // InvertedEachDistinctKey calls fn once per distinct key with the key's doc
-// count summed from the inverted rows' stored posting counts, plus what the
-// memtables would flush — no posting or bitmap decode. It gives up in two
-// ways: exceeded, once the bucket holds more than maxDistinct distinct keys,
-// and exact=false when the stored counts cannot be proven live-exact. Summing
-// counts assumes no key counts the same doc twice, which holds while nothing
-// is deleted: an update to a searchable property deletes its old postings
-// before adding the new ones. So any tombstone — in a segment, or an
-// unflushed one in a memtable — voids the guarantee and the caller must use
-// an exact source instead, as does a non-inverted strategy. Unflushed
-// additions do not: they are counted like any other layer. fn only runs when
-// the walk completed with exact=true; the key passed to fn aliases internal
-// storage, so copy it before retaining.
+// count, summed from the rows' stored posting counts plus what the memtables
+// would flush — no posting or bitmap decode. It gives up as exceeded past
+// maxDistinct distinct keys, and as exact=false when the sum cannot be proven
+// live: summing assumes no key counts the same doc twice, which holds only
+// while nothing is deleted, since an update to a searchable property deletes
+// its old postings before adding the new ones. Any tombstone therefore voids
+// it, in a segment or an unflushed one in a memtable, as does a non-inverted
+// strategy. fn only runs on an exact walk, and its key aliases internal
+// storage.
 func (b *Bucket) InvertedEachDistinctKey(ctx context.Context, maxDistinct int,
 	fn func(key []byte, docCount int) error,
 ) (exceeded, exact bool, err error) {

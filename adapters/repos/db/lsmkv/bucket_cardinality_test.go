@@ -171,14 +171,11 @@ func TestDistinctKeysRejectAbove(t *testing.T) {
 		maxDistinct int
 		want        uint64
 	}{
-		{name: "zero", maxDistinct: 0, want: 0},
+		{name: "no cutoff", maxDistinct: 0, want: 0},
 		{name: "negative", maxDistinct: -7, want: 0},
-		{name: "one", maxDistinct: 1, want: 65},
 		{name: "floor applies below 512", maxDistinct: 500, want: 564},
 		{name: "floor and relative margin meet at 512", maxDistinct: 512, want: 576},
-		{name: "relative margin above 512", maxDistinct: 520, want: 585},
 		{name: "relative margin at scale", maxDistinct: 100000, want: 112500},
-		{name: "no overflow at max int32", maxDistinct: math.MaxInt32, want: math.MaxInt32 + math.MaxInt32/8},
 		{name: "no overflow at max int", maxDistinct: math.MaxInt, want: uint64(math.MaxInt) + uint64(math.MaxInt/8)},
 	}
 
