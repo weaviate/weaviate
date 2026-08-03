@@ -1661,48 +1661,101 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 }
 
 // TestShouldRetainCompletedTask pins the TTL-retention contract: while a
-// drop's marker is pending, EVERY terminal record must outlive the TTL —
-// completed records carry coverage, and even a zero-unit FAILED record
-// anchors the op's liveness (LiveOpIDs) and the epoch identity
-// (EpochAndInheritedCoverage inherits from the newest record); expiring it
-// would sweep the recorded strip progress and restart from scratch under a
-// fresh epoch. Once the marker is gone the TTL applies.
+// drop's marker is pending, its LOAD-BEARING terminal records outlive the TTL
+// — completed and unit-bearing records carry coverage, and the newest
+// matching record (even with zero units) anchors the op's liveness and the
+// epoch identity; expiring the anchor would sweep the recorded strip progress
+// and restart from scratch under a fresh epoch. Older zero-unit records are
+// released — the bound that keeps a fast-failing round loop from accumulating
+// records forever. Once the marker is gone the TTL applies to everything.
 func TestShouldRetainCompletedTask(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	sibs := func(tasks ...*distributedtask.Task) map[distributedtask.TaskDescriptor]*distributedtask.Task {
+		out := map[distributedtask.TaskDescriptor]*distributedtask.Task{}
+		for _, task := range tasks {
+			out[task.TaskDescriptor] = task
+		}
+		return out
+	}
+	newerMatching := dropTask(distributedtask.TaskStatusFailed, nil)
+	newerMatching.TaskDescriptor = distributedtask.TaskDescriptor{ID: "t2", Version: 9}
+	newerOtherDrop := dropTask(distributedtask.TaskStatusFailed, nil)
+	newerOtherDrop.TaskDescriptor = distributedtask.TaskDescriptor{ID: "t3", Version: 9}
+	otherPayload := &DropVectorIndexTaskPayload{Collection: "Other", Targets: []string{"v1"}, OpID: "op9"}
+	newerOtherDrop.Payload, _ = otherPayload.encode()
+	fresh := func() *DropVectorIndexProvider {
+		return newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	}
 	// Default fakeShardingReader class: v1 still marked dropped.
 
-	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)),
-		"marker pending: the completed record must survive the TTL")
-	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusSwapping, nil)))
-	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFailed, nil)),
-		"a zero-unit FAILED record anchors the op's liveness and the epoch; expiring it discards the resume point")
-
-	failedWithUnit := dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
-		"u1": {Status: distributedtask.UnitStatusCompleted},
+	t.Run("completed records survive the TTL while the marker is pending", func(t *testing.T) {
+		p := fresh()
+		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil), nil))
+		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusSwapping, nil), nil))
 	})
-	require.True(t, p.ShouldRetainCompletedTask(failedWithUnit),
-		"failed-round completed-unit coverage is load-bearing and must not expire")
-	cancelledWithUnit := dropTask(distributedtask.TaskStatusCancelled, map[string]*distributedtask.Unit{
-		"u1": {Status: distributedtask.UnitStatusCompleted},
+
+	t.Run("unit-bearing terminal records carry coverage even when superseded", func(t *testing.T) {
+		p := fresh()
+		failedWithUnit := dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+			"u1": {Status: distributedtask.UnitStatusCompleted},
+		})
+		require.True(t, p.ShouldRetainCompletedTask(failedWithUnit, sibs(failedWithUnit, newerMatching)),
+			"failed-round completed-unit coverage is load-bearing regardless of newer rounds")
+		cancelledWithUnit := dropTask(distributedtask.TaskStatusCancelled, map[string]*distributedtask.Unit{
+			"u1": {Status: distributedtask.UnitStatusCompleted},
+		})
+		require.True(t, p.ShouldRetainCompletedTask(cancelledWithUnit, sibs(cancelledWithUnit, newerMatching)),
+			"an operator-cancelled round's completed units feed coverage the same as a FAILED round's")
 	})
-	require.True(t, p.ShouldRetainCompletedTask(cancelledWithUnit),
-		"an operator-cancelled round's completed units feed coverage the same as a FAILED round's")
-	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusCancelled, nil)),
-		"a zero-unit CANCELLED record anchors the op and epoch the same as a FAILED one")
 
-	// Marker finalized (entry re-created live): nothing left to protect.
-	p.sharding = &fakeShardingReader{
-		shards:    []string{"shard1"},
-		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}},
-	}
-	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)))
+	t.Run("the newest zero-unit record is the resume anchor", func(t *testing.T) {
+		p := fresh()
+		zeroUnit := dropTask(distributedtask.TaskStatusFailed, nil)
+		require.True(t, p.ShouldRetainCompletedTask(zeroUnit, sibs(zeroUnit)),
+			"the newest record anchors the op's liveness and the epoch; expiring it discards the resume point")
+		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusCancelled, nil), nil),
+			"a zero-unit CANCELLED record anchors the same as a FAILED one")
+		require.True(t, p.ShouldRetainCompletedTask(zeroUnit, sibs(zeroUnit, newerOtherDrop)),
+			"a newer record of a DIFFERENT drop must not release this drop's anchor")
+	})
 
-	// Leader unreachable: keep — deletion is the irreversible direction.
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")}
-	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)))
+	t.Run("older zero-unit records are released", func(t *testing.T) {
+		p := fresh()
+		zeroUnit := dropTask(distributedtask.TaskStatusFailed, nil)
+		require.False(t, p.ShouldRetainCompletedTask(zeroUnit, sibs(zeroUnit, newerMatching)),
+			"every new round's record frees its zero-unit predecessor — the bound on a fast-failing loop")
+	})
 
-	corrupt := corruptDropTask("bad", distributedtask.TaskStatusFinished)
-	require.False(t, p.ShouldRetainCompletedTask(corrupt), "unparseable records cannot feed inheritance")
+	t.Run("marker gone: nothing retained", func(t *testing.T) {
+		p := fresh()
+		p.sharding = &fakeShardingReader{
+			shards:    []string{"shard1"},
+			vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}},
+		}
+		require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil), nil))
+	})
+
+	t.Run("leader unreachable: retain", func(t *testing.T) {
+		p := fresh()
+		p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")}
+		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil), nil),
+			"deletion is the irreversible direction")
+	})
+
+	t.Run("unparseable records cannot feed inheritance", func(t *testing.T) {
+		p := fresh()
+		require.False(t, p.ShouldRetainCompletedTask(corruptDropTask("bad", distributedtask.TaskStatusFinished), nil))
+	})
+
+	t.Run("one drop's records share one marker check per window", func(t *testing.T) {
+		p := fresh()
+		reader := &fakeShardingReader{shards: []string{"shard1"}}
+		p.sharding = reader
+		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil), nil))
+		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusSwapping, nil), nil))
+		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFailed, nil), nil))
+		require.Equal(t, 1, reader.readClassCalls,
+			"the sweep re-asks per record per tick; the memo must collapse that to one leader read per drop per window")
+	})
 }
 
 // TestCheckTenantMutation_NeverBlocks pins the decoupling contract: tenant

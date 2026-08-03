@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +41,21 @@ const maxVerifiedStillDroppedEntries = 512
 // maxConsecutivePollErrors tolerates transient pending-read blips before failing
 // the unit, so a momentary I/O error doesn't flip the whole task to FAILED.
 const maxConsecutivePollErrors = 3
+
+// dropVectorRetainVerdictTTL bounds the retainer's leader reads: all of one
+// drop's retained records share a single marker check per window instead of
+// paying one QueryReadOnlyClasses per record per scheduler tick.
+const dropVectorRetainVerdictTTL = 30 * time.Second
+
+// maxRetainVerdictEntries bounds the retain-verdict memo (one entry per drop
+// with retained-expired records; see retainVerdictForDrop).
+const maxRetainVerdictEntries = 512
+
+// retainVerdict is a memoized ShouldRetainCompletedTask marker check.
+type retainVerdict struct {
+	retain bool
+	at     time.Time
+}
 
 // editOpBucket is the slice of *lsmkv.Bucket the provider drives: register the
 // drop op (flush + snapshot) and poll its remaining pending segments. Narrowed
@@ -117,6 +134,13 @@ type DropVectorIndexProvider struct {
 	verifiedMu           sync.Mutex
 	verifiedStillDropped map[string]bool // task ID -> every target still marked dropped
 
+	// retainVerdicts memoizes the retainer's marker check per drop
+	// (collection+targets): the TTL sweep asks per retained record per tick,
+	// and every record of one drop shares the answer. Time-bounded
+	// (dropVectorRetainVerdictTTL) so a finalize is observed within a window.
+	retainVerdictMu sync.Mutex
+	retainVerdicts  map[string]retainVerdict
+
 	// reconcileNudge pokes the reconcile loop (leader-gated there) when a
 	// round ends with work remaining — a completed round that deferred over
 	// uncovered shards (batch chains), or a failed one (e.g. tenant
@@ -149,6 +173,7 @@ func NewDropVectorIndexProvider(
 		pollInterval:         defaultDropVectorPollInterval,
 		verifyRetryBackoff:   2 * time.Second,
 		verifiedStillDropped: map[string]bool{},
+		retainVerdicts:       map[string]retainVerdict{},
 	}
 }
 
@@ -428,37 +453,113 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 }
 
 // ShouldRetainCompletedTask implements distributedtask.CompletedTaskRetainer:
-// while a drop's marker still stands (finalize deferred over inactive tenants),
-// its terminal records are the drop's only memory, so every one is retained
-// until the marker leaves the schema — a re-drop's marker-introduction purge
-// deletes them anyway. Three things hang off them:
-//   - Coverage: completed (SWAPPING/FINISHED) records feed their full
+// while a drop's marker still stands (finalize deferred over inactive
+// tenants), its load-bearing terminal records outlive the TTL — a re-drop's
+// marker-introduction purge deletes them anyway. Retained are:
+//   - Coverage carriers: completed (SWAPPING/FINISHED) records feed their full
 //     CoveredShards, FAILED/CANCELLED ones their COMPLETED units; expiring
-//     either erases load-bearing coverage and forces a full re-clean — with a
-//     permanently inactive (e.g. offloaded) tenant, repeating every TTL,
-//     forever.
-//   - Epoch identity: EpochAndInheritedCoverage inherits the epoch from the
-//     NEWEST matching record; with none left it mints a fresh epoch, which is
-//     a fresh op identity — the recorded strip progress belongs to the old op
-//     and would be re-done from scratch.
-//   - Liveness: LiveOpIDs reads these records to keep a terminal round's op
-//     from being swept on shard load; an expired record means a reactivated
-//     tenant sweeps its own resume point. This is why even a record with ZERO
-//     completed units (a round that died before finishing any shard) is
-//     retained: it feeds no coverage, but it anchors the op and the epoch.
+//     either forces a full re-clean — with a permanently inactive (e.g.
+//     offloaded) tenant, repeating every TTL, forever. Their count is bounded:
+//     each adds newly covered shards to the chain.
+//   - The NEWEST matching record, whatever its unit count: it anchors the op's
+//     liveness (LiveOpIDs keeps a terminal round's op from being swept on
+//     shard load) and the epoch identity (EpochAndInheritedCoverage inherits
+//     from the newest record; a fresh epoch is a fresh op). With no record
+//     left, a reactivated tenant sweeps its own resume point and the strip
+//     restarts from scratch.
 //
-// A leader-read failure retains (deletion is the irreversible direction;
-// re-evaluated next tick).
-func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task) bool {
+// OLDER zero-unit records feed nothing and are released — that bound is what
+// keeps a fast-failing round loop (one FAILED record minted per nudge) from
+// accumulating RAFT-replicated, snapshot-resident records without limit:
+// every new round's record frees its predecessor. The marker check is
+// memoized per drop for dropVectorRetainVerdictTTL — the sweep re-asks once
+// per retained record per tick, and all of one drop's records share the
+// answer; a leader-read failure retains (deletion is the irreversible
+// direction; re-evaluated next window).
+func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
+	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
+) bool {
 	payload, err := decodeDropVectorIndexPayload(task.Payload)
 	if err != nil {
 		return false // unparseable records cannot feed coverage, epoch, or liveness
 	}
-	stillDropped, err := p.targetsStillDropped(payload)
-	if err != nil {
-		return true
+	switch {
+	case task.Status.IsCompleted():
+	case terminalWithPartialWork(task.Status) && len(CompletedUnitShards(task, payload)) > 0:
+	case newestMatchingRecord(task, payload, namespaceTasks):
+	default:
+		return false
 	}
-	return stillDropped
+	return p.retainVerdictForDrop(payload)
+}
+
+// newestMatchingRecord reports whether task carries the highest raft Version
+// among namespaceTasks records for its (collection, targets) — the record
+// EpochAndInheritedCoverage inherits the epoch from. Matching mirrors that
+// function; undecodable siblings are skipped, so they cannot suppress an
+// anchor.
+func newestMatchingRecord(task *distributedtask.Task, payload *DropVectorIndexTaskPayload,
+	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
+) bool {
+	for _, other := range namespaceTasks {
+		if other.Version <= task.Version {
+			continue
+		}
+		otherPayload, err := decodeDropVectorIndexPayload(other.Payload)
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(otherPayload.Collection, payload.Collection) &&
+			SameTargetSet(otherPayload.Targets, payload.Targets) {
+			return false
+		}
+	}
+	return true
+}
+
+// retainVerdictForDrop answers "retain records of this drop?" (targets still
+// marked dropped) from a short-lived per-drop memo, so one leader read per
+// window serves every retained record of the drop instead of one per record
+// per scheduler tick. Errors memoize as retain — N records must not fan out
+// into N serial RPCs against a partitioned leader.
+func (p *DropVectorIndexProvider) retainVerdictForDrop(payload *DropVectorIndexTaskPayload) bool {
+	key := retainVerdictKey(payload)
+	now := time.Now()
+	memo, ok := func() (bool, bool) {
+		p.retainVerdictMu.Lock()
+		defer p.retainVerdictMu.Unlock()
+		v, ok := p.retainVerdicts[key]
+		return v.retain, ok && now.Sub(v.at) < dropVectorRetainVerdictTTL
+	}()
+	if ok {
+		return memo
+	}
+
+	retain := true // leader-read failure retains
+	if stillDropped, err := p.targetsStillDropped(payload); err == nil {
+		retain = stillDropped
+	}
+
+	func() {
+		p.retainVerdictMu.Lock()
+		defer p.retainVerdictMu.Unlock()
+		// Bounded like verifiedStillDropped: arbitrary eviction is safe, a
+		// miss costs one leader re-read.
+		if len(p.retainVerdicts) >= maxRetainVerdictEntries {
+			for k := range p.retainVerdicts {
+				delete(p.retainVerdicts, k)
+				break
+			}
+		}
+		p.retainVerdicts[key] = retainVerdict{retain: retain, at: now}
+	}()
+	return retain
+}
+
+func retainVerdictKey(payload *DropVectorIndexTaskPayload) string {
+	targets := append([]string(nil), payload.Targets...)
+	sort.Strings(targets)
+	return payload.Collection + "\x00" + strings.Join(targets, "\x00")
 }
 
 // shardLocallyLoaded reports whether the shard is currently loaded on this

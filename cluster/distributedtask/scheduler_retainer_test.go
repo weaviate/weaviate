@@ -28,7 +28,7 @@ type retainingTestProvider struct {
 	retain atomic.Bool
 }
 
-func (p *retainingTestProvider) ShouldRetainCompletedTask(*Task) bool {
+func (p *retainingTestProvider) ShouldRetainCompletedTask(*Task, map[TaskDescriptor]*Task) bool {
 	return p.retain.Load()
 }
 
