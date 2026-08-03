@@ -435,22 +435,9 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 	})
 }
 
-// releaseBackupUnlockChildEnv marks a re-executed test binary as the child that
-// runs the concurrent ReleaseBackup workload.
 const releaseBackupUnlockChildEnv = "WEAVIATE_TEST_RELEASE_BACKUP_UNLOCK_CHILD"
 
-// TestReleaseBackupConcurrentUnlocksEachShardOnce asserts that ReleaseBackup
-// releases every protected shard's backupLock exactly once when several
-// ReleaseBackup calls for the same index overlap. Overlapping calls are the
-// normal case: usecases/backup fans out one goroutine per class on the success
-// path.
-//
-// Unlocking twice lands the second Unlock on an already unlocked sync.RWMutex,
-// which Go reports as "fatal error: sync: Unlock of unlocked RWMutex". That is
-// unrecoverable — recover() cannot catch it and the process dies. So the
-// workload cannot run in this process; it runs in a child (this binary
-// re-executed under an env guard) and the parent reports the crash as an
-// ordinary failure.
+// Regression test: concurrent ReleaseBackup calls must not double-unlock a shard.
 func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
 	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
 		releaseBackupConcurrentUnlockWorkload(t)
@@ -466,11 +453,8 @@ func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
 		"child did not run the workload:\n%s", out)
 }
 
-// releaseBackupConcurrentUnlockWorkload repeatedly builds an index whose shards
-// are all protected, then releases the backup from several goroutines at once.
 func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
-	// Sized empirically: without the fix the process dies within the first
-	// handful of trials, both with and without -race.
+	// Sized empirically: reproduces within a few trials, with or without -race.
 	const (
 		trials         = 200
 		shardsPerTrial = 512
