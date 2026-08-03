@@ -503,6 +503,15 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 			return false, err
 		}
 
+		// the candidate segment still holds everything this file has until
+		// replaceSegment swaps it in, so discard it on every earlier exit
+		discardNewSegment := true
+		defer func() {
+			if discardNewSegment {
+				err = discardSegmentFile(file, tmpSegmentPath, err)
+			}
+		}()
+
 		switch c.sg.strategy {
 		case StrategyReplace:
 			c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
@@ -524,6 +533,8 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 			err = fmt.Errorf("close cleaned segment file: %w", err)
 			return false, err
 		}
+
+		discardNewSegment = false
 		return true, nil
 	}()
 	if err != nil {

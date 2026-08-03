@@ -16,7 +16,9 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -815,4 +817,47 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			assert.Equal(t, len(expectedExising), count)
 		})
 	})
+}
+
+// TestSegmentCleaner_AbortDiscardsNewSegment covers the abort exit of
+// cleanupOnce, which the happy-path cleanup tests never reach: the partially
+// written segment must not be left behind for a later init to find.
+func TestSegmentCleaner_AbortDiscardsNewSegment(t *testing.T) {
+	ctx := testCtx()
+	dir := t.TempDir()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithSegmentsCleanupInterval(time.Second),
+		WithCalcCountNetAdditions(true),
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9)
+
+	// the cleaner samples shouldAbort every 100 keys, so the candidate segment
+	// needs more than that for the abort to land mid-write
+	for seg := 0; seg < 2; seg++ {
+		for i := 0; i < 300; i++ {
+			key := []byte(fmt.Sprintf("seg-%d-key-%04d", seg, i))
+			require.NoError(t, bucket.Put(key, []byte("v")))
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+	}
+	require.Len(t, bucket.disk.segments, 2)
+
+	// false once to clear the guard before the file is created, then true so the
+	// cleaner aborts on its first sampled key
+	calls := 0
+	shouldAbort := func() bool {
+		calls++
+		return calls > 1
+	}
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(shouldAbort)
+	require.Error(t, err)
+	assert.False(t, cleaned)
+	assert.Len(t, bucket.disk.segments, 2, "the candidate segment must survive an aborted cleanup")
+	assertNoTempFiles(t, dir)
 }
