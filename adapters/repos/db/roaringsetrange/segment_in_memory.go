@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -29,18 +28,16 @@ import (
 type SegmentInMemory struct {
 	logger logrus.FieldLogger
 
-	bitmaps       rangeBitmaps
-	bitmapsLock   *entsync.ReadPreferringRWMutex
-	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
-	memtablesLock *sync.Mutex
+	bitmaps     rangeBitmaps
+	bitmapsLock *entsync.ReadPreferringRWMutex
+	pending     *roaringset.PendingMerges[*Memtable] // flushed memtables, waiting to be merged into bitmaps
 }
 
 func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
 	s := &SegmentInMemory{
-		logger:        logger,
-		bitmapsLock:   entsync.NewReadPreferringRWMutex(),
-		memtables:     make([]*Memtable, 0, 8),
-		memtablesLock: new(sync.Mutex),
+		logger:      logger,
+		bitmapsLock: entsync.NewReadPreferringRWMutex(),
+		pending:     roaringset.NewPendingMerges[*Memtable](),
 	}
 
 	for key := range s.bitmaps {
@@ -74,14 +71,9 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 }
 
 func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
-	s.memtablesLock.Lock()
-	s.memtables = append(s.memtables, memtable)
-	ln := len(s.memtables)
-	s.memtablesLock.Unlock()
-
 	// run background merge only once,
 	// handle also all memtables added while merge is performed
-	if ln == 1 {
+	if s.pending.Add(memtable) {
 		errors.GoWrapper(s.mergeMemtables, s.logger)
 	}
 }
@@ -90,21 +82,10 @@ func (s *SegmentInMemory) mergeMemtables() {
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()
 
-	i := 0
-	for {
-		s.memtablesLock.Lock()
-		if i == len(s.memtables) {
-			s.memtables = s.memtables[:0]
-			s.memtablesLock.Unlock()
-			return
-		}
-		memtable := s.memtables[i]
-		i++
-		s.memtablesLock.Unlock()
-
+	s.pending.Drain(func(memtable *Memtable) {
 		nodes := memtable.Nodes()
 		if len(nodes) == 0 {
-			continue
+			return
 		}
 		if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
 			for key := range s.bitmaps {
@@ -114,14 +95,11 @@ func (s *SegmentInMemory) mergeMemtables() {
 		for _, node := range nodes {
 			s.bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
 		}
-	}
+	})
 }
 
 func (s *SegmentInMemory) countPendingMemtables() int {
-	s.memtablesLock.Lock()
-	defer s.memtablesLock.Unlock()
-
-	return len(s.memtables)
+	return s.pending.Len()
 }
 
 func (s *SegmentInMemory) Size() int {
@@ -134,9 +112,7 @@ func (s *SegmentInMemory) Size() int {
 
 func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []InnerReader, release func()) {
 	s.bitmapsLock.RLock()
-	s.memtablesLock.Lock()
-	memtables := s.memtables
-	s.memtablesLock.Unlock()
+	memtables := s.pending.Snapshot()
 
 	readers = make([]InnerReader, 1+len(memtables))
 	readers[0] = &segmentInMemoryReader{

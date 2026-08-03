@@ -94,6 +94,7 @@ type memtable interface {
 	roaringSetRangeAddRemove(key uint64, additions []uint64, deletions []uint64) error
 	roaringSetRangeAdjustMeta(entriesChanged int)
 	roaringSetRangeAddCommitLog(key uint64, additions []uint64, deletions []uint64) error
+	extractRoaringSet() *roaringset.BinarySearchTree
 	extractRoaringSetRange() *roaringsetrange.Memtable
 
 	flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
@@ -791,6 +792,13 @@ func (m *Memtable) getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bo
 	m.writesSinceLastSync = false
 	// there was work in this iteration, cycle manager should not back off and revisit soon
 	return true
+}
+
+func (m *Memtable) extractRoaringSet() *roaringset.BinarySearchTree {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.roaringSet
 }
 
 func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
