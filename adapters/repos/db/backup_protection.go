@@ -29,6 +29,13 @@ const (
 	// requests that were already refused ever poll, and the interval is the
 	// worst-case latency they pay after the backup releases the shard.
 	backupProtectionPoll = 50 * time.Millisecond
+
+	// backupProtectionWaiters caps how many requests park on one index at once.
+	// Nothing else limits how many requests a client can have in flight, so
+	// without this a slow upload would trade an error per request for a parked
+	// goroutine per request. Over the cap a request gets the refusal it would
+	// have got before waiting existed.
+	backupProtectionWaiters = 512
 )
 
 // refuseIfBackupProtected reports whether a non-hardlink backup currently has
@@ -49,6 +56,13 @@ func (i *Index) waitForBackupProtection(ctx context.Context, shardName string) e
 		return nil
 	}
 
+	if i.backupProtectionWaiting.Add(1) > backupProtectionWaiters {
+		i.backupProtectionWaiting.Add(-1)
+		return fmt.Errorf("shard %q is %w: %d requests are already waiting for the backup",
+			shardName, enterrors.ErrShardBackupProtected, backupProtectionWaiters)
+	}
+	defer i.backupProtectionWaiting.Add(-1)
+
 	giveUp := time.NewTimer(backupProtectionWait)
 	defer giveUp.Stop()
 	ticker := time.NewTicker(backupProtectionPoll)
@@ -57,9 +71,10 @@ func (i *Index) waitForBackupProtection(ctx context.Context, shardName string) e
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("shard %q: %w while it was %w", shardName, ctx.Err(), enterrors.ErrShardBackupProtected)
+			return fmt.Errorf("shard %q is %w: %w", shardName, enterrors.ErrShardBackupProtected, ctx.Err())
 		case <-giveUp.C:
-			return fmt.Errorf("shard %q: still %w after %s", shardName, enterrors.ErrShardBackupProtected, backupProtectionWait)
+			return fmt.Errorf("shard %q is %w: gave up after %s",
+				shardName, enterrors.ErrShardBackupProtected, backupProtectionWait)
 		case <-ticker.C:
 			if _, protected := i.backupProtectedShards.Load(shardName); !protected {
 				return nil

@@ -187,3 +187,21 @@ func TestBackupProtection_WaitStopsAtTheCallersDeadline(t *testing.T) {
 	require.NoError(t, idx.waitForBackupProtection(context.Background(), "held"),
 		"an unprotected shard must not wait at all")
 }
+
+// TestBackupProtection_WaitIsCappedByWaiterCount pins that the number of parked
+// requests stays bounded: nothing else limits how many requests a client can
+// have in flight against a shard a slow backup holds.
+func TestBackupProtection_WaitIsCappedByWaiterCount(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	idx := &Index{logger: logger}
+	idx.backupProtectedShards.Store("held", struct{}{})
+	idx.backupProtectionWaiting.Store(backupProtectionWaiters)
+
+	start := time.Now()
+	err := idx.waitForBackupProtection(context.Background(), "held")
+	require.ErrorIs(t, err, enterrors.ErrShardBackupProtected)
+	require.Less(t, time.Since(start), backupProtectionPoll,
+		"a request over the cap must be refused without parking")
+	require.Equal(t, int64(backupProtectionWaiters), idx.backupProtectionWaiting.Load(),
+		"a refused request must not leak a waiter slot")
+}

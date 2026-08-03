@@ -295,6 +295,10 @@ type Index struct {
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
 	backupProtectedShards sync.Map
 
+	// backupProtectionWaiting counts the requests currently parked in
+	// waitForBackupProtection, so backupProtectionWaiters can cap them.
+	backupProtectionWaiting atomic.Int64
+
 	// Release uses this to decide whether to resume the shard (halt-for-duration
 	// fallback) or skip resume (snapshot already resumed at create time).
 	replicaSnapshotsMu sync.Mutex
