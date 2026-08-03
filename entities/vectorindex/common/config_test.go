@@ -19,15 +19,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_OptionalStringFromMap(t *testing.T) {
-	type test struct {
-		name      string
-		input     map[string]interface{}
-		expectErr bool
-		expected  string
-	}
+// optionalFromMapCase is the shared table-row shape for Test_Optional*FromMap:
+// each case supplies an input map and asserts both the returned error and the
+// value (or lack thereof) observed through the setFn callback.
+type optionalFromMapCase[T any] struct {
+	name      string
+	input     map[string]interface{}
+	expectErr bool
+	expected  T
+}
 
-	tests := []test{
+// runOptionalFromMapCases drives a table of optionalFromMapCase against fn,
+// factoring out the identical setFn-capture/assert loop that Test_OptionalStringFromMap,
+// Test_OptionalBoolFromMap, and Test_OptionalIntFromMap would otherwise each repeat.
+func runOptionalFromMapCases[T any](
+	t *testing.T,
+	cases []optionalFromMapCase[T],
+	unset T,
+	fn func(input map[string]interface{}, setFn func(T)) error,
+) {
+	t.Helper()
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := unset
+			err := fn(tt.input, func(v T) { got = v })
+
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func Test_OptionalStringFromMap(t *testing.T) {
+	runOptionalFromMapCases(t, []optionalFromMapCase[string]{
 		{
 			name:      "key absent, setFn not called, no error",
 			input:     map[string]interface{}{},
@@ -58,34 +86,13 @@ func Test_OptionalStringFromMap(t *testing.T) {
 			expectErr: true,
 			expected:  "unset",
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := "unset"
-			err := OptionalStringFromMap(tt.input, "distance", func(v string) {
-				got = v
-			})
-
-			if tt.expectErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Equal(t, tt.expected, got)
-		})
-	}
+	}, "unset", func(input map[string]interface{}, setFn func(string)) error {
+		return OptionalStringFromMap(input, "distance", setFn)
+	})
 }
 
 func Test_OptionalBoolFromMap(t *testing.T) {
-	type test struct {
-		name      string
-		input     map[string]interface{}
-		expectErr bool
-		expected  bool
-	}
-
-	tests := []test{
+	runOptionalFromMapCases(t, []optionalFromMapCase[bool]{
 		{
 			name:      "key absent, setFn not called, no error",
 			input:     map[string]interface{}{},
@@ -110,34 +117,13 @@ func Test_OptionalBoolFromMap(t *testing.T) {
 			expectErr: true,
 			expected:  false,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := false
-			err := OptionalBoolFromMap(tt.input, "skip", func(v bool) {
-				got = v
-			})
-
-			if tt.expectErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Equal(t, tt.expected, got)
-		})
-	}
+	}, false, func(input map[string]interface{}, setFn func(bool)) error {
+		return OptionalBoolFromMap(input, "skip", setFn)
+	})
 }
 
 func Test_OptionalIntFromMap(t *testing.T) {
-	type test struct {
-		name      string
-		input     map[string]interface{}
-		expectErr bool
-		expected  int
-	}
-
-	tests := []test{
+	runOptionalFromMapCases(t, []optionalFromMapCase[int]{
 		{
 			name:      "key absent, setFn not called, no error",
 			input:     map[string]interface{}{},
@@ -174,21 +160,7 @@ func Test_OptionalIntFromMap(t *testing.T) {
 			expectErr: true,
 			expected:  -1,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := -1
-			err := OptionalIntFromMap(tt.input, "vectorCacheMaxObjects", func(v int) {
-				got = v
-			})
-
-			if tt.expectErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Equal(t, tt.expected, got)
-		})
-	}
+	}, -1, func(input map[string]interface{}, setFn func(int)) error {
+		return OptionalIntFromMap(input, "vectorCacheMaxObjects", setFn)
+	})
 }
