@@ -501,6 +501,33 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
+	// Removing a VectorConfig entry through the generic update is the same
+	// surface DeleteClassVectorIndex hardens: dropping a "none"-marked entry
+	// performs the drop's schema-visible completion, and dropping a live one
+	// discards an index outright. Both demand the drop endpoint's scope
+	// (Collections = metadata + data), not metadata-only. The removal diff
+	// runs against the LEADER's view: the local replica may lag behind a
+	// recently added entry, and diffing against the stale view would let the
+	// removal slip past the escalation. A failed leader read fails CLOSED —
+	// require the stronger scope rather than guess.
+	reference := initial.VectorConfig
+	if vclasses, err := h.schemaManager.QueryReadOnlyClasses(className); err != nil {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+			return fmt.Errorf("cannot verify the update against the schema leader; the drop endpoint's scope is required: %w", err)
+		}
+		reference = nil // escalated unconditionally; nothing left to diff
+	} else if vcls, ok := vclasses[className]; ok && vcls.Class != nil {
+		reference = vcls.VectorConfig
+	}
+	for name := range reference {
+		if _, ok := updated.VectorConfig[name]; !ok {
+			if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+				return err
+			}
+			break
+		}
+	}
+
 	return UpdateClassInternal(h, ctx, className, updated)
 }
 
@@ -511,6 +538,17 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
+	}
+
+	// A vector-less class (no legacy vectorizer, last named vector dropped
+	// or already gone) keeps its legacy fields genuinely empty. The defaults
+	// above just filled them into the body (they cannot know better) —
+	// re-clear, so the update that reaches the parser and the RAFT apply is
+	// exactly the stored shape and no synthetic vectorizer can ever land.
+	if cur := h.schemaReader.ReadOnlyClass(className); cur != nil && modelsext.IsVectorlessUpdate(cur, updated) {
+		updated.Vectorizer = ""
+		updated.VectorIndexType = ""
+		updated.VectorIndexConfig = nil
 	}
 
 	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
@@ -1097,6 +1135,25 @@ func rejectVectorIndexTypeNone(prev, next *models.Class) error {
 		return fmt.Errorf("vector %q: vectorIndexType %q is an internal sentinel for "+
 			"dropped indexes and cannot be set through a class update; use the drop "+
 			"vector index API instead", name, modelsext.VectorIndexTypeNone)
+	}
+	if prev == nil {
+		return nil
+	}
+	// The reverse direction is equally off-limits: flipping a dropped entry
+	// back to a live type would resurrect a schema entry whose data and index
+	// files the cleanup already strips (schema/data desync), cancel the drop
+	// out from under its task, and dodge the Collections-scope escalation
+	// that guards the drop surface. Re-creation is key-absent → new entry,
+	// only possible after finalize frees the name.
+	for name, prevCfg := range prev.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(prevCfg) {
+			continue
+		}
+		if nextCfg, ok := next.VectorConfig[name]; ok && !modelsext.IsVectorIndexDropped(nextCfg) {
+			return fmt.Errorf("vector %q: a dropped index entry cannot be revived to a live "+
+				"type through a class update; the drop completes via its cleanup task — "+
+				"re-create the vector after it finishes", name)
+		}
 	}
 	return nil
 }

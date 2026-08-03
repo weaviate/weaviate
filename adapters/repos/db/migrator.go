@@ -345,7 +345,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
-	if err := shardLike.Shutdown(ctx); err != nil {
+	if err := shutdownOrRestoreShard(ctx, &idx.shards, shard, shardLike, idx.logger); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
@@ -715,14 +715,10 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 				m.logger.WithField("shard", name).Debug("starting shutdown")
 
-				if err := shard.Shutdown(ctx); err != nil {
+				if err := shutdownOrRestoreShard(ctx, &idx.shards, name, shard, idx.logger); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
-						idx.logger.
-							WithField("action", "shard_shutdown").
-							WithField("shard", shard.ID()).
-							Error(err)
 						ec.Add(err)
 					}
 				}

@@ -247,6 +247,12 @@ type Bucket struct {
 	// observing true is guaranteed a populated rep.
 	rangeableRepRebuilt atomic.Bool
 
+	// shuttingDown flips at Shutdown entry and never resets: registering a
+	// NEW edit op on a closing bucket must hard-fail (see RegisterEditOp) —
+	// the snapshot would race the dismantling and could record "nothing to
+	// clean" for a bucket full of data.
+	shuttingDown atomic.Bool
+
 	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
 	rangeableDeferredLogOnce  sync.Once
 	rangeableFallbackWarnOnce sync.Once
@@ -291,11 +297,44 @@ func NewBucketCreator() BucketCreator { return bucketCreator{} }
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
+// newBucketPostDiskInitHook is a test-only fault-injection point between the
+// segment-group init and the rest of NewBucket. Nil in production.
+var newBucketPostDiskInitHook func(*Bucket) error
+
 func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (b *Bucket, err error) {
 	beforeAll := time.Now()
+
+	// Claim the registry entry BEFORE touching any file: a second open of a
+	// still-live bucket (e.g. re-init after a shard teardown failed deep and
+	// leaked this bucket open) must be refused up front. Checking last let a
+	// doomed re-open run WAL recovery first — deleting the live instance's
+	// active WAL, whose buffered writes then flushed into an unlinked inode
+	// on shutdown: silent data loss.
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		return nil, err
+	}
+	var constructed *Bucket // named return b is nil'd by error returns; keep our own handle
+	defer func() {
+		if err == nil {
+			return
+		}
+		// A failure after newSegmentGroup succeeded leaves mmapped segments
+		// and flocked bolt handles behind disk; tear them down before
+		// releasing the claim — freeing the slot over live handles re-opens
+		// the exact double-open the front claim prevents. If the teardown
+		// itself fails, keep the claim: re-open stays refused until restart.
+		if constructed != nil && constructed.disk != nil {
+			if serr := constructed.disk.shutdown(context.Background()); serr != nil {
+				logger.WithField("dir", dir).
+					Errorf("close partially initialized bucket: %v — keeping registry claim; re-open refused until restart", serr)
+				return
+			}
+		}
+		GlobalBucketRegistry.Remove(dir)
+	}()
 
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
@@ -305,8 +344,12 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 	defaultStrategy := unsetStrategy
 
 	b = &Bucket{
-		dir:                          dir,
-		rootDir:                      rootDir,
+		dir:     dir,
+		rootDir: rootDir,
+		// The actual path of the bucket can change, e.g. on delete, without
+		// updating the registry. Keep the registered path (claimed at the top
+		// of this function) so shutdown can release the right entry.
+		registeredPath:               dir,
 		memtableThreshold:            defaultMemTableThreshold,
 		walThreshold:                 defaultWalThreshold,
 		flushDirtyAfter:              defaultFlushAfterDirty,
@@ -342,6 +385,8 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 	if b.disableCompaction {
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
+
+	constructed = b
 
 	b.desiredStrategy = b.strategy
 
@@ -399,6 +444,12 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 
 	b.disk = sg
 
+	if newBucketPostDiskInitHook != nil {
+		if err := newBucketPostDiskInitHook(b); err != nil {
+			return nil, err
+		}
+	}
+
 	if b.active == nil {
 		b.active, err = b.createNewActiveMemtable()
 		if err != nil {
@@ -410,13 +461,6 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
 
 	b.metrics.TrackStartupBucket(beforeAll)
-
-	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
-		// prevent accidentally trying to register the same bucket twice
-		return nil, err
-	}
-	// The actual path of the bucket can change, e.g. on delete, without updating the registry. Keep the registered path in the bucket so we can remove it from the registry on shutdown.
-	b.registeredPath = dir
 
 	return b, nil
 }
@@ -445,6 +489,26 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
 	}
+	// Hold flushAndSwitchMu across [flag check -> flush -> snapshot]:
+	// Shutdown sets shuttingDown and then passes a barrier on this mutex, so
+	// either this registration observed the flag and refused, or it completes
+	// its flush AND snapshot before the shutdown proceeds — a shutdown flush
+	// can never land between our flush and our snapshot (a segment outside
+	// the pending set is exactly the resurrection this guard exists to stop).
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
+	// flushAndSwitchLocked skips FlushAndSwitch's read-only guard; re-check
+	// here — arming triggers a flush, the exact write StatusReadOnly blocks.
+	if err := b.readOnlyErr(); err != nil {
+		return err
+	}
+	if b.shuttingDown.Load() {
+		// Arming against a closing bucket is unsound: the flush + segment
+		// snapshot race the dismantling, and an empty or partial snapshot
+		// would let the drop record completion without stripping. Fail the
+		// unit instead; a later round re-arms on a live instance.
+		return fmt.Errorf("bucket is shutting down; refusing to register edit op %q", opID)
+	}
 	snapshotted, err := b.disk.editOps.HasPendingSnapshot(opID)
 	if err != nil {
 		return err
@@ -452,7 +516,7 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if snapshotted {
 		return nil
 	}
-	if err := b.FlushAndSwitch(); err != nil {
+	if err := b.flushAndSwitchLocked(); err != nil {
 		return fmt.Errorf("flush before edit-op snapshot: %w", err)
 	}
 	return b.disk.registerEditOpAndSnapshot(opID, desc)
@@ -1749,6 +1813,13 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
+	b.shuttingDown.Store(true)
+	// Barrier: any RegisterEditOp that passed the flag check holds
+	// flushAndSwitchMu until its snapshot is durable — wait it out, so no
+	// arm is mid-flight once the teardown below starts. Later arms see the
+	// flag and refuse.
+	b.flushAndSwitchMu.Lock()
+	b.flushAndSwitchMu.Unlock() //nolint:staticcheck // empty critical section IS the barrier
 	// Drain all in-flight read pins first (see the lifetimeLock doc); the
 	// heartbeat makes a wedged drain diagnosable.
 	drained := make(chan struct{})
@@ -1769,7 +1840,16 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	close(drained)
 	defer b.lifetimeLock.Unlock()
 
-	defer GlobalBucketRegistry.Remove(b.registeredPath)
+	defer func() {
+		// Release the registry claim only on a COMPLETED teardown: a failed
+		// one may leave open handles, and the claim is what makes a re-open
+		// over them refuse up front instead of racing a still-live instance
+		// (see the claim in NewBucket). A retried or restart shutdown clears
+		// it once the teardown actually finishes.
+		if err == nil {
+			GlobalBucketRegistry.Remove(b.registeredPath)
+		}
+	}()
 
 	start := time.Now()
 
@@ -2012,6 +2092,13 @@ func (b *Bucket) FlushAndSwitch() error {
 	b.flushAndSwitchMu.Lock()
 	defer b.flushAndSwitchMu.Unlock()
 
+	return b.flushAndSwitchLocked()
+}
+
+// flushAndSwitchLocked is FlushAndSwitch's body; the caller must hold
+// flushAndSwitchMu (RegisterEditOp holds it across flush + snapshot so a
+// concurrent Shutdown cannot interleave between them).
+func (b *Bucket) flushAndSwitchLocked() error {
 	before := time.Now()
 	var err error
 

@@ -2929,14 +2929,28 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
-		if mustLoad {
-			lazyShard, ok := shard.(*LazyLoadShard)
-			if ok {
-				return lazyShard.Load(ctx)
-			}
+		// Never trust a map hit on a shard that already COMPLETED a shutdown
+		// (e.g. the deferred ref-drain one) — re-initialize fresh instead of
+		// leaving the tenant serving errAlreadyShutdown forever. Only
+		// CLEANLY-shut entries qualify: an unloaded LazyLoadShard is normal
+		// steady state (evicting it would race a concurrent Load() into a
+		// duplicate instance over the same directory), and a TORN shard must
+		// stay as the last reference to its leaked handles — re-initializing
+		// over them would only collide with the bucket registry.
+		if terr := shardTeardownError(shard); terr != nil {
+			return fmt.Errorf("reactivate shard %q: %w", shardName, terr)
 		}
-
-		return nil
+		if shardKnownShut(shard) {
+			i.shards.LoadAndDelete(shardName)
+		} else {
+			if mustLoad {
+				lazyShard, ok := shard.(*LazyLoadShard)
+				if ok {
+					return lazyShard.Load(ctx)
+				}
+			}
+			return nil
+		}
 	}
 
 	if _, protected := i.backupProtectedShards.Load(shardName); protected {
@@ -2969,11 +2983,8 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 		return nil // shard was not found, nothing to unload
 	}
 
-	if err := shardLike.Shutdown(ctx); err != nil {
-		if !errors.Is(err, errAlreadyShutdown) {
-			return errors.Wrapf(err, "shutdown shard %q", shardName)
-		}
-		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)
+	if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shardLike, i.logger); err != nil {
+		return errors.Wrapf(err, "shutdown shard %q", shardName)
 	}
 
 	return nil
@@ -3018,7 +3029,22 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		shard = i.shards.Load(shardName)
 	}()
 
-	if shard == nil {
+	// A torn shard (deep teardown failure) is held in the map as the last
+	// reference to its leaked handles; surface the cause instead of a bare
+	// errAlreadyShutdown. Unavailable until restart.
+	if shard != nil && ensureInit {
+		if terr := shardTeardownError(shard); terr != nil {
+			return nil, func() {}, fmt.Errorf("shard %q: %w", shardName, terr)
+		}
+	}
+
+	// A map hit on a shard that CLEANLY completed a shutdown (the deferred
+	// ref-drain one after a failed-but-restored close) must not pin the tenant
+	// on errAlreadyShutdown forever: the init path below re-creates it, same
+	// as the reactivation belt in initLocalShardWithForcedLoading. Read-only
+	// callers (ensureInit=false) keep surfacing the terminal error — the
+	// eventual-shutdown contract pins GetShard to errAlreadyShutdown.
+	if shard == nil || (ensureInit && shardKnownShut(shard)) {
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -3034,6 +3060,10 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
+		if shard != nil && shardKnownShut(shard) {
+			i.shards.LoadAndDelete(shardName)
+			shard = nil
+		}
 		if shard == nil {
 			if _, protected := i.backupProtectedShards.Load(shardName); protected {
 				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)

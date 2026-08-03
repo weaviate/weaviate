@@ -21,6 +21,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 var checkpointBucket = []byte("checkpoint")
@@ -35,7 +37,9 @@ type Checkpoints struct {
 func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 	path := filepath.Join(dir, "index.db")
 
-	db, err := bolt.Open(path, 0o600, nil)
+	// Timeout: a leaked handle from a failed teardown holds the flock; without
+	// it this open retries forever and wedges the loading goroutine.
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}
@@ -47,6 +51,12 @@ func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 
 	err = ic.initDB()
 	if err != nil {
+		// Close, or the flocked handle leaks and wedges every future open
+		// until restart.
+		if closeErr := db.Close(); closeErr != nil {
+			logger.WithField("path", path).
+				Warnf("close index checkpoint db after failed init: %v", closeErr)
+		}
 		return nil, err
 	}
 

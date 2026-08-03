@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -161,7 +162,7 @@ type sgConfig struct {
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
-) (*SegmentGroup, error) {
+) (_ *SegmentGroup, err error) {
 	now := time.Now()
 	deleteMarkerCounter := new(atomic.Int64)
 	deleteMarkerCounter.Store(now.UnixMilli())
@@ -365,6 +366,27 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	}
 
 	// segments need to be initialised in order of their timestamp to ensure that various computations are correct (CNA etc)
+	// Any init failure from here on discards sg without a shutdown — mid-loop
+	// load errors, WAL recovery, the sidecar-recovery hard-fail, cleaner init.
+	// Close whatever segments were already opened or every reload retry leaks
+	// their mmaps. Nil entries: the slice is pre-sized and truncated after the
+	// loop.
+	defer func() {
+		if err == nil {
+			return
+		}
+		for _, seg := range sg.segments {
+			if seg == nil {
+				continue
+			}
+			if closeErr := seg.close(); closeErr != nil {
+				sg.logger.WithField("path", cfg.dir).
+					Warnf("close segment after failed segment-group init: %v", closeErr)
+			}
+			sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
+		}
+	}()
+
 	fileList := make([]string, 0, len(files))
 	for entry := range files {
 		fileList = append(fileList, entry)
@@ -499,6 +521,27 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.strategy = StrategyInverted
 	}
 
+	// Construct the edit-ops sidecar BEFORE WAL recovery: the recovery must
+	// know whether ops exist — a last-WAL memtable kept live under a pending
+	// drop would hold pre-strip bytes outside the pending-segment bookkeeping
+	// (see mayRecoverFromCommitLogs). Recovery of the sidecar itself runs
+	// after the WALs, over the final segment set.
+	if cfg.className != "" && cfg.strategy == StrategyReplace {
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
+		sg.editOps.logger = sg.logger
+		// Any later init failure discards sg without a shutdown — the probe
+		// or recovery may have opened the sidecar's bolt (flock held), and a
+		// leaked handle wedges every reload retry until process restart.
+		defer func() {
+			if err != nil {
+				if closeErr := sg.editOps.Close(); closeErr != nil {
+					sg.logger.WithField("path", cfg.dir).
+						Warnf("close edit-ops sidecar after failed init: %v", closeErr)
+				}
+			}
+		}()
+	}
+
 	if err := b.mayRecoverFromCommitLogs(ctx, sg, files); err != nil {
 		return nil, err
 	}
@@ -507,23 +550,26 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.metrics.ObjectCount(sg.count())
 	}
 
-	// Construct the sidecar before the cleaner (newSegmentCleaner consults
-	// sg.editOps to enable the edit-ops-only drain when the heuristic cleanup is
-	// disabled) and before the compaction cycle registers, so sg.editOps is
-	// published before any pass can read it (happens-before). The bolt file itself
-	// is opened lazily on the first registered op (see newSegmentEditOps), so an
-	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
-	//
-	// A non-empty className means the objects bucket (the only WithClassName caller);
-	// edit ops only apply to its replace-strategy store. Transformers are resolved
-	// per op type from the global registry; the persisted ops drive what runs.
-	if cfg.className != "" && cfg.strategy == StrategyReplace {
-		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
-		sg.editOps.logger = sg.logger
+	// Recover the sidecar AFTER WAL recovery so the re-snapshot covers every
+	// segment the WALs flushed (construction happened above, before recovery —
+	// still ahead of the cleaner, which consults sg.editOps, and of the
+	// compaction cycle registration: published before any pass reads it). The
+	// bolt file opens lazily on the first registered op, so an objects bucket
+	// that never sees a drop carries no sidecar. Closed in shutdown.
+	if sg.editOps != nil {
 		if err := sg.recoverEditOps(ctx); err != nil {
-			// Not fatal: bricking the shard over drop-progress bookkeeping (e.g. a
-			// torn sidecar copy) would trade data availability for cleanup state.
-			// The drop stalls and every cleanup pass logs until repaired.
+			if errors.Is(err, bolterrors.ErrTimeout) {
+				// The sidecar's bolt file is still locked — a previous instance of
+				// this shard has not finished closing. Running blind here is how a
+				// completed drop's stripped data got resurrected (WAL replay with
+				// no healing re-pend possible); fail the load so the shard
+				// lifecycle retries once the old instance is gone.
+				return nil, fmt.Errorf("segment edit ops sidecar still locked by a previous instance: %w", err)
+			}
+			// Other failures are not fatal: bricking the shard over drop-progress
+			// bookkeeping (e.g. a torn sidecar copy) would trade data availability
+			// for cleanup state. The drop stalls and every cleanup pass logs until
+			// repaired.
 			sg.logger.WithField("path", cfg.dir).
 				Errorf("recover segment edit ops failed; drop-vector cleanup on this shard is stalled: %v", err)
 		}

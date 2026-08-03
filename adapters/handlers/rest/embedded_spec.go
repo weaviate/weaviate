@@ -5681,6 +5681,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       },
@@ -6838,6 +6839,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       }
@@ -17405,6 +17407,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       },
@@ -18562,6 +18565,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       }
