@@ -244,7 +244,13 @@ type ColumnarIndex struct {
 // The key backing is chosen from the observed key widths: if every key is the
 // same width the denser fixedKeyColumn is used (no offset table), otherwise the
 // variable-length blobKeyColumn. Both consume the same contiguous blob.
-func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64) (*ColumnarIndex, error) {
+//
+// requireUnique enforces the 1-doc-per-key assumption: when true, a key holding
+// more than one docID makes the build fail (so callers wiring this into a live
+// query path decline and fall back rather than silently drop docIDs). When false
+// the extra docIDs are ignored (only the minimum is kept) — intended for
+// benchmarks over corpora known to be effectively unique for the queried keys.
+func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool) (*ColumnarIndex, error) {
 	c := bucket.CursorRoaringSet()
 	defer c.Close()
 
@@ -258,6 +264,11 @@ func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64) (*ColumnarIndex, err
 			continue
 		}
 		id := bm.Minimum()
+		if requireUnique && bm.Maximum() != id {
+			// more than one docID under this key violates the 1-doc-per-key
+			// assumption; decline rather than silently drop docIDs.
+			return nil, fmt.Errorf("columnar index requires a unique property: a key holds multiple docIDs")
+		}
 		if id > maxDocID {
 			return nil, fmt.Errorf("docID %d exceeds maxDocID %d", id, maxDocID)
 		}

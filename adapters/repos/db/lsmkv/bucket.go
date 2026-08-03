@@ -91,6 +91,13 @@ type Bucket struct {
 	disk           *SegmentGroup
 	logger         logrus.FieldLogger
 
+	// containsAcc is an optional resident ContainsAny accelerator (a columnar
+	// index) attached by the query layer. Held behind an interface because lsmkv
+	// cannot import the columnar package (which imports lsmkv). Guarded by
+	// containsAccMu. See bucket_contains_accelerator.go.
+	containsAcc   *containsAccelerator
+	containsAccMu sync.RWMutex
+
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
 	flushLock sync.RWMutex

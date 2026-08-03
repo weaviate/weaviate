@@ -21,10 +21,12 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -286,6 +288,17 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	isDenyList := pv.operator == filters.ContainsNone
 	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
+	// Opt-in resident columnar accelerator: serve ContainsAny straight from an
+	// in-memory key->docID column when the bucket is fully flushed. Any miss
+	// (disabled, wrong operator, unflushed writes, absent/stale index, or a
+	// non-*lsmkv.Bucket) falls through to the standard fold below — results are
+	// identical either way (pinned by a differential test).
+	if pv.operator == filters.ContainsAny && entcfg.ColumnarContainsEnabled() {
+		if dbm, ok := s.resolveContainsColumnar(b, view, pv); ok {
+			return dbm, nil
+		}
+	}
+
 	var acc *sroar.Bitmap
 	var accRelease func()
 	var err error
@@ -312,6 +325,36 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 		return docBitmap{}, err
 	}
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
+}
+
+// resolveContainsColumnar attempts to serve a ContainsAny query from the
+// bucket's resident columnar accelerator. It returns (result, true) when the
+// accelerator served the query, or (_, false) when the caller must fall back to
+// the standard fold — because the bucket is not an *lsmkv.Bucket, has unflushed
+// writes (the base-only accelerator cannot layer memtables yet), or the build
+// declined (e.g. the property is not unique). The bucket caches the build
+// outcome per disk segment set, so this rebuilds only after a flush/compaction.
+func (s *Searcher) resolveContainsColumnar(b containsBatchBucket,
+	view lsmkv.BucketConsistentView, pv *propValuePair,
+) (docBitmap, bool) {
+	bkt, ok := b.(*lsmkv.Bucket)
+	if !ok {
+		return docBitmap{}, false
+	}
+
+	resolver := bkt.GetOrBuildContainsAnyAccelerator(view, func() lsmkv.ContainsAnyResolver {
+		idx, err := columnar.BuildFromBucket(bkt, s.bitmapFactory.MaxID(), true)
+		if err != nil {
+			return nil // decline (e.g. non-unique property); caller uses the fold
+		}
+		return idx
+	})
+	if resolver == nil {
+		return docBitmap{}, false
+	}
+
+	result := resolver.ResolveContainsAny(pv.containsValues)
+	return docBitmap{docIDs: result, release: noopRelease, isDenyList: false}, true
 }
 
 // foldContainsAnyAccumulator unions the rows of all keys through a

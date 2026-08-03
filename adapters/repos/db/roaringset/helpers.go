@@ -77,6 +77,13 @@ func (bmf *BitmapFactory) BufPool() BitmapBufPool {
 	return bmf.bufPool
 }
 
+// MaxID returns the current maximum valid docID (the shard's monotonic counter),
+// an upper bound on every docID. Used by callers that size docID storage to the
+// live ID range.
+func (bmf *BitmapFactory) MaxID() uint64 {
+	return bmf.maxIdGetter()
+}
+
 // GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
 // This method is safe to call concurrently. The purpose behind sharing an
 // internal bitmap, is that a Clone() operation is cheaper than prefilling
