@@ -453,6 +453,7 @@ func TestEnvironmentSkipAccessCheck(t *testing.T) {
 func TestEnvironmentBackupGCS(t *testing.T) {
 	tests := []struct {
 		name     string
+		start    BackupGCS
 		env      map[string]string
 		expected BackupGCS
 		wantErr  string
@@ -526,6 +527,46 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "many"},
 			wantErr: "parse GCS_MODULE_GRPC_CONN_POOL as int",
 		},
+		{
+			name:     "unset transport keeps the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "empty transport keeps the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "http overrides the config file transport",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
+			expected: BackupGCS{GRPCConnPool: 32},
+		},
+		{
+			name:     "grpc overrides the config file transport",
+			start:    BackupGCS{GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "connection pool overrides the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "16"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+		},
+		{
+			name:     "config file connection pool out of range is left for validation",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+		},
+		{
+			name:     "connection pool overrides an out of range config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "8"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+		},
 	}
 
 	for _, tt := range tests {
@@ -534,7 +575,7 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 				t.Setenv(key, tt.env[key])
 			}
 
-			conf := Config{}
+			conf := Config{BackupGCS: tt.start}
 			err := FromEnv(&conf)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)

@@ -2312,8 +2312,12 @@ const (
 )
 
 func (c *Config) parseBackupGCSConfig() error {
+	// An unset GCS_MODULE_TRANSPORT keeps whatever the config file set, an
+	// explicit one overrides it in either direction.
 	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
-	case "", gcsModuleTransportHTTP:
+	case "": // keep the config file value
+	case gcsModuleTransportHTTP:
+		c.BackupGCS.UseGRPC = false
 	case gcsModuleTransportGRPC:
 		c.BackupGCS.UseGRPC = true
 	default:
@@ -2321,7 +2325,13 @@ func (c *Config) parseBackupGCSConfig() error {
 			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)
 	}
 
-	if err := parseIntVerify("GCS_MODULE_GRPC_CONN_POOL", DefaultBackupGCSGRPCConnPool,
+	// parseIntVerify always writes the default back, so seed it from the config
+	// file value to keep an unset variable from overwriting it.
+	connPool := DefaultBackupGCSGRPCConnPool
+	if c.BackupGCS.GRPCConnPool != 0 {
+		connPool = c.BackupGCS.GRPCConnPool
+	}
+	if err := parseIntVerify("GCS_MODULE_GRPC_CONN_POOL", connPool,
 		func(val int) { c.BackupGCS.GRPCConnPool = val },
 		validateBackupGCSConnPool); err != nil {
 		return err
@@ -2330,9 +2340,9 @@ func (c *Config) parseBackupGCSConfig() error {
 	return nil
 }
 
-func validateBackupGCSConnPool(val int, envName string) error {
+func validateBackupGCSConnPool(val int, setting string) error {
 	if val < 1 || val > MaxBackupGCSGRPCConnPool {
-		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", envName, MaxBackupGCSGRPCConnPool, val)
+		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", setting, MaxBackupGCSGRPCConnPool, val)
 	}
 	return nil
 }

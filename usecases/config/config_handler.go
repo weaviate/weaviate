@@ -420,6 +420,10 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.BackupGCS.Validate(); err != nil {
+		return configErr(err)
+	}
+
 	if err := c.validateUsageLimitsReplicationLinkage(); err != nil {
 		return configErr(err)
 	}
@@ -904,9 +908,20 @@ type BackupGCS struct {
 	// Env: GCS_MODULE_TRANSPORT (http or grpc).
 	UseGRPC bool `json:"use_grpc" yaml:"use_grpc"`
 
-	// GRPCConnPool is how many gRPC channels each client opens.
+	// GRPCConnPool is how many gRPC channels each client opens. Zero means
+	// unset and falls back to DefaultBackupGCSGRPCConnPool.
 	// Env: GCS_MODULE_GRPC_CONN_POOL.
 	GRPCConnPool int `json:"grpc_conn_pool" yaml:"grpc_conn_pool"`
+}
+
+// Validate bounds a connection pool that came from the config file. Values from
+// GCS_MODULE_GRPC_CONN_POOL are already bounded when parsed. A negative pool
+// would panic the gRPC client on its first call.
+func (b BackupGCS) Validate() error {
+	if b.GRPCConnPool == 0 {
+		return nil
+	}
+	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
