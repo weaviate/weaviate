@@ -27,6 +27,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -189,6 +190,11 @@ func translateTypedError(err error) error {
 	}
 	if v, ok := restrictions.AsViolation(err); ok {
 		return restrictionViolationToGrpcError(v)
+	}
+	// A backup holding a shard cold clears itself within the upload, so the
+	// same request succeeds on retry.
+	if errors.Is(err, enterrors.ErrShardBackupProtected) {
+		return status.Error(codes.Unavailable, err.Error())
 	}
 	return nil
 }

@@ -14,10 +14,12 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -25,6 +27,9 @@ import (
 // newLoadableColdLazyShard returns an Index with one mapped, unloaded
 // LazyLoadShard that has real files and can genuinely load — loaded once
 // then shut down, so tests can tell "left cold" apart from "can't load".
+//
+// The class is left single-tenant on purpose: prewarming only skips empty
+// shards for tenant classes, so the loader this test exercises really runs.
 func newLoadableColdLazyShard(t *testing.T, className, shardName string) (*Index, *LazyLoadShard) {
 	t.Helper()
 	ctx := testCtx()
@@ -74,21 +79,27 @@ func TestColdBackup_ProtectedLazyShardRefusesActivation(t *testing.T) {
 	_, protected := idx.backupProtectedShards.Load(shardName)
 	require.True(t, protected, "the described shard must be marked protected")
 
+	// Request paths wait for the upload before giving up, so they get a
+	// deadline; the loaders behind them must refuse straight away rather than
+	// stall a shard-creation lock for the upload's duration.
+	waiting, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+
 	// Every route a reader or the background lazy-loader takes to activate the
 	// shard must be refused while its files are listed but not yet uploaded.
 	activations := []struct {
 		name string
 		run  func() error
 	}{
-		{"GetShard", func() error { _, _, err := idx.GetShard(ctx, shardName); return err }},
-		{"getOrInitShard", func() error { _, _, err := idx.getOrInitShard(ctx, shardName); return err }},
+		{"GetShard", func() error { _, _, err := idx.GetShard(waiting, shardName); return err }},
+		{"getOrInitShard", func() error { _, _, err := idx.getOrInitShard(waiting, shardName); return err }},
 		{"LoadLocalShard", func() error { return idx.LoadLocalShard(ctx, shardName, false) }},
 		{"loadLocalShardIfActive", func() error { return idx.loadLocalShardIfActive(shardName) }},
 		{"Load", func() error { return lazy.Load(ctx) }},
 	}
 	for _, a := range activations {
 		t.Run(a.name, func(t *testing.T) {
-			require.ErrorContains(t, a.run(), "protected for backup")
+			require.ErrorIs(t, a.run(), enterrors.ErrShardBackupProtected)
 			require.False(t, lazy.isLoaded(),
 				"%s must not have opened the store the backup is reading", a.name)
 		})

@@ -534,7 +534,29 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}
 
+	i.logProtectedShards(backupID)
+
 	return i.marshalBackupMetadata(desc, stateBytes)
+}
+
+// logProtectedShards reports, once per class, how many cold shards stay
+// unactivatable until the upload finishes. Requests for those shards wait it
+// out, so this is the one place an operator can see why a tenant went slow.
+func (i *Index) logProtectedShards(backupID string) {
+	protected := 0
+	i.backupProtectedShards.Range(func(_, _ any) bool {
+		protected++
+		return true
+	})
+	if protected == 0 {
+		return
+	}
+	i.logger.
+		WithField("action", "backup").
+		WithField("backup_id", backupID).
+		WithField("class", i.Config.ClassName).
+		WithField("protected_shards", protected).
+		Infof("%d cold shards stay unactivatable until the backup upload finishes", protected)
 }
 
 // backupShardWithoutHardlinks backs up a single shard without hardlinks;

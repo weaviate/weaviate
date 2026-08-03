@@ -1061,17 +1061,14 @@ func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
 }
 
-// refuseIfBackupProtected reports the same refusal Index.initShard gives for a
-// shard that is absent from the map: a protected shard must not be activated.
+// refuseIfBackupProtected reports the same refusal Index gives for a shard that
+// is absent from the map: a protected shard must not be activated.
 // Callers must hold l.mutex.
 func (l *LazyLoadShard) refuseIfBackupProtected() error {
 	if l.shardOpts == nil || l.shardOpts.index == nil {
 		return nil
 	}
-	if _, protected := l.shardOpts.index.backupProtectedShards.Load(l.shardOpts.name); protected {
-		return fmt.Errorf("shard %q is protected for backup, activation blocked", l.shardOpts.name)
-	}
-	return nil
+	return l.shardOpts.index.refuseIfBackupProtected(l.shardOpts.name)
 }
 
 func (l *LazyLoadShard) blockLoading() func() {

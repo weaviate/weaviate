@@ -329,6 +329,10 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
+		// A backup holding a shard cold clears itself; reporting it as a server
+		// error would page an operator over a state the next request resolves.
+		case errors.Is(err, enterrors.ErrShardBackupProtected):
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
 		default:
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 		}

@@ -603,53 +603,64 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	// NOTE(dyma):
-	// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
-	// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
-	initLazyShardsInBackground := func() {
-		defer i.allShardsReady.Store(true)
+	enterrors.GoWrapper(func() { i.prewarmLazyShards(hotShardNames) }, i.logger)
 
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
+	return nil
+}
 
-		now := time.Now()
+// prewarmLazyShards loads the hot lazy shards one per second so a node that
+// just started serves them warm without a load spike.
+//
+// NOTE(dyma):
+// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
+// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
+func (i *Index) prewarmLazyShards(hotShardNames []string) {
+	defer i.allShardsReady.Store(true)
 
-		for _, shardName := range hotShardNames {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	now := time.Now()
+
+	for _, shardName := range hotShardNames {
+		select {
+		case <-i.closingCtx.Done():
+			i.logger.
+				WithField("action", "load_all_shards").
+				Errorf("failed to load all shards: %v", i.closingCtx.Err())
+			return
+		case <-ticker.C:
 			select {
 			case <-i.closingCtx.Done():
 				i.logger.
 					WithField("action", "load_all_shards").
 					Errorf("failed to load all shards: %v", i.closingCtx.Err())
 				return
-			case <-ticker.C:
-				select {
-				case <-i.closingCtx.Done():
-					i.logger.
-						WithField("action", "load_all_shards").
-						Errorf("failed to load all shards: %v", i.closingCtx.Err())
-					return
-				default:
-					err := i.loadLocalShardIfActive(shardName)
-					if err != nil {
-						i.logger.
-							WithField("action", "load_shard").
-							WithField("shard_name", shardName).
-							Errorf("failed to load shard: %v", err)
-						return
+			default:
+				// Prewarming is best effort and per shard: one shard that
+				// cannot load says nothing about the next, and stopping here
+				// would leave every later shard cold for the life of the
+				// process while allShardsReady still reports true. Whatever
+				// the cause — a backup holding the shard, memory pressure, a
+				// corrupt store — the shard still loads on first access.
+				if err := i.loadLocalShardIfActive(shardName); err != nil {
+					entry := i.logger.
+						WithField("action", "load_shard").
+						WithField("shard_name", shardName)
+					if errors.Is(err, enterrors.ErrShardBackupProtected) {
+						entry.Debugf("skipped loading shard: %v", err)
+					} else {
+						entry.Errorf("failed to load shard: %v", err)
 					}
 				}
 			}
 		}
-
-		i.logger.
-			WithField("action", "load_all_shards").
-			WithField("took", time.Since(now).String()).
-			Debug("finished loading all shards")
 	}
 
-	enterrors.GoWrapper(initLazyShardsInBackground, i.logger)
-
-	return nil
+	i.logger.
+		WithField("action", "load_all_shards").
+		WithField("took", time.Since(now).String()).
+		Debug("finished loading all shards")
 }
 
 // unloadedShardIsEmpty reports whether a not-yet-loaded tenant shard has never
@@ -2921,8 +2932,8 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
-	if _, protected := i.backupProtectedShards.Load(shardName); protected {
-		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+	if err := i.refuseIfBackupProtected(shardName); err != nil {
+		return err
 	}
 
 	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards
@@ -2986,7 +2997,28 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
 // The returned shard cannot be closed until release is called.
 // release is never nil, including on error, so defer it immediately after the call.
+//
+// A cold backup blocks activation of the shards it is still uploading. Since
+// that clears itself within the upload, requests wait for it instead of
+// failing, the way tenant activation already waits on backupLock. The wait is
+// entered only after a refusal, so callers that never needed to activate the
+// shard — including those routed to another replica — are not delayed.
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
+	ShardLike, func(), error,
+) {
+	shard, release, err := i.getOptInitLocalShardNoWait(ctx, shardName, ensureInit)
+	if !errors.Is(err, enterrors.ErrShardBackupProtected) {
+		return shard, release, err
+	}
+
+	if waitErr := i.waitForBackupProtection(ctx, shardName); waitErr != nil {
+		return nil, func() {}, waitErr
+	}
+
+	return i.getOptInitLocalShardNoWait(ctx, shardName, ensureInit)
+}
+
+func (i *Index) getOptInitLocalShardNoWait(ctx context.Context, shardName string, ensureInit bool) (
 	shard ShardLike, release func(), err error,
 ) {
 	i.closeLock.RLock()
@@ -3021,8 +3053,8 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard == nil {
-			if _, protected := i.backupProtectedShards.Load(shardName); protected {
-				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+			if err := i.refuseIfBackupProtected(shardName); err != nil {
+				return nil, func() {}, err
 			}
 			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 			if err != nil {

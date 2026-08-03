@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -97,7 +98,10 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 			return objects.NewObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
 		}
-		if errors.As(err, &uco.ErrInvalidUserInput{}) {
+		if shardTemporarilyUnavailable(err) {
+			return objects.NewObjectsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		} else if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
@@ -207,7 +211,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		case errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), shardTemporarilyUnavailable(err):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -251,7 +255,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsListForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), shardTemporarilyUnavailable(err):
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrEndpointGone{}):
@@ -362,7 +366,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassDeleteNotFound()
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), shardTemporarilyUnavailable(err):
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -395,7 +399,10 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			return objects.NewObjectsClassPutTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
 		}
-		if errors.As(err, &uco.ErrInvalidUserInput{}) {
+		if shardTemporarilyUnavailable(err) {
+			return objects.NewObjectsClassPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		} else if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
@@ -443,7 +450,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 		case objErr.Forbidden():
 			return objects.NewObjectsClassHeadForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
-		case objErr.UnprocessableEntity():
+		case objErr.UnprocessableEntity(), shardTemporarilyUnavailable(objErr):
 			return objects.NewObjectsClassHeadUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
@@ -487,7 +494,7 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 		case objErr.BadRequest():
 			return objects.NewObjectsClassPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
-		case objErr.UnprocessableEntity():
+		case objErr.UnprocessableEntity(), shardTemporarilyUnavailable(objErr):
 			return objects.NewObjectsClassPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
@@ -535,7 +542,7 @@ func (h *objectHandlers) addObjectReference(
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
-		case objErr.UnprocessableEntity():
+		case objErr.UnprocessableEntity(), shardTemporarilyUnavailable(objErr):
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
@@ -583,7 +590,7 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
-		case objErr.UnprocessableEntity():
+		case objErr.UnprocessableEntity(), shardTemporarilyUnavailable(objErr):
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
@@ -618,6 +625,10 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 	objErr := h.manager.DeleteObjectReference(ctx, principal, &input, repl, tenant)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(params.ClassName, objErr)
+		if shardTemporarilyUnavailable(objErr) {
+			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
+		}
 		switch objErr.Code {
 		case uco.StatusForbidden:
 			return objects.NewObjectsClassReferencesDeleteForbidden().
@@ -876,6 +887,13 @@ func (h *objectHandlers) shouldIncludeGetObjectsModuleParams() bool {
 	return false
 }
 
+// shardTemporarilyUnavailable reports an error caused by a running backup
+// holding a cold shard. The upload releases it, so the same request succeeds on
+// retry and must not be reported as a server error.
+func shardTemporarilyUnavailable(err error) bool {
+	return errors.Is(err, enterrors.ErrShardBackupProtected)
+}
+
 type objectsRequestsTotal struct {
 	*restApiRequestsTotalImpl
 }
@@ -899,6 +917,8 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	case errors.As(err, &uco.ErrInvalidUserInput{}), errors.As(err, &uco.ErrNotFound{}):
 		e.logUserError(className)
 	case errors.As(err, &uco.ErrEndpointGone{}):
+		e.logUserError(className)
+	case shardTemporarilyUnavailable(err):
 		e.logUserError(className)
 	case errors.As(err, &customError):
 		switch customError.Code {
