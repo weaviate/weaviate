@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	tlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -476,8 +477,9 @@ func requireWaitGroupDone(t *testing.T, wg *sync.WaitGroup, msg string) {
 	}
 }
 
-// waitForBackupSlot yields rather than sleeps between initBackup retries, to
-// keep the handover race tight.
+// waitForBackupSlot spins on initBackup rather than sleeping, to keep the
+// handover race tight. It is a hot spin: a workload that never frees the index
+// burns a core or two until backupWorkloadTimeout, on its way to failing.
 func waitForBackupSlot(idx *Index, backupID string) (uint64, bool) {
 	deadline := time.Now().Add(backupWorkloadTimeout)
 	for {
@@ -512,6 +514,8 @@ func runReleaseBackupWorkloadInChild(t *testing.T) {
 		}
 	}
 
+	// -test.timeout is what stops a wedged child, not the context: the context
+	// dies with the parent and cannot clean up after it. Do not drop the flag.
 	cmd := exec.CommandContext(t.Context(), os.Args[0],
 		"-test.run", "^"+t.Name()+"$", "-test.v", "-test.timeout", timeout.String())
 	cmd.Env = append(os.Environ(), releaseBackupUnlockChildEnv+"=1")
@@ -869,6 +873,95 @@ func TestReleaseBackupIgnoresForeignBackup(t *testing.T) {
 	require.NoError(t, idx.ReleaseBackup(ctx, "backup2"))
 	requireBackupLocksFree(t, idx, []string{shardName})
 	assert.NoDirExists(t, stagingDir)
+}
+
+// Records a known limitation rather than a guarantee: a releaser is matched by
+// backup ID, and IDs are only unique per (backend, bucket, path), so the same
+// name sent to a second bucket produces a backup a straggler cannot be told
+// apart from its own. Every protection then goes at once.
+//
+// Delete this test if the release call ever carries which backup it belongs to.
+// It is written to fail the moment that lands.
+func TestReleaseBackupCannotTellReusedIDsApart(t *testing.T) {
+	const (
+		shardName = "cold-tenant"
+		backupID  = "backup1"
+	)
+	ctx := context.Background()
+
+	idx, className := newColdTenantIndex(t, shardName)
+
+	firstGen, err := idx.initBackup(backupID)
+	require.NoError(t, err)
+	idx.backupLock.Lock(shardName)
+	require.NoError(t, idx.protectShard(shardName, firstGen))
+
+	// One releaser ends the first backup. Its siblings are still queued.
+	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+	// The same name is backed up again, to a different bucket.
+	secondGen, err := idx.initBackup(backupID)
+	require.NoError(t, err)
+	require.NotEqual(t, firstGen, secondGen)
+	idx.backupLock.Lock(shardName)
+	require.NoError(t, idx.protectShard(shardName, secondGen))
+	stagingDir := backupStagingDir(idx.Config.RootPath, backupID, schema.ClassName(className))
+	require.NoError(t, os.MkdirAll(stagingDir, 0o755))
+
+	// A straggler from the first backup arrives and ends the second one.
+	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+	_, protected := idx.backupProtectedShards.Load(shardName)
+	assert.False(t, protected, "the running backup loses its protection")
+	requireBackupLocksFree(t, idx, []string{shardName})
+	assert.NoDirExists(t, stagingDir, "the running backup loses its staging dir")
+	assert.Nil(t, idx.lastBackup.Load(),
+		"the running backup loses its registration, so a third can start alongside it")
+}
+
+// A protection the release cannot read leaves the shard locked for the life of
+// the process. Nothing should have to guess at that from the outside.
+func TestReleaseProtectedShardsLogsUnreadableProtection(t *testing.T) {
+	const shardName = "cold-tenant"
+
+	idx, _ := newColdTenantIndex(t, shardName)
+	logger, hook := tlog.NewNullLogger()
+	idx.logger = logger
+
+	idx.backupLock.Lock(shardName)
+	idx.backupProtectedShards.Store(shardName, struct{}{})
+
+	idx.releaseProtectedShards(1)
+
+	entry := hook.LastEntry()
+	require.NotNil(t, entry, "an unreadable protection must be reported")
+	assert.Equal(t, logrus.ErrorLevel, entry.Level)
+	assert.Equal(t, shardName, entry.Data["shard"])
+}
+
+// Every other test builds a fresh index, so all of them sweep generation 1.
+// Running one shard through consecutive backups is what holds the release to
+// the caller's own generation: against a fixed one, the first backup works and
+// every backup after it leaks every lock it took.
+func TestReleaseBackupFreesShardsOnEveryGeneration(t *testing.T) {
+	const shardName = "cold-tenant"
+	ctx := context.Background()
+
+	idx, _ := newColdTenantIndex(t, shardName)
+
+	for _, backupID := range []string{"backup1", "backup2", "backup3"} {
+		gen, err := idx.initBackup(backupID)
+		require.NoError(t, err)
+		idx.backupLock.Lock(shardName)
+		require.NoError(t, idx.protectShard(shardName, gen))
+
+		require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+		_, protected := idx.backupProtectedShards.Load(shardName)
+		require.False(t, protected, "%s: shard still protected", backupID)
+		require.True(t, idx.backupLock.TryRLock(shardName), "%s: backupLock still held", backupID)
+		idx.backupLock.RUnlock(shardName)
+	}
 }
 
 // Shards release outside backupStateMu, so a later backup can protect one

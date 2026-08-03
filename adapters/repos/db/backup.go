@@ -721,7 +721,16 @@ func (i *Index) claimBackup(id string) (uint64, bool) {
 // fatal error recover() cannot catch.
 func (i *Index) releaseProtectedShards(gen uint64) {
 	i.backupProtectedShards.Range(func(key, value any) bool {
-		if protectedBy, ok := value.(uint64); ok && protectedBy <= gen {
+		protectedBy, ok := value.(uint64)
+		if !ok {
+			// Only protectShard writes here, so this cannot happen. Say so anyway:
+			// the shard keeps its write lock for the life of the process, and the
+			// tenant can be neither activated nor written until it restarts.
+			i.logger.WithField("shard", key).Errorf(
+				"backup: protection %v is not a backup generation, cannot release the shard's lock", value)
+			return true
+		}
+		if protectedBy <= gen {
 			if i.backupProtectedShards.CompareAndDelete(key, value) {
 				i.backupLock.Unlock(key.(string))
 			}
