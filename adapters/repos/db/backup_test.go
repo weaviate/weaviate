@@ -15,13 +15,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	tlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -393,16 +400,14 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 		idx := newTestIndex()
 		shards := []string{"shardA", "shardB", "shardC"}
 
-		// Simulate what backupShardWithoutHardlinks does: hold lock + set flag.
+		gen, err := idx.initBackup("test-backup")
+		require.NoError(t, err)
 		for _, name := range shards {
 			idx.backupLock.Lock(name)
-			idx.backupProtectedShards.Store(name, struct{}{})
+			require.NoError(t, idx.protectShard(name, gen))
 		}
-		// Set backup state so ReleaseBackup has something to reset.
-		idx.lastBackup.Store(&BackupState{BackupID: "test-backup", InProgress: true})
 
-		err := idx.ReleaseBackup(ctx, "test-backup")
-		require.NoError(t, err)
+		require.NoError(t, idx.ReleaseBackup(ctx, "test-backup"))
 
 		// Verify all protection flags are cleared.
 		for _, name := range shards {
@@ -410,26 +415,608 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 			assert.False(t, protected, "shard %s should no longer be protected", name)
 		}
 
-		// Verify all backupLock.Locks were released by confirming RLock succeeds.
-		for _, name := range shards {
-			done := make(chan struct{})
-			go func() {
-				idx.backupLock.RLock(name)
-				idx.backupLock.RUnlock(name)
-				close(done)
-			}()
-			select {
-			case <-done:
-				// Lock was released.
-			case <-time.After(time.Second):
-				t.Fatalf("RLock on %s should succeed after ReleaseBackup", name)
-			}
-		}
+		requireBackupLocksFree(t, idx, shards)
 
 		// The protection flag is cleared and the lock is released. Combined with the
 		// subtests above (which prove the flag blocks activation), this proves that
 		// activation is no longer blocked after ReleaseBackup.
 	})
+}
+
+// requireBackupLocksFree fails if any name's backupLock write lock is still
+// held. TryRLock is exact here since nothing else holds these locks in the
+// tests that call it.
+func requireBackupLocksFree(t *testing.T, idx *Index, names []string) {
+	t.Helper()
+
+	for _, name := range names {
+		require.True(t, idx.backupLock.TryRLock(name), "backupLock on %s still held", name)
+		idx.backupLock.RUnlock(name)
+	}
+}
+
+// backupWorkloadTimeout bounds every wait in the racing workloads: Go's
+// deadlock detector never fires while a goroutine holds a pending timer.
+const backupWorkloadTimeout = 30 * time.Second
+
+// requireBackupLocksFreeConcurrently is requireBackupLocksFree for racing
+// workloads, where a queued writer can also fail TryRLock; probed on a
+// deadline instead.
+func requireBackupLocksFreeConcurrently(t *testing.T, idx *Index, names []string) {
+	t.Helper()
+
+	var acquired atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		for _, name := range names {
+			idx.backupLock.RLock(name)
+			idx.backupLock.RUnlock(name)
+			acquired.Add(1)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(backupWorkloadTimeout):
+		t.Fatalf("backupLock on %s still held", names[min(int(acquired.Load()), len(names)-1)])
+	}
+}
+
+func requireWaitGroupDone(t *testing.T, wg *sync.WaitGroup, msg string) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(backupWorkloadTimeout):
+		t.Fatal(msg)
+	}
+}
+
+// waitForBackupSlot busy-spins on initBackup instead of sleeping, to keep the
+// handover race tight; a stuck workload burns a core until backupWorkloadTimeout.
+func waitForBackupSlot(idx *Index, backupID string) (uint64, bool) {
+	deadline := time.Now().Add(backupWorkloadTimeout)
+	for {
+		if gen, err := idx.initBackup(backupID); err == nil {
+			return gen, true
+		}
+		if time.Now().After(deadline) {
+			return 0, false
+		}
+		runtime.Gosched()
+	}
+}
+
+const releaseBackupUnlockChildEnv = "WEAVIATE_TEST_RELEASE_BACKUP_UNLOCK_CHILD"
+
+// releaseBackupChildTimeout bounds the child itself: it defaults to
+// -test.timeout=0, invisible to the parent's go test -timeout, so a wedged
+// child would reparent to init and outlive the CI job.
+const releaseBackupChildTimeout = 5 * time.Minute
+
+// runReleaseBackupWorkloadInChild re-executes this binary to run just the
+// calling test, so a workload that dies takes the child down instead of the
+// suite. An unlock too many is a fatal error, not a panic, and recover()
+// cannot catch it.
+func runReleaseBackupWorkloadInChild(t *testing.T) {
+	t.Helper()
+
+	timeout := releaseBackupChildTimeout
+	if deadline, ok := t.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 && remaining < timeout {
+			timeout = remaining
+		}
+	}
+
+	// -test.timeout is what stops a wedged child, not the context: the context
+	// dies with the parent and cannot clean up after it. Do not drop the flag.
+	cmd := exec.CommandContext(t.Context(), os.Args[0],
+		"-test.run", "^"+t.Name()+"$", "-test.v", "-test.timeout", timeout.String())
+	cmd.Env = append(os.Environ(), releaseBackupUnlockChildEnv+"=1")
+	out, err := cmd.CombinedOutput()
+
+	require.NoError(t, err, "child process did not survive the workload:\n%s", out)
+	require.Contains(t, string(out), "--- PASS: "+t.Name(),
+		"child did not run the workload:\n%s", out)
+}
+
+// Regression test: concurrent ReleaseBackup calls must not double-unlock a shard.
+func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
+	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
+		releaseBackupConcurrentUnlockWorkload(t)
+		return
+	}
+	runReleaseBackupWorkloadInChild(t)
+}
+
+// Regression test: ReleaseBackup must not release a shard a later backup already re-protected.
+func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
+	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
+		releaseBackupCrossGenerationWorkload(t)
+		return
+	}
+	runReleaseBackupWorkloadInChild(t)
+}
+
+// Regression test: two overlapping sweeps must not both unlock the same shard.
+func TestReleaseBackupOverlappingSweepsUnlockEachShardOnce(t *testing.T) {
+	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
+		releaseBackupOverlappingSweepWorkload(t)
+		return
+	}
+	runReleaseBackupWorkloadInChild(t)
+}
+
+func backupTestShardNames(n int) []string {
+	names := make([]string, n)
+	for s := range names {
+		names[s] = "shard" + strconv.Itoa(s)
+	}
+	return names
+}
+
+// newBackupTestIndex reproduces the state backupShardWithoutHardlinks leaves
+// behind: a registered backup with every shard locked and protected by it.
+func newBackupTestIndex(t *testing.T, rootDir string, names []string, backupID string) *Index {
+	t.Helper()
+
+	const className = "MyClass"
+	logger, _ := tlog.NewNullLogger()
+
+	idx := &Index{
+		Config: IndexConfig{RootPath: rootDir, ClassName: className},
+		getSchema: &fakeSchemaGetter{
+			schema: schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{{Class: className}}},
+			},
+		},
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		closingCtx:       context.Background(),
+	}
+
+	gen, err := idx.initBackup(backupID)
+	require.NoError(t, err)
+	for _, name := range names {
+		idx.backupLock.Lock(name)
+		require.NoError(t, idx.protectShard(name, gen))
+	}
+
+	return idx
+}
+
+// spawnBackupReleasers starts n goroutines that race to release backupID
+// once start closes.
+func spawnBackupReleasers(t *testing.T, wg *sync.WaitGroup, start <-chan struct{}, idx *Index, backupID string, n int) {
+	for r := 0; r < n; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			assert.NoError(t, idx.ReleaseBackup(context.Background(), backupID))
+		}()
+	}
+}
+
+func releaseBackupOverlappingSweepWorkload(t *testing.T) {
+	const (
+		trials         = 200
+		shardsPerTrial = 512
+		firstBackup    = "backup1"
+		secondBackup   = "backup2"
+	)
+
+	rootDir := t.TempDir()
+	names := backupTestShardNames(shardsPerTrial)
+
+	for trial := 0; trial < trials; trial++ {
+		idx := newBackupTestIndex(t, rootDir, names, firstBackup)
+
+		// backup1's sweep is claimed but not run yet, so backup2 starts and ends
+		// while backup1's shards are still protected. Sweeping older generations too
+		// is what puts both sweeps on the same shard set.
+		firstSweep, claimed := idx.claimBackup(firstBackup)
+		require.True(t, claimed)
+		_, err := idx.initBackup(secondBackup)
+		require.NoError(t, err)
+		secondSweep, claimed := idx.claimBackup(secondBackup)
+		require.True(t, claimed)
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, gen := range []uint64{firstSweep, secondSweep} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				idx.releaseProtectedShards(gen)
+			}()
+		}
+		close(start)
+		requireWaitGroupDone(t, &wg, fmt.Sprintf("trial %d: sweeps did not finish", trial))
+
+		for _, name := range names {
+			if _, protected := idx.backupProtectedShards.Load(name); protected {
+				t.Fatalf("trial %d: shard %s still protected after both sweeps", trial, name)
+			}
+		}
+		requireBackupLocksFreeConcurrently(t, idx, names)
+	}
+}
+
+func releaseBackupCrossGenerationWorkload(t *testing.T) {
+	const (
+		trials         = 200
+		shardsPerTrial = 512
+		releasers      = 2
+		firstBackup    = "backup1"
+		secondBackup   = "backup2"
+	)
+
+	rootDir := t.TempDir()
+	names := backupTestShardNames(shardsPerTrial)
+
+	for trial := 0; trial < trials; trial++ {
+		idx := newBackupTestIndex(t, rootDir, names, firstBackup)
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		spawnBackupReleasers(t, &wg, start, idx, firstBackup, releasers)
+
+		// The second backup takes over each shard as the first one frees it.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+
+			gen, ok := waitForBackupSlot(idx, secondBackup)
+			if !assert.True(t, ok, "trial %d: %s never got the index", trial, secondBackup) {
+				return
+			}
+			for _, name := range names {
+				idx.backupLock.Lock(name)
+				assert.NoError(t, idx.protectShard(name, gen))
+			}
+		}()
+
+		close(start)
+		requireWaitGroupDone(t, &wg, fmt.Sprintf(
+			"trial %d: releasers and %s did not finish", trial, secondBackup))
+
+		// A missing shard means a stale first-backup releaser unlocked it after
+		// the second backup protected it.
+		for _, name := range names {
+			if _, ok := idx.backupProtectedShards.Load(name); !ok {
+				t.Fatalf("trial %d: shard %s lost %s's protection",
+					trial, name, secondBackup)
+			}
+		}
+	}
+}
+
+func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
+	// Sized empirically: reproduces within a few trials, with or without -race.
+	const (
+		trials         = 200
+		shardsPerTrial = 512
+		releasers      = 4
+		backupID       = "backup1"
+	)
+
+	rootDir := t.TempDir()
+	names := backupTestShardNames(shardsPerTrial)
+
+	for trial := 0; trial < trials; trial++ {
+		idx := newBackupTestIndex(t, rootDir, names, backupID)
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		spawnBackupReleasers(t, &wg, start, idx, backupID, releasers)
+		close(start)
+		requireWaitGroupDone(t, &wg, fmt.Sprintf("trial %d: releasers did not finish", trial))
+
+		for _, name := range names {
+			if _, protected := idx.backupProtectedShards.Load(name); protected {
+				t.Fatalf("trial %d: shard %s still protected after ReleaseBackup", trial, name)
+			}
+		}
+
+		// A shard released too few times keeps its write lock, which blocks RLock
+		// forever, so under-release surfaces as a timeout here.
+		requireBackupLocksFreeConcurrently(t, idx, names)
+	}
+}
+
+// newColdTenantIndex returns an index whose only shard is a COLD tenant: files
+// on disk, absent from the shard map. descriptor() never reaches this state
+// directly since it probes for hardlinks first.
+func newColdTenantIndex(t *testing.T, shardName string) (*Index, string) {
+	t.Helper()
+
+	const className = "TestClass"
+	rootDir := t.TempDir()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant(shardName, models.TenantActivityStatusCOLD).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+	createColdShardFiles(t, rootDir, className, shardName)
+
+	return idx, className
+}
+
+// Regression test: a COLD tenant must not fall through the inactive branch
+// into the active path and dereference a nil shard.
+func TestBackupShardWithoutHardlinksColdTenant(t *testing.T) {
+	const (
+		shardName = "cold-tenant"
+		backupID  = "backup1"
+	)
+	ctx := context.Background()
+
+	idx, _ := newColdTenantIndex(t, shardName)
+
+	gen, err := idx.initBackup(backupID)
+	require.NoError(t, err)
+
+	var desc backup.ClassDescriptor
+	require.NoError(t, idx.descriptorWithoutHardlinks(ctx, backupID, gen, &desc, nil))
+
+	require.Len(t, desc.Shards, 1)
+	assert.Equal(t, shardName, desc.Shards[0].Name)
+	assert.NotEmpty(t, desc.Shards[0].Files, "COLD descriptor should have files from disk")
+
+	_, protected := idx.backupProtectedShards.Load(shardName)
+	require.True(t, protected, "COLD tenant must be protected for the duration of the backup")
+	assert.False(t, idx.backupLock.TryRLock(shardName),
+		"backupLock must stay held while the backup uploads")
+
+	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+	_, protected = idx.backupProtectedShards.Load(shardName)
+	assert.False(t, protected, "protection must be cleared by ReleaseBackup")
+	requireBackupLocksFree(t, idx, []string{shardName})
+}
+
+// Regression test: an inactive shard (absent, or an unloaded LazyLoadShard)
+// must not fall through into the active path, and stays protected and
+// locked even when the descriptor fails.
+func TestBackupShardWithoutHardlinksProtectsAndReleases(t *testing.T) {
+	const (
+		shardName = "cold-tenant"
+		backupID  = "backup1"
+	)
+
+	tests := []struct {
+		name      string
+		lazyShard bool
+		localData bool
+	}{
+		{name: "shard absent from shardMap, data on disk", localData: true},
+		{name: "shard absent from shardMap, no local data"},
+		{name: "unloaded lazy shard, data on disk", lazyShard: true, localData: true},
+		{name: "unloaded lazy shard, no local data", lazyShard: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			idx, _ := newColdTenantIndex(t, shardName)
+			if !test.localData {
+				require.NoError(t, os.RemoveAll(shardPath(idx.path(), shardName)))
+			}
+			if test.lazyShard {
+				idx.shards.Store(shardName, &LazyLoadShard{})
+			}
+
+			gen, err := idx.initBackup(backupID)
+			require.NoError(t, err)
+
+			sd, err := idx.backupShardWithoutHardlinks(ctx, shardName, gen, nil)
+			if test.localData {
+				require.NoError(t, err)
+				require.NotNil(t, sd)
+				assert.Equal(t, shardName, sd.Name)
+			} else {
+				require.ErrorIs(t, err, errShardNoLocalData)
+			}
+
+			// Both descriptor outcomes must leave the shard protected and locked.
+			_, protected := idx.backupProtectedShards.Load(shardName)
+			require.True(t, protected, "producer did not protect the inactive shard")
+			require.False(t, idx.backupLock.TryRLock(shardName),
+				"producer did not keep the shard's lock held")
+
+			require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+			_, protected = idx.backupProtectedShards.Load(shardName)
+			assert.False(t, protected, "shard still protected after ReleaseBackup")
+			requireBackupLocksFree(t, idx, []string{shardName})
+		})
+	}
+}
+
+// A releaser for an already-ended backup must not touch a later backup's
+// shards, staging dir, or compaction pause.
+func TestReleaseBackupIgnoresForeignBackup(t *testing.T) {
+	const shardName = "cold-tenant"
+	ctx := context.Background()
+
+	idx, className := newColdTenantIndex(t, shardName)
+
+	gen, err := idx.initBackup("backup2")
+	require.NoError(t, err)
+	idx.backupLock.Lock(shardName)
+	require.NoError(t, idx.protectShard(shardName, gen))
+
+	stagingDir := backupStagingDir(idx.Config.RootPath, "backup2", schema.ClassName(className))
+	require.NoError(t, os.MkdirAll(stagingDir, 0o755))
+
+	// backup1 already ended; this is one of its stragglers.
+	require.NoError(t, idx.ReleaseBackup(ctx, "backup1"))
+
+	_, protected := idx.backupProtectedShards.Load(shardName)
+	assert.True(t, protected, "backup2's shard must stay protected")
+	assert.False(t, idx.backupLock.TryRLock(shardName), "backup2's backupLock must stay held")
+	assert.DirExists(t, stagingDir, "backup2's staging dir must survive backup1's releaser")
+	require.NotNil(t, idx.lastBackup.Load(), "backup2 must stay registered")
+
+	require.NoError(t, idx.ReleaseBackup(ctx, "backup2"))
+	requireBackupLocksFree(t, idx, []string{shardName})
+	assert.NoDirExists(t, stagingDir)
+}
+
+// A releaser is matched only by backup ID; a straggler from a reused ID ends
+// whichever backup currently holds that name, not its own. The assertions below
+// record that, they do not ask for it: delete this test once a release call
+// says which backup it belongs to.
+func TestReleaseBackupCannotTellReusedIDsApart(t *testing.T) {
+	const (
+		shardName = "cold-tenant"
+		backupID  = "backup1"
+	)
+	ctx := context.Background()
+
+	idx, className := newColdTenantIndex(t, shardName)
+
+	firstGen, err := idx.initBackup(backupID)
+	require.NoError(t, err)
+	idx.backupLock.Lock(shardName)
+	require.NoError(t, idx.protectShard(shardName, firstGen))
+
+	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+	// Same ID, backed up again to a different bucket.
+	secondGen, err := idx.initBackup(backupID)
+	require.NoError(t, err)
+	require.NotEqual(t, firstGen, secondGen)
+	idx.backupLock.Lock(shardName)
+	require.NoError(t, idx.protectShard(shardName, secondGen))
+	stagingDir := backupStagingDir(idx.Config.RootPath, backupID, schema.ClassName(className))
+	require.NoError(t, os.MkdirAll(stagingDir, 0o755))
+
+	// A straggler from the first backup ends the second one instead.
+	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+	_, protected := idx.backupProtectedShards.Load(shardName)
+	assert.False(t, protected, "the running backup loses its protection")
+	requireBackupLocksFree(t, idx, []string{shardName})
+	assert.NoDirExists(t, stagingDir, "the running backup loses its staging dir")
+	assert.Nil(t, idx.lastBackup.Load(),
+		"the running backup loses its registration, so a third can start alongside it")
+}
+
+// An unreadable protection must be logged, or the shard stays locked for the
+// life of the process with no signal.
+func TestReleaseProtectedShardsLogsUnreadableProtection(t *testing.T) {
+	const shardName = "cold-tenant"
+
+	idx, _ := newColdTenantIndex(t, shardName)
+	logger, hook := tlog.NewNullLogger()
+	idx.logger = logger
+
+	idx.backupLock.Lock(shardName)
+	idx.backupProtectedShards.Store(shardName, struct{}{})
+
+	idx.releaseProtectedShards(1)
+
+	entry := hook.LastEntry()
+	require.NotNil(t, entry, "an unreadable protection must be reported")
+	assert.Equal(t, logrus.ErrorLevel, entry.Level)
+	assert.Equal(t, shardName, entry.Data["shard"])
+}
+
+// ReleaseBackup must free shards by the caller's own generation: a fixed
+// generation would pass once, then leak every lock after.
+func TestReleaseBackupFreesShardsOnEveryGeneration(t *testing.T) {
+	const shardName = "cold-tenant"
+	ctx := context.Background()
+
+	idx, _ := newColdTenantIndex(t, shardName)
+
+	for _, backupID := range []string{"backup1", "backup2", "backup3"} {
+		gen, err := idx.initBackup(backupID)
+		require.NoError(t, err)
+		idx.backupLock.Lock(shardName)
+		require.NoError(t, idx.protectShard(shardName, gen))
+
+		require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+		_, protected := idx.backupProtectedShards.Load(shardName)
+		require.False(t, protected, "%s: shard still protected", backupID)
+		require.True(t, idx.backupLock.TryRLock(shardName), "%s: backupLock still held", backupID)
+		idx.backupLock.RUnlock(shardName)
+	}
+}
+
+// Shards release outside backupStateMu, so a later backup can protect one
+// mid-sweep — but only a shard the releasing backup never itself held. That
+// shard must survive the sweep.
+func TestReleaseProtectedShardsLeavesNewerGenerationsAlone(t *testing.T) {
+	const (
+		wasHot  = "hot-then-cold-tenant"
+		wasCold = "cold-tenant"
+	)
+
+	idx, _ := newColdTenantIndex(t, wasCold)
+
+	firstGen, err := idx.initBackup("backup1")
+	require.NoError(t, err)
+	idx.backupLock.Lock(wasCold)
+	require.NoError(t, idx.protectShard(wasCold, firstGen))
+
+	// backup1 ends; its releaser is about to sweep.
+	sweepGen, claimed := idx.claimBackup("backup1")
+	require.True(t, claimed)
+
+	// backup2 starts and protects the tenant backup1 never touched.
+	secondGen, err := idx.initBackup("backup2")
+	require.NoError(t, err)
+	idx.backupLock.Lock(wasHot)
+	require.NoError(t, idx.protectShard(wasHot, secondGen))
+
+	idx.releaseProtectedShards(sweepGen)
+
+	_, protected := idx.backupProtectedShards.Load(wasCold)
+	assert.False(t, protected, "backup1 must release its own shard")
+	requireBackupLocksFree(t, idx, []string{wasCold})
+
+	_, protected = idx.backupProtectedShards.Load(wasHot)
+	assert.True(t, protected, "backup1's sweep must not touch backup2's shard")
+	assert.False(t, idx.backupLock.TryRLock(wasHot), "backup2's lock must stay held")
+}
+
+// A shard must never be protected for an already-released backup: nothing
+// would clear the flag or unlock it again.
+func TestProtectShardRefusesReleasedBackup(t *testing.T) {
+	const (
+		shardName = "cold-tenant"
+		backupID  = "backup1"
+	)
+	ctx := context.Background()
+
+	idx, _ := newColdTenantIndex(t, shardName)
+
+	gen, err := idx.initBackup(backupID)
+	require.NoError(t, err)
+	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+
+	require.ErrorIs(t, idx.protectShard(shardName, gen), errBackupReleased)
+	_, protected := idx.backupProtectedShards.Load(shardName)
+	assert.False(t, protected, "a released backup must not protect anything")
+
+	// The same generation must stay refused even after a later backup reuses id.
+	_, err = idx.initBackup(backupID)
+	require.NoError(t, err)
+	require.ErrorIs(t, idx.protectShard(shardName, gen), errBackupReleased)
 }
 
 func TestBackupFrozenShardOmitted(t *testing.T) {
@@ -648,11 +1235,12 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
 
 	// First backup: set state.
-	require.NoError(t, idx.initBackup("backup-1"))
+	_, err := idx.initBackup("backup-1")
+	require.NoError(t, err)
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	err = idx.descriptor(context.Background(), "backup-2", &desc, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
