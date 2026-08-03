@@ -315,13 +315,16 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		return nil, err
 	}
 
+	objectsWithoutVectors, vectorsInObjects := i.splitObjectsBucketSize(shard.Name(),
+		uint64(objectStorageSize), uint64(uncompressedVectorSize))
+
 	shardUsage := &types.ShardUsage{
 		Name:                  shard.Name(),
 		Status:                strings.ToLower(models.TenantActivityStatusACTIVE),
 		ObjectsCount:          objectCount,
-		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),                               // objects without vectors
-		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize) + vectorCommitLogsStorageSize, // lsm/vectors + objects vectors + commit.log folders
-		IndexStorageBytes:     indexUsage,                                                                               // lsm property folders and dimensions folder
+		ObjectsStorageBytes:   objectsWithoutVectors,
+		VectorStorageBytes:    uint64(vectorStorageSize) + vectorsInObjects + vectorCommitLogsStorageSize, // lsm/vectors + objects vectors + commit.log folders
+		IndexStorageBytes:     indexUsage,                                                                 // lsm property folders and dimensions folder
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
 	}
 	// Get vector usage for each named vector
@@ -461,12 +464,15 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 
 	sort.Sort(namedVectors)
 
+	objectsWithoutVectors, vectorsInObjects := i.splitObjectsBucketSize(shardName,
+		uint64(objectUsage.StorageBytes), uncompressedVectorSize)
+
 	shardUsage := &types.ShardUsage{
 		Name:                  shardName,
 		ObjectsCount:          objectUsage.Count,
 		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
-		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uncompressedVectorSize,
-		VectorStorageBytes:    uint64(vectorStorageSize) + uncompressedVectorSize + vectorCommitLogsStorageSize,
+		ObjectsStorageBytes:   objectsWithoutVectors,
+		VectorStorageBytes:    uint64(vectorStorageSize) + vectorsInObjects + vectorCommitLogsStorageSize,
 		IndexStorageBytes:     indexUsage,
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
 		NamedVectors:          namedVectors,
@@ -475,6 +481,22 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}
 	return shardUsage, err
+}
+
+// splitObjectsBucketSize divides the objects bucket's measured size into the objects themselves and
+// the uncompressed vectors stored alongside them. The vector part is modelled from the dimensions
+// bucket rather than measured, so a stale bucket can model more bytes than the objects bucket holds
+// — capping it keeps the subtraction from wrapping to a 16 EiB bill.
+func (i *Index) splitObjectsBucketSize(shardName string, objectsBucketSize, uncompressedVectorSize uint64) (withoutVectors, vectors uint64) {
+	if uncompressedVectorSize > objectsBucketSize {
+		i.logger.WithFields(logrus.Fields{
+			"class": i.Config.ClassName.String(),
+			"shard": shardName,
+		}).Warnf("dimensions bucket models %d vector bytes but the objects bucket holds only %d; reporting no object storage for this shard",
+			uncompressedVectorSize, objectsBucketSize)
+		return 0, objectsBucketSize
+	}
+	return objectsBucketSize - uncompressedVectorSize, uncompressedVectorSize
 }
 
 func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {

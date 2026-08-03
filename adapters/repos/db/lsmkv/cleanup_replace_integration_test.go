@@ -16,7 +16,11 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -815,4 +819,131 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			assert.Equal(t, len(expectedExising), count)
 		})
 	})
+}
+
+// TestSegmentCleaner_AbortDiscardsNewSegment covers the abort exit of
+// cleanupOnce, which the happy-path cleanup tests never reach: the partially
+// written segment must not be left behind for a later init to find.
+func TestSegmentCleaner_AbortDiscardsNewSegment(t *testing.T) {
+	ctx := testCtx()
+	dir := t.TempDir()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithSegmentsCleanupInterval(time.Second),
+		WithCalcCountNetAdditions(true),
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9)
+
+	// the cleaner samples shouldAbort every 100 keys, so the candidate segment
+	// needs more than that for the abort to land mid-write
+	for seg := 0; seg < 2; seg++ {
+		for i := 0; i < 300; i++ {
+			key := []byte(fmt.Sprintf("seg-%d-key-%04d", seg, i))
+			require.NoError(t, bucket.Put(key, []byte("v")))
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+	}
+	require.Len(t, bucket.disk.segments, 2)
+
+	// false once to clear the guard before the file is created, then true so the
+	// cleaner aborts on its first sampled key
+	calls := 0
+	shouldAbort := func() bool {
+		calls++
+		return calls > 1
+	}
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(shouldAbort)
+	require.Error(t, err)
+	assert.False(t, cleaned)
+	assert.Len(t, bucket.disk.segments, 2, "the candidate segment must survive an aborted cleanup")
+	assertNoTempFiles(t, dir)
+}
+
+// TestSegmentCleaner_FailedPreinitializeDiscardsNewSegment covers the window
+// between the cleaned file being written and switchOnDisk marking anything.
+// preinitializeNewSegment writes the sidecars there, so a directory planted at
+// the bloom path makes it fail with the candidate segment still fully intact.
+func TestSegmentCleaner_FailedPreinitializeDiscardsNewSegment(t *testing.T) {
+	ctx := testCtx()
+	dir := t.TempDir()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithSegmentsCleanupInterval(time.Second),
+		WithCalcCountNetAdditions(true),
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9)
+
+	for seg := 0; seg < 2; seg++ {
+		for i := 0; i < 50; i++ {
+			key := []byte(fmt.Sprintf("seg-%d-key-%04d", seg, i))
+			require.NoError(t, bucket.Put(key, []byte("v")))
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+	}
+	require.Len(t, bucket.disk.segments, 2)
+
+	// the oldest segment is the cleanup candidate; its cleaned output reuses the
+	// same id, so the sidecars it precomputes carry that id too
+	candidateID := segmentID(bucket.disk.segments[0].getPath())
+	blocker := filepath.Join(dir, "segment-"+candidateID+".bloom.tmp")
+	require.NoError(t, os.Mkdir(blocker, 0o755))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.Error(t, err, "the planted directory must make the sidecar write fail")
+	assert.False(t, cleaned)
+	assert.Len(t, bucket.disk.segments, 2, "the candidate segment must survive")
+
+	_, err = os.Stat(filepath.Join(dir, "segment-"+candidateID+".db.tmp"))
+	assert.True(t, os.IsNotExist(err), "the cleaned file must be discarded")
+}
+
+// TestSegmentCleaner_FailedMarkKeepsNewSegment is the other side of the discard
+// flag on the cleanup path: once switchOnDisk has called back, a later failure
+// must keep the cleaned file. The mark is made to fail by planting a directory
+// where the candidate's bloom filter is renamed to.
+func TestSegmentCleaner_FailedMarkKeepsNewSegment(t *testing.T) {
+	ctx := testCtx()
+	dir := t.TempDir()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithSegmentsCleanupInterval(time.Second),
+		WithCalcCountNetAdditions(true),
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9)
+
+	for seg := 0; seg < 2; seg++ {
+		for i := 0; i < 50; i++ {
+			key := []byte(fmt.Sprintf("seg-%d-key-%04d", seg, i))
+			require.NoError(t, bucket.Put(key, []byte("v")))
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+	}
+	require.Len(t, bucket.disk.segments, 2)
+
+	candidate, ok := bucket.disk.segments[0].(*segment)
+	require.True(t, ok)
+	blocker := candidate.bloomFilterPath() + candidate.deleteMarkerSuffix
+	require.NoError(t, os.Mkdir(blocker, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(blocker, "occupied"), []byte("x"), 0o644))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.Error(t, err, "the planted directory must make the sidecar mark fail")
+	assert.False(t, cleaned)
+
+	candidateID := segmentID(candidate.getPath())
+	_, err = os.Stat(filepath.Join(dir, "segment-"+candidateID+".db.tmp"))
+	require.NoError(t, err, "the cleaned file must survive once the switch has started")
 }

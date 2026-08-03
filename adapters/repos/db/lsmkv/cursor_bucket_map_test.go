@@ -252,6 +252,57 @@ func TestMapCursorKeyOnly_FirstKeyOnNonEmptyBucket(t *testing.T) {
 	require.Equal(t, []byte("only"), k)
 }
 
+// A cancelled context must end iteration like exhaustion (nil, nil), not
+// panic. The sorted-map merger returns ctx.Err() and the cursor used to
+// escalate every merger error to a panic ("unexpected error decoding map
+// values: context canceled").
+func TestMapCursor_CancelledContext(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+
+	newBucket := func() *Bucket {
+		return &Bucket{
+			active: newTestMemtableMap(map[string][]MapPair{
+				"key1": {{Key: []byte("k1"), Value: []byte("v1")}},
+				"key2": {{Key: []byte("k2"), Value: []byte("v2")}},
+			}),
+			disk:     &SegmentGroup{logger: logger},
+			strategy: StrategyMapCollection,
+			logger:   logger,
+		}
+	}
+
+	t.Run("First with already-cancelled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		cur, err := newBucket().MapCursor()
+		require.NoError(t, err)
+		defer cur.Close()
+
+		k, v := cur.First(ctx)
+		assert.Nil(t, k)
+		assert.Nil(t, v)
+	})
+
+	t.Run("cancel between Next calls", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		cur, err := newBucket().MapCursor()
+		require.NoError(t, err)
+		defer cur.Close()
+
+		k, _ := cur.First(ctx)
+		require.Equal(t, []byte("key1"), k)
+
+		cancel()
+		k, v := cur.Next(ctx)
+		assert.Nil(t, k)
+		assert.Nil(t, v)
+	})
+}
+
 // A key that is live on disk but tombstoned in the newer active memtable must
 // NOT surface from a keyOnly cursor. This guards the merge semantics from the
 // opposite direction of TestMapCursorKeyOnly: capturing values (needed to walk
