@@ -17,6 +17,8 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -41,15 +43,61 @@ func structToMap(obj interface{}) (newMap interface{}) {
 	return newMap
 }
 
+// updateToBlockMaxInvertedIndexConfig flips the class-level
+// InvertedIndexConfig.UsingBlockMaxWAND flag to true after the last
+// per-property MapToBlockmax migration completes on this shard.
+//
+// The mutation goes through a TYPE_UPDATE_CLASS RAFT command with a
+// FieldsToUpdate mask = [invertedIndexConfig] (mirroring the existing
+// UpdatePropertyRequest.FieldsToUpdate pattern), so both the FSM
+// merge AND the executor's downstream migrator dispatch are
+// restricted to the inverted-index sub-config.
+//
+// Without the mask, the executor's UpdateClass re-applies every
+// non-nil sub-config — including VectorIndexConfig via
+// Migrator.UpdateVectorIndexConfig → Shard.UpdateVectorIndexConfig
+// → Shard.SetStatusReadonly. That window has been observed to
+// overlap with a concurrent runtime-reindex iteration's write to the
+// per-prop blockmax_reindex bucket and surface as
+// "store is read-only" mid-iteration. See
+// weaviate/0-weaviate-issues#240.
+// blockMaxInvertedIndexConfig returns the config to persist with
+// UsingBlockMaxWAND set, and whether an update is needed at all.
+//
+// The returned pointer is always distinct from cfg. Callers hold a shallow
+// copy of the class (CloneClass), so pointer fields like InvertedIndexConfig
+// still alias the live in-process schema; setting the flag on that pointer
+// would mutate the live schema outside the RAFT consensus path and race with
+// concurrent schema readers.
+//
+// A nil cfg has the flag unset by definition, so it still needs the update.
+func blockMaxInvertedIndexConfig(cfg *models.InvertedIndexConfig) (*models.InvertedIndexConfig, bool) {
+	if cfg == nil {
+		return &models.InvertedIndexConfig{UsingBlockMaxWAND: true}, true
+	}
+	if cfg.UsingBlockMaxWAND {
+		return nil, false
+	}
+	clone := *cfg
+	clone.UsingBlockMaxWAND = true
+	return &clone, true
+}
+
 func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {
 	class := sc.ReadOnlyClass(className)
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)
 	}
-	// nothing to update
-	if class.InvertedIndexConfig.UsingBlockMaxWAND {
+	next, needsUpdate := blockMaxInvertedIndexConfig(class.InvertedIndexConfig)
+	if !needsUpdate {
 		return nil
 	}
+	class.InvertedIndexConfig = next
+	// structToMap on the sibling sub-configs is still required so
+	// ParseClassUpdate's type assertions on the round-tripped class
+	// succeed — even though the mask skips applying them downstream,
+	// the parse / validate pipeline (prepareClassForUpdate) still
+	// inspects them.
 	class.ModuleConfig = structToMap(class.ModuleConfig)
 	class.VectorIndexConfig = structToMap(class.VectorIndexConfig)
 	class.ShardingConfig = structToMap(class.ShardingConfig)
@@ -59,6 +107,6 @@ func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager
 		tempConfig.Vectorizer = structToMap(tempConfig.Vectorizer)
 		class.VectorConfig[i] = tempConfig
 	}
-	class.InvertedIndexConfig.UsingBlockMaxWAND = true
-	return schema.UpdateClassInternal(&sc.Handler, ctx, className, class)
+	return schema.UpdateClassInternalMasked(&sc.Handler, ctx, className, class,
+		api.ClassFieldInvertedIndexConfig)
 }

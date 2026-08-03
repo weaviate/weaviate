@@ -47,6 +47,11 @@ func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss
 	return 0, args.Error(0)
 }
 
+func (f *fakeSchemaManager) UpdateClassMasked(_ context.Context, cls *models.Class, fields []string) (uint64, error) {
+	args := f.Called(cls, fields)
+	return 0, args.Error(0)
+}
+
 func (f *fakeSchemaManager) DeleteClass(_ context.Context, name string) (uint64, error) {
 	args := f.Called(name)
 	return 0, args.Error(0)

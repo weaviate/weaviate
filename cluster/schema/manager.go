@@ -463,8 +463,13 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
-		// Gate at apply time so the verdict is RAFT-deterministic.
-		if s.mutationGuard != nil {
+		shouldUpdate := command.ClassFieldUpdaterFromMask(req.FieldsToUpdate)
+
+		// Gate at apply time so the verdict is RAFT-deterministic. The check
+		// only applies when the caller actually targets VectorConfig: a masked
+		// update that leaves VectorConfig alone drops nothing, and comparing
+		// against its nil VectorConfig would read as "every entry dropped".
+		if s.mutationGuard != nil && shouldUpdate(command.ClassFieldVectorConfig) {
 			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
 				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed); err != nil {
 					return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -472,23 +477,45 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
-		// Apply updates
-		meta.Class.VectorIndexConfig = u.VectorIndexConfig
-		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
-		meta.Class.VectorConfig = u.VectorConfig
-		meta.Class.ReplicationConfig = u.ReplicationConfig
-		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
-		meta.Class.ObjectTTLConfig = u.ObjectTTLConfig
-		meta.Class.Description = u.Description
-		meta.Class.Properties = u.Properties
+		// Apply updates. When req.FieldsToUpdate is non-empty, only the
+		// listed sub-configs are merged; everything else keeps the
+		// existing meta.Class value. Old wire-format callers (no
+		// FieldsToUpdate set) take the legacy "replace every non-nil
+		// sub-config" path so behaviour is unchanged for them.
+		if shouldUpdate(command.ClassFieldVectorIndexConfig) {
+			meta.Class.VectorIndexConfig = u.VectorIndexConfig
+		}
+		if shouldUpdate(command.ClassFieldInvertedIndexConfig) {
+			meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
+		}
+		if shouldUpdate(command.ClassFieldVectorConfig) {
+			meta.Class.VectorConfig = u.VectorConfig
+		}
+		if shouldUpdate(command.ClassFieldReplicationConfig) {
+			meta.Class.ReplicationConfig = u.ReplicationConfig
+		}
+		if shouldUpdate(command.ClassFieldMultiTenancyConfig) {
+			meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
+		}
+		if shouldUpdate(command.ClassFieldObjectTTLConfig) {
+			meta.Class.ObjectTTLConfig = u.ObjectTTLConfig
+		}
+		if shouldUpdate(command.ClassFieldDescription) {
+			meta.Class.Description = u.Description
+		}
+		if shouldUpdate(command.ClassFieldProperties) {
+			meta.Class.Properties = u.Properties
+		}
 		meta.ClassVersion = cmd.Version
 
 		if req.State != nil {
 			meta.Sharding = *req.State
 		}
 
-		// update sharding replication factor
-		if u.ReplicationConfig != nil {
+		// update sharding replication factor — only when the caller
+		// either targeted ReplicationConfig explicitly or sent a
+		// legacy unmasked update with a non-nil ReplicationConfig.
+		if u.ReplicationConfig != nil && shouldUpdate(command.ClassFieldReplicationConfig) {
 			meta.Sharding.ReplicationFactor = updatedRF
 		}
 

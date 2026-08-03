@@ -50,6 +50,16 @@ type SchemaManager interface {
 	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	// UpdateClassMasked issues a TYPE_UPDATE_CLASS RAFT command whose
+	// FSM merge AND executor dispatch are restricted to the listed
+	// class-level field tags (see api.ClassField* constants). Used by
+	// migration completion paths that flip a single class-level field
+	// (e.g. InvertedIndexConfig.UsingBlockMaxWAND) and must NOT
+	// cascade through the legacy "apply every non-nil sub-config"
+	// dispatch. See [cluster.Raft.UpdateClassMasked] for the
+	// load-bearing rationale (the unwanted Shard.SetStatusReadonly
+	// window the mask is designed to skip).
+	UpdateClassMasked(ctx context.Context, cls *models.Class, fields []string) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
 	// UpdateProperty merges `property` into the named class. When `fields`

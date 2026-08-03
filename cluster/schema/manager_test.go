@@ -869,6 +869,50 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 0, guard.called, "no dropped entry removed → gate not consulted")
 	})
+
+	mkMaskedRequest := func(updated *models.Class, fields ...string) *cmd.ApplyRequest {
+		sub, err := json.Marshal(&cmd.UpdateClassRequest{
+			Class: updated, State: nil, FieldsToUpdate: fields,
+		})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			Class:      "C",
+			Version:    2,
+			SubCommand: sub,
+		}
+	}
+
+	t.Run("masked update that does not target VectorConfig must not consult the gate", func(t *testing.T) {
+		// The BlockMax flag flip sends FieldsToUpdate=[invertedIndexConfig] and
+		// carries no VectorConfig at all. Diffing the stored class against that
+		// empty map reads as "every dropped entry removed", which would trip the
+		// gate — the exact cascade the mask exists to prevent.
+		parsed := &models.Class{
+			Class:               "C",
+			InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true},
+		}
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard, parsed)
+
+		err := sm.UpdateClass(mkMaskedRequest(parsed, cmd.ClassFieldInvertedIndexConfig), "test-node", true, false)
+		require.NoError(t, err,
+			"an inverted-only masked update removes no vector config and must not be rejected by the gate")
+		require.Equal(t, 0, guard.called,
+			"mask does not list vectorConfig → gate must not be consulted")
+	})
+
+	t.Run("masked update that does target VectorConfig still consults the gate", func(t *testing.T) {
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw}}
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("cleanup task not FINISHED")}
+		sm := newSM(guard, parsed)
+
+		err := sm.UpdateClass(mkMaskedRequest(parsed, cmd.ClassFieldVectorConfig), "test-node", true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cleanup task not FINISHED")
+		require.Equal(t, 1, guard.called, "mask lists vectorConfig → gate must still run")
+		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+	})
 }
 
 // TestSchemaManager_DeleteTenants_MutationGuard pins the tenant-level
@@ -992,6 +1036,115 @@ func TestSchemaManager_SetMutationGuard(t *testing.T) {
 
 	sm.SetMutationGuard(nil)
 	require.Nil(t, sm.mutationGuard, "nil clears the guard")
+}
+
+// TestSchemaManager_UpdateClass_FieldMask pins the FSM-side half of
+// the UpdateClassRequest.FieldsToUpdate contract: only the listed
+// class-level sub-configs are merged onto meta.Class. The other half
+// (executor dispatch) is covered in usecases/schema executor tests;
+// this test ensures a future refactor cannot regress the apply path
+// silently while the executor-side tests still pass. See
+// weaviate/0-weaviate-issues#240 for the read-only-cascade bug this
+// mask was introduced to close.
+func TestSchemaManager_UpdateClass_FieldMask(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	// MockParser.ParseClassUpdate (usecases/fakes) returns the
+	// `update` argument untouched and `args.Error(1)` for the error.
+	// Return(nil, nil) yields zero-error success while keeping the
+	// parser behaviour neutral so the FSM merge is the only thing
+	// under test.
+	parser.On("ParseClassUpdate", mock.Anything).Return(nil, nil)
+
+	sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+	// Seed an initial class with non-nil sub-configs so we can
+	// observe whether each one was replaced or preserved post-apply.
+	initial := &models.Class{
+		Class:               "C",
+		Description:         "initial-desc",
+		VectorIndexConfig:   "initial-vector-index-config",
+		VectorConfig:        map[string]models.VectorConfig{"v": {VectorIndexType: "hnsw"}},
+		InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: false},
+		ReplicationConfig:   &models.ReplicationConfig{Factor: 1},
+		MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: false},
+		ObjectTTLConfig:     &models.ObjectTTLConfig{Enabled: false},
+		Properties:          []*models.Property{{Name: "p1"}},
+	}
+	require.NoError(t, sm.schema.addClass(initial, &sharding.State{}, 1))
+
+	mkRequest := func(updated *models.Class, fields ...string) *cmd.ApplyRequest {
+		req := cmd.UpdateClassRequest{Class: updated, FieldsToUpdate: fields}
+		sub, err := json.Marshal(&req)
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			Class:      updated.Class,
+			SubCommand: sub,
+			Version:    2,
+		}
+	}
+
+	t.Run("masked to invertedIndexConfig only flips that field", func(t *testing.T) {
+		updated := &models.Class{
+			Class:               "C",
+			Description:         "DIFFERENT-desc-MUST-NOT-LAND",
+			VectorIndexConfig:   "DIFFERENT-vic-MUST-NOT-LAND",
+			VectorConfig:        map[string]models.VectorConfig{"v": {VectorIndexType: "DIFFERENT"}},
+			InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true},
+			ReplicationConfig:   &models.ReplicationConfig{Factor: 99},
+			MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: true},
+			ObjectTTLConfig:     &models.ObjectTTLConfig{Enabled: true},
+			Properties:          []*models.Property{{Name: "DIFFERENT-prop"}},
+		}
+		err := sm.UpdateClass(mkRequest(updated, cmd.ClassFieldInvertedIndexConfig), "n", true, false)
+		require.NoError(t, err)
+
+		got := sm.schema.classes["C"]
+		require.True(t, got.Class.InvertedIndexConfig.UsingBlockMaxWAND,
+			"invertedIndexConfig MUST be flipped — it's in the mask")
+		require.Equal(t, "initial-desc", got.Class.Description,
+			"Description MUST NOT land — not in the mask")
+		require.Equal(t, "initial-vector-index-config", got.Class.VectorIndexConfig,
+			"VectorIndexConfig MUST NOT land — not in the mask")
+		require.Equal(t, "hnsw", got.Class.VectorConfig["v"].VectorIndexType,
+			"VectorConfig MUST NOT land — not in the mask")
+		require.Equal(t, int64(1), got.Class.ReplicationConfig.Factor,
+			"ReplicationConfig MUST NOT land — not in the mask")
+		require.False(t, got.Class.MultiTenancyConfig.Enabled,
+			"MultiTenancyConfig MUST NOT land — not in the mask")
+		require.False(t, got.Class.ObjectTTLConfig.Enabled,
+			"ObjectTTLConfig MUST NOT land — not in the mask")
+		require.Equal(t, "p1", got.Class.Properties[0].Name,
+			"Properties MUST NOT land — not in the mask")
+	})
+
+	t.Run("empty mask falls back to legacy replace-everything", func(t *testing.T) {
+		// Reset to a known state for this subtest.
+		sm.schema.classes["C"].Class = *initial
+
+		updated := &models.Class{
+			Class:               "C",
+			Description:         "post-update-desc",
+			VectorIndexConfig:   "post-update-vic",
+			VectorConfig:        map[string]models.VectorConfig{"v": {VectorIndexType: "flat"}},
+			InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true},
+			ReplicationConfig:   &models.ReplicationConfig{Factor: 1},
+			MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: false},
+			ObjectTTLConfig:     &models.ObjectTTLConfig{Enabled: true},
+			Properties:          []*models.Property{{Name: "p2"}},
+		}
+		err := sm.UpdateClass(mkRequest(updated /* nil mask */), "n", true, false)
+		require.NoError(t, err)
+
+		got := sm.schema.classes["C"]
+		require.Equal(t, "post-update-desc", got.Class.Description, "legacy unmasked merge MUST land Description")
+		require.Equal(t, "post-update-vic", got.Class.VectorIndexConfig, "legacy unmasked merge MUST land VectorIndexConfig")
+		require.Equal(t, "flat", got.Class.VectorConfig["v"].VectorIndexType, "legacy unmasked merge MUST land VectorConfig")
+		require.True(t, got.Class.InvertedIndexConfig.UsingBlockMaxWAND, "legacy unmasked merge MUST land InvertedIndexConfig")
+		require.True(t, got.Class.ObjectTTLConfig.Enabled, "legacy unmasked merge MUST land ObjectTTLConfig")
+		require.Equal(t, "p2", got.Class.Properties[0].Name, "legacy unmasked merge MUST land Properties")
+	})
 }
 
 // TestPreApplyFilterRestoreClassCollision pins the pre-commit gate for
