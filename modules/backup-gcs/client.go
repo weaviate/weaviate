@@ -389,14 +389,18 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 
 	// create a new writer
 	objectPath := g.makeObjectName(overridePath, []string{backupID, key})
-	writer := bucket.Object(objectPath).NewWriter(ctx)
+	writeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	writer := bucket.Object(objectPath).NewWriter(writeCtx)
 	writer.ContentType = "application/octet-stream"
 	writer.Metadata = map[string]string{"backup-id": backupID}
 
 	// copy
 	written, err = io.Copy(writer, r)
 	if err != nil {
-		writer.Close() // ignore error here as copy already failed
+		// Cancelling abandons the upload. Closing the writer instead would finalize it,
+		// storing the bytes copied so far as a complete object.
+		cancel()
 		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 
