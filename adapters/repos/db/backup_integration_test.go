@@ -654,7 +654,7 @@ func backupWithSizes(
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := backupUC.NewZip(effectivePath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
+			z, rc, err := backupUC.NewZip(effectivePath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize, 0) // 0 = default pipe buffer
 			require.NoError(t, err)
 
 			type writeResult struct {

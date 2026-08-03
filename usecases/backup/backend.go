@@ -34,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -217,12 +218,15 @@ type uploader struct {
 	backend  nodeStore
 	backupID string
 	zipConfig
-	setStatus func(st backup.Status)
-	log       logrus.FieldLogger
+	setStatus    func(st backup.Status)
+	log          logrus.FieldLogger
+	allocChecker memwatch.AllocChecker
+	// set per class before its workers start
+	pipeBufferSize int
 }
 
 func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
-	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
+	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger, allocChecker memwatch.AllocChecker,
 ) *uploader {
 	return &uploader{
 		cfg:            cfg,
@@ -236,8 +240,9 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setStatus: setstatus,
-		log:       l,
+		setStatus:    setstatus,
+		log:          l,
+		allocChecker: allocChecker,
 	}
 }
 
@@ -425,6 +430,19 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	if nWorker > nShards {
 		nWorker = nShards
 	}
+	u.pipeBufferSize = affordablePipeBufferSize(u.allocChecker, nWorker)
+	logFields := logrus.Fields{
+		"action":           "upload_class",
+		"class":            desc.Name,
+		"workers":          nWorker,
+		"pipe_buffer_size": u.pipeBufferSize,
+	}
+	if u.pipeBufferSize < maxPipeBufferSize {
+		u.log.WithFields(logFields).Warn("not enough memory for full-size backup pipe buffers, " +
+			"backing off; compression and upload will overlap less")
+	} else {
+		u.log.WithFields(logFields).Debug("backup pipe buffers sized")
+	}
 
 	// jobs produces work for the processor
 	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
@@ -547,7 +565,7 @@ func (u *uploader) compress(ctx context.Context,
 	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFilesThreshold.
 	bigFilesThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFilesThreshold)
 	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFilesThreshold)
-	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
+	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize, u.pipeBufferSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}

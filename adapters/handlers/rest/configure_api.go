@@ -757,7 +757,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
-		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
+		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic, appState.MemWatch)
 	appState.BackupManager = backupManager
 
 	// Create export participant early so the cluster API server can register it

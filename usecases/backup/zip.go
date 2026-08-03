@@ -30,6 +30,7 @@ import (
 	entBackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/concurrency/bufferedpipe"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // CompressionLevel represents supported compression level
@@ -63,11 +64,27 @@ type compressor interface {
 	Close() error
 }
 
-// chunkPipeBufferSize lets the tar/compressor producer run ahead of the backend
-// upload so the two overlap instead of taking turns. It covers one GCS or S3
-// upload request; Azure posts 40 MiB blocks and still stalls partway through
-// each one. Peak extra memory is GoPoolSize * chunkPipeBufferSize, one per worker.
-const chunkPipeBufferSize = 16 * 1024 * 1024
+// The pipe buffer lets the tar/compressor producer run ahead of the backend
+// upload so the two overlap. The max covers one GCS or S3 upload request;
+// Azure posts 40 MiB blocks, so it still stalls partway through each.
+const (
+	maxPipeBufferSize = 16 * 1024 * 1024
+	minPipeBufferSize = 1024 * 1024
+)
+
+// affordablePipeBufferSize halves down from maxPipeBufferSize until the alloc
+// checker approves size*workers, never below minPipeBufferSize.
+func affordablePipeBufferSize(allocChecker memwatch.AllocChecker, workers int) int {
+	if allocChecker == nil {
+		return maxPipeBufferSize
+	}
+	for size := maxPipeBufferSize; size > minPipeBufferSize; size /= 2 {
+		if allocChecker.CheckAlloc(int64(size)*int64(workers)) == nil {
+			return size
+		}
+	}
+	return minPipeBufferSize
+}
 
 type zip struct {
 	sourcePath          string
@@ -87,8 +104,14 @@ type zip struct {
 //   - splitFileSize: files exceeding this size are split across multiple chunks.
 //     Must be >= bigFilesThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.
-func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
-	reader, pw := bufferedpipe.New(chunkPipeBufferSize)
+//   - pipeBufferSize: how far the producer may run ahead of the consumer;
+//     non-positive means the full size.
+func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64, pipeBufferSize int) (zip, entBackup.ReadCloserWithError, error) {
+	if pipeBufferSize <= 0 {
+		// a non-positive size would leave the buffer unbounded
+		pipeBufferSize = maxPipeBufferSize
+	}
+	reader, pw := bufferedpipe.New(pipeBufferSize)
 
 	var gzw compressor
 	var tarW *tar.Writer
