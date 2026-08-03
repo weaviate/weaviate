@@ -35,11 +35,11 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// TestReindexGate_ActivityArmDecisionTree pins how the gate reads a DTM
+// TestReindexGate_ActivityLookupDecisionTree pins how the gate reads a DTM
 // snapshot: the tuple must match both collection and shard, and an unwired or
 // nil-returning builder allows rather than refuses (deliberate fail-open, see
 // [DB.SetShardReindexActivityLookup]).
-func TestReindexGate_ActivityArmDecisionTree(t *testing.T) {
+func TestReindexGate_ActivityLookupDecisionTree(t *testing.T) {
 	tests := []struct {
 		name       string
 		builder    ShardReindexActivityLookupBuilder
@@ -86,10 +86,10 @@ func TestReindexGate_ActivityArmDecisionTree(t *testing.T) {
 	}
 }
 
-// TestReindexGate_CleanupArmRefuses pins that a terminal task still tearing
+// TestReindexGate_CleanupLookupRefuses pins that a terminal task still tearing
 // its sidecars down refuses the backup, with its own remediation text rather
 // than the live-task one.
-func TestReindexGate_CleanupArmRefuses(t *testing.T) {
+func TestReindexGate_CleanupLookupRefuses(t *testing.T) {
 	tests := []struct {
 		name            string
 		cleanupInFlight bool

@@ -191,10 +191,10 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 		"all four shards must share the verdict of the single snapshot taken for this precheck")
 }
 
-// TestReindexGate_CleanupArmIsProbedPerShard pins that cleanup is probed
+// TestReindexGate_CleanupLookupIsProbedPerShard pins that cleanup is probed
 // fresh per shard, unlike the activity lookup, which is a fixed snapshot
 // once resolved.
-func TestReindexGate_CleanupArmIsProbedPerShard(t *testing.T) {
+func TestReindexGate_CleanupLookupIsProbedPerShard(t *testing.T) {
 	const shards = 4
 
 	db, classes := newPrecheckGateTestDB(t, 1, shards)
