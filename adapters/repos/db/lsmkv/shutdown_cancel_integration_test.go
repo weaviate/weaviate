@@ -24,20 +24,9 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestBucket_ShutdownWithCancelledContext pins the Shutdown-cancellation
-// contract from weaviate/0-weaviate-issues#213.
-//
-// A node terminating mid-swap calls Bucket.Shutdown with an already-cancelled
-// ctx. Before the fix, that ctx was threaded straight into the compaction (and
-// flush) cycle Unregister, which returned early on the dead ctx WITHOUT ever
-// signalling the in-flight compaction to abort. The compaction ran on, the
-// higher-level shutdown (a runtime-reindex swap) was left half-applied, and the
-// caller saw a mislabelled "long-running compaction in progress: context
-// canceled" error.
-//
-// The bucket is wired with real (non-noop) compaction and flush cycles so the
-// test drives the genuine cyclemanager unregister path. Shutdown must return no
-// error, must not hang, and the store must reopen with every key intact.
+// TestBucket_ShutdownWithCancelledContext pins weaviate/0-weaviate-issues#213:
+// Shutdown on an already-cancelled ctx must still abort in-flight compaction
+// instead of letting it run.
 func TestBucket_ShutdownWithCancelledContext(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
@@ -69,10 +58,8 @@ func TestBucket_ShutdownWithCancelledContext(t *testing.T) {
 		require.NoError(t, bucket.FlushAndSwitch())
 	}
 
-	// Len() reads the segment list under the segment group's maintenance lock.
-	// The tickers are deliberately still stopped here: once compaction runs it
-	// merges these two segments into one, so the count is only a stable
-	// precondition while nothing can compact yet.
+	// Tickers aren't started yet, so the count is stable: compaction would
+	// otherwise merge these two segments into one.
 	require.Equal(t, segments, bucket.disk.Len(),
 		"both flushed segments must be on disk before the compaction cycle starts")
 
@@ -95,9 +82,8 @@ func TestBucket_ShutdownWithCancelledContext(t *testing.T) {
 	require.NoError(t, compactionCycle.StopAndWait(ctx))
 	require.NoError(t, flushCycle.StopAndWait(ctx))
 
-	// Reopen the store on the same dir: proves the shutdown (with a possibly
-	// aborted compaction) left consistent on-disk state. init() cleans any
-	// orphaned .tmp from the aborted merge.
+	// Reopening on the same dir proves shutdown left consistent on-disk state,
+	// even with a compaction aborted mid-merge.
 	reopened, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))

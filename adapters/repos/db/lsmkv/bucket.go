@@ -1505,10 +1505,8 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		return err
 	}
 
-	// Same contract as the compaction cycle above (SegmentGroup.shutdown): a
-	// cancelled caller ctx must not abandon the unregister before the in-flight
-	// flush is signalled to abort, or shutdown leaves state half-applied and
-	// mislabels it. Decouple from the caller's cancellation.
+	// Same contract as SegmentGroup.shutdown: must run on an uncancellable ctx
+	// so an in-flight flush is always signalled to abort, not left half-applied.
 	if err := b.flushCallbackCtrl.Unregister(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("unregister flush cycle: %w", err)
 	}
