@@ -477,9 +477,8 @@ func requireWaitGroupDone(t *testing.T, wg *sync.WaitGroup, msg string) {
 	}
 }
 
-// waitForBackupSlot spins on initBackup rather than sleeping, to keep the
-// handover race tight. It is a hot spin: a workload that never frees the index
-// burns a core or two until backupWorkloadTimeout, on its way to failing.
+// waitForBackupSlot busy-spins on initBackup instead of sleeping, to keep the
+// handover race tight; a stuck workload burns a core until backupWorkloadTimeout.
 func waitForBackupSlot(idx *Index, backupID string) (uint64, bool) {
 	deadline := time.Now().Add(backupWorkloadTimeout)
 	for {
@@ -875,13 +874,8 @@ func TestReleaseBackupIgnoresForeignBackup(t *testing.T) {
 	assert.NoDirExists(t, stagingDir)
 }
 
-// Records a known limitation rather than a guarantee: a releaser is matched by
-// backup ID, and IDs are only unique per (backend, bucket, path), so the same
-// name sent to a second bucket produces a backup a straggler cannot be told
-// apart from its own. Every protection then goes at once.
-//
-// Delete this test if the release call ever carries which backup it belongs to.
-// It is written to fail the moment that lands.
+// A releaser is matched only by backup ID; a straggler from a reused ID ends
+// whichever backup currently holds that name, not its own.
 func TestReleaseBackupCannotTellReusedIDsApart(t *testing.T) {
 	const (
 		shardName = "cold-tenant"
@@ -896,10 +890,9 @@ func TestReleaseBackupCannotTellReusedIDsApart(t *testing.T) {
 	idx.backupLock.Lock(shardName)
 	require.NoError(t, idx.protectShard(shardName, firstGen))
 
-	// One releaser ends the first backup. Its siblings are still queued.
 	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
 
-	// The same name is backed up again, to a different bucket.
+	// Same ID, backed up again to a different bucket.
 	secondGen, err := idx.initBackup(backupID)
 	require.NoError(t, err)
 	require.NotEqual(t, firstGen, secondGen)
@@ -908,7 +901,7 @@ func TestReleaseBackupCannotTellReusedIDsApart(t *testing.T) {
 	stagingDir := backupStagingDir(idx.Config.RootPath, backupID, schema.ClassName(className))
 	require.NoError(t, os.MkdirAll(stagingDir, 0o755))
 
-	// A straggler from the first backup arrives and ends the second one.
+	// A straggler from the first backup ends the second one instead.
 	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
 
 	_, protected := idx.backupProtectedShards.Load(shardName)
@@ -919,8 +912,8 @@ func TestReleaseBackupCannotTellReusedIDsApart(t *testing.T) {
 		"the running backup loses its registration, so a third can start alongside it")
 }
 
-// A protection the release cannot read leaves the shard locked for the life of
-// the process. Nothing should have to guess at that from the outside.
+// An unreadable protection must be logged, or the shard stays locked for the
+// life of the process with no signal.
 func TestReleaseProtectedShardsLogsUnreadableProtection(t *testing.T) {
 	const shardName = "cold-tenant"
 
@@ -939,10 +932,8 @@ func TestReleaseProtectedShardsLogsUnreadableProtection(t *testing.T) {
 	assert.Equal(t, shardName, entry.Data["shard"])
 }
 
-// Every other test builds a fresh index, so all of them sweep generation 1.
-// Running one shard through consecutive backups is what holds the release to
-// the caller's own generation: against a fixed one, the first backup works and
-// every backup after it leaks every lock it took.
+// ReleaseBackup must free shards by the caller's own generation: a fixed
+// generation would pass once, then leak every lock after.
 func TestReleaseBackupFreesShardsOnEveryGeneration(t *testing.T) {
 	const shardName = "cold-tenant"
 	ctx := context.Background()
