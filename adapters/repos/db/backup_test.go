@@ -875,7 +875,9 @@ func TestReleaseBackupIgnoresForeignBackup(t *testing.T) {
 }
 
 // A releaser is matched only by backup ID; a straggler from a reused ID ends
-// whichever backup currently holds that name, not its own.
+// whichever backup currently holds that name, not its own. The assertions below
+// record that, they do not ask for it: delete this test once a release call
+// says which backup it belongs to.
 func TestReleaseBackupCannotTellReusedIDsApart(t *testing.T) {
 	const (
 		shardName = "cold-tenant"
