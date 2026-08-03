@@ -191,10 +191,9 @@ func (i *Index) mayResetReplicaSnapshotInactivity(opID string) {
 	if !ok || st.isSnapshot {
 		return
 	}
-	shard, release, err := i.GetShard(context.Background(), st.shardName)
-	if err == nil && shard != nil {
+	// A shard that is not loaded has no live timer to reset.
+	if shard := i.shards.Loaded(st.shardName); shard != nil {
 		shard.MayResetTransferInactivityTimer()
-		release()
 	}
 }
 
@@ -232,6 +231,10 @@ func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
 	i.replicaSnapshots[opID] = st
 }
 
+// releaseReplicaSnapshot reads the shard from the map so a namespace that is not
+// active cannot refuse the resume. A failed resume cannot be retried:
+// resumeMaintenanceCycles clears the halt count before the work that can fail,
+// so a later release finds nothing halted.
 func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	i.replicaSnapshotsMu.Lock()
 	st, ok := i.replicaSnapshots[opID]
@@ -248,15 +251,10 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 		return removeErr
 	}
 
-	shard, release, err := i.GetShard(ctx, st.shardName)
-	if err != nil {
-		if removeErr != nil {
-			return fmt.Errorf("%w; get shard for replica snapshot release: %w", removeErr, err)
-		}
-		return fmt.Errorf("get shard for replica snapshot release: %w", err)
-	}
-	defer release()
-	if shard != nil {
+	// A shard that is not loaded has nothing halted. No shardCreateLocks here:
+	// IncomingCreateReplicaSnapshot calls this holding a shutdown pin, and an
+	// unload waits ~2s on that pin while holding the same lock for write.
+	if shard := i.shards.Loaded(st.shardName); shard != nil {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			if removeErr != nil {
 				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)

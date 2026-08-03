@@ -560,14 +560,26 @@ func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID s
 	return finalLSN, nil
 }
 
+// IncomingStopChangeCapture reads the shard from the map so a namespace that is
+// not active cannot refuse the stop, which would leave the log registered and
+// collecting every later write. An unloaded shard collects nothing, so it is a
+// no-op; its log file is removed when the shard next loads.
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("incoming stop change capture: get shard %q: %w", shardName, err)
-	}
-	defer release()
+	// Held across the call, as the unload paths hold it for write: an unload in
+	// between would let StopChangeCapture's own load reopen a shard the map no
+	// longer holds.
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard := i.shards.Loaded(shardName)
 	if shard == nil {
-		return fmt.Errorf("incoming stop change capture: shard %q not found", shardName)
+		i.logger.WithFields(logrus.Fields{
+			"action":   "change_capture_log",
+			"op_id":    opID,
+			"shard":    shardName,
+			"resident": i.shards.Load(shardName) != nil,
+		}).Debug("no loaded shard to stop change capture on")
+		return nil
 	}
 	if err := shard.StopChangeCapture(ctx, opID); err != nil {
 		return fmt.Errorf("incoming stop change capture: op %q: %w", opID, err)
