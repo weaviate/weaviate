@@ -159,6 +159,42 @@ func TestSegmentCleanerEditOps_DrainsWithCleanupIntervalDisabled(t *testing.T) {
 // TestSegmentEditOps_SweepOrphans pins the cleanup-cycle orphan sweep: an op with
 // no live task is deleted, a live one is kept, the sweep is rate-limited, and a
 // liveness error sweeps nothing.
+// TestSegmentCleanerEditOps_FactorylessOpRowsStayPending pins the
+// mixed-version gate: a rewrite strips only for the ops its transformer was
+// built from. An op whose type has no registered factory in this binary (a
+// newer node introduced it) contributes nothing to the pass — marking its
+// row done would drain its pending set and let the drop finalize without
+// stripping. Its rows stay pending until a binary with the factory processes
+// them; the covered op's rows drain normally.
+func TestSegmentCleanerEditOps_FactorylessOpRowsStayPending(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	require.NoError(t, editOps.RegisterOp("covered", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, editOps.RegisterOp("future", OpDescriptor{Type: "op_type_from_a_newer_version", CreatedAt: 2}))
+	require.NoError(t, editOps.SnapshotSegments("covered", segs))
+	require.NoError(t, editOps.SnapshotSegments("future", segs))
+
+	_, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+
+	pCovered, err := editOps.Pending("covered")
+	require.NoError(t, err)
+	require.Empty(t, pCovered, "the built op's row drains")
+	pFuture, err := editOps.Pending("future")
+	require.NoError(t, err)
+	require.Equal(t, segs, pFuture,
+		"a factory-less op's row must not be marked done by a rewrite that did not strip for it")
+
+	v, err := bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v, "the covered op's transform still ran")
+}
+
 func TestSegmentEditOps_SweepOrphans(t *testing.T) {
 	ctx := context.Background()
 	s := newSegmentEditOps(t.TempDir(), "")

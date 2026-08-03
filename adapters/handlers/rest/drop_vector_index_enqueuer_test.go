@@ -263,8 +263,6 @@ func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 	require.False(t, got)
 }
 
-// TestLiveOpIDs_ReturnsActiveOpIDs pins the sweep input: LiveOpIDs returns op IDs
-// of active drop tasks and excludes terminal ones (whose ops should be swept).
 // TestLiveOpIDs_SpansRoundsWhileMarkerPending pins the liveness contract the
 // strip-resume feature leans on: active rounds' ops are live, and a TERMINAL
 // round's op stays live while its target's marker still stands (its pending

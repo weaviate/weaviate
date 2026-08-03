@@ -642,9 +642,12 @@ const editOpsSweepTimeout = 15 * time.Second
 // in one pass would starve compaction. Returning after one segment (cleaned=true
 // re-runs the cycle promptly while work remains) lets the two interleave.
 //
-// Marking an op done is sound: every op in the pending snapshot was registered
-// before BuildCurrentTransformer read the live ops, so the transformer strips its
-// target — we never clear a row whose data wasn't actually stripped. The
+// Rows are marked done ONLY for ops the pass's transformer was built from
+// (builtOps membership, mirroring RecordCompaction): an op whose factory is
+// not registered in this binary (mixed-version cluster) contributes nothing
+// to the rewrite, so clearing its row would drain its pending set without
+// stripping — the drop would finalize with the data intact. Such rows stay
+// pending until a binary with the factory processes them. The
 // rewrite -> replaceSegment -> markRowsDone sequence is not one transaction, but
 // it is crash-safe: cleanup keeps the segment ID, so a crash after replaceSegment
 // leaves a stripped segment under the same ID with stale pending rows that the
@@ -663,9 +666,13 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 		return false, false, nil
 	}
 
-	transformer, _, err := c.sg.editOps.BuildCurrentTransformer()
+	transformer, builtOps, err := c.sg.editOps.BuildCurrentTransformer()
 	if err != nil {
 		return false, true, err
+	}
+	built := make(map[string]struct{}, len(builtOps))
+	for _, op := range builtOps {
+		built[op.ID] = struct{}{}
 	}
 	if transformer == nil {
 		// Pending rows but no transformer to apply. Not a normal path: it means
@@ -752,7 +759,19 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 			}
 			return false, true, fmt.Errorf("replace cleaned segment: %w", e)
 		}
-		if e := c.markRowsDone(rows); e != nil {
+		// Only rows of ops the transformer was built from were stripped by
+		// this rewrite (see the godoc); the rest stay pending.
+		var strippedRows []PendingSegment
+		for _, row := range rows {
+			if _, ok := built[row.OpID]; ok {
+				strippedRows = append(strippedRows, row)
+			}
+		}
+		if kept := len(rows) - len(strippedRows); kept > 0 {
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("edit-ops cleanup: segment %q rewritten, but %d row(s) belong to ops with no registered transformer; keeping them pending", segID, kept)
+		}
+		if e := c.markRowsDone(strippedRows); e != nil {
 			return true, true, e
 		}
 		return true, true, nil

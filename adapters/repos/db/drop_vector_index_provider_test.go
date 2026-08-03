@@ -1028,6 +1028,31 @@ func TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig(t *testing
 		require.Equal(t, []string{"op1"}, bucket.deleted, "the local op is still deleted")
 		require.False(t, fin.called)
 	})
+
+	t.Run("undrained rows on a SWAPPING task are a contradiction: delete anyway, then finalize", func(t *testing.T) {
+		// A successful task implies drained ops; residual rows must not stop
+		// the delete (the op must be gone before the schema flip frees the
+		// name) — an implementation that keeps the op or returns early here
+		// would strip a re-created same-name vector or defer the finalize
+		// forever.
+		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+		require.NoError(t, p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil)))
+		require.Equal(t, []string{"op1"}, bucket.deleted, "the contradicted op is force-deleted")
+		require.True(t, fin.called, "the finalize still runs after the forced delete")
+	})
+
+	t.Run("a failing forced delete defers the finalize", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}, deleteErr: errors.New("bolt write failed")}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+		require.Error(t, err, "a swallowed delete error would free the name over a still-armed op")
+		require.False(t, fin.called)
+	})
 }
 
 func TestOnTaskCompleted_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {
