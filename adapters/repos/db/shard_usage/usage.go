@@ -392,6 +392,9 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 				break
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return dimensionality, err
+		}
 	default:
 		c := b.CursorRoaringSet()
 		defer c.Close()
