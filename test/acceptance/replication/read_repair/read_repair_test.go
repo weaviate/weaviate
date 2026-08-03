@@ -146,7 +146,7 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 			require.Nil(collect, err)
 			require.True(collect, exists)
 
-			resp, err := common.GetObjectCL(t, compose.ContainerURI(1),
+			resp, err := common.GetObjectCL(t, compose.ContainerURI(3),
 				repairObj.Class, repairObj.ID, types.ConsistencyLevelOne)
 			require.Nil(collect, err)
 			require.Equal(collect, replaceObj.ID, resp.ID)
