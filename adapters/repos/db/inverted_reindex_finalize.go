@@ -750,11 +750,28 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, onlyProps map[string]
 		// The backup dir holds the pre-swap data. It is removed LAST, only
 		// once the canonical dir is in place, so a torn state can never end
 		// with the backup deleted and nothing serving the property.
+		//
+		// Neither an ingest dir to promote nor a canonical dir is the
+		// superseded-namespace shape, and it is routine: a later migration
+		// on the same property resolved the same canonical name, so its
+		// runtimeSwap Phase 2b renamed THIS namespace's ingest dir away to
+		// its own backup name. The live data belongs to that namespace,
+		// which promotes it in this same finalize pass. This namespace has
+		// nothing left to do.
+		//
+		// Do not fail the shard here. Nothing at this point can tell that
+		// case apart from a genuinely torn one, and taking a node down over
+		// data that is intact is the worse error. What matters is skipping
+		// the backup removal below, so a pre-swap copy survives either way.
 		if !fileExists(ingestDir) && !fileExists(mainDir) {
-			return true, fmt.Errorf(
-				"property %q has neither an ingest dir (%q) to promote nor a canonical dir (%q); "+
-					"refusing to start the shard with an empty bucket — %q is left untouched for recovery",
-				propName, ingestDir, mainDir, backupDir)
+			if fileExists(backupDir) {
+				logger.WithField("property", propName).WithField("backup_dir", backupDir).
+					Warn("finalize: nothing to promote and no canonical dir; leaving the backup dir in place")
+			} else {
+				logger.WithField("property", propName).
+					Debug("finalize: nothing to promote and no canonical dir; another migration on this property owns it")
+			}
+			continue
 		}
 
 		if fileExists(ingestDir) {

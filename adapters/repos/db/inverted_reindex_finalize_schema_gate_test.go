@@ -485,16 +485,17 @@ func TestFinalize_UnreadablePropertiesButCanonicalIntact_KeepsTracker(t *testing
 	require.Equal(t, "live", string(got), "the canonical bucket must be untouched")
 }
 
-// TestFinalize_NothingToPromote_PreservesBackupAndFails pins the ordering
+// TestFinalize_NothingToPromote_PreservesBackup pins the ordering
 // contract inside finalizeMigrationDir: the backup dir holds the pre-swap
 // data, so it is removed only once the canonical dir is in place.
 //
-// The torn state is a tidied tracker whose ingest dir is gone (a partial
-// restore, a half-finished operator move) while the canonical dir has
-// already been renamed aside by the swap. Removing the backup first and
-// then finding nothing to promote deletes the last surviving copy and
-// leaves initNonVector to create an empty bucket in its place.
-func TestFinalize_NothingToPromote_PreservesBackupAndFails(t *testing.T) {
+// The state is a tidied tracker whose ingest dir is gone while no
+// canonical dir exists. Removing the backup first and only then finding
+// nothing to promote deletes the last surviving copy. Finalize must skip
+// the removal instead — and must NOT fail the shard, because the same
+// shape is what a superseded namespace leaves behind (see
+// TestFinalize_SupersededNamespace_ShardStillStarts).
+func TestFinalize_NothingToPromote_PreservesBackup(t *testing.T) {
 	lsmPath := t.TempDir()
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	require.NoError(t, os.MkdirAll(migsDir, 0o755))
@@ -511,18 +512,15 @@ func TestFinalize_NothingToPromote_PreservesBackupAndFails(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(backup, "seg.db"), []byte("pre-swap"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	err := FinalizeCompletedMigrations(lsmPath, nil, logger)
-	require.Error(t, err,
-		"with nothing to promote and no canonical dir, finalize must fail the shard rather "+
-			"than let initNonVector create an empty bucket")
-	require.ErrorContains(t, err, "property_text_searchable")
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, nil, logger),
+		"nothing to promote is not a reason to take the shard down — a superseded namespace "+
+			"leaves exactly this shape behind on every back-to-back migration")
 
 	got, readErr := os.ReadFile(filepath.Join(backup, "seg.db"))
 	require.NoError(t, readErr,
-		"the backup dir is the last copy of this property's data and must survive the failure")
+		"the backup dir is the last copy of this property's data and must not be removed "+
+			"when no canonical dir was put in place")
 	require.Equal(t, "pre-swap", string(got))
-
-	require.DirExists(t, gen1, "the tracker must survive so the next startup retries")
 }
 
 // TestFinalize_UnreadableMigrationsDir_FailsShard pins that finalize does
@@ -552,4 +550,203 @@ func TestFinalize_UnreadableMigrationsDir_FailsShard(t *testing.T) {
 func TestFinalize_NoMigrationsDir_IsNoOp(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	require.NoError(t, FinalizeCompletedMigrations(t.TempDir(), nil, logger))
+}
+
+// TestFinalize_SupersededNamespace_ShardStillStarts reproduces the
+// multinode RepeatedParallelMigrationJourney failure.
+//
+// enable-filterable and repair-filterable (RoaringSetRefresh) share a
+// canonical bucket: both resolve SourceBucketName to `property_<p>`. When
+// they run back-to-back on the same property WITHOUT a restart in between
+// — which the deferred-finalize design explicitly allows — the second
+// migration's runtimeSwap Phase 2b renames the FIRST one's ingest dir away
+// to its own backup name, because that dir is what the canonical pointer
+// resolved to.
+//
+// The first namespace's tracker is then tidied with neither an ingest dir
+// (renamed away) nor a canonical dir (the live data sits in the second
+// namespace's ingest dir, awaiting its own promotion in this same finalize
+// pass). That namespace has nothing to do and must simply be cleaned up.
+// Treating it as an unpromotable property and failing shard init takes the
+// node down over data that is entirely intact — and does so
+// nondeterministically, since Go map iteration decides which namespace
+// finalizes first.
+func TestFinalize_SupersededNamespace_ShardStillStarts(t *testing.T) {
+	ctx := testCtx()
+	// makeConvergenceTestObjects populates `title`; the CI journey hit this
+	// on `category`, but the property name is incidental to the mechanism.
+	const propName = "title"
+	const numObjects = 25
+
+	className := "Superseded_" + uuid.NewString()[:8]
+	class := newEnableFilterableTestClass(className, propName)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	bucketName := helpers.BucketFromPropNameLSM(propName)
+	require.Nil(t, shard.store.Bucket(bucketName),
+		"sanity: enable-filterable starts from a property with no filterable bucket")
+
+	// Migration 1: enable-filterable, driven to completion in-process.
+	enableTask, enableWrapper := newEnableFilterableTask(t, idx, className, propName)
+	require.NoError(t, enableTask.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := enableTask.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	require.True(t, enableWrapper.migrationCompleted)
+	require.NotNil(t, shard.store.Bucket(bucketName),
+		"sanity: the canonical name now resolves to the enable-filterable ingest bucket")
+
+	// The cluster-wide flip that OnTaskCompleted commits once
+	// enable-filterable finishes — stubbed out by the test wrapper, so apply
+	// it directly. Without it the analyzer skips the property during the
+	// next migration's backfill and repair-filterable would rebuild an empty
+	// bucket for reasons that have nothing to do with finalize.
+	class.Properties[0].IndexFilterable = ptBool(true)
+
+	// Migration 2: repair-filterable on the SAME property, still no
+	// restart. Its swap renames migration 1's ingest dir to its own backup.
+	refreshTask, refreshWrapper := newRoaringSetRefreshTask(t, idx)
+	require.NoError(t, refreshTask.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := refreshTask.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	require.True(t, refreshWrapper.migrationCompleted)
+
+	// The state the CI failure captured: enable-filterable's tracker is
+	// tidied, its ingest dir is gone, and no canonical dir exists yet.
+	lsmPath := shard.pathLSM()
+	require.DirExists(t, filepath.Join(lsmPath, ".migrations", "enable_filterable_"+propName+"_1"))
+	require.NoDirExists(t, filepath.Join(lsmPath, "property_"+propName+"__enable_filterable_ingest_1"),
+		"sanity: migration 2's swap renamed migration 1's ingest dir away")
+	require.NoDirExists(t, filepath.Join(lsmPath, bucketName),
+		"sanity: the canonical dir does not exist until finalize promotes migration 2's ingest")
+
+	// Restart. Every namespace must finalize without taking the shard down.
+	shard2 := reloadShardWithoutReindexer(t, ctx, idx, shard, class)
+
+	require.DirExists(t, filepath.Join(shard2.pathLSM(), bucketName),
+		"finalize must have promoted the surviving namespace's ingest dir to the canonical name")
+
+	bucket := shard2.store.Bucket(bucketName)
+	require.NotNil(t, bucket,
+		"the filterable bucket must be live after restart — the data was never at risk, it "+
+			"just belonged to the second migration's namespace")
+	require.NotEmpty(t, fingerprintRoaringSetBucket(t, bucket),
+		"the promoted bucket must carry the reindexed postings, not be empty")
+}
+
+// TestFinalize_SupersededNamespaces_Matrix covers the adjacent journeys of
+// TestFinalize_SupersededNamespace_ShardStillStarts. Any two strategies
+// that resolve the same canonical bucket name can collide this way, so the
+// filterable family and the searchable family each have several pairs, and
+// a third back-to-back migration stacks a second superseded namespace.
+//
+// In every case the surviving namespace owns the canonical name and must
+// promote; the superseded ones must be cleaned up without taking the shard
+// down, whichever order the namespace map happens to yield.
+func TestFinalize_SupersededNamespaces_Matrix(t *testing.T) {
+	const prop = "title"
+
+	cases := []struct {
+		name string
+		// superseded trackers: tidied, ingest dir already renamed away.
+		superseded []string
+		// survivor tracker plus the ingest dir it promotes.
+		survivor      string
+		survivorIngst string
+		wantCanonical string
+	}{
+		{
+			name:          "enable-filterable superseded by repair-filterable",
+			superseded:    []string{"enable_filterable_" + prop + "_1"},
+			survivor:      "filterable_roaringset_refresh_1",
+			survivorIngst: "property_" + prop + "__roaringset_ingest_1",
+			wantCanonical: "property_" + prop,
+		},
+		{
+			name:          "repair-filterable superseded by change-tokenization-filterable",
+			superseded:    []string{"filterable_roaringset_refresh_1"},
+			survivor:      "filterable_retokenize_" + prop + "_1",
+			survivorIngst: "property_" + prop + "__filt_retokenize_ingest_1",
+			wantCanonical: "property_" + prop,
+		},
+		{
+			name:          "enable-searchable superseded by rebuild-searchable",
+			superseded:    []string{"enable_searchable_" + prop + "_1"},
+			survivor:      "rebuild_searchable_" + prop + "_1",
+			survivorIngst: "property_" + prop + "_searchable__rebuild_searchable_ingest_1",
+			wantCanonical: "property_" + prop + "_searchable",
+		},
+		{
+			name:          "change-tokenization superseded by change-algorithm",
+			superseded:    []string{"searchable_retokenize_" + prop + "_1"},
+			survivor:      "searchable_map_to_blockmax_1",
+			survivorIngst: "property_" + prop + "_searchable__blockmax_ingest_1",
+			wantCanonical: "property_" + prop + "_searchable",
+		},
+		{
+			name: "three back-to-back migrations leave two superseded namespaces",
+			superseded: []string{
+				"enable_filterable_" + prop + "_1",
+				"filterable_roaringset_refresh_1",
+			},
+			survivor:      "filterable_retokenize_" + prop + "_1",
+			survivorIngst: "property_" + prop + "__filt_retokenize_ingest_1",
+			wantCanonical: "property_" + prop,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lsmPath := t.TempDir()
+			migsDir := filepath.Join(lsmPath, ".migrations")
+			require.NoError(t, os.MkdirAll(migsDir, 0o755))
+
+			mkTracker := func(dirName string) string {
+				dir := filepath.Join(migsDir, dirName)
+				require.NoError(t, os.MkdirAll(dir, 0o755))
+				touchSentinel(t, filepath.Join(dir, "swapped.mig"))
+				touchSentinel(t, filepath.Join(dir, "tidied.mig"))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "properties.mig"), []byte(prop), 0o644))
+				return dir
+			}
+			for _, s := range tc.superseded {
+				mkTracker(s)
+			}
+			mkTracker(tc.survivor)
+
+			// Only the survivor still has an ingest dir; the superseded
+			// namespaces' were renamed away by the survivor's swap.
+			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, tc.survivorIngst), 0o755))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(lsmPath, tc.survivorIngst, "seg.db"), []byte("survivor"), 0o644))
+
+			logger, _ := test.NewNullLogger()
+			require.NoError(t, FinalizeCompletedMigrations(lsmPath, nil, logger),
+				"a superseded namespace has nothing to promote and must not fail the shard")
+
+			got, err := os.ReadFile(filepath.Join(lsmPath, tc.wantCanonical, "seg.db"))
+			require.NoError(t, err, "the surviving namespace must promote its ingest dir")
+			require.Equal(t, "survivor", string(got))
+
+			entries, _ := os.ReadDir(migsDir)
+			require.Empty(t, entries, "every decided tracker must be cleaned up")
+		})
+	}
 }
