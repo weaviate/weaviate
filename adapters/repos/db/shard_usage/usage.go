@@ -386,6 +386,11 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 				dimensionality.Dimensions = int(dimLength)
 				dimensionality.Count = len(v)
 			}
+			// remaining keys cannot change a complete result, and an empty name
+			// matches every key so the prefix break above never fires
+			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+				break
+			}
 		}
 	default:
 		c := b.CursorRoaringSet()
@@ -410,6 +415,11 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
 				dimensionality.Dimensions = int(dimLength)
 				dimensionality.Count = v.GetCardinality()
+			}
+			// remaining keys cannot change a complete result, and an empty name
+			// matches every key so the prefix break above never fires
+			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+				break
 			}
 		}
 	}
