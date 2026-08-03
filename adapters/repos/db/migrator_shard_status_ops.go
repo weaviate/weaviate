@@ -87,6 +87,11 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		TenantsProcesses: make([]*command.TenantsProcess, len(freeze)),
 	}
 
+	// One gate for the loop, like every other multi-shard caller. Offloading
+	// skips the gate, so this one is never resolved and costs nothing; passing
+	// it keeps nil off every production call path.
+	gate := idx.newReindexGate()
+
 	for uidx, name := range freeze {
 		eg.Go(func() error {
 			idx.backupLock.RLock(name)
@@ -122,8 +127,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			defer idx.shardCreateLocks.Unlock(name)
 
 			if shard != nil {
-				// nil gate: offloading skips the reindex check entirely.
-				if err := shard.HaltForTransfer(ctx, true, 0, nil); err != nil {
+				if err := shard.HaltForTransfer(ctx, true, 0, gate); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "halt_for_transfer",
 						"error":  err,

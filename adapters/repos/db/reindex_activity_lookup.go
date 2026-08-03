@@ -19,21 +19,24 @@ type ShardReindexActivityLookup func(collection, shardName string) bool
 
 // ShardReindexActivityLookupBuilder returns a fresh snapshot. Building one
 // costs a cluster-wide ListDistributedTasks RAFT query, so [reindexGate]
-// resolves it once per precheck and reuses the result across shards.
-type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
-
-// SetShardReindexActivityLookup installs the builder used by the backup
-// gate ([reindexGate.anyLiveReindexForShard]). The builder is invoked
-// once per shard-set pass — one precheck, or one index's cold transfer —
-// to obtain a fresh DTM snapshot.
+// builds it once per backup, not once per shard.
 //
-// Calls before installation default to "no live reindex" with a one-time
-// WARN: production HTTP gates on bootstrap completion (the lookup is
-// wired by configure_api.go's post-bootstrap goroutine), so an external
-// backup request cannot land before this builder is installed. The WARN
-// is the operator-facing signal if startup ordering ever breaks the
-// wiring; the prior conservative-refuse default broke every module-test
-// fixture that bypassed the bootstrap path. See [reindexGate.resolve].
+// A non-nil error means the snapshot could not be taken. The gate reports that
+// separately from "a reindex is running" so the operator gets the right
+// remediation; both refuse the backup.
+type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error)
+
+// SetShardReindexActivityLookup installs the builder used by the backup gate
+// ([reindexGate.refusalReason]). It is invoked once per backup, not once per
+// shard: once for the precheck, once for each index's transfer phase (cold and
+// hot alike), and once per replica-snapshot movement in replica_snapshot.go and
+// shard_replica_snapshot.go, which are not backups at all.
+//
+// Calls before installation default to "no live reindex" with a one-time WARN.
+// The window is real: configure_api.go installs this from a goroutine that
+// MakeAppState does not wait for, so a backup can land before it. Refusing by
+// default would be the safer polarity but broke every module-test fixture that
+// bypasses the bootstrap path, so the WARN is what surfaces it for now.
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

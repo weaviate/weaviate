@@ -83,9 +83,9 @@ func newTransferGateTestIndex(t *testing.T, shards int, withShardDirs, liveReind
 
 	activityBuilds, cleanupBuilds := &atomic.Int64{}, &atomic.Int64{}
 	db := &DB{}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		activityBuilds.Add(1)
-		return func(string, string) bool { return liveReindex }
+		return func(string, string) bool { return liveReindex }, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		cleanupBuilds.Add(1)
@@ -219,9 +219,9 @@ func TestHotTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 
 			var builds atomic.Int64
 			db := &DB{}
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 				builds.Add(1)
-				return func(string, string) bool { return false }
+				return func(string, string) bool { return false }, nil
 			})
 			idx.db = db
 
@@ -287,11 +287,11 @@ func TestHotTransfer_FailClosedRefusesEveryShard(t *testing.T) {
 
 	var builds atomic.Int64
 	db := &DB{}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		builds.Add(1)
-		// Mirrors the configure_api.go fallback when ListDistributedTasks
-		// fails: refuse everything until DTM is reachable.
-		return func(string, string) bool { return true }
+		// Mirrors configure_api.go when ListDistributedTasks fails: no
+		// snapshot, so every shard is refused until DTM is reachable.
+		return nil, errors.New("list distributed tasks: leader unreachable")
 	})
 	idx := &Index{db: db, Config: IndexConfig{ClassName: "HotFailClosedClass"}}
 

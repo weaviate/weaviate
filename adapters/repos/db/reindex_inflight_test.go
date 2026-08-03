@@ -13,7 +13,9 @@ package db
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,85 +28,143 @@ import (
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
 // reports a fixed set of (collection, shard) pairs as live.
 func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuilder {
-	return func() ShardReindexActivityLookup {
+	return func() (ShardReindexActivityLookup, error) {
 		return func(collection, shardName string) bool {
 			return live[[2]string{collection, shardName}]
-		}
+		}, nil
 	}
 }
 
-// TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
-// a live task for the (collection, shard) tuple causes the gate to
-// refuse.
-func TestAnyLiveReindexForShard_LiveTask(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{"MyClass", "shard1"}: true,
-	}))
-	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must refuse when DTM reports a live task on the tuple")
+// TestReindexGate_ActivityArmDecisionTree pins how the gate reads a DTM
+// snapshot: the tuple must match on both collection and shard, and a builder
+// that is unwired or yields no lookup allows rather than refuses.
+//
+// Fail-open on an unwired builder is deliberate — see
+// [DB.SetShardReindexActivityLookup].
+func TestReindexGate_ActivityArmDecisionTree(t *testing.T) {
+	tests := []struct {
+		name       string
+		builder    ShardReindexActivityLookupBuilder
+		wantRefuse bool
+	}{
+		{
+			name:       "live task on the queried tuple",
+			builder:    makeActivityBuilder(map[[2]string]bool{{"MyClass", "shard1"}: true}),
+			wantRefuse: true,
+		},
+		{
+			name:    "no live task anywhere",
+			builder: makeActivityBuilder(map[[2]string]bool{}),
+		},
+		{
+			name:    "live task in another collection",
+			builder: makeActivityBuilder(map[[2]string]bool{{"OtherClass", "shard1"}: true}),
+		},
+		{
+			name:    "live task on another shard of the same collection",
+			builder: makeActivityBuilder(map[[2]string]bool{{"MyClass", "shard2"}: true}),
+		},
+		{
+			name:    "builder never installed",
+			builder: nil,
+		},
+		{
+			name: "builder yields no lookup",
+			builder: func() (ShardReindexActivityLookup, error) {
+				return nil, nil
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &DB{}
+			if tc.builder != nil {
+				db.SetShardReindexActivityLookup(tc.builder)
+			}
+			assert.Equal(t, tc.wantRefuse,
+				db.newReindexGate().anyLiveReindexForShard("MyClass", "shard1"))
+		})
+	}
 }
 
-// TestAnyLiveReindexForShard_TerminalTask pins that a lookup whose
-// snapshot contains only terminal-status tasks (none reported as live)
-// lets the gate allow the backup.
-func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
-	db := &DB{}
-	// Builder reports no live tasks at all — equivalent to a snapshot
-	// containing only Finished/Cancelled/Failed tasks after the
-	// configure_api filter.
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must allow when no live task targets the tuple")
+// TestReindexGate_CleanupArmRefuses pins the second arm, which no other test
+// reaches: a terminal task still tearing its sidecars down must refuse, and
+// must say so rather than reusing the live-task remediation.
+func TestReindexGate_CleanupArmRefuses(t *testing.T) {
+	tests := []struct {
+		name            string
+		cleanupInFlight bool
+		wantRefuse      bool
+	}{
+		{name: "cleanup still draining", cleanupInFlight: true, wantRefuse: true},
+		{name: "cleanup finished", cleanupInFlight: false, wantRefuse: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &DB{}
+			// Activity arm allows, so only the cleanup arm can refuse here.
+			db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+				return func(collection, shard string) bool {
+					return tc.cleanupInFlight && collection == "MyClass" && shard == "shard1"
+				}
+			})
+			idx := &Index{db: db, Config: IndexConfig{ClassName: "MyClass"}}
+
+			gate := idx.newReindexGate()
+			require.Equal(t, tc.wantRefuse, gate.anyLiveReindexForShard("MyClass", "shard1"))
+			require.False(t, gate.anyLiveReindexForShard("MyClass", "other-shard"),
+				"the cleanup arm is probed per shard, so an untouched shard stays allowed")
+
+			err := idx.refuseIfReindexInFlight("shard1", gate)
+			if !tc.wantRefuse {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+			require.Contains(t, err.Error(), "__reindex / __ingest",
+				"cleanup refusals must name the sidecar teardown, not a migration to poll")
+			require.NotContains(t, err.Error(), "retry after the migration finishes")
+		})
+	}
 }
 
-// TestAnyLiveReindexForShard_DifferentCollection pins that a live task
-// in another collection does not block a backup of the queried
-// collection.
-func TestAnyLiveReindexForShard_DifferentCollection(t *testing.T) {
+// TestReindexGate_DTMUnreachableIsItsOwnRefusal pins that a failed snapshot is
+// reported as "could not find out", not as "a reindex is running": the
+// live-task remediation tells the operator to poll a migration that does not
+// exist.
+func TestReindexGate_DTMUnreachableIsItsOwnRefusal(t *testing.T) {
 	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{"OtherClass", "shard1"}: true,
-	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must scope by collection")
-}
-
-// TestAnyLiveReindexForShard_DifferentShard pins that a live task on
-// the right collection but a different shard does not block a backup
-// of the queried shard.
-func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{"MyClass", "shard2"}: true,
-	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must scope by shard, not just by collection")
-}
-
-// TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired
-// lookup defaults to "no live reindex" — production gates HTTP serving
-// on bootstrap completion so the unwired window is unreachable by
-// external traffic, and the prior refuse-by-default broke every
-// module-test fixture that spins up Weaviate without going through
-// the post-bootstrap install path. A one-time WARN fires to surface
-// the unwired path if it ever shows up in production logs.
-func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
-	db := &DB{}
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"unwired gate must allow (with WARN); production gates HTTP on bootstrap")
-}
-
-// TestAnyLiveReindexForShard_BuilderReturnsNil pins the same fail-open
-// when the installed builder returns a nil closure (defensive against
-// a misconfigured wiring).
-func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return nil
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, errors.New("list distributed tasks: leader unreachable")
 	})
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"nil lookup must allow (same path as unwired)")
+	idx := &Index{db: db, Config: IndexConfig{ClassName: "MyClass"}}
+
+	err := idx.refuseIfReindexInFlight("shard1", idx.newReindexGate())
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	require.Contains(t, err.Error(), "cannot read reindex state")
+	require.NotContains(t, err.Error(), "retry after the migration finishes",
+		"there is no migration to wait for when the query itself failed")
+}
+
+// TestReindexGate_BuildersAreReadAtResolveNotConstruction pins that a gate
+// built between the two setter calls in configure_api.go still picks the
+// cleanup arm up, instead of silently dropping it for the whole pass.
+func TestReindexGate_BuildersAreReadAtResolveNotConstruction(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+
+	gate := db.newReindexGate()
+
+	// Installed after construction, before first use — the startup window.
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return func(string, string) bool { return true }
+	})
+
+	assert.True(t, gate.anyLiveReindexForShard("MyClass", "shard1"),
+		"the cleanup builder installed before the first resolve must be used")
 }
 
 // TestRefuseIfReindexInFlight_ErrorShape pins that the error wraps the
@@ -155,7 +215,7 @@ func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
 // TestReindexInFlightError_PreWire pins the wording variant used
 // during the pre-wire startup window.
 func TestReindexInFlightError_PreWire(t *testing.T) {
-	err := reindexInFlightError("MyClass", "shard1", true)
+	err := reindexInFlightError("MyClass", "shard1", reindexRefusalPreWire)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), "shard1")
@@ -166,7 +226,7 @@ func TestReindexInFlightError_PreWire(t *testing.T) {
 // TestReindexInFlightError_DTMHit pins the wording variant used when
 // DTM reports a live task.
 func TestReindexInFlightError_DTMHit(t *testing.T) {
-	err := reindexInFlightError("MyClass", "shard1", false)
+	err := reindexInFlightError("MyClass", "shard1", reindexRefusalLiveTask)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), "shard1")
@@ -218,4 +278,45 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 
 	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond, nil))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
+}
+
+// TestReindexGate_FormattingIsRaceFreeAgainstResolve pins that formatting a
+// gate does not read what resolve writes.
+//
+// The mockery-generated ShardLike mock hands the gate to testify, which
+// formats every argument with %v on every call, and the transfer loops share
+// one gate across goroutines. Without [reindexGate.String] this is a data race
+// reported inside fmt and reflect frames that name neither the gate nor the
+// mock.
+func TestReindexGate_FormattingIsRaceFreeAgainstResolve(t *testing.T) {
+	const formatters = 8
+
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return func(string, string) bool { return false }
+	})
+	gate := db.newReindexGate()
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for f := 0; f < formatters; f++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			// The exact shape testify's Arguments.Diff uses.
+			require.Equal(t, "(*db.reindexGate=reindexGate)",
+				fmt.Sprintf("(%[1]T=%[1]v)", gate))
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		gate.anyLiveReindexForShard("MyClass", "shard1")
+	}()
+
+	close(start)
+	wg.Wait()
 }

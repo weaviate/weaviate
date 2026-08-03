@@ -88,37 +88,42 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 		shardsPerCollection int
 		dtmUnreachable      bool
 		wantBuilds          int64
-		wantRefusedShards   int
+		// A failed snapshot short-circuits before the cleanup arm is built.
+		wantCleanupBuilds int64
+		wantRefusedShards int
+		wantRefusalText   string
 	}{
 		{
 			name:        "single collection, single shard",
 			collections: 1, shardsPerCollection: 1,
-			wantBuilds: 1,
+			wantBuilds: 1, wantCleanupBuilds: 1,
 		},
 		{
 			name:        "single collection, three shards",
 			collections: 1, shardsPerCollection: 3,
-			wantBuilds: 1,
+			wantBuilds: 1, wantCleanupBuilds: 1,
 		},
 		{
 			name:        "three collections, four shards each",
 			collections: 3, shardsPerCollection: 4,
-			wantBuilds: 1,
+			wantBuilds: 1, wantCleanupBuilds: 1,
 		},
 		{
 			name:        "many shards, still one build",
 			collections: 2, shardsPerCollection: 25,
-			wantBuilds: 1,
+			wantBuilds: 1, wantCleanupBuilds: 1,
 		},
 		{
 			name:        "fail-closed: DTM unreachable, three shards",
 			collections: 1, shardsPerCollection: 3, dtmUnreachable: true,
 			wantBuilds: 1, wantRefusedShards: 3,
+			wantRefusalText: "cannot read reindex state",
 		},
 		{
 			name:        "fail-closed: DTM unreachable, three collections, four shards each",
 			collections: 3, shardsPerCollection: 4, dtmUnreachable: true,
 			wantBuilds: 1, wantRefusedShards: 12,
+			wantRefusalText: "cannot read reindex state",
 		},
 		{
 			name:        "no classes, no query",
@@ -133,13 +138,14 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 			totalShards := tc.collections * tc.shardsPerCollection
 
 			var activityBuilds, cleanupBuilds atomic.Int64
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 				activityBuilds.Add(1)
 				if tc.dtmUnreachable {
-					// Mirrors the configure_api.go fail-closed fallback.
-					return func(string, string) bool { return true }
+					// Mirrors the configure_api.go fail-closed path: the DTM
+					// listing failed, so there is no snapshot to answer from.
+					return nil, errors.New("list distributed tasks: leader unreachable")
 				}
-				return func(string, string) bool { return false }
+				return func(string, string) bool { return false }, nil
 			})
 			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 				cleanupBuilds.Add(1)
@@ -151,9 +157,9 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 			require.Equalf(t, tc.wantBuilds, activityBuilds.Load(),
 				"expected %d ListDistributedTasks lookup build(s) for %d shards, got %d",
 				tc.wantBuilds, totalShards, activityBuilds.Load())
-			require.Equalf(t, tc.wantBuilds, cleanupBuilds.Load(),
+			require.Equalf(t, tc.wantCleanupBuilds, cleanupBuilds.Load(),
 				"expected %d cleanup lookup build(s) for %d shards, got %d",
-				tc.wantBuilds, totalShards, cleanupBuilds.Load())
+				tc.wantCleanupBuilds, totalShards, cleanupBuilds.Load())
 
 			if tc.wantRefusedShards == 0 {
 				require.NoError(t, err)
@@ -163,7 +169,7 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 			require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 				"fail-closed refusal must wrap the sentinel so the coordinator can classify it")
 			require.Equalf(t, tc.wantRefusedShards,
-				strings.Count(err.Error(), "active runtime-reindex task in DTM"),
+				strings.Count(err.Error(), tc.wantRefusalText),
 				"a single build must refuse every shard, not just the first: expected %d refusals",
 				tc.wantRefusedShards)
 		})
@@ -177,10 +183,10 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	db, classes := newPrecheckGateTestDB(t, 1, 4)
 
 	var builds atomic.Int64
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		// Alternates per build, standing in for a DTM snapshot that changes across queries.
 		live := builds.Add(1)%2 == 1
-		return func(string, string) bool { return live }
+		return func(string, string) bool { return live }, nil
 	})
 
 	err := db.Backupable(context.Background(), classes)
@@ -202,12 +208,12 @@ func TestReindexGate_CleanupArmIsProbedPerShard(t *testing.T) {
 	db, classes := newPrecheckGateTestDB(t, 1, shards)
 
 	var activityBuilds, activityProbes, cleanupBuilds, cleanupProbes atomic.Int64
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		activityBuilds.Add(1)
 		return func(string, string) bool {
 			activityProbes.Add(1)
 			return false
-		}
+		}, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		cleanupBuilds.Add(1)
@@ -248,9 +254,9 @@ func TestRefuseIfReindexInFlight_NilGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var builds atomic.Int64
 			db := &DB{}
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 				builds.Add(1)
-				return func(string, string) bool { return tc.live }
+				return func(string, string) bool { return tc.live }, nil
 			})
 			idx := &Index{db: db, Config: IndexConfig{ClassName: "NilGateClass"}}
 

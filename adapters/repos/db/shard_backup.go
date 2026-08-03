@@ -34,9 +34,9 @@ import (
 // is additionally bounded by `HaltForTransferTimeout`, independent of `inactivityTimeout`;
 // a zeroed `HaltForTransferTimeout` implies no bound.
 //
-// The reindex gate is caller-supplied so a backup halting M shards resolves
-// one cluster-wide DTM query for the set rather than one per shard. Offload
-// callers skip the gate entirely and pass nil.
+// The reindex gate is caller-supplied so a backup halting M shards costs one
+// cluster-wide DTM query for the set rather than one per shard. offloading
+// skips the check, so an offload caller's gate is never resolved.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate *reindexGate) (err error) {
 	innerCtx := ctx
 	if timeout := s.index.Config.HaltForTransferTimeout; timeout > 0 {

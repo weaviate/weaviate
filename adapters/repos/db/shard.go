@@ -102,9 +102,9 @@ type ShardLike interface {
 	CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
-	// HaltForTransfer consults the backup reindex gate unless offloading.
-	// Multi-shard callers pass one gate for the whole set; single-shard
-	// callers build their own. A nil gate is treated as "build one".
+	// HaltForTransfer consults the backup reindex gate unless offloading is
+	// set. Multi-shard callers pass one gate for the whole set; single-shard
+	// callers build their own. Nil means "build one" and is test-only.
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate *reindexGate) error
 	// MayResetTransferInactivityTimer counts external transfer activity
 	// against the halt watchdog. No-op on unhalted shards.
