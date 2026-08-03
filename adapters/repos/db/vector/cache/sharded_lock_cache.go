@@ -13,6 +13,8 @@ package cache
 
 import (
 	"context"
+	"math/bits"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,7 +31,7 @@ import (
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
-	shardedLocks           *common.ShardedRWLocks
+	shardedLocks           *common.LazyShardedRWLocks
 	cache                  [][]T
 	vectorForID            common.VectorForID[T]
 	multipleVectorForDocID common.VectorForID[[]float32]
@@ -40,6 +42,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	logger                 logrus.FieldLogger
 	deletionInterval       time.Duration
 	allocChecker           memwatch.AllocChecker
+	prefetchBytes          int
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -53,7 +56,43 @@ const (
 	MinimumRelativeGrowthDelta = 20
 	indexGrowthRate            = 1.25
 	defaultCacheMaxSize        = 1e12
+
+	// initialShardedLocksCount is the stripe count of a small cache; growing
+	// scales it with the cache size at one stripe per slotsPerLockStripe
+	// slots, up to the full common.DefaultShardedLocksCount.
+	initialShardedLocksCount = 8
+	slotsPerLockStripe       = 64
 )
+
+// growTargetFor returns the backing-slice length needed to fit node. Small
+// caches grow relative to the requested id so that barely used caches stay
+// proportional to their tenant's size; large caches keep the fixed headroom.
+func growTargetFor(node uint64) uint64 {
+	relative := uint64(float64(node) * indexGrowthRate)
+	if minRelative := node + MinimumRelativeGrowthDelta; relative < minRelative {
+		relative = minRelative
+	}
+	if absolute := node + MinimumIndexGrowthDelta; absolute < relative {
+		return absolute
+	}
+	return relative + 1
+}
+
+// stripeCountFor returns the lock stripe count appropriate for a backing
+// slice of the given length, keeping the lock memory proportional to the
+// cache itself.
+func stripeCountFor(cacheLen uint64) uint64 {
+	stripes := cacheLen / slotsPerLockStripe
+	if stripes <= initialShardedLocksCount {
+		return initialShardedLocksCount
+	}
+	if stripes >= common.DefaultShardedLocksCount {
+		return common.DefaultShardedLocksCount
+	}
+	// quantize to powers of two so a growing cache re-stripes a bounded
+	// number of times (each upgrade drains the previous lock set)
+	return 1 << bits.Len64(stripes-1)
+}
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecForID common.VectorForID[[]float32], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
@@ -71,16 +110,16 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecFo
 			return vec, nil
 		},
 		multipleVectorForDocID: multiVecForID,
-		cache:                  make([][]float32, InitialSize),
 		normalizeOnRead:        normalizeOnRead,
 		count:                  0,
 		maxSize:                int64(maxSize),
 		cancel:                 make(chan bool),
 		logger:                 logger,
-		shardedLocks:           common.NewShardedRWLocksWithPageSize(pageSize),
+		shardedLocks:           common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
 		maintenanceLock:        sync.RWMutex{},
 		deletionInterval:       deletionInterval,
 		allocChecker:           allocChecker,
+		prefetchBytes:          floatPrefetchMaxBytes,
 	}
 
 	vc.watchForDeletion()
@@ -93,16 +132,16 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pag
 ) Cache[byte] {
 	vc := &shardedLockCache[byte]{
 		vectorForID:      vecForID,
-		cache:            make([][]byte, InitialSize),
 		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
+		shardedLocks:     common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
+		prefetchBytes:    compressedPrefetchMaxBytes,
 	}
 
 	vc.watchForDeletion()
@@ -115,16 +154,16 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 ) Cache[uint64] {
 	vc := &shardedLockCache[uint64]{
 		vectorForID:      vecForID,
-		cache:            make([][]uint64, InitialSize),
 		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
+		shardedLocks:     common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
+		prefetchBytes:    compressedPrefetchMaxBytes,
 	}
 
 	vc.watchForDeletion()
@@ -206,11 +245,17 @@ func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 	var errs []error // Only allocate if we encounter an error
 
 	for i, id := range ids {
+		var vec []T
 		s.shardedLocks.RLock(id)
-		vec := s.cache[id]
+		if int(id) < len(s.cache) {
+			vec = s.cache[id]
+		}
 		s.shardedLocks.RUnlock(id)
 
 		if vec == nil {
+			// make sure the cache covers id before handleCacheMiss stores
+			// into it; a no-op once the cache is large enough
+			s.Grow(id)
 			vecFromDisk, err := s.handleCacheMiss(ctx, id)
 			if err != nil {
 				// Allocate errors slice only on first error
@@ -267,9 +312,43 @@ func (s *shardedLockCache[T]) PageSize() uint64 {
 	return s.shardedLocks.PageSize
 }
 
+// prefetchFunc hints a single cache line at addr; superseded by prefetchNFunc
+// on the hot path but kept for future use.
+//
+//nolint:unused
 var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// do nothing on default arch
-	// this function will be overridden for amd64
+	// this function will be overridden for amd64 and arm64
+}
+
+// prefetchNFunc hints n bytes (ceil(n/64) cache lines) starting at addr with
+// a single call, so hot paths don't pay one assembly CALL per cache line.
+// n must be > 0.
+var prefetchNFunc func(addr uintptr, n int) = func(addr uintptr, n int) {
+	// do nothing on default arch
+	// this function will be overridden for amd64 and arm64
+}
+
+const (
+	// compressedPrefetchMaxBytes covers whole compressed codes at realistic
+	// dimensions (e.g. 8-bit RQ up to ~2000d, 4-bit RQ up to ~4000d).
+	compressedPrefetchMaxBytes = 2048
+	floatPrefetchMaxBytes      = 256
+)
+
+// prefetchVector issues cache-line prefetch hints for up to maxBytes of vec.
+// Prefetching the data requires having read the slice header first: the
+// header's data pointer is a dependent load the CPU cannot follow on its
+// own, so hinting only the header address would leave the expensive DRAM
+// miss — the vector bytes — unhinted.
+func prefetchVector[T any](vec []T, maxBytes int) {
+	if len(vec) == 0 {
+		return
+	}
+	var zero T
+	n := min(len(vec)*int(unsafe.Sizeof(zero)), maxBytes)
+	prefetchNFunc(uintptr(unsafe.Pointer(&vec[0])), n)
+	runtime.KeepAlive(vec)
 }
 
 func (s *shardedLockCache[T]) LockAll() {
@@ -282,17 +361,50 @@ func (s *shardedLockCache[T]) UnlockAll() {
 
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
-	defer s.shardedLocks.RUnlock(id)
+	// the cache is allocated lazily, it may not cover id yet
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return
+	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
 
-	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
+	prefetchVector(vec, s.prefetchBytes)
+}
+
+func (s *shardedLockCache[T]) PrefetchGet(id uint64) []T {
+	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return nil
+	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
+
+	prefetchVector(vec, s.prefetchBytes)
+	return vec
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
-	s.shardedLocks.Lock(id)
-	defer s.shardedLocks.Unlock(id)
+	for {
+		s.shardedLocks.Lock(id)
+		// reading len(s.cache) under a stripe lock is safe: the slice is
+		// only ever swapped while all stripes are held (see Grow). Checking
+		// it here keeps the common case as cheap as before the cache became
+		// lazy: one stripe lock, no maintenanceLock traffic.
+		if int(id) < len(s.cache) {
+			s.cache[id] = vec
+			atomic.AddInt64(&s.count, 1)
+			s.shardedLocks.Unlock(id)
+			return
+		}
+		s.shardedLocks.Unlock(id)
 
-	atomic.AddInt64(&s.count, 1)
-	s.cache[id] = vec
+		// slow path: the cache doesn't cover id yet — preloaders (e.g. the
+		// HNSW insert path) don't grow the cache themselves. Grow guarantees
+		// coverage of id, so the next iteration stores.
+		s.Grow(id)
+	}
 }
 
 func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
@@ -305,7 +417,7 @@ func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 	if size < uint64(len(s.cache)) {
 		return
 	}
-	newSize := size + MinimumIndexGrowthDelta
+	newSize := growTargetFor(size)
 	newCache := make([][]T, newSize)
 	copy(newCache, s.cache)
 	s.cache = newCache
@@ -328,10 +440,14 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 		return
 	}
 
+	newSize := growTargetFor(node)
+
+	// scale the stripe count with the cache size
+	s.shardedLocks.EnsureCount(stripeCountFor(newSize))
+
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	newSize := node + MinimumIndexGrowthDelta
 	newCache := make([][]T, newSize)
 	copy(newCache, s.cache)
 	s.cache = newCache
@@ -451,6 +567,10 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 	vectorDocID            []CacheKeys
 	// Only used by multi vector caches
 	fetchByNodeID bool
+	// prefetchBytes caps how much of a vector Prefetch/PrefetchGet hint; set
+	// per element type by the constructors (full compressed codes, float
+	// vector prefixes).
+	prefetchBytes int
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -491,6 +611,7 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float
 		deletionInterval:       deletionInterval,
 		allocChecker:           allocChecker,
 		vectorDocID:            make([]CacheKeys, InitialSize),
+		prefetchBytes:          floatPrefetchMaxBytes,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -525,6 +646,7 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
 		fetchByNodeID:       true,
+		prefetchBytes:       compressedPrefetchMaxBytes,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -559,6 +681,7 @@ func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], max
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
 		fetchByNodeID:       true,
+		prefetchBytes:       compressedPrefetchMaxBytes,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -707,9 +830,27 @@ func (s *shardedMultipleLockCache[T]) UnlockAll() {
 
 func (s *shardedMultipleLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
-	defer s.shardedLocks.RUnlock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return
+	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
 
-	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
+	prefetchVector(vec, s.prefetchBytes)
+}
+
+func (s *shardedMultipleLockCache[T]) PrefetchGet(id uint64) []T {
+	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return nil
+	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
+
+	prefetchVector(vec, s.prefetchBytes)
+	return vec
 }
 
 func (s *shardedMultipleLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {

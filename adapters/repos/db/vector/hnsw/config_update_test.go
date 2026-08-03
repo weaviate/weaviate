@@ -135,6 +135,55 @@ func TestUserConfigUpdates(t *testing.T) {
 				expectedError: nil,
 			},
 			{
+				name: "attempting to change rq bits",
+				initial: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: true,
+						Bits:    8,
+					},
+				},
+				update: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: true,
+						Bits:    4,
+					},
+				},
+				expectedError: errors.Errorf(
+					"rq bits is immutable: " +
+						"attempted change from \"8\" to \"4\""),
+			},
+			{
+				name: "enabling rq with bits set",
+				initial: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: false,
+					},
+				},
+				update: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: true,
+						Bits:    4,
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "rq enabled with unchanged bits",
+				initial: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: true,
+						Bits:    4,
+					},
+				},
+				update: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: true,
+						Bits:    4,
+					},
+				},
+				expectedError: nil,
+			},
+			{
 				name: "setting bq compression on",
 				initial: ent.UserConfig{
 					BQ: ent.BQConfig{

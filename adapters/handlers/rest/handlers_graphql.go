@@ -112,7 +112,17 @@ func setupGraphQLHandlers(
 		// Only set variables if exists in request
 		var variables map[string]interface{}
 		if params.Body.Variables != nil {
-			variables = params.Body.Variables.(map[string]interface{})
+			vars, ok := params.Body.Variables.(map[string]interface{})
+			if !ok {
+				metricRequestsTotal.logUserError()
+				errorResponse.Error = []*models.ErrorResponseErrorItems0{
+					{
+						Message: fmt.Sprintf("variables must be a JSON object, got %T", params.Body.Variables),
+					},
+				}
+				return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			}
+			variables = vars
 		}
 
 		graphQL := gqlProvider.GetGraphQL()

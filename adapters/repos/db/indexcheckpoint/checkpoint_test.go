@@ -14,8 +14,10 @@ package indexcheckpoint
 import (
 	"io"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -144,4 +146,23 @@ func TestCheckpoint(t *testing.T) {
 		err = c.Drop()
 		require.Error(t, err)
 	})
+}
+
+// TestNew_RefusedTimelyWhileHeldByAnotherInstance pins the bolt flock
+// timeout: a leaked handle (failed shard teardown) holds the flock, and a
+// re-open must fail with a bounded error instead of retrying the flock
+// forever and wedging the loading goroutine.
+func TestNew_RefusedTimelyWhileHeldByAnotherInstance(t *testing.T) {
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	held, err := New(dir, logger)
+	require.NoError(t, err)
+	defer held.Close()
+
+	start := time.Now()
+	_, err = New(dir, logger)
+	require.Error(t, err, "second open over a held flock must be refused")
+	require.Less(t, time.Since(start), 30*time.Second,
+		"the refusal must be timeout-bounded, not an indefinite flock wait")
 }

@@ -160,6 +160,9 @@ type Config struct {
 	// capture traces
 	SentryEnabled bool
 
+	// TelemetryEnabled reports whether telemetry is enabled on this node.
+	TelemetryEnabled bool
+
 	// EnableOneNodeRecovery enables the actually one node recovery logic to avoid it running all the time when
 	// unnecessary
 	EnableOneNodeRecovery bool
@@ -194,6 +197,9 @@ type Config struct {
 	// miss tasks resurrected by replay. See [distributedtask.CollectionExtractor]
 	// and weaviate/0-weaviate-issues#231.
 	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
+	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
+	// per-target cascade deletion (drop-vector marker introduction).
+	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
 
 	ReplicaMovementEnabled bool
 
@@ -372,6 +378,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	// records survive. weaviate/0-weaviate-issues#231.
 	for namespace, extractor := range cfg.DistributedTaskCollectionExtractors {
 		distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+	}
+	for namespace, extractor := range cfg.DistributedTaskTargetVectorExtractors {
+		distributedTasksManager.RegisterTargetVectorExtractor(namespace, extractor)
 	}
 
 	var dynusersLister namespaces.DynusersNamespaceLister
@@ -1105,7 +1114,15 @@ func (st *Store) ClusterID() string {
 
 // maybeCommitClusterID commits a fresh UUID cluster identity via raft if one
 // isn't set yet. Caller must be the raft leader.
+//
+// No-op when telemetry is disabled. This is a leader-local decision: a cluster
+// with mixed settings still gets an identity if any leader has telemetry on,
+// and an already committed id is never removed by opting out later.
 func (st *Store) maybeCommitClusterID() {
+	if !st.cfg.TelemetryEnabled {
+		return
+	}
+
 	if st.ClusterID() != "" {
 		return
 	}

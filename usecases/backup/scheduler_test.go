@@ -292,28 +292,21 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		assert.Equal(t, want, got)
 	})
 
-	t.Run("ReadFromOldMetadata", func(t *testing.T) {
+	t.Run("RejectSingleNodeMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		completedAt := starTime.Add(time.Hour)
 		bytes := marshalMeta(
 			backup.BackupDescriptor{
 				StartedAt:   starTime,
-				CompletedAt: completedAt,
+				CompletedAt: starTime.Add(time.Hour),
 				Status:      backup.Success,
-				// 1.5Gb
-				PreCompressionSizeBytes: 1610612736,
 			},
 		)
-		want := want
-		want.CompletedAt = completedAt
-		want.Status = backup.Success
-		want.Size = 1.5
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
-		assert.Nil(t, err)
-		assert.Equal(t, want, got)
+		require.ErrorIs(t, err, errLegacySingleNode)
+		assert.Nil(t, got)
 	})
 }
 
@@ -542,7 +535,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		}
 		assert.Equal(t, resp, want1)
 
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			time.Sleep(time.Millisecond * 50)
 			if i > 0 && s.backupper.lastOp.get().Status == "" {
 				break
@@ -574,8 +567,8 @@ func TestSchedulerRestoration(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:            backupID,
 		StartedAt:     timePt,
-		Version:       "1",
-		ServerVersion: "1",
+		Version:       Version,
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Nodes: map[string]*backup.NodeDescriptor{
 			nodeA: {Classes: []string{cls}},
@@ -692,7 +685,7 @@ func TestSchedulerRestoration(t *testing.T) {
 				Path:    path,
 			}
 			assert.Equal(t, resp, want1)
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				time.Sleep(time.Millisecond * 60)
 				if i > 0 && s.restorer.lastOp.get().Status == "" {
 					break
@@ -765,8 +758,8 @@ func TestSchedulerRestoration(t *testing.T) {
 		metaWithOldNodes := backup.DistributedBackupDescriptor{
 			ID:            backupID,
 			StartedAt:     timePt,
-			Version:       "1",
-			ServerVersion: "1",
+			Version:       Version,
+			ServerVersion: "1.23",
 			Status:        backup.Success,
 			Nodes: map[string]*backup.NodeDescriptor{
 				oldNodeA: {Classes: []string{cls}},
@@ -828,7 +821,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		assert.Equal(t, resp, want1)
 
 		// Wait for restore to complete
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			time.Sleep(time.Millisecond * 60)
 			if i > 0 && s.restorer.lastOp.get().Status == "" {
 				break
@@ -863,8 +856,8 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:            id,
 		StartedAt:     timePt,
-		Version:       "1",
-		ServerVersion: "1",
+		Version:       Version,
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Nodes: map[string]*backup.NodeDescriptor{
 			nodeName: {Classes: []string{cls}},
@@ -925,6 +918,44 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		_, err = fs.scheduler().Restore(ctx, nil, req, false)
 		if !errors.As(err, &backup.ErrNotFound{}) {
 			t.Errorf("must return an error if meta data doesn't exist: %v", err)
+		}
+	})
+
+	t.Run("RejectSingleNodeBackup", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+
+		// backup.ErrUnprocessable has no Unwrap, so match on the surfaced message.
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
+		require.ErrorContains(t, err, errLegacySingleNode.Error())
+	})
+
+	t.Run("RejectLegacyBackup", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			version       string
+			serverVersion string
+			wantErr       error
+		}{
+			{name: "uncompressed 1.0", version: "1.0", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "uncompressed 1", version: "1", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "flat file structure", version: meta.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				legacy := meta
+				legacy.Version = tc.version
+				legacy.ServerVersion = tc.serverVersion
+				fs := newFakeScheduler(nil)
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(legacy), nil)
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+
+				_, err := fs.scheduler().Restore(ctx, nil, req, false)
+				require.ErrorContains(t, err, tc.wantErr.Error())
+			})
 		}
 	})
 
@@ -1344,8 +1375,8 @@ func TestCancellingBackup(t *testing.T) {
 		// classes instead of a wildcard DELETE that a scoped caller would fail.
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return([]byte("{"), nil).Once()
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(b, nil)
-		// The partial GlobalBackupFile read triggers the old-format fallback; deny it
-		// so the json.SyntaxError surfaces and the read is retried.
+		// The partial GlobalBackupFile read makes coordStore.Meta probe for single-node
+		// metadata; deny it so the json.SyntaxError surfaces and the read is retried.
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
@@ -2202,8 +2233,8 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:            backupID,
 		StartedAt:     time.Now().UTC(),
-		Version:       "1",
-		ServerVersion: "1",
+		Version:       Version,
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Leader:        nodeName,
 		Nodes: map[string]*backup.NodeDescriptor{
@@ -2259,8 +2290,8 @@ func TestRestoreSecondNamespaceAliasCollisionFailsFast(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:            backupID,
 		StartedAt:     time.Now().UTC(),
-		Version:       "1",
-		ServerVersion: "1",
+		Version:       Version,
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Leader:        nodeName,
 		Nodes: map[string]*backup.NodeDescriptor{

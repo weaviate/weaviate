@@ -65,6 +65,8 @@ const IdLockPoolSize uint64 = 1024
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
 	errShutdownInProgress = errors.New("shard shutdown in progress")
+	errShardStillInUse    = errors.New("shard still in use")
+	errTeardownFailed     = errors.New("previous shutdown attempt failed mid-teardown")
 )
 
 type ShardLike interface {
@@ -126,6 +128,7 @@ type ShardLike interface {
 	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
+	// preventShutdown blocks shutdown until release is called; release is never nil, including on error.
 	preventShutdown() (release func(), err error)
 
 	// TODO tests only
@@ -469,6 +472,10 @@ type Shard struct {
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut atomic.Bool
+	// teardownErr records a teardown failure that happened AFTER shut was
+	// marked (guarded by shutdownLock); performShutdown's idempotent branch
+	// re-surfaces it instead of swallowing it into a silent nil.
+	teardownErr error
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
@@ -553,9 +560,13 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
+	// A missing legacy index is a no-op, not an error — a named-vectors
+	// collection that dropped its last vector carries an inert legacy config in
+	// the schema, but its shards were built without a legacy index and there is
+	// nothing to reconfigure.
 	index, ok := s.GetVectorIndex("")
 	if !ok {
-		return fmt.Errorf("vector index does not exist")
+		return nil
 	}
 
 	return index.UpdateUserConfig(updated, noopCallback)
