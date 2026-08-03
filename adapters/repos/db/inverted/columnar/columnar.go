@@ -31,9 +31,11 @@ import (
 	"fmt"
 	"math/bits"
 	"sort"
+	"sync"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 // keyColumn abstracts sorted key storage so the columnar core is
@@ -223,10 +225,23 @@ type columnarSegment struct {
 	docs *docIDColumn
 }
 
-// ColumnarIndex is the resident accelerator for one property. POC: base tier
-// only.
+// run is one flushed memtable copied into columnar form: the keys that got an
+// addition (key → added docID) as an adds segment, plus the set of docIDs this
+// flush deleted. Under 1-doc-per-key a deleted docID belongs to exactly one key,
+// so deletions are applied globally as an AndNot rather than per key.
+type run struct {
+	adds *columnarSegment
+	dels *sroar.Bitmap
+}
+
+// ColumnarIndex is the resident accelerator for one property: an immutable base
+// (built from disk segments at startup) plus a list of runs, one per flushed
+// memtable absorbed since. Resolution folds the runs over the base, newest last.
+// Live active/flushing memtables are layered by the caller, not held here.
 type ColumnarIndex struct {
+	mu   sync.RWMutex // guards runs (and base once folding lands)
 	base *columnarSegment
+	runs []*run // oldest first; appended on flush
 }
 
 // BuildFromBucket populates the index from a single cursor pass over a
@@ -365,12 +380,40 @@ func (idx *ColumnarIndex) Len() int { return idx.base.keys.len() }
 // container op happens mid-flight, which is the whole point of the columnar
 // layout.
 func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap {
-	seg := idx.base
+	idx.mu.RLock()
+	base := idx.base
+	runs := idx.runs
+	idx.mu.RUnlock()
+
+	out := base.resolveMatches(sortedKeys, make([]uint64, 0, len(sortedKeys)))
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	result := sroar.FromSortedList(out)
+
+	// Fold runs oldest→newest over the base. Per run: remove the docIDs it
+	// deleted (global AndNot — safe under 1-doc-per-key), then union the docIDs
+	// of its added keys that match the query. A newer run's add re-adds a docID
+	// an older run/base deleted, so newest-wins holds.
+	for _, r := range runs {
+		if r.dels != nil && !r.dels.IsEmpty() {
+			result.AndNot(r.dels)
+		}
+		addOut := r.adds.resolveMatches(sortedKeys, nil)
+		if len(addOut) > 0 {
+			sort.Slice(addOut, func(i, j int) bool { return addOut[i] < addOut[j] })
+			result.Or(sroar.FromSortedList(addOut))
+		}
+	}
+	return result
+}
+
+// resolveMatches appends, unsorted, the docIDs of this segment whose key is in
+// sortedKeys. Adaptive merge-scan vs binary-search; no bitmap ops. Shared by the
+// base and every run's adds segment.
+func (seg *columnarSegment) resolveMatches(sortedKeys [][]byte, out []uint64) []uint64 {
 	n := seg.keys.len()
 	// Adapt the query keys to the backing once (identity for blob/fixed; drops
 	// prefix-mismatched keys for prefix), so per-comparison stays a single compare.
 	keys := seg.keys.prepareQueries(sortedKeys)
-	out := make([]uint64, 0, len(keys))
 
 	if mergeScanCheaper(len(keys), n) {
 		si, qi := 0, 0
@@ -394,9 +437,55 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 			}
 		}
 	}
+	return out
+}
 
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return sroar.FromSortedList(out)
+// AbsorbFlush copies a flushed memtable — iterated via its roaringset cursor —
+// into a new run appended to the index. Keys with an addition become the run's
+// adds segment (key → added docID = the additions bitmap's minimum under
+// 1-doc-per-key); every deleted docID joins the run's global deletion set. The
+// run's docID column is full-width (runs are small; sizing it narrow would need
+// the current maxDocID, which may have grown past the base's).
+func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
+	offsets := []uint32{0}
+	var blob []byte
+	adds := &docIDColumn{w: 8}
+	dels := sroar.NewBitmap()
+	uniformWidth := -1
+
+	for k, layer, err := cursor.First(); ; k, layer, err = cursor.Next() {
+		if err != nil {
+			return err
+		}
+		if k == nil {
+			break
+		}
+		if layer.Deletions != nil && !layer.Deletions.IsEmpty() {
+			dels.Or(layer.Deletions)
+		}
+		if layer.Additions == nil || layer.Additions.IsEmpty() {
+			continue
+		}
+		// copy the key: the cursor's key buffer may be reused across Next().
+		blob = append(blob, k...)
+		offsets = append(offsets, uint32(len(blob)))
+		adds.append(layer.Additions.Minimum())
+
+		if uniformWidth == -1 {
+			uniformWidth = len(k)
+		} else if uniformWidth != len(k) {
+			uniformWidth = -2
+		}
+	}
+
+	r := &run{
+		adds: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: adds},
+		dels: dels,
+	}
+	idx.mu.Lock()
+	idx.runs = append(idx.runs, r)
+	idx.mu.Unlock()
+	return nil
 }
 
 // mergeScanCheaper picks the fold strategy: merge-scan streams the corpus (cost
