@@ -696,6 +696,97 @@ func TestGuardRequestPath(t *testing.T) {
 	})
 }
 
+// The cleanup entry points act on a shard the caller already opened, so a
+// namespace that is not active must not refuse them: that would leave a
+// change-capture log registered, or a shard halted with nothing to resume it.
+func TestCleanupPathsSkipTheGuard(t *testing.T) {
+	const (
+		class     = "alpha:Product"
+		shardName = "t1"
+		opID      = "op-1"
+	)
+	ctx := context.Background()
+
+	// An exister with no expectations fails the test on any lookup, which is the
+	// claim: these paths decide nothing from the namespace, whatever its state.
+
+	t.Run("change capture stops without a namespace lookup", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+		shard := NewMockShardLike(t)
+		shard.On("preventShutdown").Return(func() {}, nil).Once()
+		shard.On("StopChangeCapture", mock.Anything, opID).Return(nil).Once()
+		idx.shards.Store(shardName, shard)
+
+		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
+	})
+
+	t.Run("the transfer inactivity timer resets without a namespace lookup", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+		shard := NewMockShardLike(t)
+		shard.On("MayResetTransferInactivityTimer").Once()
+		idx.shards.Store(shardName, shard)
+		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
+
+		idx.mayResetReplicaSnapshotInactivity(opID)
+	})
+
+	t.Run("the snapshot release resumes the shard without a namespace lookup", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+		shard := NewMockShardLike(t)
+		shard.On("preventShutdown").Return(func() {}, nil).Once()
+		shard.On("resumeMaintenanceCycles", mock.Anything).Return(nil).Once()
+		idx.shards.Store(shardName, shard)
+		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
+
+		require.NoError(t, idx.releaseReplicaSnapshot(ctx, opID, nil))
+	})
+
+	// The same shard a teardown may reach is still refused to a request.
+	t.Run("a request for the same shard is still refused", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		shard := NewMockShardLike(t)
+		shard.On("preventShutdown").Return(func() {}, nil).Once()
+		shard.On("StopChangeCapture", mock.Anything, opID).Return(nil).Once()
+		idx.shards.Store(shardName, shard)
+
+		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
+
+		_, _, err := idx.getOrInitShard(ctx, shardName)
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	})
+
+	// Loading a zero-value LazyLoadShard panics, so passing proves nothing loaded it.
+	t.Run("an unloaded shard is left unloaded", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+		lazy := &LazyLoadShard{}
+		idx.shards.Store(shardName, lazy)
+		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
+
+		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
+		idx.mayResetReplicaSnapshotInactivity(opID)
+		require.NoError(t, idx.releaseReplicaSnapshot(ctx, opID, nil))
+		assert.False(t, lazy.isLoaded(), "cleanup must not load the shard")
+	})
+
+	t.Run("an absent shard holds no log to stop", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+
+		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
+	})
+
+	// A failed teardown must not report success.
+	t.Run("a failing shard surfaces its error", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+		shard := NewMockShardLike(t)
+		shard.On("preventShutdown").Return(func() {}, nil).Once()
+		shard.On("StopChangeCapture", mock.Anything, opID).
+			Return(errors.New("deactivate failed")).Once()
+		idx.shards.Store(shardName, shard)
+
+		require.ErrorContains(t, idx.IncomingStopChangeCapture(ctx, shardName, opID), "deactivate failed")
+	})
+}
+
 // The reopen path skips the request-path check but must still refuse a namespace
 // that keeps no shards open, so a stale reopen cannot revive a suspended one.
 func TestWorkerReopenAdmission(t *testing.T) {
