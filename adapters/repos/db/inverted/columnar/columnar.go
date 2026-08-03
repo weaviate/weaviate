@@ -397,10 +397,16 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 		if r.dels != nil && !r.dels.IsEmpty() {
 			result.AndNot(r.dels)
 		}
-		addOut := r.adds.resolveMatches(sortedKeys, nil)
-		if len(addOut) > 0 {
-			sort.Slice(addOut, func(i, j int) bool { return addOut[i] < addOut[j] })
-			result.Or(sroar.FromSortedList(addOut))
+		addOut := r.adds.resolveMatches(sortedKeys, make([]uint64, 0, len(sortedKeys)))
+		if len(addOut) == 0 {
+			continue
+		}
+		sort.Slice(addOut, func(i, j int) bool { return addOut[i] < addOut[j] })
+		runBM := sroar.FromSortedList(addOut)
+		if result.IsEmpty() {
+			result = runBM // adopt rather than Or into an empty result (double build)
+		} else {
+			result.Or(runBM)
 		}
 	}
 	return result

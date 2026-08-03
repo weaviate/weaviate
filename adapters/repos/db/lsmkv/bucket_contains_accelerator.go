@@ -98,8 +98,8 @@ func (b *Bucket) LayerMemtablesOverBase(view BucketConsistentView, keys [][]byte
 	base *sroar.Bitmap,
 ) (*sroar.Bitmap, error) {
 	for _, mt := range []memtable{view.Flushing, view.Active} {
-		if mt == nil {
-			continue
+		if mt == nil || mt.Size() == 0 {
+			continue // no unflushed writes in this tier — nothing to layer
 		}
 		adds := sroar.NewBitmap()
 		dels := sroar.NewBitmap()
