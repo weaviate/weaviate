@@ -1029,23 +1029,26 @@ func TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig(t *testing
 		require.False(t, fin.called)
 	})
 
-	t.Run("undrained rows on a SWAPPING task are a contradiction: delete anyway, then finalize", func(t *testing.T) {
-		// A successful task implies drained ops; residual rows must not stop
-		// the delete (the op must be gone before the schema flip frees the
-		// name) — an implementation that keeps the op or returns early here
-		// would strip a re-created same-name vector or defer the finalize
-		// forever.
+	t.Run("undrained rows on a SWAPPING task defer the finalize", func(t *testing.T) {
+		// Pending rows on a successful task are legitimate: a restart after
+		// the unit completed re-pends WAL-recovered segments (possibly
+		// holding pre-arm bytes), and processUnits skips COMPLETED units, so
+		// nothing re-drains them before SWAPPING. Force-deleting here would
+		// remove those bytes' only cover and finalize over them — the veto
+		// must hold, and the returned error lets the scheduler retry after
+		// the cleanup cycle drains the row.
 		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}}
 		fin := &fakeFinalizer{}
 		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
-		require.NoError(t, p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil)))
-		require.Equal(t, []string{"op1"}, bucket.deleted, "the contradicted op is force-deleted")
-		require.True(t, fin.called, "the finalize still runs after the forced delete")
+		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+		require.Error(t, err)
+		require.Empty(t, bucket.deleted, "an undrained op must NOT be force-deleted — its rows may be unstripped data's only cover")
+		require.False(t, fin.called, "the marker must stand until the op drains")
 	})
 
-	t.Run("a failing forced delete defers the finalize", func(t *testing.T) {
-		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}, deleteErr: errors.New("bolt write failed")}
+	t.Run("a failing delete defers the finalize", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{deleteErr: errors.New("bolt write failed")}
 		fin := &fakeFinalizer{}
 		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 

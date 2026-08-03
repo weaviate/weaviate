@@ -955,10 +955,21 @@ func (p *DropVectorIndexProvider) deleteCompletedUnitEditOps(
 }
 
 // deleteLocalEditOps removes the finished op from each local shard's sidecar,
-// returning an error if any shard's op can't be deleted (delete failure, or an
-// unloaded shard). That defers the schema removal: freeing the name while an op
-// lingers in an unloaded shard would let a later reactivation re-arm it and strip
-// the re-created vector.
+// returning an error if any shard's op can't be deleted (delete failure, an
+// unloaded shard, or an op that is NOT drained). That defers the schema
+// removal: freeing the name while an op lingers in an unloaded shard would
+// let a later reactivation re-arm it and strip the re-created vector.
+//
+// The drained veto is authoritative here, exactly as on the FAILED path:
+// pending rows on a successful task are NOT a bookkeeping contradiction — a
+// restart after a unit completed re-pends WAL-recovered segments (which may
+// hold pre-arm bytes; see SegmentEditOps.Recover), and processUnits skips
+// COMPLETED units, so nothing re-drains them before the task flips SWAPPING.
+// Force-deleting would remove the only cover those bytes have and finalize
+// over them. Deferring is self-healing: the op stays armed, the cleanup cycle
+// drains the row within a pass or two, and the retried callback then deletes
+// and finalizes; retry exhaustion fails the task, which keeps the marker and
+// hands the remainder to reconciliation.
 func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTaskPayload) error {
 	var shardNames []string
 	for unitID, node := range payload.UnitToNode {
@@ -986,16 +997,10 @@ func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTas
 			return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)
 		}
 		if !deleted {
-			// A successful task implies every op drained; rows here contradict
-			// the bookkeeping. Success semantics still require the op gone
-			// before the schema flip frees the name — delete anyway, loudly,
-			// instead of swallowing the contradiction.
-			p.logger.WithField("collection", payload.Collection).WithField("shard", shardName).
-				Warnf("drop-vector: completed task's edit op still had %d pending / %d quarantined segments; deleting it anyway",
-					pendingRows, quarantinedRows)
-			if err := bucket.DeleteEditOp(payload.OpID); err != nil {
-				return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)
-			}
+			return fmt.Errorf(
+				"edit op on shard %q still has %d pending / %d quarantined segments "+
+					"(e.g. a WAL-recovered segment re-pended after a restart); deferring finalize until the cleanup drains it",
+				shardName, pendingRows, quarantinedRows)
 		}
 	}
 	return nil
