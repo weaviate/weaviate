@@ -1289,8 +1289,11 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 		}
 	}
 
-	const minRescorePerWorker = 4
-	workers := max(1, min((len(ids)+minRescorePerWorker-1)/minRescorePerWorker, h.rescoreConcurrency))
+	// Respect the per-query concurrency budget if the context carries one
+	// (see entities/concurrency): under concurrent load the budget shrinks
+	// the fan-out, without one we fall back to the full rescore concurrency.
+	// The floor of 1 keeps a zero budget from silently skipping rescoring.
+	workers := max(1, min(concurrency.BudgetFromCtx(ctx, h.rescoreConcurrency), h.rescoreConcurrency, len(ids)))
 
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for workerID := 0; workerID < workers; workerID++ {

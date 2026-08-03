@@ -456,7 +456,7 @@ func (c *segmentCleanerCommon) storeSegmentMeta(id, lastProcessedId, size, clean
 }
 
 func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortCallback,
-) (bool, error) {
+) (cleaned bool, err error) {
 	if c.sg.isReadyOnly() {
 		return false, nil
 	}
@@ -480,6 +480,16 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	var candidateIdx, startIdx, lastIdx int
 	var onCompleted onCompletedFunc
 	var tmpSegmentPath string
+	var newFile *os.File
+
+	// the candidate segment still holds everything the new file has until
+	// switchOnDisk starts marking, so discard it on every earlier exit
+	discardNewSegment := false
+	defer func() {
+		if discardNewSegment {
+			err = discardSegmentFile(newFile, tmpSegmentPath, err)
+		}
+	}()
 
 	ok, err := func() (bool, error) {
 		segments, release := c.sg.getConsistentViewOfSegments()
@@ -552,6 +562,8 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		if err != nil {
 			return false, err
 		}
+		newFile = file
+		discardNewSegment = true
 
 		switch c.sg.strategy {
 		case StrategyReplace:
@@ -594,7 +606,9 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		return false, nil
 	}
 
-	segment, err := c.sg.replaceSegment(candidateIdx, tmpSegmentPath)
+	segment, err := c.sg.replaceSegment(candidateIdx, tmpSegmentPath, func() {
+		discardNewSegment = false
+	})
 	if err != nil {
 		err = fmt.Errorf("replace compacted segments: %w", err)
 		return false, err
@@ -726,7 +740,16 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 			return false, true, fmt.Errorf(
 				"edit-ops cleanup: segment at position %d is no longer %q; aborting swap", idx, segID)
 		}
-		if _, e := c.sg.replaceSegment(idx, tmpPath); e != nil {
+		// The tmp file is already synced and closed; until switchOnDisk commits it
+		// is still a discardable copy, and leaving it behind would let a later init
+		// rename it onto a live segment name.
+		committed := false
+		if _, e := c.sg.replaceSegment(idx, tmpPath, func() { committed = true }); e != nil {
+			if !committed {
+				if removeErr := os.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+					e = errors.Join(e, fmt.Errorf("remove new segment file %q: %w", tmpPath, removeErr))
+				}
+			}
 			return false, true, fmt.Errorf("replace cleaned segment: %w", e)
 		}
 		if e := c.markRowsDone(rows); e != nil {
@@ -870,6 +893,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 }
 
 func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
+	onCommitted func(),
 ) (*segment, error) {
 	newSegment, err := sg.preinitializeNewSegment(tmpSegmentPath, segmentPos)
 	if err != nil {
@@ -877,7 +901,7 @@ func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 	}
 
 	replacer := newSegmentReplacer(sg, segmentPos, segmentPos, newSegment)
-	_, oldSegment, err := replacer.switchOnDisk()
+	_, oldSegment, err := replacer.switchOnDisk(onCommitted)
 	if err != nil {
 		return nil, fmt.Errorf("replace cleaned segment on disk: %w", err)
 	}
