@@ -463,8 +463,7 @@ func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
 	runReleaseBackupWorkloadInChild(t)
 }
 
-// Regression test: a ReleaseBackup still traversing must not release a shard
-// that a later backup has already re-protected.
+// Regression test: ReleaseBackup must not release a shard a later backup already re-protected.
 func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
 	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
 		releaseBackupCrossGenerationWorkload(t)
@@ -473,8 +472,6 @@ func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
 	runReleaseBackupWorkloadInChild(t)
 }
 
-// releaseBackupCrossGenerationWorkload releases one backup from two goroutines
-// while a second backup re-protects the same shards behind them.
 func releaseBackupCrossGenerationWorkload(t *testing.T) {
 	const (
 		trials         = 200
@@ -538,9 +535,8 @@ func releaseBackupCrossGenerationWorkload(t *testing.T) {
 		close(start)
 		wg.Wait()
 
-		// The second backup locked and stored every shard, so every shard must
-		// still be protected. A missing one was released by a first-backup
-		// caller that saw the re-protected key mid-Range.
+		// A missing shard means a stale first-backup releaser unlocked it after
+		// the second backup re-protected it.
 		for _, name := range names {
 			if _, ok := idx.backupProtectedShards.Load(name); !ok {
 				t.Fatalf("trial %d: shard %s lost %s's protection",
