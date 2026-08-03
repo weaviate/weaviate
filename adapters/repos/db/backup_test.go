@@ -16,8 +16,11 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -430,6 +433,108 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 		// subtests above (which prove the flag blocks activation), this proves that
 		// activation is no longer blocked after ReleaseBackup.
 	})
+}
+
+// releaseBackupUnlockChildEnv marks a re-executed test binary as the child that
+// runs the concurrent ReleaseBackup workload.
+const releaseBackupUnlockChildEnv = "WEAVIATE_TEST_RELEASE_BACKUP_UNLOCK_CHILD"
+
+// TestReleaseBackupConcurrentUnlocksEachShardOnce asserts that ReleaseBackup
+// releases every protected shard's backupLock exactly once when several
+// ReleaseBackup calls for the same index overlap. Overlapping calls are the
+// normal case: usecases/backup fans out one goroutine per class on the success
+// path.
+//
+// Unlocking twice lands the second Unlock on an already unlocked sync.RWMutex,
+// which Go reports as "fatal error: sync: Unlock of unlocked RWMutex". That is
+// unrecoverable — recover() cannot catch it and the process dies. So the
+// workload cannot run in this process; it runs in a child (this binary
+// re-executed under an env guard) and the parent reports the crash as an
+// ordinary failure.
+func TestReleaseBackupConcurrentUnlocksEachShardOnce(t *testing.T) {
+	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
+		releaseBackupConcurrentUnlockWorkload(t)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run", "^"+t.Name()+"$", "-test.v")
+	cmd.Env = append(os.Environ(), releaseBackupUnlockChildEnv+"=1")
+	out, err := cmd.CombinedOutput()
+
+	require.NoError(t, err, "concurrent ReleaseBackup killed the child process:\n%s", out)
+	require.Contains(t, string(out), "--- PASS: "+t.Name(),
+		"child did not run the workload:\n%s", out)
+}
+
+// releaseBackupConcurrentUnlockWorkload repeatedly builds an index whose shards
+// are all protected, then releases the backup from several goroutines at once.
+func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
+	// Sized empirically: without the fix the process dies within the first
+	// handful of trials, both with and without -race.
+	const (
+		trials         = 200
+		shardsPerTrial = 512
+		releasers      = 4
+		className      = "MyClass"
+		backupID       = "backup1"
+	)
+
+	logger, _ := tlog.NewNullLogger()
+	rootDir := t.TempDir()
+	ctx := context.Background()
+
+	names := make([]string, shardsPerTrial)
+	for s := range names {
+		names[s] = "shard" + strconv.Itoa(s)
+	}
+
+	for trial := 0; trial < trials; trial++ {
+		idx := &Index{
+			Config: IndexConfig{RootPath: rootDir, ClassName: className},
+			getSchema: &fakeSchemaGetter{
+				schema: schema.Schema{
+					Objects: &models.Schema{Classes: []*models.Class{{Class: className}}},
+				},
+			},
+			logger:           logger,
+			backupLock:       esync.NewKeyRWLocker(),
+			shardCreateLocks: esync.NewKeyRWLocker(),
+			closingCtx:       context.Background(),
+		}
+
+		// Same state backupShardWithoutHardlinks leaves behind for a shard it
+		// backed up without hardlinks: lock held, shard flagged as protected.
+		for _, name := range names {
+			idx.backupLock.Lock(name)
+			idx.backupProtectedShards.Store(name, struct{}{})
+		}
+		idx.lastBackup.Store(&BackupState{BackupID: backupID, InProgress: true})
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for r := 0; r < releasers; r++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				assert.NoError(t, idx.ReleaseBackup(ctx, backupID))
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		// TryRLock only succeeds once the write lock is gone, so it catches a
+		// shard that was never released as well.
+		for _, name := range names {
+			if _, protected := idx.backupProtectedShards.Load(name); protected {
+				t.Fatalf("trial %d: shard %s still protected after ReleaseBackup", trial, name)
+			}
+			if !idx.backupLock.TryRLock(name) {
+				t.Fatalf("trial %d: backupLock on %s still held after ReleaseBackup", trial, name)
+			}
+			idx.backupLock.RUnlock(name)
+		}
+	}
 }
 
 func TestBackupFrozenShardOmitted(t *testing.T) {

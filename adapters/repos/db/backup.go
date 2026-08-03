@@ -670,10 +670,17 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 
 	// Release non-hardlink backup protections: clear the protection flag and
 	// release the held backupLock.Lock for each protected shard.
+	//
+	// LoadAndDelete makes the claim atomic. ReleaseBackup runs concurrently
+	// (usecases/backup fans out one goroutine per class), and a plain
+	// Delete-after-Unlock would let two callers unlock the same shard once
+	// each: the second Unlock hits an unlocked RWMutex, which is a fatal
+	// error that recover() cannot catch.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
 		name := key.(string)
-		i.backupLock.Unlock(name)
-		i.backupProtectedShards.Delete(key)
+		if _, loaded := i.backupProtectedShards.LoadAndDelete(key); loaded {
+			i.backupLock.Unlock(name)
+		}
 		return true
 	})
 
