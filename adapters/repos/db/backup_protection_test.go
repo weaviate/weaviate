@@ -28,10 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// TestColdBackup_ReadDuringColdBackupIsServed pins the user-visible contract a
-// cold backup must not break: a read for a shard the backup is uploading waits
-// for the upload and is answered. Before the wait existed this returned
-// HTTP 500 for the whole upload, roughly ten thousand of them per backup.
+// TestColdBackup_ReadDuringColdBackupIsServed pins that a read for a shard
+// mid-upload waits for the backup and is answered, not refused.
 func TestColdBackup_ReadDuringColdBackupIsServed(t *testing.T) {
 	const (
 		className = "ColdBackupReadClass"
@@ -64,9 +62,8 @@ func TestColdBackup_ReadDuringColdBackupIsServed(t *testing.T) {
 		"the read must have activated the shard once the backup let go")
 }
 
-// TestColdBackup_ReadThatOutlastsTheBackupIsNotAServerError pins the fallback:
-// a read that gives up waiting still must not look like a server fault, since
-// nothing is broken and the next request succeeds.
+// TestColdBackup_ReadThatOutlastsTheBackupIsNotAServerError pins that a read
+// which times out waiting is reported as retryable, not a server fault.
 func TestColdBackup_ReadThatOutlastsTheBackupIsNotAServerError(t *testing.T) {
 	const (
 		className = "ColdBackupGiveUpClass"
@@ -91,10 +88,8 @@ func TestColdBackup_ReadThatOutlastsTheBackupIsNotAServerError(t *testing.T) {
 	require.ErrorIs(t, queryErr, enterrors.ErrShardBackupProtected)
 }
 
-// TestPrewarm_ProtectedShardDoesNotEndPrewarmingForTheIndex pins that a shard a
-// backup holds cold only costs that shard its prewarm. Returning on the first
-// error left every later shard of the index cold for the life of the process,
-// while allShardsReady still reported true.
+// TestPrewarm_ProtectedShardDoesNotEndPrewarmingForTheIndex pins that a shard
+// held by a backup only costs that shard its prewarm, not the rest of the index.
 func TestPrewarm_ProtectedShardDoesNotEndPrewarmingForTheIndex(t *testing.T) {
 	const (
 		className = "PrewarmProtectedClass"

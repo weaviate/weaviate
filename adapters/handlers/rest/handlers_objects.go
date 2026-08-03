@@ -887,9 +887,8 @@ func (h *objectHandlers) shouldIncludeGetObjectsModuleParams() bool {
 	return false
 }
 
-// shardTemporarilyUnavailable reports an error caused by a running backup
-// holding a cold shard. The upload releases it, so the same request succeeds on
-// retry and must not be reported as a server error.
+// shardTemporarilyUnavailable reports a shard held cold by a running backup;
+// it clears on its own, so this must not count as a server error.
 func shardTemporarilyUnavailable(err error) bool {
 	return errors.Is(err, enterrors.ErrShardBackupProtected)
 }

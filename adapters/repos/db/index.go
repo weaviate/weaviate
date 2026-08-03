@@ -637,12 +637,9 @@ func (i *Index) prewarmLazyShards(hotShardNames []string) {
 					Errorf("failed to load all shards: %v", i.closingCtx.Err())
 				return
 			default:
-				// Prewarming is best effort and per shard: one shard that
-				// cannot load says nothing about the next, and stopping here
-				// would leave every later shard cold for the life of the
-				// process while allShardsReady still reports true. Whatever
-				// the cause — a backup holding the shard, memory pressure, a
-				// corrupt store — the shard still loads on first access.
+				// Prewarming is best effort and per shard: a failure here must
+				// not stop the rest of the index from warming, whatever the
+				// cause — the shard still loads on first access either way.
 				if err := i.loadLocalShardIfActive(shardName); err != nil {
 					entry := i.logger.
 						WithField("action", "load_shard").
@@ -2998,11 +2995,9 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 // The returned shard cannot be closed until release is called.
 // release is never nil, including on error, so defer it immediately after the call.
 //
-// A cold backup blocks activation of the shards it is still uploading. Since
-// that clears itself within the upload, requests wait for it instead of
-// failing, the way tenant activation already waits on backupLock. The wait is
-// entered only after a refusal, so callers that never needed to activate the
-// shard — including those routed to another replica — are not delayed.
+// A cold backup blocking a shard's activation is transient, so this waits for
+// it to clear instead of failing outright. The wait starts only after an
+// actual refusal, so callers that never needed the shard pay nothing for it.
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
 	ShardLike, func(), error,
 ) {

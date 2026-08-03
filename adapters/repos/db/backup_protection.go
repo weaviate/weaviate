@@ -21,10 +21,8 @@ import (
 
 const (
 	// backupProtectionWait caps how long an activation waits for a cold backup
-	// to release a shard. The window equals the class upload, which grows with
-	// the data (~51s for 1 GB) and with the backend's speed, so waiting it out
-	// unconditionally would hold a request for an unbounded time. Past the cap
-	// a retryable error is more useful to a client than a stalled connection.
+	// to release a shard: the upload time is unbounded, so past the cap a
+	// retryable error beats a stalled connection.
 	backupProtectionWait = 30 * time.Second
 
 	// backupProtectionPoll is how often a waiter rechecks the marker. Only
@@ -42,14 +40,10 @@ func (i *Index) refuseIfBackupProtected(shardName string) error {
 	return nil
 }
 
-// waitForBackupProtection blocks until the backup releases shardName, the
-// caller's context ends, or backupProtectionWait elapses. It holds no index
-// lock, so a waiter never blocks the backup it is waiting for, the shard's
-// other readers, or shutdown.
-//
-// The marker is polled rather than signalled on release: a waiter then also
-// gives up on a backup whose release never runs, and the read path stays
-// independent of the release path.
+// waitForBackupProtection blocks until the backup releases shardName, ctx
+// ends, or backupProtectionWait elapses. It holds no index lock, so a waiter
+// never blocks the backup, readers, or shutdown, and it polls rather than
+// waits on a signal so it still gives up if release never runs.
 func (i *Index) waitForBackupProtection(ctx context.Context, shardName string) error {
 	if _, protected := i.backupProtectedShards.Load(shardName); !protected {
 		return nil

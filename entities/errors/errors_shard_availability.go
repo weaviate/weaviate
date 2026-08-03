@@ -13,11 +13,8 @@ package errors
 
 import "errors"
 
-// ErrShardBackupProtected marks a shard that a running backup keeps cold
-// because it still has to upload files that live in the shard's own directory.
-// Activating the shard would move them out from under the upload.
-//
-// It clears itself when the backup finishes, on every exit path, and does not
-// survive a restart, so transports must map it to a retryable status rather
-// than a server error.
+// ErrShardBackupProtected marks a shard whose files a running backup still
+// has to upload; activating it would move them out from under the upload.
+// It clears on every backup exit path, does not survive a restart, and
+// transports must map it to a retryable status, not a server error.
 var ErrShardBackupProtected = errors.New("protected for backup, activation blocked")
