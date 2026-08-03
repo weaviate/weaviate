@@ -107,7 +107,8 @@ type zip struct {
 //   - splitFileSize: files exceeding this size are split across multiple chunks.
 //     Must be >= bigFilesThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.
-//   - pipeBufferSize: how far the producer may run ahead of the consumer.
+//   - pipeBufferSize: how far the producer may run ahead of the consumer. Must be
+//     positive, or bufferedpipe.Unbounded to buffer without a limit.
 func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64, pipeBufferSize int) (zip, entBackup.ReadCloserWithError, error) {
 	reader, pw := bufferedpipe.New(pipeBufferSize)
 
