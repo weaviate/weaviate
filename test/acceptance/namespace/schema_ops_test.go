@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func addPropertyAuth(t *testing.T, className string, prop *models.Property, key string) error {
@@ -632,12 +633,14 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 	})
 }
 
-// TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a
-// namespaced class. /nodes is an operator-only surface: under the narrowed
-// built-in admin a namespaced user is denied (403), while the env-var root
-// reaches it by qualified name. The qualified-name path also covers the
-// cluster-API URL routing through `regxNodesClass`, which only accepts
-// namespace-qualified names once it is built from IndexNameRegexCore.
+// TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a namespaced
+// class. No built-in role grants read_nodes; a custom role with verbose
+// read_nodes lets a by-class verbose request resolve the short name to the
+// caller's namespace and succeed (scoped), while the node-wide minimal view
+// stays operator-only (403). The env-var root reaches it by qualified name.
+// The qualified-name path also covers the cluster-API URL routing through
+// `regxNodesClass`, which only accepts namespace-qualified names once it is
+// built from IndexNameRegexCore.
 func TestNamespaces_NodesGetClass(t *testing.T) {
 	t.Parallel()
 	ns1 := uniqueNS()
@@ -657,9 +660,66 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 	verbose := "verbose"
+	minimal := "minimal"
 
-	t.Run("namespaced user denied node status by short class name", func(t *testing.T) {
+	t.Run("namespaced admin denied verbose node status by short class name", func(t *testing.T) {
+		// No built-in role grants read_nodes, so even the namespace admin is denied.
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("custom verbose-nodes role grants scoped node status by short class name", func(t *testing.T) {
+		helper.CreateRoleAndAssign(t, adminKey, ns1+":u1", "nodes-viewer-"+ns1,
+			helper.NewNodesPermission().
+				WithAction(authorization.ReadNodes).
+				WithVerbosity(verbose).
+				WithCollection("*").
+				Permission())
+		helper.WaitForOwnRole(t, user1Key, "nodes-viewer-"+ns1)
+
+		// The short name resolves to the caller's namespace; class-scoped node
+		// status stays 404 until the slowest follower has replicated the create.
+		var resp *nodes.NodesGetClassOK
+		retryOnAliasLag(t, func() error {
+			params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
+			var err error
+			resp, err = helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+			return err
+		})
+		require.NotNil(t, resp.Payload)
+		require.NotEmpty(t, resp.Payload.Nodes)
+		for _, n := range resp.Payload.Nodes {
+			for _, sh := range n.Shards {
+				assert.Equal(t, ns1+":Movies", sh.Class, "by-class response must only carry the caller's qualified class")
+			}
+		}
+
+		// The live verbose grant must not unlock the node-wide minimal view.
+		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&minimal)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("namespaced viewer denied verbose node status by short class name", func(t *testing.T) {
+		viewerKey := createNamespacedViewerUser(t, "v1", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":v1", adminKey) })
+
+		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("namespaced admin denied minimal node status by short class name", func(t *testing.T) {
+		// The custom role was cleaned up with the previous subtest, so this pins
+		// the grantless caller: minimal stays denied even for its own class.
+		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&minimal)
 		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
 		require.Error(t, err)
 		var forbidden *nodes.NodesGetClassForbidden
@@ -680,7 +740,7 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		assert.NotEmpty(t, resp.Payload.Nodes)
 	})
 
-	t.Run("namespaced user denied node status via alias", func(t *testing.T) {
+	t.Run("namespaced admin denied minimal node status via alias", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{
 			Class: "Concerts",
 			Properties: []*models.Property{
@@ -691,9 +751,9 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
-		// A 403 is immediate (the authz deny precedes alias resolution), so no
-		// retryOnAliasLag wrapper is needed here.
-		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
+		// Minimal stays operator-only and its 403 is immediate (the authz deny
+		// precedes alias resolution), so no retryOnAliasLag wrapper is needed here.
+		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&minimal)
 		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
 		require.Error(t, err)
 		var forbidden *nodes.NodesGetClassForbidden

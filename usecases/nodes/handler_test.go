@@ -176,3 +176,50 @@ func TestGetNodeStatus_VerboseFiltersCrossClassStats(t *testing.T) {
 		})
 	}
 }
+
+// TestGetNodeStatus_VerboseMultiNode pins per-node independence: each node's
+// shards and Stats are filtered on their own, including a nil-Stats node and a
+// node with no shards for the caller.
+func TestGetNodeStatus_VerboseMultiNode(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	healthy := models.NodeStatusStatusHEALTHY
+
+	status := []*models.NodeStatus{
+		{
+			Name:   "node1",
+			Status: &healthy,
+			Shards: []*models.NodeShardStatus{
+				{Name: "s1", Class: "Mine", ObjectCount: 3},
+				{Name: "s2", Class: "Other", ObjectCount: 40},
+			},
+			Stats: &models.NodeStats{ObjectCount: 43, ShardCount: 2},
+		},
+		{
+			// Only foreign shards, and no Stats: filtering must not panic and
+			// must not invent a Stats object.
+			Name:   "node2",
+			Status: &healthy,
+			Shards: []*models.NodeShardStatus{
+				{Name: "s3", Class: "Other", ObjectCount: 60},
+			},
+		},
+	}
+
+	authz := &allowlistAuthorizer{allowed: []string{nodeResource("Mine")}}
+	m := NewManager(logger, authz, &fakeDB{status: status}, nil,
+		rbacconf.Config{Enabled: true}, time.Second)
+
+	got, err := m.GetNodeStatus(context.Background(), &models.Principal{},
+		"", "", verbosity.OutputVerbose)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	require.Len(t, got[0].Shards, 1)
+	require.Equal(t, "Mine", got[0].Shards[0].Class)
+	require.NotNil(t, got[0].Stats)
+	require.Equal(t, int64(3), got[0].Stats.ObjectCount)
+	require.Equal(t, int64(1), got[0].Stats.ShardCount)
+
+	require.Empty(t, got[1].Shards)
+	require.Nil(t, got[1].Stats, "a node without Stats must not gain one during filtering")
+}

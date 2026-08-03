@@ -17,6 +17,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -42,9 +43,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func TestNodesAPI_Journey(t *testing.T) {
-	dirName := t.TempDir()
-
+// newNodesTestRepo builds a started single-node repo with the mock plumbing
+// the nodes API tests share; Shutdown is registered on t.Cleanup.
+func newNodesTestRepo(t *testing.T) (*DB, *fakeSchemaGetter, *Migrator) {
+	t.Helper()
 	logger := logrus.New()
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
@@ -70,7 +72,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
 		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
+		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
@@ -79,9 +81,12 @@ func TestNodesAPI_Journey(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
+	return repo, schemaGetter, NewMigrator(repo, logger, "node1")
+}
 
-	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger, "node1")
+func TestNodesAPI_Journey(t *testing.T) {
+	repo, schemaGetter, migrator := newNodesTestRepo(t)
 
 	// check nodes api response on empty DB
 	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
@@ -172,6 +177,62 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Equal(t, "READY", nodeStatus.Shards[0].VectorIndexingStatus)
 	assert.Equal(t, int64(0), nodeStatus.Shards[0].VectorQueueLength)
 	assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+}
+
+// TestNodesAPI_ByClassScopesStats pins by-class Stats scoping: a by-class
+// GetNodeStatus must count only the queried class. A regression to node-wide
+// aggregation would leak other classes' counts to a scoped /nodes caller.
+func TestNodesAPI_ByClassScopesStats(t *testing.T) {
+	repo, schemaGetter, migrator := newNodesTestRepo(t)
+
+	newClass := func(name string) *models.Class {
+		return &models.Class{
+			Class:               name,
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+			Properties: []*models.Property{
+				{
+					Name:         "stringProp",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				},
+			},
+		}
+	}
+	classA, classB := newClass("ClassScopedA"), newClass("ClassScopedB")
+	require.Nil(t, migrator.AddClass(context.Background(), classA))
+	require.Nil(t, migrator.AddClass(context.Background(), classB))
+	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{classA, classB}}
+
+	put := func(class, id string) {
+		res, err := repo.BatchPutObjects(context.Background(), objects.BatchObjects{
+			objects.BatchObject{
+				Object: &models.Object{Class: class, ID: strfmt.UUID(id), Properties: map[string]interface{}{"stringProp": "x"}},
+				UUID:   strfmt.UUID(id),
+			},
+		}, nil, 0)
+		require.Nil(t, err)
+		require.Nil(t, res[0].Err)
+	}
+	put("ClassScopedA", "8d5a3aa2-3c8d-4589-9ae1-3f638f506970")
+	put("ClassScopedB", "86a380e9-cb60-4b2a-bc48-51f52acd72d6")
+	put("ClassScopedB", "a3c1b8d4-0000-4000-8000-000000000001")
+
+	nodeWide, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
+	require.Nil(t, err)
+	require.Len(t, nodeWide, 1)
+	require.NotNil(t, nodeWide[0].Stats)
+	assert.Equal(t, int64(2), nodeWide[0].Stats.ShardCount, "node-wide must count both classes' shards")
+	assert.Len(t, nodeWide[0].Shards, 2)
+
+	byClass, err := repo.GetNodeStatus(context.Background(), "ClassScopedA", "", verbosity.OutputVerbose)
+	require.Nil(t, err)
+	require.Len(t, byClass, 1)
+	require.NotNil(t, byClass[0].Stats)
+	assert.Equal(t, int64(1), byClass[0].Stats.ShardCount,
+		"by-class Stats.ShardCount must reflect only the queried class, not the node-wide total")
+	require.Len(t, byClass[0].Shards, 1, "by-class must return only the queried class's shards")
+	assert.Equal(t, "ClassScopedA", byClass[0].Shards[0].Class)
 }
 
 func TestLazyLoadedShards(t *testing.T) {
