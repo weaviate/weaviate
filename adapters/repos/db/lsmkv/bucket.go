@@ -754,7 +754,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
