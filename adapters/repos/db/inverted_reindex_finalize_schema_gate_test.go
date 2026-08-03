@@ -1,6 +1,7 @@
 //                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
 //  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
@@ -482,4 +483,73 @@ func TestFinalize_UnreadablePropertiesButCanonicalIntact_KeepsTracker(t *testing
 	got, err := os.ReadFile(filepath.Join(canonical, "seg.db"))
 	require.NoError(t, err)
 	require.Equal(t, "live", string(got), "the canonical bucket must be untouched")
+}
+
+// TestFinalize_NothingToPromote_PreservesBackupAndFails pins the ordering
+// contract inside finalizeMigrationDir: the backup dir holds the pre-swap
+// data, so it is removed only once the canonical dir is in place.
+//
+// The torn state is a tidied tracker whose ingest dir is gone (a partial
+// restore, a half-finished operator move) while the canonical dir has
+// already been renamed aside by the swap. Removing the backup first and
+// then finding nothing to promote deletes the last surviving copy and
+// leaves initNonVector to create an empty bucket in its place.
+func TestFinalize_NothingToPromote_PreservesBackupAndFails(t *testing.T) {
+	lsmPath := t.TempDir()
+	migsDir := filepath.Join(lsmPath, ".migrations")
+	require.NoError(t, os.MkdirAll(migsDir, 0o755))
+
+	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
+	require.NoError(t, os.MkdirAll(gen1, 0o755))
+	touchSentinel(t, filepath.Join(gen1, "swapped.mig"))
+	touchSentinel(t, filepath.Join(gen1, "tidied.mig"))
+	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
+
+	// Backup holds the pre-swap data. No ingest dir, no canonical dir.
+	backup := filepath.Join(lsmPath, "property_text_searchable__retokenize_backup_1")
+	require.NoError(t, os.MkdirAll(backup, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(backup, "seg.db"), []byte("pre-swap"), 0o644))
+
+	logger, _ := test.NewNullLogger()
+	err := FinalizeCompletedMigrations(lsmPath, nil, logger)
+	require.Error(t, err,
+		"with nothing to promote and no canonical dir, finalize must fail the shard rather "+
+			"than let initNonVector create an empty bucket")
+	require.ErrorContains(t, err, "property_text_searchable")
+
+	got, readErr := os.ReadFile(filepath.Join(backup, "seg.db"))
+	require.NoError(t, readErr,
+		"the backup dir is the last copy of this property's data and must survive the failure")
+	require.Equal(t, "pre-swap", string(got))
+
+	require.DirExists(t, gen1, "the tracker must survive so the next startup retries")
+}
+
+// TestFinalize_UnreadableMigrationsDir_FailsShard pins that finalize does
+// not shrug off a migrations dir it cannot read. If a completed swap has
+// already renamed the canonical dir aside, skipping the scan lets
+// initNonVector create an empty bucket at that name while the real data
+// waits in an un-promoted ingest dir.
+//
+// A plain file at the .migrations path reproduces the non-ENOENT read
+// failure (ENOTDIR) deterministically, without depending on the test
+// process's uid the way a chmod would.
+func TestFinalize_UnreadableMigrationsDir_FailsShard(t *testing.T) {
+	lsmPath := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(lsmPath, ".migrations"), []byte("not a dir"), 0o644))
+
+	logger, _ := test.NewNullLogger()
+	err := FinalizeCompletedMigrations(lsmPath, nil, logger)
+	require.Error(t, err,
+		"a migrations dir that cannot be read hides pending promotions, so startup must fail "+
+			"rather than continue and risk an empty canonical bucket")
+	require.ErrorContains(t, err, ".migrations")
+}
+
+// TestFinalize_NoMigrationsDir_IsNoOp keeps the common path honest: no
+// .migrations dir at all is how the overwhelming majority of shards start,
+// and it must stay a silent success.
+func TestFinalize_NoMigrationsDir_IsNoOp(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	require.NoError(t, FinalizeCompletedMigrations(t.TempDir(), nil, logger))
 }

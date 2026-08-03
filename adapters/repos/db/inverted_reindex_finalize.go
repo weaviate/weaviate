@@ -253,14 +253,16 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			// ENOENT is the normal "no migrations in progress" path; anything
-			// else (EACCES, EIO, etc.) is worth surfacing so an operator can
-			// notice that pending finalizations are being silently skipped.
-			logger.WithField("path", migrationsDir).
-				Warnf("reindex finalize: unable to read migrations dir; pending finalizations skipped: %v", err)
+		if os.IsNotExist(err) {
+			// The normal "no migrations in progress" path.
+			return nil
 		}
-		return nil
+		// EACCES, EIO, ENOTDIR and friends mean we cannot tell whether a
+		// promotion is pending. Continuing would let initNonVector create
+		// an empty bucket at a canonical name whose data is still sitting
+		// in an un-promoted ingest dir, so fail instead and let the shard
+		// retry once the filesystem problem is fixed.
+		return fmt.Errorf("reading migrations dir %q: %w", migrationsDir, err)
 	}
 
 	// Group entries by namespace (prefix returned by parseMigrationDirName).
@@ -745,8 +747,40 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, onlyProps map[string]
 		backupDir := filepath.Join(lsmPath, mainName+suffixes.backupSuffix+genTail)
 		mainDir := filepath.Join(lsmPath, mainName)
 
-		// Remove backup dir. A failure here leaves a stale dir behind but
-		// does not block the promotion, so keep going.
+		// The backup dir holds the pre-swap data. It is removed LAST, only
+		// once the canonical dir is in place, so a torn state can never end
+		// with the backup deleted and nothing serving the property.
+		if !fileExists(ingestDir) && !fileExists(mainDir) {
+			return true, fmt.Errorf(
+				"property %q has neither an ingest dir (%q) to promote nor a canonical dir (%q); "+
+					"refusing to start the shard with an empty bucket — %q is left untouched for recovery",
+				propName, ingestDir, mainDir, backupDir)
+		}
+
+		if fileExists(ingestDir) {
+			// Remove a stale canonical dir if one exists (shouldn't
+			// normally, but be safe).
+			if fileExists(mainDir) {
+				if rmErr := os.RemoveAll(mainDir); rmErr != nil {
+					logger.WithField("dir", mainDir).
+						Errorf("finalize: failed to remove stale canonical dir before promotion: %v", rmErr)
+					keepTracker = true
+					continue
+				}
+			}
+			if rnErr := os.Rename(ingestDir, mainDir); rnErr != nil {
+				// The canonical dir is gone either way at this point (it was
+				// removed above, or never existed), so the shard would come up
+				// with an empty bucket. Fail loudly instead.
+				return true, fmt.Errorf("renaming ingest dir %q to canonical %q for property %q: %w",
+					ingestDir, mainDir, propName, rnErr)
+			}
+			logger.WithField("from", ingestDir).WithField("to", mainDir).
+				Debug("finalize: renamed ingest dir to main")
+		}
+
+		// The canonical dir is in place, so the backup is redundant now. A
+		// failure here only leaves a stale dir behind.
 		if fileExists(backupDir) {
 			if rmErr := os.RemoveAll(backupDir); rmErr != nil {
 				logger.WithField("dir", backupDir).
@@ -756,30 +790,6 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, onlyProps map[string]
 				logger.WithField("dir", backupDir).Debug("finalize: removed backup dir")
 			}
 		}
-
-		// Rename ingest dir to canonical main dir.
-		if !fileExists(ingestDir) {
-			continue
-		}
-		// Remove stale main dir if it exists (shouldn't normally, but be safe).
-		canonicalExisted := fileExists(mainDir)
-		if canonicalExisted {
-			if rmErr := os.RemoveAll(mainDir); rmErr != nil {
-				logger.WithField("dir", mainDir).
-					Errorf("finalize: failed to remove stale canonical dir before promotion: %v", rmErr)
-				keepTracker = true
-				continue
-			}
-		}
-		if rnErr := os.Rename(ingestDir, mainDir); rnErr != nil {
-			// The canonical dir is gone either way at this point (it was
-			// removed above, or never existed), so the shard would come up
-			// with an empty bucket. Fail loudly instead.
-			return true, fmt.Errorf("renaming ingest dir %q to canonical %q for property %q: %w",
-				ingestDir, mainDir, propName, rnErr)
-		}
-		logger.WithField("from", ingestDir).WithField("to", mainDir).
-			Debug("finalize: renamed ingest dir to main")
 	}
 	return keepTracker, nil
 }
