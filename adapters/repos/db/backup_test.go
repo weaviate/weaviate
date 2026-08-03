@@ -434,9 +434,8 @@ func requireBackupLocksFree(t *testing.T, idx *Index, names []string) {
 	}
 }
 
-// backupWorkloadTimeout bounds every wait in the racing workloads. Go's
-// deadlock detector is no substitute: it never fires while any goroutine holds
-// a pending timer, and takes a full minute when it does.
+// backupWorkloadTimeout bounds every wait in the racing workloads: Go's
+// deadlock detector never fires while a goroutine holds a pending timer.
 const backupWorkloadTimeout = 30 * time.Second
 
 // requireBackupLocksFreeConcurrently is requireBackupLocksFree for racing
@@ -462,7 +461,6 @@ func requireBackupLocksFreeConcurrently(t *testing.T, idx *Index, names []string
 	}
 }
 
-// requireWaitGroupDone fails if wg does not finish within backupWorkloadTimeout.
 func requireWaitGroupDone(t *testing.T, wg *sync.WaitGroup, msg string) {
 	t.Helper()
 
@@ -478,8 +476,8 @@ func requireWaitGroupDone(t *testing.T, wg *sync.WaitGroup, msg string) {
 	}
 }
 
-// waitForBackupSlot registers backupID once the running backup has released the
-// index. It yields rather than sleeps, to keep the handover race tight.
+// waitForBackupSlot yields rather than sleeps between initBackup retries, to
+// keep the handover race tight.
 func waitForBackupSlot(idx *Index, backupID string) (uint64, bool) {
 	deadline := time.Now().Add(backupWorkloadTimeout)
 	for {
@@ -495,9 +493,9 @@ func waitForBackupSlot(idx *Index, backupID string) (uint64, bool) {
 
 const releaseBackupUnlockChildEnv = "WEAVIATE_TEST_RELEASE_BACKUP_UNLOCK_CHILD"
 
-// releaseBackupChildTimeout bounds a child the parent cannot bound: a test
-// binary defaults to -test.timeout=0 and go test -timeout does not reach it, so
-// a wedged child reparents to init and outlives the CI job.
+// releaseBackupChildTimeout bounds the child itself: it defaults to
+// -test.timeout=0, invisible to the parent's go test -timeout, so a wedged
+// child would reparent to init and outlive the CI job.
 const releaseBackupChildTimeout = 5 * time.Minute
 
 // runReleaseBackupWorkloadInChild re-executes this binary to run just the
@@ -542,8 +540,7 @@ func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
 	runReleaseBackupWorkloadInChild(t)
 }
 
-// Regression test: two backups releasing at once must not both unlock a shard
-// only the older one protected.
+// Regression test: two overlapping sweeps must not both unlock the same shard.
 func TestReleaseBackupOverlappingSweepsUnlockEachShardOnce(t *testing.T) {
 	if os.Getenv(releaseBackupUnlockChildEnv) == "1" {
 		releaseBackupOverlappingSweepWorkload(t)
@@ -618,10 +615,9 @@ func releaseBackupOverlappingSweepWorkload(t *testing.T) {
 	for trial := 0; trial < trials; trial++ {
 		idx := newBackupTestIndex(t, rootDir, names, firstBackup)
 
-		// The first backup ends with its sweep still pending, so the second one
-		// runs and ends while the first's shards are all still protected. Sweeping
-		// older generations too is what frees a stranded shard, and it is also what
-		// puts both sweeps on the same entries.
+		// backup1's sweep is claimed but not run yet, so backup2 starts and ends
+		// while backup1's shards are still protected. Sweeping older generations too
+		// is what puts both sweeps on the same shard set.
 		firstSweep, claimed := idx.claimBackup(firstBackup)
 		require.True(t, claimed)
 		_, err := idx.initBackup(secondBackup)
@@ -787,13 +783,9 @@ func TestBackupShardWithoutHardlinksColdTenant(t *testing.T) {
 	requireBackupLocksFree(t, idx, []string{shardName})
 }
 
-// Drives the real producer rather than fabricating backupProtectedShards, so
-// what it stores has to be what ReleaseBackup releases. Storing the wrong value
-// or none leaks the shard's lock on every backup, with nothing to show for it.
-//
-// It also covers both inactive branches against the active path they used to
-// fall through into: a nil shard panics there, an unloaded LazyLoadShard does
-// not, which is why only one of the two was ever noticed.
+// Regression test: an inactive shard (absent, or an unloaded LazyLoadShard)
+// must not fall through into the active path, and stays protected and
+// locked even when the descriptor fails.
 func TestBackupShardWithoutHardlinksProtectsAndReleases(t *testing.T) {
 	const (
 		shardName = "cold-tenant"
@@ -834,8 +826,7 @@ func TestBackupShardWithoutHardlinksProtectsAndReleases(t *testing.T) {
 				require.ErrorIs(t, err, errShardNoLocalData)
 			}
 
-			// The shard stays protected and locked either way: the descriptor
-			// failing does not hand the shard back.
+			// Both descriptor outcomes must leave the shard protected and locked.
 			_, protected := idx.backupProtectedShards.Load(shardName)
 			require.True(t, protected, "producer did not protect the inactive shard")
 			require.False(t, idx.backupLock.TryRLock(shardName),
@@ -880,10 +871,9 @@ func TestReleaseBackupIgnoresForeignBackup(t *testing.T) {
 	assert.NoDirExists(t, stagingDir)
 }
 
-// Shards are released outside backupStateMu, so a later backup can protect one
-// mid-sweep. It only gets there for a shard the releasing backup never held —
-// a tenant that was hot then and is cold now — since every other shard's lock
-// is still held. That one must survive the sweep.
+// Shards release outside backupStateMu, so a later backup can protect one
+// mid-sweep — but only a shard the releasing backup never itself held. That
+// shard must survive the sweep.
 func TestReleaseProtectedShardsLeavesNewerGenerationsAlone(t *testing.T) {
 	const (
 		wasHot  = "hot-then-cold-tenant"
