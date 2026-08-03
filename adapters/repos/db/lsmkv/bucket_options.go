@@ -301,6 +301,17 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	}
 }
 
+// WithContainsAcceleratorFactory attaches a factory that builds the resident
+// ContainsAny accelerator at bucket open (roaringset only). The bucket calls it
+// once, after disk segments are loaded and while the memtables are empty, and
+// keeps the result live via the flush hook.
+func WithContainsAcceleratorFactory(f ContainsAcceleratorFactory) BucketOption {
+	return func(b *Bucket) error {
+		b.containsAccFactory = f
+		return nil
+	}
+}
+
 // WithRangeableInMemoryDeferred marks a bucket whose in-memory rep was left
 // unbuilt intentionally. Enables a diagnostic log line only; never affects
 // read-path selection.

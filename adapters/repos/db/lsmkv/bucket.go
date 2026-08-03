@@ -92,11 +92,13 @@ type Bucket struct {
 	logger         logrus.FieldLogger
 
 	// containsAcc is an optional resident ContainsAny accelerator (a columnar
-	// index) attached by the query layer. Held behind an interface because lsmkv
-	// cannot import the columnar package (which imports lsmkv). Guarded by
-	// containsAccMu. See bucket_contains_accelerator.go.
-	containsAcc   *containsAccelerator
-	containsAccMu sync.RWMutex
+	// index), built at open by containsAccFactory and kept live via the flush
+	// hook. Held behind an interface because lsmkv cannot import the columnar
+	// package (which imports lsmkv). Atomic so the flush hook can detach it (on a
+	// decline) concurrently with lock-free reads. See
+	// bucket_contains_accelerator.go.
+	containsAcc        atomic.Pointer[containsAccelerator]
+	containsAccFactory ContainsAcceleratorFactory
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -411,6 +413,10 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			return nil, err
 		}
 	}
+
+	// build+attach the ContainsAny accelerator now that disk segments are loaded
+	// and the memtables are empty (so its base is disk-only), before any flush.
+	b.initContainsAccelerator()
 
 	id := "bucket/flush/" + b.dir
 	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
@@ -2153,6 +2159,14 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 			// having just flushed the memtable we now have the most up2date count which
 			// is a good place to update the metric
 			b.metrics.ObjectCount(b.disk.count())
+		}
+
+	case StrategyRoaringSet:
+		// keep the columnar accelerator current: copy the just-flushed memtable
+		// into a run so its data stays served without re-reading disk.
+		if err := b.absorbFlushIntoAccelerator(flushing); err != nil {
+			b.logger.WithField("action", "columnar_absorb_flush").
+				Warnf("columnar accelerator failed to absorb flush: %v", err)
 		}
 
 	case StrategyRoaringSetRange:

@@ -466,10 +466,16 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 		if layer.Additions == nil || layer.Additions.IsEmpty() {
 			continue
 		}
+		id := layer.Additions.Minimum()
+		if layer.Additions.Maximum() != id {
+			// a key with multiple added docIDs violates 1-doc-per-key; decline so
+			// the caller detaches the accelerator rather than dropping docIDs.
+			return fmt.Errorf("columnar index requires a unique property: a flushed key holds multiple docIDs")
+		}
 		// copy the key: the cursor's key buffer may be reused across Next().
 		blob = append(blob, k...)
 		offsets = append(offsets, uint32(len(blob)))
-		adds.append(layer.Additions.Minimum())
+		adds.append(id)
 
 		if uniformWidth == -1 {
 			uniformWidth = len(k)

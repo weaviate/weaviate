@@ -14,7 +14,9 @@ package db
 import (
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 )
 
 func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv.BucketOption) []lsmkv.BucketOption {
@@ -46,6 +48,13 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		options = append(options,
 			lsmkv.WithBitmapBufPool(s.bitmapBufPool),
 		)
+		if entcfg.ColumnarContainsEnabled() {
+			// TODO aliszka:columnar — attaches to every roaringset bucket; the
+			// factory declines on non-unique props, but restricting this to
+			// filterable property buckets would avoid the wasted startup scans.
+			options = append(options,
+				lsmkv.WithContainsAcceleratorFactory(s.containsAcceleratorFactory()))
+		}
 	case lsmkv.StrategyRoaringSetRange:
 		options = append(options,
 			lsmkv.WithBitmapBufPool(s.bitmapBufPool),
@@ -66,6 +75,24 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 	}
 
 	return append(options, customOptions...)
+}
+
+// containsAcceleratorFactory builds the resident columnar ContainsAny
+// accelerator for a roaringset bucket at open, sized to the shard's current
+// docID counter. Declines (returns nil) if the counter isn't wired yet or the
+// property is not unique (BuildFromBucket with requireUnique errors), in which
+// case ContainsAny falls back to the standard fold.
+func (s *Shard) containsAcceleratorFactory() lsmkv.ContainsAcceleratorFactory {
+	return func(bkt *lsmkv.Bucket) lsmkv.ContainsAnyResolver {
+		if s.counter == nil {
+			return nil
+		}
+		idx, err := columnar.BuildFromBucket(bkt, s.counter.Get(), true)
+		if err != nil {
+			return nil
+		}
+		return idx
+	}
 }
 
 func (s *Shard) overwrittenMakeDefaultBucketOptions(overwrittenDefaults ...lsmkv.BucketOption) lsmkv.MakeBucketOptions {

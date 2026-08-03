@@ -89,6 +89,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), bucketName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithBitmapBufPool(bufPool),
+		lsmkv.WithContainsAcceleratorFactory(columnarTestFactory(numDocs)),
 	))
 	bucket := store.Bucket(bucketName)
 
