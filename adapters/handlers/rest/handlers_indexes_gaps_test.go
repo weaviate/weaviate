@@ -475,11 +475,27 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 
 	t.Run("rebuild rejected for reference type", func(t *testing.T) {
 		// Reference (non-primitive) data types have no inverted bucket.
+		// Also load-bearing: batch-ref writes bypass the reindex
+		// double-write tee, so ref properties must stay unreachable as
+		// migration targets (weaviate/weaviate#11692).
 		prop := &models.Property{Name: "p", DataType: []string{"SomeClass"}}
 		err := validateRebuildFilterableDataType(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not support a filterable inverted index")
 		require.Contains(t, err.Error(), "nothing to rebuild")
+	})
+
+	t.Run("rebuild rejected for object (nested) type", func(t *testing.T) {
+		// object/object[] are Nested, not primitive. Also load-bearing:
+		// nested-property buckets never fire the reindex double-write tee,
+		// so this gate must keep them unreachable as migration targets
+		// (weaviate/weaviate#11692).
+		for _, dt := range []string{"object", "object[]"} {
+			prop := &models.Property{Name: "p", DataType: []string{dt}}
+			err := validateRebuildFilterableDataType(prop)
+			require.Errorf(t, err, "data type %q must be rejected", dt)
+			require.Contains(t, err.Error(), "does not support a filterable inverted index")
+		}
 	})
 }
 
@@ -615,6 +631,11 @@ func TestValidateEnableFilterableProperty(t *testing.T) {
 
 		// References are non-primitive.
 		{"reference rejected", &models.Property{Name: "p", DataType: []string{"OtherClass"}}, "does not support"},
+
+		// Nested types must stay unreachable as migration targets — see the
+		// sibling note on TestValidateRebuildFilterableDataType.
+		{"object rejected", &models.Property{Name: "p", DataType: []string{"object"}}, "does not support"},
+		{"object[] rejected", &models.Property{Name: "p", DataType: []string{"object[]"}}, "does not support"},
 
 		// Already-filterable rejected.
 		{"already filterable", &models.Property{Name: "p", DataType: []string{"text"}, IndexFilterable: boolPtr(true)}, "already has a filterable index"},
