@@ -246,7 +246,7 @@ fi
 
 log "Extracting docker image tags from job logs..."
 # Use gh api (works even when logs are large / job just completed)
-TAGS=$(gh api "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \
+TAGS=$(gh api --allow-escape-sequences "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \
   | sed 's/\x1b\[[0-9;]*m//g' \
   | grep -oE 'semitechnologies/weaviate:[a-zA-Z0-9._-]+' \
   | sort -u || true)
