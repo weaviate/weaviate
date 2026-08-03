@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -2019,4 +2020,197 @@ func newFileList(t *testing.T, sourceDir string, files []string) *backup.FileLis
 		Files:     append([]string{}, files...),
 		FileSizes: fileSizes,
 	}
+}
+
+// The producer must be able to run ahead while the backend upload is still in
+// flight; an unbuffered pipe would block it on the first write instead.
+func TestZipProducerRunsAheadOfConsumer(t *testing.T) {
+	tests := []struct {
+		name        string
+		level       CompressionLevel
+		compression backup.CompressionType
+	}{
+		{name: "no compression", level: NoCompression, compression: backup.CompressionNone},
+		{name: "zstd", level: ZstdDefaultCompression, compression: backup.CompressionZSTD},
+		{name: "gzip", level: GzipBestSpeed, compression: backup.CompressionGZIP},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Small enough that the whole chunk fits the buffer, so the
+			// producer never has to wait for the consumer at all.
+			const fileSize = 1 << 20
+			require.Less(t, int64(fileSize), int64(chunkPipeBufferSize))
+			data := incompressibleData(t, fileSize, 42)
+			dir, sd, fileList := newFileSource(t, data)
+
+			z, rc, err := NewZip(dir, int(tt.level), 0, 0, 0)
+			require.NoError(t, err)
+
+			produced := make(chan error, 1)
+			go func() {
+				_, _, writeErr := z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+				produced <- errors.Join(writeErr, z.Close())
+			}()
+
+			// Nothing reads from rc until the producer reports it is done.
+			select {
+			case err := <-produced:
+				require.NoError(t, err)
+			case <-time.After(10 * time.Second):
+				t.Fatal("producer blocked waiting for the consumer to read")
+			}
+
+			out, err := io.ReadAll(rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+
+			tr := tar.NewReader(decompress(t, tt.compression, out))
+			hdr, err := tr.Next()
+			require.NoError(t, err)
+			require.Equal(t, "shard/a.db", hdr.Name)
+			got, err := io.ReadAll(tr)
+			require.NoError(t, err)
+			require.Equal(t, data, got)
+		})
+	}
+}
+
+// Every real chunk is larger than the pipe buffer, so the producer fills it,
+// waits for the consumer to drain, and resumes. The bytes must survive that.
+func TestZipStreamLargerThanPipeBuffer(t *testing.T) {
+	tests := []struct {
+		name        string
+		level       CompressionLevel
+		compression backup.CompressionType
+	}{
+		{name: "no compression", level: NoCompression, compression: backup.CompressionNone},
+		{name: "zstd", level: ZstdDefaultCompression, compression: backup.CompressionZSTD},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := incompressibleData(t, chunkPipeBufferSize+(1<<20), 7)
+			dir, sd, fileList := newFileSource(t, data)
+
+			z, rc, err := NewZip(dir, int(tt.level), 0, 0, 0)
+			require.NoError(t, err)
+
+			produced := make(chan error, 1)
+			go func() {
+				_, _, writeErr := z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+				produced <- errors.Join(writeErr, z.Close())
+			}()
+
+			out, err := io.ReadAll(rc)
+			require.NoError(t, err)
+			require.NoError(t, <-produced)
+			require.NoError(t, rc.Close())
+
+			tr := tar.NewReader(decompress(t, tt.compression, out))
+			hdr, err := tr.Next()
+			require.NoError(t, err)
+			require.Equal(t, "shard/a.db", hdr.Name)
+			got, err := io.ReadAll(tr)
+			require.NoError(t, err)
+			require.Equal(t, data, got)
+		})
+	}
+}
+
+func TestZipErrorPropagation(t *testing.T) {
+	t.Run("producer error reaches the consumer after buffered data", func(t *testing.T) {
+		dir, sd, fileList := newFileSource(t, makeTestData(4096, 1))
+
+		z, rc, err := NewZip(dir, int(NoCompression), 0, 0, 0)
+		require.NoError(t, err)
+
+		_, _, err = z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+		require.NoError(t, err)
+
+		shardErr := errors.New("shard read failed")
+		require.NoError(t, z.CloseWithError(shardErr))
+
+		out, err := io.ReadAll(rc)
+		require.ErrorIs(t, err, shardErr)
+		require.NotEmpty(t, out, "buffered data must be delivered before the error")
+	})
+
+	t.Run("consumer error reaches the producer", func(t *testing.T) {
+		dir, sd, fileList := newFileSource(t, makeTestData(4096, 1))
+
+		z, rc, err := NewZip(dir, int(NoCompression), 0, 0, 0)
+		require.NoError(t, err)
+
+		uploadErr := errors.New("upload failed")
+		require.NoError(t, rc.CloseWithError(uploadErr))
+
+		_, _, err = z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+		require.ErrorIs(t, err, uploadErr)
+	})
+
+	t.Run("consumer error reaches a producer blocked on a full buffer", func(t *testing.T) {
+		dir, sd, fileList := newFileSource(t, incompressibleData(t, chunkPipeBufferSize+(1<<20), 9))
+
+		z, rc, err := NewZip(dir, int(NoCompression), 0, 0, 0)
+		require.NoError(t, err)
+
+		produced := make(chan error, 1)
+		go func() {
+			_, _, writeErr := z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+			produced <- writeErr
+		}()
+
+		// Give the producer time to fill the buffer and block on it.
+		time.Sleep(100 * time.Millisecond)
+		uploadErr := errors.New("upload failed")
+		require.NoError(t, rc.CloseWithError(uploadErr))
+
+		select {
+		case err := <-produced:
+			require.ErrorIs(t, err, uploadErr)
+		case <-time.After(10 * time.Second):
+			t.Fatal("producer did not fail after the consumer closed")
+		}
+	})
+}
+
+// newFileSource creates a source directory holding one shard file with the
+// given contents.
+func newFileSource(t *testing.T, data []byte) (string, backup.ShardDescriptor, *backup.FileList) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "source")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "a.db"), data, 0o644))
+	return dir, backup.ShardDescriptor{Name: "shard", Node: "node1"}, newFileList(t, dir, []string{"shard/a.db"})
+}
+
+// incompressibleData keeps every compression level pushing roughly size bytes
+// through the pipe.
+func incompressibleData(t *testing.T, size int, seed int64) []byte {
+	t.Helper()
+	data := make([]byte, size)
+	_, err := mathrand.New(mathrand.NewSource(seed)).Read(data)
+	require.NoError(t, err)
+	return data
+}
+
+func decompress(t *testing.T, compression backup.CompressionType, data []byte) io.Reader {
+	t.Helper()
+	switch compression {
+	case backup.CompressionNone:
+		return bytes.NewReader(data)
+	case backup.CompressionZSTD:
+		r, err := zstd.NewReader(bytes.NewReader(data))
+		require.NoError(t, err)
+		t.Cleanup(r.Close)
+		return r
+	case backup.CompressionGZIP:
+		r, err := gzip.NewReader(bytes.NewReader(data))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, r.Close()) })
+		return r
+	}
+	t.Fatalf("unsupported compression %v", compression)
+	return nil
 }

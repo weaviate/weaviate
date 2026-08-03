@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package export
+package bufferedpipe
 
 import (
 	"bytes"
@@ -25,11 +25,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBufferedPipe_ReadWrite(t *testing.T) {
+func TestReadWrite(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name     string
+		maxSize  int
 		writes   []string // data chunks to write
 		readSize int      // 0 means use io.ReadAll
 		expected string   // expected concatenated output
@@ -60,13 +61,29 @@ func TestBufferedPipe_ReadWrite(t *testing.T) {
 			readSize: 3,
 			expected: "0123456789",
 		},
+		{
+			name:     "write larger than maxSize overshoots the soft limit",
+			maxSize:  4,
+			writes:   []string{"much longer than the buffer capacity"},
+			expected: "much longer than the buffer capacity",
+		},
+		{
+			name:     "unbounded buffer accepts everything",
+			maxSize:  -1,
+			writes:   []string{"a", "b", "c"},
+			expected: "abc",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			pr, pw := newBufferedPipe(1024)
+			maxSize := tc.maxSize
+			if maxSize == 0 {
+				maxSize = 1024
+			}
+			pr, pw := New(maxSize)
 
 			for _, chunk := range tc.writes {
 				_, err := pw.Write([]byte(chunk))
@@ -95,19 +112,19 @@ func TestBufferedPipe_ReadWrite(t *testing.T) {
 	}
 }
 
-func TestBufferedPipe_CloseErrors(t *testing.T) {
+func TestCloseErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name      string
-		setup     func(pr *bufferedPipeReader, pw *bufferedPipeWriter)
+		setup     func(pr *Reader, pw *Writer)
 		op        string // "read" or "write"
 		wantErr   error  // nil means check with Contains
 		errSubstr string // used when wantErr is nil
 	}{
 		{
 			name: "write after reader close returns ErrClosedPipe",
-			setup: func(pr *bufferedPipeReader, _ *bufferedPipeWriter) {
+			setup: func(pr *Reader, _ *Writer) {
 				pr.Close()
 			},
 			op:      "write",
@@ -115,7 +132,7 @@ func TestBufferedPipe_CloseErrors(t *testing.T) {
 		},
 		{
 			name: "write after reader close with error returns that error",
-			setup: func(pr *bufferedPipeReader, _ *bufferedPipeWriter) {
+			setup: func(pr *Reader, _ *Writer) {
 				pr.CloseWithError(fmt.Errorf("upload aborted"))
 			},
 			op:        "write",
@@ -123,7 +140,7 @@ func TestBufferedPipe_CloseErrors(t *testing.T) {
 		},
 		{
 			name: "read after reader close returns ErrClosedPipe",
-			setup: func(pr *bufferedPipeReader, pw *bufferedPipeWriter) {
+			setup: func(pr *Reader, pw *Writer) {
 				pw.Write([]byte("buffered data"))
 				pr.Close()
 			},
@@ -132,7 +149,7 @@ func TestBufferedPipe_CloseErrors(t *testing.T) {
 		},
 		{
 			name: "write after writer close returns ErrClosedPipe",
-			setup: func(_ *bufferedPipeReader, pw *bufferedPipeWriter) {
+			setup: func(_ *Reader, pw *Writer) {
 				pw.Close()
 			},
 			op:      "write",
@@ -140,11 +157,30 @@ func TestBufferedPipe_CloseErrors(t *testing.T) {
 		},
 		{
 			name: "read after writer close with error returns that error",
-			setup: func(_ *bufferedPipeReader, pw *bufferedPipeWriter) {
+			setup: func(_ *Reader, pw *Writer) {
 				pw.CloseWithError(fmt.Errorf("scan failed"))
 			},
 			op:        "read",
 			errSubstr: "scan failed",
+		},
+		{
+			name: "repeated close keeps the first error",
+			setup: func(_ *Reader, pw *Writer) {
+				pw.CloseWithError(fmt.Errorf("scan failed"))
+				pw.Close()
+				pw.CloseWithError(fmt.Errorf("second error"))
+			},
+			op:        "read",
+			errSubstr: "scan failed",
+		},
+		{
+			name: "repeated reader close keeps the first error",
+			setup: func(pr *Reader, _ *Writer) {
+				pr.CloseWithError(fmt.Errorf("upload aborted"))
+				pr.Close()
+			},
+			op:        "write",
+			errSubstr: "upload aborted",
 		},
 	}
 
@@ -152,7 +188,7 @@ func TestBufferedPipe_CloseErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			pr, pw := newBufferedPipe(1024)
+			pr, pw := New(1024)
 			tc.setup(pr, pw)
 
 			var err error
@@ -177,10 +213,10 @@ func TestBufferedPipe_CloseErrors(t *testing.T) {
 	}
 }
 
-func TestBufferedPipe_WriterCloseWithErrorDrainsBufferFirst(t *testing.T) {
+func TestWriterCloseWithErrorDrainsBufferFirst(t *testing.T) {
 	t.Parallel()
 
-	pr, pw := newBufferedPipe(1024)
+	pr, pw := New(1024)
 
 	_, err := pw.Write([]byte("some data"))
 	require.NoError(t, err)
@@ -199,13 +235,13 @@ func TestBufferedPipe_WriterCloseWithErrorDrainsBufferFirst(t *testing.T) {
 	require.ErrorIs(t, err, scanErr)
 }
 
-func TestBufferedPipe_ConcurrentReadWrite(t *testing.T) {
+func TestConcurrentReadWrite(t *testing.T) {
 	t.Parallel()
 
 	const totalBytes = 1024 * 1024 // 1 MB
 	const chunkSize = 4096
 
-	pr, pw := newBufferedPipe(32 * 1024) // 32 KB buffer — much smaller than total data
+	pr, pw := New(32 * 1024) // 32 KB buffer — much smaller than total data
 
 	data := make([]byte, totalBytes)
 	_, err := rand.Read(data)
@@ -234,10 +270,10 @@ func TestBufferedPipe_ConcurrentReadWrite(t *testing.T) {
 	assert.Equal(t, data, out)
 }
 
-func TestBufferedPipe_WriterUnblocksAfterDrain(t *testing.T) {
+func TestWriterUnblocksAfterDrain(t *testing.T) {
 	t.Parallel()
 
-	pr, pw := newBufferedPipe(100)
+	pr, pw := New(100)
 
 	// Fill the buffer.
 	_, err := pw.Write(make([]byte, 100))
@@ -265,38 +301,68 @@ func TestBufferedPipe_WriterUnblocksAfterDrain(t *testing.T) {
 	pr.Close()
 }
 
-func TestBufferedPipe_ReaderCloseUnblocksWriter(t *testing.T) {
+// Closing either half must release a Write that is already blocked on a full
+// buffer, otherwise the writer waits for a drain that will never come.
+func TestCloseUnblocksBlockedWriter(t *testing.T) {
 	t.Parallel()
 
-	pr, pw := newBufferedPipe(100)
+	tests := []struct {
+		name      string
+		close     func(pr *Reader, pw *Writer)
+		errSubstr string
+	}{
+		{
+			name:      "reader close with error",
+			close:     func(pr *Reader, _ *Writer) { pr.CloseWithError(fmt.Errorf("reader aborted")) },
+			errSubstr: "reader aborted",
+		},
+		{
+			name:      "writer close",
+			close:     func(_ *Reader, pw *Writer) { pw.Close() },
+			errSubstr: io.ErrClosedPipe.Error(),
+		},
+	}
 
-	_, err := pw.Write(make([]byte, 100))
-	require.NoError(t, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	writeDone := make(chan error, 1)
-	go func() {
-		_, err := pw.Write([]byte("more"))
-		writeDone <- err
-	}()
+			pr, pw := New(100)
 
-	pr.CloseWithError(fmt.Errorf("reader aborted"))
+			_, err := pw.Write(make([]byte, 100))
+			require.NoError(t, err)
 
-	select {
-	case err := <-writeDone:
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "reader aborted")
-	case <-time.After(time.Second):
-		t.Fatal("Write did not unblock after reader closed")
+			writeDone := make(chan error, 1)
+			started := make(chan struct{})
+			go func() {
+				close(started)
+				_, err := pw.Write([]byte("more"))
+				writeDone <- err
+			}()
+
+			// Let the Write reach its wait, so the close has to wake it
+			// rather than being seen by the guard on the way in.
+			<-started
+			time.Sleep(50 * time.Millisecond)
+			tc.close(pr, pw)
+
+			select {
+			case err := <-writeDone:
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSubstr)
+			case <-time.After(time.Second):
+				t.Fatal("Write did not unblock after close")
+			}
+		})
 	}
 }
 
-func TestBufferedPipe_ReaderCloseUnblocksUpload(t *testing.T) {
+func TestReaderCloseUnblocksBlockedRead(t *testing.T) {
 	t.Parallel()
 
-	// Use a zero-capacity buffer so the reader blocks immediately on the
-	// first Read (no data to drain first). Writer is never closed, so the
-	// only way for Read to return is via pr.Close().
-	pr, pw := newBufferedPipe(1024)
+	// The writer is never closed, so the only way for a Read on the empty
+	// buffer to return is via pr.Close().
+	pr, pw := New(1024)
 
 	readDone := make(chan error, 1)
 	go func() {
@@ -305,7 +371,6 @@ func TestBufferedPipe_ReaderCloseUnblocksUpload(t *testing.T) {
 		readDone <- err
 	}()
 
-	// Close the reader — must unblock the blocked Read.
 	pr.Close()
 
 	select {
@@ -319,11 +384,11 @@ func TestBufferedPipe_ReaderCloseUnblocksUpload(t *testing.T) {
 	pw.Close()
 }
 
-func TestBufferedPipe_LargeDataIntegrity(t *testing.T) {
+func TestLargeDataIntegrity(t *testing.T) {
 	t.Parallel()
 
-	const totalBytes = 10 * 1024 * 1024   // 10 MB
-	pr, pw := newBufferedPipe(256 * 1024) // 256 KB buffer
+	const totalBytes = 10 * 1024 * 1024 // 10 MB
+	pr, pw := New(256 * 1024)           // 256 KB buffer
 
 	data := make([]byte, totalBytes)
 	_, err := rand.Read(data)

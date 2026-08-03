@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency/bufferedpipe"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -630,11 +631,11 @@ func TestScanFieldRoundTrip(t *testing.T) {
 
 // newTestPipeline creates a rangePipeline backed by a buffered pipe and
 // ParquetWriter. The upload goroutine drains the pipe reader and sends
-// uploadErr to the done channel. The bufferedPipeReader is returned so
+// uploadErr to the done channel. The pipe reader is returned so
 // callers can break the pipe for error-path tests.
-func newTestPipeline(t *testing.T, uploadErr error) (*rangePipeline, *bufferedPipeReader) {
+func newTestPipeline(t *testing.T, uploadErr error) (*rangePipeline, *bufferedpipe.Reader) {
 	t.Helper()
-	pr, pw := newBufferedPipe(defaultPipeBufferSize)
+	pr, pw := bufferedpipe.New(defaultPipeBufferSize)
 	uploadDone := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(io.Discard, pr)

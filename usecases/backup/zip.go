@@ -28,6 +28,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	entBackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency/bufferedpipe"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -62,11 +63,17 @@ type compressor interface {
 	Close() error
 }
 
+// chunkPipeBufferSize lets the tar/compressor producer run ahead of the backend
+// upload so the two overlap instead of taking turns. It covers one GCS or S3
+// upload request; Azure posts 40 MiB blocks and still stalls partway through
+// each one. Peak extra memory is GoPoolSize * chunkPipeBufferSize, one per worker.
+const chunkPipeBufferSize = 16 * 1024 * 1024
+
 type zip struct {
 	sourcePath          string
 	w                   *tar.Writer
 	compressorWriter    compressor
-	pipeWriter          *io.PipeWriter
+	pipeWriter          *bufferedpipe.Writer
 	maxChunkSizeInBytes int64
 	bigFilesThreshold   int64
 	splitFileSizeBytes  int64
@@ -81,8 +88,7 @@ type zip struct {
 //     Must be >= bigFilesThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.
 func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
-	pr, pw := io.Pipe()
-	reader := &readCloser{src: pr, n: 0}
+	reader, pw := bufferedpipe.New(chunkPipeBufferSize)
 
 	var gzw compressor
 	var tarW *tar.Writer
@@ -149,7 +155,7 @@ func (z *zip) CloseWithError(err error) error {
 	if z.compressorWriter != nil {
 		err2 = z.compressorWriter.Close()
 	}
-	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil && !errors.Is(closeErr, io.ErrClosedPipe) {
+	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil {
 		err3 = closeErr
 	}
 	if err1 != nil || err2 != nil || err3 != nil {
@@ -645,24 +651,6 @@ func (v vFileInfo) Mode() os.FileMode  { return 0o644 }
 func (v vFileInfo) ModTime() time.Time { return v.modTime }
 func (v vFileInfo) IsDir() bool        { return false }
 func (v vFileInfo) Sys() interface{}   { return nil }
-
-type readCloser struct {
-	src *io.PipeReader
-	n   int64
-}
-
-func (r *readCloser) Read(p []byte) (n int, err error) {
-	n, err = r.src.Read(p)
-	atomic.AddInt64(&r.n, int64(n))
-	return n, err
-}
-
-func (r *readCloser) Close() error { return r.src.Close() }
-
-// CloseWithError closes the reader and signals the given error to the producer.
-// If err is non-nil, the producer's write will return this error instead of
-// the generic "io: read/write on closed pipe".
-func (r *readCloser) CloseWithError(err error) error { return r.src.CloseWithError(err) }
 
 // ceilDiv returns ⌈a/b⌉ using integer arithmetic.
 func ceilDiv(a, b int64) int64 {
