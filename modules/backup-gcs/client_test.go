@@ -378,3 +378,85 @@ func TestWriteEndsWriterSpan(t *testing.T) {
 	}
 	assert.Equal(t, 1, writerSpans, "the writer span must be ended on the error path")
 }
+
+func TestWriteResumableUploadIsFinalizedOnlyOnSuccess(t *testing.T) {
+	const bucketName = "test-bucket"
+	// Above the 16 MiB default ChunkSize, so the SDK opens a resumable session
+	// and pushes the first chunk to the backend before the copy ends.
+	payload := bytes.Repeat([]byte("x"), 17*1024*1024)
+
+	readErr := errors.New("scan failed")
+
+	tests := []struct {
+		name          string
+		readErr       error
+		wantFinalized int64
+	}{
+		{
+			name:          "complete copy finalizes the object",
+			wantFinalized: 1,
+		},
+		{
+			name:          "read failing after the first chunk leaves the session unfinalized",
+			readErr:       readErr,
+			wantFinalized: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sessions, chunkPuts, finalizePuts atomic.Int64
+			var finalizeRange atomic.Value
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/upload/storage/v1/b/"+bucketName+"/o", func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "resumable", r.URL.Query().Get("uploadType"))
+				sessions.Add(1)
+				w.Header().Set("Location", "http://"+r.Host+"/resumable-session")
+			})
+			mux.HandleFunc("/resumable-session", func(w http.ResponseWriter, r *http.Request) {
+				n, err := io.Copy(io.Discard, r.Body)
+				require.NoError(t, err)
+
+				// A trailing "/*" marks a chunk of a still-open session; a byte total
+				// there is the request that finalizes the object.
+				if contentRange := r.Header.Get("Content-Range"); strings.HasSuffix(contentRange, "/*") {
+					chunkPuts.Add(1)
+					// The client sends X-GUploader-No-308, so "resume incomplete" is
+					// signalled by this header rather than by a 308 status.
+					w.Header().Set("X-Http-Status-Code-Override", "308")
+					w.Header().Set("Range", fmt.Sprintf("bytes=0-%d", n-1))
+					return
+				}
+				finalizePuts.Add(1)
+				finalizeRange.Store(r.Header.Get("Content-Range"))
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"kind":"storage#object","bucket":%q,"name":"backup-1/chunk-0"}`, bucketName)
+			})
+
+			g := newFakeGCSClient(t, bucketName, mux)
+
+			r := &stubReader{payload: bytes.NewReader(payload), readErr: tt.readErr}
+			written, err := g.Write(context.Background(), "backup-1", "chunk-0", "", "", r)
+
+			if tt.readErr != nil {
+				require.ErrorIs(t, err, tt.readErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, int64(len(payload)), written)
+
+			assert.Equal(t, int64(1), sessions.Load(), "resumable session opened")
+			assert.Equal(t, int64(1), chunkPuts.Load(),
+				"the first chunk reaches the backend before the copy ends")
+			assert.Equal(t, tt.wantFinalized, finalizePuts.Load(),
+				"requests that finalize the object")
+
+			if tt.wantFinalized > 0 {
+				cr, _ := finalizeRange.Load().(string)
+				assert.True(t, strings.HasSuffix(cr, fmt.Sprintf("/%d", len(payload))),
+					"object finalized at the full payload size, got Content-Range %q", cr)
+			}
+		})
+	}
+}
