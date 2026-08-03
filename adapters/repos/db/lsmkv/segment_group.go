@@ -813,13 +813,12 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 
 // recoverEditOps runs startup recovery for the edit-ops sidecar: sweep ops whose
 // task is gone (load-bearing: re-arming an orphaned op would strip a re-created
-// same-name vector), prune rows for segments gone from disk, then re-snapshot
-// every surviving op over the current segments (SegmentEditOps.Recover). The
-// re-snapshot is the only recovery for the crash window where a compaction
-// renamed its merged output but died before recording it as pending for an op
-// that was not part of that compaction's transformer; re-cleaning already-clean
-// segments is a no-op because the transformer is idempotent. Runs before the
-// compaction cycle registers, so no pass races the segment-set read.
+// same-name vector), then prune rows for segments gone from disk
+// (SegmentEditOps.Recover). Surviving pending sets are kept as recorded — they
+// are the resume point of an interrupted strip; see Recover for why absence
+// from pending firmly means "clean" across every rewrite and crash window.
+// Runs before the compaction cycle registers, so no pass races the
+// segment-set read.
 func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	if sg.editOps == nil {
 		return nil

@@ -435,8 +435,10 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 // permanently inactive (e.g. offloaded) tenant that would repeat every TTL,
 // forever. Retain until the marker leaves the schema; a re-drop's
 // marker-introduction purge deletes these records anyway. FAILED/CANCELLED
-// records feed nothing and are never retained. A leader-read failure retains
-// (deletion is the irreversible direction; re-evaluated next tick).
+// records with completed units feed coverage the same way and are retained by
+// the same rule; ones with no completed units feed nothing and never are. A
+// leader-read failure retains (deletion is the irreversible direction;
+// re-evaluated next tick).
 func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task) bool {
 	payload, err := decodeDropVectorIndexPayload(task.Payload)
 	if err != nil {

@@ -48,10 +48,11 @@ func TestSegmentEditOps_RecordCompaction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, pBuilt)
 
-	// late op (absent from the transformer set): inputs done, merged re-queued.
+	// late op (absent from the transformer set): inputs done, merged re-queued
+	// under the RIGHT input's ID — the name the renamed output carries on disk.
 	pLate, err := editOps.Pending("late")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"100_200"}, pLate)
+	assert.ElementsMatch(t, []string{"200"}, pLate)
 }
 
 // TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending checks an op
@@ -93,7 +94,66 @@ func TestSegmentEditOps_RecordCompaction_ReQueuesLateOpWithEarlyCreatedAt(t *tes
 
 	pLate, err := editOps.Pending("late")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"100_200"}, pLate)
+	assert.ElementsMatch(t, []string{"200"}, pLate)
+}
+
+// TestSegmentGroup_CompactionReQueueNamesLiveSegment pins the re-queue against
+// the real on-disk naming: the merged output is renamed to the RIGHT input's ID
+// (stripTmpExtension), so the pending row RecordCompaction re-queues for a
+// late op must name that ID. A row under any other name never matches a live
+// segment again — the drain stalls on it until a restart, whose load-time
+// prune then drops it and the drop completes without stripping the merged
+// output's data.
+func TestSegmentGroup_CompactionReQueueNamesLiveSegment(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithForceCompaction(true))
+	require.NoError(t, err)
+	bucket.SetMemtableThreshold(1e9)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// No factory for the op type: BuildCurrentTransformer excludes the op from
+	// builtOps, the same state as an op armed after the pass built its
+	// transformer — the merge does not strip for it, so RecordCompaction must
+	// keep its data pending.
+	editOps := newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass",
+		staticResolver(map[OpType]OpTransformerFactory{}))
+	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
+	bucket.disk.editOps = editOps
+
+	var segIDs []string
+	for _, s := range bucket.disk.segments {
+		segIDs = append(segIDs, segmentID(s.getPath()))
+	}
+	require.NoError(t, editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: time.Now().UnixNano()}))
+	require.NoError(t, editOps.SnapshotSegments("op1", segIDs))
+
+	compacted, err := bucket.disk.compactOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, compacted)
+
+	live := map[string]struct{}{}
+	for _, s := range bucket.disk.segments {
+		live[segmentID(s.getPath())] = struct{}{}
+	}
+
+	pending, err := editOps.Pending("op1")
+	require.NoError(t, err)
+	require.NotEmpty(t, pending, "the merged output was not stripped for op1; it must stay pending")
+	for _, segID := range pending {
+		require.Contains(t, live, segID,
+			"re-queued pending row must name a live segment (the merged output keeps the right input's ID)")
+	}
 }
 
 // TestSegmentGroup_CompactionAppliesEditOpsTransformer exercises the full

@@ -348,21 +348,23 @@ func chainTransformers(transformers []valueTransformer) valueTransformer {
 	}
 }
 
-// RecordCompaction does the post-merge bookkeeping for leftID+rightID ->
-// leftID_rightID in one bolt tx (the sequenced step after rename + in-memory
-// swap). It marks the merged inputs done for every op, and re-queues the merged
-// output for any op absent from builtOps (registered after the transformer was
-// built, so not stripped) that had a pending input. Membership — not a timestamp
-// — gates this, since the compactor clock and the leader-assigned CreatedAt differ.
+// RecordCompaction does the post-merge bookkeeping for a leftID+rightID merge
+// in one bolt tx (the sequenced step after rename + in-memory swap). It marks
+// the merged inputs done for every op, and re-queues the merged output for any
+// op absent from builtOps (registered after the transformer was built, so not
+// stripped) that had a pending input. Membership — not a timestamp — gates
+// this, since the compactor clock and the leader-assigned CreatedAt differ.
+// The merged output is renamed to the RIGHT input's ID (stripTmpExtension),
+// so the re-queue uses rightID — a row under any other name would never match
+// a live segment again: the drain would stall on it until a restart, whose
+// load-time prune would then drop it and the drop would complete without
+// stripping the merged output's data.
 //
 // Crash window: if the process dies after switchOnDisk but before this commit,
-// the merge inputs are gone from disk but the merged output never got a pending
-// row for an op absent from builtOps. Reconcile only prunes missing-segment rows,
-// so it can't recover this; the re-snapshot on shard load (recoverEditOps) re-queues
-// every current segment for each live op, which covers the merged output.
+// the rows are untouched — the left row goes ENOENT (pruned at load) and the
+// right row keeps naming the merged output, so the data stays covered; see
+// SegmentEditOps.Recover.
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
-	mergedID := leftID + "_" + rightID
-
 	built := make(map[string]struct{}, len(builtOps))
 	for _, op := range builtOps {
 		built[op.ID] = struct{}{}
@@ -385,7 +387,7 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 			}
 
 			if _, wasBuilt := built[op.ID]; !wasBuilt && (leftWasPending || rightWasPending) {
-				if err := s.addPendingTx(tx, op.ID, mergedID); err != nil {
+				if err := s.addPendingTx(tx, op.ID, rightID); err != nil {
 					return err
 				}
 			}
