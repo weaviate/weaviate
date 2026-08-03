@@ -472,7 +472,6 @@ func TestReleaseBackupLeavesLaterBackupsShardsProtected(t *testing.T) {
 	runReleaseBackupWorkloadInChild(t)
 }
 
-// backupTestShardNames builds n shard names.
 func backupTestShardNames(n int) []string {
 	names := make([]string, n)
 	for s := range names {
@@ -481,10 +480,8 @@ func backupTestShardNames(n int) []string {
 	return names
 }
 
-// newBackupTestIndex returns an Index holding every shard's backupLock with the
-// shard flagged as protected by backupID, the state
-// backupShardWithoutHardlinks leaves behind for a shard it backed up without
-// hardlinks.
+// newBackupTestIndex reproduces the state backupShardWithoutHardlinks leaves
+// behind: every shard locked and flagged as protected by backupID.
 func newBackupTestIndex(t *testing.T, rootDir string, names []string, backupID string) *Index {
 	t.Helper()
 
@@ -513,8 +510,8 @@ func newBackupTestIndex(t *testing.T, rootDir string, names []string, backupID s
 	return idx
 }
 
-// spawnBackupReleasers starts n goroutines that each release backupID once
-// start is closed, so the releases overlap.
+// spawnBackupReleasers starts n goroutines that race to release backupID
+// once start closes.
 func spawnBackupReleasers(t *testing.T, wg *sync.WaitGroup, start <-chan struct{}, idx *Index, backupID string, n int) {
 	for r := 0; r < n; r++ {
 		wg.Add(1)
