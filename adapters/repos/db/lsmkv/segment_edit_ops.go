@@ -439,8 +439,9 @@ func (s *SegmentEditOps) RegisterOpWithSnapshot(opID string, op OpDescriptor, se
 
 // addPendingRowsTx inserts pending rows for segIDs within the caller's
 // transaction, preserving existing rows (accrued retries) and skipping segments
-// quarantined for the op — a quarantine verdict (retry budget exhausted) must
-// survive restarts and re-snapshots, not ping-pong back to pending.
+// quarantined for the op — a quarantine verdict (retry budget exhausted) holds
+// for the rest of the round, not ping-ponging back to pending; the NEXT round's
+// re-arm grants a fresh budget (RequeueQuarantined).
 func (s *SegmentEditOps) addPendingRowsTx(tx *bolt.Tx, opID string, segIDs []string) error {
 	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
 	if err != nil {
@@ -660,7 +661,9 @@ func (s *SegmentEditOps) BumpAttempt(opID, segID string, opErr error) error {
 }
 
 // Quarantine moves a segment from pending to quarantined for opID, preserving
-// its retry metadata. A quarantined segment fails the operation.
+// its retry metadata. A quarantined segment fails the operation's current
+// round; the next round's re-arm requeues it with a fresh retry budget
+// (RequeueQuarantined).
 func (s *SegmentEditOps) Quarantine(opID, segID string) error {
 	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		pendingSub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
@@ -702,6 +705,61 @@ func (s *SegmentEditOps) QuarantinedFor(opID string) ([]string, error) {
 	return out, nil
 }
 
+// RequeueQuarantined clears opID's quarantine rows at the start of a new round:
+// segments still in liveSegIDs go back to pending with a fresh retry budget,
+// rows for segments no longer on disk are dropped (the compaction that removed
+// them rewrote their data under the op's transformer, or re-queued the merged
+// output). Without this, a quarantine verdict would outlive the round that
+// exhausted the budget and wedge the drop permanently — the op survives a
+// FAILED round as the resume point, and the pending snapshot short-circuits the
+// re-arm, so nothing else can ever retry the segment. Within a round the
+// verdict stands (addPendingRowsTx skips quarantined segments).
+func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) error {
+	live := make(map[string]struct{}, len(liveSegIDs))
+	for _, id := range liveSegIDs {
+		live[id] = struct{}{}
+	}
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+		sub := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(opID))
+		if sub == nil {
+			return nil
+		}
+		var segIDs []string
+		if err := sub.ForEach(func(segID, _ []byte) error {
+			segIDs = append(segIDs, string(segID))
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(segIDs) == 0 {
+			return nil
+		}
+		pending, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+		if err != nil {
+			return err
+		}
+		for _, segID := range segIDs {
+			if err := sub.Delete([]byte(segID)); err != nil {
+				return err
+			}
+			if _, ok := live[segID]; !ok {
+				continue
+			}
+			if pending.Get([]byte(segID)) != nil {
+				continue
+			}
+			enc, err := json.Marshal(PendingSegment{})
+			if err != nil {
+				return err
+			}
+			if err := pending.Put([]byte(segID), enc); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Quarantined returns the quarantined segments across all operations.
 func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 	var out []PendingSegment
@@ -723,8 +781,10 @@ func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 }
 
 // DeleteOp removes an operation and all of its pending and quarantined rows.
-// Called when the op stops being live: task success (delivered as SWAPPING, or
-// FINISHED on a replay), terminal failure (FAILED/CANCELLED), or an orphan sweep.
+// Called when this shard's work for the op is finished for good: task success
+// (delivered as SWAPPING, or FINISHED on a replay), a terminal round whose
+// unit here completed, or an orphan sweep. A terminal round's INCOMPLETE
+// units keep their ops — the recorded pending sets are the resume points.
 func (s *SegmentEditOps) DeleteOp(opID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

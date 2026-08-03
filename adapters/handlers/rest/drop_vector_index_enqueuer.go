@@ -326,9 +326,14 @@ func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets
 	if err != nil {
 		return nil, err
 	}
-	class := vclasses[collection].Class
+	return droppedTargetsIn(vclasses[collection].Class, targets), nil
+}
+
+// droppedTargetsIn filters targets to those present and marked dropped in
+// class. A nil class means nothing to clean.
+func droppedTargetsIn(class *models.Class, targets []string) []string {
 	if class == nil {
-		return nil, nil
+		return nil
 	}
 	var still []string
 	for _, target := range targets {
@@ -336,7 +341,7 @@ func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets
 			still = append(still, target)
 		}
 	}
-	return still, nil
+	return still
 }
 
 // activeShardOwnership builds node -> shard-names from a sharding state, limited
@@ -368,47 +373,81 @@ func activeShardOwnership(state *sharding.State) map[string][]string {
 	return result
 }
 
-// LiveOpIDs returns the op IDs of drop-vector tasks that are still active
-// (non-terminal). Wired into the DB so a shard load can sweep an orphaned op — one
-// whose task has finished or been removed — instead of re-arming it. Returns a
-// non-nil (possibly empty) set on success; empty means "no active drop, sweep all".
+// LiveOpIDs returns the op IDs a sidecar sweep must treat as live: ops of
+// ACTIVE drop-vector tasks, plus ops of terminal tasks whose targets are still
+// marked dropped in the schema — a terminal round's recorded pending set is the
+// next round's resume point, so sweeping it would restart the strip from
+// scratch. Once the marker leaves the schema (finalize, or a finalize plus a
+// re-create that revived the name) the op has no next round and the sweep
+// collects it. Returns a non-nil (possibly empty) set on success; empty means
+// "no live drop, sweep all".
 func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]struct{}, error) {
 	tasks, err := e.clusterService.ListDistributedTasks(ctx)
 	if err != nil {
 		return nil, err
 	}
 	live := map[string]struct{}{}
+	// Every round of one drop shares (collection, targets), and terminal
+	// records are deliberately retained while the marker is pending, so the
+	// per-collection leader read is resolved once per call — not once per
+	// record (QueryReadOnlyClasses is a serial RPC that ignores ctx, so an
+	// unbounded per-record fan-out could hold the caller's sweep well past
+	// its deadline on a partitioned leader).
+	classes := map[string]classLookup{}
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
 			warnSkippedPayload(e.logger, "live-op-ids", task.ID, err)
 			continue
 		}
-		if task.Status.IsActive() {
-			live[p.OpID] = struct{}{}
-			continue
-		}
-		// A terminal round's op stays live while its marker is still
-		// pending: the op's pending set is the RESUME POINT for the next
-		// round (an interrupted strip continues instead of restarting).
-		// Once the marker falls — finalize, or a finalize+re-create that
-		// revived the name — the op goes orphan and the sweep collects it.
-		// A superseded old-epoch op alongside a NEW drop's marker also stays
-		// until then: it strips the same target name, which is idempotent,
-		// and the transformer's dropped-target check fences it the moment
-		// the name goes live.
-		still, err := e.stillDroppedTargets(p.Collection, p.Targets)
-		if err != nil {
-			// Fail open: liveness feeds a destructive sweep, and "keep" is
-			// the reversible direction.
-			live[p.OpID] = struct{}{}
-			continue
-		}
-		if len(still) > 0 {
+		if e.opStillNeeded(task, p, classes) {
 			live[p.OpID] = struct{}{}
 		}
 	}
 	return live, nil
+}
+
+// classLookup memoizes one leader class read within a single LiveOpIDs call,
+// including a failed read (readErr) so a partitioned leader costs one RPC per
+// collection, not one per retained record.
+type classLookup struct {
+	class   *models.Class
+	readErr bool
+}
+
+// opStillNeeded reports whether a task's edit op must survive a sidecar sweep:
+// always for an active task; for a terminal one, while any of its targets is
+// still marked dropped — the marker means another round is coming, and the op's
+// pending set is that round's resume point. A superseded old-epoch op alongside
+// a NEW drop's marker also stays until that marker leaves the schema too: it
+// strips the same target name, which is idempotent, and the transformer's
+// dropped-target check fences it the moment the name goes live. Fails open on
+// a leader read error:
+// liveness feeds a destructive sweep, and "keep" is the reversible direction.
+func (e *dropVectorIndexEnqueuer) opStillNeeded(
+	task *distributedtask.Task, p *db.DropVectorIndexTaskPayload, classes map[string]classLookup,
+) bool {
+	if task.Status.IsActive() {
+		return true
+	}
+	lookup, ok := classes[p.Collection]
+	if !ok {
+		vclasses, err := e.schemaState.QueryReadOnlyClasses(p.Collection)
+		if err != nil {
+			if e.logger != nil {
+				e.logger.WithField("collection", p.Collection).
+					Warnf("drop-vector: live-op-ids: leader class read failed; keeping this collection's terminal ops (fail open): %v", err)
+			}
+			lookup = classLookup{readErr: true}
+		} else {
+			lookup = classLookup{class: vclasses[p.Collection].Class}
+		}
+		classes[p.Collection] = lookup
+	}
+	if lookup.readErr {
+		return true
+	}
+	return len(droppedTargetsIn(lookup.class, p.Targets)) > 0
 }
 
 var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)

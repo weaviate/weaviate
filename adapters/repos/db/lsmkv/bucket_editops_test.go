@@ -16,6 +16,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -487,6 +488,100 @@ func TestBucket_EditOps_StripResumesAcrossReopen(t *testing.T) {
 
 	// Drain the remainder: the op is fully done without ever re-touching segs[0].
 	require.NoError(t, reopened.disk.editOps.MarkSegmentDone("op1", segs[1]))
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending)
+}
+
+// TestBucket_RegisterEditOp_RearmRequeuesQuarantine pins the bucket-level
+// wire-through of the fresh-budget rule: re-arming an already-snapshotted op
+// (the next round after a FAILED one) returns its quarantined segments to
+// pending instead of short-circuiting past them. Without it the drop is
+// permanently wedged: the op survives FAILED rounds as the resume point, the
+// pending snapshot skips the re-snapshot, and every subsequent round fails
+// instantly on the standing quarantine verdict.
+func TestBucket_RegisterEditOp_RearmRequeuesQuarantine(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+	require.NoError(t, editOps.Quarantine("op1", segs[0]))
+
+	// Round N failed on the quarantine; round N+1 re-arms the same op.
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+
+	q, err := bucket.EditOpQuarantined("op1")
+	require.NoError(t, err)
+	require.Empty(t, q, "the new round must start with a clean quarantine slate")
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, segs, pending, "the quarantined segment is pending again, awaiting its fresh retries")
+}
+
+// TestBucket_EditOps_ResumeSkipsStrippedSegments_RealCleaner proves the resume
+// property with the production machinery end to end: the real cleanup pass
+// strips one of two segments, the bucket is closed and reopened (load-time
+// recovery runs), the op is re-armed, and the real cleaner drains the rest.
+// The transformer is deliberately non-idempotent (prefixes "X:"), so a restart
+// that re-stripped the already-done segment would show up as a double prefix —
+// the assertion is on work SKIPPED, not just on eventual convergence.
+func TestBucket_EditOps_ResumeSkipsStrippedSegments_RealCleaner(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	transformers := map[OpType]OpTransformerFactory{OpTypeRemoveTargetVectors: prefixTransformer}
+
+	open := func() *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace), WithClassName("TestClass"),
+			WithSegmentsCleanupInterval(time.Hour))
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		// Swap in the fake-transformer resolver over the SAME bolt state — the
+		// production resolver would try to decode the plain test values as
+		// storobj. Load-time recovery already ran above, on the real instance.
+		require.NoError(t, b.disk.editOps.Close())
+		b.disk.editOps = newSegmentEditOpsWithLookup(b.disk.dir, "TestClass", staticResolver(transformers))
+		return b
+	}
+
+	bucket := open()
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.Len(t, segIDsOf(bucket), 2)
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+
+	// One real cleanup pass rewrites exactly one segment, then the process
+	// "dies" (deactivation → clean shutdown).
+	_, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "one segment stripped, one still owed")
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	reopened := open()
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+	require.NoError(t, reopened.RegisterEditOp("op1", desc))
+	drainEditOpsCleanup(t, reopened)
+
+	v1, err := reopened.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v1, "each value must be stripped exactly once across the restart")
+	v2, err := reopened.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v2"), v2, "each value must be stripped exactly once across the restart")
+
 	pending, err = reopened.EditOpPending("op1")
 	require.NoError(t, err)
 	require.Empty(t, pending)

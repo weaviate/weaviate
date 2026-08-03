@@ -484,7 +484,9 @@ func (b *Bucket) HasEditOps() bool {
 // RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
 // current segments as pending for the compaction/cleanup transformer to rewrite.
 // It flushes the active memtable first so in-memory data is captured. Idempotent:
-// an op that already has a snapshot (resume) is a no-op and skips the flush.
+// an op that already has a snapshot (resume) skips the flush and the snapshot,
+// keeping the recorded pending set as the progress marker; it only requeues
+// segments an earlier round quarantined, granting them a fresh retry budget.
 func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
@@ -514,7 +516,12 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 		return err
 	}
 	if snapshotted {
-		return nil
+		// Resume: the recorded pending set IS the progress, so no new snapshot
+		// and no flush. A re-arm marks a new round, though, so segments
+		// quarantined by an earlier round get a fresh retry budget — otherwise
+		// a single exhausted budget would wedge the drop permanently (the op
+		// and its quarantine rows outlive FAILED rounds by design).
+		return b.disk.requeueQuarantinedEditOps(opID)
 	}
 	if err := b.flushAndSwitchLocked(); err != nil {
 		return fmt.Errorf("flush before edit-op snapshot: %w", err)
@@ -531,12 +538,14 @@ func (b *Bucket) EditOpPending(opID string) ([]string, error) {
 	return b.disk.editOps.Pending(opID)
 }
 
-// DeleteEditOp removes opID and its bookkeeping from the sidecar once its task
-// stops being live (success — delivered as SWAPPING or a replayed FINISHED — or
-// FAILED/CANCELLED), so the op stops driving the compaction/cleanup transformer.
-// A lingering op would re-decode every object on every future compaction, force a
-// full re-clean on each restart (via recoverEditOps), and — once the dropped name
-// is freed for re-creation — strip the re-created vector. Idempotent.
+// DeleteEditOp removes opID and its bookkeeping from the sidecar once this
+// bucket's work for it is finished for good: task success (delivered as
+// SWAPPING or a replayed FINISHED), a terminal round whose unit here COMPLETED
+// (the shard enters the epoch's inherited coverage, so no later round returns),
+// or the orphan sweep once the drop's marker leaves the schema. A lingering op
+// would re-decode every object on every future compaction and — once the
+// dropped name is freed for re-creation — strip the re-created vector (the
+// dropped-target fence is the runtime guard against exactly that). Idempotent.
 func (b *Bucket) DeleteEditOp(opID string) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")

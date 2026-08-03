@@ -520,8 +520,8 @@ func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
 }
 
 // TestSegmentEditOps_QuarantineSurvivesReSnapshot pins that a quarantine verdict
-// (retry budget exhausted) is not silently undone: neither a plain re-snapshot
-// nor load-time Recover re-pends a quarantined segment.
+// (retry budget exhausted) is not silently undone within a round: neither a
+// plain re-snapshot nor load-time Recover re-pends a quarantined segment.
 func TestSegmentEditOps_QuarantineSurvivesReSnapshot(t *testing.T) {
 	s := newSegmentEditOps(t.TempDir(), "")
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
@@ -543,4 +543,46 @@ func TestSegmentEditOps_QuarantineSurvivesReSnapshot(t *testing.T) {
 	q, err := s.Quarantined()
 	require.NoError(t, err)
 	require.Len(t, q, 1)
+}
+
+// TestSegmentEditOps_RequeueQuarantined pins the one deliberate exception to
+// quarantine permanence: a NEW round's re-arm grants a fresh retry budget.
+// Without it the op's survival across FAILED rounds (the resume mechanism)
+// would turn one exhausted budget — even from a transient cause like a full
+// disk — into a permanently wedged drop: the pending snapshot short-circuits
+// the re-arm and addPendingRowsTx refuses quarantined segments, so nothing
+// else can ever retry the segment.
+func TestSegmentEditOps_RequeueQuarantined(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200", "300"}))
+	require.NoError(t, s.BumpAttempt("op1", "100", errors.New("disk full")))
+	require.NoError(t, s.Quarantine("op1", "100"))
+	require.NoError(t, s.Quarantine("op1", "300"))
+	require.NoError(t, s.MarkSegmentDone("op1", "200"))
+
+	// "300" was merged away since it was quarantined: its row is dropped, not
+	// requeued — the compaction that removed it rewrote its data (or re-queued
+	// the merged output), and a pending row naming a dead segment would stall
+	// the drain until the next restart's prune.
+	require.NoError(t, s.RequeueQuarantined("op1", []string{"100", "200"}))
+
+	pending, err := s.AllPending()
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, "100", pending[0].SegmentID)
+	require.Zero(t, pending[0].Attempts, "the new round starts with a fresh retry budget")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Empty(t, q, "no quarantine row may survive a re-arm — live or dead")
+
+	// Idempotent (a replayed arm), and a no-op for ops with no quarantine.
+	require.NoError(t, s.RequeueQuarantined("op1", []string{"100", "200"}))
+	require.NoError(t, s.RequeueQuarantined("opUnknown", []string{"100"}))
+	pending, err = s.AllPending()
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
 }

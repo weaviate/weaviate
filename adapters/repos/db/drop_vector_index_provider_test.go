@@ -802,30 +802,95 @@ func TestOnGroupCompleted_VerifyMemoizedPerTask(t *testing.T) {
 
 // --- OnTaskCompleted ---
 
-// TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema: FAILED/CANCELLED leave
-// the schema marker (operator retry) but MUST delete the edit op — a lingering op
-// would survive a later successful re-drop (fresh op ID), and once that re-drop
-// frees the name it would strip a re-created same-name vector.
+// TestOnTaskCompleted_TerminalTasks_KeepOpsAndSchema: FAILED/CANCELLED rounds
+// keep the schema marker and the edit ops of units that did NOT complete —
+// their pending sets are the next round's resume point (op identity is the
+// drop epoch, so the re-enqueued round re-arms the same op and drains only the
+// remainder; the sweep collects the op once the marker leaves the schema).
+// COMPLETED units are disarmed: their shards enter the epoch's inherited
+// coverage, so no later round of this drop returns, and a kept op would only
+// cost decode work on every future compaction — unless the sidecar still shows
+// pending or quarantined rows, which contradicts completion; then the op is
+// kept, since deleting it could drop cover for unstripped data.
 func TestOnTaskCompleted_TerminalTasks_KeepOpsAndSchema(t *testing.T) {
-	// FAILED/CANCELLED rounds keep BOTH the marker and the local edit ops:
-	// the ops' pending sets are the next round's resume point (op identity is
-	// the drop epoch, so the re-enqueued round re-arms the same op and drains
-	// only the remainder). The sweep collects the op once the marker falls.
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusFailed,
 		distributedtask.TaskStatusCancelled,
 	} {
 		t.Run(string(status), func(t *testing.T) {
-			bucket := &fakeEditOpBucket{}
+			bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s1"}}}
 			fin := &fakeFinalizer{}
 			p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
 			p.OnTaskCompleted(dropTask(status, nil))
 			require.False(t, fin.called, "%s task must not mutate schema", status)
 			require.Empty(t, bucket.deleted,
-				"%s task must keep its edit op — it is the resume point", status)
+				"%s task must keep the incomplete unit's edit op — it is the resume point", status)
 		})
 	}
+
+	t.Run("a completed unit's drained op is disarmed", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+			"u1": {Status: distributedtask.UnitStatusCompleted},
+		}))
+		require.False(t, fin.called)
+		require.Equal(t, []string{"op1"}, bucket.deleted,
+			"the completed unit's shard is epoch-covered; no later round returns for its op")
+	})
+
+	t.Run("a completed unit with residual pending rows keeps its op", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+			"u1": {Status: distributedtask.UnitStatusCompleted},
+		}))
+		require.Empty(t, bucket.deleted,
+			"pending rows contradict completion; the op still covers unstripped data")
+	})
+
+	t.Run("a completed unit with a quarantined segment keeps its op", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}, quarantined: []string{"s9"}}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+			"u1": {Status: distributedtask.UnitStatusCompleted},
+		}))
+		require.Empty(t, bucket.deleted,
+			"a quarantine verdict contradicts completion; the op still covers unstripped data")
+	})
+
+	t.Run("a failed unit's op is kept even when a sibling completed", func(t *testing.T) {
+		done := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+		partial := &fakeEditOpBucket{pendingSeq: [][]string{{"s3"}}}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{buckets: map[string]editOpBucket{
+			"shard1": done, "shard2": partial,
+		}}, fin, newFakeRecorder())
+
+		task := dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+			"u1": {Status: distributedtask.UnitStatusCompleted},
+			"u2": {Status: distributedtask.UnitStatusFailed},
+		})
+		payload := &DropVectorIndexTaskPayload{
+			Collection:  "Collection",
+			Targets:     []string{"v1"},
+			OpID:        "op1",
+			UnitToNode:  map[string]string{"u1": "node1", "u2": "node1"},
+			UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
+		}
+		task.Payload, _ = payload.encode()
+
+		p.OnTaskCompleted(task)
+		require.Equal(t, []string{"op1"}, done.deleted, "the completed unit's shard is disarmed")
+		require.Empty(t, partial.deleted, "the failed unit's shard keeps its resume point")
+	})
 }
 
 // TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig: success is
@@ -1595,11 +1660,13 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 }
 
-// TestShouldRetainCompletedTask pins the TTL-retention contract: completed
-// drop records are the coverage chain's only memory and must outlive the TTL
-// while their marker is pending — expiring them forces a fresh-epoch full
-// re-clean every TTL, forever, when a tenant never reactivates. Once the
-// marker is gone (or for records that feed nothing) the TTL applies.
+// TestShouldRetainCompletedTask pins the TTL-retention contract: while a
+// drop's marker is pending, EVERY terminal record must outlive the TTL —
+// completed records carry coverage, and even a zero-unit FAILED record
+// anchors the op's liveness (LiveOpIDs) and the epoch identity
+// (EpochAndInheritedCoverage inherits from the newest record); expiring it
+// would sweep the recorded strip progress and restart from scratch under a
+// fresh epoch. Once the marker is gone the TTL applies.
 func TestShouldRetainCompletedTask(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 	// Default fakeShardingReader class: v1 still marked dropped.
@@ -1607,11 +1674,9 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)),
 		"marker pending: the completed record must survive the TTL")
 	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusSwapping, nil)))
-	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFailed, nil)),
-		"a FAILED record with no completed units feeds nothing; TTL applies")
+	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFailed, nil)),
+		"a zero-unit FAILED record anchors the op's liveness and the epoch; expiring it discards the resume point")
 
-	// A FAILED round's COMPLETED units DO feed coverage (EpochCoveredShards),
-	// so such records must survive the TTL while the marker is pending.
 	failedWithUnit := dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
 		"u1": {Status: distributedtask.UnitStatusCompleted},
 	})
@@ -1622,8 +1687,8 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 	})
 	require.True(t, p.ShouldRetainCompletedTask(cancelledWithUnit),
 		"an operator-cancelled round's completed units feed coverage the same as a FAILED round's")
-	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusCancelled, nil)),
-		"a CANCELLED record with no completed units feeds nothing; TTL applies")
+	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusCancelled, nil)),
+		"a zero-unit CANCELLED record anchors the op and epoch the same as a FAILED one")
 
 	// Marker finalized (entry re-created live): nothing left to protect.
 	p.sharding = &fakeShardingReader{

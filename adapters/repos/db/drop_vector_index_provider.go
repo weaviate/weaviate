@@ -428,32 +428,31 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 }
 
 // ShouldRetainCompletedTask implements distributedtask.CompletedTaskRetainer:
-// a completed (SWAPPING/FINISHED) drop record is the coverage chain's only
-// memory. While its marker still stands (finalize deferred over inactive
-// tenants), expiring the record erases the chain — the next reconcile round
-// then mints a fresh epoch and re-cleans the whole collection, and with a
-// permanently inactive (e.g. offloaded) tenant that would repeat every TTL,
-// forever. Retain until the marker leaves the schema; a re-drop's
-// marker-introduction purge deletes these records anyway. FAILED/CANCELLED
-// records with completed units feed coverage the same way and are retained by
-// the same rule; ones with no completed units feed nothing and never are. A
-// leader-read failure retains (deletion is the irreversible direction;
+// while a drop's marker still stands (finalize deferred over inactive tenants),
+// its terminal records are the drop's only memory, so every one is retained
+// until the marker leaves the schema — a re-drop's marker-introduction purge
+// deletes them anyway. Three things hang off them:
+//   - Coverage: completed (SWAPPING/FINISHED) records feed their full
+//     CoveredShards, FAILED/CANCELLED ones their COMPLETED units; expiring
+//     either erases load-bearing coverage and forces a full re-clean — with a
+//     permanently inactive (e.g. offloaded) tenant, repeating every TTL,
+//     forever.
+//   - Epoch identity: EpochAndInheritedCoverage inherits the epoch from the
+//     NEWEST matching record; with none left it mints a fresh epoch, which is
+//     a fresh op identity — the recorded strip progress belongs to the old op
+//     and would be re-done from scratch.
+//   - Liveness: LiveOpIDs reads these records to keep a terminal round's op
+//     from being swept on shard load; an expired record means a reactivated
+//     tenant sweeps its own resume point. This is why even a record with ZERO
+//     completed units (a round that died before finishing any shard) is
+//     retained: it feeds no coverage, but it anchors the op and the epoch.
+//
+// A leader-read failure retains (deletion is the irreversible direction;
 // re-evaluated next tick).
 func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task) bool {
 	payload, err := decodeDropVectorIndexPayload(task.Payload)
 	if err != nil {
-		return false // unparseable records cannot feed coverage inheritance
-	}
-	// Mirror EpochCoveredShards exactly: completed (SWAPPING/FINISHED)
-	// records feed their full CoveredShards; a FAILED or CANCELLED record
-	// feeds its COMPLETED units — expiring either while the marker is pending
-	// would erase load-bearing coverage and force a full re-clean. Records
-	// with no completed units feed nothing; TTL takes them.
-	switch {
-	case task.Status.IsCompleted():
-	case terminalWithPartialWork(task.Status) && len(CompletedUnitShards(task, payload)) > 0:
-	default:
-		return false
+		return false // unparseable records cannot feed coverage, epoch, or liveness
 	}
 	stillDropped, err := p.targetsStillDropped(payload)
 	if err != nil {
@@ -547,8 +546,9 @@ func (p *DropVectorIndexProvider) OnSwapRequested(
 // Transient failures on the SWAPPING path (op delete, coverage read,
 // active-drop read, the finalize write) return the error so the scheduler
 // withholds FINISHED and retries this callback — bounded; exhaustion fails
-// the task, which is safe (the FAILED completion deletes ops and
-// reconciliation re-covers). Acking such a failure instead would mint a
+// the task, which is safe: the marker stays, the FAILED completion disarms
+// its completed units and keeps the rest as resume points, and
+// reconciliation re-covers. Acking such a failure instead would mint a
 // FINISHED record with complete coverage next to a standing marker, which
 // the enqueuer reads as closed-epoch residue: a full re-clean per reconcile
 // round. Designed deferrals (uncovered shards, a newer overlapping drop,
@@ -571,31 +571,42 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 	case distributedtask.TaskStatusSwapping, distributedtask.TaskStatusFinished:
 		// Success — proceed.
 	default:
-		// FAILED/CANCELLED: the schema marker stays, and so do the local edit
-		// ops — their pending sets are the RESUME POINT for the next round.
-		// Op identity is the drop epoch, so the re-enqueued round re-arms the
-		// SAME op (idempotently) and drains only what this round left
-		// unstripped. The op cannot outlive its purpose: liveness keys on the
-		// marker, so the sweep collects it once the marker falls, and a
-		// re-drop of a re-created name runs under a fresh epoch (the
-		// marker-introduction purge guarantees a clean record slate), whose
-		// own op never collides with this one.
+		// FAILED/CANCELLED: the schema marker stays, and the edit ops of
+		// units that did NOT complete stay with it — their pending sets are
+		// the resume point for the next round. Op identity is the drop epoch,
+		// so the re-enqueued round re-arms the SAME op (idempotently) and
+		// drains only what this round left unstripped. The op cannot outlive
+		// its purpose: liveness keys on the marker, so the sweep collects it
+		// once the marker leaves the schema, and a re-drop of a re-created name runs
+		// under a fresh epoch (the marker-introduction purge guarantees a
+		// clean record slate), whose own op never collides with this one.
+		//
+		// COMPLETED units are the exception: their shards enter the epoch's
+		// inherited coverage (this record is retained while the marker
+		// stands), so no later round re-arms them — disarm now, or every
+		// future replace compaction pays a full object decode for nothing,
+		// indefinitely if a cold tenant holds the marker open.
+		p.deleteCompletedUnitEditOps(task, payload)
 		logger.WithField("status", task.Status).
-			Info("drop-vector: task-completion: task did not succeed; edit ops kept as the next round's resume point, schema marker stays")
+			Info("drop-vector: task-completion: task did not succeed; incomplete units' edit ops kept as the next round's resume point, schema marker stays")
 		p.nudgeReconcile()
 		return nil
 	}
 
-	// Delete the op before removing the schema entry so "schema entry removed ⇒ no
-	// op on a loaded shard" holds (see DeleteEditOp for why a lingering op is unsafe).
-	// On failure, defer the schema removal for reconciliation rather than break it.
+	// Delete the op before removing the schema entry so "schema entry removed ⇒
+	// no op armed by THIS task on a loaded shard" holds (see DeleteEditOp for
+	// why a lingering op is unsafe). Ops disarmed best-effort by an earlier
+	// FAILED round of the same epoch may still linger on shards this task
+	// inherited as cleaned; the dropped-target fence keeps them inert once
+	// the marker is gone, and the orphan sweep collects them. On failure, defer the
+	// schema removal for reconciliation rather than break it.
 	if err := p.deleteLocalEditOps(payload); err != nil {
 		// Non-nil return withholds FINISHED and the scheduler retries this
-		// callback (bounded; exhaustion fails the task — safe: the FAILED
-		// completion deletes ops and reconciliation re-covers). Acking here
-		// instead would mint a FINISHED record next to a standing marker,
-		// which the enqueuer must read as a closed epoch: a full re-clean
-		// for what is usually a transient blip.
+		// callback (bounded; exhaustion fails the task — safe: the marker
+		// stays and reconciliation re-covers, resuming from the recorded
+		// pending sets). Acking here instead would mint a FINISHED record
+		// next to a standing marker, which the enqueuer must read as a
+		// closed epoch: a full re-clean for what is usually a transient blip.
 		return fmt.Errorf("deleting completed edit op: %w", err)
 	}
 
@@ -775,6 +786,64 @@ func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPa
 		shardNames = append(shardNames, shardName)
 	}
 	return ShardsNotCovered(shardNames, payload.CoveredShards()), nil
+}
+
+// deleteCompletedUnitEditOps disarms the op on this node's loaded shards whose
+// units COMPLETED in a terminal (FAILED/CANCELLED) round — those shards are in
+// the epoch's inherited coverage, so no later round of this drop touches them,
+// and a kept op would only cost decode work on every future compaction.
+// Belt: a shard whose op still has pending or quarantined rows is skipped —
+// completion implies both are empty, so anything else means the op still
+// covers unstripped data and deleting it could resurrect the dropped vector.
+// Best-effort: a failure is logged and the op left to the post-finalize orphan
+// sweep (the dropped-target fence keeps a lingering op inert once the marker
+// falls and the name is re-created).
+func (p *DropVectorIndexProvider) deleteCompletedUnitEditOps(
+	task *distributedtask.Task, payload *DropVectorIndexTaskPayload,
+) {
+	var shardNames []string
+	for unitID, node := range payload.UnitToNode {
+		if node != p.localNode {
+			continue
+		}
+		if unit, ok := task.Units[unitID]; !ok || unit.Status != distributedtask.UnitStatusCompleted {
+			continue
+		}
+		shardNames = append(shardNames, payload.UnitToShard[unitID])
+	}
+	if len(shardNames) == 0 {
+		return
+	}
+	logger := p.logger.WithField("task", task.ID).WithField("collection", payload.Collection)
+	buckets, err := p.shards.EditOpBucketsForLoadedShards(payload.Collection, shardNames)
+	if err != nil {
+		logger.Warnf("drop-vector: task-completion: resolve buckets to disarm completed units: %v", err)
+		return
+	}
+	for _, shardName := range shardNames {
+		bucket, ok := buckets[shardName]
+		if !ok {
+			continue // unloaded; the sweep on its next load disarms it once the marker leaves the schema
+		}
+		pending, err := bucket.EditOpPending(payload.OpID)
+		if err != nil {
+			logger.Warnf("drop-vector: task-completion: read pending before disarming shard %q: %v", shardName, err)
+			continue
+		}
+		quarantined, err := bucket.EditOpQuarantined(payload.OpID)
+		if err != nil {
+			logger.Warnf("drop-vector: task-completion: read quarantine before disarming shard %q: %v", shardName, err)
+			continue
+		}
+		if len(pending) > 0 || len(quarantined) > 0 {
+			logger.Warnf("drop-vector: task-completion: unit completed but shard %q still has %d pending / %d quarantined segments; keeping its edit op",
+				shardName, len(pending), len(quarantined))
+			continue
+		}
+		if err := bucket.DeleteEditOp(payload.OpID); err != nil {
+			logger.Warnf("drop-vector: task-completion: disarm completed unit's edit op on shard %q: %v", shardName, err)
+		}
+	}
 }
 
 // deleteLocalEditOps removes the finished op from each local shard's sidecar,

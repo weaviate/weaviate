@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -271,45 +272,53 @@ func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 // or a re-created live name — the op is sweepable. A failed leader read
 // keeps ops alive (fail open: liveness feeds a destructive sweep).
 func TestLiveOpIDs_SpansRoundsWhileMarkerPending(t *testing.T) {
-	task := func(op, target string, status distributedtask.TaskStatus) *distributedtask.Task {
+	task := func(collection, op string, status distributedtask.TaskStatus, targets ...string) *distributedtask.Task {
 		return &distributedtask.Task{
 			Namespace: db.DropVectorIndexNamespace,
-			Payload:   mustPayloadWithOp(t, "C", op, target),
+			Payload:   mustPayloadWithOp(t, collection, op, targets...),
 			Status:    status,
 		}
 	}
+	failed := distributedtask.TaskStatusFailed
 	tasks := map[string][]*distributedtask.Task{db.DropVectorIndexNamespace: {
-		task("opActive", "v1", distributedtask.TaskStatusStarted),
-		task("opFailedPending", "v1", distributedtask.TaskStatusFailed),    // marker for v1 stands → resume point
-		task("opDoneFinalized", "v2", distributedtask.TaskStatusFinished),  // v2 absent from the class → finalized
-		task("opCancelledLive", "v3", distributedtask.TaskStatusCancelled), // v3 re-created live → fenced + sweepable
+		task("C", "opActive", distributedtask.TaskStatusStarted, "v1"),
+		task("C", "opFailedPending", failed, "v1"),                                            // marker for v1 stands → resume point
+		task("C", "opDoneFinalized", distributedtask.TaskStatusFinished, "v2"),                // v2 absent from the class → finalized
+		task("C", "opCancelledLive", distributedtask.TaskStatusCancelled, "v3"),               // v3 re-created live → fenced + sweepable
+		task("C", "opSubsetPending", failed, "v3", "v1"),                                      // one target live, one still marked → keep
+		task("Gone", "opClassGone", failed, "v1"),                                             // whole class deleted → nothing to resume
+		{Namespace: db.DropVectorIndexNamespace, Payload: []byte("not json"), Status: failed}, // undecodable → skipped, not fatal
 	}}
 	cluster := &fakeClusterDropClient{tasks: tasks}
-	enq := &dropVectorIndexEnqueuer{
-		clusterService: cluster,
-		schemaState: &fakeShardingState{vectorCfg: map[string]models.VectorConfig{
+	state := &fakeShardingState{
+		vectorCfg: map[string]models.VectorConfig{
 			"v1": dropped(),
 			"v3": {VectorIndexType: "hnsw"},
-		}},
+		},
+		missingClasses: []string{"Gone"},
 	}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 	live, err := enq.LiveOpIDs(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, map[string]struct{}{
 		"opActive":        {},
 		"opFailedPending": {},
+		"opSubsetPending": {},
 	}, live)
+	require.Equal(t, 2, state.classReads,
+		"one leader read per collection per call — terminal records share it, they don't fan out")
 
 	t.Run("leader read failure keeps terminal ops alive", func(t *testing.T) {
-		enq := &dropVectorIndexEnqueuer{
-			clusterService: cluster,
-			schemaState:    &fakeShardingState{err: errors.New("no leader")},
-		}
+		state := &fakeShardingState{err: errors.New("no leader")}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 		live, err := enq.LiveOpIDs(context.Background())
 		require.NoError(t, err)
 		require.Contains(t, live, "opFailedPending")
 		require.Contains(t, live, "opDoneFinalized",
 			"an unverifiable marker must not authorize a sweep")
+		require.Equal(t, 2, state.classReads,
+			"a failed read is memoized too: a partitioned leader costs one RPC per collection, not one per record")
 	})
 }
 
@@ -333,7 +342,12 @@ func mustDropPayload(t *testing.T, collection string, targets ...string) []byte 
 type fakeShardingState struct {
 	state     *sharding.State
 	vectorCfg map[string]models.VectorConfig
-	err       error
+	// missingClasses lists collection names QueryReadOnlyClasses reports as
+	// absent (deleted class). Without it the fake fabricates a class for ANY
+	// name, and the class-gone sweep arm of LiveOpIDs is untestable.
+	missingClasses []string
+	classReads     int
+	err            error
 }
 
 func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, uint64, error) {
@@ -341,6 +355,7 @@ func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, u
 }
 
 func (f *fakeShardingState) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	f.classReads++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -350,6 +365,9 @@ func (f *fakeShardingState) QueryReadOnlyClasses(classes ...string) (map[string]
 	}
 	out := map[string]versioned.Class{}
 	for _, name := range classes {
+		if slices.Contains(f.missingClasses, name) {
+			continue
+		}
 		out[name] = versioned.Class{Class: &models.Class{Class: name, VectorConfig: cfg}}
 	}
 	return out, nil
@@ -506,6 +524,8 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	require.Equal(t, "C", p.Collection)
 	require.Equal(t, []string{"v1"}, p.Targets)
 	require.NotEmpty(t, p.OpID)
+	require.Equal(t, p.DropEpochID, p.OpID,
+		"op identity is the drop epoch, not a per-round value — resume depends on it")
 	require.Equal(t, "node1", p.UnitToNode["shard1__node1"])
 	require.Equal(t, "shard1", p.UnitToShard["shard1__node1"])
 }
@@ -823,6 +843,8 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			} else {
 				require.Equal(t, tt.wantEpoch, p.DropEpochID)
 			}
+			require.Equal(t, p.DropEpochID, p.OpID,
+				"every round of one drop must run under the epoch as its op ID, or a re-arm cannot resume the recorded pending set")
 			require.Equal(t, tt.wantCleaned, p.CleanedShards)
 			require.Equal(t, tt.wantUnits, p.UnitToShard)
 		})

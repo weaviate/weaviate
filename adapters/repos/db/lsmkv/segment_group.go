@@ -550,20 +550,22 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.metrics.ObjectCount(sg.count())
 	}
 
-	// Recover the sidecar AFTER WAL recovery so the re-snapshot covers every
-	// segment the WALs flushed (construction happened above, before recovery —
-	// still ahead of the cleaner, which consults sg.editOps, and of the
-	// compaction cycle registration: published before any pass reads it). The
-	// bolt file opens lazily on the first registered op, so an objects bucket
-	// that never sees a drop carries no sidecar. Closed in shutdown.
+	// Recover the sidecar AFTER WAL recovery so it judges the settled segment
+	// set — it prunes rows whose segments are gone from disk, and must not run
+	// while WAL replay is still creating segments (construction happened above,
+	// before recovery — still ahead of the cleaner, which consults sg.editOps,
+	// and of the compaction cycle registration: published before any pass reads
+	// it). The bolt file opens lazily on the first registered op, so an objects
+	// bucket that never sees a drop carries no sidecar. Closed in shutdown.
 	if sg.editOps != nil {
 		if err := sg.recoverEditOps(ctx); err != nil {
 			if errors.Is(err, bolterrors.ErrTimeout) {
 				// The sidecar's bolt file is still locked — a previous instance of
-				// this shard has not finished closing. Running blind here is how a
-				// completed drop's stripped data got resurrected (WAL replay with
-				// no healing re-pend possible); fail the load so the shard
-				// lifecycle retries once the old instance is gone.
+				// this shard has not finished closing. Its ops and pending sets are
+				// unreadable, so cleanup could neither arm transformers nor tell
+				// stripped segments from unstripped ones (running blind here is how
+				// a completed drop's data once got resurrected); fail the load so
+				// the shard lifecycle retries once the old instance is gone.
 				return nil, fmt.Errorf("segment edit ops sidecar still locked by a previous instance: %w", err)
 			}
 			// Other failures are not fatal: bricking the shard over drop-progress
@@ -878,6 +880,20 @@ func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 	return sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+}
+
+// requeueQuarantinedEditOps returns opID's quarantined segments to pending with
+// a fresh retry budget (see SegmentEditOps.RequeueQuarantined). Called when a
+// new round re-arms an already-snapshotted op. The live-segment set is read and
+// used under maintenanceLock so a concurrent merge cannot swap segments between
+// the read and the write.
+func (sg *SegmentGroup) requeueQuarantinedEditOps(opID string) error {
+	if sg.editOps == nil {
+		return fmt.Errorf("edit ops not enabled for this segment group")
+	}
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	return sg.editOps.RequeueQuarantined(opID, sg.currentSegmentIDsLocked())
 }
 
 // currentSegmentIDsLocked snapshots the in-memory segment IDs. Caller must hold
