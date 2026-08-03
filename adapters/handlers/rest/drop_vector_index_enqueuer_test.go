@@ -872,6 +872,12 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			} else {
 				require.Equal(t, tt.wantEpoch, p.DropEpochID)
 			}
+			// Every recorded sibling here carries OpID "op-<id>" != epoch —
+			// the pre-upgrade per-round shape — so this also pins the rolling
+			// upgrade: inheriting an epoch from an old record yields the EPOCH
+			// as the new op id, never the old record's OpID. uuid-recorded
+			// progress is not resumed (a fresh snapshot re-covers it); the
+			// stale uuid op is swept once the marker falls.
 			require.Equal(t, p.DropEpochID, p.OpID,
 				"every round of one drop must run under the epoch as its op ID, or a re-arm cannot resume the recorded pending set")
 			require.Equal(t, tt.wantCleaned, p.CleanedShards)

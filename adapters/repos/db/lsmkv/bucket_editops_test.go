@@ -413,6 +413,73 @@ func TestBucket_EditOpQuarantined_RequiresEditOps(t *testing.T) {
 	require.ErrorContains(t, err, "edit ops not enabled")
 }
 
+// TestBucket_EditOps_FullyDrainedOpStaysDrainedAcrossReopen pins the terminal
+// resume state: an op whose every segment was stripped keeps its EMPTY
+// pending sub-bucket across a reopen — the sub-bucket's existence IS the
+// "already snapshotted" signal, so the next round's re-arm must skip the
+// snapshot and its poll reads empty pending as instant completion. Recovery
+// dropping the empty sub-bucket (or a row-count HasPendingSnapshot) would
+// re-snapshot and re-strip the whole shard instead.
+func TestBucket_EditOps_FullyDrainedOpStaysDrainedAcrossReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	bucket := reopenableEditOpsBucket(t, ctx, dir)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+	require.NoError(t, bucket.disk.editOps.MarkSegmentDone("op1", segs[0]))
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	reopened := reopenableEditOpsBucket(t, ctx, dir)
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+	require.NoError(t, reopened.RegisterEditOp("op1", desc))
+
+	pending, err := reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending,
+		"drained means drained: the empty pending sub-bucket must survive recovery and veto a re-snapshot")
+}
+
+// TestBucket_EditOps_MixedVersionOpsCoexist pins the rolling-upgrade shape: a
+// uuid-keyed op armed by a pre-upgrade round and the epoch-keyed op of the
+// same drop coexist on one bucket. Each keeps its own rows — draining and
+// disarming the epoch op leaves the uuid op's resume state untouched (the
+// post-marker orphan sweep collects it later), so a mixed-version window
+// costs duplicate idempotent strip work, never lost state.
+func TestBucket_EditOps_MixedVersionOpsCoexist(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	const (
+		uuidOp  = "0f0c6053-8be1-4c31-8f38-cba5ee9b2e28" // pre-upgrade: one id per round
+		epochOp = "epoch-e1"                             // post-upgrade: the drop epoch
+	)
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp(uuidOp, desc))
+	require.NoError(t, bucket.RegisterEditOp(epochOp, desc))
+
+	require.NoError(t, editOps.MarkSegmentDone(epochOp, segs[0]))
+	deleted, _, _, err := bucket.DeleteEditOpIfDrained(epochOp)
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	pending, err := bucket.EditOpPending(uuidOp)
+	require.NoError(t, err)
+	require.Equal(t, segs, pending, "the pre-upgrade op keeps its own pending rows")
+	ops, err := editOps.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	require.Equal(t, uuidOp, ops[0].ID)
+}
+
 // TestBucket_RegisterEditOp_RearmRequeuesQuarantine pins the bucket-level
 // wire-through of the fresh-budget rule: re-arming an already-snapshotted op
 // (the next round after a FAILED one) returns its quarantined segments to
@@ -450,8 +517,7 @@ func TestBucket_RegisterEditOp_RearmRequeuesQuarantine(t *testing.T) {
 // the real cleaner drains only the remainder. The transformer is deliberately
 // non-idempotent (prefixes "X:"), so a restart that re-stripped the
 // already-done segment would show up as a double prefix — the assertion is on
-// work SKIPPED, not just on eventual convergence. (This subsumes the earlier
-// MarkSegmentDone-driven reopen test: same journey, real driver.)
+// work SKIPPED, not just on eventual convergence.
 func TestBucket_EditOps_ResumeSkipsStrippedSegments_RealCleaner(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

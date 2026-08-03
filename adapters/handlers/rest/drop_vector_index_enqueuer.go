@@ -387,12 +387,6 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 		return nil, err
 	}
 	live := map[string]struct{}{}
-	// Every round of one drop shares (collection, targets), and terminal
-	// records are deliberately retained while the marker is pending, so the
-	// per-collection leader read is resolved once per call — not once per
-	// record (QueryReadOnlyClasses is a serial RPC that ignores ctx, so an
-	// unbounded per-record fan-out could hold the caller's sweep well past
-	// its deadline on a partitioned leader).
 	classes := map[string]classLookup{}
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
@@ -407,9 +401,13 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 	return live, nil
 }
 
-// classLookup memoizes one leader class read within a single LiveOpIDs call,
-// including a failed read (readErr) so a partitioned leader costs one RPC per
-// collection, not one per retained record.
+// classLookup memoizes one leader class read within a single LiveOpIDs call:
+// every round of one drop shares (collection, targets) and terminal records
+// are deliberately retained while the marker is pending, so the records fan
+// in on few collections. A failed read is memoized too (readErr) —
+// QueryReadOnlyClasses is a serial RPC that ignores ctx cancellation, so a
+// per-record fan-out against a partitioned leader could hold the caller's
+// sweep far past its deadline; the memo bounds it to one RPC per collection.
 type classLookup struct {
 	class   *models.Class
 	readErr bool

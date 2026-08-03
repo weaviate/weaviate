@@ -42,9 +42,8 @@ const maxVerifiedStillDroppedEntries = 512
 // the unit, so a momentary I/O error doesn't flip the whole task to FAILED.
 const maxConsecutivePollErrors = 3
 
-// dropVectorRetainVerdictTTL bounds the retainer's leader reads: all of one
-// drop's retained records share a single marker check per window instead of
-// paying one QueryReadOnlyClasses per record per scheduler tick.
+// dropVectorRetainVerdictTTL is the retain-verdict memo window; see
+// retainVerdictForDrop.
 const dropVectorRetainVerdictTTL = 30 * time.Second
 
 // maxRetainVerdictEntries bounds the retain-verdict memo (one entry per drop
@@ -135,10 +134,8 @@ type DropVectorIndexProvider struct {
 	verifiedMu           sync.Mutex
 	verifiedStillDropped map[string]bool // task ID -> every target still marked dropped
 
-	// retainVerdicts memoizes the retainer's marker check per drop
-	// (collection+targets): the TTL sweep asks per retained record per tick,
-	// and every record of one drop shares the answer. Time-bounded
-	// (dropVectorRetainVerdictTTL) so a finalize is observed within a window.
+	// retainVerdicts memoizes the retainer's marker check per drop; see
+	// retainVerdictForDrop.
 	retainVerdictMu sync.Mutex
 	retainVerdicts  map[string]retainVerdict
 
@@ -473,10 +470,7 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 // keeps a fast-failing round loop (one FAILED record minted per nudge) from
 // accumulating RAFT-replicated, snapshot-resident records without limit:
 // every new round's record frees its predecessor. The marker check is
-// memoized per drop for dropVectorRetainVerdictTTL — the sweep re-asks once
-// per retained record per tick, and all of one drop's records share the
-// answer; a leader-read failure retains (deletion is the irreversible
-// direction; re-evaluated next window).
+// memoized per drop and fails toward retaining; see retainVerdictForDrop.
 func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {
@@ -518,11 +512,15 @@ func newestMatchingRecord(task *distributedtask.Task, payload *DropVectorIndexTa
 	return true
 }
 
-// retainVerdictForDrop answers "retain records of this drop?" (targets still
-// marked dropped) from a short-lived per-drop memo, so one leader read per
-// window serves every retained record of the drop instead of one per record
-// per scheduler tick. Errors memoize as retain — N records must not fan out
-// into N serial RPCs against a partitioned leader.
+// retainVerdictForDrop answers "retain records of this drop?" — whether its
+// targets are still marked dropped — through a short-lived per-drop memo
+// (dropVectorRetainVerdictTTL). The TTL sweep asks once per retained-expired
+// record per scheduler tick and every record of one drop needs the same
+// answer, so the memo turns N leader reads per tick into one per drop per
+// window; the time bound means a finalize is observed within a window. A
+// leader-read failure memoizes as retain — deletion is the irreversible
+// direction, and N records must not fan out into N serial RPCs against a
+// partitioned leader.
 func (p *DropVectorIndexProvider) retainVerdictForDrop(payload *DropVectorIndexTaskPayload) bool {
 	key := retainVerdictKey(payload)
 	now := time.Now()
