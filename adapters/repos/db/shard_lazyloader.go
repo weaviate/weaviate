@@ -124,15 +124,15 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		return nil
 	}
 
-	// A non-hardlink backup lists this shard's segments and .wal straight from
-	// the live directory and keeps them there until ReleaseBackup. Loading now
-	// would start compaction and WAL recovery underneath that list, and the
-	// upload would then fail on a file that no longer exists.
+	// A non-hardlink backup lists this shard's segments and .wal from the live
+	// directory and keeps them there until ReleaseBackup; loading now would
+	// start compaction/WAL recovery underneath that list and fail the upload
+	// on a since-moved file.
 	//
-	// Checked here rather than at the callers because this is the mutex
-	// blockLoading holds: either the backup sees us loaded and halts the shard
-	// instead, or we see the marker it stored. A check outside it can pass just
-	// before the marker lands.
+	// Checked here, not at the callers, because this is the mutex blockLoading
+	// holds: either the backup sees us already loaded and halts the shard
+	// instead, or we see the marker it stored — a check outside the mutex
+	// could pass just before the marker lands.
 	if err := l.refuseIfBackupProtected(); err != nil {
 		return err
 	}

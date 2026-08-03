@@ -21,9 +21,8 @@ import (
 )
 
 // TestBackupShardWithoutHardlinks_RefusalLeavesNoProtection pins that a gate
-// refusal on the cold path does not strand the shard: the descriptor loop
-// fails, ReleaseBackup runs, and both the protection marker and the held
-// backupLock are gone.
+// refusal on the cold path releases the shard: no stranded protection marker
+// or held backupLock.
 func TestBackupShardWithoutHardlinks_RefusalLeavesNoProtection(t *testing.T) {
 	const shards = 4
 

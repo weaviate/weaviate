@@ -1779,11 +1779,10 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 // terminal-cleanup is still running.
 type CleanupInProgressLookup func(collection, shard string) bool
 
-// CleanupInProgressLookupBuilder returns a probe over the live registry,
-// not a snapshot: unlike [ShardReindexActivityLookupBuilder], building it
-// costs nothing and its answer changes underneath the caller. Mirrors that
-// builder's shape so the wiring in configure_api.go can install both
-// lookups identically.
+// CleanupInProgressLookupBuilder returns a probe over the live registry, not
+// a snapshot — unlike [ShardReindexActivityLookupBuilder], it costs nothing
+// to build and its answer changes on every call. Mirrors that builder's
+// shape so configure_api.go can wire both identically.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures

@@ -65,9 +65,8 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	// Built once and reused: the precheck accumulates every per-shard
-	// failure rather than stopping at the first, so per-shard resolution
-	// would multiply the gate's RAFT query by shard count.
+	// One gate shared by the per-shard loop below; built per shard it would
+	// cost one RAFT query per shard instead of one for the whole call.
 	gate := db.newReindexGate()
 	var errs []error
 	for _, c := range classes {
@@ -288,9 +287,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	mu := sync.Mutex{}
 	shards := map[string]*backup.ShardDescriptor{}
 
-	// Built once above the loop and shared by every shard: the gate's
-	// RAFT query is cluster-wide, so resolving it per shard multiplies
-	// it by shard count.
+	// One gate shared by every shard in the loop below (see reindexGate).
 	gate := i.newReindexGate()
 
 	for _, name := range shardNames {
@@ -328,22 +325,20 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	return i.marshalBackupMetadata(desc, stateBytes)
 }
 
-// backupShardLocked takes the index's backup locks for one shard, decides
-// whether it is loaded, and runs the matching branch. Both descriptor paths go
-// through it so a lock-ordering fix lands in one place.
+// backupShardLocked takes the index's backup locks for one shard and runs the
+// matching branch, so both descriptor paths share one lock-ordering
+// implementation.
 //
-// Lock order is closeLock → backupLock → shardCreateLocks. inactive runs with
-// both held, and for a lazy shard with loading blocked, so the files it lists
-// from disk cannot move under it. active runs with shardCreateLocks released,
-// because concurrent queries RLock the same key in getOptInitLocalShard and
-// would otherwise block for the whole snapshot (weaviate/0-weaviate-issues#234),
-// and with a shutdown refcount held in its place: UnloadLocalShard takes only
-// shardCreateLocks, so without the refcount it could shut the shard down mid-branch.
+// Lock order: closeLock → backupLock → shardCreateLocks. inactive holds all
+// three, with lazy-loading blocked, so listed files cannot move under it.
+// active releases shardCreateLocks early — getOptInitLocalShard RLocks the
+// same key and would otherwise block queries for the whole snapshot
+// (weaviate/0-weaviate-issues#234) — and holds a shutdown refcount in its
+// place, since UnloadLocalShard takes only shardCreateLocks.
 //
-// protectInactive keeps backupLock held past return and registers the shard in
-// backupProtectedShards. ReleaseBackup undoes both. It is for callers whose
-// listed files stay in the live shard directory; the hardlink path has already
-// linked them into staging and does not need it.
+// protectInactive keeps backupLock held (and the shard registered in
+// backupProtectedShards) past return until ReleaseBackup; only needed when
+// the caller's listed files remain in the live shard directory.
 func (i *Index) backupShardLocked(
 	name string,
 	protectInactive bool,
@@ -514,9 +509,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
-	// Built once above the loop and shared by every shard: the gate's
-	// RAFT query is cluster-wide, so resolving it per shard multiplies
-	// it by shard count.
+	// One gate shared by every shard in the loop below (see reindexGate).
 	gate := i.newReindexGate()
 
 	shards := map[string]*backup.ShardDescriptor{}
@@ -544,10 +537,9 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 	return i.marshalBackupMetadata(desc, stateBytes)
 }
 
-// backupShardWithoutHardlinks backs up a single shard without hardlinks. The
-// listed files stay in the live shard directory for the whole upload, so an
-// active shard stays halted and an inactive one stays protected, both until
-// ReleaseBackup.
+// backupShardWithoutHardlinks backs up a single shard without hardlinks;
+// since listed files stay in the live shard directory for the whole upload,
+// the shard stays halted (active) or protected (inactive) until ReleaseBackup.
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, gate *reindexGate) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 

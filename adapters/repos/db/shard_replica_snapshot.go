@@ -27,7 +27,7 @@ import (
 // shard-relative so the wire protocol doesn't carry the redundant <class>/<shard>/
 // prefix and resolution on the source can be naturally shard-scoped.
 func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (files []string, err error) {
-	// One shard per replica snapshot, so a gate of its own is not amplified.
+	// One shard per replica snapshot: a dedicated gate costs one query, not many.
 	if err := s.HaltForTransfer(ctx, false, 0, s.index.newReindexGate()); err != nil {
 		return nil, fmt.Errorf("halt for replica snapshot: %w", err)
 	}

@@ -22,13 +22,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// newLoadableColdLazyShard returns an Index holding one mapped, unloaded,
-// genuinely loadable LazyLoadShard with real files under it.
-//
-// The shard is loaded once to materialize its directory and then shut down, so
-// tests can tell "the backup left it cold" apart from "loading was going to
-// fail anyway" — a hand-built LazyLoadShard literal cannot load at all, which
-// makes any assertion on its loaded flag pass for the wrong reason.
+// newLoadableColdLazyShard returns an Index with one mapped, unloaded
+// LazyLoadShard that has real files and can genuinely load — loaded once
+// then shut down, so tests can tell "left cold" apart from "can't load".
 func newLoadableColdLazyShard(t *testing.T, className, shardName string) (*Index, *LazyLoadShard) {
 	t.Helper()
 	ctx := testCtx()
@@ -58,14 +54,9 @@ func newLoadableColdLazyShard(t *testing.T, className, shardName string) (*Index
 	return idx, lazy
 }
 
-// TestColdBackup_ProtectedLazyShardRefusesActivation pins that a shard the
-// non-hardlink backup is reading from disk cannot be loaded while the backup
-// holds it.
-//
-// backupProtectedShards used to be consulted only for a shard absent from the
-// shard map, so a mapped-but-unloaded LazyLoadShard was activated on request:
-// it opened its LSM store, registered compaction and recovered its .wal, and
-// the upload then failed on a listed file that had been compacted away.
+// TestColdBackup_ProtectedLazyShardRefusesActivation pins that every shard
+// activation route refuses while a non-hardlink backup holds the shard
+// protected and reading it from disk.
 func TestColdBackup_ProtectedLazyShardRefusesActivation(t *testing.T) {
 	const (
 		className = "ProtectedLazyClass"

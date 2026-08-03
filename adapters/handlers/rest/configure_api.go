@@ -1067,11 +1067,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// (wired into RestoreClassDir above) can run the audit.
 		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
 
-		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built once per
-		// backup, not once per shard, so the snapshot is fresh; on list failure
-		// the gate refuses every backup until DTM is reachable, to avoid races
-		// against in-flight reindexes that the local node cannot see.
+		// Wires refuseIfReindexInFlight to DTM instead of per-shard filesystem
+		// markers; built once per backup. On list failure, refuse every backup
+		// rather than miss a reindex the local node can't see.
 		type shardKey struct {
 			collection string
 			shardName  string

@@ -77,10 +77,6 @@ func newPrecheckGateTestDB(t *testing.T, collections, shardsPerCollection int) (
 
 // TestBackupable_BuildsReindexLookupOncePerPrecheck pins that one precheck
 // builds each lookup exactly once, regardless of shard count.
-//
-// Build count is the assertable property here: each build costs a
-// cluster-wide RAFT query, so counting builds needs no scale to be
-// meaningful. Three shards pin the same invariant as three thousand.
 func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -88,7 +84,7 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 		shardsPerCollection int
 		dtmUnreachable      bool
 		wantBuilds          int64
-		// A failed snapshot short-circuits before the cleanup arm is built.
+		// A failed snapshot short-circuits before cleanup is built.
 		wantCleanupBuilds int64
 		wantRefusedShards int
 		wantRefusalText   string
@@ -195,13 +191,9 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 		"all four shards must share the verdict of the single snapshot taken for this precheck")
 }
 
-// TestReindexGate_CleanupArmIsProbedPerShard pins the asymmetry between the
-// gate's two arms, which the build counts alone do not show.
-//
-// The production cleanup builder returns a method value over a live registry
-// (ReindexProvider.CleanupInProgressLookupBuilder), so memoizing it memoizes
-// the closure and not its answer. The activity arm is a real snapshot; the
-// cleanup arm keeps answering from current state. Both are built once.
+// TestReindexGate_CleanupArmIsProbedPerShard pins that cleanup is probed
+// fresh per shard, unlike the activity lookup, which is a fixed snapshot
+// once resolved.
 func TestReindexGate_CleanupArmIsProbedPerShard(t *testing.T) {
 	const shards = 4
 
@@ -237,9 +229,9 @@ func TestReindexGate_CleanupArmIsProbedPerShard(t *testing.T) {
 		"the cleanup arm re-reads live state per shard, so it is not snapshotted")
 }
 
-// TestRefuseIfReindexInFlight_NilGate pins that a nil gate is handled rather
-// than dereferenced. Every production caller passes a real gate, but the
-// parameter makes nil representable and resolve would panic on it.
+// TestRefuseIfReindexInFlight_NilGate pins that a nil gate is handled, not
+// dereferenced: every production caller passes a real gate, but resolve
+// would panic on a nil one.
 func TestRefuseIfReindexInFlight_NilGate(t *testing.T) {
 	tests := []struct {
 		name       string

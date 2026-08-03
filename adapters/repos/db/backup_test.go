@@ -559,19 +559,10 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 }
 
 // TestBackupShardWithoutHardlinks_InactiveShardSkipsActivePath pins that an
-// inactive shard returns the descriptor it read from disk rather than
-// continuing into the active path below it.
-//
-// The two cases fail differently. A shard absent from the shard map is a nil
-// ShardLike, so it crashes. A LazyLoadShard is not nil, so it is force-loaded
-// and re-listed over the descriptor already filled from disk — which needs a
-// shard that can actually load, or "still cold" says nothing.
-//
-// The incremental rows matter for a second reason: FillFileInfo replaces Files
-// when there is no base descriptor and appends when there is, so running it
-// twice over one descriptor duplicates the file list and double-counts
-// IncrementalBackupInfo in exactly the case that gets uploaded and becomes the
-// base for the next backup in the chain.
+// inactive shard's descriptor is built once from disk, not re-filled by
+// falling through to the active path — which would force-load a lazy shard
+// and, over an incremental base, duplicate FillFileInfo's Files/
+// IncrementalBackupInfo.
 func TestBackupShardWithoutHardlinks_InactiveShardSkipsActivePath(t *testing.T) {
 	ctx := context.Background()
 

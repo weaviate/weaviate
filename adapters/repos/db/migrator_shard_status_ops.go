@@ -87,9 +87,8 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		TenantsProcesses: make([]*command.TenantsProcess, len(freeze)),
 	}
 
-	// One gate for the loop, like every other multi-shard caller. Offloading
-	// skips the gate, so this one is never resolved and costs nothing; passing
-	// it keeps nil off every production call path.
+	// One gate for the loop, like other multi-shard callers; offloading never
+	// resolves it, so it costs nothing but keeps nil off every call path.
 	gate := idx.newReindexGate()
 
 	for uidx, name := range freeze {

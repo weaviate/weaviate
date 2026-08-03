@@ -23,13 +23,9 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// TestBackupable_OneGateStillJudgesEachShardByItsOwnName pins the property the
-// hoist puts at risk: sharing one gate across a shard set must not make the set
-// share one verdict.
-//
-// A lookup live for exactly one shard has to refuse exactly that shard. Passing
-// the wrong name — the first shard's for all of them, or a constant — survives
-// every build-count assertion, because the build count is identical either way.
+// TestBackupable_OneGateStillJudgesEachShardByItsOwnName pins that sharing one
+// gate across a shard set still judges each shard by its own name, not a
+// shared verdict — a wrong name would pass every build-count assertion.
 func TestBackupable_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 	const shards = 6
 
@@ -63,12 +59,9 @@ func TestBackupable_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 	}
 }
 
-// TestColdTransfer_OneGateStillJudgesEachShardByItsOwnName is the same property
-// on the two cold descriptor loops, which reach the gate through
-// backupInactiveShardWith[out]Hardlinks rather than through Backupable.
-//
-// Those two call sites are not executed by any of the precheck tests, so a
-// wrong name passed there is invisible to them.
+// TestColdTransfer_OneGateStillJudgesEachShardByItsOwnName pins the same
+// property on the cold descriptor loops (backupInactiveShardWith[out]Hardlinks),
+// which the precheck tests above don't exercise.
 func TestColdTransfer_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 	const shards = 6
 

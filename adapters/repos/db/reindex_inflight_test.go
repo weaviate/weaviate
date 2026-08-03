@@ -36,11 +36,9 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 }
 
 // TestReindexGate_ActivityArmDecisionTree pins how the gate reads a DTM
-// snapshot: the tuple must match on both collection and shard, and a builder
-// that is unwired or yields no lookup allows rather than refuses.
-//
-// Fail-open on an unwired builder is deliberate — see
-// [DB.SetShardReindexActivityLookup].
+// snapshot: the tuple must match both collection and shard, and an unwired or
+// nil-returning builder allows rather than refuses (deliberate fail-open, see
+// [DB.SetShardReindexActivityLookup]).
 func TestReindexGate_ActivityArmDecisionTree(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -88,9 +86,9 @@ func TestReindexGate_ActivityArmDecisionTree(t *testing.T) {
 	}
 }
 
-// TestReindexGate_CleanupArmRefuses pins the second arm, which no other test
-// reaches: a terminal task still tearing its sidecars down must refuse, and
-// must say so rather than reusing the live-task remediation.
+// TestReindexGate_CleanupArmRefuses pins that a terminal task still tearing
+// its sidecars down refuses the backup, with its own remediation text rather
+// than the live-task one.
 func TestReindexGate_CleanupArmRefuses(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -104,7 +102,7 @@ func TestReindexGate_CleanupArmRefuses(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			db := &DB{}
-			// Activity arm allows, so only the cleanup arm can refuse here.
+			// Activity lookup allows here, so only cleanup can refuse.
 			db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
 			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 				return func(collection, shard string) bool {
@@ -150,8 +148,8 @@ func TestReindexGate_DTMUnreachableIsItsOwnRefusal(t *testing.T) {
 }
 
 // TestReindexGate_BuildersAreReadAtResolveNotConstruction pins that a gate
-// built between the two setter calls in configure_api.go still picks the
-// cleanup arm up, instead of silently dropping it for the whole pass.
+// built between the two configure_api.go setter calls still picks up cleanup,
+// instead of dropping it for good.
 func TestReindexGate_BuildersAreReadAtResolveNotConstruction(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
@@ -280,14 +278,9 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
-// TestReindexGate_FormattingIsRaceFreeAgainstResolve pins that formatting a
-// gate does not read what resolve writes.
-//
-// The mockery-generated ShardLike mock hands the gate to testify, which
-// formats every argument with %v on every call, and the transfer loops share
-// one gate across goroutines. Without [reindexGate.String] this is a data race
-// reported inside fmt and reflect frames that name neither the gate nor the
-// mock.
+// TestReindexGate_FormattingIsRaceFreeAgainstResolve pins that concurrent
+// resolve and %v-formatting (as testify's mock diffing does) don't race —
+// this is what [reindexGate.String] exists to prevent.
 func TestReindexGate_FormattingIsRaceFreeAgainstResolve(t *testing.T) {
 	const formatters = 8
 

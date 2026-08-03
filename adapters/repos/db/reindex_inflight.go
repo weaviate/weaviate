@@ -20,17 +20,13 @@ import (
 )
 
 // unwiredGateWarnOnce keeps the "lookup not installed" WARN to one per
-// process. The window it reports is a startup-ordering fault, not a normal
-// state, so repeating it per backup would only add noise.
+// process: the window is a startup-ordering fault, not steady state.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate answers the backup gate for a whole shard set off one DTM
-// snapshot. Taking that snapshot costs a cluster-wide RAFT query, so it is
-// taken once per backup rather than once per shard, and lazily, so a node
-// holding none of the requested shards issues no query at all.
-//
-// Safe to share across a concurrent shard loop: resolve runs under sync.Once,
-// which orders the write of the lookups before every read of them.
+// reindexGate amortizes one DTM snapshot (a cluster-wide RAFT query) across a
+// whole shard-loop backup, built lazily so a node holding none of the
+// requested shards issues no query. Safe for concurrent use: resolve runs
+// under sync.Once, which orders the lookup writes before every read.
 type reindexGate struct {
 	// db is read at resolve time, not captured at construction, so a gate
 	// built between the two setter calls in configure_api.go still sees both
@@ -44,11 +40,11 @@ type reindexGate struct {
 	cleanup     CleanupInProgressLookup
 }
 
-// String stops fmt reflecting over the fields a concurrent resolve writes.
-// Load-bearing, not decorative: the mockery-generated ShardLike mock passes
-// the gate to testify's Called, and Arguments.Diff formats every argument with
-// %v before consulting any matcher, so mock.Anything does not avoid it. Covers
-// only the Stringer verbs — %#v, spew and reflect.DeepEqual still reflect.
+// String stops fmt from reflecting over fields a concurrent resolve writes.
+// Load-bearing, not decorative: the mockery-generated ShardLike mock hands the
+// gate to testify's Called, and Arguments.Diff formats every argument with %v
+// before consulting any matcher, so mock.Anything does not avoid it. Covers
+// only the Stringer verbs — %#v, spew, and reflect.DeepEqual still reflect.
 func (g *reindexGate) String() string { return "reindexGate" }
 
 // Removing String would otherwise surface only as a data race in fmt frames.
@@ -58,9 +54,9 @@ func (db *DB) newReindexGate() *reindexGate {
 	return &reindexGate{db: db, logger: db.logger}
 }
 
-// newReindexGate builds the gate for one Index's backup pass. An Index without
-// its DB back-reference yields an empty gate, which [Index.refuseIfReindexInFlight]
-// refuses before ever using.
+// newReindexGate builds the gate for one Index's backup pass; an Index without
+// a DB back-reference yields an empty gate, which [Index.refuseIfReindexInFlight]
+// refuses before use.
 func (i *Index) newReindexGate() *reindexGate {
 	if i.db == nil {
 		return &reindexGate{}
@@ -79,8 +75,8 @@ func (g *reindexGate) installedBuilders() (ShardReindexActivityLookupBuilder, Cl
 }
 
 // resolve takes both lookups, at most once per gate. An unwired activity
-// builder defaults to "no live reindex" — see [DB.SetShardReindexActivityLookup]
-// for why fail-open.
+// builder defaults to "no live reindex" — see
+// [DB.SetShardReindexActivityLookup] for why fail-open.
 func (g *reindexGate) resolve() {
 	g.once.Do(func() {
 		activityBuilder, cleanupBuilder := g.installedBuilders()
@@ -98,9 +94,8 @@ func (g *reindexGate) resolve() {
 		}
 		g.activity, g.activityErr = activityBuilder()
 		if g.activityErr != nil || g.activity == nil {
-			// A builder that yields no lookup takes the same fail-open path as
-			// an unwired one; one that errored fails closed in refusalReason.
-			// Either way the cleanup arm is not consulted and need not be built.
+			// A nil lookup fails open like an unwired builder; an error fails
+			// closed in refusalReason. Either way cleanup need not be built.
 			return
 		}
 		if cleanupBuilder != nil {
@@ -110,8 +105,7 @@ func (g *reindexGate) resolve() {
 }
 
 // reindexRefusal names why the gate refuses a backup, so the operator-facing
-// error can say what to do about it. The producer used to collapse "a reindex
-// is running" and "I could not find out" into one bool.
+// error can say what to do about it.
 type reindexRefusal int
 
 const (
@@ -134,13 +128,13 @@ func (g *reindexGate) refusalReason(collection, shardName string) reindexRefusal
 		return reindexRefusalNone
 	}
 	if g.activity(collection, shardName) {
-		// Debug-level so flag-on operators can see which arm refused.
+		// Debug-level so operators can see which check refused.
 		g.logRefusal(collection, shardName, "activity_lookup_live_task",
 			"backup-reindex gate: refusing — DTM lists a live reindex task on this shard")
 		return reindexRefusalLiveTask
 	}
-	// The cleanup arm is OR-d in: the DTM task can flip terminal while
-	// autoCleanupAfterTerminal is still tearing the sidecar buckets down.
+	// cleanup is OR'd in: a DTM task can flip terminal while
+	// autoCleanupAfterTerminal is still tearing sidecar buckets down.
 	if g.cleanup == nil {
 		return reindexRefusalNone
 	}
@@ -170,25 +164,23 @@ func (g *reindexGate) logRefusal(collection, shardName, reason, msg string) {
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
-// [reindexGate.refusalReason] to detect terminal-task cleanup that has not yet
-// finished tearing __reindex / __ingest sidecar dirs down. Wired in
-// post-bootstrap alongside [DB.SetShardReindexActivityLookup].
+// [reindexGate.refusalReason] to detect terminal-task cleanup still tearing
+// down __reindex / __ingest sidecar dirs. Wired in post-bootstrap alongside
+// [DB.SetShardReindexActivityLookup].
 //
-// Unlike the activity builder, the installed closure reads the live registry on
-// every call, so the gate memoizes the closure but not its answer.
+// Unlike the activity builder, the returned closure re-reads live state on
+// every call rather than a fixed snapshot.
 func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 
-// refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], the two inactive-shard descriptor paths, and
-// [Shard.HaltForTransfer]. The gate is caller-supplied so a multi-shard caller
-// pays one DTM query for the set.
-//
-// An Index with no DB back-reference refuses, on the assumption that wiring is
-// still in progress.
+// refuseIfReindexInFlight is the per-shard backup-gate check shared by
+// [DB.Backupable], the inactive-shard descriptor paths, and
+// [Shard.HaltForTransfer]. Callers supply the gate so a multi-shard caller
+// pays one DTM query for the whole set; an Index with no DB back-reference
+// refuses, assuming wiring is still in progress.
 func (i *Index) refuseIfReindexInFlight(shardName string, gate *reindexGate) error {
 	if i.db == nil {
 		return reindexInFlightError(i.Config.ClassName.String(), shardName, reindexRefusalPreWire)

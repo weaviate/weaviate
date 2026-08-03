@@ -53,18 +53,8 @@ func transferGateShardName(i int) string {
 	return fmt.Sprintf("cold-tenant-%d", i)
 }
 
-// newTransferGateTestIndex builds an Index whose cold-transfer loop walks
-// shards inactive shards, and counts how often each backup-gate lookup is
-// built.
-//
-// withShardDirs=false is the fixture shape that never reaches the gate:
-// backupInactiveShardWith[out]Hardlinks stat the shard dir and return
-// errShardNoLocalData first, and the loop swallows that error. A build count
-// taken on such a fixture says nothing about the gate, so the tests below
-// assert on it explicitly rather than letting it pass as a hoist.
 // gateProbe records the shard names a fixture's activity lookup is asked
-// about. Without it a lookup that ignores its arguments cannot tell "probed
-// shard N" apart from "probed shard 0, N times".
+// about, to distinguish "probed shard N" from "probed shard 0, N times".
 type gateProbe struct {
 	mu    sync.Mutex
 	names []string
@@ -106,6 +96,10 @@ func transferGateShardNames(shards int) []string {
 // liveOnEveryShard is the fixture lookup for "a reindex is running everywhere".
 func liveOnEveryShard(string) bool { return true }
 
+// newTransferGateTestIndex builds an Index whose cold-transfer loop walks
+// inactive shards, and counts how often each backup-gate lookup is built.
+// withShardDirs=false never reaches the gate (stat fails first), so tests
+// assert its build count explicitly rather than relying on it as a given.
 func newTransferGateTestIndex(t *testing.T, shards int, withShardDirs bool, live func(shardName string) bool) (*Index, *atomic.Int64, *atomic.Int64, *gateProbe) {
 	t.Helper()
 
@@ -146,11 +140,8 @@ func newTransferGateTestIndex(t *testing.T, shards int, withShardDirs bool, live
 }
 
 // TestColdTransfer_BuildsReindexLookupOncePerShardSet pins that one cold
-// transfer builds each lookup exactly once, regardless of shard count.
-//
-// Each build is one cluster-wide ListDistributedTasks RAFT query, so the
-// build count is assertable without scale: fifty shards pin the same
-// invariant as fifty thousand.
+// transfer builds each backup-gate lookup exactly once, regardless of shard
+// count.
 func TestColdTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -198,18 +189,8 @@ func TestColdTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 }
 
 // TestHotTransfer_BuildsReindexLookupOncePerShardSet pins that a backup of
-// hot shards resolves the reindex gate once for the whole set.
-//
-// Hot shards reach the gate through Shard.HaltForTransfer, which the loop
-// cannot hoist on their behalf — it can only hand every shard the same gate.
-// So the property is gate *identity* across the set: resolution sits behind
-// sync.Once, so one gate for M shards is one cluster-wide DTM query for M
-// shards. The build count follows from that and is asserted too, since it is
-// the number the amplification was measured in.
-//
-// On the hardlink path the loop runs under eg.SetLimit(_NUMCPU), so before
-// the hoist these were M queries fanned out at GOMAXPROCS against the leader,
-// a worse shape than M sequential ones.
+// hot shards resolves the reindex gate once for the whole set, not once per
+// shard: every shard must be handed the same gate instance.
 func TestHotTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 	const shards = 12
 
@@ -310,13 +291,9 @@ func TestHotTransfer_BuildsReindexLookupOncePerShardSet(t *testing.T) {
 				"one backup must hand the same gate to all %d hot shards, got %d distinct gates",
 				shards, len(distinct))
 
-			// The mocks never resolve the gate, so the loop itself costs no
-			// queries; the identity assertion above is what carries the
-			// invariant. Resolving each gate the backup handed out converts
-			// that identity into the query count it implies, since resolution
-			// is behind sync.Once. Done here rather than inside the mock
-			// because testify reflects over its arguments to build mismatch
-			// messages, and that read races the concurrent resolve.
+			// Resolved here, not inside the mock: testify reflects over
+			// arguments to build mismatch messages, and that read would race
+			// the concurrent resolve.
 			require.Zero(t, builds.Load(), "mocked shards do not resolve the gate")
 			for _, g := range seen {
 				g.anyLiveReindexForShard(className, "any-shard")
@@ -333,13 +310,9 @@ func hotGateShardName(i int) string {
 	return fmt.Sprintf("hot-tenant-%d", i)
 }
 
-// TestHotTransfer_FailClosedRefusesEveryShard pins that sharing one gate does
-// not soften the fail-closed contract: when the DTM query fails, every shard
-// is refused, not only the one that happened to resolve the gate.
-//
-// Uses real Shards, since the refusal lives inside Shard.HaltForTransfer. It
-// returns at the gate before touching the store, so no fixture is needed
-// beyond the index back-reference and a name.
+// TestHotTransfer_FailClosedRefusesEveryShard pins that sharing one gate
+// doesn't soften fail-closed: a failed DTM query refuses every shard, not
+// just the one that happened to resolve it.
 func TestHotTransfer_FailClosedRefusesEveryShard(t *testing.T) {
 	const shards = 12
 
@@ -353,7 +326,7 @@ func TestHotTransfer_FailClosedRefusesEveryShard(t *testing.T) {
 	})
 	idx := &Index{db: db, Config: IndexConfig{ClassName: "HotFailClosedClass"}}
 
-	// One backup, one gate, as the transfer loops now hand it out.
+	// One backup, one gate: what the transfer loops hand each shard.
 	gate := idx.newReindexGate()
 
 	refused := 0
@@ -371,13 +344,9 @@ func TestHotTransfer_FailClosedRefusesEveryShard(t *testing.T) {
 		"and must still cost exactly one query")
 }
 
-// TestColdTransfer_PopulatedShardsReachTheGate separates "the gate was
-// resolved once" from "the gate was never consulted", which produce the same
-// build count on a fixture whose shards have no directory on disk.
-//
-// A live reindex must refuse a shard that holds data, and must leave a shard
-// with no local data alone: only the first of those proves the loop reaches
-// the gate at all.
+// TestColdTransfer_PopulatedShardsReachTheGate pins that the gate is actually
+// consulted: a live reindex refuses a shard with data and leaves a shard with
+// no local data untouched (same build count either way).
 func TestColdTransfer_PopulatedShardsReachTheGate(t *testing.T) {
 	for _, path := range coldTransferPaths {
 		t.Run(path.name, func(t *testing.T) {
