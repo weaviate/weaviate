@@ -98,6 +98,7 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 			a.classSearcher, a.stopwordProvider, a.shardVersion, a.isFallbackToSearchable,
 			a.isRangeableLocallyReady, a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
 			WithTokenizationResolver(a.tokResolver).
+			WithBatchedContainsEnabled(a.batchedContainsEnabled).
 			DocIDs(ctx, a.params.Filters, additional.Properties{},
 				a.params.ClassName)
 		if err != nil {

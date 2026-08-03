@@ -170,8 +170,7 @@ func (db *DB) setShardsReadOnly(reason string) {
 			if err != nil {
 				db.logger.WithField("action", "set_shard_read_only").
 					WithField("path", db.config.RootPath).
-					WithError(err).
-					Fatal("failed to set to READONLY")
+					Fatalf("failed to set to READONLY: shard %q: %v", name, err)
 			}
 			return nil
 		})

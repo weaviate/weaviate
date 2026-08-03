@@ -417,7 +417,9 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 ) {
 	minimal, verbose := verbosity.OutputMinimal, verbosity.OutputVerbose
 
-	commonTests := func(resp *nodes.NodesGetOK) {
+	// the caller passes in the t to assert against: inside EventuallyWithT that
+	// is the tick's CollectT, not the surrounding *testing.T
+	commonTests := func(t require.TestingT, resp *nodes.NodesGetOK) {
 		require.NotNil(t, resp.Payload)
 		nodes := resp.Payload.Nodes
 		require.NotNil(t, nodes)
@@ -427,8 +429,8 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 
 	t.Run("minimal", func(t *testing.T) {
 		payload, err := getNodesStatus(t, minimal, class)
-		require.Nil(t, err)
-		commonTests(&nodes.NodesGetOK{Payload: payload})
+		require.NoError(t, err)
+		commonTests(t, &nodes.NodesGetOK{Payload: payload})
 	})
 
 	if verboseAssertions != nil {
@@ -438,8 +440,8 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 			}
 			assert.EventuallyWithT(t, func(t *assert.CollectT) {
 				payload, err := getNodes()
-				require.Nil(t, err)
-				commonTests(&nodes.NodesGetOK{Payload: payload})
+				require.NoError(t, err)
+				commonTests(t, &nodes.NodesGetOK{Payload: payload})
 				// If commonTests pass, resp.Nodes[0] != nil
 				verboseAssertions(t, payload.Nodes[0])
 			}, 15*time.Second, 500*time.Millisecond)
@@ -447,15 +449,22 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 	}
 }
 
-func getNodesStatus(t *testing.T, output, class string) (payload *models.NodesStatusResponse, err error) {
+func getNodesStatus(t *testing.T, output, class string) (*models.NodesStatusResponse, error) {
+	// the generated client returns a nil body along with the error, so the
+	// payload can only be read once the error is ruled out
 	if class != "" {
 		params := nodes.NewNodesGetClassParams().WithOutput(&output).WithClassName(class)
-		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		payload, err = body.Payload, clientErr
-	} else {
-		params := nodes.NewNodesGetParams().WithOutput(&output)
-		body, clientErr := helper.Client(t).Nodes.NodesGet(params, nil)
-		payload, err = body.Payload, clientErr
+		body, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		if err != nil {
+			return nil, err
+		}
+		return body.Payload, nil
 	}
-	return payload, err
+
+	params := nodes.NewNodesGetParams().WithOutput(&output)
+	body, err := helper.Client(t).Nodes.NodesGet(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return body.Payload, nil
 }

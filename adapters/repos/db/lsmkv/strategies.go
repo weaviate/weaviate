@@ -82,12 +82,18 @@ func MustBeExpectedStrategy(strategy string, expectedStrategies ...string) {
 	}
 }
 
+// pre-built and never mutated, so the strategy checks don't allocate per call
+var (
+	strategiesRoaringSet      = []string{StrategyRoaringSet}
+	strategiesRoaringSetRange = []string{StrategyRoaringSetRange}
+)
+
 func CheckStrategyRoaringSet(strategy string) error {
-	return CheckExpectedStrategy(strategy, StrategyRoaringSet)
+	return CheckExpectedStrategy(strategy, strategiesRoaringSet...)
 }
 
 func CheckStrategyRoaringSetRange(strategy string) error {
-	return CheckExpectedStrategy(strategy, StrategyRoaringSetRange)
+	return CheckExpectedStrategy(strategy, strategiesRoaringSetRange...)
 }
 
 func DefaultSearchableStrategy(useInvertedSearchable bool) string {

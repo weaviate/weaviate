@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/awscommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -52,7 +53,7 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 		region = os.Getenv("AWS_DEFAULT_REGION")
 	}
 
-	creds, err := resolveCredentials(config, region)
+	creds, err := resolveCredentials(config, region, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve credentials")
 	}
@@ -68,7 +69,16 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 	return &s3Client{client, config, logger, dataPath, region}, nil
 }
 
-func resolveCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+func resolveCredentials(config *clientConfig, region string, logger logrus.FieldLogger) (*credentials.Credentials, error) {
+	if endpoint := os.Getenv("BACKUP_S3_AUTH_PROXY_ENDPOINT"); endpoint != "" {
+		broker, err := awscommon.NewAuthBrokerCredentials(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("configure auth broker: %w", err)
+		}
+		logger.Info("backup-s3: using auth broker for AWS credentials")
+		return credentials.New(broker), nil
+	}
+
 	// When a Role ARN is configured, use STS AssumeRole to obtain
 	// temporary credentials. This supports cross-account access and
 	// the ExternalId parameter for confused-deputy prevention.
@@ -238,7 +248,8 @@ func (s *s3Client) AllBackups(ctx context.Context,
 	if prefix != "" && prefix[len(prefix)-1] != '/' {
 		prefix += "/"
 	}
-	objectsInfo := s.client.ListObjects(ctx,
+	objectsInfo := s.client.ListObjects(
+		ctx,
 		s.config.Bucket,
 		minio.ListObjectsOptions{
 			Recursive: false,
@@ -356,7 +367,8 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath))
+			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath),
+		)
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
