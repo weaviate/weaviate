@@ -823,6 +823,44 @@ func TestReleaseBackupIgnoresForeignBackup(t *testing.T) {
 	assert.NoDirExists(t, stagingDir)
 }
 
+// Shards are released outside backupStateMu, so a later backup can protect one
+// mid-sweep. It only gets there for a shard the releasing backup never held —
+// a tenant that was hot then and is cold now — since every other shard's lock
+// is still held. That one must survive the sweep.
+func TestReleaseProtectedShardsLeavesNewerGenerationsAlone(t *testing.T) {
+	const (
+		wasHot  = "hot-then-cold-tenant"
+		wasCold = "cold-tenant"
+	)
+
+	idx, _ := newColdTenantIndex(t, wasCold)
+
+	firstGen, err := idx.initBackup("backup1")
+	require.NoError(t, err)
+	idx.backupLock.Lock(wasCold)
+	require.NoError(t, idx.protectShard(wasCold, firstGen))
+
+	// backup1 ends; its releaser is about to sweep.
+	sweepGen, claimed := idx.claimBackup("backup1")
+	require.True(t, claimed)
+
+	// backup2 starts and protects the tenant backup1 never touched.
+	secondGen, err := idx.initBackup("backup2")
+	require.NoError(t, err)
+	idx.backupLock.Lock(wasHot)
+	require.NoError(t, idx.protectShard(wasHot, secondGen))
+
+	idx.releaseProtectedShards(sweepGen)
+
+	_, protected := idx.backupProtectedShards.Load(wasCold)
+	assert.False(t, protected, "backup1 must release its own shard")
+	requireBackupLocksFree(t, idx, []string{wasCold})
+
+	_, protected = idx.backupProtectedShards.Load(wasHot)
+	assert.True(t, protected, "backup1's sweep must not touch backup2's shard")
+	assert.False(t, idx.backupLock.TryRLock(wasHot), "backup2's lock must stay held")
+}
+
 // A shard must never be protected for an already-released backup: nothing
 // would clear the flag or unlock it again.
 func TestProtectShardRefusesReleasedBackup(t *testing.T) {
