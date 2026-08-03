@@ -70,8 +70,7 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 				if err != nil {
 					h.logger.
 						WithField("action", "computeLateInteraction").
-						WithError(err).
-						Warnf("could not compute score for docID %d", docID)
+						Warnf("could not compute score for docID %d: %v", docID, err)
 					continue
 				}
 				addResult(docID, sim)
@@ -180,22 +179,7 @@ func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32,
 		return 0, errors.Wrap(err, "get vectors for docID")
 	}
 
-	similarity := float32(0.0)
-	for _, searchVec := range searchVecs {
-		maxSim := float32(math.MaxFloat32)
-		dist := h.multiDistancerProvider.New(searchVec)
-		for _, docVec := range docVecs {
-			d, err := dist.Distance(docVec)
-			if err != nil {
-				return 0, errors.Wrap(err, "calculate distance")
-			}
-			if d < maxSim {
-				maxSim = d
-			}
-		}
-		similarity += maxSim
-	}
-	return similarity, nil
+	return lateInteractionScore(h.multiDistancerProvider, searchVecs, docVecs)
 }
 
 func equalVectorDims(searchVecs, docVecs [][]float32) bool {
