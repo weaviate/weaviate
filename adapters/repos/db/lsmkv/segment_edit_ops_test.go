@@ -519,6 +519,38 @@ func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName))
 }
 
+// TestSegmentEditOps_RecoverMigratesLegacyCompactionRows pins the
+// cross-version heal: a sidecar written by a pre-resume binary can carry a
+// "<left>_<right>" compaction re-queue row — a name no live segment ever has.
+// The old binary masked it with a load-time full re-snapshot; recovery now
+// trusts the recorded rows, so without migration the ENOENT prune would drop
+// the row and the merged output (written without the op's transformer) would
+// count as clean — the drop would finalize with its data unstripped. A
+// resolvable phantom is rewritten to the merged output's real ID; an
+// unresolvable one re-pends the op's every live segment.
+func TestSegmentEditOps_RecoverMigratesLegacyCompactionRows(t *testing.T) {
+	s := newTestEditOps(t)
+	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100_200", "600"}))
+	require.NoError(t, s.RegisterOp("op2", removeOp("bar")))
+	require.NoError(t, s.SnapshotSegments("op2", []string{"300_400", "500"}))
+	require.NoError(t, s.MarkSegmentDone("op2", "500"))
+
+	noLive := func() map[string]struct{} { return nil }
+	require.NoError(t, s.Recover([]string{"200", "500", "600"}, noLive, noLive))
+
+	p1, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200", "600"}, p1,
+		"a phantom whose right half is live is rewritten to the merged output's real ID")
+
+	p2, err := s.Pending("op2")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200", "500", "600"}, p2,
+		"an unresolvable phantom (merged again under the old binary) re-pends every live segment — "+
+			"a conservative re-clean, never a silent under-strip")
+}
+
 // TestSegmentEditOps_QuarantineSurvivesReSnapshot pins that a quarantine verdict
 // (retry budget exhausted) is not silently undone within a round: neither a
 // plain re-snapshot nor load-time Recover re-pends a quarantined segment.

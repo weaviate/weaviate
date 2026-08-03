@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -1004,6 +1005,10 @@ func suspectedOrphans(ops []ActiveOp, live map[string]struct{}) []ActiveOp {
 
 // Reconcile repairs the store against ground truth at open time (C1):
 //
+//   - legacy "<left>_<right>" compaction re-queue rows written by an older
+//     binary are migrated to the merged output's real ID first — plain
+//     pruning would silently drop their cover (see
+//     migrateLegacyCompactionRowsTx).
 //   - pending/quarantined rows for segments that no longer exist on disk are
 //     dropped. This covers a crash after a segment was renamed/merged away but
 //     before its row could be cleared.
@@ -1016,7 +1021,8 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		ops := tx.Bucket(editOpsBucketOperations)
 
-		// Drop orphaned operations first; the segment sweep then skips them.
+		// Drop orphaned operations first; the migration and segment sweep
+		// then skip them.
 		if liveOpIDs != nil {
 			var orphans []string
 			if err := ops.ForEach(func(k, _ []byte) error {
@@ -1040,6 +1046,10 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 			}
 		}
 
+		if err := s.migrateLegacyCompactionRowsTx(tx, existingSegmentIDs); err != nil {
+			return err
+		}
+
 		for _, top := range [][]byte{editOpsBucketPending, editOpsBucketQuarantine} {
 			if err := pruneMissingSegments(tx.Bucket(top), existingSegmentIDs); err != nil {
 				return err
@@ -1047,6 +1057,85 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 		}
 		return nil
 	})
+}
+
+// migrateLegacyCompactionRowsTx heals pending rows written by a pre-resume
+// binary's RecordCompaction, which re-queued a compaction's merged output
+// under "<leftID>_<rightID>" — a name no live segment ever carries (the merged
+// file takes the RIGHT input's ID; stripTmpExtension). The old code masked
+// those rows by re-snapshotting every live segment on load; with recovery now
+// trusting the recorded pending set, plain pruning would drop the row and the
+// merged output — written without the op's transformer — would be treated as
+// clean: the drop would finalize with its data unstripped. So, for a pending
+// row absent from disk whose name has the legacy shape: if its right half is
+// a live segment, the row is rewritten to it (the exact cover); if the right
+// half is gone too (merged again under the old binary), the op re-pends every
+// live segment — one conservative re-clean of this shard instead of a silent
+// under-strip. Quarantine rows need no migration: cleanup never bumps a row
+// whose segment is missing, so a phantom can never have been quarantined.
+func (s *SegmentEditOps) migrateLegacyCompactionRowsTx(tx *bolt.Tx, existingSegmentIDs map[string]struct{}) error {
+	pending := tx.Bucket(editOpsBucketPending)
+	type phantomRow struct {
+		opID, segID, rightID string
+		raw                  []byte
+	}
+	var phantoms []phantomRow
+	if err := pending.ForEachBucket(func(opID []byte) error {
+		return pending.Bucket(opID).ForEach(func(segID, raw []byte) error {
+			id := string(segID)
+			if _, ok := existingSegmentIDs[id]; ok {
+				return nil
+			}
+			i := strings.LastIndexByte(id, '_')
+			if i < 0 {
+				return nil // plain missing segment; pruneMissingSegments handles it
+			}
+			phantoms = append(phantoms, phantomRow{
+				opID: string(opID), segID: id, rightID: id[i+1:],
+				raw: append([]byte(nil), raw...),
+			})
+			return nil
+		})
+	}); err != nil {
+		return err
+	}
+	if len(phantoms) == 0 {
+		return nil
+	}
+	resnapshot := map[string]struct{}{}
+	for _, row := range phantoms {
+		sub := pending.Bucket([]byte(row.opID))
+		if err := sub.Delete([]byte(row.segID)); err != nil {
+			return err
+		}
+		if s.logger != nil {
+			s.logger.WithField("op_id", row.opID).WithField("row", row.segID).
+				Warnf("edit-ops recover: migrating legacy compaction re-queue row from an older binary")
+		}
+		if _, ok := existingSegmentIDs[row.rightID]; ok {
+			if sub.Get([]byte(row.rightID)) == nil {
+				if err := sub.Put([]byte(row.rightID), row.raw); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		resnapshot[row.opID] = struct{}{}
+	}
+	if len(resnapshot) == 0 {
+		return nil
+	}
+	segIDs := make([]string, 0, len(existingSegmentIDs))
+	for id := range existingSegmentIDs {
+		segIDs = append(segIDs, id)
+	}
+	sort.Strings(segIDs)
+	for opID := range resnapshot {
+		if err := s.addPendingRowsTx(tx, opID, segIDs); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // pruneMissingSegments deletes, across every operation sub-bucket, the segment
