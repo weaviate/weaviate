@@ -110,6 +110,15 @@ type timestampCountPair struct {
 	count uint64
 }
 
+// lessThan totally orders timestamps: epochNano first, then rfc3339 to
+// deterministically break ties between distinct spellings of the same instant.
+func (t timestamp) lessThan(other timestamp) bool {
+	if t.epochNano != other.epochNano {
+		return t.epochNano < other.epochNano
+	}
+	return t.rfc3339 < other.rfc3339
+}
+
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	t, err := time.Parse(time.RFC3339Nano, rfc3339)
 	if err != nil {
@@ -202,7 +211,7 @@ func (a *dateAggregator) Median() string {
 func (a *dateAggregator) buildPairsFromCounts() {
 	a.pairs = a.pairs[:0] // clear out old values in case this function called more than once
 	for value, count := range a.valueCounter {
-		if count > a.maxCount {
+		if count > a.maxCount || (count == a.maxCount && value.lessThan(a.mode)) {
 			a.maxCount = count
 			a.mode = value
 		}
@@ -210,6 +219,6 @@ func (a *dateAggregator) buildPairsFromCounts() {
 	}
 
 	sort.Slice(a.pairs, func(x, y int) bool {
-		return a.pairs[x].value.epochNano < a.pairs[y].value.epochNano
+		return a.pairs[x].value.lessThan(a.pairs[y].value)
 	})
 }
