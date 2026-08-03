@@ -12,6 +12,7 @@
 package shardusage
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -170,6 +171,39 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	dimensionalities := make(map[string]types.Dimensionality, len(targetVectors))
 	for _, targetVector := range targetVectors {
 		dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+		if err != nil {
+			return nil, err
+		}
+		dimensionalities[targetVector] = dimensionality
+	}
+	return dimensionalities, nil
+}
+
+// CalculateUnloadedMuveraDimensionsUsageAll reports the MUVERA-encoded dimensionality for the
+// given target vectors of an unloaded shard, keyed by target vector with its encoded dimensions
+// as value. An empty map is a no-op, so non-MUVERA shards never pay for the extra bucket open.
+func CalculateUnloadedMuveraDimensionsUsageAll(ctx context.Context,
+	logger logrus.FieldLogger, path, tenantName string, muveraDimensions map[string]int,
+) (map[string]types.Dimensionality, error) {
+	if len(muveraDimensions) == 0 {
+		return nil, nil
+	}
+
+	bucketPath := shardPathDimensionsLSM(path, tenantName)
+	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
+		return nil, fmt.Errorf("lock dimensions bucket: %w", err)
+	}
+	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
+
+	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
+	if err != nil {
+		return nil, err
+	}
+	defer bucket.Shutdown(ctx)
+
+	dimensionalities := make(map[string]types.Dimensionality, len(muveraDimensions))
+	for targetVector, encodedDimensions := range muveraDimensions {
+		dimensionality, err := CalculateMuveraDimensionsUsageFromBucket(ctx, bucket, targetVector, encodedDimensions)
 		if err != nil {
 			return nil, err
 		}
@@ -425,4 +459,65 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 	}
 
 	return dimensionality, nil
+}
+
+// CalculateMuveraDimensionsUsageFromBucket reports the fixed MUVERA-encoded dimensionality
+// (what is held in memory per object) with the object count summed across all bucket entries,
+// as multi-vector objects are recorded under their varying per-object total dimensions.
+func CalculateMuveraDimensionsUsageFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
+	encodedDimensions int,
+) (types.Dimensionality, error) {
+	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
+		return types.Dimensionality{}, fmt.Errorf("calculateMuveraDimensionsUsageFromBucket: %w", err)
+	}
+
+	prefix := []byte(targetVector)
+	nameLen := len(targetVector)
+	expectedKeyLen := nameLen + 4 // vector name + uint32
+	totalCount := 0
+	// entries with dims=0 are objects without a vector; keys of other lengths are interleaved
+	// keys of longer vector names extending this one ("texts…" sorts before "text\x80…")
+	countEntry := func(k []byte, count int) {
+		if len(k) == expectedKeyLen && binary.LittleEndian.Uint32(k[nameLen:]) > 0 {
+			totalCount += count
+		}
+	}
+	var k []byte
+
+	switch b.Strategy() {
+	case lsmkv.StrategyMapCollection:
+		c, err := b.MapCursor()
+		if err != nil {
+			return types.Dimensionality{}, fmt.Errorf("create cursor: %w", err)
+		}
+		defer c.Close()
+
+		var v []lsmkv.MapPair
+		if nameLen == 0 {
+			k, v = c.First(ctx)
+		} else {
+			k, v = c.Seek(ctx, prefix)
+		}
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next(ctx) {
+			countEntry(k, len(v))
+		}
+	default:
+		c := b.CursorRoaringSet()
+		defer c.Close()
+
+		var v *sroar.Bitmap
+		if nameLen == 0 {
+			k, v = c.First()
+		} else {
+			k, v = c.Seek(prefix)
+		}
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			countEntry(k, v.GetCardinality())
+		}
+	}
+
+	if totalCount == 0 {
+		return types.Dimensionality{}, nil
+	}
+	return types.Dimensionality{Dimensions: encodedDimensions, Count: totalCount}, nil
 }

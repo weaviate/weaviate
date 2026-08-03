@@ -684,3 +684,126 @@ func TestLoadComputedUsageData(t *testing.T) {
 		})
 	}
 }
+
+func TestCalculateUnloadedMuveraDimensionsUsageAll(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tenantName := "tenant"
+
+	dirName := t.TempDir()
+	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, shardPathDimensionsLSM(dirName, tenantName), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+	require.NoError(t, err)
+
+	// multi-vector objects are recorded under their varying per-object total dimensions
+	writeDims(t, b, "colbert", 1280, []uint64{1, 2})
+	writeDims(t, b, "colbert", 2560, []uint64{3, 4, 5})
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Shutdown(ctx))
+
+	all, err := CalculateUnloadedMuveraDimensionsUsageAll(ctx, logger, dirName, tenantName,
+		map[string]int{"colbert": 10240, "missing": 10240})
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 10240, Count: 5}, all["colbert"])
+	assert.Equal(t, types.Dimensionality{}, all["missing"], "no objects → no reported dimensionality")
+
+	// no MUVERA vectors → nothing to calculate, no bucket open
+	none, err := CalculateUnloadedMuveraDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
+	require.NoError(t, err)
+	assert.Nil(t, none)
+}
+
+func TestCalculateMuveraDimensionsUsageFromBucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	const encodedDims = 2560
+
+	type dimEntry struct {
+		targetVector string
+		dims         uint32
+		docIDs       []uint64
+	}
+	// multi-vector objects vary in per-object total dims; dims=0 entries are objects without a vector
+	entries := []dimEntry{
+		{"colbert", 0, []uint64{7, 8}},
+		{"colbert", 1280, []uint64{1, 2}},
+		{"colbert", 2560, []uint64{3, 4, 5}},
+		{"colbert", 12800, []uint64{6}},
+		{"other", 0, []uint64{5}},
+		{"other", 128, []uint64{1, 2, 3, 4}},
+		{"novectors", 0, []uint64{1, 2, 3}},
+	}
+
+	tests := []struct {
+		name     string
+		strategy string
+	}{
+		{
+			name:     "roaring set strategy",
+			strategy: lsmkv.StrategyRoaringSet,
+		},
+		{
+			name:     "legacy map collection strategy",
+			strategy: lsmkv.StrategyMapCollection,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := lsmkv.NewBucketCreator().NewBucket(ctx, filepath.Join(dirName, "dimensions"), "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				lsmkv.WithStrategy(tt.strategy))
+			require.NoError(t, err)
+			defer b.Shutdown(ctx)
+
+			for _, entry := range entries {
+				writeDims(t, b, entry.targetVector, entry.dims, entry.docIDs)
+			}
+			require.NoError(t, b.FlushMemtable())
+
+			muvera, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "colbert", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 6}, muvera)
+
+			// raw calculation keeps its first-entry semantics for the same data
+			raw, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, "colbert")
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{Dimensions: 1280, Count: 2}, raw)
+
+			otherMuvera, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "other", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 4}, otherMuvera)
+
+			missing, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "missing", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{}, missing)
+
+			noVectors, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "novectors", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{}, noVectors, "only dims=0 entries → zero report")
+		})
+	}
+}
+
+// Pins cache invalidation for pre-MUVERA usage data: payloads saved by older binaries must be
+// rejected on load so cold shards get recomputed with the encoded dimensionality report.
+func TestLoadComputedUsageData_RejectsOldVersion(t *testing.T) {
+	dirName := t.TempDir()
+	const tenantName = "tenant"
+	require.NoError(t, os.MkdirAll(filepath.Join(dirName, tenantName), 0o755))
+
+	usage := &types.ShardUsage{Name: tenantName, ObjectsCount: 42}
+	require.NoError(t, SaveComputedUsageData(dirName, tenantName, usage))
+	loaded, err := LoadComputedUsageData(dirName, tenantName)
+	require.NoError(t, err)
+	assert.Equal(t, usage, loaded)
+
+	legacy, err := json.Marshal(&types.UsageDisk{Version: types.UsageDiskVersion - 1, ShardUsage: usage})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(usageTmpFilePath(dirName, tenantName), legacy, 0o600))
+	_, err = LoadComputedUsageData(dirName, tenantName)
+	require.ErrorContains(t, err, "version mismatch")
+}

@@ -44,6 +44,11 @@ type MuveraConfig struct {
 	Repetitions  int  `json:"repetitions"`
 }
 
+// EncodedDimensions returns the dimensionality of a MUVERA-encoded vector: Repetitions × 2^KSim clusters × DProjections.
+func (m MuveraConfig) EncodedDimensions() int {
+	return m.Repetitions * (1 << m.KSim) * m.DProjections
+}
+
 func validAggregation(v string) error {
 	switch v {
 	case MultivectorAggregationMaxSim:
