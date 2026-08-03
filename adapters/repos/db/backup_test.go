@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -561,59 +562,97 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 // inactive shard returns the descriptor it read from disk rather than
 // continuing into the active path below it.
 //
-// The two cases fail differently, so each is asserted on its own symptom: a
-// shard absent from the shard map is a nil ShardLike, and a LazyLoadShard is
-// not, so the first crashes and the second force-loads the shard and re-lists
-// it over the descriptor already filled from disk.
+// The two cases fail differently. A shard absent from the shard map is a nil
+// ShardLike, so it crashes. A LazyLoadShard is not nil, so it is force-loaded
+// and re-listed over the descriptor already filled from disk — which needs a
+// shard that can actually load, or "still cold" says nothing.
+//
+// The incremental rows matter for a second reason: FillFileInfo replaces Files
+// when there is no base descriptor and appends when there is, so running it
+// twice over one descriptor duplicates the file list and double-counts
+// IncrementalBackupInfo in exactly the case that gets uploaded and becomes the
+// base for the next backup in the chain.
 func TestBackupShardWithoutHardlinks_InactiveShardSkipsActivePath(t *testing.T) {
-	className := "TestClass"
-	shardName := "cold-tenant"
 	ctx := context.Background()
 
-	tests := []struct {
+	shardStates := []struct {
 		name string
-		// setup populates the shard map and returns the case-specific
-		// assertion to run once the backup has returned.
-		setup func(idx *Index) func(t *testing.T)
+		// setup returns the index to back up and, once the backup has
+		// returned, the case-specific assertion.
+		setup func(t *testing.T, className, shardName string) (*Index, func(t *testing.T))
 	}{
 		{
 			name: "absent from the shard map",
-			setup: func(idx *Index) func(t *testing.T) {
-				return func(t *testing.T) {}
+			setup: func(t *testing.T, className, shardName string) (*Index, func(t *testing.T)) {
+				rootDir := t.TempDir()
+				shardState := NewMultiTenantShardingStateBuilder().
+					AddTenant(shardName, models.TenantActivityStatusCOLD).
+					WithReplicationFactor(1).
+					Build()
+				idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+				createColdShardFiles(t, rootDir, className, shardName)
+				return idx, func(t *testing.T) {}
 			},
 		},
 		{
 			name: "in the shard map but not loaded",
-			setup: func(idx *Index) func(t *testing.T) {
-				lazy := &LazyLoadShard{}
-				idx.shards.Store(shardName, lazy)
-				return func(t *testing.T) {
-					assert.False(t, lazy.loaded,
+			setup: func(t *testing.T, className, shardName string) (*Index, func(t *testing.T)) {
+				idx, lazy := newLoadableColdLazyShard(t, className, shardName)
+				return idx, func(t *testing.T) {
+					assert.False(t, lazy.isLoaded(),
 						"backing up an inactive shard must not force it to load")
 				}
 			},
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			rootDir := t.TempDir()
-			shardState := NewMultiTenantShardingStateBuilder().
-				AddTenant(shardName, models.TenantActivityStatusCOLD).
-				WithReplicationFactor(1).
-				Build()
+	incrementals := []struct {
+		name string
+		base func(shardName string) []*backup.ClassDescriptor
+	}{
+		{name: "full backup", base: func(string) []*backup.ClassDescriptor { return nil }},
+		{
+			name: "incremental backup",
+			base: func(shardName string) []*backup.ClassDescriptor {
+				return []*backup.ClassDescriptor{{
+					BackupID: "base-backup",
+					Shards:   []*backup.ShardDescriptor{{Name: shardName}},
+				}}
+			},
+		},
+	}
 
-			idx := newDescriptorTestIndex(t, rootDir, className, shardState)
-			createColdShardFiles(t, rootDir, className, shardName)
-			assertCase := tc.setup(idx)
+	for i, state := range shardStates {
+		for j, incremental := range incrementals {
+			t.Run(state.name+"/"+incremental.name, func(t *testing.T) {
+				// Distinct names per row: the loadable fixture stands up a real
+				// index, which a reused class name would collide with.
+				className := fmt.Sprintf("InactiveSkipClass%d%d", i, j)
+				shardName := "cold-tenant"
 
-			sd, err := idx.backupShardWithoutHardlinks(ctx, shardName, nil, idx.newReindexGate())
-			require.NoError(t, err)
-			require.NotNil(t, sd)
-			assert.Equal(t, shardName, sd.Name)
-			assert.NotEmpty(t, sd.Files, "descriptor must keep the files read from disk")
-			assertCase(t)
-		})
+				idx, assertCase := state.setup(t, className, shardName)
+
+				sd, err := idx.backupShardWithoutHardlinks(ctx, shardName,
+					incremental.base(shardName), idx.newReindexGate())
+				// The cold path holds backupLock past return, so shutdown would
+				// block on it without a release.
+				t.Cleanup(func() { require.NoError(t, idx.ReleaseBackup(ctx, "")) })
+				require.NoError(t, err)
+				require.NotNil(t, sd)
+				assert.Equal(t, shardName, sd.Name)
+				assert.NotEmpty(t, sd.Files, "descriptor must keep the files read from disk")
+
+				seen := map[string]int{}
+				for _, f := range sd.Files {
+					seen[f]++
+				}
+				for f, n := range seen {
+					assert.Equalf(t, 1, n, "file %q was listed %d times into one descriptor", f, n)
+				}
+
+				assertCase(t)
+			})
+		}
 	}
 }
 

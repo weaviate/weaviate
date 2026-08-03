@@ -124,6 +124,19 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		return nil
 	}
 
+	// A non-hardlink backup lists this shard's segments and .wal straight from
+	// the live directory and keeps them there until ReleaseBackup. Loading now
+	// would start compaction and WAL recovery underneath that list, and the
+	// upload would then fail on a file that no longer exists.
+	//
+	// Checked here rather than at the callers because this is the mutex
+	// blockLoading holds: either the backup sees us loaded and halts the shard
+	// instead, or we see the marker it stored. A check outside it can pass just
+	// before the marker lands.
+	if err := l.refuseIfBackupProtected(); err != nil {
+		return err
+	}
+
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 		return errors.Wrap(err, "memory pressure: cannot load shard")
 	}
@@ -1046,6 +1059,19 @@ func (l *LazyLoadShard) Activity() (int32, int32) {
 
 func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
+}
+
+// refuseIfBackupProtected reports the same refusal Index.initShard gives for a
+// shard that is absent from the map: a protected shard must not be activated.
+// Callers must hold l.mutex.
+func (l *LazyLoadShard) refuseIfBackupProtected() error {
+	if l.shardOpts == nil || l.shardOpts.index == nil {
+		return nil
+	}
+	if _, protected := l.shardOpts.index.backupProtectedShards.Load(l.shardOpts.name); protected {
+		return fmt.Errorf("shard %q is protected for backup, activation blocked", l.shardOpts.name)
+	}
+	return nil
 }
 
 func (l *LazyLoadShard) blockLoading() func() {
