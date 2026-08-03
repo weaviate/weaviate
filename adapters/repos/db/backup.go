@@ -705,6 +705,10 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 // claimBackup ends the backup identified by id and reports the generation it ran
 // under. Only the first caller for a given backup claims it, so the several
 // releasers the uploader fires per backup do not each try to end it.
+//
+// An ID is all a releaser carries, so one that arrives after a later backup
+// reused the same ID ends that backup instead. Nothing here can tell the two
+// apart; closing it needs the release call to say which backup it belongs to.
 func (i *Index) claimBackup(id string) (uint64, bool) {
 	i.backupStateMu.Lock()
 	defer i.backupStateMu.Unlock()
