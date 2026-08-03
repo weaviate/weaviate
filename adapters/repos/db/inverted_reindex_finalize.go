@@ -289,12 +289,49 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 		})
 	}
 
+	// Backup removals skipped because no canonical dir was in place yet.
+	// Namespaces finalize in map order, so the namespace that owns the
+	// canonical name may run after the ones it superseded; the sweep below
+	// runs once every namespace has had its turn.
+	var deferredBackups []deferredBackupRemoval
+
 	for namespace, gens := range groups {
-		if err := finalizeNamespace(lsmPath, namespace, gens, class, logger); err != nil {
+		if err := finalizeNamespace(lsmPath, namespace, gens, class, logger, &deferredBackups); err != nil {
 			return err
 		}
 	}
+	sweepDeferredBackups(deferredBackups, logger)
 	return nil
+}
+
+// deferredBackupRemoval is a backup dir whose removal was postponed
+// because its property had no canonical dir at the time.
+type deferredBackupRemoval struct {
+	backupDir string
+	mainDir   string
+	propName  string
+}
+
+// sweepDeferredBackups removes each postponed backup dir whose canonical
+// dir now exists — proof the property is served, so the pre-swap copy is
+// redundant. A backup whose canonical is still missing is kept: it may be
+// the last copy of that property's data.
+func sweepDeferredBackups(deferred []deferredBackupRemoval, logger logrus.FieldLogger) {
+	for _, d := range deferred {
+		if !fileExists(d.backupDir) {
+			continue
+		}
+		if !fileExists(d.mainDir) {
+			logger.WithField("property", d.propName).WithField("backup_dir", d.backupDir).
+				Warn("finalize: no canonical dir for this property after finalize; " +
+					"keeping the backup dir, it may be the only copy of its data")
+			continue
+		}
+		if err := os.RemoveAll(d.backupDir); err != nil {
+			logger.WithField("path", d.backupDir).
+				Warnf("finalize: failed to remove superseded backup dir: %v", err)
+		}
+	}
 }
 
 // migrationGenInfo is one generation's tracker dir as seen by
@@ -310,7 +347,7 @@ type migrationGenInfo struct {
 // algorithm: pick the effective promotion generation, promote it, and
 // clean every older generation.
 func finalizeNamespace(lsmPath, namespace string, gens []migrationGenInfo,
-	class *models.Class, logger logrus.FieldLogger,
+	class *models.Class, logger logrus.FieldLogger, deferredBackups *[]deferredBackupRemoval,
 ) error {
 	// Find the highest tidied gen and the highest merged gen. The
 	// "effective" promotion candidate is the larger of the two — see the
@@ -371,7 +408,7 @@ func finalizeNamespace(lsmPath, namespace string, gens []migrationGenInfo,
 		migDir := filepath.Join(migrationsDir, g.dirName)
 		switch {
 		case g.gen == effective:
-			keepTracker, err := finalizeMigrationDir(lsmPath, migDir, g.dirName, promotable, logger)
+			keepTracker, err := finalizeMigrationDir(lsmPath, migDir, g.dirName, promotable, logger, deferredBackups)
 			if err != nil {
 				return fmt.Errorf("finalizing migration %q: %w", g.dirName, err)
 			}
@@ -694,7 +731,7 @@ func reindexSuffixForFinalize(namespace string) string {
 // lets initNonVector create an empty bucket at the canonical name, which
 // is silent data loss.
 func finalizeMigrationDir(lsmPath, migDir, migName string, onlyProps map[string]bool,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, deferredBackups *[]deferredBackupRemoval,
 ) (keepTracker bool, err error) {
 	logger = logger.WithField("migration", migName)
 
@@ -764,12 +801,12 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, onlyProps map[string]
 		// data that is intact is the worse error. What matters is skipping
 		// the backup removal below, so a pre-swap copy survives either way.
 		if !fileExists(ingestDir) && !fileExists(mainDir) {
-			if fileExists(backupDir) {
-				logger.WithField("property", propName).WithField("backup_dir", backupDir).
-					Warn("finalize: nothing to promote and no canonical dir; leaving the backup dir in place")
-			} else {
-				logger.WithField("property", propName).
-					Debug("finalize: nothing to promote and no canonical dir; another migration on this property owns it")
+			logger.WithField("property", propName).
+				Debug("finalize: nothing to promote and no canonical dir; another migration on this property owns it")
+			if fileExists(backupDir) && deferredBackups != nil {
+				*deferredBackups = append(*deferredBackups, deferredBackupRemoval{
+					backupDir: backupDir, mainDir: mainDir, propName: propName,
+				})
 			}
 			continue
 		}

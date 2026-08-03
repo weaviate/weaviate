@@ -666,6 +666,11 @@ func TestFinalize_SupersededNamespaces_Matrix(t *testing.T) {
 		name string
 		// superseded trackers: tidied, ingest dir already renamed away.
 		superseded []string
+		// backup dirs those superseded namespaces left behind. Present
+		// whenever the superseded migration had a canonical bucket to
+		// rotate (repair / retokenize); absent for the enable-* family,
+		// which starts from no bucket at all.
+		supersededBackups []string
 		// survivor tracker plus the ingest dir it promotes.
 		survivor      string
 		survivorIngst string
@@ -679,11 +684,16 @@ func TestFinalize_SupersededNamespaces_Matrix(t *testing.T) {
 			wantCanonical: "property_" + prop,
 		},
 		{
-			name:          "repair-filterable superseded by change-tokenization-filterable",
-			superseded:    []string{"filterable_roaringset_refresh_1"},
-			survivor:      "filterable_retokenize_" + prop + "_1",
-			survivorIngst: "property_" + prop + "__filt_retokenize_ingest_1",
-			wantCanonical: "property_" + prop,
+			// The superseded namespace rotated a real canonical bucket into
+			// its backup dir before being superseded. Failing shard init on
+			// "canonical absent but backup present" would take this node
+			// down too, so presence of a backup cannot be the guard.
+			name:              "repair-filterable superseded by change-tokenization-filterable",
+			superseded:        []string{"filterable_roaringset_refresh_1"},
+			supersededBackups: []string{"property_" + prop + "__roaringset_backup_1"},
+			survivor:          "filterable_retokenize_" + prop + "_1",
+			survivorIngst:     "property_" + prop + "__filt_retokenize_ingest_1",
+			wantCanonical:     "property_" + prop,
 		},
 		{
 			name:          "enable-searchable superseded by rebuild-searchable",
@@ -705,9 +715,10 @@ func TestFinalize_SupersededNamespaces_Matrix(t *testing.T) {
 				"enable_filterable_" + prop + "_1",
 				"filterable_roaringset_refresh_1",
 			},
-			survivor:      "filterable_retokenize_" + prop + "_1",
-			survivorIngst: "property_" + prop + "__filt_retokenize_ingest_1",
-			wantCanonical: "property_" + prop,
+			supersededBackups: []string{"property_" + prop + "__roaringset_backup_1"},
+			survivor:          "filterable_retokenize_" + prop + "_1",
+			survivorIngst:     "property_" + prop + "__filt_retokenize_ingest_1",
+			wantCanonical:     "property_" + prop,
 		},
 	}
 
@@ -733,6 +744,11 @@ func TestFinalize_SupersededNamespaces_Matrix(t *testing.T) {
 
 			// Only the survivor still has an ingest dir; the superseded
 			// namespaces' were renamed away by the survivor's swap.
+			for _, b := range tc.supersededBackups {
+				require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, b), 0o755))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(lsmPath, b, "seg.db"), []byte("pre-swap"), 0o644))
+			}
 			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, tc.survivorIngst), 0o755))
 			require.NoError(t, os.WriteFile(
 				filepath.Join(lsmPath, tc.survivorIngst, "seg.db"), []byte("survivor"), 0o644))
@@ -744,6 +760,12 @@ func TestFinalize_SupersededNamespaces_Matrix(t *testing.T) {
 			got, err := os.ReadFile(filepath.Join(lsmPath, tc.wantCanonical, "seg.db"))
 			require.NoError(t, err, "the surviving namespace must promote its ingest dir")
 			require.Equal(t, "survivor", string(got))
+
+			for _, b := range tc.supersededBackups {
+				require.NoDirExists(t, filepath.Join(lsmPath, b),
+					"once the canonical dir is in place the superseded backup is redundant and "+
+						"must be swept, or repeated migration cycles leak a dir per round")
+			}
 
 			entries, _ := os.ReadDir(migsDir)
 			require.Empty(t, entries, "every decided tracker must be cleaned up")
