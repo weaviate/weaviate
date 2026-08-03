@@ -512,11 +512,9 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
-	// from here on a source may be marked for deletion, which makes the .tmp the
-	// only copy of the merged data
-	discardNewSegment = false
-
-	oldLeft, oldRight, err := replacer.switchOnDisk()
+	oldLeft, oldRight, err := replacer.switchOnDisk(func() {
+		discardNewSegment = false
+	})
 	if err != nil {
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}
