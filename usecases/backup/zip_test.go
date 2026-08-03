@@ -2078,34 +2078,6 @@ func TestZipProducerRunsAheadOfConsumer(t *testing.T) {
 	}
 }
 
-// A non-positive size must not leave the pipe unbounded.
-func TestNewZipBoundsPipeBufferForNonPositiveSize(t *testing.T) {
-	for _, size := range []int{0, -1} {
-		t.Run(fmt.Sprint(size), func(t *testing.T) {
-			z, rc, err := NewZip(t.TempDir(), int(NoCompression), 0, 0, 0, size)
-			require.NoError(t, err)
-
-			// Fill the buffer; the next write must not be accepted.
-			_, err = z.pipeWriter.Write(make([]byte, maxPipeBufferSize))
-			require.NoError(t, err)
-
-			accepted := make(chan struct{})
-			go func() {
-				z.pipeWriter.Write([]byte("past the bound"))
-				close(accepted)
-			}()
-
-			select {
-			case <-accepted:
-				t.Fatal("pipe accepted a write past its bound — buffer is unbounded")
-			case <-time.After(100 * time.Millisecond):
-			}
-
-			require.NoError(t, rc.Close()) // releases the blocked write
-		})
-	}
-}
-
 // Every real chunk is larger than the pipe buffer, so the producer fills it,
 // waits for the consumer to drain, and resumes. The bytes must survive that.
 func TestZipStreamLargerThanPipeBuffer(t *testing.T) {
@@ -2257,7 +2229,10 @@ func TestAffordablePipeBufferSize(t *testing.T) {
 		{name: "one worker only needs its own share", grantUp: maxPipeBufferSize, workers: 1, want: maxPipeBufferSize},
 		{name: "one byte short of the full size drops one step", grantUp: (256 << 20) - 1, workers: 16, want: 8 << 20},
 		{name: "halves twice when a quarter fits", grantUp: 64 << 20, workers: 16, want: 4 << 20},
-		{name: "halves to the last step above the floor", grantUp: 32 << 20, workers: 16, want: 2 << 20},
+		{name: "halves three times when an eighth fits", grantUp: 32 << 20, workers: 16, want: 2 << 20},
+		{name: "halves below a megabyte rather than overshooting", grantUp: 8 << 20, workers: 16, want: 512 << 10},
+		{name: "halves all the way down to the floor", grantUp: minPipeBufferSize * 16, workers: 16, want: minPipeBufferSize},
+		{name: "one byte short of the floor still uses the floor", grantUp: minPipeBufferSize*16 - 1, workers: 16, want: minPipeBufferSize},
 		{name: "no memory at all still uses the floor", grantUp: 0, workers: 16, want: minPipeBufferSize},
 	}
 

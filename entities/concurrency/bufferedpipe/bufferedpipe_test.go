@@ -69,7 +69,7 @@ func TestReadWrite(t *testing.T) {
 		},
 		{
 			name:     "unbounded buffer accepts everything",
-			maxSize:  -1,
+			maxSize:  Unbounded,
 			writes:   []string{"a", "b", "c"},
 			expected: "abc",
 		},
@@ -418,4 +418,86 @@ func TestLargeDataIntegrity(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, data, out.Bytes())
+}
+
+// Unbounded is the one way to opt out of the memory bound. A zero value must
+// not reach it, or a caller who forgets to size its pipe gets the unlimited
+// buffering its memory budget exists to prevent.
+func TestNewRejectsInvalidSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		maxSize   int
+		wantPanic bool
+	}{
+		{name: "zero value", maxSize: 0, wantPanic: true},
+		{name: "negative other than Unbounded", maxSize: -2, wantPanic: true},
+		{name: "Unbounded opts out explicitly", maxSize: Unbounded},
+		{name: "smallest positive size", maxSize: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.wantPanic {
+				require.Panics(t, func() { New(tt.maxSize) })
+				return
+			}
+			pr, pw := New(tt.maxSize)
+			require.NoError(t, pw.Close())
+			require.NoError(t, pr.Close())
+		})
+	}
+}
+
+// A pipe retains more than maxSize, so callers budgeting memory need the real
+// bound: maxSize plus one accepted-whole write plus one unread tail.
+func TestWorstCaseRetention(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		maxSize int
+		largest int // largest single write the producer makes
+	}{
+		{name: "writes larger than the buffer", maxSize: 100, largest: 150},
+		{name: "writes smaller than the buffer", maxSize: 1024, largest: 128},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pr, pw := New(tt.maxSize)
+
+			// Leave an unread tail in the reader: buffered drops by the whole
+			// chunk while partial still holds most of it.
+			_, err := pw.Write(make([]byte, tt.largest))
+			require.NoError(t, err)
+			n, err := pr.Read(make([]byte, 1))
+			require.NoError(t, err)
+			require.Equal(t, 1, n)
+			require.Len(t, pr.partial, tt.largest-1)
+			require.Zero(t, pr.p.buffered)
+
+			// Refill to one byte below the limit, which still admits a write.
+			for remaining := tt.maxSize - 1; remaining > 0; {
+				sz := min(remaining, tt.largest)
+				_, err := pw.Write(make([]byte, sz))
+				require.NoError(t, err)
+				remaining -= sz
+			}
+			_, err = pw.Write(make([]byte, tt.largest))
+			require.NoError(t, err)
+
+			retained := pr.p.buffered + len(pr.partial)
+			require.Equal(t, tt.maxSize+2*tt.largest-2, retained)
+			require.Greater(t, retained, tt.maxSize)
+
+			require.NoError(t, pw.Close())
+			require.NoError(t, pr.Close())
+		})
+	}
 }

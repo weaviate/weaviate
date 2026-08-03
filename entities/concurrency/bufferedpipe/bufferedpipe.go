@@ -18,22 +18,31 @@ import (
 	"sync/atomic"
 )
 
+// Unbounded lets a pipe buffer without limit. It is an explicit opt-out of
+// the memory bound: New rejects every other non-positive size, so a zero
+// value cannot select it by accident.
+const Unbounded = -1
+
 // pipe is a bounded, in-memory pipe that decouples a writer from a reader.
 // Writes block only once the internal buffer reaches its capacity, not until
 // the reader consumes them, so a slow reader does not stall the writer while
 // there is still buffer space.
 //
 // The buffer is a FIFO queue of byte-slice chunks. Each Write call appends
-// one chunk; each Read call dequeues from the head. A pipe holds at most
-// maxSize bytes, so a caller running N pipes concurrently must budget
-// N * maxSize of memory.
+// one chunk; each Read call dequeues from the head.
 //
-// maxSize is a soft limit. Write only blocks once buffered >= maxSize, so a
-// single Write larger than maxSize is accepted and pushes buffered past the
-// limit by one chunk. This is intentional: rejecting or splitting such a
-// write would either deadlock (no reader can drain a chunk that was never
-// enqueued) or require the writer to hand back partial progress, which
-// io.Writer semantics do not express cleanly.
+// maxSize is a soft limit: a pipe retains up to maxSize plus two chunks, so a
+// caller running N pipes concurrently must budget N * (maxSize + 2*largest
+// write). One chunk over because Write only blocks once buffered >= maxSize,
+// so a single write is always accepted whole, even one larger than maxSize.
+// The second because Read subtracts a whole chunk from buffered while keeping
+// the unread tail in Reader.partial, which lets the writer refill to maxSize
+// before that tail is consumed.
+//
+// Accepting an oversized write is intentional: rejecting or splitting it
+// would either deadlock (no reader can drain a chunk that was never enqueued)
+// or require the writer to hand back partial progress, which io.Writer
+// semantics do not express cleanly.
 //
 // A writer error only surfaces to the reader once the buffered bytes have
 // been drained, so already-buffered data reaches the reader before the error.
@@ -49,7 +58,7 @@ type pipe struct {
 
 	chunks   [][]byte // FIFO queue of byte chunks
 	buffered int      // total bytes currently in chunks
-	maxSize  int      // capacity in bytes
+	maxSize  int      // capacity in bytes, or Unbounded
 
 	writerClosed bool  // writer has called Close or CloseWithError
 	writerErr    error // error passed to CloseWithError (writer side)
@@ -75,9 +84,14 @@ type Reader struct {
 	partial []byte
 }
 
-// New returns the two halves of a pipe buffering up to maxSize bytes. A
-// maxSize of zero or less leaves the buffer unbounded.
+// New returns the two halves of a pipe buffering up to maxSize bytes, or
+// Unbounded for no limit. maxSize is a soft limit: a pipe retains up to
+// maxSize plus two chunks. It panics on any other non-positive size, since a
+// zero-capacity pipe would block on its first write forever.
 func New(maxSize int) (*Reader, *Writer) {
+	if maxSize <= 0 && maxSize != Unbounded {
+		panic(fmt.Sprintf("bufferedpipe: maxSize must be positive or Unbounded, got %d", maxSize))
+	}
 	p := &pipe{maxSize: maxSize}
 	p.cond = sync.NewCond(&p.mu)
 	return &Reader{p: p}, &Writer{p: p}
@@ -115,7 +129,7 @@ func (w *Writer) Write(b []byte) (int, error) {
 			return 0, io.ErrClosedPipe
 		}
 
-		if p.buffered < p.maxSize || p.maxSize <= 0 {
+		if p.maxSize == Unbounded || p.buffered < p.maxSize {
 			break
 		}
 

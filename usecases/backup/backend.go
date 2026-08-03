@@ -221,7 +221,7 @@ type uploader struct {
 	setStatus    func(st backup.Status)
 	log          logrus.FieldLogger
 	allocChecker memwatch.AllocChecker
-	// set per class before its workers start
+	// set per class before its workers start; must be positive
 	pipeBufferSize int
 }
 

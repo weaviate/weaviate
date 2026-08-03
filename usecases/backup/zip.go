@@ -66,19 +66,22 @@ type compressor interface {
 
 // The pipe buffer lets the tar/compressor producer run ahead of the backend
 // upload so the two overlap. The max covers one GCS or S3 upload request;
-// Azure posts 40 MiB blocks, so it still stalls partway through each.
+// Azure posts 40 MiB blocks, so it still stalls partway through each. The min
+// is about one compressor block, so it costs roughly what an unbuffered pipe
+// would.
 const (
 	maxPipeBufferSize = 16 * 1024 * 1024
-	minPipeBufferSize = 1024 * 1024
+	minPipeBufferSize = 128 * 1024
 )
 
 // affordablePipeBufferSize halves down from maxPipeBufferSize until the alloc
-// checker approves size*workers, never below minPipeBufferSize.
+// checker approves size*workers. Falls back to minPipeBufferSize when even
+// that is rejected: one block per worker is not worth failing a backup over.
 func affordablePipeBufferSize(allocChecker memwatch.AllocChecker, workers int) int {
 	if allocChecker == nil {
 		return maxPipeBufferSize
 	}
-	for size := maxPipeBufferSize; size > minPipeBufferSize; size /= 2 {
+	for size := maxPipeBufferSize; size >= minPipeBufferSize; size /= 2 {
 		if allocChecker.CheckAlloc(int64(size)*int64(workers)) == nil {
 			return size
 		}
@@ -104,13 +107,8 @@ type zip struct {
 //   - splitFileSize: files exceeding this size are split across multiple chunks.
 //     Must be >= bigFilesThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.
-//   - pipeBufferSize: how far the producer may run ahead of the consumer;
-//     non-positive means the full size.
+//   - pipeBufferSize: how far the producer may run ahead of the consumer.
 func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64, pipeBufferSize int) (zip, entBackup.ReadCloserWithError, error) {
-	if pipeBufferSize <= 0 {
-		// a non-positive size would leave the buffer unbounded
-		pipeBufferSize = maxPipeBufferSize
-	}
 	reader, pw := bufferedpipe.New(pipeBufferSize)
 
 	var gzw compressor

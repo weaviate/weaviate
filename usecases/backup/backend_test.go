@@ -505,7 +505,8 @@ func TestProcessShard(t *testing.T) {
 					Level:      int(NoCompression),
 					GoPoolSize: 1,
 				},
-				log: logrus.New(),
+				log:            logrus.New(),
+				pipeBufferSize: maxPipeBufferSize,
 			}
 
 			var lastChunk atomic.Int32
@@ -604,8 +605,9 @@ func TestProcessShard(t *testing.T) {
 			backend: nodeStore{
 				objectStore: objectStore{backend: mockBackend},
 			},
-			zipConfig: zipConfig{Level: int(NoCompression), GoPoolSize: 1},
-			log:       logrus.New(),
+			zipConfig:      zipConfig{Level: int(NoCompression), GoPoolSize: 1},
+			log:            logrus.New(),
+			pipeBufferSize: maxPipeBufferSize,
 		}
 
 		var lastChunk atomic.Int32
@@ -726,8 +728,9 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 				backend: nodeStore{
 					objectStore: objectStore{backend: mockBackend},
 				},
-				zipConfig: zipConfig{Level: int(NoCompression), GoPoolSize: 1},
-				log:       logrus.New(),
+				zipConfig:      zipConfig{Level: int(NoCompression), GoPoolSize: 1},
+				log:            logrus.New(),
+				pipeBufferSize: maxPipeBufferSize,
 			}
 
 			var lastChunk atomic.Int32
@@ -1168,8 +1171,9 @@ func (e *incrementalTestEnv) backup(backupID string, shardDescs []*backup.ShardD
 				backupId: backupID + "/node1",
 			},
 		},
-		zipConfig: zipConfig{Level: int(NoCompression), GoPoolSize: 1},
-		log:       logrus.New(),
+		zipConfig:      zipConfig{Level: int(NoCompression), GoPoolSize: 1},
+		log:            logrus.New(),
+		pipeBufferSize: maxPipeBufferSize,
 	}
 
 	var lastChunk atomic.Int32
