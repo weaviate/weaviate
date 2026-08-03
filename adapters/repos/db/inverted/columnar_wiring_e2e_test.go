@@ -255,6 +255,47 @@ func TestColumnarWiring_UnflushedWrites(t *testing.T) {
 		"unflushed writes must not detach the accelerator")
 }
 
+// TestColumnarWiring_ManyFlushes drives more flushes than the fold threshold, so
+// the accumulated runs are folded into the base (through real memtable cursors),
+// and pins that ContainsAny still matches the fold across base + fold + recent
+// runs, with adds and deletes.
+func TestColumnarWiring_ManyFlushes(t *testing.T) {
+	const numDocs = 1_000
+	searcher, store := newUniqueTextSearcher(t, numDocs) // base holds 0..999
+	ctx := context.Background()
+	bucket := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+
+	// 10 flushes (> the fold threshold): each adds one new key and deletes one
+	// existing doc, exercising the fold's add and delete paths on real cursors.
+	for r := 0; r < 10; r++ {
+		newKey := numDocs + r
+		require.NoError(t, bucket.RoaringSetAddList([]byte(benchValue(newKey)), []uint64{uint64(newKey)}))
+		require.NoError(t, bucket.RoaringSetRemoveOne([]byte(benchValue(r)), uint64(r)))
+		require.NoError(t, bucket.FlushAndSwitch())
+	}
+
+	values := []string{
+		benchValue(500),         // base, never deleted → 500
+		benchValue(3),           // deleted in round 3 → nothing
+		benchValue(numDocs + 0), // added round 0 → numDocs
+		benchValue(numDocs + 9), // added round 9 → numDocs+9
+	}
+	run := func(flag string) []uint64 {
+		t.Setenv(entcfg.EnvEnableColumnarContains, flag)
+		al, err := searcher.DocIDs(ctx, containsFilter(filters.ContainsAny, values),
+			additional.Properties{}, className)
+		require.NoError(t, err)
+		defer al.Close()
+		return sortedDocIDs(al)
+	}
+
+	fold := run("")
+	col := run("true")
+	require.Equal(t, fold, col, "columnar must match the fold across many flushes + a base fold")
+	require.Equal(t, []uint64{500, uint64(numDocs), uint64(numDocs + 9)}, col)
+	require.NotNil(t, bucket.ContainsAnyAccelerator())
+}
+
 // TestColumnarWiring_DeclinesNonUnique pins that a non-unique property (a key
 // with multiple docIDs) makes the accelerator decline, so the real path falls
 // back to the fold and still returns correct (multi-doc) results.

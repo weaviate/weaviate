@@ -38,6 +38,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
+// foldRunsThreshold is the number of accumulated runs at which AbsorbFlush folds
+// base+runs into a fresh base, so reads stay at a bounded number of tiers.
+// Package var for tuning/tests.
+var foldRunsThreshold = 8
+
 // keyColumn abstracts sorted key storage so the columnar core is
 // datatype-agnostic. Query keys are always the lexicographically-sortable
 // []byte encoding Weaviate's extraction produces; each backing compares its
@@ -62,6 +67,9 @@ type keyColumn interface {
 	searchGE(q []byte) int
 	// width is the full logical key byte width, or -1 for variable-length.
 	width() int
+	// keyAt returns the full key bytes at position i. May allocate (prefix
+	// backing reconstructs prefix+suffix); used by the base fold, not hot reads.
+	keyAt(i int) []byte
 	// prefixLen is the number of leading bytes elided (shared by every key and
 	// stored once), or 0 if none.
 	prefixLen() int
@@ -92,6 +100,8 @@ func (c *blobKeyColumn) prepareQueries(sorted [][]byte) [][]byte { return sorted
 
 func (c *blobKeyColumn) width() int { return -1 }
 
+func (c *blobKeyColumn) keyAt(i int) []byte { return c.at(i) }
+
 func (c *blobKeyColumn) prefixLen() int { return 0 }
 
 func (c *blobKeyColumn) sizeBytes() int { return cap(c.blob) + cap(c.offsets)*4 }
@@ -119,6 +129,8 @@ func (c *fixedKeyColumn) searchGE(q []byte) int {
 func (c *fixedKeyColumn) prepareQueries(sorted [][]byte) [][]byte { return sorted }
 
 func (c *fixedKeyColumn) width() int { return c.w }
+
+func (c *fixedKeyColumn) keyAt(i int) []byte { return c.at(i) }
 
 func (c *fixedKeyColumn) prefixLen() int { return 0 }
 
@@ -170,6 +182,13 @@ func (c *prefixKeyColumn) prepareQueries(sorted [][]byte) [][]byte {
 }
 
 func (c *prefixKeyColumn) width() int { return len(c.prefix) + c.w }
+
+func (c *prefixKeyColumn) keyAt(i int) []byte {
+	k := make([]byte, len(c.prefix)+c.w)
+	copy(k, c.prefix)
+	copy(k[len(c.prefix):], c.suffixAt(i))
+	return k
+}
 
 func (c *prefixKeyColumn) prefixLen() int { return len(c.prefix) }
 
@@ -239,7 +258,7 @@ type run struct {
 // memtable absorbed since. Resolution folds the runs over the base, newest last.
 // Live active/flushing memtables are layered by the caller, not held here.
 type ColumnarIndex struct {
-	mu   sync.RWMutex // guards runs (and base once folding lands)
+	mu   sync.RWMutex // guards base + runs (swapped/appended under Lock)
 	base *columnarSegment
 	runs []*run // oldest first; appended on flush
 }
@@ -496,8 +515,98 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 	}
 	idx.mu.Lock()
 	idx.runs = append(idx.runs, r)
+	shouldFold := len(idx.runs) >= foldRunsThreshold
 	idx.mu.Unlock()
+
+	if shouldFold {
+		// AbsorbFlush is called from the serialized flush path, so folding here
+		// synchronously never overlaps another fold or another AbsorbFlush.
+		idx.foldRunsIntoBase()
+	}
 	return nil
+}
+
+// foldRunsIntoBase merges the base and all currently-accumulated runs into a
+// fresh base (newest-wins, deletions applied), then drops those runs — bounding
+// the number of read tiers. Runs appended during the fold are preserved and
+// fold over the new base. The base is immutable and swapped by pointer, so
+// in-flight readers keep the version they snapshotted.
+func (idx *ColumnarIndex) foldRunsIntoBase() {
+	idx.mu.RLock()
+	base := idx.base
+	runs := idx.runs
+	idx.mu.RUnlock()
+	if len(runs) == 0 {
+		return
+	}
+
+	// Replay base then runs oldest→newest into a net key→docID map. owner is the
+	// reverse (docID→key) so a run's docID-based deletions can be applied — valid
+	// under 1-doc-per-key (a bijection).
+	net := make(map[string]uint64, base.keys.len())
+	owner := make(map[uint64]string, base.keys.len())
+	for i := 0; i < base.keys.len(); i++ {
+		k := string(base.keys.keyAt(i))
+		d := base.docs.at(i)
+		net[k] = d
+		owner[d] = k
+	}
+	for _, r := range runs {
+		if r.dels != nil {
+			for _, d := range r.dels.ToArray() {
+				if k, ok := owner[d]; ok {
+					delete(net, k)
+					delete(owner, d)
+				}
+			}
+		}
+		for i := 0; i < r.adds.keys.len(); i++ {
+			k := string(r.adds.keys.keyAt(i))
+			d := r.adds.docs.at(i)
+			if old, ok := net[k]; ok {
+				delete(owner, old)
+			}
+			net[k] = d
+			owner[d] = k
+		}
+	}
+
+	newBase := segmentFromMap(net)
+
+	idx.mu.Lock()
+	idx.base = newBase
+	idx.runs = idx.runs[len(runs):] // keep any runs appended during the fold
+	idx.mu.Unlock()
+}
+
+// segmentFromMap builds a sorted columnarSegment from a net key→docID map, with
+// the docID column narrowed to the observed max docID.
+func segmentFromMap(net map[string]uint64) *columnarSegment {
+	keys := make([]string, 0, len(net))
+	var maxDoc uint64
+	for k, d := range net {
+		keys = append(keys, k)
+		if d > maxDoc {
+			maxDoc = d
+		}
+	}
+	sort.Strings(keys)
+
+	offsets := []uint32{0}
+	var blob []byte
+	docs := &docIDColumn{w: bytesForMax(maxDoc)}
+	uniformWidth := -1
+	for _, k := range keys {
+		blob = append(blob, k...)
+		offsets = append(offsets, uint32(len(blob)))
+		docs.append(net[k])
+		if uniformWidth == -1 {
+			uniformWidth = len(k)
+		} else if uniformWidth != len(k) {
+			uniformWidth = -2
+		}
+	}
+	return &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs}
 }
 
 // mergeScanCheaper picks the fold strategy: merge-scan streams the corpus (cost

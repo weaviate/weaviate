@@ -124,6 +124,32 @@ func TestRunsUpdateInSingleFlush(t *testing.T) {
 	require.Equal(t, []uint64{20}, resolveSorted(idx, "x"), "update: new doc replaces old")
 }
 
+func TestRunsFoldIntoBase(t *testing.T) {
+	old := foldRunsThreshold
+	foldRunsThreshold = 3
+	defer func() { foldRunsThreshold = old }()
+
+	// base: a→1, b→2, c→3
+	idx := &ColumnarIndex{base: segFromPairs(
+		[][]byte{[]byte("a"), []byte("b"), []byte("c")}, []uint64{1, 2, 3})}
+
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("d"), []uint64{4}, nil))) // add d
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{2}))) // delete b
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("e"), []uint64{5}, nil))) // add e → folds
+
+	require.Empty(t, idx.runs, "runs must be folded into base at the threshold")
+	require.Equal(t, 4, idx.base.keys.len(), "base absorbed the net state (a,c,d,e; b deleted)")
+
+	require.Equal(t, []uint64{1, 3, 4, 5}, resolveSorted(idx, "a", "b", "c", "d", "e"),
+		"net state after fold: b deleted, d/e added")
+	require.Equal(t, []uint64{}, resolveSorted(idx, "b"))
+
+	// keeps working after the fold: re-add b over the folded base
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{6}, nil)))
+	require.Equal(t, []uint64{6}, resolveSorted(idx, "b"))
+	require.Equal(t, []uint64{1, 3, 4, 5, 6}, resolveSorted(idx, "a", "b", "c", "d", "e"))
+}
+
 func TestRunsDeleteOnlyFlush(t *testing.T) {
 	idx := &ColumnarIndex{base: segFromPairs([][]byte{[]byte("k")}, []uint64{7})}
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("k"), nil, []uint64{7})))
