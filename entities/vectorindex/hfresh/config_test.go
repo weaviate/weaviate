@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/common/testinghelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -331,17 +332,6 @@ func Test_UserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "invalid hfresh config: maxPostingSizeKB is '1025' but must be less than 1024",
 		},
-		{
-			// Regression test: a `null` distance was previously silently accepted
-			// and resolved to the default distance metric instead of being
-			// rejected. See weaviate/weaviate#11732.
-			name: "with null distance",
-			input: map[string]interface{}{
-				"distance": nil,
-			},
-			expectErr:    true,
-			expectErrMsg: "\"distance\" must be a string",
-		},
 	}
 
 	for _, test := range tests {
@@ -357,4 +347,11 @@ func Test_UserConfig(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("with null distance", func(t *testing.T) {
+		testinghelpers.AssertNullDistanceRejected(t, func(input map[string]interface{}) error {
+			_, err := ParseAndValidateConfig(input, false)
+			return err
+		})
+	})
 }
