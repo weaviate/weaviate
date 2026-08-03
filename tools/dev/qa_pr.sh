@@ -245,8 +245,14 @@ if [[ -z "$JOB_ID" ]]; then
 fi
 
 log "Extracting docker image tags from job logs..."
-# Use gh api (works even when logs are large / job just completed)
-TAGS=$(gh api --allow-escape-sequences "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \
+# Use gh api (works even when logs are large / job just completed).
+# gh >= 2.97 refuses to print responses containing terminal escape sequences
+# unless --allow-escape-sequences is passed; older versions lack the flag.
+ALLOW_ESC_FLAG=""
+if gh api --help 2>&1 | grep -q -- '--allow-escape-sequences'; then
+  ALLOW_ESC_FLAG="--allow-escape-sequences"
+fi
+TAGS=$(gh api $ALLOW_ESC_FLAG "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \
   | sed 's/\x1b\[[0-9;]*m//g' \
   | grep -oE 'semitechnologies/weaviate:[a-zA-Z0-9._-]+' \
   | sort -u || true)
