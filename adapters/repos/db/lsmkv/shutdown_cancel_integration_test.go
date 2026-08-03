@@ -36,9 +36,8 @@ import (
 // canceled" error.
 //
 // The bucket is wired with real (non-noop) compaction and flush cycles so the
-// test drives the genuine cyclemanager unregister path, then Shutdown is called
-// with a cancelled ctx while the compaction cycle is live. Shutdown must return
-// no error, must not hang, and the store must reopen with every key intact.
+// test drives the genuine cyclemanager unregister path. Shutdown must return no
+// error, must not hang, and the store must reopen with every key intact.
 func TestBucket_ShutdownWithCancelledContext(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
@@ -50,13 +49,11 @@ func TestBucket_ShutdownWithCancelledContext(t *testing.T) {
 	compactionCycle := cyclemanager.NewManager("compaction",
 		cyclemanager.NewFixedTicker(10*time.Millisecond),
 		compactionCallbacks.CycleCallback, nullLogger())
-	compactionCycle.Start()
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	flushCycle := cyclemanager.NewManager("flush",
 		cyclemanager.NewFixedTicker(10*time.Millisecond),
 		flushCallbacks.CycleCallback, nullLogger())
-	flushCycle.Start()
 
 	bucket, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		compactionCallbacks, flushCallbacks, WithStrategy(StrategyReplace))
@@ -71,8 +68,16 @@ func TestBucket_ShutdownWithCancelledContext(t *testing.T) {
 		}
 		require.NoError(t, bucket.FlushAndSwitch())
 	}
-	require.GreaterOrEqual(t, len(bucket.disk.segments), 2,
-		"need at least two segments on disk so a compaction can be in flight")
+
+	// Len() reads the segment list under the segment group's maintenance lock.
+	// The tickers are deliberately still stopped here: once compaction runs it
+	// merges these two segments into one, so the count is only a stable
+	// precondition while nothing can compact yet.
+	require.Equal(t, segments, bucket.disk.Len(),
+		"both flushed segments must be on disk before the compaction cycle starts")
+
+	compactionCycle.Start()
+	flushCycle.Start()
 
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
@@ -97,7 +102,7 @@ func TestBucket_ShutdownWithCancelledContext(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.NoError(t, err)
-	defer reopened.Shutdown(ctx)
+	defer func() { require.NoError(t, reopened.Shutdown(ctx)) }()
 
 	for seg := 0; seg < segments; seg++ {
 		for i := 0; i < perSegment; i++ {
