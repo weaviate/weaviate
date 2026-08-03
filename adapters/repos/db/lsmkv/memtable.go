@@ -804,14 +804,13 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 	return result
 }
 
-// GetKeys returns the memtable's keys ascending. The slices alias the nodes'
-// keys, which are never mutated in place; no node values are copied.
+// GetKeys returns the memtable's keys ascending, aliasing the nodes' keys.
 func (m *Memtable) GetKeys() ([][]byte, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	// a roaringsetrange memtable stores its values as per-bit bitmaps, so it has
-	// no key set to walk and an empty result would read as "no keys"
+	// roaringsetrange stores per-bit bitmaps rather than keys, and an empty
+	// result would read as "no keys"
 	if m.strategy == StrategyRoaringSetRange {
 		return nil, fmt.Errorf("GetKeys unsupported for strategy %q", m.strategy)
 	}

@@ -13,18 +13,12 @@ package aggregator
 
 import "github.com/weaviate/weaviate/entities/aggregation"
 
-// NormalizeCardinalityOnlyProperties drops per-type aggregation data that a
-// shard returned for a property the request asked cardinality-only for.
+// NormalizeCardinalityOnlyProperties drops per-type aggregation data returned
+// for a cardinality-only property. A shard node that does not know the flag
+// answers with a full per-type aggregation, which the combiner would otherwise
+// merge in as authoritative.
 //
-// Cluster-internal aggregation params travel as plain JSON, so a shard node on
-// a pre-feature build silently drops ParamProperty.ApproximateCardinality and
-// sees an ordinary zero-aggregator property, which it answers with a full
-// per-type aggregation. Left alone, the combiner would merge those
-// old-shards-only numbers into the reply as if they covered the collection.
-// On a homogeneous cluster this is a no-op: an up-to-date shard node never
-// sets a Type for such a property.
-//
-// Must run before ShardCombiner.Do — it mutates the per-shard results in place.
+// Mutates the per-shard results in place; must run before ShardCombiner.Do.
 func NormalizeCardinalityOnlyProperties(props []aggregation.ParamProperty, results []*aggregation.Result) {
 	var names []string
 	for _, p := range props {

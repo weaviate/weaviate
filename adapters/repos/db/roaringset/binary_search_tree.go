@@ -66,8 +66,7 @@ func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
 	return t.root.flattenInOrder()
 }
 
-// KeysInOrder returns the keys ascending, aliasing the nodes' keys and
-// skipping the bitmap cloning FlattenInOrder does.
+// KeysInOrder returns the keys ascending, aliasing the nodes' keys.
 func (t *BinarySearchTree) KeysInOrder() [][]byte {
 	if t.root == nil {
 		return nil

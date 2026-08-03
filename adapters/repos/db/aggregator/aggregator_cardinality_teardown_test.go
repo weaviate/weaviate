@@ -26,12 +26,11 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// approximateCardinality must pin buckets via AcquireBucketForRead: swap-style
-// teardowns (reindex ReplaceBuckets) deregister the bucket, drain, shut it
-// down, and delete its directory, and a cold lazy segment loaded by an
-// unpinned in-flight reader then panics on the missing files. Smoke-guards the
-// reader against teardown/reload cycles under -race; the deterministic drain
-// semantics are pinned in lsmkv's store_acquire_drain_test.go.
+// approximateCardinality must pin buckets via AcquireBucketForRead: a swap-style
+// teardown (reindex ReplaceBuckets) deregisters the bucket, drains it, shuts it
+// down and deletes its directory, and an unpinned in-flight reader loading a
+// cold lazy segment then panics on the missing files. Race-detector smoke test;
+// the deterministic drain semantics live in lsmkv's store_acquire_drain_test.go.
 func TestApproximateCardinality_ConcurrentBucketTeardown(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -64,8 +63,6 @@ func TestApproximateCardinality_ConcurrentBucketTeardown(t *testing.T) {
 
 	agg := &Aggregator{store: store}
 
-	// the reader reports no estimate for a bucket it cannot find, so without a
-	// baseline a name it never resolves would churn through the loop unexercised
 	est, err := agg.approximateCardinality(schema.PropertyName(prop))
 	require.NoError(t, err)
 	require.NotNil(t, est)

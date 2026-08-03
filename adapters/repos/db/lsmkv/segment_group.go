@@ -736,9 +736,8 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	// holds the write lock) can swap these segments out. refCount is atomic, so no
 	// separate refcount lock is needed.
 	//
-	// A lazy segment's incRef panics when its file cannot be loaded; the pins
-	// already taken must be unwound before the panic leaves this frame, or those
-	// segments stay pinned for the lifetime of the process.
+	// A lazy segment's incRef panics if its file cannot be loaded; pins already
+	// taken must be unwound or they leak for the process's lifetime.
 	pinned := 0
 	defer func() {
 		if pinned == len(segments) {

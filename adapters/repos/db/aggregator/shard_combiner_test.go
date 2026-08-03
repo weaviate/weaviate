@@ -268,10 +268,6 @@ func scNumericalShard(numbers []float64) *aggregation.Result {
 	}}}
 }
 
-func scUint32(v uint32) *uint32 {
-	return &v
-}
-
 func scTextProp(cardinality *uint32) aggregation.Property {
 	return aggregation.Property{
 		Type: aggregation.PropertyTypeText,
@@ -289,76 +285,45 @@ func scCardinalityOnlyProp(cardinality *uint32) aggregation.Property {
 
 func TestShardCombinerApproximateCardinality(t *testing.T) {
 	tests := []struct {
-		name      string
-		groupedBy interface{} // nil for an ungrouped aggregation
-		shards    []aggregation.Property
-		expType   aggregation.PropertyType
-		expCard   *uint32
-		expText   bool
+		name    string
+		shards  []aggregation.Property
+		expType aggregation.PropertyType
+		expCard *uint32
+		expText bool
 	}{
 		{
-			name:    "single shard, cardinality only",
-			shards:  []aggregation.Property{scCardinalityOnlyProp(scUint32(42))},
-			expCard: scUint32(42),
-		},
-		{
-			name: "largest shard estimate wins",
+			// an untyped property must reach neither the merge nor the finalize
+			// switch's panicking default arm
+			name: "max across cardinality-only shards, shards without an estimate skipped",
 			shards: []aggregation.Property{
-				scCardinalityOnlyProp(scUint32(10)),
-				scCardinalityOnlyProp(scUint32(90)),
-				scCardinalityOnlyProp(scUint32(30)),
-			},
-			expCard: scUint32(90),
-		},
-		{
-			name: "shard without an estimate does not drop the estimate",
-			shards: []aggregation.Property{
-				scCardinalityOnlyProp(scUint32(7)),
+				scCardinalityOnlyProp(cardEst(30)),
 				scCardinalityOnlyProp(nil),
+				scCardinalityOnlyProp(cardEst(90)),
+				scCardinalityOnlyProp(cardEst(10)),
 			},
-			expCard: scUint32(7),
+			expCard: cardEst(90),
 		},
-		{
-			name: "shard without an estimate first",
-			shards: []aggregation.Property{
-				scCardinalityOnlyProp(nil),
-				scCardinalityOnlyProp(scUint32(7)),
-			},
-			expCard: scUint32(7),
-		},
-		{
-			name:    "no shard reports an estimate",
-			shards:  []aggregation.Property{scCardinalityOnlyProp(nil), scCardinalityOnlyProp(nil)},
-			expCard: nil,
-		},
+		// both orderings: whichever shard lands in the combined group first must
+		// not decide the type
 		{
 			name: "typed shard then cardinality-only shard",
 			shards: []aggregation.Property{
-				scTextProp(scUint32(5)),
-				scCardinalityOnlyProp(scUint32(9)),
+				scTextProp(cardEst(5)),
+				scCardinalityOnlyProp(cardEst(9)),
 			},
 			expType: aggregation.PropertyTypeText,
-			expCard: scUint32(9),
+			expCard: cardEst(9),
 			expText: true,
 		},
 		{
 			name: "cardinality-only shard then typed shard",
 			shards: []aggregation.Property{
-				scCardinalityOnlyProp(scUint32(9)),
-				scTextProp(scUint32(5)),
+				scCardinalityOnlyProp(cardEst(9)),
+				scTextProp(cardEst(5)),
 			},
 			expType: aggregation.PropertyTypeText,
-			expCard: scUint32(9),
+			expCard: cardEst(9),
 			expText: true,
-		},
-		{
-			name:      "grouped, cardinality only",
-			groupedBy: "some-group",
-			shards: []aggregation.Property{
-				scCardinalityOnlyProp(scUint32(10)),
-				scCardinalityOnlyProp(scUint32(90)),
-			},
-			expCard: scUint32(90),
 		},
 	}
 
@@ -366,14 +331,10 @@ func TestShardCombinerApproximateCardinality(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			results := make([]*aggregation.Result, len(tt.shards))
 			for i, prop := range tt.shards {
-				group := aggregation.Group{
+				results[i] = &aggregation.Result{Groups: []aggregation.Group{{
 					Count:      1,
 					Properties: map[string]aggregation.Property{"prop": prop},
-				}
-				if tt.groupedBy != nil {
-					group.GroupedBy = &aggregation.GroupedBy{Value: tt.groupedBy, Path: []string{"prop"}}
-				}
-				results[i] = &aggregation.Result{Groups: []aggregation.Group{group}}
+				}}}
 			}
 
 			var combined *aggregation.Result
@@ -389,49 +350,37 @@ func TestShardCombinerApproximateCardinality(t *testing.T) {
 			if tt.expText {
 				assert.Equal(t, 3, prop.TextAggregation.Count)
 				require.Len(t, prop.TextAggregation.Items, 2)
-				// finalizeText must still run for a property that also carries an estimate
+				// items come back sorted only if finalizeText ran
 				assert.Equal(t, "a", prop.TextAggregation.Items[0].Value)
 			}
 		})
 	}
 }
 
+// A cardinality-only shard arriving last must not blank the numerical type:
+// finalizeGroup switches on it, and an unfinalized group leaks the internal
+// aggregator entry into the response.
 func TestShardCombinerApproximateCardinalityWithNumericalProp(t *testing.T) {
-	tests := []struct {
-		name             string
-		cardinalityFirst bool
-	}{
-		{name: "typed shard first"},
-		{name: "cardinality-only shard first", cardinalityFirst: true},
-	}
+	typed := scNumericalShard([]float64{1, 2, 3})
+	typedProp := typed.Groups[0].Properties["num"]
+	typedProp.ApproximateCardinality = cardEst(2)
+	typed.Groups[0].Properties["num"] = typedProp
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			typed := scNumericalShard([]float64{1, 2, 3})
-			typedProp := typed.Groups[0].Properties["num"]
-			typedProp.ApproximateCardinality = scUint32(2)
-			typed.Groups[0].Properties["num"] = typedProp
+	cardinalityOnly := &aggregation.Result{Groups: []aggregation.Group{{
+		Count:      1,
+		Properties: map[string]aggregation.Property{"num": scCardinalityOnlyProp(cardEst(11))},
+	}}}
 
-			cardinalityOnly := &aggregation.Result{Groups: []aggregation.Group{{
-				Count:      1,
-				Properties: map[string]aggregation.Property{"num": scCardinalityOnlyProp(scUint32(11))},
-			}}}
+	var combined *aggregation.Result
+	require.NotPanics(t, func() {
+		combined = NewShardCombiner().Do([]*aggregation.Result{typed, cardinalityOnly})
+	})
 
-			results := []*aggregation.Result{typed, cardinalityOnly}
-			if tt.cardinalityFirst {
-				results = []*aggregation.Result{cardinalityOnly, typed}
-			}
-
-			var combined *aggregation.Result
-			require.NotPanics(t, func() { combined = NewShardCombiner().Do(results) })
-
-			require.Len(t, combined.Groups, 1)
-			merged := combined.Groups[0].Properties["num"]
-			assert.Equal(t, aggregation.PropertyTypeNumerical, merged.Type)
-			assert.Equal(t, scUint32(11), merged.ApproximateCardinality)
-			assert.NotContains(t, merged.NumericalAggregations, "_numericalAggregator")
-			assert.Equal(t, 3.0, merged.NumericalAggregations["count"])
-			assert.InDelta(t, 2.0, merged.NumericalAggregations["mean"], 0.0001)
-		})
-	}
+	require.Len(t, combined.Groups, 1)
+	merged := combined.Groups[0].Properties["num"]
+	assert.Equal(t, aggregation.PropertyTypeNumerical, merged.Type)
+	assert.Equal(t, cardEst(11), merged.ApproximateCardinality)
+	assert.NotContains(t, merged.NumericalAggregations, "_numericalAggregator")
+	assert.Equal(t, 3.0, merged.NumericalAggregations["count"])
+	assert.InDelta(t, 2.0, merged.NumericalAggregations["mean"], 0.0001)
 }

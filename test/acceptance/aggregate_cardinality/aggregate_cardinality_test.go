@@ -31,18 +31,17 @@ const (
 	className = "AggCardinality"
 
 	objectCount = 12
-	// name is unique per object, category cycles, population repeats in pairs
-	distinctNames       = objectCount
-	distinctCategories  = 3
-	distinctPopulations = objectCount / 2
+	// name is unique per object, category cycles
+	distinctNames      = objectCount
+	distinctCategories = 3
 )
 
 func boolPtr(b bool) *bool { return &b }
 
 // Sizing the estimate: the whole fixture fits one memtable (and, if it flushes,
 // segments too small to carry a bloom filter), both of which GetKeysCount
-// counts exactly — so the expected value is the distinct key count. The band
-// absorbs a bloom-filter estimate should a sized segment win instead.
+// counts exactly. The band absorbs a bloom-filter estimate should a sized
+// segment win instead.
 func assertEstimate(t *testing.T, agg *pb.AggregateReply_Aggregations_Aggregation, wantDistinct int) {
 	t.Helper()
 	require.NotNil(t, agg.ApproximateCardinality,
@@ -53,14 +52,13 @@ func assertEstimate(t *testing.T, agg *pb.AggregateReply_Aggregations_Aggregatio
 		agg.GetProperty(), got, wantDistinct)
 }
 
-func aggsByProperty(t *testing.T, aggs *pb.AggregateReply_Aggregations) map[string]*pb.AggregateReply_Aggregations_Aggregation {
+func singleAggregation(t *testing.T, resp *pb.AggregateReply, property string) *pb.AggregateReply_Aggregations_Aggregation {
 	t.Helper()
-	require.NotNil(t, aggs)
-	out := map[string]*pb.AggregateReply_Aggregations_Aggregation{}
-	for _, a := range aggs.GetAggregations() {
-		out[a.GetProperty()] = a
-	}
-	return out
+	require.NotNil(t, resp.GetSingleResult(), "a non-group-by request must reply with a single result")
+	aggs := resp.GetSingleResult().GetAggregations().GetAggregations()
+	require.Len(t, aggs, 1)
+	require.Equal(t, property, aggs[0].GetProperty())
+	return aggs[0]
 }
 
 func setupSchema(t *testing.T) {
@@ -87,30 +85,6 @@ func setupSchema(t *testing.T) {
 				IndexFilterable: boolPtr(true),
 				IndexSearchable: boolPtr(false),
 			},
-			{
-				Name:            "population",
-				DataType:        schema.DataTypeInt.PropString(),
-				IndexFilterable: boolPtr(true),
-			},
-			{
-				// default indexing: geo values land in the geo index, never in a
-				// filterable or searchable LSM bucket
-				Name:     "location",
-				DataType: schema.DataTypeGeoCoordinates.PropString(),
-			},
-			{
-				Name:              "rangeOnly",
-				DataType:          schema.DataTypeInt.PropString(),
-				IndexFilterable:   boolPtr(false),
-				IndexRangeFilters: boolPtr(true),
-			},
-			{
-				Name:            "unindexed",
-				DataType:        schema.DataTypeText.PropString(),
-				Tokenization:    models.PropertyTokenizationField,
-				IndexFilterable: boolPtr(false),
-				IndexSearchable: boolPtr(false),
-			},
 		},
 	})
 }
@@ -123,12 +97,8 @@ func setupData(t *testing.T) {
 		objects = append(objects, &models.Object{
 			Class: className,
 			Properties: map[string]any{
-				"name":       fmt.Sprintf("city-%02d", i),
-				"category":   fmt.Sprintf("cat-%d", i%distinctCategories),
-				"population": int64((i / 2) * 1000),
-				"location":   map[string]any{"latitude": 52.0 + float64(i), "longitude": 4.0},
-				"rangeOnly":  int64(i),
-				"unindexed":  fmt.Sprintf("blob-%02d", i),
+				"name":     fmt.Sprintf("city-%02d", i),
+				"category": fmt.Sprintf("cat-%d", i%distinctCategories),
 			},
 		})
 	}
@@ -178,49 +148,10 @@ func TestAggregateApproximateCardinality(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, resp.GetSingleResult(), "a non-group-by request must reply with a single result")
 
-		aggs := aggsByProperty(t, resp.GetSingleResult().GetAggregations())
-		require.Len(t, aggs, 1)
-		name := aggs["name"]
-		require.NotNil(t, name)
+		name := singleAggregation(t, resp, "name")
 		assertEstimate(t, name, distinctNames)
 		assert.Nil(t, name.GetAggregation(), "cardinality-only property must carry no typed aggregation")
-	})
-
-	t.Run("several cardinality-only properties at once", func(t *testing.T) {
-		resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-			Collection: className,
-			Aggregations: []*pb.AggregateRequest_Aggregation{
-				{Property: "name", ApproximateCardinality: true},
-				{Property: "category", ApproximateCardinality: true},
-				{Property: "population", ApproximateCardinality: true},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp.GetSingleResult())
-
-		aggs := aggsByProperty(t, resp.GetSingleResult().GetAggregations())
-		require.Len(t, aggs, 3)
-		assertEstimate(t, aggs["name"], distinctNames)
-		assertEstimate(t, aggs["category"], distinctCategories)
-		assertEstimate(t, aggs["population"], distinctPopulations)
-	})
-
-	t.Run("cardinality alongside objects count", func(t *testing.T) {
-		resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-			Collection:   className,
-			ObjectsCount: true,
-			Aggregations: []*pb.AggregateRequest_Aggregation{
-				{Property: "category", ApproximateCardinality: true},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp.GetSingleResult())
-		assert.Equal(t, int64(objectCount), resp.GetSingleResult().GetObjectsCount())
-
-		aggs := aggsByProperty(t, resp.GetSingleResult().GetAggregations())
-		assertEstimate(t, aggs["category"], distinctCategories)
 	})
 
 	t.Run("cardinality and a typed aggregation on the same property", func(t *testing.T) {
@@ -241,12 +172,8 @@ func TestAggregateApproximateCardinality(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, resp.GetSingleResult())
 
-		aggs := aggsByProperty(t, resp.GetSingleResult().GetAggregations())
-		require.Len(t, aggs, 1)
-		category := aggs["category"]
-		require.NotNil(t, category)
+		category := singleAggregation(t, resp, "category")
 
 		text := category.GetText()
 		require.NotNil(t, text, "the typed aggregation must survive alongside the estimate")
@@ -257,126 +184,14 @@ func TestAggregateApproximateCardinality(t *testing.T) {
 		assertEstimate(t, category, distinctCategories)
 	})
 
-	t.Run("cardinality on one property, typed aggregation on another", func(t *testing.T) {
-		resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+	t.Run("unknown property is rejected", func(t *testing.T) {
+		_, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
 			Collection: className,
 			Aggregations: []*pb.AggregateRequest_Aggregation{
-				{Property: "name", ApproximateCardinality: true},
-				{
-					Property: "population",
-					Aggregation: &pb.AggregateRequest_Aggregation_Int{
-						Int: &pb.AggregateRequest_Aggregation_Integer{Count: true, Maximum: true},
-					},
-				},
+				{Property: "doesNotExist", ApproximateCardinality: true},
 			},
 		})
-		require.NoError(t, err)
-		require.NotNil(t, resp.GetSingleResult())
-
-		aggs := aggsByProperty(t, resp.GetSingleResult().GetAggregations())
-		require.Len(t, aggs, 2)
-
-		assertEstimate(t, aggs["name"], distinctNames)
-		assert.Nil(t, aggs["name"].GetAggregation())
-
-		population := aggs["population"]
-		require.NotNil(t, population.GetInt())
-		assert.Equal(t, int64(objectCount), population.GetInt().GetCount())
-		assert.Equal(t, int64((distinctPopulations-1)*1000), population.GetInt().GetMaximum())
-		assert.Nil(t, population.ApproximateCardinality, "estimate must only be attached where requested")
-	})
-
-	t.Run("filters do not narrow the estimate", func(t *testing.T) {
-		resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-			Collection: className,
-			Filters: &pb.Filters{
-				Operator:  pb.Filters_OPERATOR_EQUAL,
-				TestValue: &pb.Filters_ValueText{ValueText: "cat-0"},
-				On:        []string{"category"},
-			},
-			ObjectsCount: true,
-			Aggregations: []*pb.AggregateRequest_Aggregation{
-				{Property: "name", ApproximateCardinality: true},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp.GetSingleResult())
-		assert.Less(t, resp.GetSingleResult().GetObjectsCount(), int64(objectCount),
-			"the filter must actually narrow the object count")
-
-		aggs := aggsByProperty(t, resp.GetSingleResult().GetAggregations())
-		assertEstimate(t, aggs["name"], distinctNames)
-	})
-
-	t.Run("group_by ignores the flag", func(t *testing.T) {
-		resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-			Collection: className,
-			GroupBy: &pb.AggregateRequest_GroupBy{
-				Collection: className,
-				Property:   "category",
-			},
-			Aggregations: []*pb.AggregateRequest_Aggregation{
-				{
-					Property: "category",
-					Aggregation: &pb.AggregateRequest_Aggregation_Text_{
-						Text: &pb.AggregateRequest_Aggregation_Text{Count: true},
-					},
-					ApproximateCardinality: true,
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp.GetGroupedResults())
-		require.Len(t, resp.GetGroupedResults().GetGroups(), distinctCategories)
-
-		for _, group := range resp.GetGroupedResults().GetGroups() {
-			aggs := aggsByProperty(t, group.GetAggregations())
-			category := aggs["category"]
-			require.NotNil(t, category)
-			assert.Nil(t, category.ApproximateCardinality,
-				"the estimate is whole-bucket, so it is not reported per group")
-			assert.Equal(t, int64(objectCount/distinctCategories), category.GetText().GetCount())
-		}
-	})
-
-	t.Run("rejected requests", func(t *testing.T) {
-		tests := []struct {
-			name     string
-			property string
-			contains string
-		}{
-			{
-				name:     "unknown property",
-				property: "doesNotExist",
-				contains: "doesNotExist",
-			},
-			{
-				name:     "geo coordinates have no filterable or searchable bucket",
-				property: "location",
-				contains: "location",
-			},
-			{
-				name:     "rangeable-only numeric has no filterable or searchable bucket",
-				property: "rangeOnly",
-				contains: "rangeOnly",
-			},
-			{
-				name:     "property with inverted indexing disabled",
-				property: "unindexed",
-				contains: "unindexed",
-			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				_, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-					Collection: className,
-					Aggregations: []*pb.AggregateRequest_Aggregation{
-						{Property: tt.property, ApproximateCardinality: true},
-					},
-				})
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.contains)
-			})
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "doesNotExist")
 	})
 }

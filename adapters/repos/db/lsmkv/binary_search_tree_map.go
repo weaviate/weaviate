@@ -55,8 +55,7 @@ func (t *binarySearchTreeMap) flattenInOrder() []*binarySearchNodeMap {
 	return t.root.flattenInOrder()
 }
 
-// keysInOrder returns the keys ascending, aliasing the nodes' keys and
-// skipping the sorted value copies flattenInOrder makes.
+// keysInOrder returns the keys ascending, aliasing the nodes' keys.
 func (t *binarySearchTreeMap) keysInOrder() [][]byte {
 	if t.root == nil {
 		return nil

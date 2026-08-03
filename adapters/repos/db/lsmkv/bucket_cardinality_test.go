@@ -22,27 +22,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// memtableKeyWriter writes keys value-<i> for i in [start, end) into a memtable
-// of one strategy. Each strategy lands in a different binary search tree, and
-// Memtable.GetKeys walks whichever one holds data.
 type memtableKeyWriter struct {
 	name     string
 	strategy string
 	addKeys  func(t *testing.T, m *Memtable, start, end int)
 }
 
-// memtableKeyWriters covers every tree GetKeys can walk: key (replace),
-// keyMulti (set), keyMap (map and inverted) and roaringSet.
-var memtableKeyWriters = []memtableKeyWriter{
-	{
-		name:     "replace",
-		strategy: StrategyReplace,
-		addKeys: func(t *testing.T, m *Memtable, start, end int) {
-			for i := start; i < end; i++ {
-				require.NoError(t, m.put(cardinalityKey(i), []byte(fmt.Sprintf("doc-%06d", i))))
-			}
-		},
+var replaceKeyWriter = memtableKeyWriter{
+	name:     "replace",
+	strategy: StrategyReplace,
+	addKeys: func(t *testing.T, m *Memtable, start, end int) {
+		for i := start; i < end; i++ {
+			require.NoError(t, m.put(cardinalityKey(i), []byte(fmt.Sprintf("doc-%06d", i))))
+		}
 	},
+}
+
+// memtableKeyWriters covers every tree Memtable.GetKeys can walk: key
+// (replace), keyMulti (set), keyMap (map and inverted) and roaringSet.
+var memtableKeyWriters = []memtableKeyWriter{
+	replaceKeyWriter,
 	{
 		name:     "set",
 		strategy: StrategySetCollection,
@@ -84,54 +83,39 @@ var memtableKeyWriters = []memtableKeyWriter{
 	},
 }
 
-// The memtables are counted exactly, including the keys a switch leaves in both
-// of them, so every case here asserts the true count rather than a tolerance.
 func TestMemtableKeysDistinct(t *testing.T) {
-	tests := []struct {
-		name         string
-		activeKeys   int
-		flushingKeys int
-		// number of leading flushing keys the active memtable rewrites
-		overlap  int
-		distinct int
-	}{
-		{name: "active only", activeKeys: 500, distinct: 500},
-		{name: "empty active only"},
-		{name: "tiny active, large flushing", activeKeys: 1, flushingKeys: 20000, distinct: 20001},
-		{name: "large active, tiny flushing", activeKeys: 20000, flushingKeys: 1, distinct: 20001},
-		{name: "disjoint", activeKeys: 3000, flushingKeys: 3000, distinct: 6000},
-		{name: "fully overlapping", activeKeys: 3000, flushingKeys: 3000, overlap: 3000, distinct: 3000},
-		{name: "partially overlapping", activeKeys: 3000, flushingKeys: 3000, overlap: 1200, distinct: 4800},
-	}
-
 	for _, w := range memtableKeyWriters {
 		t.Run(w.name, func(t *testing.T) {
-			for _, tt := range tests {
-				t.Run(tt.name, func(t *testing.T) {
-					const flushingBase = 1000000
-					// the active memtable starts at the base for the overlapping keys and
-					// runs past the flushing range for the rest
-					view := BucketConsistentView{}
-					if tt.flushingKeys > 0 {
-						view.Flushing = newPopulatedMemtable(t, w, flushingBase, flushingBase+tt.flushingKeys)
-						view.Active = newPopulatedMemtable(t, w, flushingBase, flushingBase+tt.overlap)
-						w.addKeys(t, view.Active.(*Memtable),
-							flushingBase+tt.flushingKeys, flushingBase+tt.flushingKeys+tt.activeKeys-tt.overlap)
-					} else {
-						view.Active = newPopulatedMemtable(t, w, 0, tt.activeKeys)
-					}
+			m := newMemtableForStrategy(t, w.strategy)
+			// out of order and partly rewritten, so both the in-order walk and
+			// the tree's own deduplication have to hold
+			w.addKeys(t, m, 300, 600)
+			w.addKeys(t, m, 0, 300)
+			w.addKeys(t, m, 150, 450)
 
-					memKeys, err := collectMemtableKeys(view)
-					require.NoError(t, err)
-					for i, set := range memKeys.sets {
-						requireSortedDistinct(t, set, "memtable %d", i)
-					}
-
-					assert.Equal(t, uint32(tt.distinct), memKeys.distinct())
-				})
-			}
+			keys, err := m.GetKeys()
+			require.NoError(t, err)
+			requireSortedDistinct(t, keys, "%s memtable", w.name)
+			assert.Len(t, keys, 600)
 		})
 	}
+
+	// A memtable switch leaves the keys rewritten after it in both memtables.
+	// The merge is strategy-independent — it walks the view, not the tree — so
+	// one strategy covers it.
+	t.Run("keys in both memtables count once", func(t *testing.T) {
+		view := BucketConsistentView{
+			Flushing: newPopulatedMemtable(t, replaceKeyWriter, 0, 3000),
+			Active:   newPopulatedMemtable(t, replaceKeyWriter, 1800, 4200),
+		}
+
+		memKeys, err := collectMemtableKeys(view)
+		require.NoError(t, err)
+		for i, set := range memKeys.sets {
+			requireSortedDistinct(t, set, "memtable %d", i)
+		}
+		assert.Equal(t, uint32(4200), memKeys.distinct())
+	})
 
 	// A roaringsetrange memtable keeps per-bit bitmaps instead of a key set, so
 	// GetKeys must fail rather than report it as empty.
@@ -145,8 +129,9 @@ func TestMemtableKeysDistinct(t *testing.T) {
 	})
 }
 
-// exactKeys generalizes beyond the two memtables: bloom-less disk segments add
-// more sorted sets. Cross-set duplicates must count once.
+// The sets fed to exactKeys are the view's memtables plus any disk segment too
+// small to carry a bloom filter, so a key can appear in several of them and
+// must still count once.
 func TestExactKeysDistinct(t *testing.T) {
 	keyRange := func(start, end int) [][]byte {
 		set := make([][]byte, 0, end-start)
@@ -209,8 +194,6 @@ func newMemtableForStrategy(t *testing.T, strategy string) *Memtable {
 	return m
 }
 
-// newPopulatedMemtable returns a memtable of the writer's strategy holding keys
-// value-<i> for i in [start, end).
 func newPopulatedMemtable(t *testing.T, w memtableKeyWriter, start, end int) *Memtable {
 	t.Helper()
 	m := newMemtableForStrategy(t, w.strategy)

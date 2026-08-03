@@ -2814,17 +2814,10 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
 }
 
-// GetKeysCount estimates the bucket's distinct key count, taking the best of
-// the counts it can derive: the exactly counted keys of the memtables and of
-// the small disk segments that carry no bloom filter, the remaining segments'
-// unioned filters, and — while the union has room left — the filter with the
-// exact keys added in. Each is a lower bound on the keys present in the index,
-// so the largest is the tightest. The index retains the keys of deleted and
-// updated values until compaction prunes them, so the result can exceed the
-// number of distinct live values.
-//
-// All layers come from one pinned view, so a flush in flight cannot drop the
-// keys of a memtable it moves.
+// GetKeysCount estimates the bucket's distinct key count, taking the largest
+// of the bounds it can derive from one pinned view. The index retains the keys
+// of deleted and updated values until compaction prunes them, so the result
+// can exceed the number of distinct live values.
 func (b *Bucket) GetKeysCount() (uint32, error) {
 	if !b.useBloomFilter {
 		return 0, fmt.Errorf("bloom filter not enabled")
@@ -2851,12 +2844,10 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 		return best, nil
 	}
 
-	// The exact keys go straight into the disk filter to estimate the union:
-	// diskBloom is a copy owned by this call, and its own estimate is already
-	// in best. Overfilling it costs accuracy gradually and then all at once —
-	// at full saturation ApproximatedSize evaluates ln(0), whose uint32
-	// conversion is platform-defined — so the union only competes while there
-	// is room left.
+	// diskBloom is a copy owned by this call, so it can absorb the exact keys.
+	// A saturated filter makes ApproximatedSize evaluate ln(0), whose uint32
+	// conversion is platform-defined, so the union only competes while there is
+	// room left.
 	exact.addTo(diskBloom)
 	if !bloomSaturated(diskBloom) {
 		if est := diskBloom.ApproximatedSize(); est > best {
@@ -2867,10 +2858,9 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 	return best, nil
 }
 
-// exactKeys holds key sets counted exactly rather than estimated: the view's
-// memtables and any disk segments too small to carry a bloom filter. Each set
-// is sorted ascending and holds each key once. Collected once, so counting
-// the keys and feeding them to a filter does not read them twice.
+// exactKeys holds key sets counted rather than estimated: memtables and disk
+// segments too small to carry a bloom filter. Each set is sorted ascending and
+// holds each key once.
 type exactKeys struct {
 	sets  [][][]byte
 	total int
@@ -2906,9 +2896,8 @@ func (ek exactKeys) addTo(keysBloom *bloom.BloomFilter) {
 	}
 }
 
-// distinct counts the collected keys exactly: a k-way merge of the sorted
-// sets removes the duplicates keys written again after a memtable switch or
-// flush leave across layers — no sketch needed.
+// distinct counts the union of the sets exactly: a key rewritten after a
+// memtable switch or flush appears in more than one set.
 func (ek exactKeys) distinct() uint32 {
 	switch len(ek.sets) {
 	case 0:
