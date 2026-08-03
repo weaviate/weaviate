@@ -301,10 +301,9 @@ type Index struct {
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
 	backupProtectedShards sync.Map
 
-	// backupStateMu serialises starting a backup, protecting a shard for it, and
-	// releasing it, so a shard is never protected for a backup that already ended
-	// and every protected shard is unlocked exactly once. Reads of
-	// backupProtectedShards do not take it.
+	// backupStateMu orders protecting a shard against starting and ending a
+	// backup, so a shard is never protected for a backup that already ended and
+	// left nothing behind to unlock it. It is not held while shards are released.
 	backupStateMu sync.Mutex
 
 	// backupGeneration numbers the backups run on this index. Backup IDs cannot

@@ -683,9 +683,12 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	// Claimed before the work below, so a releaser that outlived its own backup
 	// does not delete a staging dir or resume compaction under a later one. Both
 	// would corrupt that backup: it is still reading the files they touch.
-	if !i.claimBackup(id) {
+	gen, claimed := i.claimBackup(id)
+	if !claimed {
 		return nil
 	}
+
+	i.releaseProtectedShards(gen)
 
 	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
 	stagingDir := backupStagingDir(i.Config.RootPath, id, i.Config.ClassName)
@@ -699,29 +702,38 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	return i.resumeMaintenanceCycles(ctx)
 }
 
-// claimBackup ends the backup identified by id and reports whether this caller
-// is the one that ended it. Only the first caller for a given backup claims it:
-// the second Unlock of a shard's backupLock is a fatal error recover() cannot
-// catch, so releasing must happen once no matter how many releasers arrive.
-func (i *Index) claimBackup(id string) bool {
+// claimBackup ends the backup identified by id and reports the generation it ran
+// under. Only the first caller for a given backup claims it, so the several
+// releasers the uploader fires per backup do not each try to end it.
+func (i *Index) claimBackup(id string) (uint64, bool) {
 	i.backupStateMu.Lock()
 	defer i.backupStateMu.Unlock()
 
 	st := i.lastBackup.Load()
 	if st == nil || st.BackupID != id {
-		return false
+		return 0, false
 	}
 	i.lastBackup.Store(nil)
+	return st.Generation, true
+}
 
-	// Every protected shard belongs to the backup being ended: protectShard
-	// refuses to protect for any other, and the next backup cannot start until
-	// backupStateMu is free again.
-	i.backupProtectedShards.Range(func(key, _ any) bool {
-		i.backupProtectedShards.Delete(key)
-		i.backupLock.Unlock(key.(string))
+// releaseProtectedShards unlocks each shard protected by backup generation gen
+// or an older one, and clears its flag. A newer generation is left alone: the
+// backup that protected it is still reading those files. Older ones are swept up
+// so a shard cannot stay locked for a backup that is long gone.
+//
+// CompareAndDelete keeps each unlock to exactly one: two releases can overlap,
+// and a shard can be re-protected while Range walks past it. A second Unlock of
+// the same backupLock is a fatal error recover() cannot catch.
+func (i *Index) releaseProtectedShards(gen uint64) {
+	i.backupProtectedShards.Range(func(key, value any) bool {
+		if protectedBy, ok := value.(uint64); ok && protectedBy <= gen {
+			if i.backupProtectedShards.CompareAndDelete(key, value) {
+				i.backupLock.Unlock(key.(string))
+			}
+		}
 		return true
 	})
-	return true
 }
 
 // protectShard blocks activation of shard name and records that its

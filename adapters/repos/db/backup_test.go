@@ -421,8 +421,21 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 }
 
 // requireBackupLocksFree fails if any of names still has its backupLock write
-// lock held. A held lock blocks RLock forever, so it is probed on a deadline.
+// lock held. Nothing else holds these locks in the tests that call it, so
+// TryRLock is exact and reports a leaked lock immediately.
 func requireBackupLocksFree(t *testing.T, idx *Index, names []string) {
+	t.Helper()
+
+	for _, name := range names {
+		require.True(t, idx.backupLock.TryRLock(name), "backupLock on %s still held", name)
+		idx.backupLock.RUnlock(name)
+	}
+}
+
+// requireBackupLocksFreeConcurrently is requireBackupLocksFree for the racing
+// workloads, where TryRLock can also fail on a writer that is merely queued. A
+// leaked lock blocks RLock forever, so it is probed on a deadline instead.
+func requireBackupLocksFreeConcurrently(t *testing.T, idx *Index, names []string) {
 	t.Helper()
 
 	var acquired atomic.Int64
@@ -612,7 +625,7 @@ func releaseBackupConcurrentUnlockWorkload(t *testing.T) {
 
 		// A shard released too few times keeps its write lock, which blocks RLock
 		// forever, so under-release surfaces as a timeout here.
-		requireBackupLocksFree(t, idx, names)
+		requireBackupLocksFreeConcurrently(t, idx, names)
 	}
 }
 
