@@ -588,6 +588,15 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, usage2)
 	require.NoError(t, ReportsDifference(usage, usage2))
+
+	// piggybacks on this container instead of starting its own — same env (debug port +
+	// dimension tracking). Runs after the restart, so URIs must be re-fetched: the mapped
+	// ports change across a container stop/start.
+	t.Run("muvera usage", func(t *testing.T) {
+		c, err := client.NewClient(client.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
+		require.NoError(t, err)
+		testUsageMuvera(t, c, compose.GetWeaviate().DebugURI())
+	})
 }
 
 func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
@@ -1222,23 +1231,17 @@ func sanitizeName(name string) string {
 	return name
 }
 
-func TestUsageMuvera(t *testing.T) {
+// testUsageMuvera runs on a caller-provided instance so it can share a testcontainer with
+// another test instead of paying for its own start. The instance must expose the debug port
+// and have TRACK_VECTOR_DIMENSIONS enabled.
+func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateWithDebugPort().
-		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
+	className := "UsageMuveraClass"
 
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
-	require.NoError(t, err)
-	debug := compose.GetWeaviate().DebugURI()
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
-	className := t.Name() + "Class"
 	tenantName := "tenant"
 	muveraVec := "muvera"
 	colbertVec := "colbert"

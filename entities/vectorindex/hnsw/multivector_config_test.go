@@ -41,6 +41,15 @@ func TestMuveraConfigEncodedDimensions(t *testing.T) {
 			},
 			expected: 5 * 8 * 8,
 		},
+		{
+			name: "negative ksim does not panic",
+			config: MuveraConfig{
+				KSim:         -1,
+				DProjections: 16,
+				Repetitions:  10,
+			},
+			expected: 0,
+		},
 	}
 
 	for _, tt := range tests {

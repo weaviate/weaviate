@@ -653,6 +653,34 @@ func Test_UserConfig(t *testing.T) {
 				"with a minimum of 4",
 		},
 		{
+			name: "invalid negative muvera ksim",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"enabled": true,
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("-1"),
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "ksim must not be negative",
+		},
+		{
+			name: "invalid too large muvera ksim",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"enabled": true,
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("11"),
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "ksim must be less than 10",
+		},
+		{
 			name: "with bq",
 			input: map[string]interface{}{
 				"cleanupIntervalSeconds": float64(11),

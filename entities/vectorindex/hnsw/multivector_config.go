@@ -45,7 +45,11 @@ type MuveraConfig struct {
 }
 
 // EncodedDimensions returns the dimensionality of a MUVERA-encoded vector: Repetitions × 2^KSim clusters × DProjections.
+// Returns 0 for a negative KSim, which can occur in configs persisted before the lower bound was validated.
 func (m MuveraConfig) EncodedDimensions() int {
+	if m.KSim < 0 {
+		return 0
+	}
 	return m.Repetitions * (1 << m.KSim) * m.DProjections
 }
 

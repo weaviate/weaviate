@@ -434,10 +434,12 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	muveraDimensions := make(map[string]int, len(vectorConfigs))
 	for targetVector, vectorConfig := range vectorConfigs {
 		targetVectors = append(targetVectors, targetVector)
-		if cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
-			if encodedDimensions := muveraEncodedDimensions(cfg); encodedDimensions > 0 {
-				muveraDimensions[targetVector] = encodedDimensions
-			}
+		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
+		}
+		if encodedDimensions := muveraEncodedDimensions(cfg); encodedDimensions > 0 {
+			muveraDimensions[targetVector] = encodedDimensions
 		}
 	}
 	// open the dimensions bucket once for all target vectors
