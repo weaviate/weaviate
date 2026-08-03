@@ -336,6 +336,9 @@ type Shard struct {
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
 
+	// allowListDedupe coalesces duplicate per-query allow-list builds on this shard.
+	allowListDedupe allowListDedupe
+
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
 

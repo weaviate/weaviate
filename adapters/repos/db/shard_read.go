@@ -525,12 +525,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
-			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
-				s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
-				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
-				s.bitmapFactory).
-				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+			filterDocIds, err = s.buildAllowList(ctx, filters, additional)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -932,7 +927,35 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 	return sortedDocIDs, sortedDists, nil
 }
 
+// buildAllowList resolves filters into an allow list, sharing the build with
+// concurrent callers on this shard that use the same token and filter (e.g.
+// hybrid's two legs). The result is shared: mutating it (Insert, Truncate)
+// would corrupt peers still reading it.
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
+	token := helpers.QueryDedupeToken(ctx)
+
+	// A panicking build unwinds past the return below, so without this the leg
+	// would vanish from the counters entirely.
+	recorded := false
+	defer func() {
+		if !recorded && token != "" && filters != nil {
+			helpers.RecordAllowListDedupe(helpers.AllowListDedupePanicked)
+		}
+	}()
+
+	list, outcome, err := s.allowListDedupe.do(ctx, token, filters,
+		func(ctx context.Context) (helpers.AllowList, error) {
+			return s.buildAllowListDirect(ctx, filters, addl)
+		})
+	if outcome != "" {
+		recorded = true
+		helpers.RecordAllowListDedupe(outcome)
+		helpers.AnnotateSlowQueryLog(ctx, "filters_allow_list_dedupe", outcome)
+	}
+	return list, err
+}
+
+func (s *Shard) buildAllowListDirect(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
