@@ -21,6 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
 type stubCleanupProber struct {
@@ -76,12 +78,11 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var handler *clusterapi.ReindexCleanup
-			if tt.prober == nil {
-				handler = clusterapi.NewReindexCleanup(nil, clusterapi.NewNoopAuthHandler())
-			} else {
-				handler = clusterapi.NewReindexCleanup(tt.prober, clusterapi.NewNoopAuthHandler())
+			resolve := func() clusterapi.ReindexCleanupProber { return nil }
+			if tt.prober != nil {
+				resolve = func() clusterapi.ReindexCleanupProber { return tt.prober }
 			}
+			handler := clusterapi.NewReindexCleanup(resolve, clusterapi.NewNoopAuthHandler())
 			server := httptest.NewServer(handler.Activity())
 			defer server.Close()
 
@@ -100,4 +101,53 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			assert.Equal(t, tt.wantAsked, tt.prober.asked)
 		})
 	}
+}
+
+// A nil pointer boxed into the prober interface is not == nil, so a guard
+// written against the interface waves it through and the call panics on the
+// nil receiver. Passing an unset struct field straight into the constructor is
+// how that happens, so the route has to survive it.
+func TestInternalReindexCleanupActivityTypedNilProber(t *testing.T) {
+	var unset *db.ReindexProvider
+
+	handler := clusterapi.NewReindexCleanup(
+		func() clusterapi.ReindexCleanupProber { return unset },
+		clusterapi.NewNoopAuthHandler())
+	server := httptest.NewServer(handler.Activity())
+	defer server.Close()
+
+	res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+	require.NoError(t, err, "the route must answer, not drop the connection on a panic")
+	defer res.Body.Close()
+
+	require.Equal(t, http.StatusServiceUnavailable, res.StatusCode,
+		"an unusable prober must read as unwired, never as 'nothing running'")
+}
+
+// The internal server is constructed before bootstrap assigns the reindex
+// provider, so a route that captures the field at construction captures a nil
+// that never becomes real. This drives the same wiring production uses, in the
+// same order, rather than a handler built around a ready-made prober — the
+// latter stays green through exactly this bug.
+func TestInternalReindexCleanupActivityResolvesProviderLate(t *testing.T) {
+	appState := &state.State{}
+
+	handler := clusterapi.NewReindexCleanupFromState(appState, clusterapi.NewNoopAuthHandler())
+	server := httptest.NewServer(handler.Activity())
+	defer server.Close()
+
+	get := func() int {
+		res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+		require.NoError(t, err, "the route must answer at every stage of bootstrap")
+		defer res.Body.Close()
+		return res.StatusCode
+	}
+
+	require.Equal(t, http.StatusServiceUnavailable, get(),
+		"before the provider exists the route must say so")
+
+	appState.ReindexProvider = &db.ReindexProvider{}
+
+	require.Equal(t, http.StatusOK, get(),
+		"the route must pick the provider up once bootstrap assigns it")
 }
