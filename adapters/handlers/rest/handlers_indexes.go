@@ -618,6 +618,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
+	// The conflict checks above already treat a missing cluster service as
+	// skippable; submitting through it is not, so say so instead of panicking.
+	if h.appState.ClusterService == nil {
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
+			"cluster service unavailable; cannot submit reindex task"))
+	}
+
 	// Semantic migrations opt into the two-phase RAFT PREP barrier;
 	// MT semantic migrations also group by tenant for per-tenant barriers.
 	if isMT && semantic {
