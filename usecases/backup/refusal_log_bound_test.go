@@ -42,12 +42,8 @@ func massRefusal(n int) []string {
 }
 
 // TestBackupRefusalLogIsBounded pins that a refused backup writes a
-// bounded log line whatever refused it and however many shards it names,
-// while the caller still receives every line.
-//
-// A 20,000-shard node produced a single 7 MB log line. Measured on the
-// unreachable-leader path; the genuine-reindex path builds its body the
-// same way, which is what the first case covers.
+// bounded log line (not the 7 MB a 20,000-shard refusal used to produce),
+// while the caller still receives every line in the response.
 func TestBackupRefusalLogIsBounded(t *testing.T) {
 	tests := []struct {
 		name string

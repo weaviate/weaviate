@@ -120,12 +120,9 @@ func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
 		"gate must scope by shard, not just by collection")
 }
 
-// TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired
-// lookup defaults to "no live reindex". The refuse-by-default it
-// replaced broke every module-test fixture that spins up Weaviate
-// without going through the post-bootstrap install path. The window is
-// reachable from outside — it closes after the node reports ready — and
-// a one-time WARN is what surfaces a backup that landed in it.
+// TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired lookup
+// defaults to allow, with a one-time WARN (see
+// [DB.SetShardReindexActivityLookup]).
 func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
 	db := &DB{}
 	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),

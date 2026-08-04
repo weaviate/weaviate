@@ -23,13 +23,12 @@ import (
 // unwiredGateWarnOnce ensures the operator-facing WARN for the
 // "lookup-not-installed" path fires at most once per process.
 //
-// The window it warns about is externally reachable. The lookup is
-// installed after /v1/.well-known/ready returns 200, so a backup POSTed
-// on the first successful ready check lands inside it and is allowed
-// without a gate check — reproduced on the first attempt in every one
-// of 40+ boots. The window widens with schema size and with the work a
-// reindex scheduler does during bootstrap. The WARN is the only signal
-// that a backup took that path.
+// The window it warns about is externally reachable: the lookup installs
+// after /v1/.well-known/ready returns 200, so a backup POSTed on the
+// first successful ready check can land inside it and be allowed without
+// a gate check (reproduced on the first attempt in 40+ boots). The
+// window widens with schema size and reindex-scheduler work during
+// bootstrap; the WARN is the only signal a backup took that path.
 var unwiredGateWarnOnce sync.Once
 
 // reindexGate resolves the backup-gate lookups once — the activity one
@@ -170,27 +169,15 @@ func (g *reindexGate) anyLiveReindexForShard(collection, shardName string) bool 
 	return false
 }
 
-// AnyLiveReindexForShard answers the cluster-wide question: does DTM
-// have any LIVE reindex task targeting (collection, shardName)? Each
-// call resolves its own snapshot.
+// AnyLiveReindexForShard answers the cluster-wide question: does DTM have
+// any LIVE reindex task targeting (collection, shardName)? Each call
+// resolves its own snapshot; see [DB.SetShardReindexActivityLookup] for
+// how the lookup is wired.
 //
-// Replaces the prior filesystem-marker check, which only saw this node
-// and lagged DTM's actual state. The lookup builder is installed by
-// [DB.SetShardReindexActivityLookup] from the post-bootstrap goroutine
-// in configure_api.go.
-//
-// Reports true when the lookup could not read cluster state at all
-// (leader unreachable): the answer is unknown, and the gate is
-// fail-closed. Callers that build an operator-facing refusal use
-// [Index.refuseIfReindexInFlightWithGate], which distinguishes the two.
-//
-// Default to "no live reindex" when the lookup is unwired (with a
-// one-time WARN). The original conservative default (refuse) was
-// correct in isolation but broke every module-test fixture that spins
-// up Weaviate without going through the post-bootstrap install path.
-// The trade is real, not theoretical: the unwired window opens before
-// the lookup is installed and after the node reports ready, so an
-// external backup request can reach it. See [unwiredGateWarnOnce].
+// Reports true (fail-closed) both when a reindex is found and when
+// cluster state could not be read at all. Callers that need to
+// distinguish the two for an operator-facing message use
+// [Index.refuseIfReindexInFlightWithGate].
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return newReindexGate(db).anyLiveReindexForShard(collection, shardName)
 }
@@ -206,16 +193,11 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 }
 
 // refuseIfReindexInFlight is the per-shard backup-gate check for callers
-// that are not a pass — [Shard.HaltForTransfer] reached by replica
-// movement. Consults DTM via [DB.AnyLiveReindexForShard]; the
-// filesystem-marker variant it replaced only saw the local node and
-// lagged DTM's actual state.
+// that are not a pass (only [Shard.HaltForTransfer], for replica
+// movement). Resolves its own snapshot per call; callers that walk many
+// shards use [Index.refuseIfReindexInFlightWithGate] to resolve once.
 //
-// Each call resolves its own snapshot. Callers that walk many shards use
-// [Index.refuseIfReindexInFlightWithGate] so the walk resolves once.
-//
-// If i.db is nil the gate is conservative: it refuses the backup, on
-// the assumption that wiring is in progress.
+// If i.db is nil, refuses conservatively (wiring assumed in progress).
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
@@ -258,10 +240,9 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 }
 
 // reindexStateUnknownError is the refusal for "the cluster leader could
-// not be reached". It names no shard and suggests cancelling no task: no
-// reindex is known to exist, and one refusal per pass replaces what used
-// to be one per shard (a 7 MB response body on a 20,000-shard node, every
-// line of it naming a task that may not exist).
+// not be reached": it names no shard and suggests cancelling nothing,
+// replacing what used to be a refusal per shard (a 7 MB body on a
+// 20,000-shard node).
 func reindexStateUnknownError(cause error) error {
 	return fmt.Errorf(
 		"%w: the cluster leader could not be reached, so runtime-reindex state is unknown for every shard on this node; refusing the backup rather than risk snapshotting a shard mid-reindex. Retry once the leader is reachable: %w",

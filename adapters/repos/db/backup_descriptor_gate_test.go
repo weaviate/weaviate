@@ -83,8 +83,7 @@ func TestBackupDescriptors_BuildsReindexLookupOncePerPass(t *testing.T) {
 }
 
 // TestBackupDescriptors_ResolvesBeforeReachingAnyShard pins that a pass
-// resolves its snapshot at entry, even with no shards to walk — the
-// observable proof it isn't resolved lazily on first use.
+// resolves its snapshot at entry, before touching any shard.
 func TestBackupDescriptors_ResolvesBeforeReachingAnyShard(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}, logger: logrus.New()}
 	counter := &countingActivityBuilder{snapshots: makeActivityBuilder(nil)}
@@ -133,14 +132,10 @@ func TestBackupDescriptors_JudgesEachShardByItsOwnName(t *testing.T) {
 		"a snapshot asked about one name repeatedly cannot tell the shards apart")
 }
 
-// TestNonHardlinkColdShards_ShareOnePassSnapshot covers the deprecated
-// fallback's unloaded-shard check, which carries the gate because it
-// shares the descriptor loop, not because its bugs are being fixed.
-//
-// Driven per shard rather than through descriptorWithoutHardlinks: a
-// COLD shard on that path falls through into the active-shard branch
-// and dereferences a nil shard, a pre-existing crash on this deprecated
-// path tracked by weaviate/weaviate#12451.
+// TestNonHardlinkColdShards_ShareOnePassSnapshot pins that the deprecated
+// fallback's unloaded-shard check shares the pass gate. Driven per shard
+// directly, not through descriptorWithoutHardlinks, which hits an
+// unrelated crash tracked by weaviate/weaviate#12451.
 func TestNonHardlinkColdShards_ShareOnePassSnapshot(t *testing.T) {
 	const className = "NonHardlinkColdCls"
 	idx, names := coldTenantIndex(t, className, 5)

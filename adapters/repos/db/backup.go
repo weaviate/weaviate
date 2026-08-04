@@ -65,13 +65,12 @@ const (
 // circuit the whole loop; other classes still get checked.
 //
 // The one case that does short circuit is an unreachable cluster leader:
-// reindex state is then unknown for every shard, so there is nothing
-// per-shard to say and a single refusal is returned instead.
+// reindex state is then unknown for every shard, so a single refusal is
+// returned instead of a per-shard list.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	// One shared snapshot for the whole precheck: resolving it is a
-	// cluster-wide query, and it is keyed (collection, shard), so it
-	// covers every class below.
+	// One shared snapshot for the whole precheck, since resolving it is a
+	// cluster-wide query.
 	gate := newReindexGate(db)
 	var errs []error
 	for _, c := range classes {
@@ -96,10 +95,8 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 				continue
 			}
 			if gate.stateUnknown() {
-				// The leader query failed, so no shard's state is
-				// known. Refuse once for the whole node: judging shards
-				// individually would name every one of them as
-				// reindexing when none may be.
+				// No shard's state is known; naming them individually
+				// would falsely claim each one is reindexing.
 				return err
 			}
 			errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
@@ -116,9 +113,9 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
 func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
-	// Resolved once here, not on first use, because the per-shard checks
-	// below run while holding the shard's write-blocking backup lock, and
-	// resolving is a round trip to the RAFT leader.
+	// Resolved once here, not on first use: the per-shard checks below run
+	// while holding the shard's write-blocking backup lock, and resolving
+	// is a round trip to the RAFT leader.
 	gate := newReindexGate(db)
 	gate.resolve()
 	ctx = contextWithReindexGate(ctx, gate)

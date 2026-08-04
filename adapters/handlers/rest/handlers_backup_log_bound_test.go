@@ -23,10 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// TestBackupRequestsTotal_LogErrorIsBounded pins the second place a
-// refusal reaches the log: a participant refusal comes back as a server
-// error, and this logger printed the whole body — 7 MB on a node with
-// 20,000 shards.
+// TestBackupRequestsTotal_LogErrorIsBounded pins that this logger no
+// longer prints a refusal's whole body (7 MB on 20,000 shards).
 func TestBackupRequestsTotal_LogErrorIsBounded(t *testing.T) {
 	lines := make([]string, 20000)
 	for i := range lines {

@@ -268,11 +268,9 @@ func TestBackupable_IndexWithoutDBRefusesEveryShard(t *testing.T) {
 	require.Equal(t, 0, builds, "an index that cannot consult the gate must not query DTM")
 }
 
-// TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards pins the
-// refusal for "the leader query failed": one message stating that reindex
-// state is unknown, the same length whatever the node holds. Naming shards
-// here claimed a reindex on every one of them — 50 of 50 with none running
-// anywhere, and a 7 MB body on a 20,000-shard node.
+// TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards pins that
+// a failed leader query produces one constant-size refusal, not a naming
+// of every shard (a 7 MB body on a 20,000-shard node).
 func TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards(t *testing.T) {
 	leaderErr := errors.New("list DTM tasks: leader not found")
 

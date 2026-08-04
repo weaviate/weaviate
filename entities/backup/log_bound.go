@@ -28,15 +28,12 @@ const (
 )
 
 // ErrorForLog renders err for a log line with a size that does not grow
-// with the number of shards. A backup admission refusal carries one line
-// per blocked shard (~360 bytes each), so a 20,000-shard node produces a
-// 7 MB error — written as a single log line, that is dropped or
-// truncated somewhere the operator does not control, and it displaces
-// every other line in the buffer.
+// with the number of shards: an admission refusal can carry one line per
+// blocked shard, producing a multi-MB error that gets dropped or
+// truncated somewhere the operator doesn't control.
 //
-// The kept lines are the first few plus a count of what was dropped. Use
-// it only for logging: the HTTP response keeps every line, because it
-// goes to a caller who asked for the list.
+// Keeps the first few lines plus a count of what was dropped. Log only:
+// the HTTP response keeps every line for the caller that asked for it.
 func ErrorForLog(err error) error {
 	if err == nil {
 		return nil
