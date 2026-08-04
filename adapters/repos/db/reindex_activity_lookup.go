@@ -13,10 +13,14 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
@@ -152,4 +156,99 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 		"%w: retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
 		entitiesbackup.ErrReindexInFlight,
 	)
+}
+
+// ReindexOverlapLookup answers the backup's commit-time question: did any
+// reindex task on these collections have a lifetime overlapping [since, now]?
+// It returns a non-nil error both when one did and when the question can no
+// longer be answered, so the caller can fail closed on either.
+type ReindexOverlapLookup func(ctx context.Context, collections []string, since time.Time) error
+
+// SetReindexOverlapLookup installs the lookup consulted by
+// [DB.RefuseIfReindexOverlapped]. Wired from configure_api.go, which is where
+// both the task list and the retention window are reachable.
+func (db *DB) SetReindexOverlapLookup(lookup ReindexOverlapLookup) {
+	db.reindexAuditMu.Lock()
+	defer db.reindexAuditMu.Unlock()
+	db.reindexOverlapLookup = lookup
+}
+
+// ReindexTaskLister lists DTM tasks by namespace. Narrowed from the cluster
+// service so the overlap rules below can be exercised without a RAFT node.
+type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.Task, error)
+
+// NewReindexOverlapLookup builds the commit-time overlap check.
+//
+// A task overlaps [since, now] when it is still running, or when it reached a
+// terminal status at or after the backup started. Equal timestamps count as
+// overlap: the capture and the migration cannot be ordered, so the backup loses.
+//
+// A finished task leaves the list once completedTaskTTL elapses, and after that
+// its absence proves nothing. Rather than read the empty list as "all clear",
+// refuse outright once the backup has run longer than the retention window —
+// the only case where this check could otherwise be silently wrong.
+func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
+	return func(ctx context.Context, collections []string, since time.Time) error {
+		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
+			return fmt.Errorf(
+				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
+				completedTaskTTL)
+		}
+		tasksByNamespace, err := list(ctx)
+		if err != nil {
+			return fmt.Errorf("cannot rule out a runtime-reindex during this backup: %w", err)
+		}
+		wanted := make(map[string]struct{}, len(collections))
+		for _, c := range collections {
+			wanted[strings.ToLower(c)] = struct{}{}
+		}
+		for _, task := range tasksByNamespace[ReindexNamespace] {
+			var payload ReindexTaskPayload
+			if err := json.Unmarshal(task.Payload, &payload); err != nil {
+				return fmt.Errorf(
+					"cannot rule out a runtime-reindex during this backup: a task payload is unreadable: %w", err)
+			}
+			if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
+				continue
+			}
+			if !IsLiveReindexTaskStatus(task.Status) && !task.FinishedAt.IsZero() &&
+				task.FinishedAt.Before(since) {
+				continue
+			}
+			return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+				entitiesbackup.ErrBackupSpannedReindex, payload.Collection)
+		}
+		return nil
+	}
+}
+
+var unwiredOverlapWarnOnce sync.Once
+
+// RefuseIfReindexOverlapped is the backup's commit-time backstop. Asking
+// whether a reindex is live right now misses the whole class of tasks that
+// started and finished inside the backup window — the capture is just as
+// inconsistent, and nothing is running by the time anyone looks.
+//
+// Unwired means fail-open with a one-time WARN, matching the other gates:
+// module tests construct a DB without the post-bootstrap install path, and
+// production gates external traffic on bootstrap completion.
+func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []string, since time.Time) error {
+	db.reindexAuditMu.RLock()
+	lookup := db.reindexOverlapLookup
+	db.reindexAuditMu.RUnlock()
+
+	if lookup == nil {
+		unwiredOverlapWarnOnce.Do(func() {
+			logger := db.logger
+			if logger == nil {
+				logger = logrus.New()
+			}
+			logger.WithField("action", "backup_reindex_overlap").
+				Warn("backup-reindex overlap check: lookup not yet installed; allowing the backup. " +
+					"Expected briefly during startup; if this persists past bootstrap, check the " +
+					"SetReindexOverlapLookup wiring in configure_api.go.")
+		})
+		return nil
+	}
+	return lookup(ctx, collections, since)
 }
