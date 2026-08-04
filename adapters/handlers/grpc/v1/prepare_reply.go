@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -70,7 +71,7 @@ func NewReplier(
 	}
 }
 
-func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.GetParams, resolver *schemaResolver) (*pb.SearchReply, error) {
+func (r *Replier) Search(ctx context.Context, res []interface{}, start time.Time, searchParams dto.GetParams, resolver *schemaResolver) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took:                    float32(tookSeconds),
@@ -99,34 +100,16 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.Results = objects
 	}
 	if searchParams.AdditionalProperties.QueryProfile {
-		out.QueryProfile = r.extractQueryProfile(res)
+		out.QueryProfile = r.extractQueryProfile(ctx)
 	}
 	return out, nil
 }
 
-// extractQueryProfile converts the raw profile data from the first search result's
-// additional properties into a [pb.QueryProfile] for the gRPC response.
-func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
-	if len(res) == 0 {
-		return nil
-	}
-	asMap, ok := res[0].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-	add, ok := asMap["_additional"]
-	if !ok {
-		return nil
-	}
-	additional, ok := add.(models.AdditionalProperties)
-	if !ok {
-		additional, ok = add.(map[string]interface{})
-	}
-	if !ok {
-		return nil
-	}
-	queryProfiles, ok := additional["queryProfileRaw"].([]helpers.ShardQueryProfile)
-	if !ok {
+// extractQueryProfile reads from ctx, not the returned objects: a query that matched
+// nothing still profiled every shard it visited.
+func (r *Replier) extractQueryProfile(ctx context.Context) *pb.QueryProfile {
+	queryProfiles := helpers.ExtractQueryProfiles(ctx)
+	if len(queryProfiles) == 0 {
 		return nil
 	}
 	shards := make([]*pb.QueryProfile_ShardProfile, len(queryProfiles))
