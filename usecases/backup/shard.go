@@ -86,43 +86,10 @@ func (s *backupStat) clear() {
 	s.reqState.OverridePath = ""
 }
 
-// resetIfCancelled gives back the slot only when id owns it and that operation
-// was cancelled. An operation still running under the same id is writing files,
-// so its slot must survive. Checks and clears under one lock so a renew cannot
-// slip in between and lose its claim. Reports whether the slot was cleared.
-func (s *backupStat) resetIfCancelled(id string) bool {
-	s.Lock()
-	defer s.Unlock()
-	if s.reqState.ID != id {
-		return false
-	}
-	if s.reqState.Status != backup.Cancelling && s.reqState.Status != backup.Cancelled {
-		return false
-	}
-	s.clear()
-	return true
-}
-
-// setFailed ends the operation as failed together with the reason. Failed with
-// no reason is worse than useless to a poller: the coordinator latches whatever
-// a participant reports and stops asking, so an empty reason becomes the
-// permanent answer for a failure that does have one.
-func (s *backupStat) setFailed(reason string) {
-	s.Lock()
-	defer s.Unlock()
-	if s.reqState.Status == backup.Cancelled {
-		return
-	}
-	s.reqState.Status = backup.Failed
-	s.reqState.Err = reason
-}
-
-// resetIfOwned clears the slot only if id still holds it. An operation whose
-// slot was already handed to a newer one must not free the newcomer's claim:
-// the slot is the node's busy signal, so a false idle lets a runtime-reindex
-// start on top of a live backup or restore. Check-and-clear happens under one
-// lock so a concurrent renew can't be lost. Reports whether it cleared.
-func (s *backupStat) resetIfOwned(id string) bool {
+// resetIf gives back the slot only when id still owns it, checking and
+// clearing under one lock so a renew cannot slip in between and lose its claim.
+// It reports whether the slot was cleared.
+func (s *backupStat) resetIf(id string) bool {
 	s.Lock()
 	defer s.Unlock()
 	if s.reqState.ID != id {

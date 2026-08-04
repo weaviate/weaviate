@@ -279,10 +279,10 @@ func (c *coordinator) Restore(
 		if existingMeta.Status == backup.Cancelling {
 			// Only give back the slot when it holds the restore being cancelled.
 			// Otherwise a different, live restore owns it, and clearing it makes
-			// this node report itself idle while it is still writing files.
-			if c.lastOp.get().ID == desc.ID {
-				c.lastOp.reset()
-			}
+			// this node report itself idle while it is still writing files. The
+			// check and the clear share one lock acquisition so a restore that
+			// claims the slot in between does not lose it.
+			c.lastOp.resetIf(desc.ID)
 			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
 			return nil
 		}

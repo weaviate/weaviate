@@ -16,59 +16,31 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// resetIfCancelled is the slot's check-and-clear. It releases only a cancelled
-// operation: a live one under the same id is still writing files, and clearing
-// its claim makes the node report itself idle to the reindex gate.
-func TestBackupStatResetIfCancelled(t *testing.T) {
+// resetIf is the slot's check-and-clear. Splitting it into a get plus a reset
+// lets a renew land in between, so the new owner's claim is thrown away and the
+// node reports itself idle to the reindex gate while it is still writing.
+func TestBackupStatResetIf(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		claimedID  string
-		status     backup.Status
 		resetID    string
 		wantOK     bool
 		wantSlotID string
 	}{
 		{
-			name:       "cancelled op with the id being released",
+			name:       "slot holds the id being released",
 			claimedID:  "op-1",
-			status:     backup.Cancelled,
 			resetID:    "op-1",
 			wantOK:     true,
 			wantSlotID: "",
 		},
 		{
-			name:       "op mid-cancel with the id being released",
-			claimedID:  "op-1",
-			status:     backup.Cancelling,
-			resetID:    "op-1",
-			wantOK:     true,
-			wantSlotID: "",
-		},
-		{
-			name:       "live op sharing the id being released",
-			claimedID:  "op-1",
-			status:     backup.Transferring,
-			resetID:    "op-1",
-			wantOK:     false,
-			wantSlotID: "op-1",
-		},
-		{
-			name:       "freshly claimed op sharing the id being released",
-			claimedID:  "op-1",
-			status:     backup.Started,
-			resetID:    "op-1",
-			wantOK:     false,
-			wantSlotID: "op-1",
-		},
-		{
-			name:       "cancelled op under a different id",
+			name:       "slot holds a different owner",
 			claimedID:  "op-2",
-			status:     backup.Cancelled,
 			resetID:    "op-1",
 			wantOK:     false,
 			wantSlotID: "op-2",
@@ -88,10 +60,9 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			var s backupStat
 			if tc.claimedID != "" {
 				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
-				s.set(tc.status)
 			}
 
-			require.Equal(t, tc.wantOK, s.resetIfCancelled(tc.resetID))
+			require.Equal(t, tc.wantOK, s.resetIf(tc.resetID))
 			require.Equal(t, tc.wantSlotID, s.get().ID)
 		})
 	}
@@ -99,14 +70,13 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 
 // The whole point of the single acquisition: whoever holds the slot after a
 // losing resetIf must still hold every field of its claim.
-func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
+func TestBackupStatResetIfLeavesNewOwnerIntact(t *testing.T) {
 	t.Parallel()
 
 	var s backupStat
 	require.Empty(t, s.renew("live-restore", "home/dir", "bucket", "override"))
-	s.set(backup.Cancelled)
 
-	require.False(t, s.resetIfCancelled("cancelled-restore"))
+	require.False(t, s.resetIf("cancelled-restore"))
 
 	got := s.get()
 	require.Equal(t, "live-restore", got.ID)
@@ -118,7 +88,7 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 // The cancelled op releases the slot and a new restore claims it while a second
 // caller is releasing the cancelled id. A check and a clear under separate lock
 // acquisitions throw the new claim away here; one acquisition cannot.
-func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
+func TestBackupStatResetIfDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -129,7 +99,6 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		var s backupStat
 		require.Empty(t, s.renew(cancelled, "path", "", ""))
-		s.set(backup.Cancelled)
 
 		var (
 			wg       sync.WaitGroup
@@ -140,7 +109,7 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			s.resetIfCancelled(cancelled)
+			s.resetIf(cancelled)
 		}()
 		go func() {
 			defer wg.Done()
