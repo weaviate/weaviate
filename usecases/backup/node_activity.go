@@ -28,11 +28,8 @@ type NodeActivity struct {
 }
 
 // NodeActivityProbe answers whether this node is part of a backup or restore
-// right now.
-//
-// It owns no state: it reads the four in-memory slots the backup subsystem
-// already claims and releases on its own, so there is nothing here that can be
-// leaked or left stale by a crash.
+// right now. It owns no state: it reads slots the backup subsystem already
+// manages, so nothing here can leak or go stale on a crash.
 type NodeActivityProbe struct {
 	participant *Handler
 
@@ -44,20 +41,17 @@ func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
 	return &NodeActivityProbe{participant: participant}
 }
 
-// AttachScheduler supplies the coordinator slots once the Scheduler exists.
-// The Scheduler is built after the cluster-internal API server, so probes can
-// arrive before this call. Answering from the participant slots alone is
-// correct in that window rather than merely convenient: a node that has no
-// Scheduler yet cannot be coordinating anything.
+// AttachScheduler wires in the coordinator slots once the Scheduler exists.
+// Probes may arrive first; answering from participant slots alone is still
+// correct then, since a Scheduler-less node can't be coordinating anything.
 func (p *NodeActivityProbe) AttachScheduler(s *Scheduler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.scheduler = s
 }
 
-// Activity reports the first slot found held, in a fixed order: coordinator
-// backup, coordinator restore, participant backup, participant restore. The
-// order is fixed so repeated probes name the same operation to the operator.
+// Activity reports the first held slot, in fixed order (coordinator backup,
+// restore, then participant backup, restore) so repeated probes agree.
 func (p *NodeActivityProbe) Activity() NodeActivity {
 	p.mu.RLock()
 	scheduler := p.scheduler
@@ -86,9 +80,9 @@ func (p *NodeActivityProbe) Activity() NodeActivity {
 	}
 
 	for _, s := range slots {
-		// A non-empty ID is the one-to-one inverse of renew() having
-		// succeeded. Status is unusable here: reset() clears it while a live
-		// op can sit in Transferring, Finalizing or Cancelling.
+		// A non-empty ID is the one-to-one inverse of renew() having succeeded.
+		// Status cannot stand in: reset() clears it, and a live op sits in any of
+		// Transferring, Finalizing or Cancelling.
 		if id := s.stat.get().ID; id != "" {
 			return NodeActivity{Busy: true, Kind: s.kind, ID: id}
 		}

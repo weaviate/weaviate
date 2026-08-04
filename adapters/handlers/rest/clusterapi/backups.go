@@ -42,8 +42,7 @@ func (b *backups) CanCommit() http.Handler {
 	return b.auth.handleFunc(b.canCommitHandler())
 }
 
-// NodeActivity handles GET /backups/node-activity — reports whether this node
-// is currently part of a backup or restore.
+// NodeActivity handles GET /backups/node-activity: is this node part of a backup or restore?
 func (b *backups) NodeActivity() http.Handler {
 	return b.auth.handleFunc(b.nodeActivityHandler())
 }
@@ -52,9 +51,8 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
-		// Callers refuse a reindex on any node they cannot clear, so a node
-		// that cannot look must say so; answering "not busy" would defeat the
-		// guard the caller is asking for.
+		// Must not silently report "not busy": reindex callers rely on this
+		// answer to decide whether it's safe to proceed.
 		if b.activity == nil {
 			http.Error(w, "backup activity probe is not wired on this node", http.StatusServiceUnavailable)
 			return

@@ -178,10 +178,8 @@ func TestNodeActivityProbeConcurrent(t *testing.T) {
 	assert.Equal(t, NodeActivity{}, probe.Activity())
 }
 
-// TestNodeActivityProbeSlotExpiresWithPreCommit drives the real claim path
-// (OnCanCommit → backupper.backup) with a short commit window and lets it lapse.
-// The slot must come back free without any coordinator follow-up, which is what
-// bounds a reindex refusal after a coordinator disappears mid-handshake.
+// TestNodeActivityProbeSlotExpiresWithPreCommit pins that the slot self-clears
+// when the pre-commit window lapses, with no coordinator follow-up needed.
 func TestNodeActivityProbeSlotExpiresWithPreCommit(t *testing.T) {
 	t.Parallel()
 
