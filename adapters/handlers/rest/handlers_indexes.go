@@ -946,8 +946,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			"property":   propertyName,
 			"index_type": indexType,
 		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
+		// Hold the backup and restore gates shut across the drain as well as the
+		// teardown. A drain that times out leaves the worker writing, so that is
+		// the branch that needs the gate most.
 		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-		drainErr := h.appState.ReindexProvider.WaitForLocalTaskDrain(drainCtx, target.TaskDescriptor)
+		releaseGate, drainErr := h.appState.ReindexProvider.DrainWithCleanupGate(
+			drainCtx, &targetPayload, target.TaskDescriptor)
+		defer releaseGate()
 		drainCancel()
 		if drainErr != nil {
 			h.appState.Logger.WithFields(logrus.Fields{
@@ -963,11 +968,6 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
-			// Hold the backup and restore gates shut for the teardown: the
-			// task left DTM the moment the cancel applied, so without this
-			// both gates already report the shards free.
-			defer h.appState.ReindexProvider.MarkCleanupInProgress(&targetPayload)()
-
 			// Goroutine has drained. Wipe the sidecars and migration
 			// directories for every indexType this migration touches —
 			// change-tokenization spawns both a searchable and a

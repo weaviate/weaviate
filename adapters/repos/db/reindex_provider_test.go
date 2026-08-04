@@ -12,11 +12,14 @@
 package db
 
 import (
+	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // Wave 2 S1: cleanup-vs-status-visibility race in
@@ -422,4 +425,73 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 				"a release under a different spelling would leak the entry forever")
 		})
 	}
+}
+
+// drainGateProvider carries the cleanup registry plus the running-handle map
+// DrainWithCleanupGate consults.
+func drainGateProvider(handles map[distributedtask.TaskDescriptor]*reindexTaskHandle) *ReindexProvider {
+	return &ReindexProvider{
+		cleanupInProgress: make(map[reindexCleanupKey]int),
+		runningHandles:    handles,
+	}
+}
+
+// The cancel handler drains the local worker before tearing its sidecars down.
+// A drain that times out is precisely the case where the worker is still
+// writing, so the gate has to be shut for the wait itself — taking it only
+// after a successful drain leaves the dangerous branch unguarded.
+func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "task-1", Version: 1}
+	payload := &ReindexTaskPayload{
+		Collection:  "Movies",
+		UnitToShard: map[string]string{"u1": "shard1"},
+	}
+
+	t.Run("worker never drains", func(t *testing.T) {
+		// A handle whose Done() never fires models the stuck worker.
+		p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+			desc: {doneCh: make(chan struct{})},
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		release, err := p.DrainWithCleanupGate(ctx, payload, desc)
+		require.Error(t, err, "the drain must report that it gave up")
+		require.NotNil(t, release, "the release must be usable even on timeout")
+
+		assert.True(t, p.IsCleanupInProgress("Movies", "shard1"),
+			"the worker is still writing; a backup must not capture this shard")
+		assert.True(t, p.AnyCleanupInProgress(),
+			"the restore gate must be shut for the same reason")
+
+		release()
+		assert.False(t, p.AnyCleanupInProgress())
+	})
+
+	t.Run("worker drains", func(t *testing.T) {
+		done := make(chan struct{})
+		close(done)
+		p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+			desc: {doneCh: done},
+		})
+
+		release, err := p.DrainWithCleanupGate(context.Background(), payload, desc)
+		require.NoError(t, err)
+		assert.True(t, p.IsCleanupInProgress("Movies", "shard1"),
+			"the teardown runs next; the gate stays shut until the caller releases")
+
+		release()
+		assert.False(t, p.AnyCleanupInProgress())
+	})
+
+	t.Run("no local worker registered", func(t *testing.T) {
+		p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{})
+
+		release, err := p.DrainWithCleanupGate(context.Background(), payload, desc)
+		require.NoError(t, err)
+		assert.True(t, p.IsCleanupInProgress("Movies", "shard1"))
+
+		release()
+		assert.False(t, p.AnyCleanupInProgress())
+	})
 }

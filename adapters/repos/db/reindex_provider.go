@@ -2330,6 +2330,23 @@ func (p *ReindexProvider) WaitForLocalTaskDrain(
 	}
 }
 
+// DrainWithCleanupGate waits for the local worker to exit with the backup and
+// restore gates already shut, and returns the release for the caller to defer.
+//
+// The gate has to be taken before the wait, not after it. The task leaves DTM
+// the moment the cancel applies, so both gates report the shards free from
+// then on; and a wait that times out means the worker is still writing, which
+// is exactly when the shard must not be captured. The error is the drain's:
+// the release is always usable, timed out or not.
+func (p *ReindexProvider) DrainWithCleanupGate(
+	ctx context.Context,
+	payload *ReindexTaskPayload,
+	desc distributedtask.TaskDescriptor,
+) (func(), error) {
+	release := p.MarkCleanupInProgress(payload)
+	return release, p.WaitForLocalTaskDrain(ctx, desc)
+}
+
 // reindexTaskHandle implements distributedtask.TaskHandle.
 type reindexTaskHandle struct {
 	cancel context.CancelFunc
