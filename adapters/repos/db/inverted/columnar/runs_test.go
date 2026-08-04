@@ -256,6 +256,38 @@ func TestRunsConcurrentReadsDuringFolds(t *testing.T) {
 		"every flushed key must survive folds that ran under concurrent readers")
 }
 
+// TestAbsorbFlushKeepsDeletionsKeyed pins that a flush records which key each
+// deleted docID belonged to, not just the set of docIDs. Resolution still
+// applies them result-wide, but the fold — and per-key deletion after it —
+// needs the association.
+func TestAbsorbFlushKeepsDeletionsKeyed(t *testing.T) {
+	idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
+
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().
+		add([]byte("a"), nil, []uint64{3, 7}). // one key retiring two docIDs
+		add([]byte("b"), nil, []uint64{5}).
+		add([]byte("c"), []uint64{9}, nil)))
+
+	runs := idx.state.Load().runs
+	require.Len(t, runs, 1)
+	r := runs[0]
+
+	gotDels := map[string][]uint64{}
+	for i := 0; i < r.dels.keys.len(); i++ {
+		k := string(r.dels.keys.appendKey(i, nil))
+		gotDels[k] = append(gotDels[k], r.dels.docs.at(i))
+	}
+	require.Equal(t, map[string][]uint64{"a": {3, 7}, "b": {5}}, gotDels,
+		"every deletion keeps the key it was issued under")
+
+	require.Equal(t, 1, r.adds.keys.len(), "only c was added")
+	require.Equal(t, "c", string(r.adds.keys.appendKey(0, nil)))
+	require.Equal(t, uint64(9), r.adds.docs.at(0))
+
+	require.Equal(t, []uint64{3, 5, 7}, r.delDocs.ToArray(),
+		"the flat docID set still carries every deletion")
+}
+
 func TestRunsDeleteOnlyFlush(t *testing.T) {
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("k")}, []uint64{7}))
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("k"), nil, []uint64{7})))

@@ -277,13 +277,18 @@ type columnarSegment struct {
 }
 
 // run is one flushed memtable copied into columnar form: the keys that got an
-// addition (key → added docID) as an adds segment, plus the set of docIDs this
-// flush deleted. Deletions are applied to the whole result rather than per key,
-// which is why the index requires each document to own exactly one key: a
-// document that also sat under another key would be dropped from that one too.
+// addition (key → added docID) as an adds segment, and the keys that got a
+// deletion (key → removed docID) as a dels segment. Unlike adds, the dels
+// segment may repeat a key — one flush can retire several docIDs from the same
+// key — so it is a plain sorted (key, docID) pair list, not a lookup table.
+//
+// delDocs carries the same deletions as a flat docID set. Resolution still
+// applies deletions to the whole result rather than per key, which is why the
+// index currently requires each document to own exactly one key.
 type run struct {
-	adds *columnarSegment
-	dels *sroar.Bitmap
+	adds    *columnarSegment
+	dels    *columnarSegment
+	delDocs *sroar.Bitmap
 }
 
 // indexState is the tier set a query resolves against: an immutable base plus
@@ -372,6 +377,41 @@ func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool,
 		base: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs},
 	})
 	return idx, nil
+}
+
+// segmentBuilder accumulates (key, docID) pairs in the order they arrive and
+// packs them into a columnarSegment. Keys must arrive sorted — every producer
+// walks either a roaringset cursor or an already-sorted column — and may repeat
+// when the segment records deletions rather than a key→doc lookup table.
+type segmentBuilder struct {
+	offsets      []uint32
+	blob         []byte
+	docs         *docIDColumn
+	uniformWidth int // -1 unset, -2 mixed, >=0 the common width
+}
+
+func newSegmentBuilder() *segmentBuilder {
+	return &segmentBuilder{offsets: []uint32{0}, docs: &docIDColumn{w: 8}, uniformWidth: -1}
+}
+
+func (b *segmentBuilder) append(key []byte, docID uint64) {
+	// copy the key: a cursor's key buffer may be reused across Next().
+	b.blob = append(b.blob, key...)
+	b.offsets = append(b.offsets, uint32(len(b.blob)))
+	b.docs.append(docID)
+
+	if b.uniformWidth == -1 {
+		b.uniformWidth = len(key)
+	} else if b.uniformWidth != len(key) {
+		b.uniformWidth = -2
+	}
+}
+
+func (b *segmentBuilder) segment() *columnarSegment {
+	return &columnarSegment{
+		keys: buildKeyColumn(b.blob, b.offsets, b.uniformWidth),
+		docs: b.docs,
+	}
 }
 
 // buildKeyColumn selects the key backing from the collected keys. Variable-width
@@ -476,8 +516,8 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 	// of its added keys that match the query. A newer run's add re-adds a docID
 	// an older run/base deleted, so newest-wins holds.
 	for _, r := range runs {
-		if r.dels != nil && !r.dels.IsEmpty() {
-			result.AndNot(r.dels)
+		if r.delDocs != nil && !r.delDocs.IsEmpty() {
+			result.AndNot(r.delDocs)
 		}
 		addOut := r.adds.resolveMatches(sortedKeys, make([]uint64, 0, len(sortedKeys)))
 		if len(addOut) == 0 {
@@ -529,17 +569,16 @@ func (seg *columnarSegment) resolveMatches(sortedKeys [][]byte, out []uint64) []
 }
 
 // AbsorbFlush copies a flushed memtable — iterated via its roaringset cursor —
-// into a new run appended to the index. Keys with an addition become the run's
-// adds segment (key → added docID = the additions bitmap's minimum under
-// 1-doc-per-key); every deleted docID joins the run's global deletion set. The
-// run's docID column is full-width (runs are small; sizing it narrow would need
-// the current maxDocID, which may have grown past the base's).
+// into a new run appended to the index. A key's additions become an entry in the
+// run's adds segment (key → added docID = the additions bitmap's minimum under
+// 1-doc-per-key); a key's deletions become one entry per removed docID in the
+// dels segment, which the cursor's key order leaves sorted. The docID columns
+// are full-width (runs are small; sizing them narrow would need the current
+// maxDocID, which may have grown past the base's).
 func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
-	offsets := []uint32{0}
-	var blob []byte
-	adds := &docIDColumn{w: 8}
-	dels := sroar.NewBitmap()
-	uniformWidth := -1
+	addCol := newSegmentBuilder()
+	delCol := newSegmentBuilder()
+	delDocs := sroar.NewBitmap()
 
 	for k, layer, err := cursor.First(); ; k, layer, err = cursor.Next() {
 		if err != nil {
@@ -549,7 +588,13 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 			break
 		}
 		if layer.Deletions != nil && !layer.Deletions.IsEmpty() {
-			dels.Or(layer.Deletions)
+			delDocs.Or(layer.Deletions)
+			// one entry per deleted docID: a key can retire several over its
+			// lifetime, and which key they belonged to is what lets the fold and
+			// (later) resolution apply them per key instead of result-wide.
+			for _, d := range layer.Deletions.ToArray() {
+				delCol.append(k, d)
+			}
 		}
 		if layer.Additions == nil || layer.Additions.IsEmpty() {
 			continue
@@ -560,21 +605,13 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 			// the caller detaches the accelerator rather than dropping docIDs.
 			return fmt.Errorf("columnar index requires a unique property: a flushed key holds multiple docIDs")
 		}
-		// copy the key: the cursor's key buffer may be reused across Next().
-		blob = append(blob, k...)
-		offsets = append(offsets, uint32(len(blob)))
-		adds.append(id)
-
-		if uniformWidth == -1 {
-			uniformWidth = len(k)
-		} else if uniformWidth != len(k) {
-			uniformWidth = -2
-		}
+		addCol.append(k, id)
 	}
 
 	r := &run{
-		adds: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: adds},
-		dels: dels,
+		adds:    addCol.segment(),
+		dels:    delCol.segment(),
+		delDocs: delDocs,
 	}
 	// Publish a state carrying the new run. The runs slice is copied rather than
 	// appended in place so a reader holding the previous state keeps a slice no
@@ -636,8 +673,8 @@ func (idx *ColumnarIndex) foldRunsIntoBase() {
 		owner[d] = k
 	}
 	for _, r := range runs {
-		if r.dels != nil {
-			for _, d := range r.dels.ToArray() {
+		if r.delDocs != nil {
+			for _, d := range r.delDocs.ToArray() {
 				if k, ok := owner[d]; ok {
 					delete(net, k)
 					delete(owner, d)
