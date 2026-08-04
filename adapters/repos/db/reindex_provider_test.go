@@ -270,3 +270,30 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 	out := uniqueShardsFromPayload(payload)
 	assert.ElementsMatch(t, []string{"shardA"}, out)
 }
+
+// Both cancel paths — the DTM terminal-status hook and the REST cancel handler
+// — run their teardown after the task has left DTM. MarkCleanupInProgress is
+// what keeps the backup and restore gates shut for that stretch, so it must
+// cover every shard the task touched and give all of them back on release.
+func TestMarkCleanupInProgress(t *testing.T) {
+	p := newCleanupRegistryProvider()
+	payload := &ReindexTaskPayload{
+		Collection:  "C",
+		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2", "u3": "shard1"},
+	}
+
+	require.False(t, p.AnyCleanupInProgress())
+
+	release := p.MarkCleanupInProgress(payload)
+	assert.True(t, p.IsCleanupInProgress("C", "shard1"))
+	assert.True(t, p.IsCleanupInProgress("C", "shard2"))
+	assert.False(t, p.IsCleanupInProgress("C", "shard3"))
+	assert.True(t, p.AnyCleanupInProgress(),
+		"the restore gate asks the collection-blind question")
+
+	release()
+	assert.False(t, p.IsCleanupInProgress("C", "shard1"),
+		"a shard named by two units must not need two releases")
+	assert.False(t, p.IsCleanupInProgress("C", "shard2"))
+	assert.False(t, p.AnyCleanupInProgress())
+}

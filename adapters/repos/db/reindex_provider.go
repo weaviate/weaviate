@@ -1665,19 +1665,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
 	}
-	// Register every shard the task touched as "cleanup in progress"
-	// for the duration of the per-(property, indexType) teardown loop.
-	// The unregister fires from the defer so any return path — including
-	// a panic inside CleanStalePartialReindexState — releases the slot.
-	shards := uniqueShardsFromPayload(payload)
-	for _, shardName := range shards {
-		p.registerCleanup(payload.Collection, shardName)
-	}
-	defer func() {
-		for _, shardName := range shards {
-			p.unregisterCleanup(payload.Collection, shardName)
-		}
-	}()
+	defer p.MarkCleanupInProgress(payload)()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
 	for _, propName := range payload.Properties {
@@ -1712,6 +1700,33 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 		out = append(out, shardName)
 	}
 	return out
+}
+
+// MarkCleanupInProgress holds the backup gate shut on every shard the task
+// touched and returns the release. Both cancel paths tear sidecars while their
+// DTM task is already terminal, so this registration is the only thing keeping
+// a backup or restore from capturing half-removed __reindex / __ingest dirs.
+// Callers defer the release so a panic mid-teardown still frees the slots.
+func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
+	shards := uniqueShardsFromPayload(payload)
+	for _, shardName := range shards {
+		p.registerCleanup(payload.Collection, shardName)
+	}
+	return func() {
+		for _, shardName := range shards {
+			p.unregisterCleanup(payload.Collection, shardName)
+		}
+	}
+}
+
+// AnyCleanupInProgress is the node-local, collection-blind form of
+// [ReindexProvider.IsCleanupInProgress], for the restore gate: a class being
+// restored has no local index yet, so there is no (collection, shard) tuple
+// to ask about.
+func (p *ReindexProvider) AnyCleanupInProgress() bool {
+	p.cleanupInProgressMu.RLock()
+	defer p.cleanupInProgressMu.RUnlock()
+	return len(p.cleanupInProgress) > 0
 }
 
 // registerCleanup marks (collection, shard) as having an in-flight
