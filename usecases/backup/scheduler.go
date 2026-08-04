@@ -183,6 +183,12 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
+		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
+			errors.Is(err, backup.ErrReindexInFlight) {
+			// A participant refused because a migration holds one of its shards.
+			// Retryable, so 422 — a 500 would page the on-call.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	} else {
 		st := s.backupper.lastOp.get()

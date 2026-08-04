@@ -1168,6 +1168,46 @@ func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {
 	assert.Contains(t, err.Error(), "restore blocked: runtime-reindex in flight in the cluster")
 }
 
+// Same reasoning as the restore case above, on the backup side: a participant
+// refuses because a migration holds one of its shards. That is retryable, so
+// the caller must get 422 rather than a paging 500.
+func TestSchedulerBackupRefusedByParticipantIsUnprocessable(t *testing.T) {
+	t.Parallel()
+	var (
+		cls         = "Class-A"
+		node        = "Node-A"
+		any         = mock.Anything
+		backendName = "gcs"
+		backupID    = "1"
+		ctx         = context.Background()
+	)
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.selector.On("ListClasses", ctx).Return([]string{cls})
+	fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
+	fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("HomeDir", any, any, any).Return("bucket/backups/" + backupID)
+	fs.backend.On("Initialize", ctx, any).Return(nil)
+	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
+		Method:  OpCreate,
+		ID:      backupID,
+		Err:     "backup blocked: runtime-reindex in flight on this shard",
+		ErrKind: CanCommitErrInFlightReindex,
+	}, nil)
+	fs.client.On("Abort", any, any, any).Return(nil)
+
+	_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+		ID: backupID, Include: []string{cls}, Backend: backendName,
+	})
+
+	require.Error(t, err)
+	assert.IsType(t, backup.ErrUnprocessable{}, err,
+		"a participant refusing over a live migration must not surface as a 500")
+	assert.Contains(t, err.Error(), "backup blocked: runtime-reindex in flight on this shard")
+}
+
 func TestSchedulerList(t *testing.T) {
 	t.Parallel()
 	var (
