@@ -29,6 +29,13 @@ import (
 // adapters/repos/db/reindex_inflight.go.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
 
+// ErrBackupSpannedReindex marks a backup whose capture overlapped a
+// runtime-reindex. Distinct from [ErrBackupBlockedByInFlightReindex], which
+// refuses up front and reads as "something is running right now": by the time
+// this one is raised the migration has usually finished, and saying it is in
+// flight would send the operator looking for a task that is already gone.
+var ErrBackupSpannedReindex = errors.New("backup spanned a runtime-reindex")
+
 // ReindexBlockedError is the API-safe form of a backup refused by the
 // reindex gate. Every wrapper between the shard that refused and the stored
 // failure meta prepends detail an operator wants and a backup caller is not

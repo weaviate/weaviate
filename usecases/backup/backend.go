@@ -356,12 +356,15 @@ Loop:
 	}
 
 	// Commit-time backstop: per-shard checks ran before capture, so a reindex
-	// admitted during capture was invisible to them. Failing the backup here
-	// beats a SUCCESS that silently spans a migration.
-	if err := u.sourcer.Backupable(ctx, classes); err != nil {
+	// admitted during capture was invisible to them. The question has to be
+	// "did one overlap", not "is one running now" — a migration that both
+	// starts and finishes while the files are being copied leaves the capture
+	// just as inconsistent, with nothing left running to point at. Failing the
+	// backup beats a SUCCESS that silently spans a migration.
+	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
 		u.setStatus(backup.Failed)
 		desc.Status = backup.Failed
-		return fmt.Errorf("a runtime-reindex was live while this backup was captured: %w", err)
+		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)
 	}
 
 	u.setStatus(backup.Transferred)

@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -30,6 +31,11 @@ type Sourcer interface { // implemented by the index
 	// RefuseIfAnyReindexInFlight refuses when any runtime-reindex task is live in
 	// the cluster. Used for restore admission: Backupable can't answer for a class absent from this node.
 	RefuseIfAnyReindexInFlight(ctx context.Context) error
+	// RefuseIfReindexOverlapped answers the backup's commit-time question:
+	// did any reindex on these classes overlap [since, now]? Asking whether one
+	// is live instead misses every task that both started and finished inside
+	// the backup window.
+	RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error
 
 	// BackupDescriptors returns a channel of class descriptors.
 	// Class descriptor records everything needed to restore a class

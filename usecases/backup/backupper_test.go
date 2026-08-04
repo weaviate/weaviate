@@ -853,10 +853,10 @@ func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 			wantStatus: backup.Success,
 		},
 		{
-			name:        "a migration became visible during capture",
+			name:        "a migration overlapped the capture",
 			liveAtEnd:   true,
 			wantStatus:  backup.Failed,
-			wantErrPart: "a runtime-reindex was live while this backup was captured",
+			wantErrPart: "a runtime-reindex overlapped this backup",
 		},
 	}
 
@@ -867,14 +867,12 @@ func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 			sourcer := &fakeSourcer{}
 			backend := newFakeBackend()
 
-			// The admission check passes; only the commit-time one sees the task.
-			sourcer.On("Backupable", ctx, req.Classes).Return(nil).Once()
+			// Admission passes; only the commit-time overlap query objects.
+			sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+			sourcer.On("Backupable", any, any).Return(nil)
 			if tc.liveAtEnd {
-				sourcer.On("Backupable", any, any).Return(
-					fmt.Errorf("Node-1/%s: %w: shard %q has 1 active tracker(s)",
-						cls, backup.ErrBackupBlockedByInFlightReindex, "shard-a"))
-			} else {
-				sourcer.On("Backupable", any, any).Return(nil)
+				sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+					backup.ErrBackupSpannedReindex, cls)
 			}
 			ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(ch)
@@ -902,8 +900,10 @@ func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 				return
 			}
 			require.Contains(t, errMsg, tc.wantErrPart)
-			require.Contains(t, errMsg, backup.ErrBackupBlockedByInFlightReindex.Error(),
+			require.Contains(t, errMsg, backup.ErrBackupSpannedReindex.Error(),
 				"the operator needs to know which condition failed the backup")
+			require.NotContains(t, errMsg, "in flight",
+				"the migration has usually finished by the time this fires")
 		})
 	}
 }

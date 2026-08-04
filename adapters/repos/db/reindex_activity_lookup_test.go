@@ -13,15 +13,18 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
@@ -179,4 +182,123 @@ func TestRefuseIfAnyReindexInFlight_LookupFailureRedactsNodeNames(t *testing.T) 
 		}
 	}
 	assert.True(t, logged, "the detail must still reach the operator through the log")
+}
+
+func overlapTask(collection string, status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
+	raw, _ := json.Marshal(ReindexTaskPayload{Collection: collection})
+	return &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: collection + ":task", Version: 1},
+		Namespace:      ReindexNamespace,
+		Status:         status,
+		Payload:        raw,
+		FinishedAt:     finishedAt,
+	}
+}
+
+// Asking whether a reindex is live at commit time misses every task that both
+// started and finished while the files were being copied — the capture is just
+// as inconsistent, and by the time anyone looks there is nothing running. The
+// check has to be "did one overlap the backup window".
+func TestReindexOverlapLookup(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+	const ttl = time.Hour
+
+	tests := []struct {
+		name       string
+		tasks      []*distributedtask.Task
+		listErr    error
+		ttl        time.Duration
+		since      time.Time
+		wantRefuse bool
+		wantMsg    string
+	}{
+		{
+			name:  "no tasks at all",
+			since: backupStart,
+		},
+		{
+			name:  "task finished before the backup started",
+			tasks: []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))},
+			since: backupStart,
+		},
+		{
+			// R3's mechanism: ran and finished entirely inside the window.
+			name:       "task finished after the backup started",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
+			since:      backupStart,
+			wantRefuse: true,
+			wantMsg:    "was migrated while this backup was being captured",
+		},
+		{
+			name:       "task finished exactly when the backup started",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart)},
+			since:      backupStart,
+			wantRefuse: true,
+		},
+		{
+			name:       "task still running",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusStarted, time.Time{})},
+			since:      backupStart,
+			wantRefuse: true,
+		},
+		{
+			name:       "terminal task with no finish time is treated as overlapping",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusCancelled, time.Time{})},
+			since:      backupStart,
+			wantRefuse: true,
+		},
+		{
+			name:  "task on a collection this backup does not cover",
+			tasks: []*distributedtask.Task{overlapTask("Actors", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
+			since: backupStart,
+		},
+		{
+			name:       "collection match ignores case",
+			tasks:      []*distributedtask.Task{overlapTask("movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
+			since:      backupStart,
+			wantRefuse: true,
+		},
+		{
+			name:       "backup outlived the retention window",
+			tasks:      nil,
+			ttl:        time.Minute,
+			since:      backupStart,
+			wantRefuse: true,
+			wantMsg:    "longer than the",
+		},
+		{
+			name:       "task list unreadable",
+			listErr:    errors.New("DTM unreachable"),
+			since:      backupStart,
+			wantRefuse: true,
+			wantMsg:    "cannot rule out a runtime-reindex",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			taskTTL := ttl
+			if tc.ttl != 0 {
+				taskTTL = tc.ttl
+			}
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				if tc.listErr != nil {
+					return nil, tc.listErr
+				}
+				return map[string][]*distributedtask.Task{ReindexNamespace: tc.tasks}, nil
+			}, taskTTL)
+
+			err := lookup(context.Background(), []string{"Movies"}, tc.since)
+			if !tc.wantRefuse {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			if tc.wantMsg != "" {
+				assert.ErrorContains(t, err, tc.wantMsg)
+			}
+			assert.NotContains(t, err.Error(), "in flight",
+				"the migration has usually finished by now; do not send the operator after a live task")
+		})
+	}
 }

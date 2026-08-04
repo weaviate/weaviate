@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 
@@ -57,6 +58,7 @@ type fakeSourcer struct {
 
 	// Plain field so pre-existing restore tests pass without a mock.On call.
 	reindexInFlightErr error
+	reindexOverlapErr  error
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
@@ -66,6 +68,12 @@ func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error
 
 func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context) error {
 	return s.reindexInFlightErr
+}
+
+// reindexOverlapErr backs RefuseIfReindexOverlapped as a plain field so a test
+// can distinguish "live at commit" from "overlapped and already finished".
+func (s *fakeSourcer) RefuseIfReindexOverlapped(_ context.Context, _ []string, _ time.Time) error {
+	return s.reindexOverlapErr
 }
 
 func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
