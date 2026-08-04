@@ -128,30 +128,45 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
+	collection := i.Config.ClassName.String()
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.
-		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
+		return reindexInFlightError(collection, true)
 	}
-	if !i.db.AnyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
+	if !i.db.AnyLiveReindexForShard(collection, shardName) {
 		return nil
 	}
-	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
+	// The shard is what an operator needs to act on, and it is the one thing
+	// the refusal body withholds, so it has to be findable here.
+	if i.db.logger != nil {
+		i.db.logger.WithField("action", "backup_reindex_gate").
+			WithField("collection", collection).
+			WithField("shard", shardName).
+			WithField("node", i.db.localNodeName).
+			Warn("backup-reindex gate: refused a backup; a runtime-reindex is live on this shard")
+	}
+	return reindexInFlightError(collection, false)
 }
 
 // reindexInFlightError formats the operator-facing rejection. The
 // `preWire` flag distinguishes "DTM lookup says live" from "lookup not
 // yet installed" so the error body can hint at the right next step.
-func reindexInFlightError(collection, shardName string, preWire bool) error {
+//
+// Names no shard and no node: this text reaches an API response body, and
+// backing up a collection grants nothing on either. The caller already named
+// the collection, and the shard and node reach the operator through the log in
+// [Index.refuseIfReindexInFlight].
+func reindexInFlightError(collection string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(
-			"%w: shard %q (collection %q): backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
+			"%w: collection %q: backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
+			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
 		)
 	}
 	return fmt.Errorf(
-		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
-		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
+		"%w: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
 	)
 }
 
