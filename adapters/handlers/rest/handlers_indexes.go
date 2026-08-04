@@ -734,17 +734,19 @@ func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivity
 }
 
 // backupActivityResponder turns a scan into the refusal it warrants, or nil if every node is clear.
+// Node names, backup IDs and transport errors are deliberately absent from the
+// body: they need read_nodes / read_backups, while reaching this handler only
+// needs update_collections on one collection. The node log carries the detail.
 func backupActivityResponder(principal *models.Principal, scan backupActivityScan) middleware.Responder {
-	// A definite "busy" outranks an unreachable node: it points the operator at what to wait on.
+	// A definite "busy" outranks an unreachable node: it tells the caller what to wait on.
 	if scan.BusyNode != "" {
 		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-			fmt.Sprintf("reindex blocked: node %q is running a %s (id %q); retry after it finishes",
-				scan.BusyNode, scan.Activity.Kind, scan.Activity.ID)))
+			fmt.Sprintf("reindex blocked: a %s is running in the cluster; retry after it finishes",
+				scan.Activity.Kind)))
 	}
 	if scan.UnreachableNode != "" {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
-			fmt.Sprintf("reindex blocked: cannot confirm node %q is free of backups: %v; retry once the node answers",
-				scan.UnreachableNode, scan.UnreachableErr)))
+			"reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers"))
 	}
 	return nil
 }
@@ -769,7 +771,21 @@ func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal 
 
 	// A node that left the cluster isn't in AllNames() and isn't probed —
 	// correct, since its slots died with its process.
-	return backupActivityResponder(principal, scanBackupActivity(ctx, nodes, h.backupActivity, h.appState.Logger))
+	scan := scanBackupActivity(ctx, nodes, h.backupActivity, h.appState.Logger)
+
+	// The detail the response body withholds is only useful to an operator,
+	// who reads it here.
+	entry := h.appState.Logger.WithField("action", "reindex_backup_gate")
+	switch {
+	case scan.BusyNode != "":
+		entry.WithField("node", scan.BusyNode).WithField("backup_id", scan.Activity.ID).
+			Infof("refusing reindex submission: node is running a %s", scan.Activity.Kind)
+	case scan.UnreachableNode != "":
+		entry.WithField("node", scan.UnreachableNode).
+			Warnf("refusing reindex submission: node did not answer the backup activity probe: %v", scan.UnreachableErr)
+	}
+
+	return backupActivityResponder(principal, scan)
 }
 
 // principalUsername extracts the user-facing identifier from a principal
@@ -927,6 +943,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
+
 			// Goroutine has drained. Wipe the sidecars and migration
 			// directories for every indexType this migration touches —
 			// change-tokenization spawns both a searchable and a

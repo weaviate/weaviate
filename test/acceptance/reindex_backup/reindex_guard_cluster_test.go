@@ -43,9 +43,9 @@ type guardTopology struct {
 }
 
 // TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp asserts a node with no
-// stake in a running backup still refuses reindex, naming the remote node
-// that holds it — the property the cluster-wide fan-out exists for. Two
-// classes split ownership so the probe node provably holds none of the backup.
+// stake in a running backup still refuses reindex — the property the
+// cluster-wide fan-out exists for. Two classes split ownership so the probe
+// node provably holds none of the backup: a node-local check would answer 202.
 func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	ctx := context.Background()
 
@@ -105,14 +105,18 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 		statusOf, 10*time.Minute)
 	blocked := assertReindexBlocked(t, run, backupID)
 
-	named := blockingNodeName(t, blocked.body)
-	t.Logf("guard named node %q while the probe ran on node %q", named, topo.probe.name)
-	require.NotEqualf(t, topo.probe.name, named,
-		"the 409 named the probe node itself, which a node-local check would also produce; "+
-			"the guard has to report the remote node holding the backup. body: %s", blocked.body)
-	assert.Equalf(t, leader, named,
-		"every slot of backup %q sits on leader %q, so no other node can legitimately be named; body: %s",
-		backupID, leader, blocked.body)
+	// The backup includes only the leader's class, so the probe node holds no
+	// slot for it. The 409 is therefore only reachable by asking the leader.
+	t.Logf("probe node %q refused while only leader %q held backup %s: %s",
+		topo.probe.name, leader, backupID, blocked.body)
+
+	// Reaching this route needs update_collections on one collection; node
+	// names need read_nodes and backup IDs read_backups.
+	message := guardMessage(blocked.body)
+	for _, privileged := range append([]string{backupID, leader}, topo.placements...) {
+		assert.NotContainsf(t, message, privileged,
+			"the 409 body leaked %q; it must name no node and no backup", privileged)
+	}
 
 	// The block has to lift on a node that never took part in the backup.
 	awaitBackupSuccess(t, statusOf, backupID, 10*time.Minute)
