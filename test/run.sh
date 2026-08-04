@@ -59,7 +59,7 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
-  run_acceptance_backups=false
+  run_acceptance_reindex_backup_cluster=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -118,7 +118,7 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
-          --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
+          --acceptance-reindex-backup-cluster|-arbc) run_all_tests=false; run_acceptance_reindex_backup_cluster=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -167,7 +167,7 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
-              "--acceptance-backups | -ab"\
+              "--acceptance-reindex-backup-cluster | -arbc"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -411,13 +411,13 @@ function main() {
   fi
 
   if $run_acceptance_reindex_backup; then
-    echo "running backup × runtime-reindex acceptance tests"
+    echo "running backup × runtime-reindex acceptance tests (single-node)"
     run_acceptance_reindex_backup
   fi
 
-  if $run_acceptance_backups; then
-    echo "running backup/restore acceptance tests"
-    run_acceptance_backups
+  if $run_acceptance_reindex_backup_cluster; then
+    echo "running backup × runtime-reindex acceptance tests (multi-node)"
+    run_acceptance_reindex_backup_cluster
   fi
   echo "Done!"
 }
@@ -1021,9 +1021,24 @@ function run_acceptance_reindex_mt() {
 
 function run_acceptance_reindex_backup() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-backup"
-  run_aof_group "reindex-backup" \
-    test/acceptance/reindex_backup
+  echo_green "acceptance — reindex-backup (single-node)"
+  # The package's one multi-node test spins up a 3-node cluster plus MinIO and
+  # samples up to 16 class placements, so on its own it can eat most of the 20m
+  # go-test budget every group shares. It runs in -backup-cluster instead.
+  #
+  # The filter is by exact top-level name: a name that matches nothing runs zero
+  # tests and still reports success.
+  AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex)$' \
+    run_aof_group "reindex-backup" test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_cluster() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup-cluster (multi-node)"
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. See the sibling
+  # above for why it gets its own 20m budget.
+  AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
+    run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
 }
 
 function run_acceptance_backups() {
