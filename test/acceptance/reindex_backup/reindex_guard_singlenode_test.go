@@ -23,14 +23,13 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// guardDataset sizes the corpus so a single-goroutine best-compression backup
-// stays in flight for seconds rather than milliseconds. Matches the 50k
-// precedent the rest of this package uses for multi-second windows.
+// guardDataset sizes the corpus so the backup stays in flight for seconds,
+// not milliseconds; matches the 50k precedent used elsewhere in this package.
 const guardDataset = 50_000
 
-// startGuardNode boots a single node with a filesystem backup backend.
-// USE_INVERTED_SEARCHABLE=false starts classes on the legacy Map strategy so
-// the tokenization change has real work to do.
+// startGuardNode boots a single node with a filesystem backend.
+// USE_INVERTED_SEARCHABLE=false forces the legacy Map strategy so the
+// tokenization change has real work to do.
 func startGuardNode(ctx context.Context, t *testing.T) *docker.DockerCompose {
 	t.Helper()
 	compose, err := docker.New().
@@ -43,9 +42,8 @@ func startGuardNode(ctx context.Context, t *testing.T) *docker.DockerCompose {
 	return compose
 }
 
-// TestReindexRefusedWhileBackupRuns asserts that a runtime-reindex submission
-// is refused with a 409 naming the running backup, and is accepted once that
-// backup finishes.
+// TestReindexRefusedWhileBackupRuns asserts a reindex submission is refused
+// with a 409 naming the running backup, then accepted once it finishes.
 func TestReindexRefusedWhileBackupRuns(t *testing.T) {
 	ctx := context.Background()
 
@@ -86,10 +84,8 @@ func TestReindexRefusedWhileBackupRuns(t *testing.T) {
 	helper.ExpectBackupEventuallyCreated(t, backupID, backend, nil,
 		helper.WithDeadline(5*time.Minute))
 
-	// The refusal must be transient: the same submission has to go through once
-	// the backup is done, and the task it returns has to actually run. The
-	// coordinator releases its slot just after it reports SUCCESS, so the
-	// acceptance is polled rather than demanded on the first try.
+	// The refusal is transient: the same submission must succeed once the backup
+	// finishes. Acceptance is polled since the slot releases just after SUCCESS.
 	successAt := time.Now()
 	taskID := awaitReindexAccepted(t, restURI, className, propName, "whitespace", 30*time.Second)
 	t.Logf("reindex accepted %s after backup %s reported SUCCESS: task %s",
@@ -100,12 +96,10 @@ func TestReindexRefusedWhileBackupRuns(t *testing.T) {
 		reindexhelpers.WithTimeout(180*time.Second))
 }
 
-// TestReindexBlockClearsAfterNodeCrash asserts that the block a backup puts on
-// runtime-reindex lives in process memory only: killing the node mid-backup has
-// to release it with no operator action, no cancel call and no cleanup.
-//
-// A single node makes this deterministic, because one restart takes out the
-// coordinator and the participant slot at the same time.
+// TestReindexBlockClearsAfterNodeCrash asserts the block lives in process
+// memory only: killing the node mid-backup releases it with no operator
+// action. A single node makes this deterministic (one restart clears both
+// the coordinator and the participant slot).
 func TestReindexBlockClearsAfterNodeCrash(t *testing.T) {
 	ctx := context.Background()
 
@@ -145,8 +139,7 @@ func TestReindexBlockClearsAfterNodeCrash(t *testing.T) {
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
 
-	// The dynamic port rebinds on restart, so every address has to be resolved
-	// again before it is used.
+	// The dynamic port rebinds on restart, so the URI must be re-resolved before use.
 	restURI = compose.GetWeaviate().URI()
 	helper.SetupClient(restURI)
 

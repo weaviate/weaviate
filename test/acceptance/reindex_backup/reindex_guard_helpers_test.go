@@ -33,13 +33,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// maxReindexProbes caps the probe loop. The leading probe already decides the
-// verdict, so the remaining ones only widen the diagnostic on a failure.
+// maxReindexProbes caps the loop; only the leading probe decides the verdict,
+// the rest just add diagnostic detail.
 const maxReindexProbes = 10
 
-// slowBackupConfig widens the window an in-flight backup can be observed in:
-// CPUPercentage 1 collapses the zip onto a single goroutine and
-// BestCompression raises the CPU cost per byte.
+// slowBackupConfig widens the observable in-flight window: CPUPercentage 1
+// serializes the zip and BestCompression raises the per-byte CPU cost.
 func slowBackupConfig() *models.BackupConfig {
 	return &models.BackupConfig{
 		CompressionLevel: models.BackupConfigCompressionLevelBestCompression,
@@ -57,16 +56,15 @@ func backupTerminal(status string) bool {
 	}
 }
 
-// reindexProbe is one reindex submission taken while the coordinator still
-// reported the backup as in flight.
+// reindexProbe is one reindex submission taken while the backup was still in flight.
 type reindexProbe struct {
 	backupStatus string
 	httpStatus   int
 	body         string
 }
 
-// probeRun carries the failed status reads alongside the probes so a run that
-// produced no probe at all can be told apart from a broken status endpoint.
+// probeRun tracks failed status reads too, so a zero-probe run can be told
+// apart from a broken status endpoint.
 type probeRun struct {
 	probes       []reindexProbe
 	statusReads  int
@@ -74,8 +72,7 @@ type probeRun struct {
 	lastStatus   string
 }
 
-// probeReindexDuringBackup submits the reindex repeatedly for as long as
-// statusOf reports a non-terminal backup, stopping at the first 409.
+// probeReindexDuringBackup submits reindex until the first 409 or the backup goes terminal.
 func probeReindexDuringBackup(
 	t *testing.T,
 	probeURI, collection, property, targetTokenization string,
@@ -117,15 +114,10 @@ func probeReindexDuringBackup(
 	return run
 }
 
-// assertReindexBlocked judges a probe run against the guard contract and
-// returns the 409 it found.
-//
-// Only the leading probe decides the verdict. The coordinator refreshes
-// participant status every 2s to 10s, so a late 202 can mean the backup had
-// already released its slot rather than that the guard has a gap. The first
-// probe lands microseconds after the create call returned, at which point
-// every participant provably holds a slot because canCommit runs before the
-// create call answers.
+// assertReindexBlocked judges a probe run against the guard contract: only
+// the first probe must be 409. It lands microseconds after the create call
+// returns, when every participant already holds a slot; later probes can 202
+// legitimately once a participant's slot expires.
 func assertReindexBlocked(t *testing.T, run probeRun, backupID string) reindexProbe {
 	t.Helper()
 
@@ -150,8 +142,7 @@ func assertReindexBlocked(t *testing.T, run probeRun, backupID string) reindexPr
 	return first
 }
 
-// guardMessage flattens the error payload so assertions read the message text
-// rather than its JSON escaping.
+// guardMessage flattens the error payload to plain message text, dropping JSON escaping.
 func guardMessage(body string) string {
 	var payload models.ErrorResponse
 	if json.Unmarshal([]byte(body), &payload) == nil {
@@ -182,8 +173,7 @@ func blockingNodeName(t *testing.T, body string) string {
 	return match[1]
 }
 
-// localBackupStatus reads the create status through the process-global client,
-// which is the single node under test.
+// localBackupStatus reads status via the process-global client (the single node under test).
 func localBackupStatus(t *testing.T, backend, backupID string) func() (string, bool) {
 	return func() (string, bool) {
 		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
@@ -194,8 +184,7 @@ func localBackupStatus(t *testing.T, backend, backupID string) func() (string, b
 	}
 }
 
-// nodeBackupStatus reads the create status straight off one node, which is what
-// a cluster test needs because the shared client targets a single global host.
+// nodeBackupStatus reads status straight off one node, since the shared client only targets one host.
 func nodeBackupStatus(restURI, backend, backupID string) func() (string, bool) {
 	url := fmt.Sprintf("http://%s/v1/backups/%s/%s", restURI, backend, backupID)
 	return func() (string, bool) {
@@ -209,8 +198,7 @@ func nodeBackupStatus(restURI, backend, backupID string) func() (string, bool) {
 	}
 }
 
-// awaitBackupSuccess blocks until the backup reports SUCCESS, failing on any
-// other terminal status.
+// awaitBackupSuccess blocks until the backup reports SUCCESS, failing on any other terminal status.
 func awaitBackupSuccess(t *testing.T, statusOf func() (string, bool), backupID string, deadline time.Duration) {
 	t.Helper()
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -233,9 +221,8 @@ func awaitBackupSuccess(t *testing.T, statusOf func() (string, bool), backupID s
 	t.Fatalf("backup %q did not reach SUCCESS within %s; last status: %q", backupID, deadline, last)
 }
 
-// tryReindexSubmit is the tolerant sibling of
-// reindexhelpers.SubmitIndexUpdateExpect4xx: a transport error is a retryable
-// observation rather than a test failure, because the node may still be booting.
+// tryReindexSubmit tolerates transport errors (e.g. node still booting) as a
+// retryable observation, unlike reindexhelpers.SubmitIndexUpdateExpect4xx.
 func tryReindexSubmit(restURI, collection, property, requestBody string) (int, string, bool) {
 	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
 	req, err := http.NewRequest(http.MethodPut, url, strings.NewReader(requestBody))
@@ -256,8 +243,7 @@ func tryReindexSubmit(restURI, collection, property, requestBody string) (int, s
 	return resp.StatusCode, string(body), true
 }
 
-// awaitReindexAccepted polls the submission until it is accepted and returns
-// the task id. Used where the block is expected to lift with no operator action.
+// awaitReindexAccepted polls until the submission is accepted and returns the task id.
 func awaitReindexAccepted(
 	t *testing.T, restURI, collection, property, targetTokenization string, deadline time.Duration,
 ) string {
@@ -291,8 +277,8 @@ func awaitReindexAccepted(
 	return ""
 }
 
-// awaitNodeServing blocks until the node answers for the class again, so a
-// post-restart deadline measures the block lifting rather than container boot.
+// awaitNodeServing blocks until the node serves the class again, so a
+// post-restart deadline measures the block lifting, not boot time.
 func awaitNodeServing(t *testing.T, restURI, className string, deadline time.Duration) {
 	t.Helper()
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -300,8 +286,8 @@ func awaitNodeServing(t *testing.T, restURI, className string, deadline time.Dur
 
 	end := time.Now().Add(deadline)
 	for time.Now().Before(end) {
-		// consistency:false reads the node's own schema view, which is what the
-		// submission handler validates against.
+		// consistency:false reads the node's own schema view, matching what the
+		// submission handler checks.
 		if _, ok := reindexhelpers.FetchClass(restURI, className, true); ok {
 			return
 		}
@@ -371,15 +357,13 @@ func shardOwners(restURI, className string) ([]string, bool) {
 	return owners, true
 }
 
-// awaitSingleShardOwner blocks until exactly one node reports a shard of the
-// class and returns its name.
+// awaitSingleShardOwner blocks until exactly one node reports a shard of the class.
 func awaitSingleShardOwner(t *testing.T, restURI, className string, deadline time.Duration) string {
 	t.Helper()
 	var owner string
 	var last []string
-	// assert.Eventually plus an explicit Fatalf, because require.Eventually
-	// captures its message arguments before the first poll and could not
-	// report the ownership it actually saw.
+	// Uses assert.Eventually + explicit Fatalf: require.Eventually captures its
+	// message before the first poll, so it can't report what ownership was seen.
 	resolved := assert.Eventually(t, func() bool {
 		owners, ok := shardOwners(restURI, className)
 		if !ok {
@@ -399,8 +383,8 @@ func awaitSingleShardOwner(t *testing.T, restURI, className string, deadline tim
 	return owner
 }
 
-// raftLeaderName resolves the current RAFT leader, which the backup coordinator
-// always enrolls as a participant regardless of shard ownership.
+// raftLeaderName resolves the current RAFT leader, always enrolled as a
+// backup participant regardless of shard ownership.
 func raftLeaderName(t *testing.T, restURI string, deadline time.Duration) string {
 	t.Helper()
 	var leader string
@@ -423,8 +407,7 @@ func raftLeaderName(t *testing.T, restURI string, deadline time.Duration) string
 	return leader
 }
 
-// startS3Backup fires the create call and returns as soon as the coordinator
-// accepted it, leaving the transfer in flight for the probe loop.
+// startS3Backup fires the create call and returns once accepted, leaving the transfer in flight.
 func startS3Backup(restURI, className, backupID, bucket string) error {
 	payload := map[string]interface{}{
 		"id":      backupID,
@@ -453,8 +436,7 @@ func startS3Backup(restURI, className, backupID, bucket string) error {
 	return nil
 }
 
-// getJSON GETs url and decodes into out, reporting false on any failed step so
-// it composes inside polling loops.
+// getJSON GETs url into out, returning false on any failed step (composes in polling loops).
 func getJSON(url string, out any) bool {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -468,8 +450,7 @@ func getJSON(url string, out any) bool {
 	return json.Unmarshal(body, out) == nil
 }
 
-// dumpWeaviateLogs prints the tail of a container log on failure so the server
-// side of the story survives the run.
+// dumpWeaviateLogs prints the container's last 200 log lines on test failure.
 func dumpWeaviateLogs(ctx context.Context, t *testing.T, container testcontainers.Container, label string) {
 	if !t.Failed() {
 		return

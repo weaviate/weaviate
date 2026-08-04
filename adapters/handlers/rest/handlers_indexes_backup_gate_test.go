@@ -54,8 +54,7 @@ func (r fakeActivityResolver) NodeHostname(nodeName string) (string, bool) {
 }
 
 // startActivityCluster spins up one httptest server per node and returns a
-// resolver pointing at them. Unreachable nodes get a server that is closed
-// again right away, which keeps their address dead and the test fast.
+// resolver pointing at them; unreachable nodes get a server closed immediately.
 func startActivityCluster(t *testing.T, behaviors map[string]nodeBehavior) fakeActivityResolver {
 	t.Helper()
 
@@ -169,8 +168,8 @@ func TestScanBackupActivity(t *testing.T) {
 	}
 }
 
-// TestScanBackupActivityDeterministic pins that the reported node follows the
-// node list order, not whichever server answered first.
+// TestScanBackupActivityDeterministic pins that the reported node follows
+// list order, not answer order.
 func TestScanBackupActivityDeterministic(t *testing.T) {
 	resolver := startActivityCluster(t, map[string]nodeBehavior{
 		"node1": nodeIdle,

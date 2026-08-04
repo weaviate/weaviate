@@ -25,13 +25,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// maxPlacementAttempts bounds the search for the two placements the test needs.
-// Shards are placed off a shuffled candidate list, so each attempt is an
-// independent draw and 16 of them make an unlucky run vanishingly rare.
+// maxPlacementAttempts bounds the search for the two placements the test
+// needs; shards land off a shuffled list, so 16 draws make bad luck rare.
 const maxPlacementAttempts = 16
 
-// probeDataset sizes the class the reindex is submitted for. It only has to
-// exist on the probe node; the backup window is bought by the other class.
+// probeDataset sizes the reindex-target class; it only needs to exist, since
+// the backup window comes from the other (backup) class.
 const probeDataset = 500
 
 // guardTopology is the placement the remote-backup test is built on: a backup
@@ -43,22 +42,10 @@ type guardTopology struct {
 	placements   []string
 }
 
-// TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp asserts that a node with no
-// stake in a running backup still refuses a runtime-reindex, and names the
-// remote node that holds the backup.
-//
-// This is the property the cluster-wide fan-out exists for. A node-local check
-// could only ever name the node that answered the request, so the test drives
-// the request at a node that provably holds no part of the backup and requires
-// the 409 to name somebody else.
-//
-// It takes two classes to get there. The submission is validated against local
-// shards before the guard runs, so the probe node has to own the class it is
-// asked to reindex; a backup meanwhile enrolls every shard owner of the backed
-// up class, the RAFT leader, and the node that received the create call.
-// Collapsing all three of those roles onto the leader and parking a second
-// class elsewhere is what leaves one node holding everything and another node
-// holding nothing.
+// TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp asserts a node with no
+// stake in a running backup still refuses reindex, naming the remote node
+// that holds it — the property the cluster-wide fan-out exists for. Two
+// classes split ownership so the probe node provably holds none of the backup.
 func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	ctx := context.Background()
 
@@ -68,8 +55,7 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 		bucket    = "reindex-guard-bucket"
 		backend   = "s3"
 		nodeCount = 3
-		// A cluster of 2+ nodes refuses the filesystem backend outright, so the
-		// backup has to go through MinIO.
+		// A 2+ node cluster refuses the filesystem backend, so the backup goes through MinIO.
 		region = "us-east-1"
 	)
 
@@ -103,14 +89,13 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	awaitClassVisible(t, coordinator.uri, topo.backupClass, coordinator.name)
 	awaitClassVisible(t, topo.probe.uri, topo.reindexClass, topo.probe.name)
 
-	// Every object of the backed-up class lands on the leader, so the corpus the
-	// single-node siblings use buys the same multi-second window here, and the
-	// upload to MinIO only widens it.
+	// All objects land on the leader, so the corpus size that buys a
+	// multi-second window in the single-node tests works here too.
 	importBodies(t, topo.backupClass, guardDataset)
 	importBodies(t, topo.reindexClass, probeDataset)
 
-	// A leadership change since the topology was resolved would enroll a node
-	// the test did not account for, including possibly the probe.
+	// A leadership change since resolving the topology could enroll a node
+	// the test didn't account for.
 	require.Equal(t, leader, raftLeaderName(t, nodes[0].uri, 60*time.Second),
 		"the RAFT leader changed during setup; the resolved topology no longer holds")
 	require.NoError(t, startS3Backup(coordinator.uri, topo.backupClass, backupID, bucket))
@@ -136,9 +121,8 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 		topo.probe.name, backupID, taskID)
 }
 
-// resolveGuardTopology creates single-shard, replication-factor-1 classes until
-// one is owned by the RAFT leader and another by a different node. Placement
-// cannot be requested, so create-and-inspect is the only way to obtain it.
+// resolveGuardTopology creates single-shard, RF=1 classes until one lands on
+// the RAFT leader and another elsewhere; placement can't be requested directly.
 func resolveGuardTopology(t *testing.T, nodes []clusterNode, leader, propName string) guardTopology {
 	t.Helper()
 
@@ -152,8 +136,7 @@ func resolveGuardTopology(t *testing.T, nodes []clusterNode, leader, propName st
 				{Name: propName, DataType: []string{"text"}, Tokenization: "word"},
 			},
 			Vectorizer: "none",
-			// One shard at replication factor 1 puts the entire class on a single
-			// node, which is what both halves of the topology are built out of.
+			// One shard at RF=1 puts the whole class on a single node.
 			ShardingConfig:    map[string]interface{}{"desiredCount": 1},
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		})
@@ -174,8 +157,7 @@ func resolveGuardTopology(t *testing.T, nodes []clusterNode, leader, propName st
 		}
 	}
 
-	// The samples that lost are dropped so the cluster holds only the two
-	// classes the topology talks about.
+	// Drop the losing samples so only the two topology classes remain.
 	for _, className := range spares {
 		helper.DeleteClass(t, className)
 	}
@@ -188,8 +170,8 @@ func resolveGuardTopology(t *testing.T, nodes []clusterNode, leader, propName st
 	return topo
 }
 
-// awaitClassVisible blocks until the node serves the class out of its own
-// schema view, which is what the submission handler validates against.
+// awaitClassVisible blocks until the node's own schema view serves the class
+// (what the submission handler checks).
 func awaitClassVisible(t *testing.T, restURI, className, nodeName string) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {

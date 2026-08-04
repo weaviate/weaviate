@@ -25,13 +25,11 @@ import (
 
 const pathBackupNodeActivity = "/backups/node-activity"
 
-// ErrNodeActivityUnsupported reports that the probed node does not serve the
-// node-activity route, which is what a node still running an older version
-// during a rolling upgrade looks like. Callers treat such a node as not busy.
+// ErrNodeActivityUnsupported marks a node that doesn't serve the node-activity
+// route (e.g. mid rolling-upgrade); callers treat it as not busy.
 var ErrNodeActivityUnsupported = errors.New("node does not serve the backup node-activity route")
 
-// ClusterBackupActivity asks a node whether it is currently part of a backup
-// or restore.
+// ClusterBackupActivity probes whether a node is currently part of a backup or restore.
 type ClusterBackupActivity struct {
 	client   *http.Client
 	resolver nodeResolver
