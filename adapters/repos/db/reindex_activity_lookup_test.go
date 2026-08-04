@@ -385,20 +385,8 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 	}
 }
 
-// TestReindexOverlapLookupResidual pins the case this check knowingly lets
-// through: a migration cancelled part-way through, inside the backup window, is
-// indistinguishable from cluster state alone from one withdrawn because a
-// backup claimed first. Neither is provably write-free — the DTM marks a unit
-// IN_PROGRESS on claim, milliseconds before the worker starts creating buckets,
-// and records nothing afterwards that separates them (0-wi#473).
-//
-// Reaching it needs a fail-open admission AND the cancel to land between the
-// per-shard captures and commit; while such a task is live during capture the
-// per-shard execution layer fails the backup on its own. It closes when a
-// submission stops dispatching units before admission has settled.
-//
-// Pinned rather than left implicit: an unrecorded residual is one nobody
-// remembers to close.
+// Pins the gap ReindexOverlapLookup documents: a migration cancelled part-way
+// through, inside the backup window, is not counted (0-wi#473).
 func TestReindexOverlapLookupResidual(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
 

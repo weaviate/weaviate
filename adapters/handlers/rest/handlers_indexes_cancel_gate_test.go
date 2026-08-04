@@ -87,10 +87,8 @@ func warned(hook *logrustest.Hook, fragment string) *logrus.Entry {
 	return nil
 }
 
-// A cancel routed to a node owning none of the collection's shards has nothing
-// of its own to tear down, so it would otherwise answer while the owners have
-// not yet raised their gates — leaving a window in which a backup can start
-// into a teardown the caller was told had been ordered.
+// Covers the window described on awaitOwnerCleanupGates: the answer must wait
+// for the owners, and must not be blockable by one that cannot reply.
 func TestAwaitOwnerCleanupGates(t *testing.T) {
 	const (
 		local      = "node1"
