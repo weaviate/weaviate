@@ -151,6 +151,27 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	shard.haltForTransferMux.Unlock()
 }
 
+// Documents current behaviour, not the behaviour we want. mayForceResumeMaintenanceCycles
+// clears the halt count and stops the inactivity monitor before the errgroup that can
+// fail, and restores neither, so a failed resume leaves a zero count while the cycles it
+// could not restart stay paused — and every later resume returns early on that count.
+func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
+	_, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+
+	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+	require.Error(t, shard.resumeMaintenanceCycles(ctx))
+
+	shard.haltForTransferMux.Lock()
+	haltCount := shard.haltForTransferCount
+	shard.haltForTransferMux.Unlock()
+	require.Zero(t, haltCount,
+		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
+}
+
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire
 // file list (copying every listed lsm/objects/* file out of sourceRoot into a
 // throwaway dir), opens it read-only, and reports whether id is retrievable —
