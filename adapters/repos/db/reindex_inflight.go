@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -41,6 +42,23 @@ type reindexGate struct {
 
 func newReindexGate(db *DB) *reindexGate {
 	return &reindexGate{db: db}
+}
+
+// reindexGateCtxKey carries a pass-scoped gate to shards. The shard call
+// sites sit behind [ShardLike], so a parameter would cascade through the
+// interface and its generated mocks.
+type reindexGateCtxKey struct{}
+
+func contextWithReindexGate(ctx context.Context, gate *reindexGate) context.Context {
+	return context.WithValue(ctx, reindexGateCtxKey{}, gate)
+}
+
+// reindexGateFromContext returns the gate of the backup pass ctx belongs
+// to, or nil. Replica movement and offload are not passes: they install
+// no gate and keep resolving a fresh snapshot per call.
+func reindexGateFromContext(ctx context.Context) *reindexGate {
+	gate, _ := ctx.Value(reindexGateCtxKey{}).(*reindexGate)
+	return gate
 }
 
 func (g *reindexGate) resolve() {
@@ -141,15 +159,14 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 
-// refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and
-// [Shard.HaltForTransfer]. Consults DTM via
-// [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
-// replaced only saw the local node and lagged DTM's actual state.
+// refuseIfReindexInFlight is the per-shard backup-gate check for callers
+// that are not a pass — [Shard.HaltForTransfer] reached by replica
+// movement. Consults DTM via [DB.AnyLiveReindexForShard]; the
+// filesystem-marker variant it replaced only saw the local node and
+// lagged DTM's actual state.
 //
-// Each call resolves its own snapshot; [DB.Backupable] shares one gate
-// across many shards via [Index.refuseIfReindexInFlightWithGate].
+// Each call resolves its own snapshot. Callers that walk many shards use
+// [Index.refuseIfReindexInFlightWithGate] so the walk resolves once.
 //
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.

@@ -148,10 +148,11 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 
 			require.NoError(t, db.Backupable(testCtx(), precheckClassNames(tt.classes)))
 
-			assert.Equal(t, tt.wantBuilds, counter.builds, "DTM snapshots built by one precheck")
+			builds, probed := counter.stats()
+			assert.Equal(t, tt.wantBuilds, builds, "DTM snapshots built by one precheck")
 			// Anti-vacuity: a fixture whose shards never reach the gate
 			// reports zero builds whether or not the pass shares one.
-			assert.Len(t, counter.probed, tt.wantShardsHit, "shards the pass actually judged")
+			assert.Len(t, probed, tt.wantShardsHit, "shards the pass actually judged")
 		})
 	}
 }
@@ -175,13 +176,14 @@ func TestBackupable_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Equal(t, []string{live}, blockedShards(err, shards),
 		"only the shard with a live task may be refused")
-	require.Equal(t, 1, counter.builds)
+	builds, probed := counter.stats()
+	require.Equal(t, 1, builds)
 
 	wantProbed := make([][2]string, len(shards))
 	for i, shardName := range shards {
 		wantProbed[i] = [2]string{className, shardName}
 	}
-	require.ElementsMatch(t, wantProbed, counter.probed,
+	require.ElementsMatch(t, wantProbed, probed,
 		"a snapshot asked about one name repeatedly cannot tell the shards apart")
 }
 
@@ -207,7 +209,8 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 
 	require.Error(t, err)
 	require.ElementsMatch(t, shards, blockedShards(err, shards))
-	require.Equal(t, 1, counter.builds)
+	builds, _ := counter.stats()
+	require.Equal(t, 1, builds)
 }
 
 // TestBackupable_UnreachableTaskManagerRefusesEveryShard pins that a
@@ -229,7 +232,8 @@ func TestBackupable_UnreachableTaskManagerRefusesEveryShard(t *testing.T) {
 			require.Error(t, err)
 			require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 			require.ElementsMatch(t, shards, blockedShards(err, shards))
-			require.Equal(t, 1, counter.builds)
+			builds, _ := counter.stats()
+			require.Equal(t, 1, builds)
 		})
 	}
 }
@@ -259,5 +263,6 @@ func TestBackupable_IndexWithoutDBRefusesEveryShard(t *testing.T) {
 	require.Error(t, err)
 	require.ElementsMatch(t, shards, blockedShards(err, shards))
 	require.Contains(t, err.Error(), "startup window")
-	require.Equal(t, 0, counter.builds, "an index that cannot consult the gate must not query DTM")
+	builds, _ := counter.stats()
+	require.Equal(t, 0, builds, "an index that cannot consult the gate must not query DTM")
 }

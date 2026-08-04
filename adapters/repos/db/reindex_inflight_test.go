@@ -13,7 +13,9 @@ package db
 
 import (
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,23 +35,40 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// countingActivityBuilder counts snapshot builds and probed shards —
-// both invisible at the API surface except as latency.
+// countingActivityBuilder counts snapshot builds and probed shards.
+// Both are metered in production as
+// schema_reads_leader_seconds_count{type="TYPE_DISTRIBUTED_TASK_LIST"},
+// but nothing in the backup API surfaces them per call.
+//
+// Guarded because a backup's descriptor pass probes shards from one
+// goroutine per shard.
 type countingActivityBuilder struct {
 	snapshots ShardReindexActivityLookupBuilder
-	builds    int
-	probed    [][2]string
+
+	mu     sync.Mutex
+	builds int
+	probed [][2]string
 }
 
 func (c *countingActivityBuilder) install(db *DB) {
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		c.mu.Lock()
 		c.builds++
+		c.mu.Unlock()
 		lookup := c.snapshots()
 		return func(collection, shardName string) bool {
+			c.mu.Lock()
 			c.probed = append(c.probed, [2]string{collection, shardName})
+			c.mu.Unlock()
 			return lookup(collection, shardName)
 		}
 	})
+}
+
+func (c *countingActivityBuilder) stats() (builds int, probed [][2]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.builds, slices.Clone(c.probed)
 }
 
 // TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
