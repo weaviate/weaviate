@@ -168,6 +168,12 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 //
 // A non-nil error means either that one overlapped or that the question can no
 // longer be answered; callers fail closed on both.
+//
+// A task cancelled before completing is not counted, whether it was withdrawn
+// because a backup claimed first or cancelled by an operator part-way through:
+// no cluster state tells the two apart, and neither is provably write-free
+// (0-wi#473). The residual that leaves is pinned by
+// TestReindexOverlapLookupResidual.
 type ReindexOverlapLookup func(ctx context.Context, collections []string, since time.Time) error
 
 // SetReindexOverlapLookup installs the lookup consulted by
@@ -214,9 +220,13 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 			if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
 				continue
 			}
-			if !IsLiveReindexTaskStatus(task.Status) && !task.FinishedAt.IsZero() &&
-				task.FinishedAt.Before(since) {
-				continue
+			if !IsLiveReindexTaskStatus(task.Status) {
+				if task.Status == distributedtask.TaskStatusCancelled {
+					continue
+				}
+				if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
+					continue
+				}
 			}
 			return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
 				entitiesbackup.ErrBackupSpannedReindex, payload.Collection)
