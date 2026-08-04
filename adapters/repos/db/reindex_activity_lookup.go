@@ -63,23 +63,12 @@ func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
 // line per process, matching [unwiredGateWarnOnce] on the backup side.
 var unwiredRestoreGateWarnOnce sync.Once
 
-// RefuseIfAnyReindexInFlight is the restore-side counterpart of the per-shard
-// backup gate. The question is deliberately cluster-wide rather than
-// per-class: a class being restored usually has no local index yet, so a
-// per-class lookup could only ever answer "no live reindex".
-//
-// The error names the condition only, never the operation, so the same text
-// stays accurate at every seam that consults it; callers prefix their own
-// framing. It wraps [entitiesbackup.ErrReindexInFlight] rather than the
-// per-shard backup sentinel, whose text would otherwise lead a restore
-// refusal with the wrong operation and a shard that is not involved.
-//
-// Refuses when the lookup itself fails, matching the backup gate's posture
-// when the task manager is unreachable. An uninstalled lookup allows the
-// restore with a one-time WARN, mirroring [DB.AnyLiveReindexForShard]:
-// production gates HTTP serving on bootstrap completion, while the
-// conservative default breaks every test fixture that skips the
-// post-bootstrap install path.
+// RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart
+// of the per-shard backup gate: a restoring class has no local index yet,
+// so a per-class lookup could never see a live task. Wraps
+// [entitiesbackup.ErrReindexInFlight], not the per-shard sentinel, and
+// fails closed on a live task or a lookup error; an unwired lookup allows
+// the restore once with a WARN, matching [DB.AnyLiveReindexForShard].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 	db.reindexAuditMu.RLock()
 	lookup := db.anyReindexActivityLookup
@@ -100,8 +89,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 
 	live, err := lookup(ctx)
 	if err != nil {
-		// "(assumed)" is load-bearing: the condition was not observed, it is
-		// what the gate falls back to when it cannot see the task manager.
+		// "(assumed)" marks this as a fallback, not an observed live task.
 		return fmt.Errorf(
 			"%w (assumed): the cluster task manager could not be queried: %w; retry once it is reachable",
 			entitiesbackup.ErrReindexInFlight, err,

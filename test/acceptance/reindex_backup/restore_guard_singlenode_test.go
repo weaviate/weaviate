@@ -24,14 +24,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestRestoreRefusedDuringInFlightReindex covers the restore direction of the
-// reindex gate: a restore lands data the DTM unit driving a live migration
-// does not track, so it must be refused synchronously with a 422 naming the
-// blocking condition.
-//
-// The reindex runs on a different collection than the one being restored:
-// the gate is deliberately cluster-wide, because a class that is absent (the
-// normal restore case) can never have a reindex task of its own.
+// TestRestoreRefusedDuringInFlightReindex pins that a restore is refused
+// (422) by a live reindex on an unrelated collection — the gate is
+// cluster-wide because the restored class has no local index of its own.
 func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	ctx := context.Background()
 
@@ -59,8 +54,7 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		backupID      = "restore-guard-refuse"
 	)
 
-	// Back up a small class and delete it, so the restore below is a valid
-	// request that only the gate may reject.
+	// Delete after backing up so the restore below is otherwise valid.
 	helper.CreateClass(t, &models.Class{
 		Class: restoredClass,
 		Properties: []*models.Property{
@@ -116,8 +110,7 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		"error body must name the refused operation and the blocking condition; got: %s", errMsg)
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step; got: %s", errMsg)
-	// The gate shares its vocabulary with the per-shard backup gate. Neither
-	// of those words is true of a restore refused cluster-wide.
+	// Both words belong to the per-shard backup gate, not this cluster-wide one.
 	require.NotContains(t, errMsg, "backup blocked",
 		"a restore refusal must not be worded as a backup refusal; got: %s", errMsg)
 	require.NotContains(t, errMsg, "this shard",
@@ -128,8 +121,7 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		"a refused restore must not create %s", restoredClass)
 }
 
-// reindexTaskStatus reads one reindex task's DTM status so a probe can prove
-// the migration was live at the moment it ran.
+// reindexTaskStatus reads one reindex task's DTM status.
 func reindexTaskStatus(t *testing.T, restURI, taskID string) string {
 	t.Helper()
 	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
@@ -143,8 +135,7 @@ func reindexTaskStatus(t *testing.T, restURI, taskID string) string {
 	return ""
 }
 
-// liveReindexStatus mirrors db.IsLiveReindexTaskStatus over the wire
-// representation of the DTM status.
+// liveReindexStatus mirrors db.IsLiveReindexTaskStatus for wire status strings.
 func liveReindexStatus(status string) bool {
 	switch status {
 	case "STARTED", "PREPARING", "SWAPPING":
