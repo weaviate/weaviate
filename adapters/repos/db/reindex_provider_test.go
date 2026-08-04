@@ -484,3 +484,54 @@ func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 		assert.False(t, p.AnyCleanupInProgress())
 	})
 }
+
+// The node handling a cancel may own none of the collection's shards, so it
+// asks the owners this before answering. It knows the collection, not which
+// shards the owner holds.
+func TestAnyCleanupInProgressForCollection(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload *ReindexTaskPayload
+		probe   string
+		want    bool
+	}{
+		{
+			name:    "per-shard registration",
+			payload: &ReindexTaskPayload{Collection: "Movies", UnitToShard: map[string]string{"u1": "shard1"}},
+			probe:   "Movies",
+			want:    true,
+		},
+		{
+			name:    "collection-wide registration",
+			payload: &ReindexTaskPayload{Collection: "Movies"},
+			probe:   "Movies",
+			want:    true,
+		},
+		{
+			name:    "spelled differently by the asking node",
+			payload: &ReindexTaskPayload{Collection: "movies", UnitToShard: map[string]string{"u1": "shard1"}},
+			probe:   "Movies",
+			want:    true,
+		},
+		{
+			name:    "a different collection",
+			payload: &ReindexTaskPayload{Collection: "Movies", UnitToShard: map[string]string{"u1": "shard1"}},
+			probe:   "Actors",
+			want:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newCleanupRegistryProvider()
+			require.False(t, p.AnyCleanupInProgressForCollection(tc.probe))
+
+			release := p.MarkCleanupInProgress(tc.payload)
+			assert.Equal(t, tc.want, p.AnyCleanupInProgressForCollection(tc.probe))
+
+			release()
+			assert.False(t, p.AnyCleanupInProgressForCollection(tc.probe),
+				"the answer must go back down or the owner looks busy forever")
+		})
+	}
+}
