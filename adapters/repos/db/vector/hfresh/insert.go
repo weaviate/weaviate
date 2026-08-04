@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -95,19 +96,98 @@ func (h *HFresh) add(ctx context.Context, id uint64, vector []float32) error {
 		}
 	}
 
+	var appendedTo []uint64
+	var lostHint uint64
+	lost := false
 	for postingID := range targets.Iter() {
 		added, err := h.append(ctx, v, postingID, false)
 		if err != nil {
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), postingID)
 		}
-		if !added {
-			err = h.taskQueue.EnqueueReassign(postingID, v.ID())
-			if err != nil {
-				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), postingID)
+		if added {
+			appendedTo = append(appendedTo, postingID)
+		} else {
+			// any lost posting serves as the hint: the reassign task
+			// re-routes from scratch, the hint only feeds doReassign's
+			// abort-if-still-selected check
+			lost = true
+			lostHint = postingID
+		}
+	}
+	if lost {
+		return h.rerouteLostInsert(ctx, v, vector, appendedTo, lostHint)
+	}
+
+	return nil
+}
+
+// maxInsertRerouteAttempts bounds the synchronous re-routing loop in
+// rerouteLostInsert. A retry only loses if another split or merge deletes the
+// freshly selected posting within the microseconds between routing and
+// append, so repeated losses decay geometrically; three attempts make the
+// async fallback practically unreachable without risking an unbounded loop
+// under pathological maintenance churn.
+const maxInsertRerouteAttempts = 3
+
+// rerouteLostInsert re-places a vector whose target posting was deleted by a
+// concurrent split or merge between routing (RNGSelect) and append. The
+// vector was acked to the caller, so parking it in the async reassign queue
+// would leave an acked insert unsearchable until the task runs — re-route
+// synchronously instead. vector is add()'s already-normalized routing
+// representation: the retry must route on exactly what the initial RNGSelect
+// saw. v is the compressed Vector the initial appends used, so every copy
+// shares one version. appendedTo lists postings that already hold a copy
+// from this insert: a retry must never append a second same-version copy to
+// the same posting, because re-routing (unlike the reassign path) does not
+// bump the version, so garbage collection could never remove the duplicate.
+// If every attempt loses the race again — or routing itself fails — fall
+// back to the reassign queue: the caller was acked, so no loser path may
+// surface as an insert error.
+func (h *HFresh) rerouteLostInsert(ctx context.Context, v Vector, vector []float32, appendedTo []uint64, lostHint uint64) error {
+	for attempt := 0; attempt < maxInsertRerouteAttempts; attempt++ {
+		targets, _, err := h.RNGSelect(vector, 0)
+		if err != nil {
+			// The insert is acked on every other loser path; a routing
+			// failure inside the retry must not turn it into an insert
+			// error — park the vector in the reassign queue instead, like
+			// the other fallbacks.
+			h.logger.WithField("vectorID", v.ID()).
+				Warnf("insert re-route: RNG selection failed, falling back to async reassign: %v", err)
+			break
+		}
+		if targets.Len() == 0 {
+			// no live centroid matched: leave the placement to the async path
+			break
+		}
+
+		lostAny := false
+		for targetID := range targets.Iter() {
+			if slices.Contains(appendedTo, targetID) {
+				continue
 			}
+			added, err := h.append(ctx, v, targetID, false)
+			if err != nil {
+				return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), targetID)
+			}
+			if !added {
+				lostAny = true
+				lostHint = targetID
+				continue
+			}
+			appendedTo = append(appendedTo, targetID)
+		}
+		if !lostAny {
+			return nil
 		}
 	}
 
+	// a single task covers every lost target: EnqueueReassign dedups by
+	// vector ID, so the pre-reroute per-target enqueue loop collapsed to
+	// one task anyway
+	err := h.taskQueue.EnqueueReassign(lostHint, v.ID())
+	if err != nil {
+		return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), lostHint)
+	}
 	return nil
 }
 

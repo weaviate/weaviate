@@ -13,6 +13,10 @@ package hfresh
 
 import (
 	"context"
+	"errors"
+	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -485,4 +489,386 @@ func TestValidateMultiBeforeInsertEmpty(t *testing.T) {
 		err := single.Index.ValidateMultiBeforeInsert([][]float32{{0.1, 0.2}})
 		require.ErrorContains(t, err, "muvera is not enabled")
 	})
+}
+
+// installPosting wires a posting built by createPostingWithVectors into the
+// index: centroid (mean of the vectors) into the SPTAG, posting content into
+// the store, and the membership and size caches.
+func installPosting(t *testing.T, tf *TestHFresh, postingID uint64, posting Posting, vectors [][]float32) {
+	t.Helper()
+	mean := make([]float32, len(vectors[0]))
+	for _, vec := range vectors {
+		for i, x := range vec {
+			mean[i] += x
+		}
+	}
+	for i := range mean {
+		mean[i] /= float32(len(vectors))
+	}
+	require.NoError(t, tf.Index.Centroids.Insert(postingID, &Centroid{
+		Uncompressed: mean,
+		Compressed:   tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(mean)),
+	}))
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, posting))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, posting))
+}
+
+// pauseAllTaskQueues stops the background maintenance workers from picking up
+// tasks, so a test controls every state transition itself. Pushing to the
+// queues remains possible.
+func pauseAllTaskQueues(t *testing.T, tf *TestHFresh) {
+	t.Helper()
+	require.NoError(t, tf.Index.taskQueue.analyzeQueue.Pause(t.Context()))
+	require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(t.Context()))
+	require.NoError(t, tf.Index.taskQueue.mergeQueue.Pause(t.Context()))
+	require.NoError(t, tf.Index.taskQueue.reassignQueue.Pause(t.Context()))
+}
+
+// waitForParkedAppend blocks until a goroutine is parked inside
+// (*HFresh).append — i.e. it has made its routing decision and is now waiting
+// on the posting lock held by the test. This is a convergence wait, not a
+// timing assumption: the test cannot proceed before the insert is provably
+// past RNGSelect.
+func waitForParkedAppend(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	buf := make([]byte, 1<<20)
+	for time.Now().Before(deadline) {
+		n := runtime.Stack(buf, true)
+		if strings.Contains(string(buf[:n]), "hfresh.(*HFresh).append(") {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("insert goroutine never reached append")
+}
+
+// TestAddRerouteWhenSplitWinsTheRace deterministically forces the loser
+// interleaving of the insert-vs-split race:
+//  1. Add()'s RNGSelect picks posting P (the only posting),
+//  2. before its append acquires P's posting lock, a complete split of P
+//     publishes two replacement postings and deletes P's centroid,
+//  3. append then finds the centroid gone and reports !added.
+//
+// The insert must re-route synchronously: the acked vector has to be
+// searchable without any help from the async reassign queue (paused here, as
+// it can lag arbitrarily in production), and nothing may be left parked in
+// that queue or its dedup list.
+func TestAddRerouteWhenSplitWinsTheRace(t *testing.T) {
+	// ids 0..14 pre-exist in posting P; id 15 is the racing insert
+	vectors := make([][]float32, 16)
+	for i := range vectors {
+		vectors[i] = []float32{float32(i), float32(i % 3), float32(i % 5), 1}
+	}
+	newID := uint64(15)
+
+	tf := createHFreshIndexWithVectorStore(t, vectors)
+	pauseAllTaskQueues(t, &tf)
+
+	postingID, posting := createPostingWithVectors(t, &tf, vectors[:15], 0)
+	installPosting(t, &tf, postingID, posting, vectors[:15])
+
+	tf.Index.postingLocks.Lock(postingID)
+	locked := true
+	defer func() {
+		if locked {
+			tf.Index.postingLocks.Unlock(postingID)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tf.Index.Add(context.Background(), newID, vectors[newID])
+	}()
+	waitForParkedAppend(t)
+
+	// play a complete split of P while the insert is parked: publish the two
+	// replacement postings first, then delete P — the same order as doSplit
+	leftID, left := createPostingWithVectors(t, &tf, vectors[:8], 0)
+	installPosting(t, &tf, leftID, left, vectors[:8])
+	rightID, right := createPostingWithVectors(t, &tf, vectors[8:15], 8)
+	installPosting(t, &tf, rightID, right, vectors[8:15])
+	require.NoError(t, tf.Index.Centroids.MarkAsDeleted(postingID))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, Posting{}))
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, Posting{}))
+
+	tf.Index.postingLocks.Unlock(postingID)
+	locked = false
+	addErr := <-errCh
+	require.NoError(t, addErr, "Add must return nil when the re-route succeeds")
+
+	ids, _, err := tf.Index.SearchByVector(t.Context(), vectors[newID], len(vectors), nil)
+	require.NoError(t, err)
+	require.Contains(t, ids, newID,
+		"acked insert that lost the routing race must be searchable without the async reassign queue")
+
+	require.Zero(t, tf.Index.taskQueue.reassignQueue.Size(),
+		"synchronous re-route must not enqueue a reassign")
+	require.False(t, tf.Index.taskQueue.reassignList.Contains(newID),
+		"reassign dedup bit must not be set when nothing was enqueued")
+}
+
+// TestAddFallsBackToReassignQueueWhenNoLiveCentroidRemains pins the
+// empty-centroids fallback: when the re-route's first RNGSelect finds no live
+// posting at all (every centroid vanished mid-insert), the retry loop exits
+// on its first iteration and add() must still ack the insert, parking the
+// vector in the reassign queue with its dedup bit set — the pre-existing
+// behavior. The bounded retry must never turn this into an insert failure.
+//
+// The retry-exhaustion branch (maxInsertRerouteAttempts consecutive losses
+// against live centroids) ends at the same fallback statement but is
+// deliberately uncovered: forcing N chained lose-the-race interleavings
+// deterministically would need either a production hook in the retry loop or
+// a chain of posting-lock parks whose detection depends on lock striping —
+// both worse than the documented gap.
+func TestAddFallsBackToReassignQueueWhenNoLiveCentroidRemains(t *testing.T) {
+	vectors := make([][]float32, 16)
+	for i := range vectors {
+		vectors[i] = []float32{float32(i), float32(i % 3), float32(i % 5), 1}
+	}
+	newID := uint64(15)
+
+	tf := createHFreshIndexWithVectorStore(t, vectors)
+	pauseAllTaskQueues(t, &tf)
+
+	postingID, posting := createPostingWithVectors(t, &tf, vectors[:15], 0)
+	installPosting(t, &tf, postingID, posting, vectors[:15])
+
+	tf.Index.postingLocks.Lock(postingID)
+	locked := true
+	defer func() {
+		if locked {
+			tf.Index.postingLocks.Unlock(postingID)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tf.Index.Add(context.Background(), newID, vectors[newID])
+	}()
+	waitForParkedAppend(t)
+
+	// delete the only centroid and publish no replacement: the re-route's
+	// first RNGSelect comes back empty and the loop exits immediately
+	require.NoError(t, tf.Index.Centroids.MarkAsDeleted(postingID))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, Posting{}))
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, Posting{}))
+
+	tf.Index.postingLocks.Unlock(postingID)
+	locked = false
+	addErr := <-errCh
+	require.NoError(t, addErr, "Add must return nil when re-routing falls back to the reassign queue")
+
+	require.EqualValues(t, 1, tf.Index.taskQueue.reassignQueue.Size(),
+		"fallback must park exactly one reassign task")
+	require.True(t, tf.Index.taskQueue.reassignList.Contains(newID),
+		"parked reassign must keep its dedup bit until the task runs")
+}
+
+// countVectorCopies returns how many copies of vecID each of the given
+// postings holds, plus the total. The caller enumerates every posting that
+// exists in the test scenario, so the total is the vector's real replication
+// count.
+func countVectorCopies(t *testing.T, tf *TestHFresh, postingIDs []uint64, vecID uint64) (int, map[uint64]int) {
+	t.Helper()
+	total := 0
+	perPosting := make(map[uint64]int, len(postingIDs))
+	for _, pid := range postingIDs {
+		p, err := tf.Index.PostingStore.Get(t.Context(), pid)
+		if err != nil {
+			if errors.Is(err, ErrPostingNotFound) {
+				continue
+			}
+			require.NoError(t, err)
+		}
+		n := 0
+		for _, v := range p {
+			if v.ID() == vecID {
+				n++
+			}
+		}
+		perPosting[pid] = n
+		total += n
+	}
+	return total, perPosting
+}
+
+// TestAddReroutePartialLossKeepsExactReplication covers the partial loser:
+// the initial routing selects two postings, the append to P1 lands, the
+// append to P2 loses against a concurrent split. The re-route must place
+// exactly one additional copy (in P2's replacement child) and must not
+// re-append to P1, which already holds a same-version copy that garbage
+// collection could never deduplicate. Total replication is pinned to an
+// exact number: 2 — P1 plus the child — because the post-split centroid set
+// seen by the retry is {P1, child} and P1 is skipped. Anything above 2 means
+// the re-route inflated replication.
+func TestAddReroutePartialLossKeepsExactReplication(t *testing.T) {
+	// ids 0..4 live in P1, ids 5..9 in P2, id 10 is the racing insert.
+	// P1 and P2 sit far apart, the query equidistant-ish from both, so the
+	// initial RNGSelect picks both as replicas (RNG pruning at factor 10
+	// only drops candidates ~10x closer to a replica than to the query).
+	vectors := make([][]float32, 11)
+	for i := 0; i < 5; i++ {
+		vectors[i] = []float32{0, 0.9, 0, 1}
+	}
+	for i := 5; i < 10; i++ {
+		vectors[i] = []float32{0.9, 0, 0, 1}
+	}
+	newID := uint64(10)
+	vectors[newID] = []float32{0, 0, 0, 1}
+
+	tf := createHFreshIndexWithVectorStore(t, vectors)
+	pauseAllTaskQueues(t, &tf)
+
+	p1ID, p1 := createPostingWithVectors(t, &tf, vectors[:5], 0)
+	installPosting(t, &tf, p1ID, p1, vectors[:5])
+	p2ID, p2 := createPostingWithVectors(t, &tf, vectors[5:10], 5)
+	installPosting(t, &tf, p2ID, p2, vectors[5:10])
+
+	tf.Index.postingLocks.Lock(p2ID)
+	locked := true
+	defer func() {
+		if locked {
+			tf.Index.postingLocks.Unlock(p2ID)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tf.Index.Add(context.Background(), newID, vectors[newID])
+	}()
+	waitForParkedAppend(t)
+
+	// stage P2's disappearance while the insert is parked. This is not a
+	// real splitPosting partition: the "child" is a clone of P2 (same
+	// vectors, same location) published before P2's centroid is deleted —
+	// the same publish-then-delete order and centroid-set transition a real
+	// doSplit produces, which is all append and the re-route observe.
+	childID, child := createPostingWithVectors(t, &tf, vectors[5:10], 5)
+	installPosting(t, &tf, childID, child, vectors[5:10])
+	require.NoError(t, tf.Index.Centroids.MarkAsDeleted(p2ID))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), p2ID, Posting{}))
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), p2ID, Posting{}))
+
+	tf.Index.postingLocks.Unlock(p2ID)
+	locked = false
+	addErr := <-errCh
+	require.NoError(t, addErr, "Add must return nil on a partial loss")
+
+	ids, _, err := tf.Index.SearchByVector(t.Context(), vectors[newID], len(vectors), nil)
+	require.NoError(t, err)
+	require.Contains(t, ids, newID, "partially lost insert must stay searchable")
+
+	total, perPosting := countVectorCopies(t, &tf, []uint64{p1ID, p2ID, childID}, newID)
+	require.Equal(t, 2, total,
+		"re-route must add exactly one copy: P1 kept its copy, the child got one, nothing else")
+	require.Equal(t, 1, perPosting[p1ID],
+		"P1 must hold exactly one copy: the re-route may not re-append to a posting that already has one")
+	require.Equal(t, 0, perPosting[p2ID], "the split-away posting must hold no copy")
+	require.Equal(t, 1, perPosting[childID], "the replacement child must hold the re-routed copy")
+
+	require.Zero(t, tf.Index.taskQueue.reassignQueue.Size(),
+		"successful re-route must not enqueue a reassign")
+	require.False(t, tf.Index.taskQueue.reassignList.Contains(newID))
+}
+
+// faultyDistanceProvider delegates to a real provider until failing is set;
+// from then on every distance computation errors. Wired through the test
+// constructor's withDistanceProvider option, it makes RNGSelect fail
+// mid-flight without any production hook.
+type faultyDistanceProvider struct {
+	distancer.Provider
+	failing atomic.Bool
+}
+
+func (f *faultyDistanceProvider) SingleDist(a, b []float32) (float32, error) {
+	if f.failing.Load() {
+		return 0, errors.New("injected distance failure")
+	}
+	return f.Provider.SingleDist(a, b)
+}
+
+func (f *faultyDistanceProvider) New(vec []float32) distancer.Distancer {
+	if f.failing.Load() {
+		return failingDistancer{}
+	}
+	return f.Provider.New(vec)
+}
+
+type failingDistancer struct{}
+
+func (failingDistancer) Distance([]float32) (float32, error) {
+	return 0, errors.New("injected distance failure")
+}
+
+// TestAddAcksAndParksWhenRerouteRoutingFails pins the routing-failure
+// fallback: when RNGSelect errors inside the re-route, Add must still return
+// nil (the vector was acked on every other loser path, so no loser path may
+// surface as an insert error) and park the vector in the reassign queue. The
+// warn-log assertion proves the error branch ran, not the empty-centroids
+// branch, which ends at the same queue.
+func TestAddAcksAndParksWhenRerouteRoutingFails(t *testing.T) {
+	faulty := &faultyDistanceProvider{Provider: distancer.NewL2SquaredProvider()}
+	tf := createHFreshIndex(t, withDistanceProvider(faulty))
+	pauseAllTaskQueues(t, &tf)
+
+	vectors := make([][]float32, 15)
+	for i := range vectors {
+		vectors[i] = []float32{1, 0, 0, 0}
+	}
+	postingID, posting := createPostingWithVectors(t, &tf, vectors, 0)
+	installPosting(t, &tf, postingID, posting, vectors)
+
+	newID := uint64(100)
+	newVec := []float32{1, 0, 0, 0}
+
+	tf.Index.postingLocks.Lock(postingID)
+	locked := true
+	defer func() {
+		if locked {
+			tf.Index.postingLocks.Unlock(postingID)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tf.Index.Add(context.Background(), newID, newVec)
+	}()
+	waitForParkedAppend(t)
+
+	// publish two live replacements far apart so the retry's RNGSelect has
+	// distances to compute, delete the original, then break every distance
+	// computation: the retry's routing must fail, not come back empty
+	childAID, childA := createPostingWithVectors(t, &tf, vectors[:8], 0)
+	installPosting(t, &tf, childAID, childA, vectors[:8])
+	farVectors := make([][]float32, 7)
+	for i := range farVectors {
+		farVectors[i] = []float32{0, 1, 0, 0}
+	}
+	childBID, childB := createPostingWithVectors(t, &tf, farVectors, 8)
+	installPosting(t, &tf, childBID, childB, farVectors)
+	require.NoError(t, tf.Index.Centroids.MarkAsDeleted(postingID))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, Posting{}))
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, Posting{}))
+	faulty.failing.Store(true)
+
+	tf.Index.postingLocks.Unlock(postingID)
+	locked = false
+	addErr := <-errCh
+	require.NoError(t, addErr,
+		"Add must return nil when re-route routing fails; the vector is parked, not the insert failed")
+
+	logged := false
+	for _, e := range tf.Logs.AllEntries() {
+		if strings.Contains(e.Message, "RNG selection failed") {
+			logged = true
+			break
+		}
+	}
+	require.True(t, logged, "the re-route must have taken the routing-failure branch")
+
+	require.EqualValues(t, 1, tf.Index.taskQueue.reassignQueue.Size(),
+		"routing failure must park exactly one reassign task")
+	require.True(t, tf.Index.taskQueue.reassignList.Contains(newID),
+		"parked reassign must keep its dedup bit until the task runs")
 }
