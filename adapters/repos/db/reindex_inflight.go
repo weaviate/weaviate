@@ -29,8 +29,101 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
+// reindexGate answers the backup gate's per-shard question from one
+// resolved snapshot. Resolving the activity lookup costs a cluster-wide
+// query against the RAFT leader, so a caller that checks many shards
+// must resolve once rather than once per shard.
+//
+// Resolution is lazy: a gate that is never asked about a shard issues
+// no query at all.
+type reindexGate struct {
+	db       *DB
+	once     sync.Once
+	activity ShardReindexActivityLookup
+	cleanup  CleanupInProgressLookup
+}
+
+// newReindexGate returns an unresolved gate over db.
+func newReindexGate(db *DB) *reindexGate {
+	return &reindexGate{db: db}
+}
+
+func (g *reindexGate) resolve() {
+	g.once.Do(func() {
+		// Read the builders here rather than when the gate was built: a
+		// gate created in the startup window between the two install
+		// calls would otherwise hold one builder for its whole life and
+		// never see the other.
+		g.db.reindexAuditMu.RLock()
+		activityBuilder := g.db.shardReindexActivityLookupBuilder
+		cleanupBuilder := g.db.reindexCleanupInProgressLookupBldr
+		g.db.reindexAuditMu.RUnlock()
+
+		if activityBuilder == nil {
+			unwiredGateWarnOnce.Do(func() {
+				logger := g.db.logger
+				if logger == nil {
+					logger = logrus.New()
+				}
+				logger.WithField("action", "backup_reindex_gate").
+					Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
+						"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
+			})
+			return
+		}
+		g.activity = activityBuilder()
+		// The cleanup builder is optional — older wiring paths and test
+		// fixtures that install only the activity lookup keep the prior
+		// semantics. Its closure reads a live registry on every call, so
+		// memoizing the closure does not freeze its answer.
+		if cleanupBuilder != nil {
+			g.cleanup = cleanupBuilder()
+		}
+	})
+}
+
+// anyLiveReindexForShard reports whether the gate's snapshot blocks a
+// backup of (collection, shardName).
+func (g *reindexGate) anyLiveReindexForShard(collection, shardName string) bool {
+	g.resolve()
+	if g.activity == nil {
+		return false
+	}
+	if g.activity(collection, shardName) {
+		// Debug-level so flag-on operators get visibility into which
+		// side of the OR fired the gate refusal. The matching cleanup
+		// branch below logs at the same level.
+		if g.db.logger != nil {
+			g.db.logger.WithField("action", "backup_reindex_gate").
+				WithField("collection", collection).
+				WithField("shard", shardName).
+				WithField("reason", "activity_lookup_live_task").
+				Debug("backup-reindex gate: refusing — DTM lists a live reindex task on this shard")
+		}
+		return true
+	}
+	// Cleanup is OR-d in: the DTM task may have flipped to terminal
+	// while autoCleanupAfterTerminal is still tearing the sidecar
+	// buckets.
+	if g.cleanup == nil {
+		return false
+	}
+	if g.cleanup(collection, shardName) {
+		if g.db.logger != nil {
+			g.db.logger.WithField("action", "backup_reindex_gate").
+				WithField("collection", collection).
+				WithField("shard", shardName).
+				WithField("reason", "cleanup_in_progress").
+				Debug("backup-reindex gate: refusing — autoCleanupAfterTerminal still draining sidecars on this shard")
+		}
+		return true
+	}
+	return false
+}
+
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
-// have any LIVE reindex task targeting (collection, shardName)?
+// have any LIVE reindex task targeting (collection, shardName)? Each
+// call resolves its own snapshot.
 //
 // Replaces the prior filesystem-marker check, which only saw this node
 // and lagged DTM's actual state. The lookup builder is installed by
@@ -44,62 +137,7 @@ var unwiredGateWarnOnce sync.Once
 // install path; production HTTP gates on bootstrap completion so the
 // unwired window is unreachable by external traffic.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
-	db.reindexAuditMu.RLock()
-	activityBuilder := db.shardReindexActivityLookupBuilder
-	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
-	db.reindexAuditMu.RUnlock()
-	if activityBuilder == nil {
-		unwiredGateWarnOnce.Do(func() {
-			logger := db.logger
-			if logger == nil {
-				logger = logrus.New()
-			}
-			logger.WithField("action", "backup_reindex_gate").
-				Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
-					"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
-		})
-		return false
-	}
-	lookup := activityBuilder()
-	if lookup == nil {
-		return false
-	}
-	if lookup(collection, shardName) {
-		// Debug-level so flag-on operators get visibility into which
-		// side of the OR fired the gate refusal. The matching cleanup
-		// branch below logs at the same level.
-		if db.logger != nil {
-			db.logger.WithField("action", "backup_reindex_gate").
-				WithField("collection", collection).
-				WithField("shard", shardName).
-				WithField("reason", "activity_lookup_live_task").
-				Debug("backup-reindex gate: refusing — DTM lists a live reindex task on this shard")
-		}
-		return true
-	}
-	// Cleanup lookup is OR-d in: the DTM task may have flipped to
-	// terminal while autoCleanupAfterTerminal is still tearing the
-	// sidecar buckets. The cleanup builder is optional — older
-	// wiring paths and test fixtures that install only the activity
-	// lookup keep the prior semantics.
-	if cleanupBuilder == nil {
-		return false
-	}
-	cleanupLookup := cleanupBuilder()
-	if cleanupLookup == nil {
-		return false
-	}
-	if cleanupLookup(collection, shardName) {
-		if db.logger != nil {
-			db.logger.WithField("action", "backup_reindex_gate").
-				WithField("collection", collection).
-				WithField("shard", shardName).
-				WithField("reason", "cleanup_in_progress").
-				Debug("backup-reindex gate: refusing — autoCleanupAfterTerminal still draining sidecars on this shard")
-		}
-		return true
-	}
-	return false
+	return newReindexGate(db).anyLiveReindexForShard(collection, shardName)
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
@@ -113,11 +151,15 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 }
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
+// [Index.backupInactiveShardWithHardlinks],
 // [Index.backupInactiveShardWithoutHardlinks], and
 // [Shard.HaltForTransfer]. Consults DTM via
 // [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
 // replaced only saw the local node and lagged DTM's actual state.
+//
+// Each call resolves its own snapshot. [DB.Backupable] walks many
+// shards in one pass and shares a gate instead, via
+// [Index.refuseIfReindexInFlightWithGate].
 //
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
@@ -128,6 +170,19 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
 	}
 	if !i.db.AnyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
+		return nil
+	}
+	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
+}
+
+// refuseIfReindexInFlightWithGate is [Index.refuseIfReindexInFlight]
+// answered from a caller-owned gate instead of a fresh one.
+func (i *Index) refuseIfReindexInFlightWithGate(gate *reindexGate, shardName string) error {
+	if i.db == nil {
+		// Same conservative default as the fresh-snapshot form.
+		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
+	}
+	if !gate.anyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
 		return nil
 	}
 	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)

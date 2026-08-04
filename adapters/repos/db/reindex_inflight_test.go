@@ -33,6 +33,27 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
+// countingActivityBuilder instruments a builder so a test can see what a
+// pass cost: how many snapshots it built (one cluster-wide DTM query
+// each) and which (collection, shard) pairs those snapshots were asked
+// about. Both are invisible at the API surface except as latency.
+type countingActivityBuilder struct {
+	snapshots ShardReindexActivityLookupBuilder
+	builds    int
+	probed    [][2]string
+}
+
+func (c *countingActivityBuilder) install(db *DB) {
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		c.builds++
+		lookup := c.snapshots()
+		return func(collection, shardName string) bool {
+			c.probed = append(c.probed, [2]string{collection, shardName})
+			return lookup(collection, shardName)
+		}
+	})
+}
+
 // TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
 // a live task for the (collection, shard) tuple causes the gate to
 // refuse.

@@ -65,6 +65,10 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
+	// One snapshot for the whole precheck: resolving it costs a
+	// cluster-wide query, and it is keyed (collection, shard) so it
+	// answers for every class below.
+	gate := newReindexGate(db)
 	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
@@ -83,7 +87,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			continue
 		}
 		for _, shardName := range shards {
-			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
+			if err := idx.refuseIfReindexInFlightWithGate(gate, shardName); err != nil {
 				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
 			}
 		}
