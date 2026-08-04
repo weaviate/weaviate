@@ -321,3 +321,37 @@ func TestLevelSetCountSizedBuffer(t *testing.T) {
 		})
 	}
 }
+
+func TestLevelResponseEquivalentAcrossBufferSizing(t *testing.T) {
+	height := 6
+	ht, err := NewHashTree(height)
+	require.NoError(t, err)
+	for i := uint64(0); i < uint64(LeavesCount(height)); i++ {
+		require.NoError(t, ht.AggregateLeafWith(i, []byte{byte(i), byte(i >> 3)}))
+	}
+
+	discriminants := func(level int) []*Bitset {
+		width := nodesAtLevel(level)
+		root := NewBitset(width).Set(0)
+		sparse := NewBitset(width)
+		for i := 0; i < width; i += 3 {
+			sparse.Set(i)
+		}
+		return []*Bitset{root, sparse, NewBitset(width).SetAll(), NewBitset(width)}
+	}
+
+	for level := 0; level <= height; level++ {
+		for di, disc := range discriminants(level) {
+			fullWidth := make([]Digest, nodesAtLevel(level))
+			nOld, err := ht.Level(level, disc, fullWidth)
+			require.NoError(t, err, "level %d disc %d", level, di)
+
+			setCountSized := make([]Digest, disc.SetCount())
+			nNew, err := ht.Level(level, disc, setCountSized)
+			require.NoError(t, err, "level %d disc %d", level, di)
+
+			require.Equal(t, nOld, nNew, "level %d disc %d", level, di)
+			require.Equal(t, fullWidth[:nOld], setCountSized[:nNew], "level %d disc %d", level, di)
+		}
+	}
+}
