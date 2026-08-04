@@ -37,6 +37,22 @@ func serveHashTreeLevel(ht hashtree.AggregatedHashTree) func(context.Context, st
 	}
 }
 
+func newDivergentTrees(t *testing.T, height int, diffLeaves []uint64) (local, peer *hashtree.HashTree) {
+	t.Helper()
+	local, err := hashtree.NewHashTree(height)
+	require.NoError(t, err)
+	peer, err = hashtree.NewHashTree(height)
+	require.NoError(t, err)
+	for i := uint64(0); i < uint64(hashtree.LeavesCount(height)); i++ {
+		require.NoError(t, local.AggregateLeafWith(i, []byte{byte(i)}))
+		require.NoError(t, peer.AggregateLeafWith(i, []byte{byte(i)}))
+	}
+	for _, l := range diffLeaves {
+		require.NoError(t, peer.AggregateLeafWith(l, []byte("extra")))
+	}
+	return local, peer
+}
+
 func collectRangeLeaves(t *testing.T, rr hashtree.AggregatedHashTreeRangeReader) []uint64 {
 	t.Helper()
 	var leaves []uint64
@@ -101,17 +117,7 @@ func TestCollectShardDifferencesDivergent(t *testing.T) {
 	f := newFakeFactory(t, class, shard, []string{"A", "B", "C"}, false)
 	finder := f.newFinder("A")
 
-	local, err := hashtree.NewHashTree(height)
-	require.NoError(t, err)
-	peer, err := hashtree.NewHashTree(height)
-	require.NoError(t, err)
-	for i := uint64(0); i < uint64(hashtree.LeavesCount(height)); i++ {
-		require.NoError(t, local.AggregateLeafWith(i, []byte{byte(i)}))
-		require.NoError(t, peer.AggregateLeafWith(i, []byte{byte(i)}))
-	}
-	for _, l := range diffLeaves {
-		require.NoError(t, peer.AggregateLeafWith(l, []byte("extra")))
-	}
+	local, peer := newDivergentTrees(t, height, diffLeaves)
 
 	f.RClient.EXPECT().
 		HashTreeLevel(mock.Anything, mock.Anything, class, shard, mock.Anything, mock.Anything).
@@ -136,17 +142,7 @@ func TestCollectShardDifferencesMixedTargets(t *testing.T) {
 	f := newFakeFactory(t, class, shard, []string{"A", "B", "C"}, false)
 	finder := f.newFinder("A")
 
-	local, err := hashtree.NewHashTree(height)
-	require.NoError(t, err)
-	peer, err := hashtree.NewHashTree(height)
-	require.NoError(t, err)
-	for i := uint64(0); i < uint64(hashtree.LeavesCount(height)); i++ {
-		require.NoError(t, local.AggregateLeafWith(i, []byte{byte(i)}))
-		require.NoError(t, peer.AggregateLeafWith(i, []byte{byte(i)}))
-	}
-	for _, l := range diffLeaves {
-		require.NoError(t, peer.AggregateLeafWith(l, []byte("extra")))
-	}
+	local, peer := newDivergentTrees(t, height, diffLeaves)
 
 	f.RClient.EXPECT().
 		HashTreeLevel(mock.Anything, "B", class, shard, mock.Anything, mock.Anything).
