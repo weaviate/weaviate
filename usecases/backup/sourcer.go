@@ -27,6 +27,12 @@ type Sourcer interface { // implemented by the index
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
 
+	// RefuseIfAnyReindexInFlight refuses when any runtime-reindex task is live
+	// anywhere in the cluster. Restore admission asks this instead of the
+	// per-class Backupable question, which a class absent from this node
+	// cannot answer.
+	RefuseIfAnyReindexInFlight(ctx context.Context) error
+
 	// BackupDescriptors returns a channel of class descriptors.
 	// Class descriptor records everything needed to restore a class
 	// If an error happens a descriptor with an error will be written to the channel just before closing it.

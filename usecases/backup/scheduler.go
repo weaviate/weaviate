@@ -858,6 +858,13 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if dup := findDuplicate(req.Include); dup != "" {
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
+	// Refuse before any node stages data: a restore writes class data the DTM
+	// unit driving a live migration does not track. Never waits for the
+	// migration — a wait would hold the restore slot that the reverse guard
+	// reads, deadlocking both sides.
+	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx); err != nil {
+		return nil, fmt.Errorf("restore blocked: %w", err)
+	}
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path)
 	if err != nil {

@@ -54,11 +54,20 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 
 type fakeSourcer struct {
 	mock.Mock
+
+	// reindexInFlightErr is what RefuseIfAnyReindexInFlight answers. A plain
+	// field rather than a mock expectation, so the restore tests written
+	// before the gate existed keep passing without registering a call.
+	reindexInFlightErr error
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
 	args := s.Called(ctx, id, class)
 	return args.Error(0)
+}
+
+func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context) error {
+	return s.reindexInFlightErr
 }
 
 func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {

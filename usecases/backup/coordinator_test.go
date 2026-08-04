@@ -605,6 +605,11 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 type fakeSelector struct {
 	mock.Mock
+
+	// reindexInFlightErr is what RefuseIfAnyReindexInFlight answers. A plain
+	// field rather than a mock expectation, so the restore tests written
+	// before the gate existed keep passing without registering a call.
+	reindexInFlightErr error
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
@@ -620,6 +625,10 @@ func (s *fakeSelector) ListClasses(ctx context.Context) []string {
 func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 	args := s.Called(ctx, classes)
 	return args.Error(0)
+}
+
+func (s *fakeSelector) RefuseIfAnyReindexInFlight(context.Context) error {
+	return s.reindexInFlightErr
 }
 
 type fakeCoordinator struct {

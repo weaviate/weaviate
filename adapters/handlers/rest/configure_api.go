@@ -1116,6 +1116,22 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
+		// The restore gate cannot ask the per-shard question above: a class
+		// being restored has no local index yet, so the shard lookup would
+		// always report it free. Ask the cluster-wide question instead, and
+		// let the error through so the gate can fail closed.
+		repo.SetAnyReindexActivityLookup(func(ctx context.Context) (bool, error) {
+			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
+			if err != nil {
+				return false, fmt.Errorf("ListDistributedTasks: %w", err)
+			}
+			for _, task := range tasksByNamespace[db.ReindexNamespace] {
+				if db.IsLiveReindexTaskStatus(task.Status) {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next

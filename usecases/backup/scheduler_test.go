@@ -1087,6 +1087,35 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	})
 }
 
+// TestSchedulerRestoreRefusedDuringInFlightReindex pins the coordinator-side
+// half of the restore gate. The fake backend carries no expectations, so the
+// refusal must land before the descriptor is fetched — a restore that reached
+// the backend would fail the test rather than pass it.
+func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	fs := newFakeScheduler(nil)
+	fs.selector.reindexInFlightErr = gateRefusal()
+
+	_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+		Backend: "s3",
+		ID:      "1",
+		Include: []string{"Class1"},
+	}, false)
+
+	require.Error(t, err)
+	// ErrUnprocessable does not unwrap, so the sentinel survives only as text
+	// here; the 422 mapping is what the REST layer keys off.
+	assert.IsType(t, backup.ErrUnprocessable{}, err)
+	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
+		"retry after the migration finishes", err.Error())
+	assert.NotContains(t, err.Error(), "backup blocked",
+		"a restore refusal must not be worded as a backup refusal")
+	assert.NotContains(t, err.Error(), "this shard",
+		"the gate is cluster-wide; no shard is involved")
+}
+
 func TestSchedulerList(t *testing.T) {
 	t.Parallel()
 	var (
