@@ -75,9 +75,8 @@ type Selector interface {
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
 
-	// RefuseIfAnyReindexInFlight refuses when any runtime-reindex task is
-	// live in the cluster. Used for restore admission instead of Backupable,
-	// which a class absent from this node cannot answer.
+	// RefuseIfAnyReindexInFlight refuses when any runtime-reindex task is live in
+	// the cluster. Used for restore admission: Backupable can't answer for a class absent from this node.
 	RefuseIfAnyReindexInFlight(ctx context.Context) error
 }
 
@@ -194,8 +193,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	// From here the slot is ours until the goroutine below takes it over, so
-	// every error return has to give it back. A leaked slot blocks all later
-	// backups on this node, and every reindex in the cluster, until restart.
+	// every error return must give it back, or it stays leaked until restart.
 	defer func() {
 		if err != nil {
 			c.lastOp.reset()
@@ -277,13 +275,8 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Only give back the slot when it holds a cancelled restore. Another
-			// restore owns it otherwise — even one carrying this same id, since
-			// the cancel could have been claimed by a different coordinator —
-			// and clearing it makes this node report itself idle while it is
-			// still writing files. The check and the clear share one lock
-			// acquisition so a restore that claims the slot in between does not
-			// lose it.
+			// Only clear the slot if it still holds this cancelled restore; a
+			// newer restore may have claimed it since, and must keep it.
 			c.lastOp.resetIfCancelled(desc.ID)
 			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
 			return nil
@@ -510,8 +503,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 }
 
 // remoteReindexInFlightErr carries [backup.ErrReindexInFlight] for errors.Is
-// without restating it. Plain %w wrapping would print the sentinel twice: the
-// participant's message already opens with it.
+// without restating it; plain %w wrapping would print the sentinel twice.
 type remoteReindexInFlightErr struct{ msg string }
 
 func (e remoteReindexInFlightErr) Error() string { return e.msg }

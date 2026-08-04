@@ -56,12 +56,10 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 type indexesHandlers struct {
 	appState *state.State
 
-	// backupActivity is nil in fixtures without a cluster HTTP client;
-	// refuseIfBackupInFlight then allows submission.
+	// nil in fixtures without a cluster HTTP client; refuseIfBackupInFlight allows submission then.
 	backupActivity nodeActivityProber
 
-	// cluster names the nodes to probe. Nil in fixtures without a cluster,
-	// which refuseIfBackupInFlight treats the same as an unwired probe.
+	// nil in fixtures without a cluster; treated the same as an unwired probe.
 	cluster clusterMembership
 }
 
@@ -639,8 +637,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	// The conflict checks above already treat a missing cluster service as
-	// skippable; submitting through it is not, so say so instead of panicking.
+	// Unlike the conflict checks above, submitting requires the cluster service.
 	if h.appState.ClusterService == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
@@ -686,9 +683,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	})
 }
 
-// backupActivityScanTimeout bounds the cluster fan-out so one hung node cannot
-// hang the PUT. Seconds are affordable because reindex submission is a rare,
-// human-initiated operation.
+// backupActivityScanTimeout bounds the cluster fan-out so one hung node cannot hang the PUT.
 const backupActivityScanTimeout = 5 * time.Second
 
 var backupActivityGateWarnOnce sync.Once
@@ -706,9 +701,8 @@ type backupActivityScan struct {
 	UnreachableErr  error
 }
 
-// scanBackupActivity probes every node in parallel. Results are collected by
-// position so the reported node is deterministic: the lowest-indexed busy (or
-// unreachable) node wins regardless of the order answers arrive in.
+// scanBackupActivity probes every node in parallel; results are indexed by
+// position so the reported node is deterministic regardless of answer order.
 func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivityProber, logger logrus.FieldLogger) backupActivityScan {
 	ctx, cancel := context.WithTimeout(ctx, backupActivityScanTimeout)
 	defer cancel()
@@ -752,13 +746,11 @@ func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivity
 	return scan
 }
 
-// backupActivityResponder turns a scan into the refusal it warrants, or nil if every node is clear.
-// Node names, backup IDs and transport errors are deliberately absent from the
-// body: they need read_nodes / read_backups, while reaching this handler only
-// needs update_collections on one collection. The node log carries the detail.
+// backupActivityResponder turns a scan into the refusal it warrants, or nil if clear.
+// Node names, backup IDs and transport errors stay out of the body: they need
+// read_nodes/read_backups, but this handler only requires update_collections. See the node log for detail.
 func backupActivityResponder(principal *models.Principal, scan backupActivityScan) middleware.Responder {
-	// A definite "busy" outranks an unreachable node: it is a certain answer,
-	// and it is the one that will clear on its own.
+	// A definite "busy" outranks an unreachable node: it's a certain answer.
 	if scan.BusyNode != "" {
 		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
 			fmt.Sprintf("reindex blocked: a %s is running in the cluster; retry after it finishes",
@@ -772,8 +764,7 @@ func backupActivityResponder(principal *models.Principal, scan backupActivitySca
 }
 
 // refuseIfBackupInFlight blocks reindex submission while any node holds a
-// backup or restore slot — the mirror of backups already refusing to start
-// under a running reindex, since both rewrite the same on-disk buckets.
+// backup or restore slot, mirroring backups refusing to start under a running reindex.
 func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal *models.Principal) middleware.Responder {
 	var nodes []string
 	if h.cluster != nil {
@@ -789,12 +780,10 @@ func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal 
 		return nil
 	}
 
-	// A node that left the cluster isn't in AllNames() and isn't probed —
-	// correct, since its slots died with its process.
+	// A node that left the cluster isn't probed; its slots died with its process.
 	scan := scanBackupActivity(ctx, nodes, h.backupActivity, h.appState.Logger)
 
-	// The detail the response body withholds is only useful to an operator,
-	// who reads it here.
+	// Detail withheld from the response body (see backupActivityResponder) goes here.
 	entry := h.appState.Logger.WithField("action", "reindex_backup_gate")
 	switch {
 	case scan.BusyNode != "":
@@ -946,9 +935,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			"property":   propertyName,
 			"index_type": indexType,
 		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
-		// Hold the backup and restore gates shut across the drain as well as the
-		// teardown. A drain that times out leaves the worker writing, so that is
-		// the branch that needs the gate most.
+		// Hold the backup/restore gates across drain and teardown: a timed-out
+		// drain leaves the worker writing, which needs the gate most.
 		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
 		releaseGate, drainErr := h.appState.ReindexProvider.DrainWithCleanupGate(
 			drainCtx, &targetPayload, target.TaskDescriptor)

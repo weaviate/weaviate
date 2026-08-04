@@ -26,16 +26,13 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// maxPlacementAttempts bounds the search for the two placements the test
-// needs; shards land off a shuffled list, so 16 draws make bad luck rare.
+// maxPlacementAttempts bounds the search for the two placements the test needs.
 const maxPlacementAttempts = 16
 
-// probeDataset sizes the reindex-target class; it only needs to exist, since
-// the backup window comes from the other (backup) class.
+// probeDataset sizes the reindex-target class; it only needs to exist.
 const probeDataset = 500
 
-// guardTopology is the placement the remote-backup test is built on: a backup
-// that lives entirely on one node, and a reindex target owned by another.
+// guardTopology is a backup living entirely on one node, and a reindex target owned by another.
 type guardTopology struct {
 	backupClass  string
 	reindexClass string
@@ -43,10 +40,8 @@ type guardTopology struct {
 	placements   []string
 }
 
-// TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp asserts a node with no
-// stake in a running backup still refuses reindex — the property the
-// cluster-wide fan-out exists for. Two classes split ownership so the probe
-// node provably holds none of the backup: a node-local check would answer 202.
+// TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp pins that a node holding
+// no stake in a running backup still refuses reindex via the cluster-wide fan-out.
 func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	ctx := context.Background()
 
@@ -88,10 +83,8 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	t.Logf("topology: leader %q owns backup class %q, probe %q owns reindex class %q; placements sampled: %v",
 		leader, topo.backupClass, topo.probe.name, topo.reindexClass, topo.placements)
 
-	// Without this the test can still pass on a node-local check: if the probe
-	// node also held the backup, its own slot would produce the 409 and the
-	// cluster-wide fan-out would never be exercised. resolveGuardTopology is
-	// supposed to rule that out, so state it against the API rather than trust it.
+	// Confirm against the API, not just resolveGuardTopology's bookkeeping,
+	// that the probe node holds no stake in the backup.
 	require.NotEqual(t, leader, topo.probe.name,
 		"the probe node must not be the node that runs the backup, or the 409 proves nothing cluster-wide")
 	backupOwners, ok := shardOwners(nodes[0].uri, topo.backupClass)
@@ -103,13 +96,9 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	awaitClassVisible(t, coordinator.uri, topo.backupClass, coordinator.name)
 	awaitClassVisible(t, topo.probe.uri, topo.reindexClass, topo.probe.name)
 
-	// All objects land on the leader, so the corpus size that buys a
-	// multi-second window in the single-node tests works here too.
 	importBodies(t, topo.backupClass, guardDataset)
 	importBodies(t, topo.reindexClass, probeDataset)
 
-	// A leadership change since resolving the topology could enroll a node
-	// the test didn't account for.
 	require.Equal(t, leader, raftLeaderName(t, nodes[0].uri, 60*time.Second),
 		"the RAFT leader changed during setup; the resolved topology no longer holds")
 	require.NoError(t, startS3Backup(coordinator.uri, topo.backupClass, backupID, bucket))
@@ -119,15 +108,11 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 		statusOf, 10*time.Minute)
 	blocked := assertReindexBlocked(t, run, backupID)
 
-	// The backup includes only the leader's class, so the probe node holds no
-	// slot for it. The 409 is therefore only reachable by asking the leader.
 	t.Logf("probe node %q refused while only leader %q held backup %s: %s",
 		topo.probe.name, leader, backupID, blocked.body)
 
-	// Reaching this route needs update_collections on the one collection being
-	// migrated. assertReindexBlocked already covers the backup id; node names
-	// need read_nodes and the other collections' names need their own grant,
-	// neither of which this route asks for.
+	// The route only requires update_collections on one collection; node
+	// names and other collections' names need grants it doesn't have.
 	message := guardMessage(blocked.body)
 	for _, node := range nodes {
 		assert.NotContainsf(t, message, node.name,
@@ -160,9 +145,8 @@ func resolveGuardTopology(t *testing.T, nodes []clusterNode, leader, propName st
 	var topo guardTopology
 	var spares []string
 	for attempt := 0; attempt < maxPlacementAttempts; attempt++ {
-		// Zero-padded so no sampled name is a prefix of another: the redaction
-		// assertions below are substring checks, and "..._1" inside "..._15"
-		// would make them answer about the wrong class.
+		// Zero-padded so no sampled name is a prefix of another (redaction
+		// assertions below are substring checks).
 		className := fmt.Sprintf("ReindexGuard_RemoteBackup_%02d", attempt)
 		helper.CreateClass(t, &models.Class{
 			Class: className,

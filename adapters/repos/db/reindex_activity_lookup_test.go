@@ -25,8 +25,7 @@ import (
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
-// TestRefuseIfAnyReindexInFlight_Unwired pins the startup-window default
-// (allow + warn once). Separate test: the warn-once state is process-wide.
+// TestRefuseIfAnyReindexInFlight_Unwired pins the startup-window default: allow + warn once.
 func TestRefuseIfAnyReindexInFlight_Unwired(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
@@ -66,9 +65,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			cleanup: func() bool { return false },
 		},
 		{
-			// A cancelled task leaves DTM at once but keeps deleting sidecar
-			// dirs. Cancelling is what the refusal above tells operators to do,
-			// so their retry lands here.
 			name:         "sidecar cleanup after a cancel refuses the restore",
 			lookup:       func(context.Context) (bool, error) { return false, nil },
 			cleanup:      func() bool { return true },
@@ -113,8 +109,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 				assert.ErrorIs(t, err, tc.wantCause, "the underlying cause must stay reachable")
 			}
 
-			// The gate names the condition only; callers frame the operation,
-			// and the per-shard backup vocabulary doesn't apply here.
+			// The per-shard backup vocabulary doesn't apply to the cluster-wide gate.
 			assert.NotContains(t, err.Error(), "backup")
 			assert.NotContains(t, err.Error(), "restore")
 			assert.NotContains(t, err.Error(), "this shard")
@@ -122,8 +117,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	}
 }
 
-// TestRefuseIfAnyReindexInFlight_Wording pins the exact operator-facing text,
-// because both restore seams compose their message on top of it.
+// TestRefuseIfAnyReindexInFlight_Wording pins the exact operator-facing text.
 func TestRefuseIfAnyReindexInFlight_Wording(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
@@ -138,9 +132,7 @@ func TestRefuseIfAnyReindexInFlight_Wording(t *testing.T) {
 		err.Error())
 }
 
-// TestRefuseIfAnyReindexInFlight_PropagatesContext pins that the caller's
-// context reaches the lookup, so a canceled restore request does not leave a
-// task-manager call running.
+// TestRefuseIfAnyReindexInFlight_PropagatesContext pins that the caller's context reaches the lookup.
 func TestRefuseIfAnyReindexInFlight_PropagatesContext(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger}

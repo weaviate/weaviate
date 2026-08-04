@@ -133,14 +133,11 @@ type reindexCleanupKey struct {
 	shard      string
 }
 
-// cleanupWholeCollection is the shard name a collection-wide registration is
-// filed under. No real shard is named "", so it cannot collide with one.
+// cleanupWholeCollection marks a collection-wide registration; no real shard is named "".
 const cleanupWholeCollection = ""
 
-// newReindexCleanupKey folds the collection name so a registration and a probe
-// that spell the class differently still meet. Registrations come from a task
-// payload and probes from the index's own class name, and those two agree on
-// case only by convention. Shard names are exact and stay as given.
+// newReindexCleanupKey lowercases the collection so a registration and a probe
+// that spell the class differently still match; shard names stay exact.
 func newReindexCleanupKey(collection, shard string) reindexCleanupKey {
 	return reindexCleanupKey{collection: strings.ToLower(collection), shard: shard}
 }
@@ -1729,14 +1726,12 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 }
 
 // MarkCleanupInProgress holds the backup and restore gates shut on every shard
-// the task touched, and returns the release. Teardown always runs after the
-// task has gone terminal, so this is the only thing stopping a backup from
-// capturing half-removed __reindex / __ingest dirs. Defer the release.
+// the task touched, and returns the release; caller must defer it. This is the
+// only thing stopping a backup from capturing half-removed __reindex/__ingest dirs.
 func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
 	shards := uniqueShardsFromPayload(payload)
 	if len(shards) == 0 {
-		// The teardown runs either way, so a payload that names no shard has to
-		// close the gate on the whole collection rather than on nothing.
+		// No named shard: close the gate on the whole collection instead.
 		shards = []string{cleanupWholeCollection}
 	}
 	for _, shardName := range shards {
@@ -1749,10 +1744,8 @@ func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) fun
 	}
 }
 
-// AnyCleanupInProgress is the node-local, collection-blind form of
-// [ReindexProvider.IsCleanupInProgress], for the restore gate: a class being
-// restored has no local index yet, so there is no (collection, shard) tuple
-// to ask about.
+// AnyCleanupInProgress is the collection-blind form of [ReindexProvider.IsCleanupInProgress]
+// for the restore gate: a class being restored has no (collection, shard) tuple to ask about.
 func (p *ReindexProvider) AnyCleanupInProgress() bool {
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
@@ -2332,12 +2325,10 @@ func (p *ReindexProvider) WaitForLocalTaskDrain(
 
 // DrainWithCleanupGate waits for the local worker to exit with the backup and
 // restore gates already shut, and returns the release for the caller to defer.
-//
-// The gate has to be taken before the wait, not after it. The task leaves DTM
-// the moment the cancel applies, so both gates report the shards free from
-// then on; and a wait that times out means the worker is still writing, which
-// is exactly when the shard must not be captured. The error is the drain's:
-// the release is always usable, timed out or not.
+// The gate must be taken before the wait: the task leaves DTM the moment the
+// cancel applies, so a timed-out wait means the worker is still writing while
+// the gates already report the shard free. The release is always usable,
+// regardless of the returned error.
 func (p *ReindexProvider) DrainWithCleanupGate(
 	ctx context.Context,
 	payload *ReindexTaskPayload,

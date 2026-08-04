@@ -44,10 +44,8 @@ type fixedMembership []string
 
 func (m fixedMembership) AllNames() []string { return m }
 
-// TestUpdateIndexRefusesWhileBackupRuns drives the submission handler end to
-// end against a node holding a backup slot. Without the gate the handler
-// reaches the task submission and answers 202, so removing the call fails here
-// and not only in the acceptance suite.
+// TestUpdateIndexRefusesWhileBackupRuns drives the full submission handler,
+// not just the gate, so a dropped call to it fails here too.
 func TestUpdateIndexRefusesWhileBackupRuns(t *testing.T) {
 	const (
 		collection = "Movies"
@@ -90,8 +88,7 @@ func TestUpdateIndexRefusesWhileBackupRuns(t *testing.T) {
 			ServerConfig:       &config.WeaviateConfig{Config: config.Config{}},
 			SchemaManager:      &schemaUC.Manager{SchemaReader: reader},
 			DB:                 theDB,
-			// ClusterService left nil: the conflict and cap checks it feeds are
-			// skipped, so the gate is the next thing the handler reaches.
+			// ClusterService left nil so the gate is the next thing the handler reaches.
 		},
 		cluster: fixedMembership{node},
 		backupActivity: fixedActivityProber{node: backup.NodeActivity{
@@ -115,8 +112,7 @@ func TestUpdateIndexRefusesWhileBackupRuns(t *testing.T) {
 		errorMessage(t, conflict.Payload))
 }
 
-// The submission handler reaches the cluster service unguarded, unlike the
-// cancel handler. Answer 503 rather than crashing the request.
+// TestUpdateIndexWithoutClusterServiceIsUnavailable pins a 503 instead of a nil-deref panic.
 func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 	const (
 		collection = "Movies"
@@ -160,8 +156,7 @@ func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 			SchemaManager:      &schemaUC.Manager{SchemaReader: reader},
 			DB:                 theDB,
 		},
-		// No cluster and no prober, so the backup gate allows the submission
-		// through and the missing cluster service is what answers.
+		// No cluster/prober: the gate allows submission and ClusterService is what answers.
 	}
 
 	responder := h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{

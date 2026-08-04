@@ -1022,12 +1022,9 @@ function run_acceptance_reindex_mt() {
 function run_acceptance_reindex_backup() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup (single-node)"
-  # The package's one multi-node test spins up a 3-node cluster plus MinIO and
-  # samples up to 16 class placements, so on its own it can eat most of the 20m
-  # go-test budget every group shares. It runs in -backup-cluster instead.
-  #
-  # The filter is by exact top-level name: a name that matches nothing runs zero
-  # tests and still reports success.
+  # The package's multi-node test runs separately in -backup-cluster (below);
+  # it alone can eat the whole 20m budget this group shares. Filter matches by
+  # exact name: a typo here silently runs zero tests.
   AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex)$' \
     run_aof_group "reindex-backup" test/acceptance/reindex_backup
 }

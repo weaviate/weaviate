@@ -19,9 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// resetIfCancelled is the slot's check-and-clear. It releases only a cancelled
-// operation: a live one under the same id is still writing files, and clearing
-// its claim makes the node report itself idle to the reindex gate.
+// TestBackupStatResetIfCancelled pins that resetIfCancelled only clears a slot
+// still owned by the given, cancelled id.
 func TestBackupStatResetIfCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -97,8 +96,8 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 	}
 }
 
-// The whole point of the single acquisition: whoever holds the slot after a
-// losing resetIf must still hold every field of its claim.
+// TestBackupStatResetIfCancelledLeavesNewOwnerIntact pins that a losing
+// resetIfCancelled leaves every field of the current claim untouched.
 func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 	t.Parallel()
 
@@ -115,9 +114,8 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 	require.Equal(t, "override", got.OverridePath)
 }
 
-// The cancelled op releases the slot and a new restore claims it while a second
-// caller is releasing the cancelled id. A check and a clear under separate lock
-// acquisitions throw the new claim away here; one acquisition cannot.
+// TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew pins that a
+// concurrent renew never loses to a stale resetIfCancelled release.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 

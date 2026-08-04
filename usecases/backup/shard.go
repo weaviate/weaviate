@@ -86,10 +86,9 @@ func (s *backupStat) clear() {
 	s.reqState.OverridePath = ""
 }
 
-// resetIfCancelled gives back the slot only when id owns it and that operation
-// was cancelled. An operation still running under the same id is writing files,
-// so its slot must survive. Checks and clears under one lock so a renew cannot
-// slip in between and lose its claim. Reports whether the slot was cleared.
+// resetIfCancelled clears the slot only if id owns it and its status is
+// cancelled; an operation still running must keep its slot. Check-and-clear
+// happens under one lock so a concurrent renew can't be lost. Reports whether it cleared.
 func (s *backupStat) resetIfCancelled(id string) bool {
 	s.Lock()
 	defer s.Unlock()

@@ -606,8 +606,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 type fakeSelector struct {
 	mock.Mock
 
-	// reindexInFlightErr backs RefuseIfAnyReindexInFlight as a plain field,
-	// so pre-existing restore tests pass without registering a mock call.
+	// Plain field so pre-existing restore tests pass without a mock.On call.
 	reindexInFlightErr error
 }
 
@@ -1134,10 +1133,7 @@ func TestCommitAllManyFailures(t *testing.T) {
 	}
 }
 
-// The coordinator's lastOp slot is both the backup subsystem's mutual-exclusion
-// lock and the source the reindex gate probes. A slot left claimed by a failed
-// operation refuses every later backup on this node and every reindex in the
-// cluster until the process restarts.
+// TestCoordinatorBackupReleasesSlotOnError pins that a failed backup releases the lastOp slot.
 func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1199,10 +1195,8 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 	}
 }
 
-// A restore request for a backup whose metadata is already CANCELLING returns
-// without starting anything. It may only give back the slot when the slot holds
-// that same backup: clearing another restore's claim makes this node report
-// itself idle to the reindex gate while it is still writing files.
+// TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot pins that a CANCELLING
+// restore only releases the lastOp slot if it still holds that same backup.
 func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1234,8 +1228,6 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			wantSlotID:  "live-restore",
 		},
 		{
-			// The cancel was claimed by another coordinator, so this node's own
-			// restore of the same id never saw a cancel and is still writing.
 			name:        "slot holds a live restore carrying the same id",
 			claimedID:   backupID,
 			claimStatus: backup.Transferring,
@@ -1269,9 +1261,6 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			require.Equal(t, want, probe.Activity(),
 				"the reindex gate reads this probe; reporting idle admits a reindex on top of a live restore")
 
-			// Second consequence of clearing a slot we don't own: the slot is
-			// also the subsystem's mutual exclusion, so a concurrent restore
-			// could claim it and run alongside the live one.
 			require.Equal(t, tc.wantSlotID,
 				c.lastOp.renew("intruder", "path", "", ""),
 				"a live restore must still refuse a second claim")

@@ -1095,8 +1095,6 @@ func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
 
 	fs := newFakeScheduler(nil)
 	fs.selector.reindexInFlightErr = gateRefusal()
-	// The backend answers rather than rejecting the call, so dropping the gate
-	// produces a wrong error to assert against instead of a mock panic.
 	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
 	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
 	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
@@ -1119,10 +1117,8 @@ func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		"the gate is cluster-wide; no shard is involved")
 }
 
-// The scheduler's own gate is cluster-wide, but a participant can still refuse:
-// its sidecar cleanup after a cancel is node-local, and a migration can start
-// in between. A migration in progress is retryable, so the caller must get 422
-// — a 500 pages the on-call for a routine condition.
+// TestSchedulerRestoreRefusedByParticipantIsUnprocessable pins that a participant
+// refusing over a live migration surfaces as 422, not a paging 500.
 func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1180,9 +1176,8 @@ func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {
 	assert.Contains(t, err.Error(), "restore blocked: runtime-reindex in flight in the cluster")
 }
 
-// Same reasoning as the restore case above, on the backup side: a participant
-// refuses because a migration holds one of its shards. That is retryable, so
-// the caller must get 422 rather than a paging 500.
+// TestSchedulerBackupRefusedByParticipantIsUnprocessable is the backup-side
+// counterpart of TestSchedulerRestoreRefusedByParticipantIsUnprocessable.
 func TestSchedulerBackupRefusedByParticipantIsUnprocessable(t *testing.T) {
 	t.Parallel()
 	var (
