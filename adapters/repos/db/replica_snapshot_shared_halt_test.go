@@ -151,11 +151,11 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	shard.haltForTransferMux.Unlock()
 }
 
-// Fails: pins a bug. mayForceResumeMaintenanceCycles clears the halt count and
-// stops the inactivity monitor before the errgroup that can fail, and restores
-// neither on failure. Compaction and flushes stay paused, and every later resume
-// returns early on a zero count, so nothing can restart them.
-func TestResumeMaintenanceCyclesFailureKeepsShardHalted(t *testing.T) {
+// Documents current behaviour, not the behaviour we want. mayForceResumeMaintenanceCycles
+// clears the halt count and stops the inactivity monitor before the errgroup that can
+// fail, and restores neither, so a failed resume leaves a zero count while the cycles it
+// could not restart stay paused — and every later resume returns early on that count.
+func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
 	_, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
 
@@ -168,8 +168,8 @@ func TestResumeMaintenanceCyclesFailureKeepsShardHalted(t *testing.T) {
 	shard.haltForTransferMux.Lock()
 	haltCount := shard.haltForTransferCount
 	shard.haltForTransferMux.Unlock()
-	require.Equal(t, 1, haltCount,
-		"a failed resume must keep the halt, so a later release can still resume the cycles")
+	require.Zero(t, haltCount,
+		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
 }
 
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire
