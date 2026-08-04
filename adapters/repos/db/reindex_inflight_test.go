@@ -163,7 +163,7 @@ func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
 // TestReindexInFlightError_PreWire pins the wording variant used
 // during the pre-wire startup window.
 func TestReindexInFlightError_PreWire(t *testing.T) {
-	err := reindexInFlightError("MyClass", true)
+	err := reindexInFlightError("MyClass", reindexBlockedPreWire)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), "MyClass")
@@ -173,7 +173,7 @@ func TestReindexInFlightError_PreWire(t *testing.T) {
 // TestReindexInFlightError_DTMHit pins the wording variant used when
 // DTM reports a live task.
 func TestReindexInFlightError_DTMHit(t *testing.T) {
-	err := reindexInFlightError("MyClass", false)
+	err := reindexInFlightError("MyClass", reindexBlockedByLiveTask)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), "MyClass")
@@ -346,4 +346,24 @@ func TestCreateBackupSnapshot_RefusalKeepsAPublishableMessage(t *testing.T) {
 		"the publishable message is what reaches the status API")
 	require.NotContains(t, blocked.Error(), "halt for snapshot",
 		"and it carries the condition, not the path that found it")
+}
+
+// A backup refused while a cancelled task is still tearing its sidecars down
+// used to be told to cancel the task — which is what produced the teardown.
+func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
+	err := reindexInFlightError("MyClass", reindexBlockedByCleanup)
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+
+	body := err.Error()
+	assert.Contains(t, body, "MyClass")
+	assert.Contains(t, body, "still removing its temporary index files")
+	assert.Contains(t, body, "retry once the cleanup finishes")
+	assert.NotContains(t, body, "cancel it via",
+		"the task is already cancelled; this advice sends the operator after a task that is gone")
+	assert.NotContains(t, body, `"cancel":true`)
+
+	// The live-task branch keeps its cancel advice: there the task is real.
+	live := reindexInFlightError("MyClass", reindexBlockedByLiveTask).Error()
+	assert.Contains(t, live, "cancel it via")
 }
