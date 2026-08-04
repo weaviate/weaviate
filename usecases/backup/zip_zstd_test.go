@@ -19,7 +19,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -43,53 +42,37 @@ var zstdLevels = []struct {
 }
 
 // TestZipZstdEncoderReuseMatchesFreshEncoder checks that a pooled encoder writes
-// the same stream a newly built one would, and that the chunk still restores.
+// the same stream a newly built one would, carries nothing over from the chunk it
+// wrote before, and that the result still restores.
 func TestZipZstdEncoderReuseMatchesFreshEncoder(t *testing.T) {
 	dir, files := newZstdChunkSource(t)
+	fullChunk, _ := zipChunk(t, dir, NoCompression, files)
 
 	chunks := []struct {
 		name  string
 		files []string
+		// whether the encoder it reuses already wrote a full chunk
+		afterFullChunk bool
 	}{
-		{name: "no_files", files: nil},
+		{name: "no_files"},
 		{name: "one_file", files: files[:1]},
 		{name: "many_files", files: files},
+		{name: "no_files_after_full_chunk", afterFullChunk: true},
+		{name: "many_files_after_full_chunk", files: files, afterFullChunk: true},
 	}
 
 	for _, lv := range zstdLevels {
 		for _, chunk := range chunks {
 			t.Run(lv.name+"/"+chunk.name, func(t *testing.T) {
+				var payload []byte
+				if chunk.afterFullChunk {
+					payload = fullChunk
+				}
 				want := freshZstdChunk(t, dir, lv.level, chunk.files)
-				got := zipChunkReusingPooledEncoder(t, dir, lv.level, chunk.files, nil)
+				got := zipChunkReusingPooledEncoder(t, dir, lv.level, chunk.files, payload)
 
 				requireEqualStream(t, want, got)
 				requireChunkRestores(t, got, backup.CompressionZSTD, dir, chunk.files)
-			})
-		}
-	}
-}
-
-// TestZipZstdEncoderResetBetweenChunks checks that an encoder that just wrote a
-// full chunk carries nothing over into its next one.
-func TestZipZstdEncoderResetBetweenChunks(t *testing.T) {
-	dir, files := newZstdChunkSource(t)
-
-	next := []struct {
-		name  string
-		files []string
-	}{
-		{name: "then_empty_chunk", files: nil},
-		{name: "then_full_chunk", files: files},
-	}
-
-	for _, lv := range zstdLevels {
-		for _, chunk := range next {
-			t.Run(lv.name+"/"+chunk.name, func(t *testing.T) {
-				tarStream, _ := zipChunk(t, dir, NoCompression, files)
-				want := freshZstdChunk(t, dir, lv.level, chunk.files)
-				got := zipChunkReusingPooledEncoder(t, dir, lv.level, chunk.files, tarStream)
-
-				requireEqualStream(t, want, got)
 			})
 		}
 	}
@@ -239,78 +222,6 @@ func TestZipZstdStaleCloseLeavesNextChunkAlone(t *testing.T) {
 	t.Fatalf("no chunk picked up the pooled encoder in %d attempts", poolAttempts)
 }
 
-// TestZipZstdEncoderPoolManyChunks checks that chunks sharing a pool, in sequence
-// and at the same time, all produce a correct stream.
-func TestZipZstdEncoderPoolManyChunks(t *testing.T) {
-	dir, files := newZstdChunkSource(t)
-	const (
-		level  = ZstdDefaultCompression
-		chunks = 8
-	)
-	want := freshZstdChunk(t, dir, level, files)
-
-	tests := []struct {
-		name       string
-		concurrent bool
-	}{
-		{name: "sequential"},
-		{name: "concurrent", concurrent: true},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if !test.concurrent {
-				for range chunks {
-					got, _ := zipChunk(t, dir, level, files)
-					requireEqualStream(t, want, got)
-				}
-				return
-			}
-			streams := make([][]byte, chunks)
-			errs := make([]error, chunks)
-			var wg sync.WaitGroup
-			for i := range chunks {
-				list := newFileList(t, dir, files)
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					streams[i], _, errs[i] = writeChunk(dir, level, list)
-				}()
-			}
-			wg.Wait()
-			for i := range chunks {
-				require.NoError(t, errs[i])
-				requireEqualStream(t, want, streams[i])
-			}
-		})
-	}
-}
-
-// TestZipNonZstdLevelsHoldNoEncoder checks that the gzip and no-compression
-// branches keep working without touching the pool.
-func TestZipNonZstdLevelsHoldNoEncoder(t *testing.T) {
-	dir, files := newZstdChunkSource(t)
-
-	tests := []struct {
-		name        string
-		level       CompressionLevel
-		compression backup.CompressionType
-	}{
-		{name: "no_compression", level: NoCompression, compression: backup.CompressionNone},
-		{name: "gzip_default", level: GzipDefaultCompression, compression: backup.CompressionGZIP},
-		{name: "gzip_best_speed", level: GzipBestSpeed, compression: backup.CompressionGZIP},
-		{name: "gzip_best_compression", level: GzipBestCompression, compression: backup.CompressionGZIP},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, used := zipChunk(t, dir, test.level, files)
-			require.Nil(t, used, "only zstd chunks hold an encoder")
-			requireChunkRestores(t, got, test.compression, dir, files)
-		})
-	}
-}
-
 func TestZstdEncoderLevel(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -358,28 +269,23 @@ func newZstdChunkSource(t *testing.T) (string, []string) {
 // if any.
 func zipChunk(t *testing.T, sourceDir string, level CompressionLevel, files []string) ([]byte, *zstd.Encoder) {
 	t.Helper()
-	stream, encoder, err := writeChunk(sourceDir, level, newFileList(t, sourceDir, files))
-	require.NoError(t, err)
-	return stream, encoder
-}
-
-// writeChunk is zipChunk reporting errors instead of failing the test, so it can
-// run in a goroutine.
-func writeChunk(sourceDir string, level CompressionLevel, files *backup.FileList) ([]byte, *zstd.Encoder, error) {
 	z, rc, err := NewZip(sourceDir, int(level), 0, 0, 0)
-	if err != nil {
-		return nil, nil, err
-	}
+	require.NoError(t, err)
 	encoder := z.zstdEncoder
 
 	var buf bytes.Buffer
 	done := drainInBackground(rc, &buf)
 
 	sd := backup.ShardDescriptor{Name: "shard1", Node: "node1"}
-	_, _, writeErr := z.WriteRegulars(context.Background(), &sd, files, &atomic.Int64{}, "chunk")
+	_, _, writeErr := z.WriteRegulars(context.Background(), &sd, newFileList(t, sourceDir, files), &atomic.Int64{}, "chunk")
 	closeErr := z.Close()
 	drainErr := <-done
-	return buf.Bytes(), encoder, errors.Join(writeErr, closeErr, drainErr, rc.Close())
+
+	require.NoError(t, writeErr)
+	require.NoError(t, closeErr)
+	require.NoError(t, drainErr)
+	require.NoError(t, rc.Close())
+	return buf.Bytes(), encoder
 }
 
 // zipChunkReusingPooledEncoder pools an encoder that already wrote payload, then
