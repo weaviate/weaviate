@@ -49,7 +49,7 @@ func columnarSortedKeys(values []string) [][]byte {
 func columnarBucketIndex(tb testing.TB, f *containsFixture) *columnar.ColumnarIndex {
 	tb.Helper()
 	bucket := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	idx, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), false)
+	idx, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), false, columnarTestLogger())
 	require.NoError(tb, err)
 	return idx
 }
@@ -110,7 +110,7 @@ func BenchmarkColumnarIndexPOC_Build(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), false); err != nil {
+		if _, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), false, columnarTestLogger()); err != nil {
 			b.Fatal(err)
 		}
 	}

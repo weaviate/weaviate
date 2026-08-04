@@ -2019,6 +2019,17 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
 
+	// Feed the flushed memtable to the ContainsAny accelerator before the
+	// blocking segment swap rather than inside it: the copy is proportional to
+	// the memtable, and the swap holds flushLock, which gates every read and
+	// write on this bucket. Publishing the run while the memtable is still
+	// visible as `flushing` is safe — a reader that sees both applies the same
+	// additions and deletions twice, and both are idempotent.
+	if err := b.absorbFlushIntoAccelerator(b.flushing); err != nil {
+		b.logger.WithField("action", "columnar_absorb_flush").
+			Warnf("columnar accelerator failed to absorb flush: %v", err)
+	}
+
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
@@ -2159,14 +2170,6 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 			// having just flushed the memtable we now have the most up2date count which
 			// is a good place to update the metric
 			b.metrics.ObjectCount(b.disk.count())
-		}
-
-	case StrategyRoaringSet:
-		// keep the columnar accelerator current: copy the just-flushed memtable
-		// into a run so its data stays served without re-reading disk.
-		if err := b.absorbFlushIntoAccelerator(flushing); err != nil {
-			b.logger.WithField("action", "columnar_absorb_flush").
-				Warnf("columnar accelerator failed to absorb flush: %v", err)
 		}
 
 	case StrategyRoaringSetRange:

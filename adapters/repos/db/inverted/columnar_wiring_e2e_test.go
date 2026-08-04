@@ -22,6 +22,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -103,13 +104,20 @@ func sortedDocIDs(al helpers.AllowList) []uint64 {
 	return got
 }
 
+// columnarTestLogger is the logger the columnar index reports background fold
+// panics through; tests only need it to be non-nil.
+func columnarTestLogger() logrus.FieldLogger {
+	logger, _ := test.NewNullLogger()
+	return logger
+}
+
 // columnarTestFactory builds the accelerator at bucket open for tests. The base
 // covers whatever disk segments exist at open (all corpus on reopen; empty on a
 // fresh bucket, where data then arrives via AbsorbFlush). Non-unique corpora
 // decline on the flush and detach.
 func columnarTestFactory(numDocs int) lsmkv.ContainsAcceleratorFactory {
 	return func(bkt *lsmkv.Bucket) lsmkv.ContainsAnyResolver {
-		idx, err := columnar.BuildFromBucket(bkt, uint64(numDocs+1), true)
+		idx, err := columnar.BuildFromBucket(bkt, uint64(numDocs+1), true, columnarTestLogger())
 		if err != nil {
 			return nil
 		}

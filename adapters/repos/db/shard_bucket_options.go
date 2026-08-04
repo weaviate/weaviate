@@ -87,7 +87,7 @@ func (s *Shard) containsAcceleratorFactory() lsmkv.ContainsAcceleratorFactory {
 		if s.counter == nil {
 			return nil
 		}
-		idx, err := columnar.BuildFromBucket(bkt, s.counter.Get(), true)
+		idx, err := columnar.BuildFromBucket(bkt, s.counter.Get(), true, s.index.logger)
 		if err != nil {
 			return nil
 		}

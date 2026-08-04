@@ -35,6 +35,8 @@ type ContainsAnyResolver interface {
 	ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap
 	// AbsorbFlush copies a just-flushed memtable (iterated via its roaringset
 	// cursor) into the index so its data stays served without re-reading disk.
+	// It returns once the flushed data is queryable; any consolidation it
+	// schedules off the back of it runs in the background.
 	AbsorbFlush(cursor roaringset.InnerCursor) error
 }
 
@@ -71,14 +73,20 @@ func (b *Bucket) ContainsAnyAccelerator() ContainsAnyResolver {
 }
 
 // absorbFlushIntoAccelerator feeds a just-flushed memtable to the accelerator.
-// Called from the flush path with the flushing memtable still in hand. If the
-// accelerator declines (e.g. the flush revealed a non-unique key), it is
-// detached — the index may now be missing docIDs, so ContainsAny falls back to
-// the fold from here on.
+// Called from the flush path once the memtable is durable but before the segment
+// swap, so the copy stays off flushLock. The memtable is immutable by then
+// (writers have drained and it is no longer active), and it is still visible to
+// readers as `flushing`, so publishing its run early only ever double-applies —
+// never hides — its writes. If the accelerator declines (e.g. the flush revealed
+// a non-unique key), it is detached: the index may now be missing docIDs, so
+// ContainsAny falls back to the fold from here on.
 func (b *Bucket) absorbFlushIntoAccelerator(flushing memtable) error {
 	acc := b.containsAcc.Load()
 	if acc == nil || acc.resolver == nil {
 		return nil
+	}
+	if flushing == nil || flushing.Size() == 0 {
+		return nil // nothing was flushed; the swap discards this memtable
 	}
 	if err := acc.resolver.AbsorbFlush(flushing.newRoaringSetCursor()); err != nil {
 		b.containsAcc.Store(nil)
