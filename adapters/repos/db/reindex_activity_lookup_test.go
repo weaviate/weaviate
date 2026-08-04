@@ -241,7 +241,7 @@ func TestReindexOverlapLookup(t *testing.T) {
 		},
 		{
 			name:       "terminal task with no finish time is treated as overlapping",
-			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusCancelled, time.Time{})},
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFailed, time.Time{})},
 			since:      backupStart,
 			wantRefuse: true,
 		},
@@ -299,4 +299,119 @@ func TestReindexOverlapLookup(t *testing.T) {
 				"the migration has usually finished by now; do not send the operator after a live task")
 		})
 	}
+}
+
+func overlapTaskWithUnits(collection string, status distributedtask.TaskStatus, finishedAt time.Time,
+	units map[string]*distributedtask.Unit,
+) *distributedtask.Task {
+	task := overlapTask(collection, status, finishedAt)
+	task.Units = units
+	return task
+}
+
+// The submission side withdraws a task when a backup claims first, and the
+// backup side asks whether a task overlapped it. Both fire on the same task, so
+// the boundary has to be exact in three directions at once: too strict fails
+// the backup that won the race, too loose passes a backup that spans a real
+// migration.
+func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+	insideWindow := backupStart.Add(time.Minute)
+
+	tests := []struct {
+		name       string
+		task       *distributedtask.Task
+		wantRefuse bool
+		why        string
+	}{
+		{
+			name: "cancelled before completing, after a backup claimed first",
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled, insideWindow,
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+				}),
+			wantRefuse: false,
+			why:        "the backup won the race; failing it would punish the winner",
+		},
+		{
+			name: "migration ran to completion inside the window",
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFinished, insideWindow,
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
+				}),
+			wantRefuse: true,
+			why:        "nothing is running at commit, which is exactly why liveness is the wrong question",
+		},
+		{
+			name: "migration still live at commit",
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusStarted, time.Time{},
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
+				}),
+			wantRefuse: true,
+			why:        "the capture and the migration are concurrent",
+		},
+		{
+			name: "migration that failed inside the window",
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFailed, insideWindow,
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusFailed},
+				}),
+			wantRefuse: true,
+			why:        "a failed migration may have written before it failed",
+		},
+		{
+			name: "cancelled before this backup even started",
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
+				backupStart.Add(-time.Minute), nil),
+			wantRefuse: false,
+			why:        "no overlap at all",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {tc.task}}, nil
+			}, time.Hour)
+
+			err := lookup(context.Background(), []string{"Movies"}, backupStart)
+			if tc.wantRefuse {
+				require.Error(t, err, tc.why)
+				return
+			}
+			require.NoError(t, err, tc.why)
+		})
+	}
+}
+
+// TestReindexOverlapLookupResidual pins the case this check knowingly lets
+// through: a migration cancelled part-way through, inside the backup window, is
+// indistinguishable from cluster state alone from one withdrawn because a
+// backup claimed first. Neither is provably write-free — the DTM marks a unit
+// IN_PROGRESS on claim, milliseconds before the worker starts creating buckets,
+// and records nothing afterwards that separates them (0-wi#473).
+//
+// Reaching it needs a fail-open admission AND the cancel to land between the
+// per-shard captures and commit; while such a task is live during capture the
+// per-shard execution layer fails the backup on its own. It closes when a
+// submission stops dispatching units before admission has settled.
+//
+// Pinned rather than left implicit: an unrecorded residual is one nobody
+// remembers to close.
+func TestReindexOverlapLookupResidual(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+
+	partlyRan := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
+		backupStart.Add(time.Minute),
+		map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress, Progress: 0.4},
+		})
+
+	lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+		return map[string][]*distributedtask.Task{ReindexNamespace: {partlyRan}}, nil
+	}, time.Hour)
+
+	require.NoError(t, lookup(context.Background(), []string{"Movies"}, backupStart),
+		"documented residual: a partly-run cancelled migration is not counted")
 }
