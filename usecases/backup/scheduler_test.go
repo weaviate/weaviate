@@ -1107,6 +1107,67 @@ func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		"the gate is cluster-wide; no shard is involved")
 }
 
+// The scheduler's own gate is cluster-wide, but a participant can still refuse:
+// its sidecar cleanup after a cancel is node-local, and a migration can start
+// in between. A migration in progress is retryable, so the caller must get 422
+// — a 500 pages the on-call for a routine condition.
+func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {
+	t.Parallel()
+	var (
+		cls         = "MyClass-A"
+		nodeA       = "Node-A"
+		any         = mock.Anything
+		backendName = "gcs"
+		backupID    = "1"
+		ctx         = context.Background()
+		path        = "bucket/backups/" + backupID
+	)
+	meta := backup.DistributedBackupDescriptor{
+		ID:            backupID,
+		StartedAt:     time.Now().UTC(),
+		Version:       Version,
+		ServerVersion: "1.23",
+		Status:        backup.Success,
+		Nodes:         map[string]*backup.NodeDescriptor{nodeA: {Classes: []string{cls}}},
+	}
+	rawClassBytes, _ := json.Marshal(&models.Class{Class: cls})
+	shardingStateBytes, _ := json.Marshal(&sharding.State{
+		IndexID:  cls,
+		Physical: map[string]sharding.Physical{"S1": {Name: "S1"}},
+	})
+	nodeMetaBytes, _ := json.Marshal(backup.BackupDescriptor{
+		ID:     backupID,
+		Status: backup.Success,
+		Classes: []backup.ClassDescriptor{{
+			Name: cls, Schema: rawClassBytes, ShardingState: shardingStateBytes,
+		}},
+	})
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA}))
+	fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, backupID+"/"+nodeA, BackupFile).Return(nodeMetaBytes, nil)
+	fs.backend.On("HomeDir", any, any, any).Return(path)
+	fs.backend.On("PutObject", any, any, GlobalRestoreFile, any).Return(nil)
+	fs.client.On("CanCommit", any, nodeA, any).Return(&CanCommitResponse{
+		Method:  OpRestore,
+		ID:      backupID,
+		Err:     "restore blocked: runtime-reindex in flight in the cluster: retry after the migration finishes",
+		ErrKind: CanCommitErrReindexInFlight,
+	}, nil)
+	fs.client.On("Abort", any, any, any).Return(nil)
+
+	_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+		ID: backupID, Include: []string{cls}, Backend: backendName,
+	}, false)
+
+	require.Error(t, err)
+	assert.IsType(t, backup.ErrUnprocessable{}, err,
+		"a participant refusing over a live migration must not surface as a 500")
+	assert.Contains(t, err.Error(), "restore blocked: runtime-reindex in flight in the cluster")
+}
+
 func TestSchedulerList(t *testing.T) {
 	t.Parallel()
 	var (

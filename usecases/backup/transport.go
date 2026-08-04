@@ -88,6 +88,12 @@ const (
 	// ErrBackupBlockedByInFlightReindex on receipt.
 	CanCommitErrInFlightReindex CanCommitErrorKind = "in_flight_reindex"
 
+	// CanCommitErrReindexInFlight indicates the participant refused a restore
+	// because a runtime-reindex is live in the cluster. Distinct from
+	// [CanCommitErrInFlightReindex], whose sentinel names a shard and reads as
+	// a refused backup.
+	CanCommitErrReindexInFlight CanCommitErrorKind = "reindex_in_flight"
+
 	// CanCommitErrCannotCommit is the generic fallback used when the
 	// participant rejected canCommit for any reason other than the
 	// classified kinds above.
@@ -135,6 +141,3 @@ type StatusResponse struct {
 type (
 	AbortRequest StatusRequest
 )
-
-// Declared here so this commit builds; see the arm in coordinator.go.
-const CanCommitErrReindexInFlight CanCommitErrorKind = "reindex_in_flight"

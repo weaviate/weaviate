@@ -307,9 +307,9 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 
 	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
 		"retry after the migration finishes", resp.Err)
-	assert.Equal(t, CanCommitErrCannotCommit, resp.ErrKind,
-		"the in-flight-reindex kind would re-materialize the message under the "+
-			"per-shard backup sentinel; the generic kind passes it through intact")
+	assert.Equal(t, CanCommitErrReindexInFlight, resp.ErrKind,
+		"the per-shard in-flight-reindex kind would re-materialize the message "+
+			"under the backup sentinel; this kind carries the cluster-wide one")
 	assert.Equal(t, time.Duration(0), resp.Timeout)
 }
 
@@ -331,9 +331,14 @@ func TestOnCanCommitRestore_WordingSurvivesRoundTrip(t *testing.T) {
 		Duration: time.Millisecond * 20,
 	})
 
-	got := canCommitErrFromResponse(resp).Error()
-	assert.Equal(t, "cannot commit : restore blocked: runtime-reindex in flight in the cluster: "+
-		"retry after the migration finishes", got)
+	err := canCommitErrFromResponse(resp)
+	require.ErrorIs(t, err, backup.ErrReindexInFlight,
+		"the sentinel must survive the RPC, or the coordinator answers 500 instead of 422")
+
+	got := err.Error()
+	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
+		"retry after the migration finishes", got,
+		"the sentinel rides along for errors.Is; it must not be printed twice")
 	assert.NotContains(t, got, "backup blocked",
 		"a restore refusal must not be worded as a backup refusal")
 	assert.NotContains(t, got, "this shard",
