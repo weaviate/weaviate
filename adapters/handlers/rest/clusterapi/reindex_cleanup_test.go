@@ -82,7 +82,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			if tt.prober != nil {
 				resolve = func() clusterapi.ReindexCleanupProber { return tt.prober }
 			}
-			handler := clusterapi.NewReindexCleanup(resolve, clusterapi.NewNoopAuthHandler())
+			handler := clusterapi.NewReindexCleanup(resolve, clusterapi.NewNoopAuthHandler(), nil)
 			server := httptest.NewServer(handler.Activity())
 			defer server.Close()
 
@@ -112,7 +112,7 @@ func TestInternalReindexCleanupActivityTypedNilProber(t *testing.T) {
 
 	handler := clusterapi.NewReindexCleanup(
 		func() clusterapi.ReindexCleanupProber { return unset },
-		clusterapi.NewNoopAuthHandler())
+		clusterapi.NewNoopAuthHandler(), nil)
 	server := httptest.NewServer(handler.Activity())
 	defer server.Close()
 
