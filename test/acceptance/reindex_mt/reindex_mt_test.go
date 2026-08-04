@@ -147,8 +147,12 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 // =============================================================================
 
 func testRepairSpecificTenants(t *testing.T, restURI string) {
-	// Per-tenant filter dispatch via enable-rangeable (format-only).
-	// ChangeAlgorithm + tenant subset is rejected post weaviate/0-weaviate-issues#254.
+	// Per-tenant filter dispatch via repair-filterable, one of the two
+	// remaining format-only migrations. Semantic migrations reject a
+	// tenant subset because the cluster-wide schema flip cannot be
+	// sub-scoped: change-algorithm since weaviate/0-weaviate-issues#254,
+	// the two rangeable types since weaviate/0-weaviate-issues#465 (this
+	// test used enable-rangeable as its vehicle until then).
 	className := "MTRepairSpecific"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5"}
 
@@ -172,10 +176,10 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 		}
 	}
 
-	// Repair only t1 and t2 via enable-rangeable on the int property.
+	// Repair only t1 and t2 via repair-filterable on the text property.
 	targetTenants := []string{"t1", "t2"}
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants(targetTenants))
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
+		`{"filterable":{"rebuild":true}}`, reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -437,6 +441,25 @@ func testValidation(t *testing.T, restURI string) {
 			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
+	})
+
+	// enable-rangeable became semantic in
+	// weaviate/0-weaviate-issues#465, so it joins the "all tenants must
+	// be targeted" rule. This is a user-visible behavior change: the same
+	// request used to be accepted and scoped to the named tenants.
+	t.Run("EnableRangeable_with_tenants", func(t *testing.T) {
+		rangeableClass := "MTValidateRangeable"
+		createMTClass(t, rangeableClass, []*models.Property{
+			{Name: "score", DataType: []string{"int"}},
+		})
+		addTenants(t, rangeableClass, []string{"rv1", "rv2"})
+
+		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, rangeableClass, "score",
+			`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants([]string{"rv1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on enable-rangeable should reject as 400: %s", got.Body)
+		require.Contains(t, got.Body, "enable-rangeable",
+			"the rejection must name the migration type, not hard-code change-tokenization: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
