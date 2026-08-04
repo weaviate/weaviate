@@ -3011,6 +3011,15 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 // shardCreateLocks is on the shard's own read and write path and callers can
 // run long. Same reasoning as backupShardWithHardlinks.
 func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(), err error) {
+	// Every shard teardown holds one of these two: Index.Shutdown takes closeLock
+	// for write, the unload paths take shardCreateLocks for write.
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
+	}
+
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 
@@ -3018,8 +3027,9 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 	if shard == nil {
 		return nil, func() {}, nil
 	}
-	// Taken under the lock UnloadLocalShard holds for write, so the shard cannot
-	// be shut down between the map read and the refcount.
+	// Both locks span the map read and the refcount: a lazy shard's
+	// preventShutdown loads, so a teardown landing in between would have it
+	// rebuild the shard outside i.shards, where nothing can ever shut it down.
 	release, err = shard.preventShutdown()
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("shard %q, no shutdown: %w", shardName, err)

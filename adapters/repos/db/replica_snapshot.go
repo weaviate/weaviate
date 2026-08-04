@@ -54,7 +54,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	}
 
 	// On retry the prior snapshot may be stale relative to current shard contents.
-	if rerr := i.releaseReplicaSnapshot(ctx, opID); rerr != nil {
+	if rerr := i.releaseReplicaSnapshot(ctx, opID, shard); rerr != nil {
 		return nil, fmt.Errorf("clean prior replica snapshot for op %q: %w", opID, rerr)
 	}
 
@@ -101,7 +101,8 @@ func (i *Index) IncomingReleaseReplicaSnapshot(ctx context.Context, opID string)
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
-	return i.releaseReplicaSnapshot(ctx, opID)
+	// No shard pinned here, unlike IncomingCreateReplicaSnapshot.
+	return i.releaseReplicaSnapshot(ctx, opID, nil)
 }
 
 func (i *Index) IncomingGetReplicaSnapshotFileMetadata(ctx context.Context, opID, relativeFilePath string) (file.FileMetadata, error) {
@@ -191,7 +192,8 @@ func (i *Index) mayResetReplicaSnapshotInactivity(opID string) {
 	if !ok || st.isSnapshot {
 		return
 	}
-	// A shard that is not loaded has no live timer to reset.
+	// A shard that is not loaded has no live timer to reset. Needs no shutdown
+	// guard: resetting the deadline on a torn-down shard restarts nothing.
 	if shard := i.shards.Loaded(st.shardName); shard != nil {
 		shard.MayResetTransferInactivityTimer()
 	}
@@ -235,7 +237,10 @@ func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
 // active cannot refuse the resume. A failed resume cannot be retried:
 // resumeMaintenanceCycles clears the halt count before the work that can fail,
 // so a later release finds nothing halted.
-func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
+//
+// held is the caller's already-pinned shard for this op, or nil when the caller
+// holds no pin — then the shard is resolved under the shutdown guard instead.
+func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string, held ShardLike) error {
 	i.replicaSnapshotsMu.Lock()
 	st, ok := i.replicaSnapshots[opID]
 	delete(i.replicaSnapshots, opID)
@@ -251,10 +256,23 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 		return removeErr
 	}
 
-	// A shard that is not loaded has nothing halted. No shardCreateLocks here:
-	// IncomingCreateReplicaSnapshot calls this holding a shutdown pin, and an
-	// unload waits ~2s on that pin while holding the same lock for write.
-	if shard := i.shards.Loaded(st.shardName); shard != nil {
+	shard := held
+	if shard == nil {
+		// The pinned caller must not take these locks: it would invert the order
+		// an unload acquires them in, which holds them while waiting on the pin.
+		loaded, release, err := i.getLoadedShard(st.shardName)
+		if err != nil {
+			if removeErr != nil {
+				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
+			}
+			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
+		}
+		defer release()
+		shard = loaded
+	}
+
+	// A shard that is not loaded has nothing halted.
+	if shard != nil {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			if removeErr != nil {
 				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
