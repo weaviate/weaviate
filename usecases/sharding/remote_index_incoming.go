@@ -117,7 +117,8 @@ type RemoteIndexIncomingRepo interface {
 	// IncomingFinalizeChangeLog drains the pre-seal in-flight set, seals
 	// the log and returns the final LSN.
 	IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error)
-	// IncomingStopChangeCapture deactivates and removes the log.
+	// IncomingStopChangeCapture deactivates and removes the log; a no-op when
+	// the shard is not loaded.
 	IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error
 }
 
