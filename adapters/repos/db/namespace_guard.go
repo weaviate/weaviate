@@ -129,9 +129,16 @@ func desiredOpen(state api.NamespaceState, partitioningEnabled bool, tenantStatu
 	return schema.ActivityStatus(tenantStatus) == models.TenantActivityStatusHOT
 }
 
-// DesiredOpenLocalShards returns the class's local shards that should be open on
-// this node: the HOT tenants of a multi-tenant class, or every local shard of a
-// single-tenant one. A class in no namespace is decided as active.
+// DesiredOpenLocalShards returns the shards this node should hold open, among
+// those the sharding state lists it as a replica of: the HOT tenants of a
+// multi-tenant class, or every local shard of a single-tenant one. A class in no
+// namespace is decided as active.
+//
+// Being left out is not permission to unload. A replica movement holds its target
+// shard on this node before it adds that shard to the sharding state, so the shard
+// is missing here while still being wanted. A caller comparing this against the
+// shards it holds must intersect with the listed replicas rather than unload
+// everything this set omits.
 func (db *DB) DesiredOpenLocalShards(className string) ([]string, error) {
 	namespace := namespacing.NamespaceFromQualified(className)
 	state, err := stateForShardDecision(db.namespacesExister, namespace, className, db.logger)

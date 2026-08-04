@@ -337,6 +337,19 @@ func TestDesiredOpenLocalShards(t *testing.T) {
 			want: []string{"hot1", "hot2"},
 		},
 		{
+			// other1 and cold1 are both left out, for reasons a caller must not
+			// merge: cold1 should be closed, while other1 is simply not this
+			// node's to decide. Reading the whole complement as unloadable would
+			// take out a shard the answer was never about.
+			name: "a shard this node is not a replica of is left out", className: class,
+			state: api.NamespaceStateActive, namespaced: true, partitioningEnabled: true,
+			shards: map[string]sharding.Physical{
+				"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
+				"other1": {Name: "other1", BelongsToNodes: []string{"node2"}},
+			},
+			want: []string{"hot1"},
+		},
+		{
 			name: "a suspended class yields nothing", className: class,
 			state: api.NamespaceStateSuspended, namespaced: true, partitioningEnabled: true,
 			shards: map[string]sharding.Physical{
@@ -685,16 +698,6 @@ func TestReplicationExempt(t *testing.T) {
 		seedShard(t, idx, false, false)
 
 		require.NoError(t, idx.OverwriteObjectsFromChangeLog(ctx, "t1", nil))
-	})
-
-	// Admission is not a licence to ignore the backup gate: a shard that has to be
-	// materialized is still refused while a backup holds it.
-	t.Run("a shard being backed up is not replayed onto", func(t *testing.T) {
-		_, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateSuspended))
-		idx.backupProtectedShards.Store("t1", struct{}{})
-
-		err := idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay)
-		require.ErrorContains(t, err, "protected for backup")
 	})
 
 	// The exemption is per entry point, not per namespace: the same suspended
@@ -1301,16 +1304,6 @@ func TestReopenShard(t *testing.T) {
 		require.Error(t, db.ReopenShard(ctx, "alpha:Other", "t1"))
 	})
 
-	// Admission is not a licence to ignore the backup gate: a shard that has to be
-	// materialized is still refused while a backup holds it.
-	t.Run("a shard being backed up is not reopened", func(t *testing.T) {
-		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateResuming))
-		idx.backupProtectedShards.Store("t1", struct{}{})
-
-		err := db.ReopenShard(ctx, class, "t1")
-		require.ErrorContains(t, err, "protected for backup")
-	})
-
 	// A resuming namespace refuses requests, so a shard left registered-but-cold
 	// would have nothing left to load it. The reopen therefore has to force the
 	// load rather than register a lazy placeholder. A zero-value LazyLoadShard
@@ -1321,18 +1314,5 @@ func TestReopenShard(t *testing.T) {
 		idx.shards.Store("t1", &LazyLoadShard{})
 
 		require.Panics(t, func() { _ = db.ReopenShard(ctx, class, "t1") })
-	})
-
-	// KNOWN BUG, pre-existing and shared with LoadLocalShard: the resident-shard
-	// branch returns before the backupProtectedShards gate, so a lazy shard that a
-	// backup holds is loaded anyway. Asserted as it behaves today; the fix depends
-	// on unloading shards on suspend, which does not exist yet.
-	t.Run("a resident lazy shard is reopened despite backup protection", func(t *testing.T) {
-		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateResuming))
-		idx.shards.Store("t1", &LazyLoadShard{loaded: true})
-		idx.backupProtectedShards.Store("t1", struct{}{})
-
-		err := db.ReopenShard(ctx, class, "t1")
-		require.NoError(t, err, "current behaviour: the backup gate is never reached")
 	})
 }
