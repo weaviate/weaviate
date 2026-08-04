@@ -195,10 +195,8 @@ func overlapTask(collection string, status distributedtask.TaskStatus, finishedA
 	}
 }
 
-// Asking whether a reindex is live at commit time misses every task that both
-// started and finished while the files were being copied — the capture is just
-// as inconsistent, and by the time anyone looks there is nothing running. The
-// check has to be "did one overlap the backup window".
+// The check is overlap, not liveness: a task that ran entirely inside the
+// backup window must still refuse it.
 func TestReindexOverlapLookup(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
 	const ttl = time.Hour
@@ -222,7 +220,7 @@ func TestReindexOverlapLookup(t *testing.T) {
 			since: backupStart,
 		},
 		{
-			// R3's mechanism: ran and finished entirely inside the window.
+			// Ran and finished entirely inside the window.
 			name:       "task finished after the backup started",
 			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
 			since:      backupStart,

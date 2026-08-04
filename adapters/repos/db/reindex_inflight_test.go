@@ -348,8 +348,8 @@ func TestCreateBackupSnapshot_RefusalKeepsAPublishableMessage(t *testing.T) {
 		"and it carries the condition, not the path that found it")
 }
 
-// A backup refused while a cancelled task is still tearing its sidecars down
-// used to be told to cancel the task — which is what produced the teardown.
+// The cleanup window must not advise cancelling: the task is already cancelled,
+// and the teardown is what that cancel produced.
 func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
 	err := reindexInFlightError("MyClass", reindexBlockedByCleanup)
 	require.Error(t, err)
