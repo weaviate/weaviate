@@ -110,8 +110,12 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 
 		assert.GreaterOrEqual(t, prober.callsFor(owner), 3,
 			"the owner must be re-asked until its gate is up")
-		assert.Nil(t, warned(hook, "could not confirm"),
-			"the gate came up; nothing is degraded")
+		// The WARN is only a signal if a healthy cancel stays quiet. When the
+		// owner raises its gate after its drain instead of before, every routed
+		// cancel trips it and it degrades into noise nobody reads.
+		require.Nil(t, warned(hook, "could not confirm"),
+			"a healthy routed cancel must not report an unconfirmed gate")
+		require.Nil(t, warned(hook, "reindex_cancel_gate_unconfirmed"))
 	})
 
 	t.Run("does not ask the local node about itself", func(t *testing.T) {
