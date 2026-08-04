@@ -147,3 +147,38 @@ func TestRefuseIfAnyReindexInFlight_PropagatesContext(t *testing.T) {
 	require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
 	assert.ErrorIs(t, err, context.Canceled)
 }
+
+// The RAFT error behind a fail-closed refusal names the nodes it could not
+// reach. Restoring grants nothing on node names, so that detail belongs in the
+// log and not in the response body — the same rule the guard's 409 already
+// follows.
+func TestRefuseIfAnyReindexInFlight_LookupFailureRedactsNodeNames(t *testing.T) {
+	raftErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
+
+	logger, hook := logrustest.NewNullLogger()
+	db := &DB{logger: logger}
+	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) { return false, raftErr })
+
+	err := db.RefuseIfAnyReindexInFlight(context.Background())
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
+	require.ErrorIs(t, err, raftErr,
+		"the cause must stay reachable for callers that classify it")
+
+	body := err.Error()
+	assert.Equal(t,
+		"runtime-reindex in flight in the cluster (assumed): "+
+			"the cluster task manager could not be queried; retry once it is reachable",
+		body)
+	for _, leaked := range []string{"weaviate-1", "weaviate-2", "can not resolve nodes"} {
+		assert.NotContainsf(t, body, leaked, "the refusal body leaked %q", leaked)
+	}
+
+	var logged bool
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, raftErr.Error()) {
+			logged = true
+		}
+	}
+	assert.True(t, logged, "the detail must still reach the operator through the log")
+}
