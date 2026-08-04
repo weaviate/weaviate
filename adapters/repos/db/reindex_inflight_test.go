@@ -12,15 +12,22 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
@@ -124,9 +131,10 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
-	assert.Contains(t, err.Error(), "ABC123", "error must name the shard")
 	assert.Contains(t, err.Error(), "JourneyClass", "error must name the collection")
 	assert.Contains(t, err.Error(), "indexes/", "error must include the remediation URL hint")
+	assert.NotContains(t, err.Error(), "ABC123",
+		"this text reaches an API response body; backing up grants nothing on shard ids")
 }
 
 // TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask pins the happy
@@ -155,10 +163,9 @@ func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
 // TestReindexInFlightError_PreWire pins the wording variant used
 // during the pre-wire startup window.
 func TestReindexInFlightError_PreWire(t *testing.T) {
-	err := reindexInFlightError("MyClass", "shard1", true)
+	err := reindexInFlightError("MyClass", true)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
-	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "startup window")
 }
@@ -166,10 +173,9 @@ func TestReindexInFlightError_PreWire(t *testing.T) {
 // TestReindexInFlightError_DTMHit pins the wording variant used when
 // DTM reports a live task.
 func TestReindexInFlightError_DTMHit(t *testing.T) {
-	err := reindexInFlightError("MyClass", "shard1", false)
+	err := reindexInFlightError("MyClass", false)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
-	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
 	require.Contains(t, err.Error(), "retry after the migration finishes")
@@ -192,7 +198,9 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 	err := shd.HaltForTransfer(ctx, false, 100*time.Millisecond)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
-	require.Contains(t, err.Error(), shd.Name())
+	require.Contains(t, err.Error(), idx.Config.ClassName.String())
+	require.NotContains(t, err.Error(), shd.Name(),
+		"this path answers a backup caller too; shard ids stay in the log")
 
 	// Flip the lookup so the next call allows the halt; this also
 	// proves the gate consults a fresh snapshot rather than a cached
@@ -218,4 +226,93 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 
 	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
+}
+
+// The backup-side refusal is answered to a caller granted CREATE on backups of
+// this collection, and nothing else. Node names need read_nodes and shard ids
+// are internal placement detail, so both stay out of the body — the same rule
+// the reindex guard's 409 and the restore gate's fail-closed refusal follow.
+// The operator still needs them, so they go to the log.
+func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
+	const (
+		collection = "JourneyClass"
+		shard      = "zmDMRo4olU4c"
+		node       = "weaviate-0"
+	)
+
+	logger, hook := logrustest.NewNullLogger()
+	db := &DB{logger: logger, localNodeName: node}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{collection, shard}: true,
+	}))
+	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+
+	err := idx.refuseIfReindexInFlight(shard)
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"the sentinel must survive so the coordinator still answers 422")
+
+	body := err.Error()
+	assert.Contains(t, body, collection, "the caller named this collection itself")
+	for _, leaked := range []string{shard, node} {
+		assert.NotContainsf(t, body, leaked, "the refusal body leaked %q", leaked)
+	}
+
+	var logged *logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "refused a backup") {
+			logged = entry
+		}
+	}
+	require.NotNil(t, logged, "the operator needs a log line naming what was refused")
+	assert.Equal(t, shard, logged.Data["shard"])
+	assert.Equal(t, node, logged.Data["node"])
+	assert.Equal(t, collection, logged.Data["collection"])
+}
+
+// The whole-node view must not reassemble what the per-shard refusal withheld:
+// DB.Backupable used to prefix every refusal with "<node>/<class>".
+func TestBackupable_RefusalRedactsNodeAndShard(t *testing.T) {
+	const (
+		collection = "JourneyClass"
+		shard      = "zmDMRo4olU4c"
+		node       = "weaviate-0"
+	)
+
+	logger, _ := logrustest.NewNullLogger()
+	shardState := &sharding.State{
+		IndexID:  collection,
+		Physical: map[string]sharding.Physical{shard: {Name: shard, BelongsToNodes: []string{node}}},
+	}
+
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
+		require.NoError(t, fn(&models.Class{Class: collection}, shardState))
+	})
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.On("NodeName").Return(node)
+
+	db := &DB{logger: logger, localNodeName: node}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{collection, shard}: true,
+	}))
+	idx := &Index{
+		db:           db,
+		Config:       IndexConfig{ClassName: schema.ClassName(collection)},
+		schemaReader: reader,
+		getSchema:    getter,
+	}
+	db.indices = map[string]*Index{indexID(schema.ClassName(collection)): idx}
+
+	err := db.Backupable(context.Background(), []string{collection})
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"the sentinel must survive the join so the coordinator still answers 422")
+
+	body := err.Error()
+	assert.Contains(t, body, collection)
+	for _, leaked := range []string{shard, node} {
+		assert.NotContainsf(t, body, leaked, "DB.Backupable leaked %q into the refusal", leaked)
+	}
 }
