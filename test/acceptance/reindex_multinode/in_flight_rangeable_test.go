@@ -44,21 +44,18 @@ import (
 // query path is serving from a half-built rangeable bucket instead of
 // the still-intact filterable bucket.
 //
-// Root cause observed on `1.38.0-dev-e1dfae0` (Frontend Claude's retest):
-// FilterableToRangeableStrategy.OnMigrationComplete RAFTs the
-// `IndexRangeFilters=true` schema flip from inside per-shard runtimeSwap.
-// As soon as ANY shard's replica completes its swap, the flag flips
-// cluster-wide. Replicas that haven't completed their swap yet still
-// have an empty (PreReindexHook-created) main rangeable bucket, but
-// `pv.hasRangeableIndex=true` now routes range queries to that empty
-// bucket → partial / zero counts on those replicas → LB aggregation
-// returns a partial count.
+// Original root cause, observed on `1.38.0-dev-e1dfae0`:
+// FilterableToRangeableStrategy.OnMigrationComplete RAFTed the
+// `IndexRangeFilters=true` schema flip from inside per-shard runtimeSwap,
+// so the flag flipped cluster-wide as soon as ANY replica finished its
+// swap. Replicas still holding the empty PreReindexHook bucket then had
+// `pv.hasRangeableIndex=true` and served range queries from it.
 //
-// The fix is to promote enable-rangeable to a semantic migration so
-// the schema flip moves from per-shard `OnMigrationComplete` to the
-// cluster-wide `flipSemanticMigrationSchema` in `OnTaskCompleted` (the
-// same pattern change-tokenization, enable-filterable and
-// enable-searchable already use).
+// enable-rangeable is now a semantic migration
+// (weaviate/0-weaviate-issues#465): the flip happens once, from
+// `flipSemanticMigrationSchema` in `OnTaskCompleted`, after every
+// replica has swapped. This test stays as the pin that no in-flight
+// window can produce a partial count.
 func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)

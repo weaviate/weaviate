@@ -64,23 +64,14 @@
 // trimOlderGenerationsLocked. These run OUTSIDE the mixed-state
 // subwindow.
 //
-//   - OnMigrationComplete is a per-strategy hook with significant
-//     drift between implementations. Some are no-ops (semantic
-//     change-tokenization, enable-filterable, enable-searchable —
-//     their cluster-wide schema flip is in OnTaskCompleted).
-//     Others mutate in-memory local state that the query path
-//     consults (e.g. FilterableToRangeableStrategy.OnMigrationComplete
-//     calls Shard.setRangeableLocallyReady so this shard's queries
-//     match the new schema before the RAFT flip propagates).
-//     Others issue RAFT calls inline
-//     (FilterableToRangeableStrategy.applyPerPropertySchemaUpdate,
-//     MapToBlockmaxStrategy.updateToBlockMaxInvertedIndexConfig).
-//     RAFT calls in this position are slow (100s of ms) but
-//     correctness-safe — the overlay covers the entire RunSwapOnShard
-//     for change-tokenization, and BlockMax has no analyzer overlay
-//     because the format change is internal. See the godoc on
-//     [MigrationStrategy.OnMigrationComplete] for the per-strategy
-//     contract.
+//   - OnMigrationComplete is a per-strategy hook. It is a no-op for
+//     every semantic migration — their cluster-wide schema flip is in
+//     OnTaskCompleted. MapToBlockmaxStrategy is the one implementation
+//     that still issues a RAFT call inline
+//     (updateToBlockMaxInvertedIndexConfig). RAFT calls in this
+//     position are slow (100s of ms) but correctness-safe. See the
+//     godoc on [MigrationStrategy.OnMigrationComplete] for the
+//     per-strategy contract.
 //
 // Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup, BEFORE
 // LSM init reloads any buckets)
@@ -1448,9 +1439,8 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		// state is the strategy's target bucket existing and populated. If
 		// the bucket is missing now (e.g. a DELETE removed the index between
 		// that previous run and this re-trigger), the on-disk sentinel lies
-		// — calling OnMigrationComplete here would re-flip the schema flag
-		// to true and report success, while the customer's index is in fact
-		// empty. Fail loudly instead.
+		// — acking this shard would report success while the customer's
+		// index is in fact empty. Fail loudly instead.
 		for _, propName := range props {
 			bucketName := t.strategy.SourceBucketName(propName)
 			if shard.Store().Bucket(bucketName) == nil {
@@ -1462,7 +1452,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 		// Same ordering contract as runtimeSwap (see there for reasoning):
 		// this re-entry branch must recheck the rebuild too, or a retry
-		// could flip the schema without it ever succeeding.
+		// could ack the shard without the rebuild ever succeeding.
 		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 			return zerotime, false, err
 		}
@@ -1688,7 +1678,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			return zerotime, false, nil
 		}
 		// Inline runtime swap path (non-semantic migrations: MapToBlockmax,
-		// RoaringSetRefresh, EnableRangeable / Repair-*). Semantic
+		// RoaringSetRefresh, repair-filterable). Semantic
 		// migrations have skipSwapOnFinish=true and go through
 		// OnGroupCompleted's three-phase flow (prep → overlay → atomic
 		// swap). Here we run prep + atomic-swap inline: no overlay
@@ -1996,22 +1986,20 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
 
-	// Ordering contract: rebuild must be checked before OnMigrationComplete.
-	//
-	// Unlike the semantic-migration family ([IsSemanticMigration]),
-	// FilterableToRangeableStrategy.OnMigrationComplete is not gated by
-	// task-terminal status - it RAFT-commits IndexRangeFilters=true
-	// unconditionally the first time any shard's swap reaches this line.
-	// Skipping the check would advertise range-query support while this
-	// shard still falls back to disk (or a corrupt segment parsed as empty
-	// - see [rebuildRangeableInMemoryReps]).
+	// Ordering contract: the rebuild must succeed before this shard
+	// reports its swap complete. Its ack is what lets the task reach
+	// completion and flip IndexRangeFilters cluster-wide; acking a shard
+	// whose in-memory range representation is missing would advertise
+	// range-query support while this shard still falls back to disk (or
+	// to a corrupt segment parsed as empty - see
+	// [rebuildRangeableInMemoryReps]).
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 		return err
 	}
 
 	// OnMigrationComplete: no-op for semantic migrations (the cluster-
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
-	// Per-shard schema-flag flip for blockmax / repair-* strategies.
+	// Per-shard schema-flag flip for the blockmax strategy.
 	// Either way, runs OUTSIDE the per-shard atomic window because it
 	// doesn't touch bucket pointers.
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {

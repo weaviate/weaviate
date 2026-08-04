@@ -100,7 +100,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationI
 	// Format-only migrations must not emit operator guidance.
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeRepairFilterable,
-		ReindexTypeRepairRangeable,
+		ReindexTypeRebuildSearchable,
 	} {
 		t.Run(string(mt), func(t *testing.T) {
 			hook.Reset()

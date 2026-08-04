@@ -463,7 +463,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	}
 	if semantic && len(tenants) > 0 {
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(
-			errorResponse(principal, "tenants parameter cannot be used with semantic migrations (change-tokenization); all tenants must be targeted"))
+			errorResponse(principal, fmt.Sprintf(
+				"tenants parameter cannot be used with semantic migrations (%s); all tenants must be targeted",
+				migrationType)))
 	}
 
 	// For MT collections with specific tenants, validate they exist and are not OFFLOADED/FROZEN.
