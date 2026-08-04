@@ -236,7 +236,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
 		} else {
-			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+			c.log.WithFields(logFields).Errorf("coordinator: %s", backup.TextForLog(c.descriptor.Error))
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -483,9 +483,9 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 }
 
 // canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
-// typed error. When the response has [CanCommitErrInFlightReindex] kind, we
-// wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
-// upstream `errors.Is` checks succeed across the RPC boundary. Empty or
+// typed error. When the response has [CanCommitErrInFlightReindex] kind,
+// the result matches the shared [backup.ErrBackupBlockedByInFlightReindex]
+// sentinel so upstream `errors.Is` checks succeed across the RPC boundary. Empty or
 // [CanCommitErrCannotCommit] kinds (including responses from older nodes
 // that don't set the field) keep the legacy [errCannotCommit] wrapping so
 // existing callers and tests continue to match.
@@ -495,10 +495,39 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
-		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+		return reindexRefusalFromParticipant(resp.Err)
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}
+}
+
+// reindexRefusalFromParticipant rebuilds a participant's reindex refusal
+// with the sentinel reachable by Unwrap but never forced to the front of
+// the text.
+//
+// The sentinel reads "runtime-reindex in flight on this shard". A refusal
+// that already says that keeps the prefix, which is what operators and
+// parsers see today. A refusal that says something else — the leader was
+// unreachable, so no shard's state is known — would be contradicted by
+// its own first line if the prefix were prepended anyway.
+func reindexRefusalFromParticipant(participantErr string) error {
+	sentinel := backup.ErrBackupBlockedByInFlightReindex.Error()
+	if strings.Contains(participantErr, sentinel) {
+		return reindexRefusal{msg: sentinel + ": " + participantErr}
+	}
+	return reindexRefusal{msg: participantErr}
+}
+
+// reindexRefusal carries a participant's words verbatim while matching
+// the sentinel, which is how the REST layer decides the response.
+type reindexRefusal struct {
+	msg string
+}
+
+func (e reindexRefusal) Error() string { return e.msg }
+
+func (e reindexRefusal) Unwrap() error {
+	return backup.ErrBackupBlockedByInFlightReindex
 }
 
 // canCommit asks candidates if they agree to participate in DBRO

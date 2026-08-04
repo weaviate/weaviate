@@ -1034,7 +1034,9 @@ func logOperation(logger logrus.FieldLogger, name, id, backend string, begin tim
 		WithField("backup_id", id).WithField("backend", backend).
 		WithField("took", time.Since(begin))
 	if err != nil {
-		le.Error(err)
+		// Bounded: an admission refusal carries one line per blocked
+		// shard, and the caller still gets all of them in the response.
+		le.Error(backup.ErrorForLog(err))
 	} else {
 		le.Info()
 	}

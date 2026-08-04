@@ -1069,21 +1069,17 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
 
 		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built per
-		// backup precheck so the snapshot is fresh; on list failure we
-		// fall back to refusing every backup until DTM is reachable, to
-		// avoid races against in-flight reindexes that the local node
-		// cannot see.
+		// consults DTM rather than per-shard filesystem markers. A list
+		// failure is returned as an error so the gate can refuse the whole
+		// pass with one message instead of naming shards individually.
 		type shardKey struct {
 			collection string
 			shardName  string
 		}
-		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
+		buildShardReindexActivity := func() (db.ShardReindexActivityLookup, error) {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-				return func(string, string) bool { return true }
+				return nil, fmt.Errorf("list DTM tasks: %w", err)
 			}
 			live := make(map[shardKey]bool)
 			for _, task := range tasksByNamespace[db.ReindexNamespace] {
@@ -1103,7 +1099,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			return func(collection, shardName string) bool {
 				return live[shardKey{collection, shardName}]
-			}
+			}, nil
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
