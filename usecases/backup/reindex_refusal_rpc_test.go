@@ -14,6 +14,7 @@ package backup
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -87,4 +88,37 @@ func TestReindexRefusalSurvivesTheCanCommitRPC(t *testing.T) {
 func TestClassifyCanCommitErr_UnrelatedErrorStaysGeneric(t *testing.T) {
 	require.Equal(t, CanCommitErrCannotCommit,
 		classifyCanCommitErr(errors.New("disk full")))
+}
+
+// TestReindexRefusalRebuildKeepsTheParticipantsFirstLine pins how the
+// coordinator rebuilds a participant refusal. The genuine text keeps the
+// prefix it has always had; the unknown-state text is not given a first
+// line that contradicts its second.
+func TestReindexRefusalRebuildKeepsTheParticipantsFirstLine(t *testing.T) {
+	sentinel := backup.ErrBackupBlockedByInFlightReindex.Error()
+
+	genuine := fmt.Sprintf("node1/MyClass: %s: shard %q (collection %q) has an active runtime-reindex task in DTM",
+		sentinel, "shard-7", "MyClass")
+	unknown := "backup blocked: the cluster leader could not be reached, so runtime-reindex " +
+		"state is unknown for every shard on this node: list DTM tasks: leader not found"
+
+	t.Run("genuine keeps the prefix byte for byte", func(t *testing.T) {
+		rebuilt := canCommitErrFromResponse(&CanCommitResponse{
+			Err: genuine, ErrKind: CanCommitErrInFlightReindex,
+		})
+		require.Equal(t, sentinel+": "+genuine, rebuilt.Error())
+		require.True(t, errors.Is(rebuilt, backup.ErrBackupBlockedByInFlightReindex))
+	})
+
+	t.Run("unknown state is not prefixed with a claim it denies", func(t *testing.T) {
+		rebuilt := canCommitErrFromResponse(&CanCommitResponse{
+			Err: unknown, ErrKind: CanCommitErrInFlightReindex,
+		})
+		require.False(t, strings.HasPrefix(rebuilt.Error(), sentinel),
+			"the degraded path must not reintroduce the claim that a reindex is in flight")
+		require.NotContains(t, rebuilt.Error(), sentinel)
+		require.Equal(t, unknown, rebuilt.Error(), "the participant's words reach the caller unchanged")
+		require.True(t, errors.Is(rebuilt, backup.ErrBackupBlockedByInFlightReindex),
+			"matching must survive the rebuild")
+	})
 }
