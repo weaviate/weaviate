@@ -190,6 +190,8 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 		"error body must explain the gate consulted DTM; got: %s", errMsg)
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step")
+	require.NotContains(t, errMsg, "shard \"",
+		"backing up a collection grants nothing on shard ids; got: %s", errMsg)
 
 	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
 	// "Status != Cancelled"). The 422 fires before any write so none exists;
