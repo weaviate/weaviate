@@ -84,7 +84,7 @@ func isNilProber(prober ReindexCleanupProber) bool {
 	}
 	v := reflect.ValueOf(prober)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func:
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func:
 		return v.IsNil()
 	default:
 		return false
