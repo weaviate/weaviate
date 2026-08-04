@@ -143,15 +143,22 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	}
 	defer bucket.Shutdown(ctx)
 
-	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+	scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, false)
+	if err != nil {
+		return types.Dimensionality{}, err
+	}
+	return scan.Dimensionality, nil
 }
 
 // CalculateUnloadedDimensionsUsageAll calculates dimensions and object count for all target
 // vectors of an unloaded shard without loading it into memory. The dimensions bucket is opened
 // once and shared by all target vector calculations, instead of once per target vector.
+// Target vectors present in needTotal additionally get the object count summed across all rows
+// (the MUVERA reading); the others keep the cheaper first-complete-row scan.
 func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	logger logrus.FieldLogger, path, tenantName string, targetVectors []string,
-) (map[string]types.Dimensionality, error) {
+	needTotal map[string]int,
+) (map[string]DimensionsScan, error) {
 	if len(targetVectors) == 0 {
 		return nil, nil
 	}
@@ -168,48 +175,16 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	}
 	defer bucket.Shutdown(ctx)
 
-	dimensionalities := make(map[string]types.Dimensionality, len(targetVectors))
+	scans := make(map[string]DimensionsScan, len(targetVectors))
 	for _, targetVector := range targetVectors {
-		dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+		_, withTotal := needTotal[targetVector]
+		scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, withTotal)
 		if err != nil {
 			return nil, err
 		}
-		dimensionalities[targetVector] = dimensionality
+		scans[targetVector] = scan
 	}
-	return dimensionalities, nil
-}
-
-// CalculateUnloadedMuveraDimensionsUsageAll reports the MUVERA-encoded dimensionality for the
-// given target vectors of an unloaded shard, keyed by target vector with its encoded dimensions
-// as value. An empty map is a no-op, so non-MUVERA shards never pay for the extra bucket open.
-func CalculateUnloadedMuveraDimensionsUsageAll(ctx context.Context,
-	logger logrus.FieldLogger, path, tenantName string, muveraDimensions map[string]int,
-) (map[string]types.Dimensionality, error) {
-	if len(muveraDimensions) == 0 {
-		return nil, nil
-	}
-
-	bucketPath := shardPathDimensionsLSM(path, tenantName)
-	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
-		return nil, fmt.Errorf("lock dimensions bucket: %w", err)
-	}
-	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
-
-	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
-	if err != nil {
-		return nil, err
-	}
-	defer bucket.Shutdown(ctx)
-
-	dimensionalities := make(map[string]types.Dimensionality, len(muveraDimensions))
-	for targetVector, encodedDimensions := range muveraDimensions {
-		dimensionality, err := CalculateMuveraDimensionsUsageFromBucket(ctx, bucket, targetVector, encodedDimensions)
-		if err != nil {
-			return nil, err
-		}
-		dimensionalities[targetVector] = dimensionality
-	}
-	return dimensionalities, nil
+	return scans, nil
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size from disk
@@ -376,17 +351,65 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 	return vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, nil
 }
 
-// CalculateTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-) (types.Dimensionality, error) {
-	dimensionality := types.Dimensionality{}
+// DimensionsScan holds both readings the usage report needs from a single pass over the
+// dimensions bucket.
+type DimensionsScan struct {
+	// Dimensionality is the first row with non-zero dimensions and a non-empty doc set —
+	// the classic single-vector reading.
+	types.Dimensionality
+	// TotalCount is the number of objects with a vector, summed across every row.
+	// Multi-vector objects are recorded under their varying per-object total dimensions,
+	// so no single row counts them all. Only populated when the scan runs with needTotal.
+	TotalCount int
+}
+
+// MuveraDimensionality reports the fixed MUVERA-encoded dimensionality (what is held in
+// memory per object) with the object count summed across all rows. The scan must have run
+// with needTotal.
+func (s DimensionsScan) MuveraDimensionality(encodedDimensions int) types.Dimensionality {
+	if s.TotalCount == 0 {
+		return types.Dimensionality{}
+	}
+	return types.Dimensionality{Dimensions: encodedDimensions, Count: s.TotalCount}
+}
+
+// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from
+// an LSMKV bucket. With needTotal it additionally sums the object count across all rows (the
+// MUVERA reading); without it the scan stops at the first complete row.
+func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVector string,
+	needTotal bool,
+) (DimensionsScan, error) {
+	scan := DimensionsScan{}
 
 	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
-		return dimensionality, fmt.Errorf("calcTargetVectorDimensionsFromBucket: %w", err)
+		return scan, fmt.Errorf("scanTargetVectorDimensions: %w", err)
 	}
 
+	prefix := []byte(targetVector)
 	nameLen := len(targetVector)
 	expectedKeyLen := nameLen + 4 // vector name + uint32
+	// addRow feeds one bucket row into both readings and reports whether the scan may stop.
+	addRow := func(k []byte, count int) (done bool) {
+		// a longer name sharing this prefix can sort before the target's own keys
+		// ("texts…" before "text\x80…"); rows with dims=0 are objects without a vector
+		if len(k) != expectedKeyLen {
+			return false
+		}
+		dimLength := binary.LittleEndian.Uint32(k[nameLen:])
+		if dimLength == 0 {
+			return false
+		}
+		if scan.Dimensions == 0 || scan.Count == 0 {
+			scan.Dimensions = int(dimLength)
+			scan.Count = count
+		}
+		if needTotal {
+			scan.TotalCount += count
+		}
+		// remaining rows cannot change a complete result unless the total is needed, and an
+		// empty name matches every key so the prefix check in the loop condition never fires
+		return !needTotal && scan.Dimensions != 0 && scan.Count != 0
+	}
 	var k []byte
 
 	switch b.Strategy() {
@@ -396,99 +419,7 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 
 		c, err := b.MapCursor()
 		if err != nil {
-			return dimensionality, fmt.Errorf("create cursor: %w", err)
-		}
-		defer c.Close()
-
-		var v []lsmkv.MapPair
-		if nameLen == 0 {
-			k, v = c.First(ctx)
-		} else {
-			k, v = c.Seek(ctx, []byte(targetVector))
-		}
-		for ; k != nil; k, v = c.Next(ctx) {
-			if !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-			// a longer name sharing this prefix can sort before the target's own keys
-			if len(k) != expectedKeyLen {
-				continue
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = len(v)
-			}
-			// remaining keys cannot change a complete result, and an empty name
-			// matches every key so the prefix break above never fires
-			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
-				break
-			}
-		}
-	default:
-		c := b.CursorRoaringSet()
-		defer c.Close()
-
-		var v *sroar.Bitmap
-		if nameLen == 0 {
-			k, v = c.First()
-		} else {
-			k, v = c.Seek([]byte(targetVector))
-		}
-		for ; k != nil; k, v = c.Next() {
-			if !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-			// a longer name sharing this prefix can sort before the target's own keys
-			if len(k) != expectedKeyLen {
-				continue
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = v.GetCardinality()
-			}
-			// remaining keys cannot change a complete result, and an empty name
-			// matches every key so the prefix break above never fires
-			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
-				break
-			}
-		}
-	}
-
-	return dimensionality, nil
-}
-
-// CalculateMuveraDimensionsUsageFromBucket reports the fixed MUVERA-encoded dimensionality
-// (what is held in memory per object) with the object count summed across all bucket entries,
-// as multi-vector objects are recorded under their varying per-object total dimensions.
-func CalculateMuveraDimensionsUsageFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-	encodedDimensions int,
-) (types.Dimensionality, error) {
-	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
-		return types.Dimensionality{}, fmt.Errorf("calculateMuveraDimensionsUsageFromBucket: %w", err)
-	}
-
-	prefix := []byte(targetVector)
-	nameLen := len(targetVector)
-	expectedKeyLen := nameLen + 4 // vector name + uint32
-	totalCount := 0
-	// entries with dims=0 are objects without a vector; keys of other lengths are interleaved
-	// keys of longer vector names extending this one ("texts…" sorts before "text\x80…")
-	countEntry := func(k []byte, count int) {
-		if len(k) == expectedKeyLen && binary.LittleEndian.Uint32(k[nameLen:]) > 0 {
-			totalCount += count
-		}
-	}
-	var k []byte
-
-	switch b.Strategy() {
-	case lsmkv.StrategyMapCollection:
-		c, err := b.MapCursor()
-		if err != nil {
-			return types.Dimensionality{}, fmt.Errorf("create cursor: %w", err)
+			return scan, fmt.Errorf("create cursor: %w", err)
 		}
 		defer c.Close()
 
@@ -499,7 +430,9 @@ func CalculateMuveraDimensionsUsageFromBucket(ctx context.Context, b *lsmkv.Buck
 			k, v = c.Seek(ctx, prefix)
 		}
 		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next(ctx) {
-			countEntry(k, len(v))
+			if addRow(k, len(v)) {
+				break
+			}
 		}
 	default:
 		c := b.CursorRoaringSet()
@@ -512,12 +445,11 @@ func CalculateMuveraDimensionsUsageFromBucket(ctx context.Context, b *lsmkv.Buck
 			k, v = c.Seek(prefix)
 		}
 		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
-			countEntry(k, v.GetCardinality())
+			if addRow(k, v.GetCardinality()) {
+				break
+			}
 		}
 	}
 
-	if totalCount == 0 {
-		return types.Dimensionality{}, nil
-	}
-	return types.Dimensionality{Dimensions: encodedDimensions, Count: totalCount}, nil
+	return scan, nil
 }

@@ -64,18 +64,14 @@ func (c DimensionCategory) String() string {
 	}
 }
 
-// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	return s.calcTargetVectorDimensions(ctx, targetVector)
-}
-
-// MuveraDimensionsUsage reports the fixed MUVERA-encoded dimensionality with the total object count for a target vector
-func (s *Shard) MuveraDimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (types.Dimensionality, error) {
+// DimensionsUsage scans the dimensions bucket for a given vector. With needTotal the object
+// count is additionally summed across all dimension rows (the MUVERA reading).
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, needTotal bool) (shardusage.DimensionsScan, error) {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return types.Dimensionality{}, errors.Errorf("muveraDimensionsUsage: no bucket dimensions")
+		return shardusage.DimensionsScan{}, errors.Errorf("dimensionsUsage: no bucket dimensions")
 	}
-	return shardusage.CalculateMuveraDimensionsUsageFromBucket(ctx, b, targetVector, encodedDimensions)
+	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, needTotal)
 }
 
 // Dimensions returns the total number of dimensions for a given vector
@@ -97,11 +93,11 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
 ) (types.Dimensionality, error) {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
+	scan, err := s.DimensionsUsage(ctx, targetVector, false)
+	if err != nil {
+		return types.Dimensionality{}, err
 	}
-	return shardusage.CalculateTargetVectorDimensionsFromBucket(ctx, b, targetVector)
+	return scan.Dimensionality, nil
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.

@@ -472,7 +472,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for range 10 {
-				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}); err != nil {
+				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}, nil); err != nil {
 					errs <- err
 				}
 			}
@@ -526,32 +526,39 @@ func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
 	require.NoError(t, b.Shutdown(ctx))
 
 	targetVectors := []string{"text", "image", "missing"}
-	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors)
+	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors, nil)
 	require.NoError(t, err)
 	require.Len(t, all, len(targetVectors))
-	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"])
-	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"])
-	assert.Equal(t, types.Dimensionality{}, all["missing"])
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"].Dimensionality)
+	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"].Dimensionality)
+	assert.Equal(t, DimensionsScan{}, all["missing"])
 
 	// parity with the single-vector variant
 	for _, targetVector := range targetVectors {
 		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector)
 		require.NoError(t, err)
-		assert.Equal(t, all[targetVector], single, targetVector)
+		assert.Equal(t, all[targetVector].Dimensionality, single, targetVector)
 	}
 
+	// target vectors listed in needTotal also get the object count summed across all rows
+	withTotal, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors,
+		map[string]int{"text": 2560})
+	require.NoError(t, err)
+	assert.Equal(t, DimensionsScan{Dimensionality: types.Dimensionality{Dimensions: 128, Count: 5}, TotalCount: 5}, withTotal["text"])
+	assert.Equal(t, 0, withTotal["image"].TotalCount, "not in needTotal → no total")
+
 	// no target vectors → nothing to calculate, no bucket open
-	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
+	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, none)
 }
 
-// TestCalculateTargetVectorDimensionsFromBucket pins that a vector name which is a prefix of a
+// TestScanTargetVectorDimensions pins that a vector name which is a prefix of a
 // longer name still reports its own dimensions and object count: its dimension bytes sort after
 // the longer name's keys ("texts…" before "text\x80…" at 384 dimensions), so the scan has to skip
 // past those instead of stopping at them. Every vector gets its own dimensions and object count,
 // so a scan that lands on a neighbour's key cannot pass.
-func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
+func TestScanTargetVectorDimensions(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
 
@@ -624,9 +631,9 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 
 				for _, tt := range tests {
 					t.Run(tt.name, func(t *testing.T) {
-						dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, tt.targetVector)
+						scan, err := ScanTargetVectorDimensions(ctx, b, tt.targetVector, false)
 						require.NoError(t, err)
-						assert.Equal(t, tt.expected, dimensionality)
+						assert.Equal(t, tt.expected, scan.Dimensionality)
 					})
 				}
 			})
@@ -640,7 +647,7 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 		require.NoError(t, err)
 		defer b.Shutdown(ctx)
 
-		_, err = CalculateTargetVectorDimensionsFromBucket(ctx, b, "text")
+		_, err = ScanTargetVectorDimensions(ctx, b, "text", false)
 		require.Error(t, err)
 	})
 }
@@ -685,7 +692,7 @@ func TestLoadComputedUsageData(t *testing.T) {
 	}
 }
 
-func TestCalculateUnloadedMuveraDimensionsUsageAll(t *testing.T) {
+func TestCalculateUnloadedDimensionsUsageAll_Muvera(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
 	tenantName := "tenant"
@@ -702,19 +709,16 @@ func TestCalculateUnloadedMuveraDimensionsUsageAll(t *testing.T) {
 	require.NoError(t, b.FlushMemtable())
 	require.NoError(t, b.Shutdown(ctx))
 
-	all, err := CalculateUnloadedMuveraDimensionsUsageAll(ctx, logger, dirName, tenantName,
-		map[string]int{"colbert": 10240, "missing": 10240})
+	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName,
+		[]string{"colbert", "missing"}, map[string]int{"colbert": 10240, "missing": 10240})
 	require.NoError(t, err)
-	assert.Equal(t, types.Dimensionality{Dimensions: 10240, Count: 5}, all["colbert"])
-	assert.Equal(t, types.Dimensionality{}, all["missing"], "no objects → no reported dimensionality")
-
-	// no MUVERA vectors → nothing to calculate, no bucket open
-	none, err := CalculateUnloadedMuveraDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
-	require.NoError(t, err)
-	assert.Nil(t, none)
+	assert.Equal(t, types.Dimensionality{Dimensions: 10240, Count: 5}, all["colbert"].MuveraDimensionality(10240))
+	assert.Equal(t, types.Dimensionality{Dimensions: 1280, Count: 2}, all["colbert"].Dimensionality,
+		"raw reading keeps its first-row semantics in the same pass")
+	assert.Equal(t, types.Dimensionality{}, all["missing"].MuveraDimensionality(10240), "no objects → no reported dimensionality")
 }
 
-func TestCalculateMuveraDimensionsUsageFromBucket(t *testing.T) {
+func TestScanTargetVectorDimensions_TotalCount(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
 
@@ -764,26 +768,23 @@ func TestCalculateMuveraDimensionsUsageFromBucket(t *testing.T) {
 			}
 			require.NoError(t, b.FlushMemtable())
 
-			muvera, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "colbert", encodedDims)
+			colbert, err := ScanTargetVectorDimensions(ctx, b, "colbert", true)
 			require.NoError(t, err)
-			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 6}, muvera)
+			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 6}, colbert.MuveraDimensionality(encodedDims))
+			// raw reading keeps its first-row semantics in the same pass
+			assert.Equal(t, types.Dimensionality{Dimensions: 1280, Count: 2}, colbert.Dimensionality)
 
-			// raw calculation keeps its first-entry semantics for the same data
-			raw, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, "colbert")
+			other, err := ScanTargetVectorDimensions(ctx, b, "other", true)
 			require.NoError(t, err)
-			assert.Equal(t, types.Dimensionality{Dimensions: 1280, Count: 2}, raw)
+			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 4}, other.MuveraDimensionality(encodedDims))
 
-			otherMuvera, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "other", encodedDims)
+			missing, err := ScanTargetVectorDimensions(ctx, b, "missing", true)
 			require.NoError(t, err)
-			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 4}, otherMuvera)
+			assert.Equal(t, types.Dimensionality{}, missing.MuveraDimensionality(encodedDims))
 
-			missing, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "missing", encodedDims)
+			noVectors, err := ScanTargetVectorDimensions(ctx, b, "novectors", true)
 			require.NoError(t, err)
-			assert.Equal(t, types.Dimensionality{}, missing)
-
-			noVectors, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "novectors", encodedDims)
-			require.NoError(t, err)
-			assert.Equal(t, types.Dimensionality{}, noVectors, "only dims=0 entries → zero report")
+			assert.Equal(t, types.Dimensionality{}, noVectors.MuveraDimensionality(encodedDims), "only dims=0 rows → zero report")
 		})
 	}
 }

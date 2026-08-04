@@ -350,15 +350,15 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		}
 		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
-		var dimensionality types.Dimensionality
-		var err error
-		if encodedDimensions := muveraEncodedDimensions(vectorIndexConfig); encodedDimensions > 0 {
-			dimensionality, err = shard.MuveraDimensionsUsage(ctx, targetVector, encodedDimensions)
-		} else {
-			dimensionality, err = shard.DimensionsUsage(ctx, targetVector)
-		}
+		encodedDimensions := muveraEncodedDimensions(vectorIndexConfig)
+		scan, err := shard.DimensionsUsage(ctx, targetVector, encodedDimensions > 0)
 		if err != nil {
 			return err
+		}
+		// MUVERA multi-vectors report the encoded dimensionality (what is held in memory per object)
+		dimensionality := scan.Dimensionality
+		if encodedDimensions > 0 {
+			dimensionality = scan.MuveraDimensionality(encodedDimensions)
 		}
 
 		compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions)
@@ -442,13 +442,9 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			muveraDimensions[targetVector] = encodedDimensions
 		}
 	}
-	// open the dimensions bucket once for all target vectors
-	dimensionalitiesAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors)
-	if err != nil {
-		return nil, err
-	}
-	// MUVERA multi-vectors report the encoded dimensionality; raw dimensions keep driving the disk accounting below
-	muveraDimensionalities, err := shardusage.CalculateUnloadedMuveraDimensionsUsageAll(ctx, i.logger, i.path(), shardName, muveraDimensions)
+	// open the dimensions bucket once for all target vectors; MUVERA target vectors also get
+	// the total object count from the same pass
+	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors, muveraDimensions)
 	if err != nil {
 		return nil, err
 	}
@@ -474,10 +470,13 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		}
 
-		dimensionalities := dimensionalitiesAll[targetVector]
-		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
-		if muvera, ok := muveraDimensionalities[targetVector]; ok {
-			dimensionalities = muvera
+		scan := scansAll[targetVector]
+		// raw dimensions keep driving the disk accounting; MUVERA multi-vectors report the
+		// encoded dimensionality (what is held in memory per object)
+		uncompressedVectorSize += uint64(scan.Count) * uint64(scan.Dimensions) * 4
+		dimensionalities := scan.Dimensionality
+		if encodedDimensions, ok := muveraDimensions[targetVector]; ok {
+			dimensionalities = scan.MuveraDimensionality(encodedDimensions)
 		}
 		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
 		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
