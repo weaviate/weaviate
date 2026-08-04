@@ -136,8 +136,12 @@ func assertReindexBlocked(t *testing.T, run probeRun, backupID string) reindexPr
 	message := guardMessage(first.body)
 	require.Containsf(t, message, "reindex blocked",
 		"409 body must name the blocking condition; got: %s", first.body)
-	require.Containsf(t, message, backupID,
-		"409 body must name the blocking backup id %q; got: %s", backupID, first.body)
+	require.Containsf(t, message, "is running in the cluster",
+		"409 body must say what is blocking; got: %s", first.body)
+	// Submitting a reindex needs update_collections on one collection; reading
+	// backup IDs needs read_backups.
+	require.NotContainsf(t, message, backupID,
+		"409 body leaked backup id %q; got: %s", backupID, first.body)
 	return first
 }
 

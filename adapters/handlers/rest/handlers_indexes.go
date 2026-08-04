@@ -729,7 +729,8 @@ func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivity
 // body: they need read_nodes / read_backups, while reaching this handler only
 // needs update_collections on one collection. The node log carries the detail.
 func backupActivityResponder(principal *models.Principal, scan backupActivityScan) middleware.Responder {
-	// A definite "busy" outranks an unreachable node: it tells the caller what to wait on.
+	// A definite "busy" outranks an unreachable node: it is a certain answer,
+	// and it is the one that will clear on its own.
 	if scan.BusyNode != "" {
 		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
 			fmt.Sprintf("reindex blocked: a %s is running in the cluster; retry after it finishes",
