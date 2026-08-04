@@ -14,6 +14,7 @@ package reindex_backup_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,12 +124,25 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	t.Logf("probe node %q refused while only leader %q held backup %s: %s",
 		topo.probe.name, leader, backupID, blocked.body)
 
-	// assertReindexBlocked already covers the backup id; node names need
-	// read_nodes, which this route does not.
+	// Reaching this route needs update_collections on the one collection being
+	// migrated. assertReindexBlocked already covers the backup id; node names
+	// need read_nodes and the other collections' names need their own grant,
+	// neither of which this route asks for.
 	message := guardMessage(blocked.body)
 	for _, node := range nodes {
 		assert.NotContainsf(t, message, node.name,
 			"the 409 body leaked node %q", node.name)
+	}
+	assert.NotContainsf(t, message, topo.backupClass,
+		"the 409 body leaked the backed-up collection %q; the caller was only granted the one it is migrating",
+		topo.backupClass)
+	for _, placement := range topo.placements {
+		className, _, _ := strings.Cut(placement, "=")
+		if className == topo.reindexClass {
+			continue
+		}
+		assert.NotContainsf(t, message, className,
+			"the 409 body leaked collection %q, which the caller has no grant on", className)
 	}
 
 	// The block has to lift on a node that never took part in the backup.
@@ -146,7 +160,10 @@ func resolveGuardTopology(t *testing.T, nodes []clusterNode, leader, propName st
 	var topo guardTopology
 	var spares []string
 	for attempt := 0; attempt < maxPlacementAttempts; attempt++ {
-		className := fmt.Sprintf("ReindexGuard_RemoteBackup_%d", attempt)
+		// Zero-padded so no sampled name is a prefix of another: the redaction
+		// assertions below are substring checks, and "..._1" inside "..._15"
+		// would make them answer about the wrong class.
+		className := fmt.Sprintf("ReindexGuard_RemoteBackup_%02d", attempt)
 		helper.CreateClass(t, &models.Class{
 			Class: className,
 			Properties: []*models.Property{
