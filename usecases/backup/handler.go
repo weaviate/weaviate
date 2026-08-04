@@ -313,11 +313,12 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		ret.Timeout = res.Timeout
 	case OpRestore:
 		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx); err != nil {
-			// Deliberately the generic kind, not classifyCanCommitErr: the
-			// in-flight-reindex kind would re-materialize this message under
-			// the per-shard backup sentinel's wording.
+			// Its own kind, not classifyCanCommitErr: the in-flight-reindex kind
+			// would re-materialize this message under the per-shard backup
+			// sentinel's wording. The kind is what lets the coordinator answer
+			// 422 instead of 500 — a migration in progress is not a server fault.
 			ret.Err = fmt.Sprintf("restore blocked: %v", err)
-			ret.ErrKind = CanCommitErrCannotCommit
+			ret.ErrKind = CanCommitErrReindexInFlight
 			return ret
 		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)

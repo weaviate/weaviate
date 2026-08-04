@@ -284,6 +284,12 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
+		if errors.Is(err, backup.ErrReindexInFlight) {
+			// A participant saw a migration the cluster-wide check above could
+			// not: node-local sidecar cleanup, or a task that started in
+			// between. Retryable, so 422 — a 500 would page the on-call.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	}
 
