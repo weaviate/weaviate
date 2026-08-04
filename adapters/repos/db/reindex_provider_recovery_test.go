@@ -159,7 +159,8 @@ func TestHasUntidiedTracker(t *testing.T) {
 }
 
 // TestIsSemanticMigration pins the semantic/format-only classification
-// (weaviate/0-weaviate-issues#254 promoted change-algorithm to semantic).
+// (weaviate/0-weaviate-issues#254 promoted change-algorithm to semantic,
+// weaviate/0-weaviate-issues#465 the two rangeable types).
 func TestIsSemanticMigration(t *testing.T) {
 	semantic := []ReindexMigrationType{
 		ReindexTypeChangeTokenization,
@@ -167,12 +168,12 @@ func TestIsSemanticMigration(t *testing.T) {
 		ReindexTypeEnableFilterable,
 		ReindexTypeEnableSearchable,
 		ReindexTypeChangeAlgorithm,
+		ReindexTypeEnableRangeable,
+		ReindexTypeRepairRangeable,
 	}
 	formatOnly := []ReindexMigrationType{
 		ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable,
 	}
 	for _, mt := range semantic {
 		t.Run(string(mt)+" → semantic", func(t *testing.T) {
@@ -187,9 +188,9 @@ func TestIsSemanticMigration(t *testing.T) {
 }
 
 // TestSemanticMigrationIndexTypes pins the migration-type → index-type
-// mapping. Format-only migrations (repair-*, enable-rangeable) MUST
-// return nil here — they don't go through the swap barrier, so
-// LocalCallbacksDone has nothing to check for them.
+// mapping. Format-only migrations MUST return nil here — they don't go
+// through the swap barrier, so LocalCallbacksDone has nothing to check
+// for them.
 func TestSemanticMigrationIndexTypes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -227,8 +228,18 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "enable-rangeable → empty (format-only)",
+			name: "enable-rangeable → rangeable",
 			mt:   ReindexTypeEnableRangeable,
+			want: []string{"rangeable"},
+		},
+		{
+			name: "repair-rangeable → rangeable",
+			mt:   ReindexTypeRepairRangeable,
+			want: []string{"rangeable"},
+		},
+		{
+			name: "rebuild-searchable → empty (format-only)",
+			mt:   ReindexTypeRebuildSearchable,
 			want: nil,
 		},
 	}
