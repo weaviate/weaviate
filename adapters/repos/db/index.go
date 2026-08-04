@@ -1575,7 +1575,7 @@ func (i *Index) getShardForWrite(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit, callerUserRequest)
 		// the reference we were handed is not returned to the caller, release it
 		release()
 		if err != nil {
@@ -1615,7 +1615,7 @@ func (i *Index) getShardForRead(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit, callerUserRequest)
 		// the reference we were handed is not returned to the caller, release it
 		release()
 		if err != nil {
@@ -3123,7 +3123,9 @@ func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitSh
 
 // LoadLocalShardForReplication loads a shard on behalf of a replica movement.
 // Suspending or resuming the namespace mid-movement must not fail that load, so
-// this is the one entry point exempt from the request-path namespace check.
+// it is exempt from the request-path namespace check. The exemption covers this
+// node's target shard, not the movement — the source node reads its own shard
+// through the request path, which a suspend still refuses.
 func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplication)
 }
@@ -3218,7 +3220,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
+	return i.getOptInitLocalShard(ctx, shardName, false, callerUserRequest)
 }
 
 // getOrInitShard initiates the shard locally if it doesn't exist.
@@ -3230,7 +3232,16 @@ func (i *Index) GetShard(ctx context.Context, shardName string) (
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, true)
+	return i.getOptInitLocalShard(ctx, shardName, true, callerUserRequest)
+}
+
+// getOrInitShardForReplication exempts a replica movement's write to its target
+// shard from the request-path namespace check, as LoadLocalShardForReplication
+// does for the load.
+func (i *Index) getOrInitShardForReplication(ctx context.Context, shardName string) (
+	shard ShardLike, release func(), err error,
+) {
+	return i.getOptInitLocalShard(ctx, shardName, true, callerReplication)
 }
 
 // getLoadedShard returns the shard only if it is already loaded, never
@@ -3272,7 +3283,7 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
 // The returned shard cannot be closed until release is called.
 // release is never nil, including on error, so defer it immediately after the call.
-func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
+func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool, caller shardLoadCaller) (
 	shard ShardLike, release func(), err error,
 ) {
 	if err := i.enterRead(); err != nil {
@@ -3282,7 +3293,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 	// Above both load points: preventShutdown below loads a resident lazy shard
 	// even with ensureInit false, so a check further down would miss the reads.
-	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+	if err := i.requireNamespaceAllowsShardLoad(caller); err != nil {
 		return nil, func() {}, err
 	}
 

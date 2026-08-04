@@ -565,10 +565,34 @@ func TestGuardLoadPath(t *testing.T) {
 	})
 }
 
-// The replication target load is the one exemption: a suspend or resume must not
-// fail a movement already in flight, but a namespace being torn down still does.
+// A movement reaches its target shard twice — once to load it, once to replay the
+// change log onto it — and a suspend or resume must fail neither, while a deleting
+// namespace refuses both. What these rows do not say is that the movement then
+// finishes: its source shard is read through the request path, which still refuses.
+//
+// Each row drives the entry point itself rather than the guard adapter, so
+// routing either one back through the request path turns it red.
 func TestReplicationExempt(t *testing.T) {
 	const class = "alpha:Product"
+	ctx := context.Background()
+
+	// A delete needs no encoded payload, so the shard call the replay makes is a
+	// single mocked DeleteObject.
+	replay := []ChangeLogReplayEntry{{ID: "f8b6a3e0-0000-4000-8000-000000000001", IsDelete: true, LastUpdateTimeUnixMilli: 1}}
+
+	// Seeds the resident shard both entry points reach. A resident non-lazy shard
+	// is already open, so the load returns once admitted; the replay writes to it.
+	// Expectations are set only where the namespace admits, so an admitted row
+	// that never reaches the shard fails on the unmet expectation.
+	seedShard := func(t *testing.T, idx *Index, admitted, replaying bool) {
+		t.Helper()
+		shard := NewMockShardLike(t)
+		if admitted && replaying {
+			shard.EXPECT().preventShutdown().Return(func() {}, nil)
+			shard.EXPECT().DeleteObject(mock.Anything, replay[0].ID, mock.Anything).Return(nil)
+		}
+		idx.shards.Store("t1", shard)
+	}
 
 	tests := []struct {
 		name    string
@@ -582,10 +606,23 @@ func TestReplicationExempt(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
+		t.Run("at the target load, "+tc.name, func(t *testing.T) {
+			_, idx := dbForReopen(t, class, existerWithState(t, tc.state))
+			seedShard(t, idx, tc.wantErr == nil, false)
 
-			err := idx.requireNamespaceAllowsShardLoad(callerReplication)
+			err := idx.LoadLocalShardForReplication(ctx, "t1")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+
+		t.Run("at the change-log replay, "+tc.name, func(t *testing.T) {
+			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
+			seedShard(t, idx, tc.wantErr == nil, true)
+
+			err := idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
@@ -594,21 +631,81 @@ func TestReplicationExempt(t *testing.T) {
 		})
 	}
 
-	t.Run("a lookup miss is refused", func(t *testing.T) {
-		e := namespaces.NewMockExister(t)
-		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-		idx := indexForGuardTest(t, class, e)
+	// Both fail-closed arms of the chokepoint, at both entry points: a namespaced
+	// class with no lookup at all, and one whose namespace row is absent.
+	refusals := []struct {
+		name    string
+		exister func(*testing.T) namespaces.Exister
+		wantErr error
+	}{
+		{
+			name:    "a missing lookup",
+			exister: func(*testing.T) namespaces.Exister { return nil },
+			wantErr: errNamespaceLookupMissing,
+		},
+		{
+			name: "a lookup miss",
+			exister: func(t *testing.T) namespaces.Exister {
+				e := namespaces.NewMockExister(t)
+				e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false).Maybe()
+				return e
+			},
+			wantErr: errNamespaceRowMissing,
+		},
+	}
 
-		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerReplication), errNamespaceRowMissing)
+	for _, tc := range refusals {
+		t.Run(tc.name+" is refused at the target load", func(t *testing.T) {
+			_, idx := dbForReopen(t, class, tc.exister(t))
+			seedShard(t, idx, false, false)
+
+			require.ErrorIs(t, idx.LoadLocalShardForReplication(ctx, "t1"), tc.wantErr)
+		})
+
+		t.Run(tc.name+" is refused at the change-log replay", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, tc.exister(t))
+			seedShard(t, idx, false, false)
+
+			require.ErrorIs(t, idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay), tc.wantErr)
+		})
+	}
+
+	t.Run("an unqualified class name admits the replay", func(t *testing.T) {
+		idx := indexForGuardTest(t, "Product", nil)
+		seedShard(t, idx, true, true)
+
+		require.NoError(t, idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay))
+	})
+
+	// An empty replay writes nothing, so it returns before the namespace is even
+	// consulted — a refusing state must not turn that no-op into an error.
+	t.Run("an empty replay is a no-op in a refusing namespace", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateDeleting))
+		seedShard(t, idx, false, false)
+
+		require.NoError(t, idx.OverwriteObjectsFromChangeLog(ctx, "t1", nil))
+	})
+
+	// Admission is not a licence to ignore the backup gate: a shard that has to be
+	// materialized is still refused while a backup holds it.
+	t.Run("a shard being backed up is not replayed onto", func(t *testing.T) {
+		_, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.backupProtectedShards.Store("t1", struct{}{})
+
+		err := idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay)
+		require.ErrorContains(t, err, "protected for backup")
 	})
 
 	// The exemption is per entry point, not per namespace: the same suspended
-	// shard a movement may load is still refused to a request.
+	// shard a movement may load and replay onto is still refused to a request.
 	t.Run("the same suspended shard is refused to a request", func(t *testing.T) {
 		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		seedShard(t, idx, true, true)
 
-		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerReplication))
-		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), namespaces.ErrNamespaceSuspended)
+		require.NoError(t, idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay))
+
+		_, _, err := idx.getOrInitShard(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 	})
 }
 

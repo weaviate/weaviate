@@ -55,8 +55,10 @@ func RequireShardLoadable(state cmd.NamespaceState) error {
 }
 
 // AdmitReplicationTarget returns nil in every state but deleting, so suspending
-// or resuming a namespace does not fail a replica movement's load of its target
-// shard. It does not verify that a movement is under way.
+// or resuming a namespace does not fail a replica movement loading or writing to
+// its target shard. It does not verify that a movement is under way, and it
+// decides the target only: the same movement's source shard is read through
+// RequireShardLoadable, so a movement still cannot finish while suspended.
 func AdmitReplicationTarget(state cmd.NamespaceState) error {
 	switch state {
 	case cmd.NamespaceStateActive, cmd.NamespaceStateSuspended, cmd.NamespaceStateResuming:
