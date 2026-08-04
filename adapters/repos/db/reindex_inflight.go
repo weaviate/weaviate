@@ -29,13 +29,9 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate answers the backup gate's per-shard question from one
-// resolved snapshot. Resolving the activity lookup costs a cluster-wide
-// query against the RAFT leader, so a caller that checks many shards
-// must resolve once rather than once per shard.
-//
-// Resolution is lazy: a gate that is never asked about a shard issues
-// no query at all.
+// reindexGate resolves the DTM reindex-activity lookup once — a
+// cluster-wide RAFT query — and shares the answer across every shard a
+// caller checks. Resolution is lazy: unused, it never queries.
 type reindexGate struct {
 	db       *DB
 	once     sync.Once
@@ -43,17 +39,15 @@ type reindexGate struct {
 	cleanup  CleanupInProgressLookup
 }
 
-// newReindexGate returns an unresolved gate over db.
 func newReindexGate(db *DB) *reindexGate {
 	return &reindexGate{db: db}
 }
 
 func (g *reindexGate) resolve() {
 	g.once.Do(func() {
-		// Read the builders here rather than when the gate was built: a
-		// gate created in the startup window between the two install
-		// calls would otherwise hold one builder for its whole life and
-		// never see the other.
+		// Read at resolve time, not construction time: a gate built
+		// between the two install calls must still see both builders,
+		// not just whichever landed first.
 		g.db.reindexAuditMu.RLock()
 		activityBuilder := g.db.shardReindexActivityLookupBuilder
 		cleanupBuilder := g.db.reindexCleanupInProgressLookupBldr
@@ -72,10 +66,9 @@ func (g *reindexGate) resolve() {
 			return
 		}
 		g.activity = activityBuilder()
-		// The cleanup builder is optional — older wiring paths and test
-		// fixtures that install only the activity lookup keep the prior
-		// semantics. Its closure reads a live registry on every call, so
-		// memoizing the closure does not freeze its answer.
+		// Cleanup builder is optional (older wiring/tests install only
+		// activity). Its closure reads a live registry per call, so
+		// memoizing it here does not freeze the cleanup answer.
 		if cleanupBuilder != nil {
 			g.cleanup = cleanupBuilder()
 		}
@@ -157,9 +150,8 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
 // replaced only saw the local node and lagged DTM's actual state.
 //
-// Each call resolves its own snapshot. [DB.Backupable] walks many
-// shards in one pass and shares a gate instead, via
-// [Index.refuseIfReindexInFlightWithGate].
+// Each call resolves its own snapshot; [DB.Backupable] shares one gate
+// across many shards via [Index.refuseIfReindexInFlightWithGate].
 //
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.

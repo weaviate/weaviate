@@ -23,8 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// precheckClass is one collection of a Backupable pass and the shards
-// the local node owns for it.
+// precheckClass is a collection and the local node's shards for it.
 type precheckClass struct {
 	name   string
 	shards []string
@@ -38,9 +37,8 @@ func precheckShards(className string, n int) []string {
 	return shards
 }
 
-// precheckDB assembles the minimum DB a Backupable pass walks: one
-// index per class, each reading a sharding state whose shards all
-// belong to the local node.
+// precheckDB builds the minimum DB a Backupable pass walks: one index
+// per class, with all shards owned by the local node.
 func precheckDB(t *testing.T, classes []precheckClass) *DB {
 	t.Helper()
 
@@ -64,9 +62,8 @@ func precheckClassNames(classes []precheckClass) []string {
 	return names
 }
 
-// blockedShards reports which of candidates a precheck error refused,
-// so a test can distinguish "refused everything" from "refused the
-// first shard it looked at".
+// blockedShards reports which candidates a precheck error refused, so
+// a test can tell "refused everything" from "refused only the first".
 func blockedShards(err error, candidates []string) []string {
 	if err == nil {
 		return nil
@@ -80,10 +77,9 @@ func blockedShards(err error, candidates []string) []string {
 	return blocked
 }
 
-// TestBackupable_BuildsReindexLookupOncePerPrecheck pins the cost of a
-// precheck: one DTM snapshot for the whole pass, however many
-// collections and shards it walks. Building one per shard turned a
-// backup start into one cluster-wide query per shard.
+// TestBackupable_BuildsReindexLookupOncePerPrecheck pins that a
+// precheck builds exactly one DTM snapshot, however many shards or
+// collections it walks.
 func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -161,9 +157,9 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	}
 }
 
-// TestBackupable_OneGateStillJudgesEachShardByItsOwnName pins that
-// sharing a snapshot does not merge the shards' verdicts: each shard is
-// still asked about by its own name.
+// TestBackupable_OneGateStillJudgesEachShardByItsOwnName pins that a
+// shared snapshot still judges each shard by its own name, not a
+// merged verdict.
 func TestBackupable_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 	const className = "PerShardCls"
 	shards := precheckShards(className, 8)
@@ -191,18 +187,17 @@ func TestBackupable_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 		"a snapshot asked about one name repeatedly cannot tell the shards apart")
 }
 
-// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins the deliberate
-// narrowing the hoist introduces: every shard of a pass is judged
-// against the snapshot taken when the pass reached its first shard, so
-// the verdict cannot change halfway through.
+// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins that every
+// shard in a pass is judged against the same snapshot, taken at the
+// first shard, so the verdict can't change mid-pass.
 func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	const className = "CoherentCls"
 	shards := precheckShards(className, 4)
 	db := precheckDB(t, []precheckClass{{name: className, shards: shards}})
 
-	// The first snapshot reports every shard busy, later ones report
-	// none: one snapshot per pass refuses all four, one per shard
-	// refuses only the shard that happened to be checked first.
+	// First snapshot reports every shard busy, later ones none: this
+	// distinguishes "one snapshot per pass" (refuses all four) from
+	// "one per shard" (refuses only the first checked).
 	taken := 0
 	counter := &countingActivityBuilder{snapshots: func() ShardReindexActivityLookup {
 		taken++
@@ -218,10 +213,9 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	require.Equal(t, 1, counter.builds)
 }
 
-// TestBackupable_UnreachableTaskManagerRefusesEveryShard pins the
-// fail-closed default: when the DTM query fails, its snapshot reports
-// every shard busy, and sharing that snapshot must refuse the whole
-// pass rather than only its first shard.
+// TestBackupable_UnreachableTaskManagerRefusesEveryShard pins that a
+// failed DTM query (snapshot reports every shard busy) refuses the
+// whole pass, not just the first shard checked.
 func TestBackupable_UnreachableTaskManagerRefusesEveryShard(t *testing.T) {
 	for _, shardCount := range []int{3, 12} {
 		t.Run(fmt.Sprintf("%d shards", shardCount), func(t *testing.T) {
@@ -243,9 +237,8 @@ func TestBackupable_UnreachableTaskManagerRefusesEveryShard(t *testing.T) {
 	}
 }
 
-// TestBackupable_UnwiredLookupAllowsPass pins that the shared gate
-// keeps the fail-open startup default: no installed builder means no
-// query and no refusal.
+// TestBackupable_UnwiredLookupAllowsPass pins the fail-open startup
+// default: no installed builder means no query and no refusal.
 func TestBackupable_UnwiredLookupAllowsPass(t *testing.T) {
 	const className = "UnwiredCls"
 	db := precheckDB(t, []precheckClass{{name: className, shards: precheckShards(className, 3)}})
@@ -254,8 +247,7 @@ func TestBackupable_UnwiredLookupAllowsPass(t *testing.T) {
 }
 
 // TestBackupable_IndexWithoutDBRefusesEveryShard pins that an index
-// carrying no DB back-reference stays conservative under the shared
-// gate: it cannot consult the snapshot, so it refuses.
+// without a DB back-reference can't consult the gate, so it refuses.
 func TestBackupable_IndexWithoutDBRefusesEveryShard(t *testing.T) {
 	const className = "NoBackRefCls"
 	shards := precheckShards(className, 3)

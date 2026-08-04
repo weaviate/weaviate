@@ -33,10 +33,9 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// countingActivityBuilder instruments a builder so a test can see what a
-// pass cost: how many snapshots it built (one cluster-wide DTM query
-// each) and which (collection, shard) pairs those snapshots were asked
-// about. Both are invisible at the API surface except as latency.
+// countingActivityBuilder wraps a builder to record how many snapshots
+// a pass built and which (collection, shard) pairs it probed — both
+// invisible at the API surface except as latency.
 type countingActivityBuilder struct {
 	snapshots ShardReindexActivityLookupBuilder
 	builds    int
