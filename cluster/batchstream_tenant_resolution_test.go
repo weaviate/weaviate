@@ -57,23 +57,48 @@ const (
 	batchStreamTenantResolutionClass   = "BatchStreamTenantResolution"
 	batchStreamTenantResolutionNodeID  = "node1"
 	batchStreamMissingTenant           = "missing-tenant"
+	batchStreamInactiveTenant          = "inactive-tenant"
 	batchStreamTenantResolutionTenants = 10
 )
 
 // TestBatchStreamMultiTenant exercises the public BatchStream path against a
-// single-node Raft schema and a real DB. It is deliberately a small smoke test:
-// the optimization tests below assert the query shape, while this test makes
-// the benchmark fixture independently useful for future BatchStream changes.
+// single-node Raft schema and a real DB. Every request has one write-side
+// activation lookup, followed by one resolver lookup containing the unique
+// tenant names rather than an individual lookup for every object.
 func TestBatchStreamMultiTenant(t *testing.T) {
-	fixture := newBatchStreamTenantResolutionFixture(t)
-	objects := fixture.objects(100)
+	for _, objectCount := range []int{100, 200, 1000} {
+		t.Run(fmt.Sprintf("objects=%d", objectCount), func(t *testing.T) {
+			fixture := newBatchStreamTenantResolutionFixture(t)
+			objects := fixture.objects(objectCount)
+
+			fixture.trace.Reset()
+			replies, err := fixture.write(objects)
+			require.NoError(t, err)
+			requireBatchStreamResults(t, replies, len(objects), 0)
+			fixture.requirePersisted(t, objects)
+			fixture.requireBulkResolution(t, fixture.tenants)
+		})
+	}
+}
+
+func TestBatchStreamMultiTenantMixedValidity(t *testing.T) {
+	fixture := newBatchStreamTenantResolutionFixtureWithInactiveTenant(t)
+	objects := fixture.objects(5)
+	objects[1].Tenant = batchStreamMissingTenant
+	objects[2].Tenant = batchStreamInactiveTenant
+	objects[3].Tenant = ""
 
 	fixture.trace.Reset()
 	replies, err := fixture.write(objects)
 	require.NoError(t, err)
-	requireBatchStreamResults(t, replies, len(objects), 0)
+	requireBatchStreamResults(t, replies, 2, 3)
+	fixture.requireBulkResolution(t, []string{objects[0].Tenant, batchStreamMissingTenant, batchStreamInactiveTenant, objects[4].Tenant})
+	fixture.requirePersisted(t, []*pb.BatchObject{objects[0], objects[4]})
 
-	fixture.requirePersisted(t, objects)
+	errorsByUUID := batchStreamErrorsByUUID(replies)
+	require.Contains(t, errorsByUUID[objects[1].Uuid], "tenant not found")
+	require.Contains(t, errorsByUUID[objects[2].Uuid], "tenant not active")
+	require.Contains(t, errorsByUUID[objects[3].Uuid], "without tenant")
 }
 
 // BenchmarkBatchStreamTenantResolution measures a complete valid BatchStream
@@ -208,6 +233,15 @@ func (m *tracedSchemaManager) ResolutionQueries() int {
 	return max(0, len(m.spans)-1)
 }
 
+func (f *batchStreamTenantResolutionFixture) requireBulkResolution(t testing.TB, tenants []string) {
+	t.Helper()
+
+	spans := f.trace.Spans()
+	require.Len(t, spans, 2, "one activation lookup and one resolver lookup")
+	require.ElementsMatch(t, tenants, spans[1].tenants)
+	require.LessOrEqual(t, spans[0].finished, spans[1].started, "resolver lookup must follow activation")
+}
+
 // batchStreamSchemaReader combines the local Raft schema reader with Raft's
 // WaitForUpdate method, matching the production schema.Manager wiring.
 type batchStreamSchemaReader struct {
@@ -311,6 +345,14 @@ type batchStreamTenantResolutionFixture struct {
 }
 
 func newBatchStreamTenantResolutionFixture(t testing.TB) *batchStreamTenantResolutionFixture {
+	return newBatchStreamTenantResolutionFixtureWithExtraTenant(t, "", "")
+}
+
+func newBatchStreamTenantResolutionFixtureWithInactiveTenant(t testing.TB) *batchStreamTenantResolutionFixture {
+	return newBatchStreamTenantResolutionFixtureWithExtraTenant(t, batchStreamInactiveTenant, models.TenantActivityStatusCOLD)
+}
+
+func newBatchStreamTenantResolutionFixtureWithExtraTenant(t testing.TB, extraTenant, extraTenantStatus string) *batchStreamTenantResolutionFixture {
 	t.Helper()
 
 	ctx := context.Background()
@@ -373,6 +415,14 @@ func newBatchStreamTenantResolutionFixture(t testing.TB) *batchStreamTenantResol
 	tenants := batchStreamTenantNames()
 	class := batchStreamTenantResolutionClassModel()
 	state := batchStreamTenantResolutionState(tenants)
+	if extraTenant != "" {
+		state.Physical[extraTenant] = sharding.Physical{
+			Name:           extraTenant,
+			OwnsPercentage: 1,
+			BelongsToNodes: []string{batchStreamTenantResolutionNodeID},
+			Status:         extraTenantStatus,
+		}
+	}
 	_, err = raftService.AddClass(ctx, class, state)
 	require.NoError(t, err)
 	require.NoError(t, repoDB.NewMigrator(database, storeFixture.logger, batchStreamTenantResolutionNodeID).AddClass(ctx, class))
@@ -575,6 +625,20 @@ func requireBatchStreamResults(t testing.TB, replies []*pb.BatchStreamReply, suc
 	gotSuccesses, gotFailures := batchStreamResultCounts(replies)
 	require.Equal(t, successes, gotSuccesses, "successful objects")
 	require.Equal(t, failures, gotFailures, "failed objects")
+}
+
+func batchStreamErrorsByUUID(replies []*pb.BatchStreamReply) map[string]string {
+	errorsByUUID := make(map[string]string)
+	for _, reply := range replies {
+		results := reply.GetResults()
+		if results == nil {
+			continue
+		}
+		for _, resultErr := range results.Errors {
+			errorsByUUID[resultErr.GetUuid()] = resultErr.GetError()
+		}
+	}
+	return errorsByUUID
 }
 
 // noOpModulesProvider is sufficient for a collection configured with the
