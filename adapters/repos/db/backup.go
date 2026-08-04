@@ -264,14 +264,21 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 //
 // ctx must carry a reindex gate, which [DB.BackupDescriptors] installs.
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+	// Checked before initBackup, so a caller that forgot the gate leaves
+	// nothing behind. Refusing beats resolving a fresh gate: a missing one
+	// means a caller other than [DB.BackupDescriptors], and the fall-back
+	// this replaced made that silent.
+	gate := reindexGateFromContext(ctx)
+	if gate == nil {
+		return stderrors.New("backup descriptor: no reindex gate in context; BackupDescriptors installs it")
+	}
+
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
 
 	useHardlinks := file.ProbeHardlinkSupport(i.Config.RootPath)
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
-
-	gate := reindexGateFromContext(ctx)
 
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs, gate)

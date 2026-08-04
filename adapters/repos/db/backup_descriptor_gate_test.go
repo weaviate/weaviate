@@ -218,3 +218,35 @@ func TestHaltForTransfer_UsesThePassGateAndFallsBackFresh(t *testing.T) {
 		})
 	}
 }
+
+// TestDescriptor_RefusesWithoutAGateInContext pins the contract that
+// replaced the resolve-a-fresh-one fall-back: a descriptor pass reached
+// without a gate refuses immediately and touches nothing.
+//
+// It has to be loud. A missing gate reaches the per-shard checks with a
+// nil receiver, and on the deprecated non-hardlink path (removed in
+// v1.40, bugs there are not fixed) that surfaces as a crash inside the
+// shard walk rather than as a refused backup — with the shard's
+// write-blocking lock already taken.
+func TestDescriptor_RefusesWithoutAGateInContext(t *testing.T) {
+	const className = "NoGateCls"
+	idx, _ := coldTenantIndex(t, className, 2)
+
+	db := &DB{indices: map[string]*Index{}, logger: logrus.New()}
+	idx.db = db
+	db.indices[indexID(schema.ClassName(className))] = idx
+
+	counter := &countingActivityBuilder{snapshots: makeActivityBuilder(nil)}
+	counter.install(db)
+
+	desc := backup.ClassDescriptor{Name: className, BackupID: "no-gate-backup"}
+	err := idx.descriptor(testCtx(), "no-gate-backup", &desc, nil)
+
+	require.Error(t, err, "a gate-less pass must refuse, not resolve one of its own")
+	require.Contains(t, err.Error(), "no reindex gate in context")
+	require.Empty(t, desc.Shards, "nothing may be staged")
+
+	builds, probed := counter.stats()
+	require.Equal(t, 0, builds, "refusing must not query the leader")
+	require.Empty(t, probed)
+}
