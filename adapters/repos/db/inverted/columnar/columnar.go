@@ -32,7 +32,7 @@ import (
 	"math/bits"
 	"slices"
 	"sort"
-	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -267,15 +267,27 @@ type run struct {
 	dels *sroar.Bitmap
 }
 
+// indexState is the tier set a query resolves against: an immutable base plus
+// the runs absorbed since it was built, oldest first. Every field is immutable
+// once published, so a reader that loads a state can work from it for as long as
+// it likes while writers publish newer ones.
+type indexState struct {
+	base *columnarSegment
+	runs []*run
+}
+
 // ColumnarIndex is the resident accelerator for one property: an immutable base
 // (built from disk segments at startup) plus a list of runs, one per flushed
 // memtable absorbed since. Resolution folds the runs over the base, newest last.
 // Live active/flushing memtables are layered by the caller, not held here.
+//
+// Reads are lock-free: one atomic load of the current state. Writers (absorbing
+// a flush, folding runs into a fresh base) publish a whole new state by
+// compare-and-swap, so a reader never observes a half-applied change and never
+// contends with a writer.
 type ColumnarIndex struct {
-	mu      sync.RWMutex // guards base + runs + folding
-	base    *columnarSegment
-	runs    []*run // oldest first; appended on flush
-	folding bool   // a fold is in flight; see foldRunsIntoBase
+	state   atomic.Pointer[indexState]
+	folding atomic.Bool // a fold is in flight; see foldRunsIntoBase
 	logger  logrus.FieldLogger
 }
 
@@ -336,10 +348,11 @@ func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool,
 		}
 	}
 
-	return &ColumnarIndex{
-		base:   &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs},
-		logger: logger,
-	}, nil
+	idx := &ColumnarIndex{logger: logger}
+	idx.state.Store(&indexState{
+		base: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs},
+	})
+	return idx, nil
 }
 
 // buildKeyColumn selects the key backing from the collected keys. Variable-width
@@ -389,24 +402,25 @@ func commonPrefixLen(a, b []byte) int {
 // KeyWidth reports the fixed key byte width the base tier resolved to, or -1 if
 // keys are variable-length. Exposed so callers/tests can confirm which backing
 // a property's corpus selected.
-func (idx *ColumnarIndex) KeyWidth() int { return idx.base.keys.width() }
+func (idx *ColumnarIndex) KeyWidth() int { return idx.state.Load().base.keys.width() }
 
 // KeyPrefixLen reports how many leading bytes were elided as a shared prefix
 // across the base tier's keys (0 if none). Exposed for measurement/tests.
-func (idx *ColumnarIndex) KeyPrefixLen() int { return idx.base.keys.prefixLen() }
+func (idx *ColumnarIndex) KeyPrefixLen() int { return idx.state.Load().base.keys.prefixLen() }
 
 // DocIDWidth reports the byte width the docID column packs each docID at.
-func (idx *ColumnarIndex) DocIDWidth() int { return idx.base.docs.w }
+func (idx *ColumnarIndex) DocIDWidth() int { return idx.state.Load().base.docs.w }
 
 // Size reports the resident heap held by the base tier's backing arrays (key
 // column + docID column), by capacity. This is the process-lifetime footprint
 // the index costs per property per shard.
 func (idx *ColumnarIndex) Size() int {
-	return idx.base.keys.sizeBytes() + idx.base.docs.sizeBytes()
+	base := idx.state.Load().base
+	return base.keys.sizeBytes() + base.docs.sizeBytes()
 }
 
 // Len reports the number of keys held by the base tier.
-func (idx *ColumnarIndex) Len() int { return idx.base.keys.len() }
+func (idx *ColumnarIndex) Len() int { return idx.state.Load().base.keys.len() }
 
 // ResolveContainsAny returns the docIDs whose key is in sortedKeys. sortedKeys
 // must be the encoded query values, sorted ascending (bytes.Compare order).
@@ -418,10 +432,8 @@ func (idx *ColumnarIndex) Len() int { return idx.base.keys.len() }
 // container op happens mid-flight, which is the whole point of the columnar
 // layout.
 func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap {
-	idx.mu.RLock()
-	base := idx.base
-	runs := idx.runs
-	idx.mu.RUnlock()
+	state := idx.state.Load()
+	base, runs := state.base, state.runs
 
 	out := base.resolveMatches(sortedKeys, make([]uint64, 0, len(sortedKeys)))
 	slices.Sort(out)
@@ -532,15 +544,24 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 		adds: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: adds},
 		dels: dels,
 	}
-	idx.mu.Lock()
-	idx.runs = append(idx.runs, r)
+	// Publish a state carrying the new run. The runs slice is copied rather than
+	// appended in place so a reader holding the previous state keeps a slice no
+	// writer can touch.
+	var numRuns int
+	for {
+		cur := idx.state.Load()
+		runs := make([]*run, len(cur.runs)+1)
+		copy(runs, cur.runs)
+		runs[len(cur.runs)] = r
+		if idx.state.CompareAndSwap(cur, &indexState{base: cur.base, runs: runs}) {
+			numRuns = len(runs)
+			break
+		}
+	}
+
 	// Single-flight: a fold already in flight will consume every run appended so
 	// far, and two concurrent folds would each drop the runs the other consumed.
-	shouldFold := !idx.folding && len(idx.runs) >= foldRunsThreshold
-	idx.folding = idx.folding || shouldFold
-	idx.mu.Unlock()
-
-	if shouldFold {
+	if numRuns >= foldRunsThreshold && idx.folding.CompareAndSwap(false, true) {
 		// Off the flush path: a fold rebuilds the whole base, which is orders of
 		// magnitude slower than absorbing one memtable, and the flush must not
 		// wait for it. Reads stay correct throughout — they resolve against the
@@ -560,16 +581,10 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 // at entry, so a second concurrent fold would compute a base from the same runs
 // and then drop that many again, discarding whatever was absorbed in between.
 func (idx *ColumnarIndex) foldRunsIntoBase() {
-	defer func() {
-		idx.mu.Lock()
-		idx.folding = false
-		idx.mu.Unlock()
-	}()
+	defer idx.folding.Store(false)
 
-	idx.mu.RLock()
-	base := idx.base
-	runs := idx.runs
-	idx.mu.RUnlock()
+	state := idx.state.Load()
+	base, runs := state.base, state.runs
 	if len(runs) == 0 {
 		return
 	}
@@ -607,10 +622,19 @@ func (idx *ColumnarIndex) foldRunsIntoBase() {
 
 	newBase := segmentFromMap(net)
 
-	idx.mu.Lock()
-	idx.base = newBase
-	idx.runs = idx.runs[len(runs):] // keep any runs appended during the fold
-	idx.mu.Unlock()
+	// Publish the new base, dropping exactly the runs this fold consumed. Those
+	// are a prefix of whatever the current state holds — absorbs only ever append,
+	// and single-flight means no other fold removed anything meanwhile — so runs
+	// absorbed during the fold survive and layer over the new base.
+	consumed := len(runs)
+	for {
+		cur := idx.state.Load()
+		remaining := make([]*run, len(cur.runs)-consumed)
+		copy(remaining, cur.runs[consumed:])
+		if idx.state.CompareAndSwap(cur, &indexState{base: newBase, runs: remaining}) {
+			return
+		}
+	}
 }
 
 // segmentFromMap builds a sorted columnarSegment from a net key→docID map, with

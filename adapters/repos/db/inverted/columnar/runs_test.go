@@ -14,6 +14,7 @@ package columnar
 import (
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // segFromPairs builds a columnarSegment from sorted (key, docID) pairs.
@@ -83,16 +85,16 @@ func (c *mockCursor) Seek([]byte) ([]byte, roaringset.BitmapLayer, error) {
 // background fold needs.
 func newTestIndex(base *columnarSegment) *ColumnarIndex {
 	logger, _ := test.NewNullLogger()
-	return &ColumnarIndex{base: base, logger: logger}
+	idx := &ColumnarIndex{logger: logger}
+	idx.state.Store(&indexState{base: base})
+	return idx
 }
 
 // waitForFold blocks until no background fold is in flight.
 func waitForFold(t *testing.T, idx *ColumnarIndex) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		idx.mu.RLock()
-		defer idx.mu.RUnlock()
-		return !idx.folding
+		return !idx.folding.Load()
 	}, 5*time.Second, time.Millisecond, "background fold must finish")
 }
 
@@ -159,11 +161,9 @@ func TestRunsFoldIntoBase(t *testing.T) {
 
 	waitForFold(t, idx)
 
-	idx.mu.RLock()
-	numRuns, baseKeys := len(idx.runs), idx.base.keys.len()
-	idx.mu.RUnlock()
-	require.Zero(t, numRuns, "runs must be folded into base at the threshold")
-	require.Equal(t, 4, baseKeys, "base absorbed the net state (a,c,d,e; b deleted)")
+	state := idx.state.Load()
+	require.Empty(t, state.runs, "runs must be folded into base at the threshold")
+	require.Equal(t, 4, state.base.keys.len(), "base absorbed the net state (a,c,d,e; b deleted)")
 
 	require.Equal(t, []uint64{1, 3, 4, 5}, resolveSorted(idx, "a", "b", "c", "d", "e"),
 		"net state after fold: b deleted, d/e added")
@@ -202,6 +202,58 @@ func TestRunsFoldDoesNotDropConcurrentFlushes(t *testing.T) {
 	waitForFold(t, idx)
 	require.Equal(t, want, resolveSorted(idx, keys...),
 		"every flushed key must survive the folds that ran alongside them")
+}
+
+// TestRunsConcurrentReadsDuringFolds resolves from many goroutines while
+// flushes are absorbed and folds publish new bases underneath them. Readers work
+// from a state they loaded once, so a state swapped mid-resolve must not change
+// what they see: a key present in the base stays resolvable throughout, and a
+// key absorbed before a resolve started never disappears. Run with -race, this
+// is what pins the lock-free publication.
+func TestRunsConcurrentReadsDuringFolds(t *testing.T) {
+	old := foldRunsThreshold
+	foldRunsThreshold = 2
+	defer func() { foldRunsThreshold = old }()
+
+	const (
+		numFlushes = 300
+		numReaders = 8
+	)
+	idx := newTestIndex(segFromPairs([][]byte{[]byte("base")}, []uint64{1}))
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for i := 0; i < numReaders; i++ {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				require.Equal(t, []uint64{1}, resolveSorted(idx, "base"),
+					"the base key must resolve across every published state")
+			}
+		}, idx.logger)
+	}
+
+	keys := []string{"base"}
+	want := []uint64{1}
+	for i := 0; i < numFlushes; i++ {
+		key := fmt.Sprintf("key_%04d", i)
+		require.NoError(t, idx.AbsorbFlush(newMockCursor().
+			add([]byte(key), []uint64{uint64(100 + i)}, nil)))
+		keys = append(keys, key)
+		want = append(want, uint64(100+i))
+	}
+	close(stop)
+	wg.Wait()
+
+	waitForFold(t, idx)
+	require.Equal(t, want, resolveSorted(idx, keys...),
+		"every flushed key must survive folds that ran under concurrent readers")
 }
 
 func TestRunsDeleteOnlyFlush(t *testing.T) {
