@@ -396,7 +396,7 @@ function main() {
   fi
 
   if $run_acceptance_reindex_singlenode_b; then
-    echo "running reindex singlenode acceptance tests — sub-shard B (PropertyStateMigrationMatrix + PostRestartFinalize)"
+    echo "running reindex singlenode acceptance tests — sub-shard B (PropertyStateMigrationMatrix only)"
     run_acceptance_reindex_singlenode_b
   fi
 
