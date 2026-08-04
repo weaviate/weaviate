@@ -130,7 +130,7 @@ func TestColumnarIndexNumericPOC_Correctness(t *testing.T) {
 
 	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), false, columnarTestLogger())
 	require.NoError(t, err)
-	require.Equal(t, 8, idx.KeyWidth(), "int64 corpus must select the fixed 8-byte key backing")
+	require.Equal(t, 8, idx.Info().KeyWidth, "int64 corpus must select the fixed 8-byte key backing")
 
 	for _, size := range []int{1, 100, 1_000, 10_000} {
 		keys, want := f.sampleKeys(t, size)
@@ -152,8 +152,9 @@ func BenchmarkColumnarIndexNumericPOC(b *testing.B) {
 
 	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), false, columnarTestLogger())
 	require.NoError(b, err)
-	require.Equal(b, 8, idx.KeyWidth())
-	b.Logf("numeric columnar index built: %d keys, width=%d", idx.Len(), idx.KeyWidth())
+	info := idx.Info()
+	require.Equal(b, 8, info.KeyWidth)
+	b.Logf("numeric columnar index built: %d keys, width=%d", info.Keys, info.KeyWidth)
 
 	for _, size := range []int{1_000, 10_000, 100_000} {
 		keys, _ := f.sampleKeys(b, size)

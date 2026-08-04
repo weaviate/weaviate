@@ -37,11 +37,10 @@ func TestColumnarIndexPOC_ResidentSize(t *testing.T) {
 	require.NoError(t, err)
 
 	report := func(name string, idx *columnar.ColumnarIndex) {
-		keys := idx.Len()
-		total := idx.Size()
+		info := idx.Info()
 		t.Logf("%s: keys=%d keyWidth=%d prefix=%d docWidth=%d resident=%.2f MB (%.1f bytes/key)",
-			name, keys, idx.KeyWidth(), idx.KeyPrefixLen(), idx.DocIDWidth(),
-			float64(total)/1024/1024, float64(total)/float64(keys))
+			name, info.Keys, info.KeyWidth, info.KeyPrefix, info.DocIDWidth,
+			float64(info.SizeBytes)/1024/1024, float64(info.SizeBytes)/float64(info.Keys))
 	}
 	report("numeric(fixed)", numIdx)
 	report("text(blob)", textIdx)

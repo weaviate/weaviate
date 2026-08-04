@@ -88,7 +88,7 @@ func TestColumnarIndexPOC_Correctness(t *testing.T) {
 func BenchmarkColumnarIndexPOC(b *testing.B) {
 	f := newContainsFixture(b, benchCorpusSize)
 	idx := columnarBucketIndex(b, f)
-	b.Logf("columnar index built: %d keys", idx.Len())
+	b.Logf("columnar index built: %d keys", idx.Info().Keys)
 
 	for _, size := range []int{1_000, 10_000, 100_000} {
 		values, _ := f.sampleValues(size)

@@ -406,28 +406,40 @@ func commonPrefixLen(a, b []byte) int {
 	return i
 }
 
-// KeyWidth reports the fixed key byte width the base tier resolved to, or -1 if
-// keys are variable-length. Exposed so callers/tests can confirm which backing
-// a property's corpus selected.
-func (idx *ColumnarIndex) KeyWidth() int { return idx.state.Load().base.keys.info().width }
-
-// KeyPrefixLen reports how many leading bytes were elided as a shared prefix
-// across the base tier's keys (0 if none). Exposed for measurement/tests.
-func (idx *ColumnarIndex) KeyPrefixLen() int { return idx.state.Load().base.keys.info().prefixLen }
-
-// DocIDWidth reports the byte width the docID column packs each docID at.
-func (idx *ColumnarIndex) DocIDWidth() int { return idx.state.Load().base.docs.w }
-
-// Size reports the resident heap held by the base tier's backing arrays (key
-// column + docID column), by capacity. This is the process-lifetime footprint
-// the index costs per property per shard.
-func (idx *ColumnarIndex) Size() int {
-	base := idx.state.Load().base
-	return base.keys.info().sizeBytes + base.docs.sizeBytes()
+// Info describes the built index: which backing the corpus selected, what it
+// costs, and how much it holds. Reporting only — nothing on the query path
+// reads it.
+type Info struct {
+	// Keys is the number of keys held by the base tier.
+	Keys int
+	// KeyWidth is the fixed key byte width the base tier resolved to, or -1 if
+	// keys are variable-length. Confirms which backing the corpus selected.
+	KeyWidth int
+	// KeyPrefix is how many leading bytes were elided as a prefix shared by
+	// every key in the base tier, or 0 if none.
+	KeyPrefix int
+	// DocIDWidth is the byte width the docID column packs each docID at.
+	DocIDWidth int
+	// SizeBytes is the resident heap held by the base tier's backing arrays (key
+	// column + docID column), by capacity. This is the process-lifetime
+	// footprint the index costs per property per shard.
+	SizeBytes int
 }
 
-// Len reports the number of keys held by the base tier.
-func (idx *ColumnarIndex) Len() int { return idx.state.Load().base.keys.len() }
+// Info returns a description of the current base tier. One state load, so every
+// field describes the same generation even if a fold publishes a new base
+// mid-report.
+func (idx *ColumnarIndex) Info() Info {
+	base := idx.state.Load().base
+	keys := base.keys.info()
+	return Info{
+		Keys:       base.keys.len(),
+		KeyWidth:   keys.width,
+		KeyPrefix:  keys.prefixLen,
+		DocIDWidth: base.docs.w,
+		SizeBytes:  keys.sizeBytes + base.docs.sizeBytes(),
+	}
+}
 
 // ResolveContainsAny returns the docIDs whose key is in sortedKeys. sortedKeys
 // must be the encoded query values, sorted ascending (bytes.Compare order).
