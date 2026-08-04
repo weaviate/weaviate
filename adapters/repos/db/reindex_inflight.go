@@ -169,21 +169,8 @@ func (g *reindexGate) anyLiveReindexForShard(collection, shardName string) bool 
 	return false
 }
 
-// AnyLiveReindexForShard answers the cluster-wide question: does DTM have
-// any LIVE reindex task targeting (collection, shardName)? Each call
-// resolves its own snapshot; see [DB.SetShardReindexActivityLookup] for
-// how the lookup is wired.
-//
-// Reports true (fail-closed) both when a reindex is found and when
-// cluster state could not be read at all. Callers that need to
-// distinguish the two for an operator-facing message use
-// [Index.refuseIfReindexInFlightWithGate].
-func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
-	return newReindexGate(db).anyLiveReindexForShard(collection, shardName)
-}
-
-// SetReindexCleanupInProgressLookup installs the builder used by
-// [DB.AnyLiveReindexForShard] to detect terminal-task cleanup that has
+// SetReindexCleanupInProgressLookup installs the builder used by the
+// backup gate to detect terminal-task cleanup that has
 // not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
 // post-bootstrap alongside [DB.SetShardReindexActivityLookup].
 func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {

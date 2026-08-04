@@ -24,7 +24,7 @@ type ShardReindexActivityLookup func(collection, shardName string) bool
 type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error)
 
 // SetShardReindexActivityLookup installs the builder used by the backup
-// gate ([DB.AnyLiveReindexForShard]), invoked once per backup pass for a
+// gate ([reindexGate]), invoked once per backup pass for a
 // fresh DTM snapshot.
 //
 // Before installation, calls default to "no live reindex" (one-time WARN).
@@ -32,7 +32,7 @@ type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error
 // external backup request can land in the gap and be allowed without a
 // gate check — the WARN is the only signal. The prior refuse-by-default
 // broke every module-test fixture that bypasses the bootstrap path.
-// See [DB.AnyLiveReindexForShard].
+// See [reindexGate].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

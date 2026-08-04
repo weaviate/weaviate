@@ -71,73 +71,73 @@ func (c *countingActivityBuilder) stats() (builds int, probed [][2]string) {
 	return c.builds, slices.Clone(c.probed)
 }
 
-// TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
+// TestReindexGate_LiveTask pins that a DTM lookup reporting
 // a live task for the (collection, shard) tuple causes the gate to
 // refuse.
-func TestAnyLiveReindexForShard_LiveTask(t *testing.T) {
+func TestReindexGate_LiveTask(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"MyClass", "shard1"}: true,
 	}))
-	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.True(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
 		"gate must refuse when DTM reports a live task on the tuple")
 }
 
-// TestAnyLiveReindexForShard_TerminalTask pins that a lookup whose
+// TestReindexGate_TerminalTask pins that a lookup whose
 // snapshot contains only terminal-status tasks (none reported as live)
 // lets the gate allow the backup.
-func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
+func TestReindexGate_TerminalTask(t *testing.T) {
 	db := &DB{}
 	// Builder reports no live tasks at all — equivalent to a snapshot
 	// containing only Finished/Cancelled/Failed tasks after the
 	// configure_api filter.
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
 		"gate must allow when no live task targets the tuple")
 }
 
-// TestAnyLiveReindexForShard_DifferentCollection pins that a live task
+// TestReindexGate_DifferentCollection pins that a live task
 // in another collection does not block a backup of the queried
 // collection.
-func TestAnyLiveReindexForShard_DifferentCollection(t *testing.T) {
+func TestReindexGate_DifferentCollection(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"OtherClass", "shard1"}: true,
 	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
 		"gate must scope by collection")
 }
 
-// TestAnyLiveReindexForShard_DifferentShard pins that a live task on
+// TestReindexGate_DifferentShard pins that a live task on
 // the right collection but a different shard does not block a backup
 // of the queried shard.
-func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
+func TestReindexGate_DifferentShard(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"MyClass", "shard2"}: true,
 	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
 		"gate must scope by shard, not just by collection")
 }
 
-// TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired lookup
+// TestReindexGate_BuilderUnwired pins that an unwired lookup
 // defaults to allow, with a one-time WARN (see
 // [DB.SetShardReindexActivityLookup]).
-func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
+func TestReindexGate_BuilderUnwired(t *testing.T) {
 	db := &DB{}
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
 		"unwired gate must allow (with WARN); production gates HTTP on bootstrap")
 }
 
-// TestAnyLiveReindexForShard_BuilderReturnsNil pins the same fail-open
+// TestReindexGate_BuilderReturnsNil pins the same fail-open
 // when the installed builder returns a nil closure (defensive against
 // a misconfigured wiring).
-func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
+func TestReindexGate_BuilderReturnsNil(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		return nil, nil
 	})
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
 		"nil lookup must allow (same path as unwired)")
 }
 
@@ -279,14 +279,14 @@ func TestRefuseIfReindexInFlight_UnreachableLeaderStatesTheCause(t *testing.T) {
 	assert.NotContains(t, err.Error(), "cancel")
 }
 
-// TestAnyLiveReindexForShard_UnreachableLeaderIsBlocked pins that the
+// TestReindexGate_UnreachableLeaderIsBlocked pins that the
 // boolean form stays fail-closed when cluster state cannot be read.
-func TestAnyLiveReindexForShard_UnreachableLeaderIsBlocked(t *testing.T) {
+func TestReindexGate_UnreachableLeaderIsBlocked(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		return nil, errors.New("leader not found")
 	})
-	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.True(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
 		"unknown reindex state must block, not allow")
 }
 
