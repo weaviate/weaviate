@@ -15,11 +15,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
+
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 )
 
-// reindexCleanupProber answers whether this node is still tearing down reindex
+// ReindexCleanupProber answers whether this node is still tearing down reindex
 // sidecars for a collection.
-type reindexCleanupProber interface {
+type ReindexCleanupProber interface {
 	AnyCleanupInProgressForCollection(collection string) bool
 }
 
@@ -29,12 +32,30 @@ type ReindexCleanupActivity struct {
 }
 
 type ReindexCleanup struct {
-	prober reindexCleanupProber
-	auth   auth
+	// resolve is called per request, not once at construction: the internal
+	// server is built before the reindex provider exists, so capturing the
+	// value here would freeze a nil that never becomes real.
+	resolve func() ReindexCleanupProber
+	auth    auth
 }
 
-func NewReindexCleanup(prober reindexCleanupProber, auth auth) *ReindexCleanup {
-	return &ReindexCleanup{prober: prober, auth: auth}
+func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth) *ReindexCleanup {
+	return &ReindexCleanup{resolve: resolve, auth: auth}
+}
+
+// NewReindexCleanupFromState is the wiring the internal server uses. The
+// provider is read from appState at request time, so the route starts serving
+// as soon as bootstrap assigns it and answers 503 until then.
+func NewReindexCleanupFromState(appState *state.State, auth auth) *ReindexCleanup {
+	return NewReindexCleanup(func() ReindexCleanupProber {
+		// Compared as a concrete pointer. Returning appState.ReindexProvider
+		// directly would box a nil into the interface, and a nil interface
+		// holding a type is not nil.
+		if appState == nil || appState.ReindexProvider == nil {
+			return nil
+		}
+		return appState.ReindexProvider
+	}, auth)
 }
 
 // Activity handles GET /reindex/cleanup-activity?collection=<name>.
@@ -49,6 +70,22 @@ func (rc *ReindexCleanup) Activity() http.Handler {
 	return rc.auth.handleFunc(rc.activityHandler())
 }
 
+// isNilProber reports whether the interface holds nothing callable, including
+// a nil pointer boxed into it — which a plain == nil misses, and which reaches
+// this route whenever a caller passes an unset field straight through.
+func isNilProber(prober ReindexCleanupProber) bool {
+	if prober == nil {
+		return true
+	}
+	v := reflect.ValueOf(prober)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
@@ -61,13 +98,17 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 
 		// Never silently report "not cleaning up": a cancel's answer depends
 		// on this, and a wrong "no" reopens the window it exists to close.
-		if rc.prober == nil {
+		var prober ReindexCleanupProber
+		if rc.resolve != nil {
+			prober = rc.resolve()
+		}
+		if isNilProber(prober) {
 			http.Error(w, "reindex cleanup probe is not wired on this node", http.StatusServiceUnavailable)
 			return
 		}
 
 		data, err := json.Marshal(ReindexCleanupActivity{
-			CleaningUp: rc.prober.AnyCleanupInProgressForCollection(collection),
+			CleaningUp: prober.AnyCleanupInProgressForCollection(collection),
 		})
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)

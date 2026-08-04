@@ -84,7 +84,7 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 	mux.Handle("/backups/node-activity", backups.NodeActivity())
-	mux.Handle("/reindex/cleanup-activity", NewReindexCleanup(appState.ReindexProvider, auth).Activity())
+	mux.Handle("/reindex/cleanup-activity", NewReindexCleanupFromState(appState, auth).Activity())
 
 	mux.Handle("/exports/prepare", exportsHandler.Prepare())
 	mux.Handle("/exports/commit", exportsHandler.Commit())
