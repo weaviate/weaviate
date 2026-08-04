@@ -76,12 +76,11 @@ func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
 // line per process, matching [unwiredGateWarnOnce] on the backup side.
 var unwiredRestoreGateWarnOnce sync.Once
 
-// RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart
-// of the per-shard backup gate: a restoring class has no local index yet,
-// so a per-class lookup could never see a live task. Wraps
-// [entitiesbackup.ErrReindexInFlight], not the per-shard sentinel, and
-// fails closed on a live task or a lookup error; an unwired lookup allows
-// the restore once with a WARN, matching [DB.AnyLiveReindexForShard].
+// RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart of
+// the per-shard backup gate: a restoring class has no local index yet, so a
+// per-class lookup could never see a live task. Fails closed on a live task
+// or a lookup error; an unwired lookup allows the restore once with a WARN,
+// matching [DB.AnyLiveReindexForShard].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 	db.reindexAuditMu.RLock()
 	lookup := db.anyReindexActivityLookup
@@ -89,8 +88,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 	db.reindexAuditMu.RUnlock()
 
 	// A cancelled task leaves DTM immediately but keeps deleting sidecar dirs
-	// for tens of seconds after. Cancelling is what this gate's own error text
-	// tells the operator to do, so the retry right after lands in that window.
+	// for tens of seconds after — exactly the window the error text's retry advice lands in.
 	if cleanupLookup != nil && cleanupLookup() {
 		if db.logger != nil {
 			db.logger.WithField("action", "restore_reindex_gate").

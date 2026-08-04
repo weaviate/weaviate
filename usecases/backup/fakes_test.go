@@ -55,8 +55,7 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 type fakeSourcer struct {
 	mock.Mock
 
-	// reindexInFlightErr backs RefuseIfAnyReindexInFlight as a plain field,
-	// so pre-existing restore tests pass without registering a mock call.
+	// Plain field so pre-existing restore tests pass without a mock.On call.
 	reindexInFlightErr error
 }
 

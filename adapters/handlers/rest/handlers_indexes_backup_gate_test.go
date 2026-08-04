@@ -54,8 +54,7 @@ func (r fakeActivityResolver) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-// startActivityCluster spins up one httptest server per node and returns a
-// resolver pointing at them; unreachable nodes get a server closed immediately.
+// startActivityCluster spins up one httptest server per node; unreachable nodes get closed immediately.
 func startActivityCluster(t *testing.T, behaviors map[string]nodeBehavior) fakeActivityResolver {
 	t.Helper()
 
@@ -169,8 +168,7 @@ func TestScanBackupActivity(t *testing.T) {
 	}
 }
 
-// TestScanBackupActivityDeterministic pins that the reported node follows
-// list order, not answer order.
+// TestScanBackupActivityDeterministic pins list order over answer order.
 func TestScanBackupActivityDeterministic(t *testing.T) {
 	resolver := startActivityCluster(t, map[string]nodeBehavior{
 		"node1": nodeIdle,
@@ -231,9 +229,8 @@ func TestBackupActivityResponder(t *testing.T) {
 	})
 }
 
-// Reaching this handler needs update_collections on one collection. Node names
-// sit behind read_nodes, backup IDs behind read_backups, and the probe's
-// transport error carries the peer's internal address — none may reach the body.
+// TestBackupActivityResponderWithholdsPrivilegedDetail pins that node names, backup
+// IDs, and peer addresses never leak into a response requiring only update_collections.
 func TestBackupActivityResponderWithholdsPrivilegedDetail(t *testing.T) {
 	principal := &models.Principal{Username: "alice"}
 	probeErr := &url.Error{

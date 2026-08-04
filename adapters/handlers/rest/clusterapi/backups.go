@@ -51,8 +51,7 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
-		// Must not silently report "not busy": reindex callers rely on this
-		// answer to decide whether it's safe to proceed.
+		// Never silently report "not busy": reindex depends on this answer.
 		if b.activity == nil {
 			http.Error(w, "backup activity probe is not wired on this node", http.StatusServiceUnavailable)
 			return

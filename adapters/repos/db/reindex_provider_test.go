@@ -274,10 +274,7 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 	assert.ElementsMatch(t, []string{"shardA"}, out)
 }
 
-// Both cancel paths — the DTM terminal-status hook and the REST cancel handler
-// — run their teardown after the task has left DTM. MarkCleanupInProgress is
-// what keeps the backup and restore gates shut for that stretch, so it must
-// cover every shard the task touched and give all of them back on release.
+// TestMarkCleanupInProgress pins that all shards a task touched get gated, and released together.
 func TestMarkCleanupInProgress(t *testing.T) {
 	p := newCleanupRegistryProvider()
 	payload := &ReindexTaskPayload{
@@ -301,10 +298,8 @@ func TestMarkCleanupInProgress(t *testing.T) {
 	assert.False(t, p.AnyCleanupInProgress())
 }
 
-// A payload can reach teardown without a shard mapping — an older task written
-// before UnitToShard existed, or one cancelled before the mapping was filled
-// in. The sidecars still get torn down, so registering nothing would leave both
-// gates open for the whole window. Guard the collection instead.
+// TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection pins that a
+// payload with no shard mapping still gates the whole collection.
 func TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -343,11 +338,8 @@ func TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection(t *testing.T) {
 	}
 }
 
-// Registrations carry the collection name off the task payload; probes carry
-// the index's own class name. The cancel handler already matches tasks
-// case-insensitively, so the two can differ — and a key registered under one
-// spelling is invisible to a probe under the other, leaving the gate open for
-// exactly the cancel it exists to cover.
+// TestCleanupGateMatchesCollectionRegardlessOfCase pins that a registration and
+// a probe spelling the collection name differently still match.
 func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -427,8 +419,7 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 	}
 }
 
-// drainGateProvider carries the cleanup registry plus the running-handle map
-// DrainWithCleanupGate consults.
+// drainGateProvider carries the cleanup registry and running-handle map DrainWithCleanupGate consults.
 func drainGateProvider(handles map[distributedtask.TaskDescriptor]*reindexTaskHandle) *ReindexProvider {
 	return &ReindexProvider{
 		cleanupInProgress: make(map[reindexCleanupKey]int),
@@ -436,10 +427,8 @@ func drainGateProvider(handles map[distributedtask.TaskDescriptor]*reindexTaskHa
 	}
 }
 
-// The cancel handler drains the local worker before tearing its sidecars down.
-// A drain that times out is precisely the case where the worker is still
-// writing, so the gate has to be shut for the wait itself — taking it only
-// after a successful drain leaves the dangerous branch unguarded.
+// TestDrainWithCleanupGateHoldsTheGateAcrossTheWait pins that the gate is shut
+// before the drain wait, not after, so a timed-out drain stays guarded.
 func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-1", Version: 1}
 	payload := &ReindexTaskPayload{

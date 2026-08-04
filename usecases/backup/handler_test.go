@@ -296,8 +296,7 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 	sourcer := &fakeSourcer{}
 	sourcer.reindexInFlightErr = gateRefusal()
 
-	// The backend answers rather than rejecting the call, so dropping the gate
-	// produces a wrong response to assert against instead of a mock panic.
+	// Backend answers rather than rejecting, so a dropped gate fails the assertion, not a mock panic.
 	backend := newFakeBackend()
 	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
 	backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
@@ -320,9 +319,8 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 	backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// TestOnCanCommitRestore_WordingSurvivesRoundTrip pins that a restore
-// refusal still reads as a restore refusal, not a backup one, after the
-// coordinator rebuilds it from the canCommit RPC response.
+// TestOnCanCommitRestore_WordingSurvivesRoundTrip pins that a restore refusal
+// still reads as one after the coordinator rebuilds it from the RPC response.
 func TestOnCanCommitRestore_WordingSurvivesRoundTrip(t *testing.T) {
 	ctx := context.Background()
 

@@ -185,8 +185,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
 			errors.Is(err, backup.ErrReindexInFlight) {
-			// A participant refused because a migration holds one of its shards.
-			// Retryable, so 422 — a 500 would page the on-call.
+			// Retryable, so 422: a 500 would page the on-call.
 			return nil, backup.NewErrUnprocessable(err)
 		}
 		return nil, err
@@ -278,9 +277,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		status = string(backup.Failed)
 		data.Error = err.Error()
 		if errors.Is(err, backup.ErrReindexInFlight) {
-			// A participant saw a migration the cluster-wide check above could
-			// not: node-local sidecar cleanup, or a task that started in
-			// between. Retryable, so 422 — a 500 would page the on-call.
+			// The participant saw a migration the cluster-wide check above missed.
+			// Retryable, so 422: a 500 would page the on-call.
 			return nil, backup.NewErrUnprocessable(err)
 		}
 		return nil, err
@@ -781,9 +779,8 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if dup := findDuplicate(req.Include); dup != "" {
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
-	// Refuse eagerly: a restore writes data no live-migration DTM unit
-	// tracks. Never wait for the migration instead — that would hold the
-	// restore slot the reverse guard reads, deadlocking both sides.
+	// Refuse eagerly rather than waiting for the migration: waiting would hold
+	// the restore slot the reverse guard reads, deadlocking both sides.
 	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx); err != nil {
 		return nil, fmt.Errorf("restore blocked: %w", err)
 	}

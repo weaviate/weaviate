@@ -1107,9 +1107,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
-		// Cluster-wide, unlike the per-shard lookup above: a class being
-		// restored has no local index yet, so a per-shard answer would
-		// always be "free".
+		// Cluster-wide: a class being restored has no local index yet, so a
+		// per-shard lookup would always say "free".
 		repo.SetAnyReindexActivityLookup(func(ctx context.Context) (bool, error) {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
 			if err != nil {
@@ -1129,9 +1128,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// closed for that window so a backup landing in the gap doesn't
 		// snapshot half-removed sidecars.
 		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
-		// Same window, restore side. The cluster-wide lookup above only sees
-		// DTM, which has already forgotten the task by the time its sidecars
-		// come down.
+		// Same race, restore side: the cluster lookup above sees only DTM,
+		// which has already forgotten the task by the time sidecars come down.
 		repo.SetAnyCleanupInProgressLookup(appState.ReindexProvider.AnyCleanupInProgress)
 	}, appState.Logger)
 
