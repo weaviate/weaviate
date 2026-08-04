@@ -46,6 +46,9 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	if appState.Cluster != nil {
 		h.cluster = appState.Cluster
 	}
+	if appState.ClusterService != nil {
+		h.tasks = appState.ClusterService
+	}
 	if appState.ClusterHttpClient != nil && appState.Cluster != nil {
 		h.backupActivity = clients.NewClusterBackupActivity(appState.ClusterHttpClient, appState.Cluster)
 	}
@@ -61,11 +64,27 @@ type indexesHandlers struct {
 
 	// nil in fixtures without a cluster; treated the same as an unwired probe.
 	cluster clusterMembership
+
+	// nil until wired; both reindex routes answer 503 then.
+	tasks reindexTaskService
 }
 
 // clusterMembership is the slice of the cluster state the backup gate needs.
 type clusterMembership interface {
 	AllNames() []string
+}
+
+// reindexTaskService is the slice of the cluster service the reindex routes
+// drive. Submission interleaves task writes with cluster-wide backup probes to
+// settle the admission race between the two, and that ordering is only
+// assertable against a service the caller controls.
+type reindexTaskService interface {
+	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+	AddDistributedTaskWithBarrier(ctx context.Context, namespace, taskID string,
+		taskPayload any, unitIDs []string, needsPreparationBarrier bool) error
+	AddDistributedTaskWithGroupsBarrier(ctx context.Context, namespace, taskID string,
+		taskPayload any, unitSpecs []distributedtask.UnitSpec, needsPreparationBarrier bool) error
 }
 
 // submitLock returns the per-(collection, property) mutex for the
@@ -112,9 +131,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 
 	// Fetch active reindex tasks.
 	var activeTasks map[string][]*distributedtask.Task
-	if h.appState.ClusterService != nil {
+	if h.tasks != nil {
 		var err error
-		activeTasks, err = h.appState.ClusterService.ListDistributedTasks(context.Background())
+		activeTasks, err = h.tasks.ListDistributedTasks(context.Background())
 		if err != nil {
 			activeTasks = nil // degrade gracefully
 		}
@@ -565,8 +584,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Check for conflicting active tasks. Any two reindex migrations on
 	// the same (collection, property) tuple conflict; see typesConflict's
 	// godoc for the on-disk state race that motivated the rule.
-	if h.appState.ClusterService != nil {
-		tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+	if h.tasks != nil {
+		tasks, err := h.tasks.ListDistributedTasks(ctx)
 		if err == nil {
 			reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
 			if checkErr != nil {
@@ -638,7 +657,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	}
 
 	// Unlike the conflict checks above, submitting requires the cluster service.
-	if h.appState.ClusterService == nil {
+	if h.tasks == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
 	}
@@ -647,19 +666,31 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// MT semantic migrations also group by tenant for per-tenant barriers.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
-		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
+		if err := h.tasks.AddDistributedTaskWithGroupsBarrier(
 			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
 		}
 	} else {
-		if err := h.appState.ClusterService.AddDistributedTaskWithBarrier(
+		if err := h.tasks.AddDistributedTaskWithBarrier(
 			ctx, db.ReindexNamespace, taskID, payload, unitIDs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
 		}
+	}
+
+	// Second probe, after the task is committed. The first one ran before this
+	// task existed, so a backup that claimed its slot in between saw nothing to
+	// refuse and admitted. AddTask returns only once the RAFT leader has applied
+	// it, and every backup resolves reindex state by reading that same leader,
+	// so from this point the two sides can no longer both believe they are
+	// alone: whichever published second sees the other. Roll ours back — the
+	// backup cannot roll back, it is already copying files.
+	if responder := h.refuseIfBackupInFlight(ctx, principal); responder != nil {
+		h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName)
+		return responder
 	}
 
 	// Operational audit line: reindex is a privileged cluster-wide operation
@@ -681,6 +712,43 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: "STARTED",
 	})
+}
+
+// rollbackRacedReindexTask cancels a task that was committed into a backup
+// which claimed its slot at the same instant. The caller is about to be told
+// the migration did not start, so leaving it STARTED would run it anyway.
+//
+// Every failure here is logged rather than returned: the caller's 409 is
+// already correct, and the alternative — reporting success for a submission we
+// are refusing — is worse. A task that survives is caught by the backup's own
+// commit-time check, which fails that backup.
+func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) {
+	fields := logrus.Fields{
+		"audit_event": "reindex_task_rolled_back",
+		"taskID":      taskID,
+		"collection":  collection,
+		"property":    propertyName,
+	}
+
+	tasks, err := h.tasks.ListDistributedTasks(ctx)
+	if err != nil {
+		h.appState.Logger.WithFields(fields).Errorf(
+			"rollback: cannot list tasks to find the one to cancel: %v; it may still run against a live backup", err)
+		return
+	}
+	for _, task := range tasks[db.ReindexNamespace] {
+		if task.ID != taskID {
+			continue
+		}
+		if err := h.tasks.CancelDistributedTask(ctx, task.Namespace, task.ID, task.Version); err != nil {
+			h.appState.Logger.WithFields(fields).Errorf(
+				"rollback: cancelling the task failed: %v; it may still run against a live backup", err)
+			return
+		}
+		h.appState.Logger.WithFields(fields).Info("rollback: cancelled a reindex task that raced a backup claim")
+		return
+	}
+	h.appState.Logger.WithFields(fields).Warn("rollback: the task was already gone")
 }
 
 // backupActivityScanTimeout bounds the cluster fan-out so one hung node cannot hang the PUT.
@@ -855,12 +923,12 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	if h.appState.ClusterService == nil {
+	if h.tasks == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 			"cluster service unavailable; cannot cancel reindex task"))
 	}
 
-	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+	tasks, err := h.tasks.ListDistributedTasks(ctx)
 	if err != nil {
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))
@@ -909,7 +977,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		})
 	}
 
-	if err := h.appState.ClusterService.CancelDistributedTask(
+	if err := h.tasks.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
