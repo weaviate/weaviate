@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -508,6 +509,100 @@ func TestBucket_RegisterEditOp_RearmRequeuesQuarantine(t *testing.T) {
 	pending, err := bucket.EditOpPending("op1")
 	require.NoError(t, err)
 	require.Equal(t, segs, pending, "the quarantined segment is pending again, awaiting its fresh retries")
+}
+
+// TestBucket_EditOps_ResumeWithConcurrentWrites_StripsAllSegments pins the
+// deactivate-mid-strip → reactivate → write-immediately scenario at the bucket
+// level: a segment left un-stripped when the tenant deactivated is still
+// stripped after reactivation EVEN WHEN new (already-clean) post-marker writes
+// land and a compaction merges the old un-stripped segment with a new one
+// before the cleanup reaches it. The merge strips the old data (compaction
+// consumes the transformer) and RecordCompaction clears the pending row so the
+// drop can finalize — while the new data is preserved verbatim. Nothing
+// dropped may survive; nothing kept may be lost.
+func TestBucket_EditOps_ResumeWithConcurrentWrites_StripsAllSegments(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// dropSuffixTransformer models the production drop transformer faithfully:
+	// it removes a "|DROP" suffix (the "dropped vector" payload) and leaves
+	// every other byte untouched. Unlike prefixTransformer it is IDEMPOTENT —
+	// stripping an already-clean value is a no-op, exactly like stripping an
+	// absent vector — so the test can assert BOTH "dropped data removed" and
+	// "kept data preserved" regardless of how many times a value is rewritten.
+	dropSuffixTransformer := func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
+		return func(v []byte) ([]byte, error) {
+			return bytes.TrimSuffix(v, []byte("|DROP")), nil
+		}
+	}
+	transformers := map[OpType]OpTransformerFactory{OpTypeRemoveTargetVectors: dropSuffixTransformer}
+
+	open := func() *Bucket {
+		b := reopenableEditOpsBucket(t, ctx, dir, WithSegmentsCleanupInterval(time.Hour))
+		// Swap in the fake-transformer resolver over the SAME bolt state — the
+		// production resolver would try to decode the plain test values as storobj.
+		require.NoError(t, b.disk.editOps.Close())
+		b.disk.editOps = newSegmentEditOpsWithLookup(b.disk.dir, "MyClass", staticResolver(transformers))
+		return b
+	}
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+
+	// A drop is armed while the tenant is active: one segment carries the
+	// dropped payload and is snapshotted as pending. The tenant deactivates
+	// (clean shutdown) BEFORE cleanup strips it — the sharp resume case.
+	bucket := open()
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1|DROP")))
+	require.NoError(t, bucket.RegisterEditOp("op1", desc)) // flushes k1 into a segment + snapshots it
+	oldSegs := segIDsOf(bucket)
+	require.Len(t, oldSegs, 1)
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, oldSegs, pending, "the un-stripped segment is pending at deactivation")
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	// Reactivation: recovery keeps the pending set, the re-arm is idempotent.
+	reopened := open()
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+	require.NoError(t, reopened.RegisterEditOp("op1", desc))
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, oldSegs, pending, "the resumed op still owes the un-stripped segment")
+
+	// Immediately push new data. Post-marker writes are clean by construction
+	// (the write-path guard strips the dropped vector before storage; modeled
+	// here by the absence of the "|DROP" payload). It flushes to a NEW segment
+	// that must NOT enter the pending set.
+	require.NoError(t, reopened.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, reopened.FlushAndSwitch())
+	require.Len(t, segIDsOf(reopened), 2, "old pending segment + new clean segment coexist")
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, oldSegs, pending, "a clean post-marker segment must never be added to the pending set")
+
+	// A compaction merges the old un-stripped segment with the new clean one
+	// BEFORE cleanup reaches it — the RecordCompaction path.
+	compacted, err := reopened.disk.compactOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, compacted, "the two segments must merge")
+
+	// The merge stripped the old data and RecordCompaction cleared the row.
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "the merged output is covered; the drop can now finalize")
+
+	// A final cleanup pass finds nothing left to do.
+	cleaned, err := reopened.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.False(t, cleaned)
+
+	// Nothing dropped survived; nothing kept was lost.
+	v1, err := reopened.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v1, "the old segment's dropped payload was stripped")
+	v2, err := reopened.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v2"), v2, "the new post-marker write was preserved verbatim")
 }
 
 // TestBucket_EditOps_ResumeSkipsStrippedSegments_RealCleaner proves the resume
