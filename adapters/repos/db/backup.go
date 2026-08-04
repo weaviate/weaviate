@@ -260,7 +260,9 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 	return classNames
 }
 
-// descriptor record everything needed to restore a class
+// descriptor record everything needed to restore a class.
+//
+// ctx must carry a reindex gate, which [DB.BackupDescriptors] installs.
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
@@ -270,12 +272,6 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
 
 	gate := reindexGateFromContext(ctx)
-	if gate == nil {
-		// Reached outside a backup pass: resolve a fresh snapshot so the
-		// loaded-shard checks below still share one.
-		gate = newReindexGate(i.db)
-		ctx = contextWithReindexGate(ctx, gate)
-	}
 
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs, gate)

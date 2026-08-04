@@ -532,7 +532,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -579,7 +579,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 	require.Len(t, desc.Shards, 1)
 
@@ -631,7 +631,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -657,7 +657,7 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(context.Background(), newReindexGate(idx.db)), "backup-2", &desc, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -677,7 +677,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), backupID, &desc, nil)
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
@@ -741,7 +741,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
