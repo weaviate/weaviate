@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -201,7 +202,7 @@ func TestBackupActivityResponder(t *testing.T) {
 		conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
 		require.True(t, ok, "expected a 409 responder, got %T", responder)
 		msg := errorMessage(t, conflict.Payload)
-		assert.Equal(t, `reindex blocked: node "node2" is running a restore (id "restore-9"); retry after it finishes`, msg)
+		assert.Equal(t, "reindex blocked: a restore is running in the cluster; retry after it finishes", msg)
 	})
 
 	t.Run("unreachable", func(t *testing.T) {
@@ -213,8 +214,7 @@ func TestBackupActivityResponder(t *testing.T) {
 		unavailable, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
 		require.True(t, ok, "expected a 503 responder, got %T", responder)
 		msg := errorMessage(t, unavailable.Payload)
-		assert.Contains(t, msg, `reindex blocked: cannot confirm node "node3" is free of backups:`)
-		assert.Contains(t, msg, "retry once the node answers")
+		assert.Equal(t, "reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers", msg)
 	})
 
 	t.Run("busy outranks unreachable", func(t *testing.T) {
@@ -227,8 +227,68 @@ func TestBackupActivityResponder(t *testing.T) {
 
 		conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
 		require.True(t, ok, "expected a 409 responder, got %T", responder)
-		assert.Contains(t, errorMessage(t, conflict.Payload), `node "node2" is running a backup`)
+		assert.Contains(t, errorMessage(t, conflict.Payload), "a backup is running in the cluster")
 	})
+}
+
+// Reaching this handler needs update_collections on one collection. Node names
+// sit behind read_nodes, backup IDs behind read_backups, and the probe's
+// transport error carries the peer's internal address — none may reach the body.
+func TestBackupActivityResponderWithholdsPrivilegedDetail(t *testing.T) {
+	principal := &models.Principal{Username: "alice"}
+	probeErr := &url.Error{
+		Op:  "Get",
+		URL: "http://10.42.7.13:7947/backups/node-activity",
+		Err: errors.New("dial tcp 10.42.7.13:7947: connect: connection refused"),
+	}
+
+	tests := []struct {
+		name string
+		scan backupActivityScan
+	}{
+		{
+			name: "busy node",
+			scan: backupActivityScan{
+				BusyNode: "weaviate-2",
+				Activity: backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindBackup, ID: "nightly-2026-08-04"},
+			},
+		},
+		{
+			name: "unreachable node",
+			scan: backupActivityScan{UnreachableNode: "weaviate-2", UnreachableErr: probeErr},
+		},
+		{
+			name: "busy and unreachable",
+			scan: backupActivityScan{
+				BusyNode:        "weaviate-2",
+				Activity:        backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindRestore, ID: "nightly-2026-08-04"},
+				UnreachableNode: "weaviate-3",
+				UnreachableErr:  probeErr,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			responder := backupActivityResponder(principal, tt.scan)
+			require.NotNil(t, responder)
+
+			var payload *models.ErrorResponse
+			switch r := responder.(type) {
+			case *schema.SchemaObjectsIndexesUpdateConflict:
+				payload = r.Payload
+			case *schema.SchemaObjectsIndexesUpdateServiceUnavailable:
+				payload = r.Payload
+			default:
+				t.Fatalf("unexpected responder %T", responder)
+			}
+
+			msg := errorMessage(t, payload)
+			for _, secret := range []string{"weaviate-2", "weaviate-3", "nightly-2026-08-04", "10.42.7.13", "7947"} {
+				assert.NotContains(t, msg, secret)
+			}
+		})
+	}
 }
 
 func errorMessage(t *testing.T, payload *models.ErrorResponse) string {

@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -160,17 +159,6 @@ func formatProbes(probes []reindexProbe) string {
 			i, p.backupStatus, p.httpStatus, strings.TrimSpace(p.body)))
 	}
 	return strings.Join(lines, "\n")
-}
-
-var blockingNodePattern = regexp.MustCompile(`node "([^"]+)"`)
-
-// blockingNodeName pulls the node the guard named out of a 409 body.
-func blockingNodeName(t *testing.T, body string) string {
-	t.Helper()
-	match := blockingNodePattern.FindStringSubmatch(guardMessage(body))
-	require.Lenf(t, match, 2,
-		`409 body must name the blocking node as node "<name>"; got: %s`, body)
-	return match[1]
 }
 
 // localBackupStatus reads status via the process-global client (the single node under test).
