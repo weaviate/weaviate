@@ -1413,7 +1413,7 @@ func TestGRPCReplyQueryProfile(t *testing.T) {
 				AdditionalProperties: additional.Properties{Vector: true, QueryProfile: tt.requestProfile},
 			}
 			getClass := func(name string) (*models.Class, error) { return scheme.GetClass(name), nil }
-			replier := NewReplier(false, fakeGenerativeParams{}, nil)
+			replier := NewReplier(false, fakeGenerativeParams{}, nil, nil)
 
 			out, err := replier.Search(tt.ctx, tt.res, time.Now(), searchParams, newSchemaResolver(getClass))
 			require.Nil(t, err)
