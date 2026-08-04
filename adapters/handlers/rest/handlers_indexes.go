@@ -43,6 +43,9 @@ import (
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := &indexesHandlers{appState: appState}
+	if appState.Cluster != nil {
+		h.cluster = appState.Cluster
+	}
 	if appState.ClusterHttpClient != nil && appState.Cluster != nil {
 		h.backupActivity = clients.NewClusterBackupActivity(appState.ClusterHttpClient, appState.Cluster)
 	}
@@ -56,6 +59,15 @@ type indexesHandlers struct {
 	// backupActivity is nil in fixtures without a cluster HTTP client;
 	// refuseIfBackupInFlight then allows submission.
 	backupActivity nodeActivityProber
+
+	// cluster names the nodes to probe. Nil in fixtures without a cluster,
+	// which refuseIfBackupInFlight treats the same as an unwired probe.
+	cluster clusterMembership
+}
+
+// clusterMembership is the slice of the cluster state the backup gate needs.
+type clusterMembership interface {
+	AllNames() []string
 }
 
 // submitLock returns the per-(collection, property) mutex for the
@@ -764,8 +776,8 @@ func backupActivityResponder(principal *models.Principal, scan backupActivitySca
 // under a running reindex, since both rewrite the same on-disk buckets.
 func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal *models.Principal) middleware.Responder {
 	var nodes []string
-	if h.appState.Cluster != nil {
-		nodes = h.appState.Cluster.AllNames()
+	if h.cluster != nil {
+		nodes = h.cluster.AllNames()
 	}
 
 	if h.backupActivity == nil || len(nodes) == 0 {
