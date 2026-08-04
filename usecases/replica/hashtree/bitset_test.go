@@ -12,6 +12,7 @@
 package hashtree
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,4 +53,56 @@ func TestBitSet(t *testing.T) {
 	require.Panics(t, func() {
 		bset.Unset(bsetSize)
 	})
+}
+
+func TestBitsetUnmarshalRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name string
+		bset *Bitset
+	}{
+		{"empty", NewBitset(1)},
+		{"single bit", NewBitset(1).Set(0)},
+		{"sparse bits", NewBitset(100).Set(3).Set(50).Set(99)},
+		{"set all word aligned", NewBitset(64).SetAll()},
+		{"set all with trailing bits", NewBitset(100).SetAll()},
+		{"set all tiny", NewBitset(8).SetAll()},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := tc.bset.Marshal()
+			require.NoError(t, err)
+
+			var decoded Bitset
+			require.NoError(t, decoded.Unmarshal(b))
+			require.Equal(t, tc.bset.Size(), decoded.Size())
+			require.Equal(t, tc.bset.SetCount(), decoded.SetCount())
+			for i := 0; i < tc.bset.Size(); i++ {
+				require.Equal(t, tc.bset.IsSet(i), decoded.IsSet(i))
+			}
+		})
+	}
+}
+
+func TestBitsetUnmarshalRejectsInconsistentSetCount(t *testing.T) {
+	testCases := []struct {
+		name         string
+		claimedCount uint32
+	}{
+		{"understated count", 0},
+		{"partially understated count", 2},
+		{"overstated count", 50},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := NewBitset(100).Set(3).Set(50).Set(99).Marshal()
+			require.NoError(t, err)
+
+			binary.BigEndian.PutUint32(b[4:], tc.claimedCount)
+
+			var decoded Bitset
+			require.ErrorContains(t, decoded.Unmarshal(b), "invalid bset serialization")
+		})
+	}
 }

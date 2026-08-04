@@ -14,6 +14,7 @@ package hashtree
 import (
 	"encoding/binary"
 	"fmt"
+	"math/bits"
 )
 
 type Bitset struct {
@@ -123,9 +124,22 @@ func (bset *Bitset) Unmarshal(b []byte) error {
 	bset.bits = make([]int64, n)
 
 	off := 8
+	setCount := 0
 	for i := 0; i < n; i++ {
 		bset.bits[i] = int64(binary.BigEndian.Uint64(b[off:]))
 		off += 8
+
+		w := uint64(bset.bits[i])
+		if i == n-1 && bset.size%64 != 0 {
+			w &= 1<<(bset.size%64) - 1
+		}
+		setCount += bits.OnesCount64(w)
+	}
+
+	// the carried count sizes downstream digest buffers (Level), so it must match
+	// the actual bits; the mask excludes trailing SetAll bits beyond size
+	if setCount != bset.setCount {
+		return fmt.Errorf("invalid bset serialization")
 	}
 
 	return nil
