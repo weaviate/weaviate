@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"sync/atomic"
 )
 
@@ -35,6 +36,11 @@ const (
 	// Later chunks are larger to amortize allocation and pointer-chasing for hot terms.
 	firstValueChunkSize = 2
 	maxValueChunkSize   = 16
+	// A node carries its forward pointers, its value log and that log's first
+	// chunk inline, so adding a key costs one allocation instead of five. With
+	// p=1/4 towers above this height are <1% of nodes and fall back to a heap
+	// slice for the overflow levels.
+	skipListInlineHeight = 4
 )
 
 // valueChunk is a single-producer append block: the writer fills entries[n] then
@@ -60,16 +66,12 @@ type valueLog[V any] struct {
 	count atomic.Int32   // total entries; lets a reader pre-size snapshot() to one alloc
 }
 
-func newValueLog[V any](first V) *valueLog[V] {
-	c := newValueChunk(firstValueChunkSize, first)
-	vl := &valueLog[V]{head: c, tail: c}
-	vl.count.Store(1)
-	return vl
-}
-
-func newEmptyValueLog[V any]() *valueLog[V] {
-	c := &valueChunk[V]{entries: make([]V, firstValueChunkSize)}
-	return &valueLog[V]{head: c, tail: c}
+// init points the log at storage the caller owns (a node's inline first chunk),
+// so no part of an empty log is separately allocated.
+func (vl *valueLog[V]) init(first *valueChunk[V], entries []V) {
+	first.entries = entries
+	vl.head = first
+	vl.tail = first
 }
 
 // append adds v to the log and returns the number of value slots newly allocated
@@ -112,10 +114,49 @@ func (vl *valueLog[V]) snapshot() []V {
 	return out
 }
 
+// keyPrefix packs the first 8 bytes of a key, zero-padded, into an integer that
+// orders the same way the bytes do. Equal prefixes are ties, not matches, so a
+// caller must fall back to comparing the full keys.
+func keyPrefix(key []byte) uint64 {
+	var b [8]byte
+	copy(b[:], key)
+	return binary.BigEndian.Uint64(b[:])
+}
+
+// A node is allocated once and never moved or copied: vlog.head points into
+// first, and first.entries aliases inline, so relocating it would dangle both.
+//
+// pre/next/nextInline are the descent's entire working set for a node and are
+// laid out first so they share one cache line: a search resolves most steps
+// without touching key, which lives in a separate allocation.
 type skipListNode[V any] struct {
-	key  []byte
-	vlog *valueLog[V]
-	next []atomic.Pointer[skipListNode[V]] // len == height of this node
+	pre        uint64
+	next       []atomic.Pointer[skipListNode[V]] // len == height of this node
+	nextInline [skipListInlineHeight]atomic.Pointer[skipListNode[V]]
+	key        []byte
+	vlog       valueLog[V]
+	first      valueChunk[V]
+	inline     [firstValueChunkSize]V
+}
+
+func newSkipListNode[V any](key []byte, height int) *skipListNode[V] {
+	n := &skipListNode[V]{key: key, pre: keyPrefix(key)}
+	n.vlog.init(&n.first, n.inline[:])
+	if height <= skipListInlineHeight {
+		n.next = n.nextInline[:height]
+	} else {
+		n.next = make([]atomic.Pointer[skipListNode[V]], height)
+	}
+	return n
+}
+
+// before reports whether n sorts strictly before key, comparing the inline
+// prefix first and only dereferencing n.key when prefixes tie.
+func (n *skipListNode[V]) before(pre uint64, key []byte) bool {
+	if n.pre != pre {
+		return n.pre < pre
+	}
+	return bytes.Compare(n.key, key) < 0
 }
 
 type skipList[V any] struct {
@@ -126,7 +167,7 @@ type skipList[V any] struct {
 
 func newSkipList[V any]() *skipList[V] {
 	return &skipList[V]{
-		head:   &skipListNode[V]{next: make([]atomic.Pointer[skipListNode[V]], skipListMaxHeight)},
+		head:   newSkipListNode[V](nil, skipListMaxHeight),
 		height: 1,
 		rng:    0x9e3779b97f4a7c15,
 	}
@@ -139,10 +180,12 @@ func (s *skipList[V]) randomHeight() int {
 	x ^= x >> 7
 	x ^= x << 17
 	s.rng = x
+	// p=1/4: shorter towers than p=1/2 mean fewer forward pointers per node and
+	// fewer levels to descend, at the same O(log n) expected search cost.
 	h := 1
-	for h < skipListMaxHeight && x&1 == 1 {
+	for h < skipListMaxHeight && x&3 == 0 {
 		h++
-		x >>= 1
+		x >>= 2
 	}
 	return h
 }
@@ -150,12 +193,13 @@ func (s *skipList[V]) randomHeight() int {
 // insert adds v under key and returns the number of value slots newly allocated,
 // so the caller can account the value-log backing growth. writer-only.
 func (s *skipList[V]) insert(key []byte, v V) int {
+	pre := keyPrefix(key)
 	var preds [skipListMaxHeight]*skipListNode[V]
 	x := s.head
 	for lvl := s.height - 1; lvl >= 0; lvl-- {
 		for {
 			nxt := x.next[lvl].Load()
-			if nxt == nil || bytes.Compare(nxt.key, key) >= 0 {
+			if nxt == nil || !nxt.before(pre, key) {
 				break
 			}
 			x = nxt
@@ -168,11 +212,8 @@ func (s *skipList[V]) insert(key []byte, v V) int {
 	}
 
 	h := s.randomHeight()
-	n := &skipListNode[V]{
-		key:  key,
-		vlog: newValueLog(v),
-		next: make([]atomic.Pointer[skipListNode[V]], h),
-	}
+	n := newSkipListNode[V](key, h)
+	n.vlog.append(v)
 	if h > s.height {
 		for lvl := s.height; lvl < h; lvl++ {
 			preds[lvl] = s.head
@@ -195,12 +236,13 @@ func (s *skipList[V]) insert(key []byte, v V) int {
 // materializes the key (with an empty value log), matching the red-black trees,
 // which create a node even when handed no values. writer-only.
 func (s *skipList[V]) insertMany(key []byte, vs []V) int {
+	pre := keyPrefix(key)
 	var preds [skipListMaxHeight]*skipListNode[V]
 	x := s.head
 	for lvl := s.height - 1; lvl >= 0; lvl-- {
 		for {
 			nxt := x.next[lvl].Load()
-			if nxt == nil || bytes.Compare(nxt.key, key) >= 0 {
+			if nxt == nil || !nxt.before(pre, key) {
 				break
 			}
 			x = nxt
@@ -217,11 +259,7 @@ func (s *skipList[V]) insertMany(key []byte, vs []V) int {
 	}
 
 	h := s.randomHeight()
-	n := &skipListNode[V]{
-		key:  key,
-		vlog: newEmptyValueLog[V](),
-		next: make([]atomic.Pointer[skipListNode[V]], h),
-	}
+	n := newSkipListNode[V](key, h)
 	slots := firstValueChunkSize
 	// the node is not yet linked, so these appends are invisible until publication
 	for _, v := range vs {
@@ -245,11 +283,12 @@ func (s *skipList[V]) insertMany(key []byte, vs []V) int {
 // get is lock-free. It descends from the max height (unused upper levels are
 // nil) rather than the writer-only height field, which a reader must not touch.
 func (s *skipList[V]) get(key []byte) ([]V, bool) {
+	pre := keyPrefix(key)
 	x := s.head
 	for lvl := skipListMaxHeight - 1; lvl >= 0; lvl-- {
 		for {
 			nxt := x.next[lvl].Load()
-			if nxt == nil || bytes.Compare(nxt.key, key) >= 0 {
+			if nxt == nil || !nxt.before(pre, key) {
 				break
 			}
 			x = nxt
