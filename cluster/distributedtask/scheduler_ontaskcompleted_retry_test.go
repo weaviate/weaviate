@@ -12,6 +12,7 @@
 package distributedtask
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -43,10 +44,15 @@ func newRetryFlipProvider(t *testing.T) *retryFlipProvider {
 	}
 }
 
-func (p *retryFlipProvider) OnGroupCompleted(_ *Task, _ string, _ []string) error { return nil }
-func (p *retryFlipProvider) OnSwapRequested(_ *Task, _ string, _ []string) error  { return nil }
+func (p *retryFlipProvider) OnGroupCompleted(_ context.Context, _ *Task, _ string, _ []string) error {
+	return nil
+}
 
-func (p *retryFlipProvider) OnTaskCompleted(task *Task) error {
+func (p *retryFlipProvider) OnSwapRequested(_ context.Context, _ *Task, _ string, _ []string) error {
+	return nil
+}
+
+func (p *retryFlipProvider) OnTaskCompleted(_ context.Context, task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.callsByStatus[task.Status]++
