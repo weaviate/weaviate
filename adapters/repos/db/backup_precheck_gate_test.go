@@ -297,6 +297,8 @@ func TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards(t *testing.T
 			require.NotContains(t, err.Error(), "cancel",
 				"there is no task to cancel")
 			require.Contains(t, err.Error(), "cluster leader could not be reached")
+			require.NotContains(t, err.Error(), entitiesbackup.ErrBackupBlockedByInFlightReindex.Error(),
+				"the sentinel's own text claims a reindex is in flight; it must not be rendered anywhere in this refusal")
 			require.Contains(t, err.Error(), leaderErr.Error(), "the underlying cause stays visible")
 			require.NotContains(t, err.Error(), "\n", "one refusal, not one per shard")
 

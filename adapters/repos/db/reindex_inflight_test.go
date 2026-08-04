@@ -289,3 +289,39 @@ func TestAnyLiveReindexForShard_UnreachableLeaderIsBlocked(t *testing.T) {
 	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
 		"unknown reindex state must block, not allow")
 }
+
+// TestReindexStateUnknownError_ReadsAsItsOwnCause pins that the refusal
+// for an unreachable leader states the leader failure from its first
+// word. Wrapping the sentinel with %w rendered "backup blocked:
+// runtime-reindex in flight on this shard" first, so the opening of the
+// response asserted the one thing this refusal exists to deny.
+func TestReindexStateUnknownError_ReadsAsItsOwnCause(t *testing.T) {
+	cause := errors.New("list DTM tasks: leader not found")
+	err := reindexStateUnknownError(cause)
+
+	sentinelText := entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()
+	require.False(t, strings.HasPrefix(err.Error(), sentinelText),
+		"the refusal must not open with a claim that a reindex is in flight")
+	require.NotContains(t, err.Error(), sentinelText,
+		"and must not make that claim anywhere else either")
+	require.True(t, strings.HasPrefix(err.Error(),
+		"backup blocked: the cluster leader could not be reached"),
+		"the real cause comes first")
+
+	// Matching still works, including across the canCommit RPC, where
+	// classifyCanCommitErr decides the response kind with errors.Is.
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
+		"the sentinel must still match")
+	require.True(t, errors.Is(err, cause), "the cause must still match")
+}
+
+// TestReindexInFlightError_GenuineRefusalIsUnchanged pins the genuine
+// refusal byte for byte: it is parsed downstream, and the unknown-state
+// rewording must not touch it.
+func TestReindexInFlightError_GenuineRefusalIsUnchanged(t *testing.T) {
+	want := `backup blocked: runtime-reindex in flight on this shard: shard "shard1" (collection "MyClass") has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status="ready") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {"<indexType>":{"cancel":true}}`
+	require.Equal(t, want, reindexInFlightError("MyClass", "shard1", false).Error())
+
+	wantPreWire := `backup blocked: runtime-reindex in flight on this shard: shard "shard1" (collection "MyClass"): backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping`
+	require.Equal(t, wantPreWire, reindexInFlightError("MyClass", "shard1", true).Error())
+}

@@ -244,10 +244,31 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 // replacing what used to be a refusal per shard (a 7 MB body on a
 // 20,000-shard node).
 func reindexStateUnknownError(cause error) error {
-	return fmt.Errorf(
-		"%w: the cluster leader could not be reached, so runtime-reindex state is unknown for every shard on this node; refusing the backup rather than risk snapshotting a shard mid-reindex. Retry once the leader is reachable: %w",
-		entitiesbackup.ErrBackupBlockedByInFlightReindex, cause,
+	return reindexStateUnknown{cause: cause}
+}
+
+// reindexStateUnknown is a type rather than a wrapped sentinel because
+// `%w` renders the sentinel first, and the sentinel reads "runtime-reindex
+// in flight on this shard" — the exact claim this refusal exists to stop
+// making. A caller reading the first line of the response would take it
+// as fact. Rendering the cause first while unwrapping to the sentinel
+// keeps errors.Is matching across the RPC boundary.
+type reindexStateUnknown struct {
+	cause error
+}
+
+func (e reindexStateUnknown) Error() string {
+	return fmt.Sprintf(
+		"backup blocked: the cluster leader could not be reached, so runtime-reindex state is unknown for every shard on this node; refusing the backup rather than risk snapshotting a shard mid-reindex. Retry once the leader is reachable: %v",
+		e.cause,
 	)
+}
+
+func (e reindexStateUnknown) Unwrap() []error {
+	if e.cause == nil {
+		return []error{entitiesbackup.ErrBackupBlockedByInFlightReindex}
+	}
+	return []error{entitiesbackup.ErrBackupBlockedByInFlightReindex, e.cause}
 }
 
 // NoSearchableIndexHint identifies which `PUT /v1/schema/{class}/indexes/{prop}`
