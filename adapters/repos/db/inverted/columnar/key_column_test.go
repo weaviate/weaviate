@@ -41,7 +41,7 @@ func prefixCorpus(t *testing.T, n int) *columnarSegment {
 func TestPrefixColumnShortQueryKeys(t *testing.T) {
 	const corpusSize = 64 // merge-scan takes over at 10+ query keys
 	seg := prefixCorpus(t, corpusSize)
-	require.Equal(t, 5, seg.keys.prefixLen(), "prefix is key_0")
+	require.Equal(t, 5, seg.keys.info().prefixLen, "prefix is key_0")
 
 	// dense builds a sorted query of `below` + the first 16 corpus keys + `above`,
 	// which is enough keys to push resolveMatches onto the merge-scan branch.

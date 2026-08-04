@@ -56,6 +56,8 @@ var foldRunsThreshold = 8
 //
 // BuildFromBucket picks the backing by observed key width.
 type keyColumn interface {
+	// Resolution — everything below is on the query path.
+
 	len() int
 	// prepareQueries maps sorted full-width query keys to the form compare/
 	// searchGE expect, returning the in-range sub-window. For blob/fixed it is
@@ -68,17 +70,30 @@ type keyColumn interface {
 	compare(i int, q []byte) int
 	// searchGE returns the first index i with key(i) >= q, or len() if none.
 	searchGE(q []byte) int
-	// width is the full logical key byte width, or -1 for variable-length.
-	width() int
+
+	// Fold.
+
 	// keyAt returns the full key bytes at position i. May allocate (prefix
 	// backing reconstructs prefix+suffix); used by the base fold, not hot reads.
 	keyAt(i int) []byte
+
+	// Reporting.
+
+	info() keyColumnInfo
+}
+
+// keyColumnInfo describes which backing a corpus selected and what it costs.
+// Reporting only — resolution never consults it, so a new measurement can be
+// added here without touching the query path.
+type keyColumnInfo struct {
+	// width is the full logical key byte width, or -1 for variable-length.
+	width int
 	// prefixLen is the number of leading bytes elided (shared by every key and
 	// stored once), or 0 if none.
-	prefixLen() int
+	prefixLen int
 	// sizeBytes is the resident heap held by the backing arrays (by capacity,
 	// so it reflects append over-allocation, not just the used length).
-	sizeBytes() int
+	sizeBytes int
 }
 
 // blobKeyColumn stores variable-length keys in one contiguous byte arena with
@@ -91,9 +106,9 @@ type blobKeyColumn struct {
 
 func (c *blobKeyColumn) len() int { return len(c.offsets) - 1 }
 
-func (c *blobKeyColumn) at(i int) []byte { return c.blob[c.offsets[i]:c.offsets[i+1]] }
+func (c *blobKeyColumn) keyAt(i int) []byte { return c.blob[c.offsets[i]:c.offsets[i+1]] }
 
-func (c *blobKeyColumn) compare(i int, q []byte) int { return bytes.Compare(c.at(i), q) }
+func (c *blobKeyColumn) compare(i int, q []byte) int { return bytes.Compare(c.keyAt(i), q) }
 
 func (c *blobKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
@@ -101,13 +116,9 @@ func (c *blobKeyColumn) searchGE(q []byte) int {
 
 func (c *blobKeyColumn) prepareQueries(sorted [][]byte) [][]byte { return sorted }
 
-func (c *blobKeyColumn) width() int { return -1 }
-
-func (c *blobKeyColumn) keyAt(i int) []byte { return c.at(i) }
-
-func (c *blobKeyColumn) prefixLen() int { return 0 }
-
-func (c *blobKeyColumn) sizeBytes() int { return cap(c.blob) + cap(c.offsets)*4 }
+func (c *blobKeyColumn) info() keyColumnInfo {
+	return keyColumnInfo{width: -1, sizeBytes: cap(c.blob) + cap(c.offsets)*4}
+}
 
 // fixedKeyColumn stores equal-width keys packed contiguously, no offset table.
 // key i is data[i*w:(i+1)*w]. One backing covers every fixed-width datatype
@@ -121,9 +132,9 @@ type fixedKeyColumn struct {
 
 func (c *fixedKeyColumn) len() int { return len(c.data) / c.w }
 
-func (c *fixedKeyColumn) at(i int) []byte { return c.data[i*c.w : (i+1)*c.w] }
+func (c *fixedKeyColumn) keyAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] }
 
-func (c *fixedKeyColumn) compare(i int, q []byte) int { return bytes.Compare(c.at(i), q) }
+func (c *fixedKeyColumn) compare(i int, q []byte) int { return bytes.Compare(c.keyAt(i), q) }
 
 func (c *fixedKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
@@ -131,13 +142,9 @@ func (c *fixedKeyColumn) searchGE(q []byte) int {
 
 func (c *fixedKeyColumn) prepareQueries(sorted [][]byte) [][]byte { return sorted }
 
-func (c *fixedKeyColumn) width() int { return c.w }
-
-func (c *fixedKeyColumn) keyAt(i int) []byte { return c.at(i) }
-
-func (c *fixedKeyColumn) prefixLen() int { return 0 }
-
-func (c *fixedKeyColumn) sizeBytes() int { return cap(c.data) }
+func (c *fixedKeyColumn) info() keyColumnInfo {
+	return keyColumnInfo{width: c.w, sizeBytes: cap(c.data)}
+}
 
 // prefixKeyColumn is a fixedKeyColumn whose keys share a common leading prefix
 // that is elided: every logical key equals prefix ++ suffix, and every suffix
@@ -195,8 +202,6 @@ func comparePrefix(key, prefix []byte) int {
 	return bytes.Compare(key[:len(prefix)], prefix)
 }
 
-func (c *prefixKeyColumn) width() int { return len(c.prefix) + c.w }
-
 func (c *prefixKeyColumn) keyAt(i int) []byte {
 	k := make([]byte, len(c.prefix)+c.w)
 	copy(k, c.prefix)
@@ -204,9 +209,13 @@ func (c *prefixKeyColumn) keyAt(i int) []byte {
 	return k
 }
 
-func (c *prefixKeyColumn) prefixLen() int { return len(c.prefix) }
-
-func (c *prefixKeyColumn) sizeBytes() int { return cap(c.data) + cap(c.prefix) }
+func (c *prefixKeyColumn) info() keyColumnInfo {
+	return keyColumnInfo{
+		width:     len(c.prefix) + c.w,
+		prefixLen: len(c.prefix),
+		sizeBytes: cap(c.data) + cap(c.prefix),
+	}
+}
 
 // docIDColumn stores one docID per key packed at a fixed narrow byte width,
 // big-endian. The width is the minimum bytes needed to hold maxDocID — since
@@ -218,8 +227,6 @@ type docIDColumn struct {
 	w    int // bytes per docID, 1..8
 	data []byte
 }
-
-func (c *docIDColumn) len() int { return len(c.data) / c.w }
 
 func (c *docIDColumn) at(i int) uint64 {
 	off := i * c.w
@@ -402,11 +409,11 @@ func commonPrefixLen(a, b []byte) int {
 // KeyWidth reports the fixed key byte width the base tier resolved to, or -1 if
 // keys are variable-length. Exposed so callers/tests can confirm which backing
 // a property's corpus selected.
-func (idx *ColumnarIndex) KeyWidth() int { return idx.state.Load().base.keys.width() }
+func (idx *ColumnarIndex) KeyWidth() int { return idx.state.Load().base.keys.info().width }
 
 // KeyPrefixLen reports how many leading bytes were elided as a shared prefix
 // across the base tier's keys (0 if none). Exposed for measurement/tests.
-func (idx *ColumnarIndex) KeyPrefixLen() int { return idx.state.Load().base.keys.prefixLen() }
+func (idx *ColumnarIndex) KeyPrefixLen() int { return idx.state.Load().base.keys.info().prefixLen }
 
 // DocIDWidth reports the byte width the docID column packs each docID at.
 func (idx *ColumnarIndex) DocIDWidth() int { return idx.state.Load().base.docs.w }
@@ -416,7 +423,7 @@ func (idx *ColumnarIndex) DocIDWidth() int { return idx.state.Load().base.docs.w
 // the index costs per property per shard.
 func (idx *ColumnarIndex) Size() int {
 	base := idx.state.Load().base
-	return base.keys.sizeBytes() + base.docs.sizeBytes()
+	return base.keys.info().sizeBytes + base.docs.sizeBytes()
 }
 
 // Len reports the number of keys held by the base tier.
