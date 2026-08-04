@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -373,6 +374,38 @@ func awaitSingleShardOwner(t *testing.T, restURI, className string, deadline tim
 			"last ownership seen: %v", className, last)
 	}
 	return owner
+}
+
+// awaitClusterMembers blocks until every node appears in the cluster's own
+// view. A single-shard class created before that lands on whichever node is
+// already there, so resolveGuardTopology draws the same owner every time and
+// exhausts its attempts.
+func awaitClusterMembers(t *testing.T, restURI string, want []string, deadline time.Duration) {
+	t.Helper()
+	var last []string
+	resolved := assert.Eventually(t, func() bool {
+		var parsed struct {
+			Nodes []struct {
+				Name string `json:"name"`
+			} `json:"nodes"`
+		}
+		if !getJSON(fmt.Sprintf("http://%s/v1/nodes", restURI), &parsed) {
+			return false
+		}
+		last = last[:0]
+		for _, node := range parsed.Nodes {
+			last = append(last, node.Name)
+		}
+		for _, name := range want {
+			if !slices.Contains(last, name) {
+				return false
+			}
+		}
+		return true
+	}, deadline, 250*time.Millisecond)
+	if !resolved {
+		t.Fatalf("cluster did not report all of %v within %s; last seen: %v", want, deadline, last)
+	}
 }
 
 // raftLeaderName resolves the current RAFT leader, always enrolled as a
