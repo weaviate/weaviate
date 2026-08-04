@@ -16,7 +16,9 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
+	"slices"
 	"sort"
 	"testing"
 
@@ -271,18 +273,61 @@ func TestColumnarWiring_DocIDsMatchesFold(t *testing.T) {
 		return sortedDocIDs(al)
 	}
 
-	for _, size := range []int{1, 100, 1_000, 10_000} {
-		values := sample(size)
-
+	requireMatchesFold := func(t *testing.T, values []string) {
+		t.Helper()
 		t.Setenv(entcfg.EnvEnableColumnarContains, "")
 		fold := run(values)
 
 		t.Setenv(entcfg.EnvEnableColumnarContains, "true")
 		columnar := run(values)
 
-		require.Equal(t, fold, columnar,
-			"columnar accelerator must match the fold at N=%d", size)
+		require.Equal(t, fold, columnar, "columnar accelerator must match the fold")
 	}
+
+	// The filter's value order is the user's, and the accelerator requires its
+	// keys ascending — so every ordering must produce the same result.
+	orderings := []struct {
+		name    string
+		reorder func([]string) []string
+	}{
+		{name: "ascending", reorder: func(v []string) []string { return v }},
+		{
+			name: "descending",
+			reorder: func(v []string) []string {
+				slices.Reverse(v)
+				return v
+			},
+		},
+		{
+			name: "shuffled",
+			reorder: func(v []string) []string {
+				rnd := rand.New(rand.NewSource(42))
+				rnd.Shuffle(len(v), func(i, j int) { v[i], v[j] = v[j], v[i] })
+				return v
+			},
+		},
+	}
+
+	for _, size := range []int{1, 100, 1_000, 10_000} {
+		for _, ord := range orderings {
+			t.Run(fmt.Sprintf("N=%d/%s", size, ord.name), func(t *testing.T) {
+				requireMatchesFold(t, ord.reorder(sample(size)))
+			})
+		}
+	}
+
+	// A value shorter than the corpus keys' shared prefix matches nothing, but it
+	// still has to be compared against that prefix without running off its end.
+	t.Run("value shorter than the shared key prefix", func(t *testing.T) {
+		requireMatchesFold(t, append([]string{"val", "v"}, sample(100)...))
+	})
+
+	// Repeated values become repeated keys, which the merge-scan sees as two
+	// query cursor positions against one corpus position.
+	t.Run("repeated values", func(t *testing.T) {
+		values := sample(1_000)
+		requireMatchesFold(t, append(values, values...))
+	})
 
 	// prove the accelerator actually served: it is attached at open and kept
 	// live across the flush (via AbsorbFlush), so it is present on the bucket.
