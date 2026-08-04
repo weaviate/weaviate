@@ -30,6 +30,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/bits"
+	"slices"
 	"sort"
 	"sync"
 
@@ -405,7 +406,7 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 	idx.mu.RUnlock()
 
 	out := base.resolveMatches(sortedKeys, make([]uint64, 0, len(sortedKeys)))
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	result := sroar.FromSortedList(out)
 
 	// Fold runs oldest→newest over the base. Per run: remove the docIDs it
@@ -420,7 +421,7 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 		if len(addOut) == 0 {
 			continue
 		}
-		sort.Slice(addOut, func(i, j int) bool { return addOut[i] < addOut[j] })
+		slices.Sort(addOut)
 		runBM := sroar.FromSortedList(addOut)
 		if result.IsEmpty() {
 			result = runBM // adopt rather than Or into an empty result (double build)
