@@ -78,7 +78,8 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		},
 		Vectorizer: "none",
 	})
-	defer helper.DeleteClass(t, reindexClass)
+	// Not deleted on the way out: the migration is still live at that point and
+	// the mutation guard rejects the delete. The container goes away regardless.
 	importBodies(t, reindexClass, 50_000)
 
 	taskID := submitChangeTokenization(t, restURI, reindexClass, "body", "lowercase")
