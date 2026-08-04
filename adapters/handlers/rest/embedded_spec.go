@@ -5843,7 +5843,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Conflicting reindex task already running, or a backup or restore is in progress on some node.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5855,7 +5855,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Distributed tasks not enabled.",
+            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17390,7 +17390,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Conflicting reindex task already running, or a backup or restore is in progress on some node.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17402,7 +17402,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Distributed tasks not enabled.",
+            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

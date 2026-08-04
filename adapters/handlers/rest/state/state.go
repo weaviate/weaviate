@@ -83,6 +83,7 @@ type State struct {
 	HTTPServerMetrics  *monitoring.HTTPServerMetrics
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
+	BackupActivity     *backup.NodeActivityProbe
 	ExportParticipant  *exportUsecase.Participant
 	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB

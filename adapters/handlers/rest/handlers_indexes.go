@@ -27,25 +27,35 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := &indexesHandlers{appState: appState}
+	if appState.ClusterHttpClient != nil && appState.Cluster != nil {
+		h.backupActivity = clients.NewClusterBackupActivity(appState.ClusterHttpClient, appState.Cluster)
+	}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
 }
 
 type indexesHandlers struct {
 	appState *state.State
+
+	// backupActivity stays nil in fixtures that build the handler without a
+	// cluster HTTP client; refuseIfBackupInFlight then allows submission.
+	backupActivity nodeActivityProber
 }
 
 // submitLock returns the per-(collection, property) mutex for the
@@ -567,6 +577,12 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
+	// Runs after the local checks above because those are free while this one
+	// costs a cluster-wide round trip.
+	if responder := h.refuseIfBackupInFlight(ctx, principal); responder != nil {
+		return responder
+	}
+
 	// Defense in depth against the CANCEL→retry silent failure (same Sev 1
 	// family as DELETE→re-enable, fixed in 6b7dc23768): if a previous
 	// cancelled run left stale .migrations/<dir>/started.mig +
@@ -641,6 +657,117 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: "STARTED",
 	})
+}
+
+// backupActivityScanTimeout bounds the whole cluster fan-out. Reindex
+// submission is a rare, human-initiated operation, so spending a few seconds
+// on the probe is fine, but one hung node must not hang the PUT.
+const backupActivityScanTimeout = 5 * time.Second
+
+// backupActivityGateWarnOnce keeps the "gate not wired" WARN to one line per
+// process.
+var backupActivityGateWarnOnce sync.Once
+
+type nodeActivityProber interface {
+	NodeActivity(ctx context.Context, nodeName string) (backup.NodeActivity, error)
+}
+
+// backupActivityScan is the verdict of asking every node whether it holds a
+// backup or restore slot.
+type backupActivityScan struct {
+	BusyNode string
+	Activity backup.NodeActivity
+
+	UnreachableNode string
+	UnreachableErr  error
+}
+
+// scanBackupActivity probes every node in parallel. Results are collected by
+// position so the node named in the refusal is deterministic — the
+// lowest-indexed busy (or unreachable) node wins regardless of answer order.
+func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivityProber, logger logrus.FieldLogger) backupActivityScan {
+	ctx, cancel := context.WithTimeout(ctx, backupActivityScanTimeout)
+	defer cancel()
+
+	type result struct {
+		activity backup.NodeActivity
+		err      error
+	}
+	results := make([]result, len(nodes))
+
+	var wg sync.WaitGroup
+	wg.Add(len(nodes))
+	for i, node := range nodes {
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			activity, err := prober.NodeActivity(ctx, node)
+			results[i] = result{activity: activity, err: err}
+		}, logger)
+	}
+	wg.Wait()
+
+	var scan backupActivityScan
+	for i, res := range results {
+		switch {
+		case errors.Is(res.err, clients.ErrNodeActivityUnsupported):
+			logger.WithField("action", "reindex_backup_gate").WithField("node", nodes[i]).
+				Warn("node does not serve the backup activity probe; treating it as free of backups. " +
+					"Expected while a rolling upgrade is in progress.")
+		case res.err != nil:
+			if scan.UnreachableNode == "" {
+				scan.UnreachableNode = nodes[i]
+				scan.UnreachableErr = res.err
+			}
+		case res.activity.Busy:
+			if scan.BusyNode == "" {
+				scan.BusyNode = nodes[i]
+				scan.Activity = res.activity
+			}
+		}
+	}
+	return scan
+}
+
+// backupActivityResponder turns a scan into the refusal it warrants, or nil
+// when every node came back clear.
+func backupActivityResponder(principal *models.Principal, scan backupActivityScan) middleware.Responder {
+	// A definite "busy" outranks an unreachable node: it settles the question,
+	// and it points the operator at the operation they actually have to wait on.
+	if scan.BusyNode != "" {
+		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+			fmt.Sprintf("reindex blocked: node %q is running a %s (id %q); retry after it finishes",
+				scan.BusyNode, scan.Activity.Kind, scan.Activity.ID)))
+	}
+	if scan.UnreachableNode != "" {
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
+			fmt.Sprintf("reindex blocked: cannot confirm node %q is free of backups: %v; retry once the node answers",
+				scan.UnreachableNode, scan.UnreachableErr)))
+	}
+	return nil
+}
+
+// refuseIfBackupInFlight blocks a reindex submission while any node is part of
+// a backup or restore. Both rewrite the same on-disk buckets, and the backup
+// side already refuses to start under a running reindex; this closes the
+// opposite direction. Returns nil when submission may proceed.
+func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal *models.Principal) middleware.Responder {
+	var nodes []string
+	if h.appState.Cluster != nil {
+		nodes = h.appState.Cluster.AllNames()
+	}
+
+	if h.backupActivity == nil || len(nodes) == 0 {
+		backupActivityGateWarnOnce.Do(func() {
+			h.appState.Logger.WithField("action", "reindex_backup_gate").
+				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
+					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")
+		})
+		return nil
+	}
+
+	// A node that has left the cluster is not in AllNames() and so is not
+	// probed. That is correct, not a gap: its slots died with its process.
+	return backupActivityResponder(principal, scanBackupActivity(ctx, nodes, h.backupActivity, h.appState.Logger))
 }
 
 // principalUsername extracts the user-facing identifier from a principal
