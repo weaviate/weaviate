@@ -213,7 +213,8 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 			ErrIllegalArguments, discriminant.Size(), expectedSize, level)
 	}
 
-	if len(digests) < expectedSize {
+	// one digest is written per set bit, so SetCount() capacity suffices (see LevelDiff)
+	if len(digests) < discriminant.SetCount() {
 		return 0, fmt.Errorf("%w: output buffer has not enough capacity", ErrIllegalArguments)
 	}
 

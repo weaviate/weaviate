@@ -359,12 +359,13 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
+	var digests []hashtree.Digest
+
 	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
 		height := ht.Height()
-		digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
 
 		discriminant := hashtree.NewBitset(1) // nodesAtLevel(0) = 1
 		discriminant.Set(0)                   // seed at root
@@ -372,6 +373,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		var leaf *hashtree.Bitset
 
 		for l := 0; l <= height; l++ {
+			if need := discriminant.SetCount(); cap(digests) < need {
+				digests = make([]hashtree.Digest, need)
+			} else {
+				digests = digests[:need]
+			}
+
 			if _, err := ht.Level(l, discriminant, digests); err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}

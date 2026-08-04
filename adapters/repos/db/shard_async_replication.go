@@ -1347,7 +1347,7 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (height mismatch?)",
 			level, discriminant.Size(), expected)
 	}
-	digests = make([]hashtree.Digest, expected)
+	digests = make([]hashtree.Digest, discriminant.SetCount())
 
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
