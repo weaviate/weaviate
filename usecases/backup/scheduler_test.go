@@ -1194,7 +1194,7 @@ func TestSchedulerBackupRefusedByParticipantIsUnprocessable(t *testing.T) {
 	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
 		Method:  OpCreate,
 		ID:      backupID,
-		Err:     "backup blocked: runtime-reindex in flight on this shard",
+		Err:     "backup blocked: runtime-reindex in flight",
 		ErrKind: CanCommitErrInFlightReindex,
 	}, nil)
 	fs.client.On("Abort", any, any, any).Return(nil)
@@ -1206,7 +1206,7 @@ func TestSchedulerBackupRefusedByParticipantIsUnprocessable(t *testing.T) {
 	require.Error(t, err)
 	assert.IsType(t, backup.ErrUnprocessable{}, err,
 		"a participant refusing over a live migration must not surface as a 500")
-	assert.Contains(t, err.Error(), "backup blocked: runtime-reindex in flight on this shard")
+	assert.Contains(t, err.Error(), "backup blocked: runtime-reindex in flight")
 }
 
 func TestSchedulerList(t *testing.T) {

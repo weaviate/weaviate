@@ -27,7 +27,10 @@ import (
 // boundaries with errors.Is, not substring comparison. The operator-visible
 // error text wrapping this sentinel is owned by the storage layer in
 // adapters/repos/db/reindex_inflight.go.
-var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
+//
+// Names no shard: the text reaches API response bodies, and backing up a
+// collection grants nothing on shard ids.
+var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
 
 // ErrBackupSpannedReindex marks a backup whose capture overlapped a
 // runtime-reindex. Distinct from [ErrBackupBlockedByInFlightReindex], which

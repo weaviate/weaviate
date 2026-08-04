@@ -1066,7 +1066,7 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	// Shared symbol must be non-nil and carry the expected operator text.
 	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
 	require.Equal(t,
-		"backup blocked: runtime-reindex in flight on this shard",
+		"backup blocked: runtime-reindex in flight",
 		backup.ErrBackupBlockedByInFlightReindex.Error(),
 		"operator-visible sentinel text is part of the contract; do not edit lightly",
 	)

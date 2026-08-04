@@ -207,7 +207,7 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 
 // TestCanCommitResponse_PreservesInFlightReindexErrorKind verifies that when
 // the local sourcer (DB.Backupable) refuses with the
-// "backup blocked: runtime-reindex in flight on this shard" sentinel
+// "backup blocked: runtime-reindex in flight" sentinel
 // message, OnCanCommit stamps CanCommitErrInFlightReindex on the response so
 // the coordinator can promote it back to a typed error. Other refusal
 // reasons must keep falling back to CanCommitErrCannotCommit.
