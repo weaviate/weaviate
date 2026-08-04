@@ -86,6 +86,18 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	t.Logf("topology: leader %q owns backup class %q, probe %q owns reindex class %q; placements sampled: %v",
 		leader, topo.backupClass, topo.probe.name, topo.reindexClass, topo.placements)
 
+	// Without this the test can still pass on a node-local check: if the probe
+	// node also held the backup, its own slot would produce the 409 and the
+	// cluster-wide fan-out would never be exercised. resolveGuardTopology is
+	// supposed to rule that out, so state it against the API rather than trust it.
+	require.NotEqual(t, leader, topo.probe.name,
+		"the probe node must not be the node that runs the backup, or the 409 proves nothing cluster-wide")
+	backupOwners, ok := shardOwners(nodes[0].uri, topo.backupClass)
+	require.True(t, ok, "could not read shard ownership of backup class %q", topo.backupClass)
+	require.NotContains(t, backupOwners, topo.probe.name,
+		"the probe node holds a shard of the backup class %q, so a node-local check would also answer 409",
+		topo.backupClass)
+
 	awaitClassVisible(t, coordinator.uri, topo.backupClass, coordinator.name)
 	awaitClassVisible(t, topo.probe.uri, topo.reindexClass, topo.probe.name)
 
