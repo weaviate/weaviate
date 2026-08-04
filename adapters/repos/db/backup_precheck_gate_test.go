@@ -118,7 +118,8 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 			wantShardsHit: 50,
 		},
 		{
-			// One snapshot answers every class in the pass, not just the first.
+			// The snapshot is keyed (collection, shard), so it answers
+			// for every class in the pass, not just the first.
 			name: "three collections",
 			classes: []precheckClass{
 				{name: "AlphaCls", shards: precheckShards("AlphaCls", 4)},
@@ -210,7 +211,8 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 }
 
 // TestBackupable_UnreachableTaskManagerRefusesEveryShard pins that a
-// failed DTM query refuses the whole pass, not just the first shard.
+// failed DTM query (its snapshot reports every shard busy) refuses the
+// whole pass, not just the first shard.
 func TestBackupable_UnreachableTaskManagerRefusesEveryShard(t *testing.T) {
 	for _, shardCount := range []int{3, 12} {
 		t.Run(fmt.Sprintf("%d shards", shardCount), func(t *testing.T) {
