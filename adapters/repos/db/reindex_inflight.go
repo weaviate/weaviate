@@ -29,9 +29,9 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate resolves the DTM reindex-activity lookup once — a
-// cluster-wide RAFT query — and shares the answer across every shard a
-// caller checks. Resolution is lazy: unused, it never queries.
+// reindexGate resolves the backup-gate lookups once — the activity one
+// is a cluster-wide RAFT query — and judges every shard a caller checks
+// against that one snapshot. Resolution is lazy: unused, it never queries.
 type reindexGate struct {
 	db       *DB
 	once     sync.Once

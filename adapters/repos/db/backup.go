@@ -65,8 +65,9 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	// One shared snapshot for the whole precheck: it's a cluster-wide
-	// query, keyed (collection, shard), so it covers every class below.
+	// One shared snapshot for the whole precheck: resolving it is a
+	// cluster-wide query, and it is keyed (collection, shard), so it
+	// covers every class below.
 	gate := newReindexGate(db)
 	var errs []error
 	for _, c := range classes {

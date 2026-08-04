@@ -187,9 +187,9 @@ func TestBackupable_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 		"a snapshot asked about one name repeatedly cannot tell the shards apart")
 }
 
-// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins that every
-// shard in a pass is judged against the same snapshot, taken at the
-// first shard, so the verdict can't change mid-pass.
+// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins as deliberate
+// that every shard in a pass is judged against the same snapshot, taken
+// at the first shard, so the verdict can't change mid-pass.
 func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	const className = "CoherentCls"
 	shards := precheckShards(className, 4)
