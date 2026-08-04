@@ -1134,9 +1134,10 @@ func TestCommitAllManyFailures(t *testing.T) {
 	}
 }
 
-// The coordinator's lastOp slot is the backup subsystem's mutual-exclusion
-// lock. A slot left claimed by a failed operation refuses every later backup on
-// this node until the process restarts.
+// The coordinator's lastOp slot is both the backup subsystem's mutual-exclusion
+// lock and the source the reindex gate probes. A slot left claimed by a failed
+// operation refuses every later backup on this node and every reindex in the
+// cluster until the process restarts.
 func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1201,7 +1202,7 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 // A restore request for a backup whose metadata is already CANCELLING returns
 // without starting anything. It may only give back the slot when the slot holds
 // that same backup: clearing another restore's claim makes this node report
-// itself idle while it is still writing files.
+// itself idle to the reindex gate while it is still writing files.
 func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1215,30 +1216,19 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name        string
-		claimedID   string
-		claimStatus backup.Status
-		wantSlotID  string
+		name       string
+		claimedID  string
+		wantSlotID string
 	}{
 		{
-			name:        "slot holds the cancelled backup",
-			claimedID:   backupID,
-			claimStatus: backup.Cancelled,
-			wantSlotID:  "",
+			name:       "slot holds the backup being cancelled",
+			claimedID:  backupID,
+			wantSlotID: "",
 		},
 		{
-			name:        "slot holds a different, live restore",
-			claimedID:   "live-restore",
-			claimStatus: backup.Transferring,
-			wantSlotID:  "live-restore",
-		},
-		{
-			// The cancel was claimed by another coordinator, so this node's own
-			// restore of the same id never saw a cancel and is still writing.
-			name:        "slot holds a live restore carrying the same id",
-			claimedID:   backupID,
-			claimStatus: backup.Transferring,
-			wantSlotID:  backupID,
+			name:       "slot holds a different, live restore",
+			claimedID:  "live-restore",
+			wantSlotID: "live-restore",
 		},
 	}
 
@@ -1250,7 +1240,6 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 
 			c := fc.coordinator()
 			c.lastOp.renew(tc.claimedID, "path", "", "")
-			c.lastOp.set(tc.claimStatus)
 
 			req := newReq(nil, backendName, backupID)
 			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
@@ -1259,9 +1248,18 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
 			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
 
-			// The slot is the subsystem's mutual exclusion, so clearing one we
-			// do not own lets a second restore claim it and run alongside the
-			// live one.
+			probe := NewNodeActivityProbe(nil)
+			probe.AttachScheduler(&Scheduler{restorer: c})
+			want := NodeActivity{}
+			if tc.wantSlotID != "" {
+				want = NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: tc.wantSlotID}
+			}
+			require.Equal(t, want, probe.Activity(),
+				"the reindex gate reads this probe; reporting idle admits a reindex on top of a live restore")
+
+			// Second consequence of clearing a slot we don't own: the slot is
+			// also the subsystem's mutual exclusion, so a concurrent restore
+			// could claim it and run alongside the live one.
 			require.Equal(t, tc.wantSlotID,
 				c.lastOp.renew("intruder", "path", "", ""),
 				"a live restore must still refuse a second claim")

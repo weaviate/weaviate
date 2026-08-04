@@ -139,3 +139,6 @@ type StatusResponse struct {
 type (
 	AbortRequest StatusRequest
 )
+
+// Declared here so this commit builds; see the arm in coordinator.go.
+const CanCommitErrReindexInFlight CanCommitErrorKind = "reindex_in_flight"

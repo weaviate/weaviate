@@ -277,14 +277,12 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Only give back the slot when it holds a cancelled restore. Another
-			// restore owns it otherwise — even one carrying this same id, since
-			// the cancel could have been claimed by a different coordinator —
-			// and clearing it makes this node report itself idle while it is
-			// still writing files. The check and the clear share one lock
-			// acquisition so a restore that claims the slot in between does not
-			// lose it.
-			c.lastOp.resetIfCancelled(desc.ID)
+			// Only give back the slot when it holds the restore being cancelled.
+			// Otherwise a different, live restore owns it, and clearing it makes
+			// this node report itself idle while it is still writing files.
+			if c.lastOp.get().ID == desc.ID {
+				c.lastOp.reset()
+			}
 			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
 			return nil
 		}
@@ -509,6 +507,15 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	return status, nil
 }
 
+// remoteReindexInFlightErr carries [backup.ErrReindexInFlight] for errors.Is
+// without restating it. Plain %w wrapping would print the sentinel twice: the
+// participant's message already opens with it.
+type remoteReindexInFlightErr struct{ msg string }
+
+func (e remoteReindexInFlightErr) Error() string { return e.msg }
+
+func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFlight }
+
 // canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
 // typed error. When the response has [CanCommitErrInFlightReindex] kind, we
 // wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
@@ -523,6 +530,8 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	case CanCommitErrReindexInFlight:
+		return remoteReindexInFlightErr{msg: resp.Err}
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}
