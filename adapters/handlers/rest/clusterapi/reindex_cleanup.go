@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"reflect"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 )
 
@@ -37,16 +39,23 @@ type ReindexCleanup struct {
 	// value here would freeze a nil that never becomes real.
 	resolve func() ReindexCleanupProber
 	auth    auth
+	logger  logrus.FieldLogger
 }
 
-func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth) *ReindexCleanup {
-	return &ReindexCleanup{resolve: resolve, auth: auth}
+func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger logrus.FieldLogger) *ReindexCleanup {
+	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
 }
 
 // NewReindexCleanupFromState is the wiring the internal server uses. The
 // provider is read from appState at request time, so the route starts serving
 // as soon as bootstrap assigns it and answers 503 until then.
 func NewReindexCleanupFromState(appState *state.State, auth auth) *ReindexCleanup {
+	// Same nil-into-interface trap as the prober below: appState.Logger is a
+	// concrete pointer and must be compared as one before it is boxed.
+	var logger logrus.FieldLogger
+	if appState != nil && appState.Logger != nil {
+		logger = appState.Logger
+	}
 	return NewReindexCleanup(func() ReindexCleanupProber {
 		// Compared as a concrete pointer. Returning appState.ReindexProvider
 		// directly would box a nil into the interface, and a nil interface
@@ -55,7 +64,7 @@ func NewReindexCleanupFromState(appState *state.State, auth auth) *ReindexCleanu
 			return nil
 		}
 		return appState.ReindexProvider
-	}, auth)
+	}, auth, logger)
 }
 
 // Activity handles GET /reindex/cleanup-activity?collection=<name>.
@@ -107,9 +116,16 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			return
 		}
 
-		data, err := json.Marshal(ReindexCleanupActivity{
-			CleaningUp: prober.AnyCleanupInProgressForCollection(collection),
-		})
+		cleaningUp := prober.AnyCleanupInProgressForCollection(collection)
+		if rc.logger != nil {
+			// The cancelling node waits on this answer, so an operator tracing a
+			// slow cancel needs to see that the question arrived and what it got.
+			rc.logger.WithField("action", "reindex_cleanup_probe").
+				WithField("collection", collection).
+				WithField("cleaning_up", cleaningUp).
+				Debug("reindex cleanup probe answered")
+		}
+		data, err := json.Marshal(ReindexCleanupActivity{CleaningUp: cleaningUp})
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
 			return
