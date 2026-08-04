@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -306,7 +307,9 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	if s.dynamicVectorIndexDB == nil {
 		path := filepath.Join(s.path(), dynamic.StateDBFileName)
 
-		db, err := bbolt.Open(path, 0o600, nil)
+		// Timeout: a leaked handle from a failed shard teardown holds the flock;
+		// without it this open retries forever and wedges the loading goroutine.
+		db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 		if err != nil {
 			return nil, errors.Wrapf(err, "open %q", path)
 		}

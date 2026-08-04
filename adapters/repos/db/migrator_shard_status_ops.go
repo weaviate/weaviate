@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -48,12 +49,13 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 			if !ok {
 				// shard already does not exist or inactive, so remove local files if exists
 				// this pass will happen if the shard was COLD for example
+				var removeErr error
 				if err := os.RemoveAll(fmt.Sprintf("%s/%s", idx.path(), name)); err != nil {
-					err = fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
-					ec.Add(err)
-					return err
+					removeErr = fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
+					ec.Add(removeErr)
 				}
-				return nil
+				lsmkv.GlobalBucketRegistry.RemoveByPrefixes(shardPathLSM(idx.path(), name))
+				return removeErr
 			}
 
 			if err := shard.drop(false); err != nil {

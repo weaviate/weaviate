@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -2364,6 +2365,7 @@ func Test_UpdateClass(t *testing.T) {
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil)
 				if len(test.initial.Properties) > 0 {
@@ -2375,6 +2377,7 @@ func Test_UpdateClass(t *testing.T) {
 				store.AddClass(test.initial)
 
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				err = handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
 				if err == nil {
 					err = store.UpdateClass(test.update)
@@ -2463,6 +2466,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
@@ -2533,6 +2537,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)

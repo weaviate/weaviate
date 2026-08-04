@@ -193,8 +193,8 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 
 	rx := rq.rotation.Rotate(x)
 	var maxCode uint8 = (1 << bits) - 1
-	lower := slices.Min(rx)
-	step := (slices.Max(rx) - lower) / float32(maxCode)
+	lower, upper, _ := rq4MinMaxSumImpl(rx)
+	step := (upper - lower) / float32(maxCode)
 
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.

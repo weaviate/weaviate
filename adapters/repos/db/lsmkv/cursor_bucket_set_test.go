@@ -89,6 +89,7 @@ func TestSetCursorConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategySetCollection,
+		logger:   nullLogger(),
 	}
 
 	// Open the cursor that should see key1..key3 only and stay stable

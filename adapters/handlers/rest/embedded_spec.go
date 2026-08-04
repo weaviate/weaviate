@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.0-dev"
+    "version": "1.39.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -5681,6 +5681,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       },
@@ -6838,6 +6839,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       }
@@ -11679,7 +11681,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.0-dev"
+    "version": "1.39.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -17410,6 +17412,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       },
@@ -18567,6 +18570,7 @@ func init() {
           }
         },
         "x-serviceIds": [
+          "weaviate.local.manipulate",
           "weaviate.local.manipulate.meta"
         ]
       }

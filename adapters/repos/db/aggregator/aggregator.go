@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -69,6 +70,10 @@ type Aggregator struct {
 	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
 	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
 	bucketPinResolver inverted.SearchableBucketPinningResolver
+	// batchedContainsEnabled is propagated to the inverted.Searcher built
+	// by this aggregator. Nil (the default) means the batched Contains
+	// resolution stays off.
+	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
 // WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
@@ -76,6 +81,13 @@ func (a *Aggregator) WithSearchableBucketPinningResolver(
 	r inverted.SearchableBucketPinningResolver,
 ) *Aggregator {
 	a.bucketPinResolver = r
+	return a
+}
+
+// WithBatchedContainsEnabled: nil (the default) keeps the batched Contains
+// resolution off. See [inverted.Searcher.WithBatchedContainsEnabled].
+func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Aggregator {
+	a.batchedContainsEnabled = v
 	return a
 }
 

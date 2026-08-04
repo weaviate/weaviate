@@ -148,3 +148,43 @@ func TestHashTreeRoot(t *testing.T) {
 		assert.Equal(t, level0[0], root)
 	})
 }
+
+// TestGetAsyncReplicationStats pins that a shard reports its replication targets
+// in a fixed order, so repeating a node status scan does not reshuffle them.
+func TestGetAsyncReplicationStats(t *testing.T) {
+	tests := []struct {
+		name        string
+		targetNodes []string
+		wantTargets []string
+	}{
+		{
+			name: "no target", wantTargets: []string{},
+		},
+		{
+			name: "one target", targetNodes: []string{"node-B"},
+			wantTargets: []string{"node-B"},
+		},
+		{
+			name:        "many targets",
+			targetNodes: []string{"node-D", "node-A", "node-C", "node-B", "node-E"},
+			wantTargets: []string{"node-A", "node-B", "node-C", "node-D", "node-E"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := make(map[string]*hashBeatHostStats, len(tt.targetNodes))
+			for _, node := range tt.targetNodes {
+				stats[node] = &hashBeatHostStats{targetNodeName: node}
+			}
+			s := &Shard{asyncReplicationStatsByTargetNode: stats}
+
+			reported := make([]string, 0, len(tt.wantTargets))
+			for _, status := range s.getAsyncReplicationStats(context.Background()) {
+				reported = append(reported, status.TargetNode)
+			}
+
+			assert.Equal(t, tt.wantTargets, reported, "order of the reported targets")
+		})
+	}
+}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // SegmentEditOps is a bolt-backed sidecar that records in-place segment edit
@@ -149,9 +150,7 @@ func newSegmentEditOpsWithLookup(dir, className string, resolve transformerResol
 // ensureOpen opens — creating the file if absent — the bolt sidecar and its
 // buckets. Used by the write paths (RegisterOp/SnapshotSegments) so the sidecar
 // materializes exactly when an edit op first exists.
-func (s *SegmentEditOps) ensureOpen() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *SegmentEditOps) ensureOpenLocked() error {
 	if s.db != nil {
 		return nil
 	}
@@ -162,9 +161,7 @@ func (s *SegmentEditOps) ensureOpen() error {
 // read and bookkeeping paths (the constantly-running compaction/cleanup cycles,
 // reconcile, completion bookkeeping) never create it on an idle shard. Returns
 // false when there is nothing to open yet.
-func (s *SegmentEditOps) openIfExists() (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *SegmentEditOps) openIfExistsLocked() (bool, error) {
 	if s.db != nil {
 		return true, nil
 	}
@@ -186,7 +183,7 @@ func (s *SegmentEditOps) openLocked() error {
 	// One handle per segment group. The Timeout turns an accidental second open
 	// into a fast error instead of a forever-hang; the single-open path is uncontended.
 	db, err := bolt.Open(filepath.Join(s.dir, segmentEditOpsFileName), 0o600,
-		&bolt.Options{Timeout: 5 * time.Second})
+		&bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return fmt.Errorf("open segment edit ops db: %w", err)
 	}
@@ -221,13 +218,18 @@ func (s *SegmentEditOps) Close() error {
 // a no-op (fn never runs). This is the one home for the "writes-may-create,
 // reads-never-create" policy, and it guarantees s.db is non-nil before the tx so no
 // caller can nil-deref the handle.
+// It holds s.mu for the whole transaction: the sidecar file is removed once
+// its last op is deleted (see DeleteOp), and a handle captured outside the
+// lock could otherwise race that close+remove.
 func (s *SegmentEditOps) withWriteTx(create bool, fn func(tx *bolt.Tx) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if create {
-		if err := s.ensureOpen(); err != nil {
+		if err := s.ensureOpenLocked(); err != nil {
 			return err
 		}
 	} else {
-		ok, err := s.openIfExists()
+		ok, err := s.openIfExistsLocked()
 		if err != nil || !ok {
 			return err
 		}
@@ -238,7 +240,9 @@ func (s *SegmentEditOps) withWriteTx(create bool, fn func(tx *bolt.Tx) error) er
 // withReadTx runs fn in a single read transaction, or is a no-op (fn never runs,
 // nil returned) when no sidecar exists yet — an idle bucket has nothing to read.
 func (s *SegmentEditOps) withReadTx(fn func(tx *bolt.Tx) error) error {
-	ok, err := s.openIfExists()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ok, err := s.openIfExistsLocked()
 	if err != nil || !ok {
 		return err
 	}
@@ -464,17 +468,29 @@ func (s *SegmentEditOps) addPendingRowsTx(tx *bolt.Tx, opID string, segIDs []str
 // sub-bucket, so this — not descriptor presence — is the correct "resume may skip
 // the snapshot" signal.
 func (s *SegmentEditOps) HasPendingSnapshot(opID string) (bool, error) {
-	if ok, err := s.openIfExists(); err != nil || !ok {
-		return false, err
-	}
 	exists := false
-	if err := s.db.View(func(tx *bolt.Tx) error {
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
 		exists = tx.Bucket(editOpsBucketPending).Bucket([]byte(opID)) != nil
 		return nil
 	}); err != nil {
 		return false, err
 	}
 	return exists, nil
+}
+
+// HasOps reports whether any op is registered, without decoding or sorting
+// (the WAL-recovery probe only needs a boolean; Recover re-reads the full set
+// moments later).
+func (s *SegmentEditOps) HasOps() (bool, error) {
+	has := false
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		has = k != nil
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return has, nil
 }
 
 // LoadOps returns all active operations sorted by CreatedAt (ties broken by ID)
@@ -708,15 +724,61 @@ func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 // Called when the op stops being live: task success (delivered as SWAPPING, or
 // FINISHED on a replay), terminal failure (FAILED/CANCELLED), or an orphan sweep.
 func (s *SegmentEditOps) DeleteOp(opID string) error {
-	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ok, err := s.openIfExistsLocked()
+	if err != nil || !ok {
+		return err
+	}
+	empty := false
+	if err := s.db.Update(func(tx *bolt.Tx) error {
 		if err := tx.Bucket(editOpsBucketOperations).Delete([]byte(opID)); err != nil {
 			return err
 		}
 		if err := deleteSubBucket(tx.Bucket(editOpsBucketPending), opID); err != nil {
 			return err
 		}
-		return deleteSubBucket(tx.Bucket(editOpsBucketQuarantine), opID)
-	})
+		if err := deleteSubBucket(tx.Bucket(editOpsBucketQuarantine), opID); err != nil {
+			return err
+		}
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		empty = k == nil
+		return nil
+	}); err != nil {
+		return err
+	}
+	if empty {
+		// The last op is gone: remove the sidecar file entirely. Leaving it
+		// costs a permanent fd + mmap on every shard that ever saw a drop
+		// (openIfExists reopens it on every load and cleanup pass, forever).
+		// s.mu is held across every reader/writer, so nothing can be mid-tx;
+		// a later RegisterOp simply re-creates the file.
+		s.closeAndRemoveLocked()
+	}
+	return nil
+}
+
+// closeAndRemoveLocked closes the bolt handle and deletes the sidecar file.
+// Caller must hold s.mu. Best-effort: on failure the sidecar merely lingers,
+// which is the pre-existing behavior.
+func (s *SegmentEditOps) closeAndRemoveLocked() {
+	err := s.db.Close()
+	// Nil unconditionally: keeping a handle whose Close errored would wedge
+	// the sidecar for the shard's remaining lifetime (every open-check treats
+	// non-nil as usable). Re-opening after a failed close at worst trips the
+	// bolt flock timeout, which is retryable.
+	s.db = nil
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warnf("close empty segment edit ops db (file kept): %v", err)
+		}
+		return
+	}
+	if err := os.Remove(filepath.Join(s.dir, segmentEditOpsFileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if s.logger != nil {
+			s.logger.Warnf("remove empty segment edit ops db: %v", err)
+		}
+	}
 }
 
 // Recover runs the load-time bookkeeping: sweep ops with no live task, prune rows
@@ -737,6 +799,8 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh 
 		return err
 	}
 	if len(ops) == 0 {
+		// A sidecar that exists with zero ops is a pure fd/mmap liability.
+		s.removeSidecarIfEmpty()
 		return nil
 	}
 
@@ -773,7 +837,33 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh 
 			return err
 		}
 	}
+	// Reconcile's orphan sweep deletes ops in its own transaction, bypassing
+	// DeleteOp's remove-when-empty — re-check here so a load-time sweep of the
+	// last op doesn't leave an empty sidecar open forever.
+	s.removeSidecarIfEmpty()
 	return nil
+}
+
+// removeSidecarIfEmpty deletes the sidecar file when no ops remain (see
+// DeleteOp); best-effort, errors only mean the file lingers.
+func (s *SegmentEditOps) removeSidecarIfEmpty() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ok, err := s.openIfExistsLocked()
+	if err != nil || !ok {
+		return
+	}
+	empty := false
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		empty = k == nil
+		return nil
+	}); err != nil {
+		return
+	}
+	if empty {
+		s.closeAndRemoveLocked()
+	}
 }
 
 // editOpsOrphanSweepInterval rate-limits the cleanup-cycle orphan sweep's

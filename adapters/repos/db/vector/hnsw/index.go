@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -63,6 +64,10 @@ type hnsw struct {
 	// indicates the index is shutting down
 	shutdownCtx       context.Context
 	shutdownCtxCancel context.CancelFunc
+	// prefillWg tracks the background cache prefill so Shutdown can wait for it.
+	// The prefiller reads the shard's objects bucket, and the shard tears that
+	// bucket down as soon as the vector indexes report they are shut.
+	prefillWg sync.WaitGroup
 
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
@@ -119,6 +124,7 @@ type hnsw struct {
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
+	releaseVectorsOnce  sync.Once
 
 	commitLog CommitLogger
 
@@ -769,7 +775,14 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if err := h.commitLog.Drop(ctx, keepFiles); err != nil {
+	if err := h.releaseVectors(); err != nil {
+		return err
+	}
+
+	// cancel commit logger last, as the tombstone cleanup cycle might still
+	// write while it's still running
+	err := h.commitLog.Drop(ctx, keepFiles)
+	if err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
 
@@ -778,25 +791,32 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
+	h.prefillWg.Wait()
 
-	if err := h.commitLog.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	ec := errorcompounder.New()
+	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
+	ec.AddWrapf(h.tombstoneCleanupCallbackCtrl.Unregister(ctx), "unregister tombstone cleanup cycle")
 
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	// release the vectors even if the steps above failed, otherwise a failed
+	// teardown keeps the whole cache in memory
+	ec.Add(h.releaseVectors())
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return errors.Wrap(err, "hnsw shutdown")
+	return ec.ToError()
+}
+
+// releaseVectors frees the vectors held in memory. Only the first call does the
+// work: dropping a cache notifies a goroutine that exits on the first
+// notification, so a repeated drop would block forever.
+func (h *hnsw) releaseVectors() error {
+	var err error
+	h.releaseVectorsOnce.Do(func() {
+		if h.compressed.Load() {
+			err = errors.Wrap(h.compressor.Drop(), "drop compressed store")
+		} else {
+			h.cache.Drop()
 		}
-	} else {
-		h.cache.Drop()
-	}
-
-	return nil
+	})
+	return err
 }
 
 func (h *hnsw) Flush() error {
@@ -966,6 +986,26 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+// normalizeVecForInsert normalizes vec for cosine indexes, using a pooled
+// buffer when the vector's lifetime allows it. The normalized vector is only
+// retained beyond the insert by the uncompressed float vector cache; once
+// the index is compressed — a one-way transition — Preload merely encodes
+// the vector, so the buffer can be reused. The returned release func (nil
+// when no pooled buffer was taken) must be called once the insert no longer
+// references the vector.
+func (h *hnsw) normalizeVecForInsert(vec []float32) ([]float32, func()) {
+	if h.distancerProvider.Type() != "cosine-dot" {
+		return vec, nil
+	}
+	if !h.compressed.Load() {
+		return distancer.Normalize(vec), nil
+	}
+	bufPtr := h.pools.normalizeBufs.Get().(*[]float32)
+	normalized := distancer.NormalizeInto(*bufPtr, vec)
+	*bufPtr = normalized
+	return normalized, func() { h.pools.normalizeBufs.Put(bufPtr) }
 }
 
 // normalizeVecInPlace normalizes the vector in-place without allocating.

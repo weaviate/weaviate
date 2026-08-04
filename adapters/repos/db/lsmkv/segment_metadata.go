@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,8 +54,7 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 			if err == nil {
 				return true, nil // successfully loaded
 			}
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !canRecomputeSidecar(err) {
 				return false, err
 			}
 

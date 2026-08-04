@@ -435,13 +435,26 @@ func (f *FakeNodeResolver) NodeCount() int {
 	return 0
 }
 
-type FakeRemoteNodeClient struct{}
+// FakeRemoteNodeClient answers with Status, or fails with Err when it is set.
+type FakeRemoteNodeClient struct {
+	Status *models.NodeStatus
+	Err    error
+}
 
 func (f *FakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	if f.Status != nil {
+		return f.Status, nil
+	}
 	return &models.NodeStatus{}, nil
 }
 
 func (f *FakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
 	return &models.Statistics{}, nil
 }
 

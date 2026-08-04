@@ -165,7 +165,12 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 }
 
 func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
-	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+	// A vector-less class (no named vectors AND no legacy fields — the state
+	// a class reaches once its last named vector is dropped and finalized)
+	// has no legacy index config to parse; parsing the empty type would
+	// error and make every reader treat the class as broken/absent.
+	vectorless := !hasTargetVectors(class) && class.VectorIndexType == "" && class.Vectorizer == ""
+	if !vectorless && (!hasTargetVectors(class) || class.VectorIndexType != "") {
 		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer), p.defaultQuantization)
 		if err != nil {
 			return err
@@ -613,6 +618,7 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 			}
 		}
 	}
+
 	return nil
 }
 

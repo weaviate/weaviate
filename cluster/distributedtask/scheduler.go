@@ -625,11 +625,19 @@ func (s *Scheduler) tick() {
 		// TTL-cleanup of finished tasks. IsActive() excludes PREPARING and
 		// SWAPPING explicitly — their FinishedAt is zero-time, so
 		// clock.Since(zero) would otherwise mis-classify them as expired.
+		retainer, providerRetains := provider.(CompletedTaskRetainer)
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
 				return false
 			}
-			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
+			if s.completedTaskTTL > s.clock.Since(task.FinishedAt) {
+				return false
+			}
+			// A provider may veto expiry of a record that is still
+			// load-bearing (e.g. drop-vector coverage records while their
+			// marker is pending — expiring the chain forces a periodic
+			// full re-clean). Proposal-side only: the FSM stays untouched.
+			return !providerRetains || !retainer.ShouldRetainCompletedTask(task)
 		})
 		for _, task := range cleanableTasks {
 			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)

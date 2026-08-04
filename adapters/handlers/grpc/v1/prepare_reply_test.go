@@ -14,11 +14,10 @@ package v1
 import (
 	"encoding/binary"
 	"math"
-	"math/big"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
@@ -62,8 +61,8 @@ func byteVectorMulti(mat [][]float32) []byte {
 }
 
 func idByte(id string) []byte {
-	hexInteger, _ := new(big.Int).SetString(strings.ReplaceAll(id, "-", ""), 16)
-	return hexInteger.Bytes()
+	parsed := uuid.MustParse(id)
+	return parsed[:]
 }
 
 func TestGRPCReply(t *testing.T) {
