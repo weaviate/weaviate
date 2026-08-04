@@ -423,7 +423,7 @@ func NewSchemaObjectsIndexesUpdateConflict() *SchemaObjectsIndexesUpdateConflict
 /*
 SchemaObjectsIndexesUpdateConflict describes a response with status code 409, with default header values.
 
-Conflicting reindex task already running.
+Conflicting reindex task already running, or a backup or restore is in progress on some node.
 */
 type SchemaObjectsIndexesUpdateConflict struct {
 	Payload *models.ErrorResponse
@@ -559,7 +559,7 @@ func NewSchemaObjectsIndexesUpdateServiceUnavailable() *SchemaObjectsIndexesUpda
 /*
 SchemaObjectsIndexesUpdateServiceUnavailable describes a response with status code 503, with default header values.
 
-Distributed tasks not enabled.
+Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.
 */
 type SchemaObjectsIndexesUpdateServiceUnavailable struct {
 	Payload *models.ErrorResponse

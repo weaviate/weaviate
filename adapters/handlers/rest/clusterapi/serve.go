@@ -63,7 +63,7 @@ func NewServer(appState *state.State) *Server {
 
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
-	backups := NewBackups(appState.BackupManager, auth)
+	backups := NewBackups(appState.BackupManager, appState.BackupActivity, auth)
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
@@ -83,6 +83,7 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
+	mux.Handle("/backups/node-activity", backups.NodeActivity())
 
 	mux.Handle("/exports/prepare", exportsHandler.Prepare())
 	mux.Handle("/exports/commit", exportsHandler.Commit())
