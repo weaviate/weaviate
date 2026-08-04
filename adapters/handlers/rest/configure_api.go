@@ -1138,6 +1138,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// closed for that window so a backup landing in the gap doesn't
 		// snapshot half-removed sidecars.
 		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
+		// Same window, restore side. The cluster-wide lookup above only sees
+		// DTM, which has already forgotten the task by the time its sidecars
+		// come down.
+		repo.SetAnyCleanupInProgressLookup(appState.ReindexProvider.AnyCleanupInProgress)
 	}, appState.Logger)
 
 	return appState

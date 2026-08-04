@@ -51,6 +51,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	tests := []struct {
 		name         string
 		lookup       AnyReindexActivityLookup
+		cleanup      AnyCleanupInProgressLookup
 		wantRefusal  bool
 		wantContains string
 		wantCause    error
@@ -58,6 +59,21 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		{
 			name:   "no live task admits the restore",
 			lookup: func(context.Context) (bool, error) { return false, nil },
+		},
+		{
+			name:    "no live task and no cleanup admits the restore",
+			lookup:  func(context.Context) (bool, error) { return false, nil },
+			cleanup: func() bool { return false },
+		},
+		{
+			// A cancelled task leaves DTM at once but keeps deleting sidecar
+			// dirs. Cancelling is what the refusal above tells operators to do,
+			// so their retry lands here.
+			name:         "sidecar cleanup after a cancel refuses the restore",
+			lookup:       func(context.Context) (bool, error) { return false, nil },
+			cleanup:      func() bool { return true },
+			wantRefusal:  true,
+			wantContains: "still removing its temporary index files",
 		},
 		{
 			name:         "live task refuses the restore",
@@ -79,6 +95,9 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			db := &DB{logger: logger}
 			db.SetAnyReindexActivityLookup(tc.lookup)
+			if tc.cleanup != nil {
+				db.SetAnyCleanupInProgressLookup(tc.cleanup)
+			}
 
 			err := db.RefuseIfAnyReindexInFlight(context.Background())
 			if !tc.wantRefusal {

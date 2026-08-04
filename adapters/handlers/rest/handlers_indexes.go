@@ -943,6 +943,10 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
+			// Hold the backup and restore gates shut for the teardown: the
+			// task left DTM the moment the cancel applied, so without this
+			// both gates already report the shards free.
+			defer h.appState.ReindexProvider.MarkCleanupInProgress(&targetPayload)()
 
 			// Goroutine has drained. Wipe the sidecars and migration
 			// directories for every indexType this migration touches —

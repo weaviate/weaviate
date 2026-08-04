@@ -50,6 +50,19 @@ func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBu
 // the cluster. A non-nil error means the answer could not be determined.
 type AnyReindexActivityLookup func(ctx context.Context) (bool, error)
 
+// AnyCleanupInProgressLookup reports whether this node is still tearing
+// reindex sidecar dirs for a task that has already reached a terminal status.
+type AnyCleanupInProgressLookup func() bool
+
+// SetAnyCleanupInProgressLookup installs the node-local cleanup probe OR-ed
+// into [DB.RefuseIfAnyReindexInFlight]. Sibling of
+// [DB.SetReindexCleanupInProgressLookup], which serves the per-shard gate.
+func (db *DB) SetAnyCleanupInProgressLookup(lookup AnyCleanupInProgressLookup) {
+	db.reindexAuditMu.Lock()
+	defer db.reindexAuditMu.Unlock()
+	db.anyCleanupInProgressLookup = lookup
+}
+
 // SetAnyReindexActivityLookup installs the cluster-wide predicate consulted by
 // [DB.RefuseIfAnyReindexInFlight]. Wired post-bootstrap in configure_api.go
 // alongside [DB.SetShardReindexActivityLookup].
@@ -72,7 +85,22 @@ var unwiredRestoreGateWarnOnce sync.Once
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 	db.reindexAuditMu.RLock()
 	lookup := db.anyReindexActivityLookup
+	cleanupLookup := db.anyCleanupInProgressLookup
 	db.reindexAuditMu.RUnlock()
+
+	// A cancelled task leaves DTM immediately but keeps deleting sidecar dirs
+	// for tens of seconds after. Cancelling is what this gate's own error text
+	// tells the operator to do, so the retry right after lands in that window.
+	if cleanupLookup != nil && cleanupLookup() {
+		if db.logger != nil {
+			db.logger.WithField("action", "restore_reindex_gate").
+				Debug("restore-reindex gate: refusing — a cancelled task is still removing reindex sidecars on this node")
+		}
+		return fmt.Errorf(
+			"%w: a cancelled migration is still removing its temporary index files; retry in a few seconds",
+			entitiesbackup.ErrReindexInFlight,
+		)
+	}
 
 	if lookup == nil {
 		unwiredRestoreGateWarnOnce.Do(func() {
