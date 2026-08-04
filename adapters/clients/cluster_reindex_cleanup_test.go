@@ -43,9 +43,6 @@ func TestClusterReindexCleanup(t *testing.T) {
 			body:       `{"cleaningUp":false}`,
 		},
 		{
-			// A node on an older build has no such route. The caller has to be
-			// able to tell that apart from a real "no", or it waits out its
-			// whole budget on a node that can never answer.
 			name:       "older build does not serve the route",
 			statusCode: http.StatusNotFound,
 			body:       "404 page not found",

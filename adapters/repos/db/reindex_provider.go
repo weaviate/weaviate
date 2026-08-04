@@ -1739,13 +1739,9 @@ func (p *ReindexProvider) AnyCleanupInProgress() bool {
 }
 
 // AnyCleanupInProgressForCollection reports whether this node is tearing down
-// reindex sidecars for any shard of the collection.
-//
-// A cancel routed to a node that owns none of the shards answers the caller as
-// soon as the task leaves DTM, which is before the owners have raised their own
-// gates. That node asks the owners this question before answering, so the
-// caller cannot be told the cancel is done while a backup could still slip into
-// the teardown window.
+// reindex sidecars for any shard of the collection. Asked over the cluster by a
+// node handling a cancel; see awaitOwnerCleanupGates in the REST handlers for
+// why it has to wait on the answer.
 func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) bool {
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()

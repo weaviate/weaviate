@@ -723,9 +723,15 @@ const reindexOwnerGatePollInterval = 100 * time.Millisecond
 
 // awaitOwnerCleanupGates blocks until every other node owning a unit of the
 // cancelled task reports its reindex-cleanup gate raised, or until the bound
-// elapses. It never fails the cancel: the task is already cancelled, and a
-// caller who cannot cancel at all is worse off than one told about a smaller
-// window.
+// elapses.
+//
+// The node handling a cancel may own none of the collection's shards, so it has
+// nothing of its own to tear down and would answer while the owners are still a
+// DTM hook away from raising theirs — a window in which a backup can start into
+// a teardown the caller was told had been ordered.
+//
+// It never fails the cancel: the task is already cancelled, and a caller who
+// cannot cancel at all is worse off than one told about a smaller window.
 func (h *indexesHandlers) awaitOwnerCleanupGates(ctx context.Context, payload *db.ReindexTaskPayload, collection, taskID string) {
 	if h.reindexCleanup == nil {
 		return
@@ -1124,11 +1130,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		}).Warn("cancel: appState.ReindexProvider is nil; skipping drain+cleanup")
 	}
 
-	// This node may own none of the collection's shards, in which case nothing
-	// above raised a gate: the owners do that when the cancel reaches their own
-	// DTM hook, a second or two from now. Answering 202 before then tells the
-	// caller the cancel is done while a backup can still start into the
-	// teardown window.
+	// Nothing above raised a gate if this node owns none of the shards.
 	h.awaitOwnerCleanupGates(ctx, &targetPayload, collection, target.ID)
 
 	h.appState.Logger.WithFields(logrus.Fields{
