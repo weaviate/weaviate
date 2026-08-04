@@ -605,9 +605,8 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 type fakeSelector struct {
 	mock.Mock
 
-	// reindexInFlightErr is what RefuseIfAnyReindexInFlight answers. A plain
-	// field rather than a mock expectation, so the restore tests written
-	// before the gate existed keep passing without registering a call.
+	// reindexInFlightErr backs RefuseIfAnyReindexInFlight as a plain field,
+	// so pre-existing restore tests pass without registering a mock call.
 	reindexInFlightErr error
 }
 

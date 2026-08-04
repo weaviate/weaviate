@@ -1107,10 +1107,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
-		// The restore gate cannot ask the per-shard question above: a class
-		// being restored has no local index yet, so the shard lookup would
-		// always report it free. Ask the cluster-wide question instead, and
-		// let the error through so the gate can fail closed.
+		// Cluster-wide, unlike the per-shard lookup above: a class being
+		// restored has no local index yet, so a per-shard answer would
+		// always be "free".
 		repo.SetAnyReindexActivityLookup(func(ctx context.Context) (bool, error) {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
 			if err != nil {

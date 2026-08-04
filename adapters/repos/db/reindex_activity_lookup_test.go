@@ -25,9 +25,8 @@ import (
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
-// TestRefuseIfAnyReindexInFlight_Unwired pins the startup-window default:
-// allow the restore, and say so once rather than once per request. Kept in
-// its own test because the warn-once state is process-wide.
+// TestRefuseIfAnyReindexInFlight_Unwired pins the startup-window default
+// (allow + warn once). Separate test: the warn-once state is process-wide.
 func TestRefuseIfAnyReindexInFlight_Unwired(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
@@ -95,9 +94,8 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 				assert.ErrorIs(t, err, tc.wantCause, "the underlying cause must stay reachable")
 			}
 
-			// The gate names the condition only. Any operation word here
-			// would travel to seams that frame the refusal themselves, and
-			// the per-shard backup vocabulary is wrong on both counts.
+			// The gate names the condition only; callers frame the operation,
+			// and the per-shard backup vocabulary doesn't apply here.
 			assert.NotContains(t, err.Error(), "backup")
 			assert.NotContains(t, err.Error(), "restore")
 			assert.NotContains(t, err.Error(), "this shard")

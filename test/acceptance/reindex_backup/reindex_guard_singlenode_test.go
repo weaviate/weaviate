@@ -54,10 +54,9 @@ type guardedBackup struct {
 	blocked   reindexProbe
 }
 
-// proveReindexBlockedDuringBackup boots a node, imports the corpus and starts a
-// backup, returning once the guard has refused a reindex mid-backup. The backup
-// itself may already have finished by then; only the probe is guaranteed to
-// have landed while it was live.
+// proveReindexBlockedDuringBackup shares single-node guard setup for both
+// tests below. The backup may already be done by return; only the guard
+// probe is guaranteed to have run while it was live.
 func proveReindexBlockedDuringBackup(
 	ctx context.Context, t *testing.T, className, backupID string,
 ) guardedBackup {

@@ -283,17 +283,13 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 	}
 }
 
-// gateRefusal is the error shape DB.RefuseIfAnyReindexInFlight returns, kept
-// verbatim so the composed strings asserted below are the ones an operator
-// actually reads. adapters/repos/db pins the original.
+// gateRefusal mirrors the error shape DB.RefuseIfAnyReindexInFlight returns.
 func gateRefusal() error {
 	return fmt.Errorf("%w: retry after the migration finishes", backup.ErrReindexInFlight)
 }
 
-// TestOnCanCommitRestore_RefusesDuringInFlightReindex pins the per-node half
-// of the restore gate. The fake backend carries no expectations, so the
-// refusal must land before restorer.validate reads the descriptor — a restore
-// that got that far would fail the test rather than pass it.
+// TestOnCanCommitRestore_RefusesDuringInFlightReindex pins that OnCanCommit
+// refuses an OpRestore before restorer.validate reads the descriptor.
 func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 	ctx := context.Background()
 
@@ -317,11 +313,9 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 	assert.Equal(t, time.Duration(0), resp.Timeout)
 }
 
-// TestOnCanCommitRestore_WordingSurvivesRoundTrip pins what an operator reads
-// after the refusal crosses the canCommit RPC boundary and the coordinator
-// rebuilds it into an error. The shared reindex vocabulary is backup-worded
-// ("backup blocked", "on this shard"); routing a restore through the
-// in-flight-reindex kind once put exactly that in front of the real reason.
+// TestOnCanCommitRestore_WordingSurvivesRoundTrip pins that a restore
+// refusal still reads as a restore refusal, not a backup one, after the
+// coordinator rebuilds it from the canCommit RPC response.
 func TestOnCanCommitRestore_WordingSurvivesRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
