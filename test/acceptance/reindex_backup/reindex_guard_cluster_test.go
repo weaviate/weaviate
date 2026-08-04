@@ -81,6 +81,7 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	defer helper.ResetClient()
 
 	leader := raftLeaderName(t, nodes[0].uri, 60*time.Second)
+	awaitClusterMembers(t, nodes[0].uri, nodeNames(nodes), 60*time.Second)
 	topo := resolveGuardTopology(t, nodes, leader, propName)
 	coordinator := nodeByName(t, nodes, leader)
 	t.Logf("topology: leader %q owns backup class %q, probe %q owns reindex class %q; placements sampled: %v",
