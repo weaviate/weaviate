@@ -12,9 +12,12 @@
 package columnar
 
 import (
+	"fmt"
 	"sort"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -76,6 +79,23 @@ func (c *mockCursor) Seek([]byte) ([]byte, roaringset.BitmapLayer, error) {
 	return nil, roaringset.BitmapLayer{}, nil
 }
 
+// newTestIndex builds an index over base with a logger attached, which the
+// background fold needs.
+func newTestIndex(base *columnarSegment) *ColumnarIndex {
+	logger, _ := test.NewNullLogger()
+	return &ColumnarIndex{base: base, logger: logger}
+}
+
+// waitForFold blocks until no background fold is in flight.
+func waitForFold(t *testing.T, idx *ColumnarIndex) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		idx.mu.RLock()
+		defer idx.mu.RUnlock()
+		return !idx.folding
+	}, 5*time.Second, time.Millisecond, "background fold must finish")
+}
+
 func resolveSorted(idx *ColumnarIndex, keys ...string) []uint64 {
 	q := make([][]byte, len(keys))
 	for i, k := range keys {
@@ -90,7 +110,7 @@ func resolveSorted(idx *ColumnarIndex, keys ...string) []uint64 {
 func TestRunsFold(t *testing.T) {
 	// base: a→1, b→2, c→3
 	base := segFromPairs([][]byte{[]byte("a"), []byte("b"), []byte("c")}, []uint64{1, 2, 3})
-	idx := &ColumnarIndex{base: base}
+	idx := newTestIndex(base)
 
 	require.Equal(t, []uint64{1, 2, 3}, resolveSorted(idx, "a", "b", "c"), "base only")
 
@@ -115,7 +135,7 @@ func TestRunsFold(t *testing.T) {
 
 func TestRunsUpdateInSingleFlush(t *testing.T) {
 	// base: x→10
-	idx := &ColumnarIndex{base: segFromPairs([][]byte{[]byte("x")}, []uint64{10})}
+	idx := newTestIndex(segFromPairs([][]byte{[]byte("x")}, []uint64{10}))
 
 	// one flush both deletes x's old doc (10) and adds the new one (20)
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().
@@ -130,15 +150,20 @@ func TestRunsFoldIntoBase(t *testing.T) {
 	defer func() { foldRunsThreshold = old }()
 
 	// base: a→1, b→2, c→3
-	idx := &ColumnarIndex{base: segFromPairs(
-		[][]byte{[]byte("a"), []byte("b"), []byte("c")}, []uint64{1, 2, 3})}
+	idx := newTestIndex(segFromPairs(
+		[][]byte{[]byte("a"), []byte("b"), []byte("c")}, []uint64{1, 2, 3}))
 
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("d"), []uint64{4}, nil))) // add d
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{2}))) // delete b
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("e"), []uint64{5}, nil))) // add e → folds
 
-	require.Empty(t, idx.runs, "runs must be folded into base at the threshold")
-	require.Equal(t, 4, idx.base.keys.len(), "base absorbed the net state (a,c,d,e; b deleted)")
+	waitForFold(t, idx)
+
+	idx.mu.RLock()
+	numRuns, baseKeys := len(idx.runs), idx.base.keys.len()
+	idx.mu.RUnlock()
+	require.Zero(t, numRuns, "runs must be folded into base at the threshold")
+	require.Equal(t, 4, baseKeys, "base absorbed the net state (a,c,d,e; b deleted)")
 
 	require.Equal(t, []uint64{1, 3, 4, 5}, resolveSorted(idx, "a", "b", "c", "d", "e"),
 		"net state after fold: b deleted, d/e added")
@@ -150,8 +175,37 @@ func TestRunsFoldIntoBase(t *testing.T) {
 	require.Equal(t, []uint64{1, 3, 4, 5, 6}, resolveSorted(idx, "a", "b", "c", "d", "e"))
 }
 
+// TestRunsFoldDoesNotDropConcurrentFlushes pins the single-flight guard: folds
+// run in the background while flushes keep arriving, and each fold drops exactly
+// the runs it consumed. Without the guard two overlapping folds each drop the
+// same count, discarding whatever was absorbed in between.
+func TestRunsFoldDoesNotDropConcurrentFlushes(t *testing.T) {
+	old := foldRunsThreshold
+	foldRunsThreshold = 2
+	defer func() { foldRunsThreshold = old }()
+
+	const numFlushes = 200
+	idx := newTestIndex(segFromPairs([][]byte{[]byte("base")}, []uint64{1}))
+
+	keys := make([]string, 0, numFlushes+1)
+	want := make([]uint64, 0, numFlushes+1)
+	keys = append(keys, "base")
+	want = append(want, 1)
+	for i := 0; i < numFlushes; i++ {
+		key := fmt.Sprintf("key_%04d", i)
+		require.NoError(t, idx.AbsorbFlush(newMockCursor().
+			add([]byte(key), []uint64{uint64(100 + i)}, nil)))
+		keys = append(keys, key)
+		want = append(want, uint64(100+i))
+	}
+
+	waitForFold(t, idx)
+	require.Equal(t, want, resolveSorted(idx, keys...),
+		"every flushed key must survive the folds that ran alongside them")
+}
+
 func TestRunsDeleteOnlyFlush(t *testing.T) {
-	idx := &ColumnarIndex{base: segFromPairs([][]byte{[]byte("k")}, []uint64{7})}
+	idx := newTestIndex(segFromPairs([][]byte{[]byte("k")}, []uint64{7}))
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("k"), nil, []uint64{7})))
 	require.Equal(t, []uint64{}, resolveSorted(idx, "k"), "delete-only flush removes the doc")
 }

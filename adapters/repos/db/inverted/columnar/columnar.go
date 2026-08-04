@@ -34,9 +34,11 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // foldRunsThreshold is the number of accumulated runs at which AbsorbFlush folds
@@ -270,9 +272,11 @@ type run struct {
 // memtable absorbed since. Resolution folds the runs over the base, newest last.
 // Live active/flushing memtables are layered by the caller, not held here.
 type ColumnarIndex struct {
-	mu   sync.RWMutex // guards base + runs (swapped/appended under Lock)
-	base *columnarSegment
-	runs []*run // oldest first; appended on flush
+	mu      sync.RWMutex // guards base + runs + folding
+	base    *columnarSegment
+	runs    []*run // oldest first; appended on flush
+	folding bool   // a fold is in flight; see foldRunsIntoBase
+	logger  logrus.FieldLogger
 }
 
 // BuildFromBucket populates the index from a single cursor pass over a
@@ -296,7 +300,9 @@ type ColumnarIndex struct {
 // query path decline and fall back rather than silently drop docIDs). When false
 // the extra docIDs are ignored (only the minimum is kept) — intended for
 // benchmarks over corpora known to be effectively unique for the queried keys.
-func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool) (*ColumnarIndex, error) {
+func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool,
+	logger logrus.FieldLogger,
+) (*ColumnarIndex, error) {
 	c := bucket.CursorRoaringSet()
 	defer c.Close()
 
@@ -331,7 +337,8 @@ func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool) 
 	}
 
 	return &ColumnarIndex{
-		base: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs},
+		base:   &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs},
+		logger: logger,
 	}, nil
 }
 
@@ -527,13 +534,18 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 	}
 	idx.mu.Lock()
 	idx.runs = append(idx.runs, r)
-	shouldFold := len(idx.runs) >= foldRunsThreshold
+	// Single-flight: a fold already in flight will consume every run appended so
+	// far, and two concurrent folds would each drop the runs the other consumed.
+	shouldFold := !idx.folding && len(idx.runs) >= foldRunsThreshold
+	idx.folding = idx.folding || shouldFold
 	idx.mu.Unlock()
 
 	if shouldFold {
-		// AbsorbFlush is called from the serialized flush path, so folding here
-		// synchronously never overlaps another fold or another AbsorbFlush.
-		idx.foldRunsIntoBase()
+		// Off the flush path: a fold rebuilds the whole base, which is orders of
+		// magnitude slower than absorbing one memtable, and the flush must not
+		// wait for it. Reads stay correct throughout — they resolve against the
+		// pre-fold base plus every run until the swap publishes the new base.
+		enterrors.GoWrapper(idx.foldRunsIntoBase, idx.logger)
 	}
 	return nil
 }
@@ -543,7 +555,17 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 // the number of read tiers. Runs appended during the fold are preserved and
 // fold over the new base. The base is immutable and swapped by pointer, so
 // in-flight readers keep the version they snapshotted.
+//
+// Runs on its own goroutine, one at a time: the run window it consumes is fixed
+// at entry, so a second concurrent fold would compute a base from the same runs
+// and then drop that many again, discarding whatever was absorbed in between.
 func (idx *ColumnarIndex) foldRunsIntoBase() {
+	defer func() {
+		idx.mu.Lock()
+		idx.folding = false
+		idx.mu.Unlock()
+	}()
+
 	idx.mu.RLock()
 	base := idx.base
 	runs := idx.runs
