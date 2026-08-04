@@ -74,9 +74,10 @@ Query parameters:
 
 - `?tenants=t1,t2` — scope to named tenants on a multi-tenant class.
   Required only when the operator wants a subset. Rejected on
-  single-tenant classes. Rejected on semantic migrations
-  (`change-tokenization*`) because the cluster-wide schema flip cannot
-  be sub-scoped — all tenants must migrate together.
+  single-tenant classes. Rejected on every semantic migration
+  (`change-tokenization*`, `enable-*`, `repair-rangeable`) because the
+  cluster-wide schema flip cannot be sub-scoped — all tenants must
+  migrate together.
 
 Response shapes:
 
@@ -149,15 +150,17 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   (`NeedsPreparationBarrier`, set automatically for semantic migrations by
   the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
-    `enable-searchable`, `enable-filterable`):
+    `enable-searchable`, `enable-filterable`, `enable-rangeable`,
+    `repair-rangeable`, `change-algorithm`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
     `PREPARING` and `SWAPPING` are both reached only after every
     unit across the cluster is at terminal status. The FSM gates
     `PREPARING → SWAPPING` on every node's `PreparationCompleteAck`
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
-  - **Format-only migrations** (`enable-rangeable`, `repair-*`,
-    `roaring-set refresh`): `STARTED → SWAPPING → FINISHED`.
+  - **Format-only migrations** (`repair-filterable`,
+    `repair-searchable`, `roaring-set refresh`):
+    `STARTED → SWAPPING → FINISHED`.
     `PREPARING` is skipped because there is no cross-replica
     state alignment to bound — each shard's `RunOnShard`
     completes the full lifecycle locally and there is no
@@ -267,7 +270,7 @@ preceding a transition on the per-task field. Annotations
         └────────────────────────────────────────────────────────────────┘
 ```
 
-Format-only migrations (`enable-rangeable`, `repair-*`,
+Format-only migrations (`repair-filterable`, `repair-searchable`,
 `roaring-set refresh`) skip the OnGroupCompleted barrier — each shard
 runs the full lifecycle inside its own `RunOnShard` and there is no
 cluster-wide schema flip. The flow is otherwise identical.
@@ -613,7 +616,7 @@ Seven strategy implementations, one file each:
 |---|---|---|---|---|
 | `MapToBlockmaxStrategy` | `repair-searchable` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
-| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |
+| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | No-op; cluster-wide `IndexRangeFilters=true` flips from `OnTaskCompleted`. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
 | `EnableSearchableStrategy` | `enable-searchable` | objects → builds Blockmax | `searchable` (Blockmax) | No-op; cluster-wide flip from `OnTaskCompleted`. |
 | `SearchableRetokenizeStrategy` | `change-tokenization` (searchable half) | `searchable` | `searchable` (new tokenization) | No-op; `Tokenization` flip from `OnTaskCompleted`. |
@@ -643,18 +646,41 @@ a new strategy.
 
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
-`enable-filterable`, `enable-searchable` are semantic — every shard
+`enable-filterable`, `enable-searchable`, `change-algorithm`,
+`enable-rangeable` and `repair-rangeable` are semantic — every shard
 must reindex before any shard swaps (Journey 3 barrier), and the
 schema flip happens cluster-wide from `OnTaskCompleted`. The rest are
 format-only — each shard runs the full lifecycle independently
 (Journey 2), with no cluster-wide schema dependency.
 
-**`enable-rangeable` is intentionally format-only.** Range queries'
-correctness during the migration is gated by the per-shard
-`rangeableLocalReady` flag — falling back to the filterable bucket
-walk on shards that haven't completed locally is slow but correct.
-The barrier dance would be over-engineering for a journey that has a
-correct (if slow) per-shard fallback.
+**Rangeable joined the semantic family in
+[weaviate/0-weaviate-issues#465](https://github.com/weaviate/0-weaviate-issues/issues/465).**
+It used to flip `IndexRangeFilters` from the first shard's swap and
+compensate with an in-memory per-shard readiness gate. The gate did not
+survive a restart, so cancelling a migration and restarting left the
+schema claiming an index most shards did not have
+([weaviate/0-weaviate-issues#464](https://github.com/weaviate/0-weaviate-issues/issues/464)).
+Under the barrier the flag flips once, at task completion, and a
+cancelled task never flips it. `repair-rangeable` converted with it: its
+flag is already true at submit, so its completion flip is a no-op, but
+it gains the barrier's all-or-nothing swap.
+
+**Open constraint — the post-swap write window.** Between a shard's own
+swap and the task's completion flip, `IndexRangeFilters` is still false.
+The double-write callbacks are gone by then and the normal write path
+reads the flag, so writes arriving on that shard in that window do not
+reach the range index. They are present in the objects bucket and in the
+filterable index, and `repair-rangeable` recovers them, but a range
+filter does not see them until it runs.
+
+This window does not exist for `enable-filterable` / `enable-searchable`
+in practice only because their acceptance coverage does not probe it; it
+is a property of the whole `enable-*` family under the barrier.
+`test/acceptance/reindex_rangeable/concurrent_writes_test.go` measures
+it directly (494 of 500 concurrent updates indexed).
+[weaviate/weaviate#12211](https://github.com/weaviate/weaviate/pull/12211)'s
+durable pending-flip marker plus force-index overlay closes it
+generically; until it is in the base, that test is red.
 
 ### 4.6 LSM primitives — `adapters/repos/db/lsmkv/store.go`
 
@@ -699,15 +725,17 @@ change-tokenization              ✓                ✓ (tokenization)
 change-tokenization-filterable   ✓                ✓ (tokenization)
 enable-filterable                ✓                ✓ (ForceFilterable)
 enable-searchable                ✓                ✓ (ForceSearchable + tokenization)
-enable-rangeable                                  
+enable-rangeable                 ✓                ✓ (ForceRangeable)
+repair-rangeable                 ✓                ✓ (ForceRangeable)
 repair-filterable                                 
 repair-searchable                                 
-repair-rangeable                                  
 ```
 
-The four semantic migrations need both the cluster-wide barrier and
-the per-shard analyzer overlay; the four format-only migrations need
-neither.
+The semantic migrations need both the cluster-wide barrier and the
+per-shard analyzer overlay; the format-only ones need neither.
+`repair-rangeable` keeps its overlay for the same reason
+`enable-rangeable` does: the flag is not what the backfill analyzer
+should read while the ingest bucket is being built.
 
 ## 6. Crash safety
 
@@ -856,9 +884,9 @@ in short:
   process-wide.
 - **Phase 2c — POST-ATOMIC INLINE FINALIZE:**
   `OnMigrationComplete` + `trimOlderGenerationsLocked`. Outside the
-  mixed-state subwindow. Strategy-specific hook for in-memory
-  shard-local query-path state mutations (e.g. `setRangeableLocallyReady`)
-  or for non-semantic RAFT calls.
+  mixed-state subwindow. `OnMigrationComplete` is a no-op for every
+  semantic strategy; `MapToBlockmaxStrategy` is the one implementation
+  that still issues a RAFT call from here.
 - **Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup):**
   `FinalizeCompletedMigrations` runs the ingest → canonical dir
   rename before LSM init reloads any bucket. See §9.
@@ -1134,6 +1162,8 @@ Applied by the inverted analyzer during the backfill scan. Used by
 "from-scratch" strategies (`enable-filterable` / `enable-searchable` /
 `enable-rangeable`) that build a brand-new inverted bucket while the
 corresponding schema flag is still false in the RAFT-stored schema.
+`repair-rangeable` uses one too: the flag it would read is true, but
+the ingest bucket is built from the objects bucket the same way.
 Without this override the analyzer would skip the targeted property
 (see `HasAnyInvertedIndex` in `inverted/objects.go`) and the new
 bucket would come out empty.
@@ -1288,7 +1318,7 @@ with the modern testcontainer style.
   different tokenizations, filterable-only, searchable-only,
   enable-then-change, MT, concurrent-different-props).
 - `in_flight_rangeable_test` — query correctness during enable-
-  rangeable mid-flight (relies on `rangeableLocalReady`).
+  rangeable mid-flight.
 - `migration_journeys_test` — full lifecycle coverage of every
   semantic migration.
 - `concurrent_migrations_test` — parallel non-conflicting submits.
