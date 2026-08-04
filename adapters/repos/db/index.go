@@ -2806,7 +2806,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
-	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	if _, protected := i.backupProtectedShards.Load(shardName); protected {
 		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
 	}
@@ -2907,7 +2907,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard == nil {
-			// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
+			// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 			if _, protected := i.backupProtectedShards.Load(shardName); protected {
 				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
 			}

@@ -234,8 +234,8 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
 	}
-	// Deprecated: NO-HARDLINK-BACKUP. Only reachable on filesystems without hardlink
-	// support. Removed in v1.40; bugs here are not fixed.
+	// NO-HARDLINK-BACKUP: only reachable on filesystems without hardlink support.
+	// Removed in v1.40; bugs here are not fixed.
 	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs)
 }
 
@@ -679,7 +679,7 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	// Release non-hardlink backup protections: clear the protection flag and
 	// release the held backupLock.Lock for each protected shard.
 	//
-	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
 		name := key.(string)
 		i.backupLock.Unlock(name)
