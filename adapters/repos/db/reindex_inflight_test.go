@@ -228,11 +228,8 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
-// The backup-side refusal is answered to a caller granted CREATE on backups of
-// this collection, and nothing else. Node names need read_nodes and shard ids
-// are internal placement detail, so both stay out of the body — the same rule
-// the reindex guard's 409 and the restore gate's fail-closed refusal follow.
-// The operator still needs them, so they go to the log.
+// Pins: shard ids and node names must not leak into the backup-refusal body,
+// but must still reach the operator through the log.
 func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	const (
 		collection = "JourneyClass"
@@ -270,8 +267,8 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	assert.Equal(t, collection, logged.Data["collection"])
 }
 
-// The whole-node view must not reassemble what the per-shard refusal withheld:
-// DB.Backupable used to prefix every refusal with "<node>/<class>".
+// Pins: DB.Backupable must not reassemble node/shard names across per-shard
+// refusals.
 func TestBackupable_RefusalRedactsNodeAndShard(t *testing.T) {
 	const (
 		collection = "JourneyClass"
