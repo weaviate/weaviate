@@ -133,6 +133,10 @@ type reindexCleanupKey struct {
 	shard      string
 }
 
+// cleanupWholeCollection is the shard name a collection-wide registration is
+// filed under. No real shard is named "", so it cannot collide with one.
+const cleanupWholeCollection = ""
+
 // phaseUnitResolution holds the per-unit setup work that every per-shard
 // phase callback needs before running. Skip=true → caller silently moves
 // on; non-empty Errs → setup failed, caller MUST NOT proceed; Rehydrate=true
@@ -1722,6 +1726,11 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 // capturing half-removed __reindex / __ingest dirs. Defer the release.
 func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
 	shards := uniqueShardsFromPayload(payload)
+	if len(shards) == 0 {
+		// The teardown runs either way, so a payload that names no shard has to
+		// close the gate on the whole collection rather than on nothing.
+		shards = []string{cleanupWholeCollection}
+	}
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
 	}
@@ -1794,6 +1803,9 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 	defer p.cleanupInProgressMu.RUnlock()
 	if p.cleanupInProgress == nil {
 		return false
+	}
+	if p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: cleanupWholeCollection}] > 0 {
+		return true
 	}
 	return p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}] > 0
 }
