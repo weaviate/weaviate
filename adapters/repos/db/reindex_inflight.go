@@ -153,15 +153,15 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // [Index.refuseIfReindexInFlight].
 func reindexInFlightError(collection string, preWire bool) error {
 	if preWire {
-		return fmt.Errorf(
-			"%w: collection %q: backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
+		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+			"%s: collection %q: backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
 			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-		)
+		)}
 	}
-	return fmt.Errorf(
-		"%w: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+		"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-	)
+	)}
 }
 
 // NoSearchableIndexHint identifies which `PUT /v1/schema/{class}/indexes/{prop}`

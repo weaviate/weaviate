@@ -313,3 +313,37 @@ func TestBackupable_RefusalRedactsNodeAndShard(t *testing.T) {
 		assert.NotContainsf(t, body, leaked, "DB.Backupable leaked %q into the refusal", leaked)
 	}
 }
+
+// The real wrappers between the shard that refused and the stored failure meta
+// name the shard: "snapshot shard <id>: halt for snapshot: ...". That is what
+// the operator log should say. The publishable message has to survive the
+// wrapping intact so the boundary can pull it back out.
+func TestCreateBackupSnapshot_RefusalKeepsAPublishableMessage(t *testing.T) {
+	ctx := testCtx()
+	className := "ShardSnapshotRedactClass"
+	shd, idx := testShard(t, ctx, className)
+
+	require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
+	idx.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{className, shd.Name()}: true,
+	}))
+
+	var sd entitiesbackup.ShardDescriptor
+	_, err := shd.(*Shard).CreateBackupSnapshot(ctx, &sd, t.TempDir())
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"the sentinel must survive the snapshot wrappers")
+
+	// The log form keeps the traversal, shard and all.
+	require.Contains(t, err.Error(), "halt for snapshot",
+		"the operator needs to know which step refused")
+
+	var blocked entitiesbackup.ReindexBlockedError
+	require.ErrorAs(t, err, &blocked,
+		"the publishable message must stay reachable under the wrappers")
+	require.Contains(t, blocked.Error(), className)
+	require.NotContains(t, blocked.Error(), shd.Name(),
+		"the publishable message is what reaches the status API")
+	require.NotContains(t, blocked.Error(), "halt for snapshot",
+		"and it carries the condition, not the path that found it")
+}
