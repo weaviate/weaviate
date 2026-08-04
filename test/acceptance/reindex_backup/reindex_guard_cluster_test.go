@@ -110,12 +110,12 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	t.Logf("probe node %q refused while only leader %q held backup %s: %s",
 		topo.probe.name, leader, backupID, blocked.body)
 
-	// Reaching this route needs update_collections on one collection; node
-	// names need read_nodes and backup IDs read_backups.
+	// assertReindexBlocked already covers the backup id; node names need
+	// read_nodes, which this route does not.
 	message := guardMessage(blocked.body)
-	for _, privileged := range append([]string{backupID, leader}, topo.placements...) {
-		assert.NotContainsf(t, message, privileged,
-			"the 409 body leaked %q; it must name no node and no backup", privileged)
+	for _, node := range nodes {
+		assert.NotContainsf(t, message, node.name,
+			"the 409 body leaked node %q", node.name)
 	}
 
 	// The block has to lift on a node that never took part in the backup.

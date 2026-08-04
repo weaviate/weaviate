@@ -1716,11 +1716,10 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 	return out
 }
 
-// MarkCleanupInProgress holds the backup gate shut on every shard the task
-// touched and returns the release. Both cancel paths tear sidecars while their
-// DTM task is already terminal, so this registration is the only thing keeping
-// a backup or restore from capturing half-removed __reindex / __ingest dirs.
-// Callers defer the release so a panic mid-teardown still frees the slots.
+// MarkCleanupInProgress holds the backup and restore gates shut on every shard
+// the task touched, and returns the release. Teardown always runs after the
+// task has gone terminal, so this is the only thing stopping a backup from
+// capturing half-removed __reindex / __ingest dirs. Defer the release.
 func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
 	shards := uniqueShardsFromPayload(payload)
 	for _, shardName := range shards {
