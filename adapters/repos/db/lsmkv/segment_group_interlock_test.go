@@ -99,6 +99,44 @@ func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	require.Equal(t, []byte("v1"), v, "recovered data must still be readable after the flush")
 }
 
+// TestWALRecovery_TornSidecarStallsNotBricks pins the stall-not-brick policy
+// for a torn (corrupt but unlocked) sidecar next to a live WAL: the shard
+// must still LOAD (bricking it would trade data availability for cleanup
+// bookkeeping), the WAL must still flush to a segment (bytes reachable by
+// compaction), no pending cover can be recorded through the broken sidecar —
+// and the claim that the drop "stalls loudly, never completes falsely" rests
+// on every later sidecar read failing too, which this pins directly.
+func TestWALRecovery_TornSidecarStallsNotBricks(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	b1, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err)
+	// Small enough for Shutdown's flushWAL path, which keeps the WAL on disk.
+	require.NoError(t, b1.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, b1.Shutdown(ctx))
+
+	// A torn sidecar: exists, unlocked, not a bolt file.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, segmentEditOpsFileName), []byte("not a bolt db"), 0o644))
+
+	b2, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err, "a torn sidecar must not brick the shard load")
+	defer func() { require.NoError(t, b2.Shutdown(ctx)) }()
+
+	require.NotEmpty(t, segIDsOf(b2), "the WAL must flush to a segment despite the torn sidecar (fail-safe: assume ops exist)")
+	v, err := b2.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v)
+
+	// The stall guarantee: with the sidecar unreadable, the drain poll and
+	// the finalize-time drained check must ERROR, never read "empty" —
+	// otherwise a drop over this shard would complete without its cover.
+	_, err = b2.EditOpPending("op1")
+	require.Error(t, err, "a torn sidecar must fail reads, not report an empty pending set")
+	_, _, _, err = b2.DeleteEditOpIfDrained("op1")
+	require.Error(t, err, "the drained gate must fail closed on a torn sidecar")
+}
+
 // TestNewBucket_FailsWhenSidecarLocked pins the reload fence: a sidecar
 // still flocked by a previous instance means that instance has not finished
 // closing, and loading blind would cost a completed drop its healing

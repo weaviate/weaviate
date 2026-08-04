@@ -1051,26 +1051,38 @@ func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
 	}
 }
 
-// warnIfSweepingRows surfaces, at error level, a sweep deleting an op that
-// still holds rows: those segments' target bytes were never stripped, and
-// with the op gone (its marker already left the schema, or the sweep would
-// have kept it) nothing ever will be — post-finalize strips are rightly
-// blocked by the dropped-target fence. The finalize-time drained veto keeps
-// this to the accepted residual window (rows re-pended on a shard that
-// unloaded before a cleanup pass and finalize both ran); deleting is still
-// right — keeping the op could not strip either and would cost decode work
-// forever — but it must never happen silently.
+// warnIfSweepingRows surfaces a sweep deleting an op that still holds rows.
+// A pending row is not proof of unstripped bytes — the routine journey
+// "drained, finalized while unloaded, reactivation re-pends a WAL-recovered
+// segment" leaves rows whose data the write-path guards already stripped —
+// but it CAN be the residual window's evidence (pre-arm rows re-pended on a
+// shard that unloaded before a cleanup pass and finalize both ran), and once
+// the op is gone nothing can strip them (the dropped-target fence rightly
+// blocks post-finalize strips). Deleting is still right — keeping the op
+// could not strip either and would cost decode work forever — but it must
+// not happen silently. A failed row read is reported as such, not as a count.
 func (s *SegmentEditOps) warnIfSweepingRows(opID, where string) {
 	if s.logger == nil {
 		return
 	}
 	pending, perr := s.Pending(opID)
 	quarantined, qerr := s.QuarantinedFor(opID)
-	if perr != nil || qerr != nil || len(pending)+len(quarantined) > 0 {
+	if perr != nil || qerr != nil {
 		s.logger.WithField("op_id", opID).
-			Errorf("edit-ops %s: deleting op that still holds %d pending / %d quarantined segment(s); "+
-				"their dropped-vector bytes were NOT stripped and no longer can be", where, len(pending), len(quarantined))
+			Warnf("edit-ops %s: could not inspect rows before deleting op (pending read: %v, quarantine read: %v)", where, perr, qerr)
+		return
 	}
+	if len(pending)+len(quarantined) > 0 {
+		s.logger.WithField("op_id", opID).Warn(sweepingRowsMessage(where, len(pending), len(quarantined)))
+	}
+}
+
+// sweepingRowsMessage is the shared wording for both sweep sites (SweepOrphans
+// and Recover's orphan sweep), so the disclosure cannot drift.
+func sweepingRowsMessage(where string, pending, quarantined int) string {
+	return fmt.Sprintf("edit-ops %s: deleting op that still holds %d pending / %d quarantined segment(s); "+
+		"their dropped-vector bytes may not have been stripped (post-marker writes were stripped on write; "+
+		"anything else would need a re-drop of the name to clean)", where, pending, quarantined)
 }
 
 // suspectedOrphans returns the sweepable ops (liveness-covered types only; an
@@ -1120,15 +1132,13 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 				return err
 			}
 			for _, opID := range orphans {
-				// Same disclosure as SweepOrphans (see warnIfSweepingRows):
-				// deleting over rows means those bytes stay unstripped forever.
+				// Same disclosure as SweepOrphans (see warnIfSweepingRows).
 				if s.logger != nil {
 					pending := countSubRows(tx.Bucket(editOpsBucketPending), opID)
 					quarantined := countSubRows(tx.Bucket(editOpsBucketQuarantine), opID)
 					if pending+quarantined > 0 {
 						s.logger.WithField("op_id", opID).
-							Errorf("edit-ops recover: sweeping orphaned op that still holds %d pending / %d quarantined segment(s); "+
-								"their dropped-vector bytes were NOT stripped and no longer can be", pending, quarantined)
+							Warn(sweepingRowsMessage("recover orphan sweep", pending, quarantined))
 					}
 				}
 				if err := ops.Delete([]byte(opID)); err != nil {

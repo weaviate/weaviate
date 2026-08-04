@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/file"
 )
@@ -53,6 +54,26 @@ func (s *Shard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string
 }
 
 func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot string, hardlinkSegments bool) ([]string, error) {
+	// Replica movement must not outrun an in-flight drop-vector strip: the
+	// edit-ops sidecar is excluded from the copied file list (a live,
+	// mutating bolt file), so pending rows recording unstripped segments
+	// would be silently lost — the target lands with the bytes but no cover,
+	// the shard's NAME is already counted as covered, and nothing ever
+	// re-arms it (resurrection on a same-name re-create, with no log).
+	// Mirror the finalize-time drained veto instead: defer the snapshot until
+	// the cleanup drains the rows (seconds on a loaded shard; the replication
+	// engine retries). A read error defers too — deferral is the reversible
+	// direction.
+	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
+		hasRows, err := bucket.EditOpsHaveRows()
+		if err != nil {
+			return nil, fmt.Errorf("inspect edit-ops before replica snapshot of shard %q: %w", s.name, err)
+		}
+		if hasRows {
+			return nil, fmt.Errorf("shard %q has an in-flight drop-vector strip (edit-op rows pending); deferring the replica snapshot until it drains", s.name)
+		}
+	}
+
 	sd := backup.ShardDescriptor{Name: s.name}
 	dbRootFiles, err := s.ListBackupFiles(ctx, &sd)
 	if err != nil {

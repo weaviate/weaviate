@@ -1079,16 +1079,6 @@ func TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig(t *testing
 		require.False(t, fin.called, "the marker must stand while an inherited shard's op holds rows")
 		require.Empty(t, inherited.deleted)
 	})
-
-	t.Run("a failing delete defers the finalize", func(t *testing.T) {
-		bucket := &fakeEditOpBucket{deleteErr: errors.New("bolt write failed")}
-		fin := &fakeFinalizer{}
-		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
-
-		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
-		require.Error(t, err, "a swallowed delete error would free the name over a still-armed op")
-		require.False(t, fin.called)
-	})
 }
 
 func TestOnTaskCompleted_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {

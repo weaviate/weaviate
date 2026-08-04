@@ -559,6 +559,29 @@ func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quar
 	return b.disk.editOps.DeleteOpIfDrained(opID)
 }
 
+// EditOpsHaveRows reports whether ANY edit op on this bucket still has
+// pending or quarantined segments — i.e. an in-place edit (drop-vector strip)
+// is mid-flight on this bucket's data. Replica movement consults this: the
+// sidecar is excluded from copied file lists, so moving a bucket with rows
+// would land the unstripped bytes at the target with no record they exist.
+func (b *Bucket) EditOpsHaveRows() (bool, error) {
+	if !b.HasEditOps() {
+		return false, nil
+	}
+	pending, err := b.disk.editOps.AllPending()
+	if err != nil {
+		return false, err
+	}
+	if len(pending) > 0 {
+		return true, nil
+	}
+	quarantined, err := b.disk.editOps.Quarantined()
+	if err != nil {
+		return false, err
+	}
+	return len(quarantined) > 0, nil
+}
+
 // EditOpQuarantined returns the segment IDs the cleanup driver quarantined
 // (retry budget exhausted) for opID; they still carry the dropped data, so the
 // caller must fail rather than treat empty pending as success.

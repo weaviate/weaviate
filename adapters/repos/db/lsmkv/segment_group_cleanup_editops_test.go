@@ -209,6 +209,41 @@ func TestSegmentCleanerEditOps_FactorylessOpRowsStayPending(t *testing.T) {
 	require.Equal(t, []byte("v1"), v, "the factory-less op's segment is skipped, not pointlessly rewritten")
 }
 
+// TestSegmentCleanerEditOps_MixedRowsOnOneSegment pins the exact pre-gate bug
+// shape: a built op AND a factory-less op both pending the SAME segment. The
+// rewrite runs (the built op's rows justify it) and must mark done ONLY the
+// built op's row — marking both would drain the factory-less op without its
+// transform ever executing, and its drop would finalize without stripping.
+func TestSegmentCleanerEditOps_MixedRowsOnOneSegment(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	require.NoError(t, editOps.RegisterOp("covered", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, editOps.RegisterOp("future", OpDescriptor{Type: "op_type_from_a_newer_version", CreatedAt: 2}))
+	require.NoError(t, editOps.SnapshotSegments("covered", segs))
+	require.NoError(t, editOps.SnapshotSegments("future", segs))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.True(t, cleaned, "the built op's row justifies the rewrite")
+
+	pCovered, err := editOps.Pending("covered")
+	require.NoError(t, err)
+	require.Empty(t, pCovered)
+	pFuture, err := editOps.Pending("future")
+	require.NoError(t, err)
+	require.Equal(t, segs, pFuture,
+		"the shared segment's rewrite ran without the factory-less op's transform; its row must survive")
+
+	v, err := bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v, "the built op's transform ran exactly once")
+}
+
 // TestSegmentEditOps_SweepOrphans pins the cleanup-cycle orphan sweep: an op with
 // no live task is deleted, a live one is kept, the sweep is rate-limited, and a
 // liveness error sweeps nothing.
