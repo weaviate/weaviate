@@ -398,9 +398,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		RpcClientMaker:  rpcClientMaker,
 		DataPath:        appState.ServerConfig.Config.Persistence.DataPath,
 
-		HeartbeatTimeout:  raftCfg.HeartbeatTimeout,
-		ElectionTimeout:   raftCfg.ElectionTimeout,
-		SnapshotThreshold: raftCfg.ShardSnapshotThreshold,
+		HeartbeatTimeout:       raftCfg.ShardHeartbeatTimeout,
+		ElectionTimeout:        raftCfg.ShardElectionTimeout,
+		SnapshotThreshold:      raftCfg.ShardSnapshotThreshold,
+		SnapshotBytesThreshold: raftCfg.ShardSnapshotBytesThreshold,
+		SnapshotMinInterval:    raftCfg.ShardSnapshotMinInterval,
 
 		MaxConcurrentSnapshots: raftCfg.ShardMaxConcurrentSnapshots,
 

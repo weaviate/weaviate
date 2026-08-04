@@ -131,6 +131,20 @@ func WithDirtyThreshold(threshold time.Duration) BucketOption {
 	}
 }
 
+// WithRaftIndexSource wires a raft-replicated bucket to its shard's raft
+// applied index. The source is read once per memtable seal (under the
+// exclusive flush lock) to stamp the sealed memtable with the raft progress
+// its contents cover; the stamp becomes the bucket's DurableRaftFloor when
+// the flush completes. The source must return the post-materialization
+// applied index (advanced only after a log entry's writes have completed) and
+// must be safe for concurrent use.
+func WithRaftIndexSource(source func() uint64) BucketOption {
+	return func(b *Bucket) error {
+		b.raftIndexSource = source
+		return nil
+	}
+}
+
 func WithSecondaryIndices(count uint16) BucketOption {
 	return func(b *Bucket) error {
 		b.secondaryIndices = count

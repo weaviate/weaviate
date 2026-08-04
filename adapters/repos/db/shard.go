@@ -508,11 +508,64 @@ func (s *Shard) ID() string {
 	return shardId(s.index.ID(), s.name)
 }
 
-// FlushMemtables flushes all in-memory memtables to disk segments.
-// This is called by the RAFT FSM before creating a snapshot to ensure
-// all applied log entries are durable in LSM segments before log truncation.
-func (s *Shard) FlushMemtables(ctx context.Context) error {
-	return s.store.FlushMemtables(ctx)
+// FlushForSnapshot makes every durable sink of this shard durable on disk
+// before a RAFT snapshot compacts the log. Compaction discards the entries
+// that could re-materialize recent writes, so each sink must not depend on
+// replay afterwards: LSM memtables are flushed to fsynced segments, async
+// vector queues (target vectors and geo properties) fsync their chunk
+// backlog, vector-index commit logs fsync their accepted tail, and the
+// property-length tracker persists. Any error aborts the snapshot (the
+// caller keeps the log). Runs on snapshot workers only — never on the
+// write/ack path.
+func (s *Shard) FlushForSnapshot(ctx context.Context) error {
+	if err := s.store.FlushMemtables(ctx); err != nil {
+		return fmt.Errorf("flush memtables: %w", err)
+	}
+
+	if err := s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
+		if err := q.Sync(); err != nil {
+			return fmt.Errorf("sync vector queue %q: %w", targetVector, err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := s.ForEachGeoQueue(func(propName string, q *VectorIndexQueue) error {
+		if err := q.Sync(); err != nil {
+			return fmt.Errorf("sync geo queue %q: %w", propName, err)
+		}
+		if err := syncVectorIndexCommitLog(q.vectorIndex); err != nil {
+			return fmt.Errorf("sync geo index commit log %q: %w", propName, err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		if err := syncVectorIndexCommitLog(idx); err != nil {
+			return fmt.Errorf("sync vector index commit log %q: %w", targetVector, err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
+		return fmt.Errorf("flush property length tracker: %w", err)
+	}
+	return nil
+}
+
+// syncVectorIndexCommitLog fsyncs an index's commit log tail when the index
+// has one (HNSW directly, dynamic by forwarding once upgraded); flat indexes
+// persist through the LSM store and have nothing extra to sync.
+func syncVectorIndexCommitLog(idx VectorIndex) error {
+	if s, ok := idx.(interface{ SyncCommitLog() error }); ok {
+		return s.SyncCommitLog()
+	}
+	return nil
 }
 
 // isRaftReplicated returns true if this shard is backed by a RAFT cluster
@@ -520,6 +573,58 @@ func (s *Shard) FlushMemtables(ctx context.Context) error {
 // of per-bucket WALs.
 func (s *Shard) isRaftReplicated() bool {
 	return s.index.Config.RaftReplicationEnabled && s.index.raft != nil
+}
+
+// raftAppliedIndex returns the raft applied index of this shard's group: the
+// highest log index whose materialization has fully completed (the FSM
+// advances it only after a unit's writes land). It is the seal-stamp source
+// for the LSM flush watermark (lsmkv.WithRaftIndexSource); 0 while the
+// shard's raft store is not (yet) registered, which conservatively pins the
+// watermark until it is.
+func (s *Shard) raftAppliedIndex() uint64 {
+	if s.index.raft == nil {
+		return 0
+	}
+	if st := s.index.raft.GetStore(s.name); st != nil {
+		return st.LastAppliedIndex()
+	}
+	return 0
+}
+
+// DurableRaftFloor implements the cluster/shard FSM's shard interface: the
+// highest raft applied index durably materialized in flushed LSM segments
+// across all of this shard's buckets — the cap for the raft snapshot index.
+// See lsmkv.(*Store).DurableRaftFloor for the concurrency contract.
+func (s *Shard) DurableRaftFloor() uint64 {
+	return s.store.DurableRaftFloor()
+}
+
+// ReadOnlyErr implements the cluster/shard FSM's shard interface: the
+// admission-side read-only predicate the raft leader consults before
+// proposing a write — the same check 2PC's prepare gate uses (writableShard).
+// Non-nil carries the full operator-facing reason ("store is read-only due
+// to: ...") wrapping storagestate.ErrStatusReadOnly.
+func (s *Shard) ReadOnlyErr() error {
+	return s.isReadOnly()
+}
+
+// WaitForSchemaVersion implements the cluster/shard FSM's shard interface:
+// it blocks until this node's schema FSM has caught up to version — the
+// apply-side half of the schema fence. Every raft write command carries the
+// schema version its coordinator observed at admission; materializing before
+// the local schema reaches it would analyze the object against a stale class.
+func (s *Shard) WaitForSchemaVersion(ctx context.Context, version uint64) error {
+	return s.index.schemaReader.WaitForUpdate(ctx, version)
+}
+
+// ClassPresent implements the cluster/shard FSM's shard interface: whether
+// this shard's class is (still) present in the local schema. Consulted by the
+// apply-side schema fence only once the local schema is at or past a write's
+// stamped version — there, absence deterministically means the class was
+// dropped after the write was admitted — and by the raft leader at admission
+// to reject writes honestly during a drop window.
+func (s *Shard) ClassPresent() bool {
+	return s.index.schemaReader.ClassInfo(s.index.Config.ClassName.String()).Exists
 }
 
 // writeWALs flushes all WAL buffers to disk. For RAFT-replicated shards,

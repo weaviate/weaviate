@@ -16,10 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/s2"
 	"github.com/sirupsen/logrus"
@@ -28,10 +26,13 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -101,6 +102,18 @@ type RouterConfig struct {
 	LocalShardReader ShardReaderProvider
 	// Registry is the shard RAFT registry (for ReadIndex protocol).
 	Registry *Registry
+
+	// ApplyRetryBudget bounds the total time apply spends absorbing
+	// retryable leadership churn (elections, transfers, proposal
+	// backpressure) before surfacing an error. Zero means the default:
+	// max(10s, 3x ElectionTimeout) — one full election plus catch-up. The
+	// caller's context still has the last word: a client deadline shorter
+	// than an election surfaces errors regardless of this budget.
+	ApplyRetryBudget time.Duration
+	// ApplyAttemptTimeout bounds a single local Apply or forwarded RPC, so
+	// one attempt wedged against a dying leader cannot consume the whole
+	// retry budget. Zero means the default: max(5s, 2x ElectionTimeout).
+	ApplyAttemptTimeout time.Duration
 }
 
 // Router routes operations to the correct shard RAFT leader.
@@ -129,97 +142,180 @@ func Newreplicator(config RouterConfig) *replicator {
 	}
 }
 
+// applyRetryBudgetFloor / applyAttemptTimeoutFloor are the minimums for the
+// retry knobs when the election-timeout-derived values are smaller. The
+// budget must cover one full election plus leader catch-up; the attempt
+// timeout must cover a healthy-but-loaded Apply (commit + local apply).
+const (
+	applyRetryBudgetFloor    = 10 * time.Second
+	applyAttemptTimeoutFloor = 5 * time.Second
+)
+
+func (r *replicator) retryBudget() time.Duration {
+	if r.config.ApplyRetryBudget > 0 {
+		return r.config.ApplyRetryBudget
+	}
+	if b := 3 * r.raft.config.ElectionTimeout; b > applyRetryBudgetFloor {
+		return b
+	}
+	return applyRetryBudgetFloor
+}
+
+func (r *replicator) attemptTimeout() time.Duration {
+	if r.config.ApplyAttemptTimeout > 0 {
+		return r.config.ApplyAttemptTimeout
+	}
+	if a := 2 * r.raft.config.ElectionTimeout; a > applyAttemptTimeoutFloor {
+		return a
+	}
+	return applyAttemptTimeoutFloor
+}
+
+// isRetryableApplyErr is the single retry-classification table for the write
+// path, local and forwarded. Retryable means: transient leadership or
+// availability churn that a bounded server-side retry absorbs so the client
+// never sees it — not-leader (reroute), leadership lost mid-apply, proposal
+// backpressure (same-node retry), no leader known yet, and a timed-out
+// attempt (the parent context separately gets the last word). Forwarded
+// attempts are classified purely by gRPC status code; toRPCError on the
+// serving side is the producing half of this contract.
+func isRetryableApplyErr(err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, ErrNotLeader),
+		errors.Is(err, ErrLeadershipLost),
+		errors.Is(err, ErrProposalBackpressure),
+		errors.Is(err, ErrNoLeaderFound),
+		errors.Is(err, ErrLeaderElectionTimeout):
+		return true
+	case errors.Is(err, context.DeadlineExceeded):
+		// A per-attempt sub-deadline fired (e.g. wedged against a dying
+		// leader); the next attempt re-resolves. apply() checks the parent
+		// context before retrying.
+		return true
+	case errors.Is(err, storagestate.ErrStatusReadOnly), errors.Is(err, ErrClassDropped):
+		// Admission rejections from the local leader route (Store.Apply's
+		// reject-fast): explicitly non-retryable — the reason must reach the
+		// client intact. The forwarded route agrees: toRPCError maps both to
+		// codes.FailedPrecondition, which is not in the retryable code set
+		// below.
+		return false
+	}
+	switch status.Code(err) {
+	case NotLeaderRPCCode, codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// apply drives one command through the shard's RAFT group, absorbing
+// transient leadership churn server-side: every attempt re-resolves the
+// route (leadership may move onto or off this node between attempts), a
+// per-attempt sub-deadline keeps one wedged attempt from eating the budget,
+// and retries stop at the retry budget or the caller's context, whichever
+// ends first. This is the ONLY retry site on the write path — Server.Apply
+// on the remote side calls Store.Apply once and reports typed codes back.
 func (r *replicator) apply(ctx context.Context, req *shardproto.ApplyRequest) (*shardproto.ApplyResponse, error) {
 	store := r.raft.GetStore(req.Shard)
 	if store == nil {
 		return nil, fmt.Errorf("raft store not found for %s/%s", req.Class, req.Shard)
 	}
-	if err := store.WaitForLeader(ctx); err != nil {
-		return nil, fmt.Errorf("wait for leader on %s/%s: %w", req.Class, req.Shard, err)
+
+	budget := r.retryBudget()
+	deadline := time.Now().Add(budget)
+	wait := r.raft.config.ElectionTimeout / 20
+	if wait <= 0 {
+		wait = 25 * time.Millisecond
+	}
+	maxWait := r.raft.config.ElectionTimeout
+	if maxWait <= 0 {
+		maxWait = time.Second
 	}
 
-	if r.IsLeader(req.Shard) {
-		v, err := store.Apply(ctx, req)
+	// giveUp shapes the terminal error: a run that ends while no leader was
+	// ever found keeps the typed ErrLeaderElectionTimeout surface callers
+	// match on (the pre-retry contract of the WaitForLeader-first path).
+	giveUp := func(err error) error {
+		if errors.Is(err, ErrNoLeaderFound) {
+			err = fmt.Errorf("%w: %w", ErrLeaderElectionTimeout, err)
+		}
+		return err
+	}
+
+	for attempt := 1; ; attempt++ {
+		resp, err := r.applyOnce(ctx, store, req)
+		if err == nil {
+			return resp, nil
+		}
+		if !isRetryableApplyErr(err) {
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			// The caller's deadline has the last word.
+			return nil, fmt.Errorf("%w (last apply error: %w)", ctx.Err(), giveUp(err))
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("apply retry budget %v exhausted after %d attempts: %w", budget, attempt, giveUp(err))
+		}
+		r.log.WithFields(logrus.Fields{
+			"class":   req.Class,
+			"shard":   req.Shard,
+			"attempt": attempt,
+		}).Debugf("retrying apply after transient error: %v", err)
+
+		sleep := wait
+		if sleep > remaining {
+			sleep = remaining
+		}
+		timer := time.NewTimer(sleep)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("%w (last apply error: %w)", ctx.Err(), giveUp(err))
+		}
+		if wait *= 2; wait > maxWait {
+			wait = maxWait
+		}
+		// After leadership-shaped failures, wait for a leader to be known
+		// before re-resolving rather than hot-spinning against a leaderless
+		// window. Backpressure is a same-node condition — no wait needed.
+		if !errors.Is(err, ErrProposalBackpressure) {
+			waitCtx, cancel := context.WithDeadline(ctx, deadline)
+			_ = store.WaitForLeader(waitCtx) // outcome re-checked by the next attempt
+			cancel()
+		}
+	}
+}
+
+// applyOnce performs one attempt at the current best-known route: locally
+// when this node leads the shard, otherwise forwarded to the current leader.
+func (r *replicator) applyOnce(ctx context.Context, store *Store, req *shardproto.ApplyRequest) (*shardproto.ApplyResponse, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, r.attemptTimeout())
+	defer cancel()
+
+	if store.IsLeader() {
+		v, err := store.Apply(attemptCtx, req)
 		if err != nil {
 			return nil, err
 		}
 		return &shardproto.ApplyResponse{Version: v}, nil
 	}
 
-	// We're not the leader, need to forward
-	return r.forwardToLeader(ctx, store, req)
-}
-
-// forwardToLeader forwards a PutObject request to the current leader with retry logic.
-func (r *replicator) forwardToLeader(
-	ctx context.Context,
-	store *Store,
-	req *shardproto.ApplyRequest,
-) (*shardproto.ApplyResponse, error) {
-	// Create exponential backoff for retries
-	bo := backoff.NewExponentialBackOff()
-	bo.InitialInterval = 100 * time.Millisecond
-	bo.MaxInterval = 2 * time.Second
-	bo.MaxElapsedTime = 0
-	bo.Reset()
-
-	// Wrap with context
-	ctxBackoff := backoff.WithContext(bo, ctx)
-
-	var resp *shardproto.ApplyResponse
-	var lastErr error
-	operation := func() error {
-		// Get the current leader (may change between retries)
-		leaderID := store.LeaderID()
-		if leaderID == "" {
-			r.log.WithFields(logrus.Fields{
-				"class": req.Class,
-				"shard": req.Shard,
-			}).Debug("no leader found, will retry")
-			return fmt.Errorf("no leader found")
-		}
-
-		r.log.WithFields(logrus.Fields{
-			"class":    req.Class,
-			"shard":    req.Shard,
-			"leaderID": leaderID,
-		}).Debug("forwarding PutObject to leader")
-
-		client, err := r.rpcClientMaker(ctx, leaderID)
-		if err != nil {
-			return fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
-		}
-
-		// Forward to the leader
-		resp, err = client.Apply(ctx, req)
-		if err == nil {
-			return nil
-		}
-
-		lastErr = err
-
-		// Check if error indicates leader change - should retry
-		if errors.Is(err, ErrNotLeader) || strings.Contains(err.Error(), "not leader") {
-			r.log.WithFields(logrus.Fields{
-				"class":    req.Class,
-				"shard":    req.Shard,
-				"leaderID": leaderID,
-			}).Debug("leader changed, will retry")
-			return err // Retry
-		}
-
-		// Non-retryable error
-		return backoff.Permanent(err)
+	leaderID := store.LeaderID()
+	if leaderID == "" {
+		return nil, ErrNoLeaderFound
 	}
-
-	if err := backoff.Retry(operation, ctxBackoff); err != nil {
-		if lastErr != nil {
-			return nil, lastErr
-		}
-		return nil, err
+	client, err := r.rpcClientMaker(ctx, leaderID)
+	if err != nil {
+		// Client construction fails while the leader address is stale or the
+		// leader just died — same shape as "no reachable leader": retryable.
+		return nil, fmt.Errorf("%w: create RPC client for leader %s: %w", ErrNoLeaderFound, leaderID, err)
 	}
-
-	return resp, nil
+	return client.Apply(attemptCtx, req)
 }
 
 // PutObject routes a PutObject operation to the appropriate shard leader.
@@ -667,9 +763,32 @@ func (r *replicator) ensureReadIndex(ctx context.Context, shardName string) erro
 	return r.config.Registry.WaitForLinearizableRead(ctx, r.config.ClassName, shardName)
 }
 
+// verifyLeaderApplied drives the leader-side linearizable read barrier ahead
+// of a forwarded DIRECT read: GetLastAppliedIndex with VerifyLeader invokes
+// the leader's VerifyLeader, which quorum-confirms leadership and waits for
+// the leader's FSM to apply at least its ReadState's commit index. Apply acks
+// at quorum commit, so without this barrier even the true leader could serve
+// a forwarded read from state that lacks an acknowledged write.
+func (r *replicator) verifyLeaderApplied(ctx context.Context, shardName, leaderID string) error {
+	client, err := r.rpcClientMaker(ctx, leaderID)
+	if err != nil {
+		return fmt.Errorf("%w: create RPC client for leader %s: %w", ErrNoLeaderFound, leaderID, err)
+	}
+	if _, err := client.GetLastAppliedIndex(ctx, &shardproto.GetLastAppliedIndexRequest{
+		Class:        r.class,
+		Shard:        shardName,
+		VerifyLeader: true,
+	}); err != nil {
+		return fmt.Errorf("verify leader before forwarded read: %w", err)
+	}
+	return nil
+}
+
 // readFromLeader reads from the leader for DIRECT consistency.
-// If this node is the leader, reads locally after verifying leadership.
-// If not, forwards the read to the leader node via the backing replicator's NodeObject.
+// If this node is the leader, reads locally after the VerifyLeader barrier
+// (leadership plus applied-wait). If not, drives the same barrier on the
+// leader via RPC, then forwards the read via the backing replicator's
+// NodeObject.
 func (r *replicator) readFromLeader(ctx context.Context, shard string, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error) {
 	store := r.raft.GetStore(shard)
 	if store == nil {
@@ -683,10 +802,12 @@ func (r *replicator) readFromLeader(ctx context.Context, shard string, id strfmt
 		return r.readLocalObject(ctx, shard, id, props, adds)
 	}
 
-	// Forward to leader using the backing replicator's NodeObject
 	leaderID := store.LeaderID()
 	if leaderID == "" {
 		return nil, ErrNoLeaderFound
+	}
+	if err := r.verifyLeaderApplied(ctx, shard, leaderID); err != nil {
+		return nil, err
 	}
 	return r.NodeObject(ctx, leaderID, shard, id, props, adds)
 }
@@ -705,10 +826,15 @@ func (r *replicator) existsFromLeader(ctx context.Context, shard string, id strf
 		return r.existsLocal(ctx, shard, id)
 	}
 
-	// Forward to leader via NodeObject — a nil result means the object doesn't exist.
+	// Forward to leader via NodeObject — a nil result means the object doesn't
+	// exist. The barrier mirrors readFromLeader: the leader must have applied
+	// every acked write before it serves the forwarded read.
 	leaderID := store.LeaderID()
 	if leaderID == "" {
 		return false, ErrNoLeaderFound
+	}
+	if err := r.verifyLeaderApplied(ctx, shard, leaderID); err != nil {
+		return false, err
 	}
 	obj, err := r.NodeObject(ctx, leaderID, shard, id, search.SelectProperties{}, additional.Properties{})
 	if err != nil {

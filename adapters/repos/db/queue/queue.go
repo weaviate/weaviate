@@ -336,6 +336,36 @@ func (q *DiskQueue) Flush() error {
 	return q.w.Flush()
 }
 
+// Sync makes every record accepted by Push durable on disk: the partial
+// chunk's buffered bytes are flushed and fsynced, and promoted chunks that
+// were kept open without a sync are fsynced too. This is the queue's
+// snapshot-durability gate: RAFT log compaction must not discard entries
+// whose vectors exist only in the queue's non-durable tail — a crash after
+// such a compaction tears the tail (recovery truncates at the last complete
+// record) and the raft entries that could replay the lost vectors are gone.
+// Runs on snapshot workers only, never on the write/ack path.
+func (q *DiskQueue) Sync() error {
+	if q == nil {
+		return nil
+	}
+
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	if q.closed || q.w == nil {
+		return nil
+	}
+
+	if err := q.w.Sync(); err != nil {
+		return err
+	}
+
+	if q.r == nil {
+		return nil
+	}
+	return q.r.SyncChunks()
+}
+
 func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	c, err := q.r.ReadChunk()
 	if err != nil {
@@ -1131,6 +1161,24 @@ func (w *chunkWriter) Flush() error {
 	return w.w.Flush()
 }
 
+// Sync makes every record accepted so far into the partial chunk durable: it
+// flushes the buffered writer and fsyncs the chunk file. Without it the tail
+// of the partial chunk lives in the process buffer / page cache only — a
+// crash tears it at an arbitrary record boundary (recovery truncates the torn
+// record and everything after it is lost). Promoted chunks are synced by
+// chunkReader.SyncChunks. Caller must hold the queue mutex.
+func (w *chunkWriter) Sync() error {
+	if w.f == nil {
+		return nil
+	}
+
+	if err := w.w.Flush(); err != nil {
+		return errors.Wrap(err, "failed to flush chunk")
+	}
+
+	return w.f.Sync()
+}
+
 func (w *chunkWriter) Release() {
 	w.w.Release()
 }
@@ -1390,12 +1438,18 @@ type chunkReader struct {
 	cursor    int
 	chunkList []string
 	chunks    map[string]*os.File
+	// unsynced marks chunks promoted on PromoteChunk's keep-open path, whose
+	// bytes were flushed to the file but never fsynced (only the >10-open
+	// eviction branch syncs). SyncChunks drains it; removal/release paths
+	// clear entries for files that no longer need durability.
+	unsynced map[string]bool
 }
 
 func newChunkReader(dir string, chunkList []string) *chunkReader {
 	return &chunkReader{
 		dir:       dir,
 		chunks:    make(map[string]*os.File),
+		unsynced:  make(map[string]bool),
 		chunkList: chunkList,
 	}
 }
@@ -1465,6 +1519,34 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 
 	r.chunks[f.Name()] = f
 	r.chunkList = append(r.chunkList, f.Name())
+	// Kept open without an fsync: the chunk's bytes are only in the page
+	// cache until SyncChunks (or eviction/Close) syncs it.
+	r.unsynced[f.Name()] = true
+
+	return nil
+}
+
+// SyncChunks fsyncs every promoted chunk that was kept open without a sync,
+// making the whole promoted backlog durable. Complements chunkWriter.Sync
+// (the partial chunk) for the queue-wide durability gate.
+func (r *chunkReader) SyncChunks() error {
+	r.m.Lock()
+	defer r.m.Unlock()
+
+	for name := range r.unsynced {
+		f, ok := r.chunks[name]
+		if !ok {
+			// Evicted, released, or removed since promotion: eviction and
+			// Close sync on their own paths; a removed chunk was fully
+			// consumed and needs no durability.
+			delete(r.unsynced, name)
+			continue
+		}
+		if err := f.Sync(); err != nil {
+			return errors.Wrapf(err, "failed to sync promoted chunk %s", name)
+		}
+		delete(r.unsynced, name)
+	}
 
 	return nil
 }
@@ -1476,6 +1558,7 @@ func (r *chunkReader) ReleaseChunk(c *chunk) {
 	r.m.Lock()
 	defer r.m.Unlock()
 	delete(r.chunks, c.path)
+	delete(r.unsynced, c.path)
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
@@ -1483,6 +1566,7 @@ func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
 
 	r.m.Lock()
 	delete(r.chunks, c.path)
+	delete(r.unsynced, c.path)
 	r.m.Unlock()
 
 	err := os.Remove(c.path)

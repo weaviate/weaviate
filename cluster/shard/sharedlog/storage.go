@@ -12,215 +12,226 @@
 package sharedlog
 
 import (
-	"bytes"
 	"fmt"
 
-	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-// groupStorage mirrors etcd's MemoryStorage semantics over bbolt:
+// groupStorage mirrors etcd's MemoryStorage semantics over the WAL index:
 //
 //   - Empty group: FirstIndex=1, LastIndex=0, Term(0)=0.
 //   - Term(snapshot.Index) returns snapshot.Term even though the entry
 //     itself has been compacted out.
 //   - Out of range: ErrCompacted below FirstIndex, ErrUnavailable above
 //     LastIndex.
+//
+// Every method except Entries and Snapshot answers from RAM; those two
+// pread payloads from segment files while holding the index read-lock,
+// which excludes segment reclamation for the duration of the read.
 type groupStorage struct {
 	store   *Store
 	groupID uint64
 }
 
+// snapBounds returns the group's snapshot metadata index/term (zero when
+// none is persisted). Caller must hold indexMu (read).
+func snapBounds(g *groupState) (idx, term uint64) {
+	if g != nil && g.hasSnap {
+		return g.snapMeta.Index, g.snapMeta.Term
+	}
+	return 0, 0
+}
+
+// lastLocked returns the group's LastIndex: the entry tail, or the snapshot
+// index when no entries are retained. Caller must hold indexMu (read).
+func lastLocked(g *groupState) uint64 {
+	snapIdx, _ := snapBounds(g)
+	if g == nil || len(g.ents) == 0 {
+		return snapIdx
+	}
+	if l := g.last(); l > snapIdx {
+		return l
+	}
+	return snapIdx
+}
+
 func (g *groupStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
-	var hs raftpb.HardState
-	var cs raftpb.ConfState
-	var haveCS bool
-	err := g.store.db.View(func(tx *bbolt.Tx) error {
-		key := encodeGroupKey(g.groupID)
-		if v := tx.Bucket([]byte(bucketState)).Get(key); v != nil {
-			if e := hs.Unmarshal(v); e != nil {
-				return fmt.Errorf("unmarshal hardstate: %w", e)
-			}
-		}
-		if v := tx.Bucket([]byte(bucketConfState)).Get(key); v != nil {
-			if e := cs.Unmarshal(v); e != nil {
-				return fmt.Errorf("unmarshal confstate: %w", e)
-			}
-			haveCS = true
-		}
-		return nil
-	})
-	if err != nil {
-		return raftpb.HardState{}, raftpb.ConfState{}, fmt.Errorf("sharedlog: InitialState: %w", err)
+	w := g.store.w
+	w.indexMu.RLock()
+	defer w.indexMu.RUnlock()
+	gs := w.groups[g.groupID]
+	if gs == nil {
+		return raftpb.HardState{}, raftpb.ConfState{}, nil
 	}
-	if !haveCS {
-		// Mirror etcd MemoryStorage semantics: with no explicitly-persisted
-		// ConfState record (the Store never writes one), the membership as of
-		// the last persisted snapshot is authoritative. Without this fallback
-		// a group restarting from a compacted log — the bootstrap conf-change
-		// entries truncated away — comes back with zero voters and can never
-		// elect a leader again.
-		snap, err := g.Snapshot()
-		if err != nil {
-			return raftpb.HardState{}, raftpb.ConfState{}, err
-		}
-		cs = snap.Metadata.ConfState
+	hs := gs.hs // zero value when never persisted
+	if gs.hasCS {
+		return hs, gs.cs, nil
 	}
-	return hs, cs, nil
+	// Mirror etcd MemoryStorage semantics: with no explicitly-persisted
+	// ConfState record (the Store never writes one), the membership as of
+	// the last persisted snapshot is authoritative. Without this fallback
+	// a group restarting from a compacted log — the bootstrap conf-change
+	// entries truncated away — comes back with zero voters and can never
+	// elect a leader again.
+	if gs.hasSnap {
+		return hs, gs.snapMeta.ConfState, nil
+	}
+	return hs, raftpb.ConfState{}, nil
 }
 
 func (g *groupStorage) FirstIndex() (uint64, error) {
-	snap, err := g.Snapshot()
-	if err != nil {
-		return 0, err
-	}
-	return snap.Metadata.Index + 1, nil
+	w := g.store.w
+	w.indexMu.RLock()
+	defer w.indexMu.RUnlock()
+	snapIdx, _ := snapBounds(w.groups[g.groupID])
+	return snapIdx + 1, nil
 }
 
 func (g *groupStorage) LastIndex() (uint64, error) {
-	var last uint64
-	err := g.store.db.View(func(tx *bbolt.Tx) error {
-		if v := tx.Bucket([]byte(bucketSnapMeta)).Get(encodeGroupKey(g.groupID)); v != nil {
-			var snap raftpb.Snapshot
-			if e := snap.Unmarshal(v); e != nil {
-				return fmt.Errorf("unmarshal snapshot: %w", e)
-			}
-			last = snap.Metadata.Index
-		}
-		// Seek past the group's prefix and step back, giving an
-		// O(log N) max-index lookup rather than a full scan.
-		prefix := encodeGroupKey(g.groupID)
-		c := tx.Bucket([]byte(bucketEntries)).Cursor()
-		var ourMax []byte
-		if g.groupID == ^uint64(0) {
-			k, _ := c.Last()
-			if k != nil && bytes.HasPrefix(k, prefix) {
-				ourMax = k
-			}
-		} else {
-			nextPrefix := encodeGroupKey(g.groupID + 1)
-			k, _ := c.Seek(nextPrefix)
-			if k == nil {
-				k, _ = c.Last()
-				if k != nil && bytes.HasPrefix(k, prefix) {
-					ourMax = k
-				}
-			} else {
-				k, _ = c.Prev()
-				if k != nil && bytes.HasPrefix(k, prefix) {
-					ourMax = k
-				}
-			}
-		}
-		if ourMax != nil {
-			if idx := decodeEntryIndex(ourMax); idx > last {
-				last = idx
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return 0, fmt.Errorf("sharedlog: LastIndex: %w", err)
-	}
-	return last, nil
+	w := g.store.w
+	w.indexMu.RLock()
+	defer w.indexMu.RUnlock()
+	return lastLocked(w.groups[g.groupID]), nil
 }
 
 func (g *groupStorage) Term(i uint64) (uint64, error) {
-	snap, err := g.Snapshot()
-	if err != nil {
-		return 0, err
+	w := g.store.w
+	w.indexMu.RLock()
+	defer w.indexMu.RUnlock()
+	gs := w.groups[g.groupID]
+	snapIdx, snapTerm := snapBounds(gs)
+	if i == snapIdx {
+		return snapTerm, nil
 	}
-	if i == snap.Metadata.Index {
-		return snap.Metadata.Term, nil
-	}
-	first := snap.Metadata.Index + 1
-	if i < first {
+	if i < snapIdx+1 {
 		return 0, raft.ErrCompacted
 	}
-	last, err := g.LastIndex()
-	if err != nil {
-		return 0, err
-	}
-	if i > last {
+	if i > lastLocked(gs) {
 		return 0, raft.ErrUnavailable
 	}
-
-	var term uint64
-	err = g.store.db.View(func(tx *bbolt.Tx) error {
-		v := tx.Bucket([]byte(bucketEntries)).Get(encodeEntryKey(g.groupID, i))
-		if v == nil {
-			return raft.ErrUnavailable
-		}
-		var ent raftpb.Entry
-		if e := ent.Unmarshal(v); e != nil {
-			return fmt.Errorf("unmarshal entry at index %d: %w", i, e)
-		}
-		term = ent.Term
-		return nil
-	})
-	if err != nil {
-		return 0, err
+	// In range above the snapshot: the entry must be retained (the index
+	// keeps [base..last] contiguous with base above the snapshot floor). A
+	// miss here is the runtime split-brain signature of minor-issues.md #9 —
+	// entry positions inside the visible range with no retained entry and no
+	// covering snapshot — so trip the wire before answering.
+	if len(gs.ents) == 0 || i < gs.base {
+		w.tripSplitBrain("Term", g.groupID, i, gs)
+		return 0, raft.ErrUnavailable
 	}
-	return term, nil
+	return gs.ents[i-gs.base].term, nil
 }
 
 func (g *groupStorage) Entries(lo, hi, maxSize uint64) ([]raftpb.Entry, error) {
-	snap, err := g.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	first := snap.Metadata.Index + 1
-	if lo < first {
+	w := g.store.w
+	w.indexMu.RLock()
+	defer w.indexMu.RUnlock()
+	gs := w.groups[g.groupID]
+	snapIdx, _ := snapBounds(gs)
+	if lo < snapIdx+1 {
 		return nil, raft.ErrCompacted
 	}
-	last, err := g.LastIndex()
-	if err != nil {
-		return nil, err
+	if hi > lastLocked(gs)+1 {
+		return nil, raft.ErrUnavailable
 	}
-	if hi > last+1 {
+	if lo >= hi {
+		return nil, nil
+	}
+	if gs == nil || len(gs.ents) == 0 || lo < gs.base {
+		// Same split-brain guard as Term: unreachable on a healthy index
+		// (the bounds checks above cover every in-contract miss).
+		w.tripSplitBrain("Entries", g.groupID, lo, gs)
 		return nil, raft.ErrUnavailable
 	}
 
-	var ents []raftpb.Entry
+	// Select under the maxSize budget first (loc.n is the marshaled size,
+	// identical to raftpb.Entry.Size()), honouring etcd's contract that at
+	// least one entry is always returned even if it exceeds maxSize.
+	sel := make([]entryLoc, 0, hi-lo)
 	var size uint64
-	err = g.store.db.View(func(tx *bbolt.Tx) error {
-		startKey := encodeEntryKey(g.groupID, lo)
-		endKey := encodeEntryKey(g.groupID, hi)
-		c := tx.Bucket([]byte(bucketEntries)).Cursor()
-		for k, v := c.Seek(startKey); k != nil && bytes.Compare(k, endKey) < 0; k, v = c.Next() {
-			var ent raftpb.Entry
-			if e := ent.Unmarshal(v); e != nil {
-				return fmt.Errorf("unmarshal entry at index %d: %w", decodeEntryIndex(k), e)
-			}
-			entSize := uint64(ent.Size())
-			// etcd's contract: always return at least one entry even
-			// if it exceeds maxSize.
-			if len(ents) > 0 && size+entSize > maxSize {
-				break
-			}
-			ents = append(ents, ent)
-			size += entSize
+	for i := lo; i < hi; i++ {
+		l := gs.ents[i-gs.base]
+		if len(sel) > 0 && size+uint64(l.n) > maxSize {
+			break
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sharedlog: Entries: %w", err)
+		sel = append(sel, l)
+		size += uint64(l.n)
+	}
+
+	// Read in coalesced runs: entries written in one record are adjacent on
+	// disk, separated only by their fixed frame headers.
+	ents := make([]raftpb.Entry, len(sel))
+	for start := 0; start < len(sel); {
+		end := start + 1
+		for end < len(sel) &&
+			sel[end].seg == sel[start].seg &&
+			sel[end].off == sel[end-1].off+int64(sel[end-1].n)+entryFrameSize {
+			end++
+		}
+		run := make([]byte, sel[end-1].off+int64(sel[end-1].n)-sel[start].off)
+		if _, err := sel[start].seg.f.ReadAt(run, sel[start].off); err != nil {
+			return nil, fmt.Errorf("sharedlog: Entries: read segment %s: %w", sel[start].seg.path, err)
+		}
+		for j := start; j < end; j++ {
+			rel := sel[j].off - sel[start].off
+			if err := ents[j].Unmarshal(run[rel : rel+int64(sel[j].n)]); err != nil {
+				return nil, fmt.Errorf("sharedlog: Entries: unmarshal entry at index %d: %w", lo+uint64(j), err)
+			}
+		}
+		start = end
 	}
 	return ents, nil
 }
 
+// Snapshot never returns an empty snapshot with a nil error, and never a hard
+// error: etcd's maybeSendSnapshot panics on the former ("need non-empty
+// snapshot") and on any error other than ErrSnapshotTemporarilyUnavailable —
+// both killed the Ready loop live (minor-issues.md #9). "Nothing servable
+// right now" — no snapshot persisted, or the payload momentarily unreadable —
+// is answered with the bare sentinel (etcd matches it with ==): the leader
+// logs, leaves the follower probing, and retries.
 func (g *groupStorage) Snapshot() (raftpb.Snapshot, error) {
+	w := g.store.w
+	w.indexMu.RLock()
+	defer w.indexMu.RUnlock()
+	gs := w.groups[g.groupID]
+	if gs == nil || !gs.hasSnap {
+		return raftpb.Snapshot{}, raft.ErrSnapshotTemporarilyUnavailable
+	}
+	raw := make([]byte, gs.snapLoc.n)
+	if _, err := gs.snapLoc.seg.f.ReadAt(raw, gs.snapLoc.off); err != nil {
+		// Loud on every attempt: a transient read failure self-heals on the
+		// retry; a persistent one keeps logging and is quarantined by boot
+		// validation on the next start.
+		w.log.Errorf("sharedlog: Snapshot: group %d: read segment %s: %v — reporting snapshot temporarily unavailable",
+			g.groupID, gs.snapLoc.seg.path, err)
+		return raftpb.Snapshot{}, raft.ErrSnapshotTemporarilyUnavailable
+	}
 	var snap raftpb.Snapshot
-	err := g.store.db.View(func(tx *bbolt.Tx) error {
-		v := tx.Bucket([]byte(bucketSnapMeta)).Get(encodeGroupKey(g.groupID))
-		if v == nil {
-			return nil
-		}
-		return snap.Unmarshal(v)
-	})
-	if err != nil {
-		return raftpb.Snapshot{}, fmt.Errorf("sharedlog: Snapshot: %w", err)
+	if err := snap.Unmarshal(raw); err != nil {
+		w.log.Errorf("sharedlog: Snapshot: group %d: unmarshal payload: %v — reporting snapshot temporarily unavailable",
+			g.groupID, err)
+		return raftpb.Snapshot{}, raft.ErrSnapshotTemporarilyUnavailable
 	}
 	return snap, nil
+}
+
+// tripSplitBrain records a read that hit the index split-brain guard: a
+// position inside the visible range with no retained entry and no covering
+// snapshot. Healthy indexes never get here — a trip means compaction outlived
+// its authorizing snapshot record (the panic state of minor-issues.md #9,
+// made retryable by Snapshot's sentinel above) and is worth an operator's
+// attention. Caller holds indexMu (read).
+func (w *wal) tripSplitBrain(op string, groupID, i uint64, g *groupState) {
+	splitBrainReads.Inc()
+	if !w.splitBrainLog.allow() {
+		return
+	}
+	snapIdx, _ := snapBounds(g)
+	base, n := uint64(0), 0
+	if g != nil {
+		base, n = g.base, len(g.ents)
+	}
+	w.log.Errorf("sharedlog: %s(%d) for group %d: position inside the visible range has no retained entry and no covering snapshot (base=%d, retained=%d, snapshot=%d) — split-brain guard tripped, answering ErrUnavailable",
+		op, i, groupID, base, n, snapIdx)
 }

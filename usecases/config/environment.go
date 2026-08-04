@@ -1601,10 +1601,63 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	// Companion byte trigger (plain bytes): a snapshot also fires once this
+	// many committed-entry bytes accumulate above the last snapshot —
+	// whichever threshold fires first wins. Bulk imports pack ~70-100 objects
+	// per raft entry, so the entry-count threshold alone can leave hundreds
+	// of MB live in the shared bbolt log and age its group-commit flushes.
+	if err := parsePositiveInt(
+		"SHARD_RAFT_SNAPSHOT_BYTES_THRESHOLD",
+		func(val int) { cfg.ShardSnapshotBytesThreshold = uint64(val) },
+		32*1024*1024,
+	); err != nil {
+		return cfg, err
+	}
+
+	// Age floor for small groups (seconds): a group with retained entries
+	// whose entry/byte thresholds never fire (a small tenant shard) still
+	// snapshots once its retained tail is older than this bound, so restart
+	// replay stays bounded in age instead of replaying the group's full
+	// history. 0 disables the age trigger. The per-group deadline is
+	// jittered ±20% to spread thousands of tenants' snapshots apart.
+	if err := parseNonNegativeInt(
+		"SHARD_RAFT_SNAPSHOT_MIN_INTERVAL",
+		func(val int) { cfg.ShardSnapshotMinInterval = time.Duration(val) * time.Second },
+		600,
+	); err != nil {
+		return cfg, err
+	}
+
 	if err := parsePositiveInt(
 		"SHARD_RAFT_MAX_CONCURRENT_SNAPSHOTS",
 		func(val int) { cfg.ShardMaxConcurrentSnapshots = val },
 		3,
+	); err != nil {
+		return cfg, err
+	}
+
+	// Both take Go duration strings ("500ms", "5s"), unlike the schema raft's
+	// integer-second RAFT_*_TIMEOUT vars, because the heartbeat interval is
+	// sub-second. The defaults keep etcd/raft's recommended 10:1
+	// election-to-heartbeat ratio.
+	if err := parsePositiveDuration(
+		"SHARD_RAFT_HEARTBEAT_TIMEOUT",
+		func(val time.Duration) { cfg.ShardHeartbeatTimeout = val },
+		500*time.Millisecond,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveDuration(
+		"SHARD_RAFT_ELECTION_TIMEOUT",
+		func(val time.Duration) { cfg.ShardElectionTimeout = val },
+		// Shard raft groups replicate object writes, so heavy import load can
+		// stall a whole node for seconds at a time (fsync storms, CPU
+		// throttling). 5s matches the schema raft's effective envelope
+		// (RAFT_ELECTION_TIMEOUT x RAFT_TIMEOUTS_MULTIPLIER) and tolerates
+		// those stalls without electing; the cost is slower detection of a
+		// genuinely dead leader.
+		5*time.Second,
 	); err != nil {
 		return cfg, err
 	}

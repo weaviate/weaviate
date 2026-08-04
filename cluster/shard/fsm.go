@@ -14,12 +14,9 @@ package shard
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -32,19 +29,26 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const (
-	// fsmRetryAttempts is the number of retry attempts for transient errors
-	// in FSM.Apply() handlers. Combined with fsmRetryInterval, the maximum
-	// added latency is fsmRetryAttempts * fsmRetryInterval (300ms), well
-	// within RAFT's default 10s apply timeout.
-	fsmRetryAttempts = 3
-
-	// fsmRetryInterval is the constant backoff between retry attempts.
-	fsmRetryInterval = 100 * time.Millisecond
-)
+// schemaFenceTimeout bounds one apply-side schema-fence wait: how long a
+// replica waits for its local schema FSM to reach the version a write command
+// carries before classifying the wait as a park (the apply worker retries and
+// re-fences with backoff — the fence is never a give-up point). The
+// coordinator already waited to this version before routing, so the local
+// wait is ordinarily just schema-replication lag.
+const schemaFenceTimeout = 5 * time.Second
 
 // shard defines the operations that can be performed on a shard.
 // This interface is implemented by the actual shard in adapters/repos/db.
+//
+// Error contract at this boundary (the FSM's single dispatch chokepoint):
+// write methods mark errors that are deterministic — produced purely by the
+// operation's own content against the replicated schema, identical on every
+// replica — via entities/errors.Deterministic. The FSM skips those
+// identically everywhere (counted and logged); every UNMARKED error is
+// treated as environmental and parks the apply worker at the failing entry
+// (indefinite retry with backoff). Misclassification therefore never loses
+// acknowledged writes: an untagged deterministic error parks loudly instead
+// of skipping.
 type shard interface {
 	// PutObject stores an object in the shard.
 	PutObject(ctx context.Context, obj *storobj.Object) error
@@ -64,10 +68,46 @@ type shard interface {
 	// AddReferencesBatch adds cross-references in batch.
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 
-	// FlushMemtables flushes all in-memory memtables to disk segments.
-	// Called before RAFT snapshots to ensure all applied entries are durable
-	// in LSM segments before the RAFT log is truncated.
-	FlushMemtables(ctx context.Context) error
+	// FlushForSnapshot makes every durable sink of the shard durable on disk
+	// — LSM memtables to fsynced segments, async vector queues' chunk
+	// backlog, vector-index commit logs, the property-length tracker —
+	// before a RAFT snapshot truncates the log. An error aborts the
+	// snapshot: compaction must never outrun sink durability, because the
+	// discarded entries are the only way to re-materialize un-durable
+	// writes after a crash.
+	FlushForSnapshot(ctx context.Context) error
+
+	// DurableRaftFloor returns the highest raft applied index whose
+	// materialization is durable in flushed LSM segments across all of the
+	// shard's buckets, or MaxUint64 when no bucket holds un-flushed writes.
+	// The snapshot index is capped at this value: log compaction must never
+	// discard entries whose only materialization is in un-flushed memtables.
+	// Callers must read the applied index BEFORE calling this and cap that
+	// pre-read value (see lsmkv.(*Store).DurableRaftFloor).
+	DurableRaftFloor() uint64
+
+	// ReadOnlyErr reports whether the shard currently refuses writes
+	// (read-only, e.g. the resource-pressure guardrail), with the full
+	// operator-facing reason. The leader consults it at admission
+	// (Store.Apply) to reject new writes before proposing — pressure lasts
+	// minutes and a retry against the same leader buys nothing, so the
+	// client must see the reason. Backed by the same check 2PC's prepare
+	// gate uses.
+	ReadOnlyErr() error
+
+	// WaitForSchemaVersion blocks until this node's schema FSM has caught up
+	// to version — the apply-side half of the schema fence. Every write
+	// command carries the schema version its coordinator observed; waiting
+	// to it before materializing keeps the analyzed schema at least as new
+	// as the one the write was admitted under.
+	WaitForSchemaVersion(ctx context.Context, version uint64) error
+
+	// ClassPresent reports whether the shard's class is (still) present in
+	// the local schema. Consulted by the fence only at or past a write's
+	// stamped version — there, absence deterministically means the class was
+	// dropped after admission — and by the leader at admission to reject
+	// honestly during a drop window.
+	ClassPresent() bool
 
 	// CreateTransferSnapshot creates a hardlink snapshot of all shard files
 	// for out-of-band state transfer. Returns snapshot metadata including the
@@ -104,9 +144,10 @@ type StateTransferer interface {
 
 // FSM is the per-shard command dispatcher. The Store's apply worker — one
 // goroutine per Store, fed committed RAFT log entries in log order by the
-// Ready loop — hands them to Dispatch; the FSM applies each command to the
-// underlying shard. With etcd/raft the FSM is no longer a library interface —
-// it is a plain dispatcher invoked single-threaded from the apply worker.
+// Ready loop — hands them to DispatchBatch; the FSM applies each command to
+// the underlying shard. With etcd/raft the FSM is no longer a library
+// interface — it is a plain dispatcher invoked single-threaded from the
+// apply worker.
 type FSM struct {
 	className string
 	shardName string
@@ -173,8 +214,8 @@ func (f *FSM) SetStateTransferer(st StateTransferer) {
 
 // setApplied records the last applied RAFT log index and wakes WaitForIndex
 // waiters. The Store's apply worker calls it directly for entries that carry
-// no command (empty leader entries, conf changes); Dispatch calls it for
-// command entries.
+// no command (empty leader entries, conf changes); DispatchBatch calls it for
+// command entries, only ever behind materialization.
 //
 // The store and broadcast happen under indexMu: sync.Cond.Broadcast does not
 // acquire the mutex itself, so a bare broadcast could land between a waiter's
@@ -188,155 +229,536 @@ func (f *FSM) setApplied(index uint64) {
 	f.indexMu.Unlock()
 }
 
-// Dispatch applies one committed command entry to the shard. payload is the
-// marshalled shardproto.ApplyRequest (the Store has already stripped the
-// request-ID prefix); index is the entry's RAFT log index. It must be
-// deterministic and is invoked single-threaded, in log order, from the
-// Store's apply worker.
-func (f *FSM) Dispatch(payload []byte, index uint64) Response {
-	defer f.setApplied(index)
-
-	f.mu.RLock()
-	shard := f.shard
-	f.mu.RUnlock()
-
-	if shard == nil {
-		f.log.Error("shard not set, cannot apply log entry")
-		return Response{Version: index, Error: fmt.Errorf("shard not set")}
-	}
-
-	// Parse the command
+// decodeRequest unmarshals one command payload and decompresses its
+// sub-command if the replicator compressed it (uncompressed entries pass
+// through unchanged — backwards compatibility during rolling upgrades). A
+// failure returns a nil request and the error Response the caller must
+// surface for the entry.
+func (f *FSM) decodeRequest(payload []byte, index uint64) (*shardproto.ApplyRequest, Response) {
 	var req shardproto.ApplyRequest
 	if err := proto.Unmarshal(payload, &req); err != nil {
-		f.log.WithError(err).Error("failed to unmarshal command")
-
-		return Response{Version: index, Error: fmt.Errorf("unmarshal command: %w", err)}
+		f.log.Errorf("failed to unmarshal command: %v", err)
+		return nil, Response{Version: index, Error: fmt.Errorf("unmarshal command: %w", err)}
 	}
-
-	// Decompress sub_command if the entry was compressed by the replicator.
-	// Uncompressed entries (Compressed=false) pass through unchanged, which
-	// ensures backwards compatibility during rolling upgrades.
 	if req.Compressed {
 		decompressed, err := s2.Decode(nil, req.SubCommand)
 		if err != nil {
-			f.log.WithError(err).Error("failed to decompress sub_command")
-			return Response{Version: index, Error: fmt.Errorf("decompress: %w", err)}
+			f.log.Errorf("failed to decompress sub_command: %v", err)
+			return nil, Response{Version: index, Error: fmt.Errorf("decompress: %w", err)}
 		}
 		req.SubCommand = decompressed
 	}
+	return &req, Response{}
+}
 
-	// Dispatch based on command type
-	var applyErr error
+// applyCommand runs one decoded single-unit command against the shard. Every
+// command runs under the LWW replay guard: RAFT apply is at-least-once
+// (server-side retries can double-propose a command that already committed, a
+// restart re-delivers the committed suffix, and a parked entry re-runs in
+// full on every retry), so a (re)applied put or delete strictly older than
+// the locally stored state is dropped by the shard instead of clobbering a
+// newer same-UUID write. The comparison is deterministic on identical replica
+// state, so replicas stay consistent — and it aligns the RAFT path with the
+// 2PC write path's LWW semantics.
+//
+// The returned error is the entry's PARK error: non-nil means the entry did
+// not fully materialize for an environmental reason and must be retried in
+// full (the caller must not advance the applied index over it). Deterministic
+// failures — explicitly marked at the shard boundary, plus decode failures
+// and fence-established drop-after-admission — are skipped identically on
+// every replica: counted, logged, and folded into a nil return.
+func (f *FSM) applyCommand(shard shard, req *shardproto.ApplyRequest, index uint64) (Response, error) {
+	ctx := objects.WithLWWReplayGuard(context.Background())
+	var parkErr error
 	switch req.Type {
 	case shardproto.ApplyRequest_TYPE_PUT_OBJECT:
-		applyErr = f.putObject(shard, &req)
+		parkErr = f.putObject(ctx, shard, req, index)
 	case shardproto.ApplyRequest_TYPE_DELETE_OBJECT:
-		applyErr = f.deleteObject(shard, &req)
+		parkErr = f.deleteObject(ctx, shard, req, index)
 	case shardproto.ApplyRequest_TYPE_MERGE_OBJECT:
-		applyErr = f.mergeObject(shard, &req)
+		parkErr = f.mergeObject(ctx, shard, req, index)
 	case shardproto.ApplyRequest_TYPE_PUT_OBJECTS_BATCH:
-		applyErr = f.putObjectsBatch(shard, &req)
+		// Unreachable: DispatchBatch — the only dispatch entry point — routes
+		// put-batches through the merged window. Parking (never skipping) a
+		// batch that somehow lands here keeps the miswiring loud and lossless.
+		parkErr = fmt.Errorf("put-objects-batch reached the single-command path")
 	case shardproto.ApplyRequest_TYPE_DELETE_OBJECTS_BATCH:
-		applyErr = f.deleteObjectsBatch(shard, &req)
+		parkErr = f.deleteObjectsBatch(ctx, shard, req, index)
 	case shardproto.ApplyRequest_TYPE_ADD_REFERENCES:
-		applyErr = f.addReferences(shard, &req)
+		parkErr = f.addReferences(ctx, shard, req, index)
 	default:
-		applyErr = fmt.Errorf("unknown command type: %v", req.Type)
+		// Unknown command types are deterministic by construction (the same
+		// entry bytes reach every replica): skipped identically, as before.
 		f.log.WithField("type", req.Type).Error("unknown command type")
+		f.skipDeterministic("unknown_command", index, fmt.Errorf("unknown command type: %v", req.Type))
 	}
-
-	if applyErr != nil {
-		// This should not happen after the retry changes — all handlers now
-		// swallow errors to maintain FSM consistency. Log as defense-in-depth.
-		f.log.WithError(applyErr).WithField("index", index).
-			Error("unexpected error from FSM handler (should have been swallowed)")
-	}
-
-	return Response{Version: index}
+	return Response{Version: index}, parkErr
 }
 
-// isRetryableInFSM returns true if the error is a transient infrastructure
-// error that may resolve on retry (memory pressure, disk I/O, etc).
-// Non-retryable errors (bad data, unknown formats) return false.
-func isRetryableInFSM(err error) bool {
+// skipDeterministic accounts one deterministically-failed materialization
+// unit (an item or a whole entry): identical on every replica, so the apply
+// path skips it and advances — counted and rate-limit-logged, never silent.
+func (f *FSM) skipDeterministic(op string, index uint64, err error) {
+	shardRaftApplySkipped.WithLabelValues(f.className, f.shardName, skipReasonDeterministic).Inc()
+	if applySkipLog.Allow(f.className + "/" + f.shardName) {
+		f.log.WithFields(logrus.Fields{"op": op, "index": index}).
+			Errorf("apply: deterministic error, skipped identically on every replica: %v", err)
+	}
+}
+
+// abandonDropped accounts one entry abandoned by the schema fence: the local
+// schema is at or past the version the write carried and the class is absent,
+// so the class was dropped after the write was admitted. Every replica
+// reaches the same verdict; the entry is skipped and the applied index
+// advances.
+func (f *FSM) abandonDropped(index uint64) {
+	shardRaftApplySkipped.WithLabelValues(f.className, f.shardName, skipReasonClassDropped).Inc()
+	if applySkipLog.Allow(f.className + "/" + f.shardName) {
+		f.log.WithField("index", index).
+			Warn("apply: class dropped after admission, entry abandoned deterministically")
+	}
+}
+
+// classifyOpErr folds one shard-operation result into the entry outcome: nil
+// passes through, an explicitly-marked deterministic error is skipped
+// (counted+logged, nil), anything else parks the entry.
+func (f *FSM) classifyOpErr(op string, index uint64, err error) error {
 	if err == nil {
+		return nil
+	}
+	if enterrors.IsDeterministic(err) {
+		f.skipDeterministic(op, index, err)
+		return nil
+	}
+	return err
+}
+
+// fenceSchema gates one entry's materialization on the schema version the
+// write carries. version 0 is the legacy passthrough (no stamp, no fence).
+// Otherwise the local schema must reach the stamped version first: a wait
+// failure parks the entry (the retry re-fences); at or past the stamp with
+// the class absent, the write was admitted before a drop — abandon=true, the
+// deterministic skip every replica agrees on. No error-string logic anywhere.
+func (f *FSM) fenceSchema(sh shard, version uint64) (abandon bool, parkErr error) {
+	if version == 0 {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), schemaFenceTimeout)
+	defer cancel()
+	if err := sh.WaitForSchemaVersion(ctx, version); err != nil {
+		return false, fmt.Errorf("schema fence: waiting for schema version %d: %w", version, err)
+	}
+	return !sh.ClassPresent(), nil
+}
+
+// applySkipLog rate-limits the deterministic-skip and fence-abandon log lines
+// per shard: a poisoned batch or a dropped class's backlog would otherwise
+// emit one line per item.
+var applySkipLog = newLogLimiter(time.Second)
+
+// fsmCmd is one committed EntryNormal handed to DispatchBatch: payload is the
+// command body with the request-ID prefix already stripped — nil for empty
+// leader entries and malformed entries, which materialize as no-ops — and
+// index is the entry's RAFT log index.
+type fsmCmd struct {
+	payload []byte
+	index   uint64
+}
+
+// defaultApplyCoalesceBytes caps the object payload of one merged put window:
+// half the MaxCommittedSizePerReady pipeline quota, so MsgStorageApplyResp
+// acks release progressively — while one window materializes, up to a
+// window's worth of newly committed entries flows in behind it
+// (double-buffering) instead of the whole quota parking behind one
+// mega-round.
+const defaultApplyCoalesceBytes = defaultMaxCommittedSizePerReady / 2
+
+// putWindow accumulates a run of consecutive PUT_OBJECTS_BATCH commands (plus
+// no-op and decode-failure members, which write nothing) into one merged
+// shard round. ranges maps merged object offsets back to their source log
+// index for per-object error attribution.
+type putWindow struct {
+	active bool
+	from   int // cmd index of the first member
+	to     int // cmd index of the last member
+	last   uint64
+	objs   []*storobj.Object
+	uuids  map[strfmt.UUID]struct{}
+	bytes  int
+	resps  []Response
+	ranges []putWindowRange
+}
+
+type putWindowRange struct {
+	startOff int
+	logIndex uint64
+	cmdIdx   int
+}
+
+// add admits one member. objs is nil for members that write nothing.
+func (w *putWindow) add(cmdIdx int, index uint64, resp Response, objs []*storobj.Object, size int) {
+	if !w.active {
+		w.active = true
+		w.from = cmdIdx
+	}
+	w.to = cmdIdx
+	w.last = index
+	w.resps = append(w.resps, resp)
+	if len(objs) > 0 {
+		w.ranges = append(w.ranges, putWindowRange{startOff: len(w.objs), logIndex: index, cmdIdx: cmdIdx})
+		w.objs = append(w.objs, objs...)
+		w.bytes += size
+		if w.uuids == nil {
+			w.uuids = make(map[strfmt.UUID]struct{}, len(objs))
+		}
+		for _, o := range objs {
+			w.uuids[o.Object.ID] = struct{}{}
+		}
+	}
+}
+
+// blocks reports whether admitting an entry with these objects requires
+// flushing first: a UUID already present in the window (cross-entry
+// duplicates must be adjudicated by the LWW replay guard in log order — the
+// shard batcher's keep-last dedupe would otherwise make the outcome depend on
+// how this replica happened to partition the backlog: replica divergence), or
+// the window byte cap.
+func (w *putWindow) blocks(objs []*storobj.Object, size int) bool {
+	if !w.active {
 		return false
 	}
-	if enterrors.IsTransient(err) {
+	if w.bytes > 0 && w.bytes+size > defaultApplyCoalesceBytes {
 		return true
 	}
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
-		switch errno {
-		case syscall.EIO, syscall.ENOSPC, syscall.EROFS:
+	for _, o := range objs {
+		if _, dup := w.uuids[o.Object.ID]; dup {
 			return true
-		default:
 		}
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "no space left") ||
-		strings.Contains(msg, "read-only file system") ||
-		strings.Contains(msg, "input/output error")
+	return false
 }
 
-// retryApplyOp retries a shard operation within FSM.Apply() if the error
-// is classified as transient. Non-retryable errors are swallowed immediately.
-// If retries exhaust, the error is logged and nil is returned to keep all
-// nodes' state machines consistent. The async replication hashbeater will
-// detect and repair the divergence.
-func (f *FSM) retryApplyOp(opName string, op func() error) error {
-	var lastErr error
-	for attempt := 0; attempt <= fsmRetryAttempts; attempt++ {
-		err := op()
-		if err == nil {
-			return nil
+// logIndexOf attributes a merged object offset to its source log index.
+func (w *putWindow) logIndexOf(off int) uint64 {
+	idx := uint64(0)
+	for _, r := range w.ranges {
+		if r.startOff > off {
+			break
 		}
-		if !isRetryableInFSM(err) {
-			f.log.WithError(err).WithField("op", opName).
-				Error("FSM apply: permanent error, swallowing to maintain consistency")
-			return nil
+		idx = r.logIndex
+	}
+	return idx
+}
+
+// rangeAt attributes a merged object offset to its owning member: cmd index,
+// log index, and the member's first merged offset.
+func (w *putWindow) rangeAt(off int) putWindowRange {
+	r := w.ranges[0]
+	for _, cand := range w.ranges {
+		if cand.startOff > off {
+			break
 		}
-		lastErr = err
-		if attempt < fsmRetryAttempts {
-			f.log.WithError(err).WithFields(logrus.Fields{
-				"op":      opName,
-				"attempt": attempt + 1,
-			}).Warn("FSM apply: transient error, retrying")
-			time.Sleep(fsmRetryInterval)
+		r = cand
+	}
+	return r
+}
+
+func (w *putWindow) reset() {
+	*w = putWindow{}
+}
+
+// entryPark reports materialization stopping at one committed entry for an
+// environmental reason: everything before cmd fully materialized (the applied
+// index covers exactly that prefix), the entry at cmd and everything after
+// did not run and must be re-dispatched — the parked entry IN FULL (the LWW
+// replay guard makes re-applying its already-landed items harmless; no
+// sub-entry bookkeeping exists — Decision C in the storage-error taxonomy).
+type entryPark struct {
+	cmd   int    // index into the cmds slice DispatchBatch was given
+	index uint64 // the parked entry's raft log index
+	err   error  // the environmental error that parked it
+}
+
+// DispatchBatch applies a run of committed command entries in log order,
+// merging consecutive PUT_OBJECTS_BATCH commands into fewer, larger shard
+// rounds — one PutObjectBatch call materializes many entries, amortizing the
+// per-round LSM overhead (WAL walks, queue flushes, tracker rewrites, fan-out
+// barriers) that made one-round-per-entry the apply lane's bottleneck. All
+// other command types dispatch singly, in order. Windows split where merging
+// could diverge from sequential apply: when an entry writes a UUID the window
+// already contains (see putWindow.blocks) and at the window byte cap.
+//
+// The applied watermark advances only over fully materialized entries. On a
+// completed unit — a merged window or a single command — it advances to the
+// unit's last index. On an environmental failure it advances exactly to the
+// last complete entry BEFORE the failing one and DispatchBatch returns an
+// entryPark: writes are never discarded, so the parked entry and everything
+// after wait for the apply worker's retry (which re-dispatches from the
+// parked entry; the LWW replay guard absorbs the re-run). Deterministic
+// failures — explicitly marked at the shard boundary, decode failures, and
+// fence-established drop-after-admission — never park: they are skipped
+// identically on every replica, counted and logged.
+//
+// Every entry carrying a schema version is fenced before materializing: the
+// local schema must reach the stamped version (wait failure = park), and at
+// or past it a missing class abandons the entry deterministically (the class
+// was dropped after admission). Version 0 passes through unfenced.
+//
+// onUnit is invoked after each unit materializes, with the cmd-index range it
+// covered and one Response per cmd; returning false aborts the run (store
+// shutdown), reported as ok=false. It is invoked single-threaded from the
+// Store's apply worker; the shard reference is read once per run.
+func (f *FSM) DispatchBatch(cmds []fsmCmd, onUnit func(from, to int, resps []Response) bool) (parked *entryPark, ok bool) {
+	sh := f.getShard()
+	ctx := objects.WithLWWReplayGuard(context.Background())
+
+	var w putWindow
+	flushWindow := func() (*entryPark, bool) {
+		if !w.active {
+			return nil, true
+		}
+		var park *entryPark
+		if len(w.objs) > 0 {
+			var pOK bool
+			park, pOK = f.materializeWindow(ctx, sh, &w)
+			if !pOK {
+				// The window parked at its first member: nothing landed, no
+				// unit completed. (pOK is only false alongside a park.)
+				return park, true
+			}
+		}
+		if park != nil {
+			// A prefix of the window landed: applied advances exactly to the
+			// last complete entry, its responses deliver, the rest waits.
+			prefix := park.cmd - w.from
+			f.setApplied(w.resps[prefix-1].Version)
+			f.observeApplyUnit(prefix)
+			if !onUnit(w.from, park.cmd-1, w.resps[:prefix]) {
+				return nil, false
+			}
+			return park, true
+		}
+		f.setApplied(w.last)
+		f.observeApplyUnit(w.to - w.from + 1)
+		unitOK := onUnit(w.from, w.to, w.resps)
+		w.reset()
+		if !unitOK {
+			return nil, false
+		}
+		return nil, true
+	}
+
+	for i := range cmds {
+		payload, index := cmds[i].payload, cmds[i].index
+
+		// Empty and malformed entries write nothing: they ride the current
+		// window so their applied-index bookkeeping can never run ahead of an
+		// unmaterialized earlier entry.
+		if payload == nil {
+			w.add(i, index, Response{Version: index}, nil, 0)
+			continue
+		}
+		if sh == nil {
+			// Shard-not-set: surface per entry, one unit each.
+			if park, flushOK := flushWindow(); !flushOK {
+				return nil, false
+			} else if park != nil {
+				return park, true
+			}
+			f.log.Error("shard not set, cannot apply log entry")
+			f.setApplied(index)
+			f.observeApplyUnit(1)
+			if !onUnit(i, i, []Response{{Version: index, Error: fmt.Errorf("shard not set")}}) {
+				return nil, false
+			}
+			continue
+		}
+		req, errResp := f.decodeRequest(payload, index)
+		if req == nil {
+			// Decode failures write nothing — a window member carrying its
+			// error Response.
+			w.add(i, index, errResp, nil, 0)
+			continue
+		}
+		if req.Type == shardproto.ApplyRequest_TYPE_PUT_OBJECTS_BATCH {
+			objs, size, ver, decOK := f.decodePutObjectsBatch(req)
+			if !decOK {
+				// Deserialize failure: deterministic (same bytes everywhere),
+				// counted at decode — a no-op member.
+				w.add(i, index, Response{Version: index}, nil, 0)
+				continue
+			}
+			abandon, ferr := f.fenceSchema(sh, ver)
+			if ferr != nil {
+				// The fence wait failed: flush the window (earlier entries
+				// land) and park at this entry — the retry re-fences.
+				if park, flushOK := flushWindow(); !flushOK {
+					return nil, false
+				} else if park != nil {
+					return park, true
+				}
+				return &entryPark{cmd: i, index: index, err: ferr}, true
+			}
+			if abandon {
+				f.abandonDropped(index)
+				w.add(i, index, Response{Version: index}, nil, 0)
+				continue
+			}
+			if w.blocks(objs, size) {
+				if park, flushOK := flushWindow(); !flushOK {
+					return nil, false
+				} else if park != nil {
+					return park, true
+				}
+			}
+			w.add(i, index, Response{Version: index}, objs, size)
+			continue
+		}
+
+		// Any other command type is its own unit, dispatched in order.
+		if park, flushOK := flushWindow(); !flushOK {
+			return nil, false
+		} else if park != nil {
+			return park, true
+		}
+		resp, parkErr := f.applyCommand(sh, req, index)
+		if parkErr != nil {
+			return &entryPark{cmd: i, index: index, err: parkErr}, true
+		}
+		f.setApplied(index)
+		f.observeApplyUnit(1)
+		if !onUnit(i, i, []Response{resp}) {
+			return nil, false
 		}
 	}
-	f.log.WithError(lastErr).WithFields(logrus.Fields{
-		"op":       opName,
-		"attempts": fsmRetryAttempts + 1,
-	}).Error("FSM apply: retries exhausted, swallowing error to maintain consistency; async replication will repair")
-	return nil
+	return flushWindow()
 }
 
-// putObject applies a PUT_OBJECT command to the shard.
-func (f *FSM) putObject(shard shard, req *shardproto.ApplyRequest) error {
+// materializeWindow runs one merged window's shard round and classifies its
+// per-item outcomes. Returns (nil, true) when every item landed or failed
+// deterministically (all skips counted); (park, true) when a strict prefix of
+// the window's members completed and the member at park.cmd must wait —
+// deterministic skips are counted only for that completed prefix, because the
+// parked member re-runs in full; (park, false) when the FIRST member parked
+// and nothing about the window may be recorded.
+//
+// Attribution: an error slice shorter than the object count is the legacy
+// whole-batch shape (e.g. shard-level read-only collapses to one element) —
+// its first non-nil error covers every object.
+func (f *FSM) materializeWindow(ctx context.Context, sh shard, w *putWindow) (*entryPark, bool) {
+	errs := sh.PutObjectBatch(ctx, w.objs)
+
+	var wholeBatch error
+	if len(errs) != len(w.objs) {
+		for _, e := range errs {
+			if e != nil {
+				wholeBatch = e
+				break
+			}
+		}
+	}
+	itemErr := func(off int) error {
+		if wholeBatch != nil {
+			return wholeBatch
+		}
+		return errs[off]
+	}
+
+	// First environmental failure, in merged (= log) order, parks its entry.
+	parkOff := -1
+	var parkErr error
+	for off := range w.objs {
+		err := itemErr(off)
+		if err == nil || enterrors.IsDeterministic(err) {
+			continue
+		}
+		parkOff, parkErr = off, err
+		break
+	}
+
+	// Deterministic skips are final only for members that fully completed:
+	// all of them when nothing parked, otherwise only offsets before the
+	// parked member's first offset (the parked member re-runs in full).
+	countThrough := len(w.objs)
+	var park *entryPark
+	if parkOff >= 0 {
+		r := w.rangeAt(parkOff)
+		countThrough = r.startOff
+		park = &entryPark{cmd: r.cmdIdx, index: r.logIndex, err: parkErr}
+	}
+	for off := 0; off < countThrough; off++ {
+		if err := itemErr(off); err != nil {
+			f.skipDeterministic("put_objects_batch", w.logIndexOf(off), err)
+		}
+	}
+
+	if park != nil && park.cmd == w.from {
+		return park, false
+	}
+	return park, true
+}
+
+// observeApplyUnit records one materialization unit's entry count — the apply
+// lane's coalescing signal.
+func (f *FSM) observeApplyUnit(entries int) {
+	shardRaftApplyWindowEntries.WithLabelValues(f.className, f.shardName).Observe(float64(entries))
+}
+
+// decodePutObjectsBatch deserializes a put-batch command's objects, returning
+// ok=false — with the failure counted as a deterministic skip (identical
+// bytes fail identically on every replica) — when the sub-command or any
+// object is undecodable. size is the serialized payload size, the window
+// byte-cap measure; version is the schema version the coordinator stamped.
+func (f *FSM) decodePutObjectsBatch(req *shardproto.ApplyRequest) (objs []*storobj.Object, size int, version uint64, ok bool) {
+	var subreq shardproto.PutObjectsBatchRequest
+	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
+		f.skipDeterministic("put_objects_batch_unmarshal", 0, err)
+		return nil, 0, 0, false
+	}
+	objs = make([]*storobj.Object, len(subreq.Objects))
+	for i, raw := range subreq.Objects {
+		obj, err := storobj.FromBinaryNetwork(raw)
+		if err != nil {
+			f.skipDeterministic("put_objects_batch_deserialize", 0, fmt.Errorf("object %d: %w", i, err))
+			return nil, 0, 0, false
+		}
+		objs[i] = obj
+		size += len(raw)
+	}
+	return objs, size, subreq.SchemaVersion, true
+}
+
+// putObject applies a PUT_OBJECT command to the shard. The returned error is
+// the entry's park error (see applyCommand).
+func (f *FSM) putObject(ctx context.Context, shard shard, req *shardproto.ApplyRequest, index uint64) error {
 	var subreq shardproto.PutObjectRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in putObject, swallowing")
+		f.skipDeterministic("put_object_unmarshal", index, err)
 		return nil
 	}
 
 	obj, err := storobj.FromBinaryNetwork(subreq.Object)
 	if err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent deserialize error in putObject, swallowing")
+		f.skipDeterministic("put_object_deserialize", index, err)
 		return nil
 	}
 
-	ctx := context.Background()
-	return f.retryApplyOp("put_object", func() error {
-		return shard.PutObject(ctx, obj)
-	})
+	if abandon, ferr := f.fenceSchema(shard, subreq.SchemaVersion); ferr != nil {
+		return ferr
+	} else if abandon {
+		f.abandonDropped(index)
+		return nil
+	}
+
+	return f.classifyOpErr("put_object", index, shard.PutObject(ctx, obj))
 }
 
-// deleteObject applies a DELETE_OBJECT command to the shard.
-func (f *FSM) deleteObject(shard shard, req *shardproto.ApplyRequest) error {
+// deleteObject applies a DELETE_OBJECT command to the shard. The returned
+// error is the entry's park error (see applyCommand).
+func (f *FSM) deleteObject(ctx context.Context, shard shard, req *shardproto.ApplyRequest, index uint64) error {
 	var subreq shardproto.DeleteObjectRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in deleteObject, swallowing")
+		f.skipDeterministic("delete_object_unmarshal", index, err)
 		return nil
 	}
 
@@ -347,69 +769,50 @@ func (f *FSM) deleteObject(shard shard, req *shardproto.ApplyRequest) error {
 		deletionTime = time.Unix(0, subreq.DeletionTimeUnix)
 	}
 
-	ctx := context.Background()
-	return f.retryApplyOp("delete_object", func() error {
-		return shard.DeleteObject(ctx, id, deletionTime)
-	})
+	if abandon, ferr := f.fenceSchema(shard, subreq.SchemaVersion); ferr != nil {
+		return ferr
+	} else if abandon {
+		f.abandonDropped(index)
+		return nil
+	}
+
+	return f.classifyOpErr("delete_object", index, shard.DeleteObject(ctx, id, deletionTime))
 }
 
-// mergeObject applies a MERGE_OBJECT command to the shard.
-func (f *FSM) mergeObject(shard shard, req *shardproto.ApplyRequest) error {
+// mergeObject applies a MERGE_OBJECT command to the shard. The returned error
+// is the entry's park error (see applyCommand).
+func (f *FSM) mergeObject(ctx context.Context, shard shard, req *shardproto.ApplyRequest, index uint64) error {
 	var subreq shardproto.MergeObjectRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in mergeObject, swallowing")
+		f.skipDeterministic("merge_object_unmarshal", index, err)
 		return nil
 	}
 
 	var doc objects.MergeDocument
 	if err := json.Unmarshal(subreq.MergeDocumentJson, &doc); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in mergeObject, swallowing")
+		f.skipDeterministic("merge_object_unmarshal", index, err)
 		return nil
 	}
 
-	ctx := context.Background()
-	return f.retryApplyOp("merge_object", func() error {
-		return shard.MergeObject(ctx, doc)
-	})
-}
-
-// putObjectsBatch applies a PUT_OBJECTS_BATCH command to the shard.
-func (f *FSM) putObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
-	var subreq shardproto.PutObjectsBatchRequest
-	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in putObjectsBatch, swallowing")
+	if abandon, ferr := f.fenceSchema(shard, subreq.SchemaVersion); ferr != nil {
+		return ferr
+	} else if abandon {
+		f.abandonDropped(index)
 		return nil
 	}
 
-	objs := make([]*storobj.Object, len(subreq.Objects))
-	for i, raw := range subreq.Objects {
-		obj, err := storobj.FromBinaryNetwork(raw)
-		if err != nil {
-			f.log.WithError(err).WithField("index", i).Error("FSM apply: permanent deserialize error in putObjectsBatch, swallowing")
-			return nil
-		}
-		objs[i] = obj
-	}
-
-	ctx := context.Background()
-	errs := shard.PutObjectBatch(ctx, objs)
-	for i, err := range errs {
-		if err != nil {
-			f.log.WithError(err).WithField("index", i).Warn("batch put: item failed")
-		}
-	}
-
-	// Return nil even on per-item errors: the RAFT log entry is already
-	// committed, and partial success is acceptable since replay is idempotent.
-	// Failed items can be retried by the client.
-	return nil
+	return f.classifyOpErr("merge_object", index, shard.MergeObject(ctx, doc))
 }
 
-// deleteObjectsBatch applies a DELETE_OBJECTS_BATCH command to the shard.
-func (f *FSM) deleteObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
+// deleteObjectsBatch applies a DELETE_OBJECTS_BATCH command to the shard. The
+// first environmental per-item failure parks the whole entry (it re-runs in
+// full; the LWW replay guard absorbs re-applied deletes); deterministic
+// per-item failures are counted and skipped. The returned error is the
+// entry's park error (see applyCommand).
+func (f *FSM) deleteObjectsBatch(ctx context.Context, shard shard, req *shardproto.ApplyRequest, index uint64) error {
 	var subreq shardproto.DeleteObjectsBatchRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in deleteObjectsBatch, swallowing")
+		f.skipDeterministic("delete_objects_batch_unmarshal", index, err)
 		return nil
 	}
 
@@ -423,43 +826,57 @@ func (f *FSM) deleteObjectsBatch(shard shard, req *shardproto.ApplyRequest) erro
 		deletionTime = time.Unix(0, subreq.DeletionTimeUnix)
 	}
 
-	ctx := context.Background()
-	results := shard.DeleteObjectBatch(ctx, uuids, deletionTime, subreq.DryRun)
-	for i, r := range results {
-		if r.Err != nil {
-			f.log.WithError(r.Err).WithField("index", i).Warn("batch delete: item failed")
-		}
+	if abandon, ferr := f.fenceSchema(shard, subreq.SchemaVersion); ferr != nil {
+		return ferr
+	} else if abandon {
+		f.abandonDropped(index)
+		return nil
 	}
 
-	// Return nil even on per-item errors: the RAFT log entry is already
-	// committed, and partial success is acceptable since replay is idempotent.
+	results := shard.DeleteObjectBatch(ctx, uuids, deletionTime, subreq.DryRun)
+	for i, r := range results {
+		if r.Err == nil {
+			continue
+		}
+		if parkErr := f.classifyOpErr("delete_objects_batch", index, fmt.Errorf("item %d: %w", i, r.Err)); parkErr != nil {
+			return parkErr
+		}
+	}
 	return nil
 }
 
-// addReferences applies an ADD_REFERENCES command to the shard.
-func (f *FSM) addReferences(shard shard, req *shardproto.ApplyRequest) error {
+// addReferences applies an ADD_REFERENCES command to the shard. Per-item
+// classification mirrors deleteObjectsBatch. The returned error is the
+// entry's park error (see applyCommand).
+func (f *FSM) addReferences(ctx context.Context, shard shard, req *shardproto.ApplyRequest, index uint64) error {
 	var subreq shardproto.AddReferencesRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in addReferences, swallowing")
+		f.skipDeterministic("add_references_unmarshal", index, err)
 		return nil
 	}
 
 	var refs objects.BatchReferences
 	if err := json.Unmarshal(subreq.ReferencesJson, &refs); err != nil {
-		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in addReferences, swallowing")
+		f.skipDeterministic("add_references_unmarshal", index, err)
 		return nil
 	}
 
-	ctx := context.Background()
-	errs := shard.AddReferencesBatch(ctx, refs)
-	for i, err := range errs {
-		if err != nil {
-			f.log.WithError(err).WithField("index", i).Warn("add references: item failed")
-		}
+	if abandon, ferr := f.fenceSchema(shard, subreq.SchemaVersion); ferr != nil {
+		return ferr
+	} else if abandon {
+		f.abandonDropped(index)
+		return nil
 	}
 
-	// Return nil even on per-item errors: the RAFT log entry is already
-	// committed, and partial success is acceptable since replay is idempotent.
+	errs := shard.AddReferencesBatch(ctx, refs)
+	for i, err := range errs {
+		if err == nil {
+			continue
+		}
+		if parkErr := f.classifyOpErr("add_references", index, fmt.Errorf("item %d: %w", i, err)); parkErr != nil {
+			return parkErr
+		}
+	}
 	return nil
 }
 

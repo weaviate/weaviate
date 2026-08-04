@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -39,9 +40,18 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.index.usageLimits.CheckObjects(ctx, 1, s.index.Config.ClassName.String()); err != nil {
 		return err
 	}
-	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+	// uuid.Parse, not MustParse: a malformed ID reaching this point (e.g. an
+	// undervalidated internal caller, or a raft log replay) must surface as a
+	// typed error, not a panic on the calling goroutine. The failure depends
+	// only on the object's own content, so it is marked deterministic for the
+	// raft apply path's typed error contract.
+	uidParsed, err := uuid.Parse(object.ID().String())
 	if err != nil {
-		return err
+		return enterrors.Deterministic(errors.Wrap(err, "invalid id"))
+	}
+	uid, err := uidParsed.MarshalBinary()
+	if err != nil {
+		return enterrors.Deterministic(err)
 	}
 	return s.putOne(ctx, uid, object)
 }
@@ -240,10 +250,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
+	// The vector validation errors below are marked deterministic for the
+	// raft apply path's typed error contract: a dimension/shape check depends
+	// only on the object's own vector against the index configuration, so
+	// every replica applying the same log entry fails identically.
 	for targetVector, vector := range obj.Vectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
 			if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
-				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
+				return status, enterrors.Deterministic(errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID()))
 			}
 		}
 	}
@@ -251,7 +265,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	for targetVector, vector := range obj.MultiVectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
 			if err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector); err != nil {
-				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
+				return status, enterrors.Deterministic(errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID()))
 			}
 		}
 	}
@@ -260,7 +274,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		if index, ok := s.GetVectorIndex(""); ok {
 			if err = index.ValidateBeforeInsert(obj.Vector); err != nil {
-				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+				return status, enterrors.Deterministic(errors.Wrapf(err, "Validate vector index for %s", obj.ID()))
 			}
 		}
 	}
@@ -321,12 +335,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		var objBinary []byte
 		if obj.PrecomputedDiskBinary != nil {
 			// raw path: persist source bytes verbatim, only patching our docID.
+			// Marshalling/patching depends only on the object's own bytes:
+			// deterministic under the raft apply path's typed error contract.
 			objBinary = obj.PrecomputedDiskBinary
 			if err := storobj.PatchDocID(objBinary, status.docID); err != nil {
-				return errors.Wrapf(err, "patch docID for object %s", obj.ID())
+				return enterrors.Deterministic(errors.Wrapf(err, "patch docID for object %s", obj.ID()))
 			}
 		} else if objBinary, err = obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk); err != nil {
-			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
+			return enterrors.Deterministic(errors.Wrapf(err, "marshal object %s to binary", obj.ID()))
 		}
 
 		before = time.Now()

@@ -14,6 +14,7 @@ package shard
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -66,9 +67,19 @@ func (f *fakeReplicatorShard) AddReferencesBatch(ctx context.Context, refs objec
 	return make([]error, len(refs))
 }
 
-func (f *fakeReplicatorShard) FlushMemtables(ctx context.Context) error {
+func (f *fakeReplicatorShard) FlushForSnapshot(ctx context.Context) error {
 	return nil
 }
+
+func (f *fakeReplicatorShard) DurableRaftFloor() uint64 { return math.MaxUint64 }
+
+func (f *fakeReplicatorShard) ReadOnlyErr() error { return nil }
+
+func (f *fakeReplicatorShard) WaitForSchemaVersion(ctx context.Context, version uint64) error {
+	return nil
+}
+
+func (f *fakeReplicatorShard) ClassPresent() bool { return true }
 
 func (f *fakeReplicatorShard) CreateTransferSnapshot(ctx context.Context) (TransferSnapshot, error) {
 	return TransferSnapshot{}, nil
@@ -144,5 +155,10 @@ func TestReplicatorPutObject_WaitsForLeader_Succeeds(t *testing.T) {
 	defer cancel()
 
 	require.NoError(t, rep.PutObject(ctx, replicatorTestShard, testObject(), routerTypes.ConsistencyLevelEventual, 1))
+
+	// The ack lands at quorum commit; wait for local apply to cover the
+	// committed watermark before asserting the dispatch (the applied-wait's
+	// cond edge also orders the putCalls read after the fake shard's write).
+	require.NoError(t, store.WaitForAppliedIndex(ctx, store.CommittedIndex()))
 	require.Equal(t, 1, fakeShard.putCalls)
 }

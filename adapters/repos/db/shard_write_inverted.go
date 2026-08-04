@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -87,14 +88,22 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 }
 
 func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
+	// The class-not-found error is deliberately NOT marked deterministic:
+	// whether the class is visible here depends on this node's schema timing,
+	// not on the object. The raft apply path disambiguates it via the schema
+	// fence (wait to the write's stamped version, then a class-presence
+	// check), never via this error's classification.
 	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
 	if c == nil {
 		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
+	// Validation-class analysis errors below depend only on the object's own
+	// properties against the (fenced) schema: deterministic under the raft
+	// apply path's typed error contract.
 	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, enterrors.Deterministic(err)
 	}
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
@@ -105,7 +114,10 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
-	return props, nilProps, nestedProps, err
+	if err != nil {
+		return nil, nil, nil, enterrors.Deterministic(err)
+	}
+	return props, nilProps, nestedProps, nil
 }
 
 // tokenizationAnalyzerOverlay projects the per-shard tokenization

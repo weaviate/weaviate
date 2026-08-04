@@ -39,10 +39,11 @@ var (
 
 const snapshotFileSuffix = ".snap"
 
-// memtableFlusher is the one method of the shard interface the snapshotter
-// needs. The concrete shard (adapters/repos/db) satisfies it structurally.
-type memtableFlusher interface {
-	FlushMemtables(ctx context.Context) error
+// snapshotFlusher is the one method of the shard interface the snapshotter
+// needs: the pre-compaction durability gate. The concrete shard
+// (adapters/repos/db) satisfies it structurally.
+type snapshotFlusher interface {
+	FlushForSnapshot(ctx context.Context) error
 }
 
 // SnapshotRequest is one shard's snapshot job. The Store builds it on the
@@ -53,7 +54,7 @@ type SnapshotRequest struct {
 	ShardName    string
 	NodeID       string
 	AppliedIndex uint64 // the snapshot covers entries up to and including this
-	Flusher      memtableFlusher
+	Flusher      snapshotFlusher
 	Result       chan<- SnapshotResult // worker sends exactly one result here
 }
 
@@ -189,8 +190,11 @@ func (s *Snapshotter) process(req SnapshotRequest) {
 }
 
 func (s *Snapshotter) createSnapshot(req SnapshotRequest) (path string, metadata []byte, err error) {
-	if err := req.Flusher.FlushMemtables(context.Background()); err != nil {
-		return "", nil, fmt.Errorf("flush memtables: %w", err)
+	// The durability gate: every sink whose replay source this snapshot's
+	// compaction will discard must be durable first. A failure abandons the
+	// snapshot — the log is retained and the cadence retries later.
+	if err := req.Flusher.FlushForSnapshot(context.Background()); err != nil {
+		return "", nil, fmt.Errorf("flush for snapshot: %w", err)
 	}
 
 	data, err := json.Marshal(&shardSnapshotData{

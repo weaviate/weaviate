@@ -12,30 +12,20 @@
 package sharedlog
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
 const (
-	bucketEntries   = "entries"
-	bucketState     = "state"
-	bucketConfState = "confstate"
-	bucketSnapMeta  = "snapmeta"
-
 	defaultBatchMaxWait = time.Millisecond
 	defaultBatchMaxSize = 64
 )
@@ -47,6 +37,17 @@ type Options struct {
 	BatchMaxWait time.Duration
 	BatchMaxSize int
 	Logger       logrus.FieldLogger
+
+	// SegmentMaxBytes caps a WAL segment file; the writer rotates when a
+	// batch would exceed it (a single oversized batch is still written
+	// whole). 0 means the 64MiB default. Test hook — production uses the
+	// default.
+	SegmentMaxBytes int64
+
+	// BeforeFlush / AfterFlush are test instrumentation hooks bracketing each
+	// batch commit (one WAL batch write = one fsync). Nil in production.
+	BeforeFlush func()
+	AfterFlush  func()
 }
 
 func (o *Options) applyDefaults() {
@@ -55,6 +56,9 @@ func (o *Options) applyDefaults() {
 	}
 	if o.BatchMaxSize <= 0 {
 		o.BatchMaxSize = defaultBatchMaxSize
+	}
+	if o.SegmentMaxBytes <= 0 {
+		o.SegmentMaxBytes = defaultSegmentMaxBytes
 	}
 }
 
@@ -78,12 +82,12 @@ type batchReq struct {
 }
 
 // Store is safe for concurrent use; all writes funnel through a single
-// batcher goroutine that performs one bbolt commit (one fsync) per
+// batcher goroutine that performs one WAL batch write (one fsync) per
 // batch regardless of how many groups contributed.
 type Store struct {
 	opts Options
 	log  logrus.FieldLogger
-	db   *bbolt.DB
+	w    *wal
 
 	reqCh          chan *batchReq
 	shutdown       chan struct{}
@@ -92,9 +96,14 @@ type Store struct {
 	closeMu  sync.Mutex
 	closed   bool
 	inflight atomic.Int64
+
+	// lastSlowFlushLog rate-limits the slow-flush WARN; touched only by the
+	// batcher goroutine.
+	lastSlowFlushLog time.Time
 }
 
-// Open opens or creates the bbolt file and starts the batcher goroutine.
+// Open opens or creates the WAL directory at Options.Path, rebuilds the
+// in-memory index from the segments, and starts the batcher goroutine.
 // Call Close to flush and shut down.
 func Open(opts Options) (*Store, error) {
 	if opts.Path == "" {
@@ -105,34 +114,16 @@ func Open(opts Options) (*Store, error) {
 	}
 	opts.applyDefaults()
 
-	if err := os.MkdirAll(filepath.Dir(opts.Path), 0o755); err != nil {
-		return nil, fmt.Errorf("sharedlog: mkdir %s: %w", filepath.Dir(opts.Path), err)
-	}
-
-	db, err := bbolt.Open(opts.Path, 0o600, &bbolt.Options{
-		Timeout:         time.Second,
-		InitialMmapSize: 16 * 1024 * 1024,
-	})
+	log := opts.Logger.WithField("component", "sharedlog")
+	w, err := openWAL(opts.Path, opts.SegmentMaxBytes, log)
 	if err != nil {
-		return nil, fmt.Errorf("sharedlog: open bbolt at %s: %w", opts.Path, err)
-	}
-
-	if err := db.Update(func(tx *bbolt.Tx) error {
-		for _, name := range []string{bucketEntries, bucketState, bucketConfState, bucketSnapMeta} {
-			if _, err := tx.CreateBucketIfNotExists([]byte(name)); err != nil {
-				return fmt.Errorf("create bucket %s: %w", name, err)
-			}
-		}
-		return nil
-	}); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("sharedlog: init buckets: %w", err)
+		return nil, fmt.Errorf("sharedlog: open WAL at %s: %w", opts.Path, err)
 	}
 
 	s := &Store{
 		opts:           opts,
-		log:            opts.Logger.WithField("component", "sharedlog"),
-		db:             db,
+		log:            log,
+		w:              w,
 		reqCh:          make(chan *batchReq, opts.BatchMaxSize*2),
 		shutdown:       make(chan struct{}),
 		batcherStopped: make(chan struct{}),
@@ -143,7 +134,7 @@ func Open(opts Options) (*Store, error) {
 }
 
 // Close drains in-flight Appends, stops the batcher, and closes the
-// bbolt file. Safe to call multiple times.
+// WAL files. Safe to call multiple times.
 func (s *Store) Close() error {
 	s.closeMu.Lock()
 	if s.closed {
@@ -162,8 +153,8 @@ func (s *Store) Close() error {
 	close(s.shutdown)
 	<-s.batcherStopped
 
-	if err := s.db.Close(); err != nil {
-		return fmt.Errorf("sharedlog: close bbolt: %w", err)
+	if err := s.w.close(); err != nil {
+		return fmt.Errorf("sharedlog: close WAL: %w", err)
 	}
 	return nil
 }
@@ -174,27 +165,46 @@ func (s *Store) Close() error {
 // may still complete in the background (at-least-once on cancel) —
 // callers needing strict at-most-once must serialise their own retries.
 func (s *Store) Append(ctx context.Context, w GroupWrite) error {
+	done, err := s.AppendAsync(ctx, w)
+	if err != nil {
+		return err
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// AppendAsync queues one group's write for the batcher and returns a
+// buffered channel that resolves with the flush result once the containing
+// batch has been fsynced — the pipelining half of Append: a caller can keep
+// submitting while earlier writes await their covering fsync, so every write
+// arriving during a flush rides the next flush together (one fsync covers
+// them all). Results resolve in submission order per caller goroutine (the
+// batcher is single-goroutine and FIFO).
+//
+// ctx bounds only the submission (a full request queue); once queued, the
+// write always completes and its channel always resolves — an abandoned
+// channel cannot wedge Close, because the store's inflight accounting is
+// released by the batcher when the result is delivered, not by the reader.
+func (s *Store) AppendAsync(ctx context.Context, w GroupWrite) (<-chan error, error) {
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return ErrStoreClosed
+		return nil, ErrStoreClosed
 	}
 	s.inflight.Add(1)
 	s.closeMu.Unlock()
-	defer s.inflight.Add(-1)
 
 	req := &batchReq{write: w, done: make(chan error, 1)}
 	select {
 	case s.reqCh <- req:
+		return req.done, nil
 	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	select {
-	case err := <-req.done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
+		s.inflight.Add(-1)
+		return nil, ctx.Err()
 	}
 }
 
@@ -206,73 +216,65 @@ func (s *Store) Storage(groupID uint64) raft.Storage {
 // group; entries alone do not count, so callers can use this to gate
 // the bootstrap-vs-restart decision.
 func (s *Store) HasGroup(groupID uint64) (bool, error) {
-	var present bool
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		present = tx.Bucket([]byte(bucketState)).Get(encodeGroupKey(groupID)) != nil
-		return nil
-	})
-	if err != nil {
-		return false, fmt.Errorf("sharedlog: HasGroup: %w", err)
-	}
-	return present, nil
+	return s.w.hasGroup(groupID), nil
 }
 
-// Compact deletes entries with index < idx. Idempotent. Caller must
-// ensure a snapshot at >= idx-1 has been written first (etcd/raft's
-// standard compaction invariant); otherwise FirstIndex will not reflect
-// the new lower bound.
+// PoisonedReason reports whether boot validation quarantined the group (its
+// rebuilt index violated the snapshot-servability invariant) and the reason.
+// A poisoned group's Store must refuse to start; DeleteGroup clears the
+// quarantine along with the damaged state.
+func (s *Store) PoisonedReason(groupID uint64) (string, bool) {
+	return s.w.poisonedReason(groupID)
+}
+
+// PoisonedGroupCount returns the number of groups currently quarantined by
+// boot validation, for operator-facing stats.
+func (s *Store) PoisonedGroupCount() int {
+	return s.w.poisonedCount()
+}
+
+// Compact drops entries with index < idx for this group. Idempotent. Caller
+// must ensure a snapshot at >= idx-1 has been written first (etcd/raft's
+// standard compaction invariant); otherwise FirstIndex will not reflect the
+// new lower bound. Compact is an in-memory index operation: the persisted
+// snapshot metadata is the durable compaction floor and replay prunes below
+// it on restart, so an out-of-contract compaction (no covering snapshot)
+// additionally does not survive a restart.
 func (s *Store) Compact(groupID, idx uint64) error {
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		prefix := encodeGroupKey(groupID)
-		c := tx.Bucket([]byte(bucketEntries)).Cursor()
-		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
-			if decodeEntryIndex(k) >= idx {
-				break
-			}
-			if err := c.Delete(); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("sharedlog: Compact: %w", err)
-	}
+	s.w.compact(groupID, idx)
 	return nil
 }
 
-// DeleteGroup removes every record for the group. Idempotent.
+// DeleteGroup removes every record for the group via a durably fsynced
+// tombstone. Idempotent.
 //
-// The caller must have stopped the group's Ready loop first: DeleteGroup
-// bypasses the batcher, so a still-running loop could re-Append state after
-// the purge and resurrect the group.
+// The caller must have stopped the group's Ready loop first: after the
+// barrier below, a still-running loop could re-Append state and resurrect
+// the group.
 func (s *Store) DeleteGroup(groupID uint64) error {
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
 		return ErrStoreClosed
 	}
-	s.inflight.Add(1)
+	// Two inflight slots: the flush barrier below (released by the batcher
+	// at result delivery, like any request) and the delete itself.
+	s.inflight.Add(2)
 	s.closeMu.Unlock()
 	defer s.inflight.Add(-1)
 
-	key := encodeGroupKey(groupID)
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		eb := tx.Bucket([]byte(bucketEntries))
-		c := eb.Cursor()
-		for k, _ := c.Seek(key); k != nil && bytes.HasPrefix(k, key); k, _ = c.Next() {
-			if err := c.Delete(); err != nil {
-				return err
-			}
-		}
-		for _, b := range []string{bucketState, bucketConfState, bucketSnapMeta} {
-			if err := tx.Bucket([]byte(b)).Delete(key); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
+	// Flush barrier: a stopped Ready loop abandons its tickets, but writes
+	// it already submitted still sit in the batcher pipeline. Without
+	// draining them first, a final append could re-apply the group AFTER
+	// the tombstone — and its record would land after the tombstone on
+	// disk, resurrecting the group across a restart as well. The barrier
+	// rides the batcher FIFO, so everything submitted before this call is
+	// applied before the tombstone is written.
+	barrier := &batchReq{done: make(chan error, 1)}
+	s.reqCh <- barrier
+	<-barrier.done
+
+	if err := s.w.deleteGroup(groupID); err != nil {
 		return fmt.Errorf("sharedlog: DeleteGroup: %w", err)
 	}
 	return nil
@@ -323,94 +325,35 @@ func (s *Store) batcherLoop() {
 }
 
 func (s *Store) flush(reqs []*batchReq) {
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		for _, r := range reqs {
-			if e := applyWrite(tx, &r.write); e != nil {
-				return e
-			}
-		}
-		return nil
-	})
+	if s.opts.BeforeFlush != nil {
+		s.opts.BeforeFlush()
+	}
+	start := time.Now()
+	writes := make([]*GroupWrite, len(reqs))
+	for i := range reqs {
+		writes[i] = &reqs[i].write
+	}
+	err := s.w.writeBatch(writes)
+	dur := time.Since(start)
+	flushSeconds.Observe(dur.Seconds())
+	flushBatchSize.Observe(float64(len(reqs)))
+	if dur > slowFlushThreshold && time.Since(s.lastSlowFlushLog) >= time.Second {
+		// Batcher is single-goroutine, so the plain field is race-free.
+		s.lastSlowFlushLog = time.Now()
+		s.log.Warnf("shared raft log flush took %s for a batch of %d group writes", dur, len(reqs))
+	}
+	if s.opts.AfterFlush != nil {
+		s.opts.AfterFlush()
+	}
 	for _, r := range reqs {
 		r.done <- err
+		// Inflight is held from submission to result delivery (see
+		// AppendAsync): releasing it here rather than at the waiter keeps
+		// Close's drain independent of whether anyone still reads done.
+		s.inflight.Add(-1)
 	}
 }
 
-func applyWrite(tx *bbolt.Tx, w *GroupWrite) error {
-	key := encodeGroupKey(w.GroupID)
-
-	if len(w.Entries) > 0 {
-		eb := tx.Bucket([]byte(bucketEntries))
-		firstIdx := w.Entries[0].Index
-		// Erase any prior entries at or above the new first index so a
-		// leader-change can overwrite a follower's stale tail.
-		c := eb.Cursor()
-		startKey := encodeEntryKey(w.GroupID, firstIdx)
-		for k, _ := c.Seek(startKey); k != nil && bytes.HasPrefix(k, key); k, _ = c.Next() {
-			if err := c.Delete(); err != nil {
-				return fmt.Errorf("truncate entries: %w", err)
-			}
-		}
-		for i := range w.Entries {
-			data, err := w.Entries[i].Marshal()
-			if err != nil {
-				return fmt.Errorf("marshal entry: %w", err)
-			}
-			if err := eb.Put(encodeEntryKey(w.GroupID, w.Entries[i].Index), data); err != nil {
-				return fmt.Errorf("put entry: %w", err)
-			}
-		}
-	}
-
-	if w.HardState != nil {
-		data, err := w.HardState.Marshal()
-		if err != nil {
-			return fmt.Errorf("marshal hardstate: %w", err)
-		}
-		if err := tx.Bucket([]byte(bucketState)).Put(key, data); err != nil {
-			return fmt.Errorf("put hardstate: %w", err)
-		}
-	}
-
-	if w.ConfState != nil {
-		data, err := w.ConfState.Marshal()
-		if err != nil {
-			return fmt.Errorf("marshal confstate: %w", err)
-		}
-		if err := tx.Bucket([]byte(bucketConfState)).Put(key, data); err != nil {
-			return fmt.Errorf("put confstate: %w", err)
-		}
-	}
-
-	if w.Snapshot != nil && !raft.IsEmptySnap(*w.Snapshot) {
-		data, err := w.Snapshot.Marshal()
-		if err != nil {
-			return fmt.Errorf("marshal snapshot: %w", err)
-		}
-		if err := tx.Bucket([]byte(bucketSnapMeta)).Put(key, data); err != nil {
-			return fmt.Errorf("put snapshot: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// encodeGroupKey uses big-endian so bbolt's lexicographic sort matches
-// numeric order — a cursor scan over one group's prefix walks its
-// entries in index order.
-func encodeGroupKey(groupID uint64) []byte {
-	k := make([]byte, 8)
-	binary.BigEndian.PutUint64(k, groupID)
-	return k
-}
-
-func encodeEntryKey(groupID, index uint64) []byte {
-	k := make([]byte, 16)
-	binary.BigEndian.PutUint64(k[:8], groupID)
-	binary.BigEndian.PutUint64(k[8:], index)
-	return k
-}
-
-func decodeEntryIndex(k []byte) uint64 {
-	return binary.BigEndian.Uint64(k[8:])
-}
+// slowFlushThreshold mirrors the Ready-loop stall budget: a flush beyond it
+// delays every group in the batch by that much before their acks can leave.
+const slowFlushThreshold = 100 * time.Millisecond

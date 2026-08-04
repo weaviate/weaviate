@@ -32,9 +32,11 @@ type RaftConfig struct {
 	Logger *logrus.Logger
 
 	// RAFT timing configuration
-	HeartbeatTimeout  time.Duration
-	ElectionTimeout   time.Duration
-	SnapshotThreshold uint64
+	HeartbeatTimeout       time.Duration
+	ElectionTimeout        time.Duration
+	SnapshotThreshold      uint64
+	SnapshotBytesThreshold uint64
+	SnapshotMinInterval    time.Duration
 
 	// StateTransferer handles out-of-band state transfer for snapshot restore.
 	StateTransferer StateTransferer
@@ -116,10 +118,13 @@ func (r *Raft) Shutdown() error {
 
 // GetOrCreateStore gets or creates a Store for the specified shard.
 // The members list should be the BelongsToNodes for the physical shard.
+// preferredLeader is the birth designation for balanced first-election
+// placement (see PreferredBirthLeader); "" disables birth campaigning.
 func (r *Raft) GetOrCreateStore(
 	ctx context.Context,
 	shardName string,
 	members []string,
+	preferredLeader string,
 ) (*Store, error) {
 	r.startMu.Lock()
 	if !r.started {
@@ -136,19 +141,22 @@ func (r *Raft) GetOrCreateStore(
 	}
 
 	storeConfig := StoreConfig{
-		ClassName:         r.config.ClassName,
-		ShardName:         shardName,
-		NodeID:            r.config.NodeID,
-		Members:           members,
-		Logger:            r.config.Logger,
-		HeartbeatTimeout:  r.config.HeartbeatTimeout,
-		ElectionTimeout:   r.config.ElectionTimeout,
-		SnapshotThreshold: r.config.SnapshotThreshold,
-		Transport:         r.config.MuxTransport,
-		SharedLog:         r.config.SharedLog,
-		Snapshotter:       r.config.Snapshotter,
-		NodeIDs:           r.config.NodeIDs,
-		Resolver:          r.config.Resolver,
+		ClassName:              r.config.ClassName,
+		ShardName:              shardName,
+		NodeID:                 r.config.NodeID,
+		Members:                members,
+		PreferredLeader:        preferredLeader,
+		Logger:                 r.config.Logger,
+		HeartbeatTimeout:       r.config.HeartbeatTimeout,
+		ElectionTimeout:        r.config.ElectionTimeout,
+		SnapshotThreshold:      r.config.SnapshotThreshold,
+		SnapshotBytesThreshold: r.config.SnapshotBytesThreshold,
+		SnapshotMinInterval:    r.config.SnapshotMinInterval,
+		Transport:              r.config.MuxTransport,
+		SharedLog:              r.config.SharedLog,
+		Snapshotter:            r.config.Snapshotter,
+		NodeIDs:                r.config.NodeIDs,
+		Resolver:               r.config.Resolver,
 	}
 
 	store, err := NewStore(storeConfig)
@@ -190,13 +198,16 @@ func (r *Raft) StopStore(shardName string) error {
 
 // OnShardCreated handles the creation of a new shard.
 // This should be called when a shard is created on this node.
+// preferredLeader is the birth designation for balanced first-election
+// placement (see PreferredBirthLeader); "" disables birth campaigning.
 func (r *Raft) OnShardCreated(
 	ctx context.Context,
 	shardName string,
 	members []string,
+	preferredLeader string,
 	shard shard,
 ) error {
-	store, err := r.GetOrCreateStore(ctx, shardName, members)
+	store, err := r.GetOrCreateStore(ctx, shardName, members, preferredLeader)
 	if err != nil {
 		return fmt.Errorf("get or create store: %w", err)
 	}
@@ -232,8 +243,10 @@ func (r *Raft) OnShardUnloaded(shardName string) error {
 // or a schema catch-up replay resurrects the group as a ghost.
 //
 // The purge must follow the loop stop: processReady persists on the loop
-// goroutine, and Stop waits for the loop to exit, so nothing can re-append
-// the group's state after it is deleted.
+// goroutine, and Stop waits for the loop to exit, so no new write for the
+// group can be submitted once the purge begins. Writes the loop already
+// submitted are handled by DeleteGroup itself, which drains the shared
+// log's batcher before writing its tombstone.
 //
 // Idempotent, and the purge runs even when no Store is loaded (e.g. dropping
 // an unloaded shard), keyed by the deterministic group ID.
@@ -243,11 +256,18 @@ func (r *Raft) OnShardDropped(shardName string) error {
 	r.knownShards.Delete(shardName)
 	if v, ok := r.stores.LoadAndDelete(shardName); ok {
 		store := v.(*Store)
-		if r.config.GroupRouter != nil {
-			r.config.GroupRouter.unregisterGroup(store.GroupID())
-		}
+		// Stop first, then unregister — matching Shutdown and StopStore.
+		// Stop waits for the Ready loop (the group's only transport.Send
+		// source) to exit, so unregisterGroup's stripe teardown cannot race
+		// a live Send re-creating a stripe for the dying group. Inbound
+		// frames during the stop window consequently count at step_not_live
+		// rather than route_unknown_group — the same accounting as the other
+		// two teardown paths.
 		if err := store.Stop(); err != nil {
 			errs = append(errs, fmt.Errorf("stop store: %w", err))
+		}
+		if r.config.GroupRouter != nil {
+			r.config.GroupRouter.unregisterGroup(store.GroupID())
 		}
 	}
 

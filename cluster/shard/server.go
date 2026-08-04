@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -68,15 +69,18 @@ func NewServer(registry *Registry, logger logrus.FieldLogger) *Server {
 }
 
 // Apply handles incoming RAFT apply requests from followers.
+//
+// A gRPC unary error response carries no message body, so no ApplyResponse
+// fields (the wire-level Leader hint is vestigial) accompany an error — the
+// caller re-resolves the leader from its own Store on retry.
 func (s *Server) Apply(ctx context.Context, req *shardproto.ApplyRequest) (*shardproto.ApplyResponse, error) {
 	store := s.registry.GetStore(req.Class, req.Shard)
 	if store == nil {
-		err := errors.New("store not found")
-		return &shardproto.ApplyResponse{Leader: s.registry.Leader(req.Class, req.Shard)}, toRPCError(err)
+		return nil, status.Errorf(codes.NotFound, "store not found for %s/%s", req.Class, req.Shard)
 	}
 	v, err := store.Apply(ctx, req)
 	if err != nil {
-		return &shardproto.ApplyResponse{Leader: s.registry.Leader(req.Class, req.Shard)}, toRPCError(err)
+		return nil, toRPCError(err)
 	}
 	return &shardproto.ApplyResponse{Version: v}, nil
 }
@@ -208,10 +212,14 @@ func (s *Server) ReleaseTransferSnapshot(ctx context.Context, req *shardproto.Re
 	return &shardproto.ReleaseTransferSnapshotResponse{}, nil
 }
 
-// GetLastAppliedIndex returns the last applied RAFT log index for a shard.
-// Used by followers to determine how far they need to catch up before a local read.
-// When VerifyLeader is true, the handler verifies leadership before returning,
-// which is required for linearizable (STRONG) reads.
+// GetLastAppliedIndex returns the catch-up watermark for a shard: the index a
+// follower must wait for locally before a read observes every acknowledged
+// write. Apply acks at quorum commit, so the applied index alone can lag an
+// acked write — the handler reports the committed-staged watermark when it is
+// ahead (a follower waiting on it waits for entries it is guaranteed to
+// receive). When VerifyLeader is true, the handler first drives the full
+// linearizable read barrier (quorum-verified leadership plus the leader's own
+// applied-wait), which is required for linearizable (STRONG) reads.
 func (s *Server) GetLastAppliedIndex(ctx context.Context, req *shardproto.GetLastAppliedIndexRequest) (*shardproto.GetLastAppliedIndexResponse, error) {
 	store := s.registry.GetStore(req.Class, req.Shard)
 	if store == nil {
@@ -222,12 +230,21 @@ func (s *Server) GetLastAppliedIndex(ctx context.Context, req *shardproto.GetLas
 			return nil, toRPCError(err)
 		}
 	}
+	idx := store.LastAppliedIndex()
+	if ci := store.CommittedIndex(); ci > idx {
+		idx = ci
+	}
 	return &shardproto.GetLastAppliedIndexResponse{
-		LastAppliedIndex: store.LastAppliedIndex(),
+		LastAppliedIndex: idx,
 	}, nil
 }
 
-// toRPCError returns a gRPC error with the right error code based on the error.
+// toRPCError returns a gRPC error with the right error code based on the
+// error. The codes are load-bearing for the write path's retry behavior:
+// isRetryableApplyErr classifies a forwarded attempt purely by status code,
+// so every transient leadership/availability condition the Store can raise
+// must map to NotLeaderRPCCode or codes.Unavailable here — anything falling
+// through to codes.Internal is permanent for the client.
 func toRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -235,10 +252,30 @@ func toRPCError(err error) error {
 
 	var ec codes.Code
 	switch {
-	case errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
+	case errors.Is(err, ErrNotLeader), errors.Is(err, ErrLeadershipLost),
+		errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
 		ec = NotLeaderRPCCode
-	case errors.Is(err, types.ErrNotOpen):
+	case errors.Is(err, ErrProposalBackpressure),
+		errors.Is(err, ErrNotStarted), errors.Is(err, ErrAlreadyClosed),
+		errors.Is(err, ErrGroupFailed),
+		errors.Is(err, types.ErrNotOpen):
+		// Transient node conditions: retryable, after re-resolving the leader.
+		// A failed group (panic-stopped store) belongs here too — the group
+		// lives on on its other voters.
 		ec = codes.Unavailable
+	case errors.Is(err, ErrCommandTooLarge):
+		// Permanent: the command can never commit, so the client must not
+		// retry it. Deliberately NOT the gRPC-conventional ResourceExhausted —
+		// that is NotLeaderRPCCode here, which classifies as retryable.
+		ec = codes.InvalidArgument
+	case errors.Is(err, storagestate.ErrStatusReadOnly), errors.Is(err, ErrClassDropped):
+		// Admission rejections (leader reject-fast): non-retryable, the
+		// client must see the reason. Pressure lasts minutes and a class
+		// drop is deliberate — retrying against the same leader only burns
+		// the caller's budget. FailedPrecondition is never in the client
+		// classifier's retryable code set (isRetryableApplyErr agrees on the
+		// local route).
+		ec = codes.FailedPrecondition
 	case errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case strings.Contains(err.Error(), types.ErrNotFound.Error()):

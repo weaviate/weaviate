@@ -13,9 +13,11 @@ package shard_test
 
 import (
 	"context"
+	"math"
 	"math/rand"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,26 +35,61 @@ func TestMissedTicks(t *testing.T) {
 	interval := 20 * time.Millisecond
 
 	tests := []struct {
-		name     string
-		elapsed  time.Duration
-		interval time.Duration
-		maxTicks int
-		wantN    int
-		wantLast time.Duration // expected watermark advance from base
+		name        string
+		elapsed     time.Duration
+		interval    time.Duration
+		maxTicks    int
+		wantN       int
+		wantLast    time.Duration // expected watermark advance from base
+		wantClamped bool
 	}{
 		{name: "zero elapsed", elapsed: 0, interval: interval, maxTicks: 10, wantN: 0, wantLast: 0},
 		{name: "sub-interval", elapsed: 19 * time.Millisecond, interval: interval, maxTicks: 10, wantN: 0, wantLast: 0},
 		{name: "exactly one interval", elapsed: 20 * time.Millisecond, interval: interval, maxTicks: 10, wantN: 1, wantLast: 20 * time.Millisecond},
 		{name: "remainder carried", elapsed: 50 * time.Millisecond, interval: interval, maxTicks: 10, wantN: 2, wantLast: 40 * time.Millisecond},
 		{name: "at cap", elapsed: 200 * time.Millisecond, interval: interval, maxTicks: 10, wantN: 10, wantLast: 200 * time.Millisecond},
-		{name: "over cap drops backlog", elapsed: 900 * time.Millisecond, interval: interval, maxTicks: 10, wantN: 10, wantLast: 900 * time.Millisecond},
+		{name: "over cap drops backlog", elapsed: 900 * time.Millisecond, interval: interval, maxTicks: 10, wantN: 10, wantLast: 900 * time.Millisecond, wantClamped: true},
 		{name: "non-positive interval", elapsed: 100 * time.Millisecond, interval: 0, maxTicks: 10, wantN: 0, wantLast: 100 * time.Millisecond},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			n, last := shard.MissedTicks(base, base.Add(tc.elapsed), tc.interval, tc.maxTicks)
+			n, last, clamped := shard.MissedTicks(base, base.Add(tc.elapsed), tc.interval, tc.maxTicks)
 			require.Equal(t, tc.wantN, n)
 			require.Equal(t, base.Add(tc.wantLast), last)
+			require.Equal(t, tc.wantClamped, clamped)
+		})
+	}
+}
+
+// TestGatePlan pins the CheckQuorum crossing-gate arithmetic: a replay burst
+// never ticks past a quorum evaluation (the crossing truncates the burst and
+// the caller drops the leftover backlog), so consecutive evaluations are
+// always separated by a full election timeout of newly-elapsed wall time,
+// and pre-crossing ticks always flow (heartbeat generation never held).
+func TestGatePlan(t *testing.T) {
+	const el = 20
+
+	tests := []struct {
+		name        string
+		n           int
+		ttc         int // ticks to crossing before the call
+		wantAllowed int
+		wantTTC     int
+		wantCrossed bool
+	}{
+		{name: "no crossing in range", n: 5, ttc: 9, wantAllowed: 5, wantTTC: 4},
+		{name: "one short of crossing", n: 8, ttc: 9, wantAllowed: 8, wantTTC: 1},
+		{name: "burst ends exactly at crossing", n: 5, ttc: 5, wantAllowed: 5, wantTTC: el, wantCrossed: true},
+		{name: "burst truncated at crossing", n: el, ttc: 5, wantAllowed: 5, wantTTC: el, wantCrossed: true},
+		{name: "full-period burst crosses at end", n: el, ttc: el, wantAllowed: el, wantTTC: el, wantCrossed: true},
+		{name: "single tick is the crossing", n: 1, ttc: 1, wantAllowed: 1, wantTTC: el, wantCrossed: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			allowed, ttc, crossed := shard.GatePlan(tc.n, tc.ttc, el)
+			require.Equal(t, tc.wantAllowed, allowed)
+			require.Equal(t, tc.wantTTC, ttc)
+			require.Equal(t, tc.wantCrossed, crossed)
 		})
 	}
 }
@@ -61,6 +98,12 @@ func TestMissedTicks(t *testing.T) {
 // PutObject dispatches reach the shard, with optional per-op latency jitter.
 type recordingShard struct {
 	mock *mocks.Mockshard
+
+	// durableFloor feeds the DurableRaftFloor mock — the shard's durable
+	// flush watermark as consulted by the snapshot cadence. Defaults to
+	// MaxUint64 (no un-flushed writes, no compaction cap); tests exercising
+	// the cap lower it.
+	durableFloor atomic.Uint64
 
 	mu    sync.Mutex
 	order []strfmt.UUID
@@ -72,6 +115,10 @@ func newRecordingShard(t *testing.T, maxJitter time.Duration) *recordingShard {
 		mock: mocks.NewMockshard(t),
 		seen: map[strfmt.UUID]int{},
 	}
+	r.durableFloor.Store(math.MaxUint64)
+	r.mock.EXPECT().DurableRaftFloor().RunAndReturn(r.durableFloor.Load).Maybe()
+	r.mock.EXPECT().ReadOnlyErr().Return(nil).Maybe()
+	r.mock.EXPECT().ClassPresent().Return(true).Maybe()
 	r.mock.EXPECT().PutObject(mock.Anything, mock.Anything).RunAndReturn(
 		func(_ context.Context, obj *storobj.Object) error {
 			if maxJitter > 0 {
@@ -82,7 +129,8 @@ func newRecordingShard(t *testing.T, maxJitter time.Duration) *recordingShard {
 			r.seen[obj.Object.ID]++
 			r.mu.Unlock()
 			return nil
-		}).Maybe()
+		},
+	).Maybe()
 	return r
 }
 
@@ -103,9 +151,10 @@ func (r *recordingShard) has(id strfmt.UUID) bool {
 //
 //  1. dispatch order equals RAFT log order — entries are handed off and
 //     applied strictly in index order, never reordered by the handoff;
-//  2. Apply acks only after the entry is applied to the local FSM — the
-//     object is visible in the shard and LastAppliedIndex covers its index
-//     the moment Apply returns (the contract linearizable reads rely on).
+//  2. Apply acks at quorum commit: the returned index is committed (the
+//     committed-staged watermark covers it the moment Apply returns) and the
+//     entry materializes locally once the FSM catches up to it — the
+//     watermark/wait contract the read protocol relies on.
 func TestStore_AsyncApply_OrderAndAckContract(t *testing.T) {
 	const (
 		writers        = 4
@@ -132,13 +181,16 @@ func TestStore_AsyncApply_OrderAndAckContract(t *testing.T) {
 				req := buildPutObjectApplyRequest(t, testClassName, testShardName, makeTestObjectWithID(id))
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				idx, err := store.Apply(ctx, req)
-				cancel()
 				require.NoError(t, err)
 
-				// Ack contract: applied locally before Apply returned.
-				require.Truef(t, rec.has(id), "Apply acked %s before the object reached the shard", id)
-				require.GreaterOrEqualf(t, store.LastAppliedIndex(), idx,
-					"Apply acked index %d before LastAppliedIndex covered it", idx)
+				// Ack contract: the acked index is committed-staged, and
+				// waiting for local apply to cover it makes the object
+				// visible.
+				require.GreaterOrEqualf(t, store.CommittedIndex(), idx,
+					"Apply acked index %d before the committed watermark covered it", idx)
+				require.NoError(t, store.WaitForAppliedIndex(ctx, idx))
+				require.Truef(t, rec.has(id), "index %d applied without object %s reaching the shard", idx, id)
+				cancel()
 
 				mu.Lock()
 				indexOf[id] = idx
@@ -212,11 +264,6 @@ func TestStore_Restart_RedeliversAbandonedApplies(t *testing.T) {
 	wg.Wait()
 	require.NotEmpty(t, acked, "load phase produced no acknowledged applies")
 
-	// Every acked apply was locally applied before its ack.
-	for _, id := range acked {
-		require.Truef(t, rec1.has(id), "acked object %s missing before restart", id)
-	}
-
 	// Restart over the same persisted state.
 	closeInfra1()
 	rec2 := newRecordingShard(t, 0)
@@ -231,12 +278,22 @@ func TestStore_Restart_RedeliversAbandonedApplies(t *testing.T) {
 	require.NoError(t, store2.WaitForAppliedIndex(ctx, ackedIdx),
 		"restarted store never re-applied up to the highest acked index %d", ackedIdx)
 
+	// No acknowledged write may be lost: an ack means quorum commit, so each
+	// acked object was either dispatched before Stop (rec1) or re-delivered
+	// from the persisted log during recovery (rec2) — Stop may abandon
+	// committed-but-undispatched entries, but never their durability.
+	for _, id := range acked {
+		require.Truef(t, rec1.has(id) || rec2.has(id),
+			"acked object %s missing after restart recovery", id)
+	}
+
 	// The store is fully functional after recovery.
 	extra := testUUID(999, 0)
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, makeTestObjectWithID(extra))
 	idx, err := store2.Apply(ctx, req)
 	require.NoError(t, err)
 	require.Greater(t, idx, ackedIdx)
+	require.NoError(t, store2.WaitForAppliedIndex(ctx, idx))
 	require.True(t, rec2.has(extra))
 }
 
@@ -253,9 +310,9 @@ func TestStore_SnapshotDuringAsyncApply_RestartFromSnapshot(t *testing.T) {
 	snapRoot := t.TempDir()
 
 	rec1 := newRecordingShard(t, 2*time.Millisecond)
-	// FlushMemtables is invoked by every snapshot job; requiring at least one
+	// FlushForSnapshot is invoked by every snapshot job; requiring at least one
 	// call proves snapshots really fired during the load below.
-	rec1.mock.EXPECT().FlushMemtables(mock.Anything).Return(nil)
+	rec1.mock.EXPECT().FlushForSnapshot(mock.Anything).Return(nil)
 	store1, closeInfra1 := shard.BuildTestStoreAt(t, testClassName, testShardName, testNodeID,
 		logPath, snapRoot, 8 /* snapshot every ~8 applied entries */, rec1.mock)
 	startAndWaitForLeader(t, store1)
@@ -279,7 +336,7 @@ func TestStore_SnapshotDuringAsyncApply_RestartFromSnapshot(t *testing.T) {
 
 	// Restart over the compacted log + persisted snapshot.
 	rec2 := newRecordingShard(t, 0)
-	rec2.mock.EXPECT().FlushMemtables(mock.Anything).Return(nil).Maybe()
+	rec2.mock.EXPECT().FlushForSnapshot(mock.Anything).Return(nil).Maybe()
 	store2, _ := shard.BuildTestStoreAt(t, testClassName, testShardName, testNodeID,
 		logPath, snapRoot, 8, rec2.mock)
 	startAndWaitForLeader(t, store2)
@@ -291,15 +348,17 @@ func TestStore_SnapshotDuringAsyncApply_RestartFromSnapshot(t *testing.T) {
 
 	extra := testUUID(999, 1)
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, makeTestObjectWithID(extra))
-	_, err := store2.Apply(ctx, req)
+	extraIdx, err := store2.Apply(ctx, req)
 	require.NoError(t, err)
+	require.NoError(t, store2.WaitForAppliedIndex(ctx, extraIdx))
 	require.True(t, rec2.has(extra))
 }
 
 // TestStore_FollowerWatermark_CoversAckedWrites pins the read-protocol
 // foundation on a real 3-node cluster: once a write is acked by the leader,
-// the leader's applied watermark covers it immediately, and any follower
-// that has waited for that index (the WaitForShardReady /
+// the leader's committed-staged watermark covers it immediately (the
+// watermark GetLastAppliedIndex reports), and any replica — leader included —
+// that has waited for the acked index (the WaitForShardReady /
 // WaitForLinearizableRead flow) observes the object locally.
 func TestStore_FollowerWatermark_CoversAckedWrites(t *testing.T) {
 	const applies = 20
@@ -330,17 +389,15 @@ func TestStore_FollowerWatermark_CoversAckedWrites(t *testing.T) {
 		idx, err := stores[leader].Apply(ctx, req)
 		require.NoError(t, err)
 
-		// Ack ⇒ leader applied: watermark and object visible right now.
-		require.GreaterOrEqual(t, stores[leader].LastAppliedIndex(), idx)
-		require.True(t, recs[leader].has(id))
+		// Ack ⇒ committed-staged on the leader: the watermark covers the
+		// acked index right now, ahead of (or equal to) local apply.
+		require.GreaterOrEqual(t, stores[leader].CommittedIndex(), idx)
 
-		// Follower catch-up to the acked index ⇒ object visible there.
+		// Catch-up to the acked index ⇒ object visible, on every replica —
+		// the leader included: its ack no longer implies local apply.
 		for i, s := range stores {
-			if i == leader {
-				continue
-			}
 			require.NoError(t, s.WaitForAppliedIndex(ctx, idx))
-			require.Truef(t, recs[i].has(id), "follower %d applied index %d without object %s", i, idx, id)
+			require.Truef(t, recs[i].has(id), "replica %d applied index %d without object %s", i, idx, id)
 		}
 		cancel()
 	}

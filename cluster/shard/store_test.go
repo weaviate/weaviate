@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,9 +43,13 @@ const (
 
 // newTestStore creates a Store backed by a single-node in-memory RAFT cluster.
 // It returns the store and the mock shard that is already wired via SetShard.
+// The admission predicates (consulted by every Store.Apply) default to
+// writable/present; tests exercising reject-fast override them.
 func newTestStore(t *testing.T) (*shard.Store, *mocks.Mockshard) {
 	t.Helper()
 	mockShard := mocks.NewMockshard(t)
+	mockShard.EXPECT().ReadOnlyErr().Return(nil).Maybe()
+	mockShard.EXPECT().ClassPresent().Return(true).Maybe()
 	store := shard.BuildTestStore(t, testClassName, testShardName, testNodeID, []string{testNodeID}, mockShard)
 	return store, mockShard
 }
@@ -93,6 +98,23 @@ func buildPutObjectApplyRequest(t *testing.T, className, shardName string, obj *
 		Shard:      shardName,
 		SubCommand: subCmd,
 	}
+}
+
+// applyAndWait applies req and, on success, waits for the local FSM to
+// materialize the acked entry. Apply acks at quorum commit — ahead of local
+// apply — so every test that asserts on shard dispatches (mockery
+// expectations included: they verify at cleanup, and Stop abandons batches
+// the apply worker has not picked up) must wait for local apply first.
+func applyAndWait(t *testing.T, store *shard.Store, req *shardproto.ApplyRequest) (uint64, error) {
+	t.Helper()
+	idx, err := store.Apply(context.Background(), req)
+	if err != nil {
+		return idx, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, store.WaitForAppliedIndex(ctx, idx))
+	return idx, nil
 }
 
 // makeTestObject creates a minimal storobj.Object suitable for testing.
@@ -169,26 +191,29 @@ func TestStore_Apply_PutObject(t *testing.T) {
 	obj := makeTestObject()
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 
 	mockShard.AssertCalled(t, "PutObject", mock.Anything, mock.Anything)
 }
 
-func TestStore_Apply_PutObject_ShardError_Swallowed(t *testing.T) {
+func TestStore_Apply_PutObject_DeterministicError_Skipped(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
-	// Non-transient errors are swallowed to maintain FSM consistency.
-	shardErr := fmt.Errorf("some permanent error")
+	// An explicitly-marked deterministic error (same content fails the same
+	// way on every replica) is skipped identically: applied advances past it.
+	// Unmarked errors instead PARK — see
+	// TestStore_Apply_PutObject_EnvironmentalError_ParksUntilItClears.
+	shardErr := enterrors.Deterministic(fmt.Errorf("invalid vector length"))
 	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(shardErr)
 
 	obj := makeTestObject()
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
 
-	version, err := store.Apply(context.Background(), req)
-	require.NoError(t, err, "FSM should swallow errors to maintain consistency")
+	version, err := applyAndWait(t, store, req)
+	require.NoError(t, err, "deterministic errors are skipped identically on every replica")
 	assert.Greater(t, version, uint64(0))
 }
 
@@ -229,11 +254,11 @@ func TestStore_Apply_IncrementsIndex(t *testing.T) {
 	obj := makeTestObject()
 
 	req1 := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
-	v1, err := store.Apply(context.Background(), req1)
+	v1, err := applyAndWait(t, store, req1)
 	require.NoError(t, err)
 
 	req2 := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
-	v2, err := store.Apply(context.Background(), req2)
+	v2, err := applyAndWait(t, store, req2)
 	require.NoError(t, err)
 
 	assert.Greater(t, v2, v1)
@@ -279,7 +304,7 @@ func TestStore_LastAppliedIndex(t *testing.T) {
 	obj := makeTestObject()
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
 
-	_, err := store.Apply(context.Background(), req)
+	_, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 
 	afterIdx := store.LastAppliedIndex()
@@ -486,22 +511,22 @@ func TestStore_Apply_DeleteObject(t *testing.T) {
 	})).Return(nil)
 
 	req := buildDeleteObjectApplyRequest(t, testClassName, testShardName, id, deletionTime)
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
 
-func TestStore_Apply_DeleteObject_ShardError_Swallowed(t *testing.T) {
+func TestStore_Apply_DeleteObject_DeterministicError_Skipped(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
 	id := strfmt.UUID("12345678-1234-1234-1234-123456789abc")
-	shardErr := fmt.Errorf("object not found")
+	shardErr := enterrors.Deterministic(fmt.Errorf("object not found"))
 	mockShard.EXPECT().DeleteObject(mock.Anything, mock.Anything, mock.Anything).Return(shardErr)
 
 	req := buildDeleteObjectApplyRequest(t, testClassName, testShardName, id, time.Now())
-	version, err := store.Apply(context.Background(), req)
-	require.NoError(t, err, "FSM should swallow errors to maintain consistency")
+	version, err := applyAndWait(t, store, req)
+	require.NoError(t, err, "deterministic errors are skipped identically on every replica")
 	assert.Greater(t, version, uint64(0))
 }
 
@@ -521,12 +546,12 @@ func TestStore_Apply_MergeObject(t *testing.T) {
 	})).Return(nil)
 
 	req := buildMergeObjectApplyRequest(t, testClassName, testShardName, doc)
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
 
-func TestStore_Apply_MergeObject_ShardError_Swallowed(t *testing.T) {
+func TestStore_Apply_MergeObject_DeterministicError_Skipped(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
@@ -535,12 +560,12 @@ func TestStore_Apply_MergeObject_ShardError_Swallowed(t *testing.T) {
 		ID:    strfmt.UUID("12345678-1234-1234-1234-123456789abc"),
 	}
 
-	shardErr := fmt.Errorf("merge conflict")
+	shardErr := enterrors.Deterministic(fmt.Errorf("merge conflict"))
 	mockShard.EXPECT().MergeObject(mock.Anything, mock.Anything).Return(shardErr)
 
 	req := buildMergeObjectApplyRequest(t, testClassName, testShardName, doc)
-	version, err := store.Apply(context.Background(), req)
-	require.NoError(t, err, "FSM should swallow errors to maintain consistency")
+	version, err := applyAndWait(t, store, req)
+	require.NoError(t, err, "deterministic errors are skipped identically on every replica")
 	assert.Greater(t, version, uint64(0))
 }
 
@@ -568,23 +593,24 @@ func TestStore_Apply_PutObjectsBatch(t *testing.T) {
 	})).Return([]error{nil, nil})
 
 	req := buildPutObjectsBatchApplyRequest(t, testClassName, testShardName, []*storobj.Object{obj1, obj2})
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
 
-func TestStore_Apply_PutObjectsBatch_PartialError(t *testing.T) {
+func TestStore_Apply_PutObjectsBatch_DeterministicItemError_Skipped(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
 	obj := makeTestObject()
-	batchErr := fmt.Errorf("disk full on object 1")
+	// A deterministically-failing item (marked at the shard boundary) is
+	// skipped identically on every replica; the entry completes and applied
+	// advances. An UNMARKED item error would park the entry instead.
+	batchErr := enterrors.Deterministic(fmt.Errorf("invalid vector length on object 1"))
 	mockShard.EXPECT().PutObjectBatch(mock.Anything, mock.Anything).Return([]error{nil, batchErr})
 
-	// Batch handlers now return nil on per-item errors (partial success is OK
-	// since RAFT replay is idempotent). Failed items are logged for observability.
 	req := buildPutObjectsBatchApplyRequest(t, testClassName, testShardName, []*storobj.Object{obj, obj})
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -609,7 +635,7 @@ func TestStore_Apply_DeleteObjectsBatch(t *testing.T) {
 	})
 
 	req := buildDeleteObjectsBatchApplyRequest(t, testClassName, testShardName, uuids, deletionTime, false)
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -619,16 +645,16 @@ func TestStore_Apply_DeleteObjectsBatch_ShardError(t *testing.T) {
 	startAndWaitForLeader(t, store)
 
 	uuids := []strfmt.UUID{"11111111-1111-1111-1111-111111111111"}
-	shardErr := fmt.Errorf("permission denied")
+	// Deterministic per-item failures are skipped identically on every
+	// replica; the entry completes. An unmarked item error would park it.
+	shardErr := enterrors.Deterministic(fmt.Errorf("malformed id"))
 
 	mockShard.EXPECT().DeleteObjectBatch(mock.Anything, mock.Anything, mock.Anything, false).Return(objects.BatchSimpleObjects{
 		{UUID: uuids[0], Err: shardErr},
 	})
 
-	// Batch handlers now return nil on per-item errors (partial success is OK
-	// since RAFT replay is idempotent). Failed items are logged for observability.
 	req := buildDeleteObjectsBatchApplyRequest(t, testClassName, testShardName, uuids, time.Now(), false)
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -647,7 +673,7 @@ func TestStore_Apply_AddReferences(t *testing.T) {
 	})).Return([]error{nil, nil})
 
 	req := buildAddReferencesApplyRequest(t, testClassName, testShardName, refs)
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -660,26 +686,28 @@ func TestStore_Apply_AddReferences_ShardError(t *testing.T) {
 		{OriginalIndex: 0, Tenant: "tenantA"},
 	}
 
-	refErr := fmt.Errorf("reference target not found")
+	// Deterministic per-item failures are skipped identically on every
+	// replica; the entry completes. An unmarked item error would park it.
+	refErr := enterrors.Deterministic(fmt.Errorf("reference target class not in schema"))
 	mockShard.EXPECT().AddReferencesBatch(mock.Anything, mock.Anything).Return([]error{refErr})
 
-	// Batch handlers now return nil on per-item errors (partial success is OK
-	// since RAFT replay is idempotent). Failed items are logged for observability.
 	req := buildAddReferencesApplyRequest(t, testClassName, testShardName, refs)
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
 
 // ---------------------------------------------------------------------------
-// FSM Retry Behavior Tests
+// Apply-durability behavior: park-and-retry vs deterministic skip
 // ---------------------------------------------------------------------------
 
-func TestStore_Apply_PutObject_TransientRetrySucceeds(t *testing.T) {
+func TestStore_Apply_PutObject_TransientErrorRetriedUntilSuccess(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
-	// Fail twice with transient error, succeed on 3rd attempt.
+	// Fail twice with an environmental error, succeed on the 3rd attempt: the
+	// apply worker parks at the entry and retries it with backoff until it
+	// lands — the write is never discarded.
 	transientErr := enterrors.NewNotEnoughMemory("shard write")
 	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(transientErr).Times(2)
 	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(nil).Once()
@@ -687,43 +715,63 @@ func TestStore_Apply_PutObject_TransientRetrySucceeds(t *testing.T) {
 	obj := makeTestObject()
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
 
-func TestStore_Apply_PutObject_TransientRetryExhausted(t *testing.T) {
+func TestStore_Apply_PutObject_EnvironmentalError_ParksUntilItClears(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
-	// Always fail with transient error — retries exhaust, error is swallowed.
+	// An environmental error parks the apply worker indefinitely — the
+	// applied index must NOT advance over the entry (no swallow, no give-up
+	// ceiling) — and the entry materializes once the condition clears.
+	var allow atomic.Bool
 	transientErr := enterrors.NewNotEnoughMemory("shard write")
-	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(transientErr)
+	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).RunAndReturn(
+		func(context.Context, *storobj.Object) error {
+			if allow.Load() {
+				return nil
+			}
+			return transientErr
+		})
 
 	obj := makeTestObject()
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
 
-	version, err := store.Apply(context.Background(), req)
-	require.NoError(t, err, "FSM should swallow error after retries exhaust")
-	assert.Greater(t, version, uint64(0))
+	idx, err := store.Apply(context.Background(), req)
+	require.NoError(t, err, "Apply acks at quorum commit")
+
+	shortCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	err = store.WaitForAppliedIndex(shortCtx, idx)
+	cancel()
+	require.Error(t, err, "applied index advanced over a parked (still-failing) entry")
+
+	allow.Store(true)
+	waitCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	require.NoError(t, store.WaitForAppliedIndex(waitCtx, idx),
+		"parked entry must materialize once the environmental condition clears")
 }
 
-func TestStore_Apply_PutObject_PermanentError_NoRetry(t *testing.T) {
+func TestStore_Apply_PutObject_DeterministicError_NoRetry(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
-	// Permanent error — should be swallowed immediately without retries.
-	permanentErr := fmt.Errorf("some non-transient error")
+	// A deterministic error is skipped immediately, without retries: every
+	// replica fails it identically, so retrying cannot change the outcome.
+	permanentErr := enterrors.Deterministic(fmt.Errorf("invalid property type"))
 	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(permanentErr).Once()
 
 	obj := makeTestObject()
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
 
-	version, err := store.Apply(context.Background(), req)
-	require.NoError(t, err, "FSM should swallow permanent errors")
+	version, err := applyAndWait(t, store, req)
+	require.NoError(t, err, "deterministic errors are skipped, not surfaced")
 	assert.Greater(t, version, uint64(0))
 
-	// Verify PutObject was called exactly once (no retries for permanent errors).
+	// Exactly one call: deterministic errors never retry.
 	mockShard.AssertNumberOfCalls(t, "PutObject", 1)
 }
 
@@ -739,7 +787,7 @@ func TestStore_Apply_PutObject_UnmarshalError_Swallowed(t *testing.T) {
 		SubCommand: []byte("invalid protobuf data"),
 	}
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err, "FSM should swallow unmarshal errors")
 	assert.Greater(t, version, uint64(0))
 }

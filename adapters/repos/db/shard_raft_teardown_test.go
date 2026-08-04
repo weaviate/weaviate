@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	shardraft "github.com/weaviate/weaviate/cluster/shard"
 	"github.com/weaviate/weaviate/cluster/shard/sharedlog"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -78,9 +79,9 @@ func newTestIndexWithShardRaft(
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().NodeName().Return("node1").Maybe()
-	for name := range state.Physical {
+	for name, phys := range state.Physical {
 		mockSchemaGetter.EXPECT().ShardReplicas(class.Class, name).
-			Return([]string{"node1"}, nil).Maybe()
+			Return(phys.BelongsToNodes, nil).Maybe()
 	}
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
@@ -89,6 +90,11 @@ func newTestIndexWithShardRaft(
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readFn func(*models.Class, *sharding.State) error) error {
 			return readFn(class, state)
 		}).
+		Maybe()
+	// Mirrors production semantics (ClassInfo.Tenants == len(Sharding.Physical));
+	// consulted by NewShard's multi-tenant birth-designation branch.
+	mockSchemaReader.EXPECT().ClassInfo(class.Class).
+		Return(clusterSchema.ClassInfo{Exists: true, Tenants: len(state.Physical)}).
 		Maybe()
 
 	shardResolver := resolver.NewShardResolver(class.Class, false, mockSchemaGetter)
@@ -215,7 +221,7 @@ func TestIndexDrop_TearsDownRaftGroups(t *testing.T) {
 			quiet := logrus.New()
 			quiet.SetLevel(logrus.WarnLevel)
 			sl, err := sharedlog.Open(sharedlog.Options{
-				Path:   filepath.Join(dataDir, "shard-raft-log.db"),
+				Path:   filepath.Join(dataDir, "shard-raft-log"),
 				Logger: quiet,
 			})
 			require.NoError(t, err)

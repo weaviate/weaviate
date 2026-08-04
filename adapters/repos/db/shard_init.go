@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/shard"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -220,15 +221,25 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		if len(members) == 0 {
 			return nil, fmt.Errorf("raft shard registration: no replicas for %s/%s", className, shardName)
 		}
-		if err := index.raft.OnShardCreated(ctx, shardName, members, s); err != nil {
+		// Birth designation for balanced first-election placement. The
+		// tenant count is only consulted on the multi-tenant branch; all
+		// replicas of one birth event read the same replicated schema state,
+		// so they agree on the designation without coordination.
+		var tenantCount int
+		if index.partitioningEnabled {
+			tenantCount = index.schemaReader.ClassInfo(className).Tenants
+		}
+		preferredLeader := shard.PreferredBirthLeader(members, index.partitioningEnabled, tenantCount)
+		if err := index.raft.OnShardCreated(ctx, shardName, members, preferredLeader, s); err != nil {
 			return nil, fmt.Errorf("raft shard registration: %s/%s: %w", className, shardName, err)
 		}
 
 		index.logger.WithFields(logrus.Fields{
-			"action":  "raft_shard_registration",
-			"shard":   shardName,
-			"index":   index.ID(),
-			"members": members,
+			"action":           "raft_shard_registration",
+			"shard":            shardName,
+			"index":            index.ID(),
+			"members":          members,
+			"preferred_leader": preferredLeader,
 		}).Info("registered shard with RAFT manager")
 	}
 

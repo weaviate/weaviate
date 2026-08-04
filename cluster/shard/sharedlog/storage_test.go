@@ -43,9 +43,11 @@ func TestStorage_EmptyGroup(t *testing.T) {
 	_, err = g.Entries(1, 2, 1024)
 	assert.ErrorIs(t, err, raft.ErrUnavailable)
 
-	snap, err := g.Snapshot()
-	require.NoError(t, err)
-	assert.True(t, raft.IsEmptySnap(snap))
+	// etcd's Storage contract: "no snapshot right now" is the retryable
+	// sentinel, never an empty snapshot with a nil error (maybeSendSnapshot
+	// panics on that — minor-issues.md #9).
+	_, err = g.Snapshot()
+	assert.ErrorIs(t, err, raft.ErrSnapshotTemporarilyUnavailable)
 
 	hs, cs, err := g.InitialState()
 	require.NoError(t, err)

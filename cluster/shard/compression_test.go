@@ -12,7 +12,6 @@
 package shard_test
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -88,7 +87,7 @@ func TestCompression_UncompressedEntryPassthrough(t *testing.T) {
 
 	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(nil)
 
-	_, err = store.Apply(context.Background(), req)
+	_, err = applyAndWait(t, store, req)
 	require.NoError(t, err)
 
 	mockShard.AssertCalled(t, "PutObject", mock.Anything, mock.Anything)
@@ -121,7 +120,7 @@ func TestCompression_CompressedEntryApplied(t *testing.T) {
 
 	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(nil)
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 
@@ -315,7 +314,7 @@ func TestCompression_CompressedDeleteObject_Applied(t *testing.T) {
 		Compressed: true,
 	}
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -346,7 +345,7 @@ func TestCompression_CompressedMergeObject_Applied(t *testing.T) {
 		Compressed: true,
 	}
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -374,7 +373,7 @@ func TestCompression_CompressedPutObjectsBatch_Applied(t *testing.T) {
 		Compressed: true,
 	}
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -404,7 +403,7 @@ func TestCompression_CompressedDeleteObjectsBatch_Applied(t *testing.T) {
 		Compressed: true,
 	}
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }
@@ -432,7 +431,7 @@ func TestCompression_CompressedAddReferences_Applied(t *testing.T) {
 		Compressed: true,
 	}
 
-	version, err := store.Apply(context.Background(), req)
+	version, err := applyAndWait(t, store, req)
 	require.NoError(t, err)
 	assert.Greater(t, version, uint64(0))
 }

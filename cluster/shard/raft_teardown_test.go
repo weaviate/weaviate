@@ -32,6 +32,9 @@ type recordingGroupRouter struct {
 	mu           sync.Mutex
 	registered   map[uint64]*Store
 	unregistered map[uint64]bool
+	// onUnregister, when set, is invoked inside unregisterGroup — for
+	// ordering assertions (e.g. "the store was already stopped").
+	onUnregister func(groupID uint64)
 }
 
 func newRecordingGroupRouter() *recordingGroupRouter {
@@ -49,9 +52,13 @@ func (r *recordingGroupRouter) registerGroup(groupID uint64, s *Store) {
 
 func (r *recordingGroupRouter) unregisterGroup(groupID uint64) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	fn := r.onUnregister
 	delete(r.registered, groupID)
 	r.unregistered[groupID] = true
+	r.mu.Unlock()
+	if fn != nil {
+		fn(groupID)
+	}
 }
 
 func (r *recordingGroupRouter) RouteMessage(groupID uint64, msg raftpb.Message) error {
@@ -128,12 +135,37 @@ func buildTeardownRaft(t *testing.T, className string) (*Raft, *recordingGroupRo
 func startStoreAndAwaitLeader(t *testing.T, r *Raft, shardName string) *Store {
 	t.Helper()
 
-	store, err := r.GetOrCreateStore(context.Background(), shardName, []string{"node1"})
+	store, err := r.GetOrCreateStore(context.Background(), shardName, []string{"node1"}, "")
 	require.NoError(t, err)
 	require.NoError(t, store.Start(context.Background()))
 	require.Eventually(t, store.IsLeader, 5*time.Second, 10*time.Millisecond,
 		"single-voter group must elect itself")
 	return store
+}
+
+// TestRaft_OnShardDropped_StopsStoreBeforeUnregister pins the teardown
+// order every path (Shutdown, StopStore, OnShardDropped) must share: the
+// Store stops first — Stop waits for the Ready loop, the group's only
+// transport.Send source — and only then is the group unregistered, so
+// unregisterGroup's transport stripe teardown can never race a live Send
+// re-creating a stripe for the dying group.
+func TestRaft_OnShardDropped_StopsStoreBeforeUnregister(t *testing.T) {
+	r, router, _, _ := buildTeardownRaft(t, "TeardownOrderClass")
+	store := startStoreAndAwaitLeader(t, r, "order-shard")
+
+	loopExitedAtUnregister := false
+	router.onUnregister = func(uint64) {
+		select {
+		case <-store.loopDone:
+			loopExitedAtUnregister = true
+		default:
+		}
+	}
+
+	require.NoError(t, r.OnShardDropped("order-shard"))
+	require.True(t, router.wasUnregistered(store.GroupID()))
+	require.True(t, loopExitedAtUnregister,
+		"unregisterGroup must fire only after Store.Stop drained the Ready loop")
 }
 
 func TestRaft_OnShardDropped(t *testing.T) {

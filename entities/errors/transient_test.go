@@ -19,6 +19,7 @@ import (
 
 	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func TestIsTransient(t *testing.T) {
@@ -60,6 +61,25 @@ func TestIsTransient(t *testing.T) {
 		{
 			name: "ENOSPC wrapped via pkg/errors.Wrapf (as used in hfresh)",
 			err:  pkgerrors.Wrapf(&os.PathError{Op: "write", Path: "/var/lib/weaviate/foo", Err: syscall.ENOSPC}, "failed to upsert new centroid %d after split operation", 8178),
+			want: true,
+		},
+		{
+			name: "bare read-only sentinel",
+			err:  storagestate.ErrStatusReadOnly,
+			want: true,
+		},
+		{
+			// The exact error of the resource-pressure guardrail flip: the
+			// with-reason constructor must wrap the sentinel so the two
+			// read-only surfaces (bucket-level bare sentinel, shard-level
+			// with-reason) classify identically.
+			name: "read-only with reason (resource pressure guardrail)",
+			err:  storagestate.ErrStatusReadOnlyWithReason("resource pressure"),
+			want: true,
+		},
+		{
+			name: "read-only with reason wrapped via fmt.Errorf %w",
+			err:  fmt.Errorf("batch put: %w", storagestate.ErrStatusReadOnlyWithReason("resource pressure")),
 			want: true,
 		},
 		{

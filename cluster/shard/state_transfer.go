@@ -282,9 +282,16 @@ func (st *StateTransfer) downloadFile(
 			return fmt.Errorf("CRC32 mismatch for %s: expected %d, got %d", meta.Name, meta.Crc32, checksum)
 		}
 
-		// Atomically move into place.
+		// Atomically move into place. The rename's directory entry must be
+		// fsynced too: installSnapshot compacts the raft log right after the
+		// transfer completes, so a power loss that rolls back an un-synced
+		// rename would leave the shard missing files with the entries that
+		// could have rebuilt it already discarded.
 		if err := os.Rename(tmpPath, localFilePath); err != nil {
 			return fmt.Errorf("rename %s to %s: %w", tmpPath, localFilePath, err)
+		}
+		if err := fsyncDir(filepath.Dir(localFilePath)); err != nil {
+			return fmt.Errorf("fsync dir after rename of %s: %w", localFilePath, err)
 		}
 
 		return nil
@@ -365,4 +372,16 @@ func (st *StateTransfer) cleanupLocalFiles(className, shardName string, remoteFi
 	}
 
 	return nil
+}
+
+// fsyncDir makes directory-entry mutations (renames into dir) durable. File
+// content fsync alone does not persist the rename: both are needed before
+// the raft log prefix that could rebuild the file is compacted.
+func fsyncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }

@@ -32,11 +32,11 @@ type fakeFlusher struct {
 	mu      sync.Mutex
 	calls   int
 	err     error
-	block   chan struct{} // if non-nil, FlushMemtables waits until closed
-	started chan struct{} // if non-nil, signalled when FlushMemtables is entered
+	block   chan struct{} // if non-nil, FlushForSnapshot waits until closed
+	started chan struct{} // if non-nil, signalled when FlushForSnapshot is entered
 }
 
-func (f *fakeFlusher) FlushMemtables(ctx context.Context) error {
+func (f *fakeFlusher) FlushForSnapshot(ctx context.Context) error {
 	f.mu.Lock()
 	f.calls++
 	f.mu.Unlock()
@@ -83,7 +83,7 @@ func TestSnapshotter_WritesSnapshotFile(t *testing.T) {
 	assert.Equal(t, got.Metadata, onDisk)
 }
 
-func TestSnapshotter_CallsFlushMemtables(t *testing.T) {
+func TestSnapshotter_CallsFlushForSnapshot(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	s := NewSnapshotter(SnapshotterOptions{RootDataPath: t.TempDir(), Logger: logger})
 	defer s.Close()

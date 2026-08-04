@@ -13,20 +13,17 @@ package shard
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	"github.com/weaviate/weaviate/cluster/shard/sharedlog"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -41,8 +38,14 @@ type groupRouter interface {
 	unregisterGroup(groupID uint64)
 }
 
-// sharedRaftLogName is the bbolt file holding every shard group's raft log.
-const sharedRaftLogName = "shard-raft-log.db"
+// sharedRaftLogName is the WAL directory holding every shard group's raft
+// log (the node-wide segmented shared log).
+const sharedRaftLogName = "shard-raft-log"
+
+// legacyBboltLogName is the bbolt file a previous build of this unreleased
+// branch stored the shared log in. It is ignored (with a warning) — the WAL
+// bootstraps fresh, which is crash-equivalent for raft state.
+const legacyBboltLogName = "shard-raft-log.db"
 
 // rpcClientMaker creates a gRPC client to the shard replication service on
 // the node identified by nodeID. The closure resolves the nodeID to the
@@ -65,9 +68,14 @@ type RegistryConfig struct {
 	RpcClientMaker rpcClientMaker
 
 	// RAFT timing configuration
-	HeartbeatTimeout  time.Duration
-	ElectionTimeout   time.Duration
-	SnapshotThreshold uint64
+	HeartbeatTimeout       time.Duration
+	ElectionTimeout        time.Duration
+	SnapshotThreshold      uint64
+	SnapshotBytesThreshold uint64
+	// SnapshotMinInterval is the age floor for small groups: retained
+	// entries older than this trigger a snapshot even when the entry/byte
+	// thresholds never fire. 0 disables the age trigger.
+	SnapshotMinInterval time.Duration
 
 	// MaxConcurrentSnapshots bounds the per-node snapshot worker pool.
 	MaxConcurrentSnapshots int
@@ -90,7 +98,11 @@ type Registry struct {
 	log            logrus.FieldLogger
 	RpcClientMaker rpcClientMaker
 
-	muxTransport *MuxTransport
+	// muxTransport is written by Start and Shutdown (under startMu) but also
+	// read by unregisterGroup — which runs on shard unload/drop paths that
+	// may race Shutdown and must NOT take startMu (Shutdown holds it while
+	// the raft.Shutdown chain calls unregisterGroup) — hence atomic.
+	muxTransport atomic.Pointer[MuxTransport]
 	sharedLog    *sharedlog.Store
 	snapshotter  *Snapshotter
 	nodeIDs      *nodeIDMap
@@ -146,6 +158,12 @@ func (reg *Registry) Start() error {
 	// Node-wide shared raft infrastructure consumed by every Store.
 	reg.nodeIDs = newNodeIDMap()
 
+	legacy := filepath.Join(reg.config.DataPath, legacyBboltLogName)
+	if fi, statErr := os.Stat(legacy); statErr == nil && !fi.IsDir() {
+		reg.log.Warnf("ignoring legacy bbolt shared raft log at %s: superseded by the segmented WAL at %s; delete the file to reclaim disk space",
+			legacy, filepath.Join(reg.config.DataPath, sharedRaftLogName))
+	}
+
 	reg.sharedLog, err = sharedlog.Open(sharedlog.Options{
 		Path:   filepath.Join(reg.config.DataPath, sharedRaftLogName),
 		Logger: reg.log,
@@ -160,12 +178,13 @@ func (reg *Registry) Start() error {
 		Workers:      reg.config.MaxConcurrentSnapshots,
 	})
 
-	reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.nodeIDs, reg, reg.log, 0)
+	mt, err := NewMuxTransport(bindAddr, tcpAddr, provider, reg.nodeIDs, reg, reg.log, 0)
 	if err != nil {
 		_ = reg.snapshotter.Close()
 		_ = reg.sharedLog.Close()
 		return fmt.Errorf("create mux transport: %w", err)
 	}
+	reg.muxTransport.Store(mt)
 
 	reg.started = true
 	reg.log.WithFields(logrus.Fields{
@@ -196,12 +215,11 @@ func (reg *Registry) Shutdown() error {
 	// Close shared infrastructure after all Stores' Ready loops have drained:
 	// transport first (no more inbound routing), then the snapshot pool, then
 	// the shared log.
-	if reg.muxTransport != nil {
-		if err := reg.muxTransport.Close(); err != nil {
-			reg.log.WithError(err).Error("error closing mux transport")
+	if mt := reg.muxTransport.Swap(nil); mt != nil {
+		if err := mt.Close(); err != nil {
+			reg.log.Errorf("error closing mux transport: %v", err)
 			lastErr = err
 		}
-		reg.muxTransport = nil
 	}
 	if reg.snapshotter != nil {
 		if err := reg.snapshotter.Close(); err != nil {
@@ -238,19 +256,21 @@ func (reg *Registry) GetOrCreateRaft(className string) (*Raft, error) {
 	}
 
 	raftConfig := RaftConfig{
-		ClassName:         className,
-		NodeID:            reg.config.NodeID,
-		Logger:            reg.config.Logger,
-		HeartbeatTimeout:  reg.config.HeartbeatTimeout,
-		ElectionTimeout:   reg.config.ElectionTimeout,
-		SnapshotThreshold: reg.config.SnapshotThreshold,
-		StateTransferer:   reg.config.StateTransferer,
-		MuxTransport:      reg.muxTransport,
-		SharedLog:         reg.sharedLog,
-		Snapshotter:       reg.snapshotter,
-		NodeIDs:           reg.nodeIDs,
-		Resolver:          reg.config.AddressResolver,
-		GroupRouter:       reg,
+		ClassName:              className,
+		NodeID:                 reg.config.NodeID,
+		Logger:                 reg.config.Logger,
+		HeartbeatTimeout:       reg.config.HeartbeatTimeout,
+		ElectionTimeout:        reg.config.ElectionTimeout,
+		SnapshotThreshold:      reg.config.SnapshotThreshold,
+		SnapshotBytesThreshold: reg.config.SnapshotBytesThreshold,
+		SnapshotMinInterval:    reg.config.SnapshotMinInterval,
+		StateTransferer:        reg.config.StateTransferer,
+		MuxTransport:           reg.muxTransport.Load(),
+		SharedLog:              reg.sharedLog,
+		Snapshotter:            reg.snapshotter,
+		NodeIDs:                reg.nodeIDs,
+		Resolver:               reg.config.AddressResolver,
+		GroupRouter:            reg,
 	}
 
 	raft := NewRaft(raftConfig)
@@ -353,9 +373,11 @@ func (reg *Registry) SetStateTransferer(st StateTransferer) {
 }
 
 // WaitForShardReady ensures the local replica for a shard has caught up to
-// the leader's applied index. If this node is the leader, it returns
-// immediately. This is used before local reads that follow a write to avoid
-// reading stale state on followers.
+// every acknowledged write, so a local read that follows a write does not
+// observe stale state. Apply acks at quorum commit, so even the leader's
+// local state can lag an acked write — the leader waits for its own apply
+// pipeline to cover the committed-staged watermark; a follower asks the
+// leader for that watermark and waits for it locally.
 func (reg *Registry) WaitForShardReady(ctx context.Context, className, shardName string) error {
 	store := reg.GetStore(className, shardName)
 	if store == nil {
@@ -363,7 +385,7 @@ func (reg *Registry) WaitForShardReady(ctx context.Context, className, shardName
 	}
 
 	if store.IsLeader() {
-		return nil // leader is always caught up
+		return store.WaitForAppliedIndex(ctx, store.CommittedIndex())
 	}
 
 	leaderID := store.LeaderID()
@@ -454,88 +476,12 @@ func (reg *Registry) Stats() map[string]interface{} {
 	stats["total_indices"] = indexCount
 	stats["total_stores"] = totalStores
 	stats["leader_stores"] = totalLeaders
+	if reg.sharedLog != nil {
+		// Groups quarantined by WAL boot validation (stores refuse to start;
+		// see sharedlog validateGroups / ErrGroupPoisoned).
+		stats["poisoned_groups"] = reg.sharedLog.PoisonedGroupCount()
+	}
 	return stats
-}
-
-func (reg *Registry) Execute(ctx context.Context, req *shardproto.ApplyRequest) (uint64, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWrites.WithLabelValues(
-			req.Type.String(),
-		))
-	defer t.ObserveDuration()
-
-	var schemaVersion uint64
-	err := backoff.Retry(func() error {
-		var err error
-		store := reg.GetStore(req.Class, req.Shard)
-		if store == nil {
-			err = fmt.Errorf("raft store not found for shard %s/%s", req.Class, req.Shard)
-			reg.log.Warnf("apply: %s", err)
-			return backoff.Permanent(err)
-		}
-
-		// Validate the apply first
-		if _, ok := shardproto.ApplyRequest_Type_name[int32(req.Type.Number())]; !ok {
-			err = types.ErrUnknownCommand
-			// This is an invalid apply command, don't retry
-			return backoff.Permanent(err)
-		}
-
-		// We are the leader, let's apply
-		if store.IsLeader() {
-			schemaVersion, err = store.Apply(ctx, req)
-			// Retry on leadership churn (losing/transferring leadership) and
-			// on leader-side proposal backpressure (uncommitted raft log over
-			// its bound) — both are transient at this node.
-			if errors.Is(err, ErrNotLeader) || errors.Is(err, ErrLeadershipLost) || errors.Is(err, ErrProposalBackpressure) {
-				return err
-			}
-			return backoff.Permanent(err)
-		}
-
-		leaderID := store.LeaderID()
-		if leaderID == "" {
-			err = reg.leaderErr(req.Class, req.Shard)
-			reg.log.Warnf("apply: could not find leader: %s", err)
-			return err
-		}
-
-		client, err := reg.RpcClientMaker(ctx, leaderID)
-		if err != nil {
-			err = fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
-			reg.log.Warnf("apply: %s", err)
-			return backoff.Permanent(err)
-		}
-
-		var resp *shardproto.ApplyResponse
-		resp, err = client.Apply(ctx, req)
-		if err != nil {
-			// Don't retry if the actual apply to the leader failed, we have retry at the network layer already
-			return backoff.Permanent(err)
-		}
-		schemaVersion = resp.Version
-		return nil
-		// pass in the election timeout after applying multiplier
-	}, backoffConfig(ctx, reg.config.ElectionTimeout))
-
-	return schemaVersion, err
-}
-
-// leaderErr decorates ErrLeaderNotFound by distinguishing between
-// normal election happening and there is no leader been chosen yet
-// and if it can't reach the other nodes either for intercluster
-// communication issues or other nodes were down.
-func (reg *Registry) leaderErr(class, shard string) error {
-	// store := reg.GetStore(class, shard)
-	// if store != nil && store.raftResolver != nil && len(store.raftResolver.NotResolvedNodes()) > 0 {
-	// 	var nodes []string
-	// 	for n := range store.raftResolver.NotResolvedNodes() {
-	// 		nodes = append(nodes, string(n))
-	// 	}
-
-	// 	return fmt.Errorf("%w, can not resolve nodes [%s]", types.ErrLeaderNotFound, strings.Join(nodes, ","))
-	// }
-	return types.ErrLeaderNotFound
 }
 
 // RouteMessage delivers an inbound raft message to the Store that owns the
@@ -544,10 +490,26 @@ func (reg *Registry) leaderErr(class, shard string) error {
 // before the Store has registered.
 func (reg *Registry) RouteMessage(groupID uint64, msg raftpb.Message) error {
 	if v, ok := reg.groups.Load(groupID); ok {
+		shardRaftMessages.WithLabelValues("route", msgClass(msg.Type), groupLabel(groupID)).Inc()
 		v.(*Store).step(msg)
+		return nil
+	}
+	// Unknown group: normal only in the short window between a peer creating
+	// a group and this node registering its store. Persistent drops here mean
+	// a ghost group or registration loss — count and say so.
+	shardRaftDropped.WithLabelValues(dropSiteRouteUnknownGroup).Inc()
+	if routeDropLog.Allow(groupLabel(groupID)) {
+		reg.log.WithFields(logrus.Fields{
+			"group": groupID,
+			"type":  msg.Type.String(),
+			"from":  msg.From,
+		}).Warn("dropping inbound raft message for unknown group")
 	}
 	return nil
 }
+
+// routeDropLog rate-limits unknown-group WARNs per group ID.
+var routeDropLog = newLogLimiter(time.Second)
 
 // registerGroup adds a Store to the node-wide message-routing table.
 // A groupID collision between distinct shards is an unrecoverable hash
@@ -563,7 +525,17 @@ func (reg *Registry) registerGroup(groupID uint64, s *Store) {
 	}
 }
 
-// unregisterGroup removes a Store from the message-routing table.
+// unregisterGroup removes a Store from the message-routing table and retires
+// the group's transport bulk stripes (queued frames discarded and counted at
+// send_group_removed, writer goroutines and streams reaped). Callers must
+// have stopped the Store first — Stop waits for the Ready loop, the group's
+// only Send source — or a racing Send re-creates a stripe that then idles
+// until transport Close. Safe against a concurrent Registry.Shutdown: the
+// transport pointer is read atomically, and removeGroup on a closing
+// transport is a no-op (Close discards every lane and reaps every writer).
 func (reg *Registry) unregisterGroup(groupID uint64) {
 	reg.groups.Delete(groupID)
+	if mt := reg.muxTransport.Load(); mt != nil {
+		mt.removeGroup(groupID)
+	}
 }

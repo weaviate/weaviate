@@ -262,18 +262,70 @@ func TestMuxTransport_SessionReconnect(t *testing.T) {
 	nodes := setupMuxNodes(t, 2, logger)
 
 	addr1 := nodes[1].mux.listener.Addr().String()
-	session1, err := nodes[0].mux.getOrDialSession(addr1)
+	session1, err := nodes[0].mux.getOrDialSession(addr1, laneClassBulk)
 	require.NoError(t, err)
 	require.False(t, session1.IsClosed())
 
 	session1.Close()
 	require.True(t, session1.IsClosed())
 
-	session2, err := nodes[0].mux.getOrDialSession(addr1)
+	session2, err := nodes[0].mux.getOrDialSession(addr1, laneClassBulk)
 	require.NoError(t, err)
 	require.False(t, session2.IsClosed())
 
 	assert.NotSame(t, session1, session2)
+}
+
+// TestMuxTransport_SessionsPerClassIndependent verifies the (address, class)
+// session keying: the two classes of one peer hold distinct sessions, and
+// closing one class's session neither touches the other's nor changes it —
+// only the closed class redials.
+func TestMuxTransport_SessionsPerClassIndependent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	nodes := setupMuxNodes(t, 2, logger)
+
+	addr1 := nodes[1].mux.listener.Addr().String()
+	bulk, err := nodes[0].mux.getOrDialSession(addr1, laneClassBulk)
+	require.NoError(t, err)
+	prio, err := nodes[0].mux.getOrDialSession(addr1, laneClassPriority)
+	require.NoError(t, err)
+	assert.NotSame(t, bulk, prio, "classes must not share a session")
+
+	require.NoError(t, bulk.Close())
+
+	prio2, err := nodes[0].mux.getOrDialSession(addr1, laneClassPriority)
+	require.NoError(t, err)
+	assert.Same(t, prio, prio2, "closing bulk must not replace the priority session")
+	assert.False(t, prio.IsClosed(), "closing bulk must not close the priority session")
+
+	bulk2, err := nodes[0].mux.getOrDialSession(addr1, laneClassBulk)
+	require.NoError(t, err)
+	assert.NotSame(t, bulk, bulk2, "the closed bulk class must redial")
+	assert.False(t, bulk2.IsClosed())
+}
+
+// TestMuxTransport_InboundSessionsSweptOnDisconnect pins the inbound-session
+// ledger: a dead inbound session is removed when its stream handler exits,
+// so peer reconnect churn cannot accumulate dead sessions until transport
+// Close.
+func TestMuxTransport_InboundSessionsSweptOnDisconnect(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	nodes := setupMuxNodes(t, 2, logger)
+
+	addr1 := nodes[1].mux.listener.Addr().String()
+	for i := 0; i < 5; i++ {
+		s, err := nodes[0].mux.getOrDialSession(addr1, laneClassBulk)
+		require.NoError(t, err)
+		require.NoError(t, s.Close())
+	}
+
+	require.Eventually(t, func() bool {
+		nodes[1].mux.sessionsMu.RLock()
+		n := len(nodes[1].mux.inbound)
+		nodes[1].mux.sessionsMu.RUnlock()
+		return n == 0
+	}, 3*time.Second, 10*time.Millisecond,
+		"dead inbound sessions must be swept, not accumulated until Close")
 }
 
 // decodeFrames splits a concatenated frame buffer back into (groupID, message)
@@ -311,14 +363,14 @@ func TestHeartbeatCoalescer_EnqueueTake(t *testing.T) {
 	require.ElementsMatch(t, []uint64{1, 2}, c.peers(nil))
 
 	// Destination 1 holds two concatenated frames, in enqueue order.
-	groups, msgs := decodeFrames(t, c.take(1, nil))
+	groups, msgs := decodeFrames(t, c.take(1))
 	assert.Equal(t, []uint64{10, 20}, groups)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, uint64(2), msgs[0].Term)
 	assert.Equal(t, uint64(3), msgs[1].Term)
 
-	// take resets destination 1 but leaves destination 2 intact.
-	assert.Empty(t, c.take(1, nil), "take should reset the destination buffer")
+	// take transfers ownership and resets destination 1, leaving 2 intact.
+	assert.Empty(t, c.take(1), "take should reset the destination buffer")
 	assert.Equal(t, []uint64{2}, c.peers(nil))
 }
 

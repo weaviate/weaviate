@@ -42,7 +42,10 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 	}
 
 	if s.isRaftReplicated() {
-		options = append(options, lsmkv.WithWALDisabled())
+		options = append(options,
+			lsmkv.WithWALDisabled(),
+			lsmkv.WithRaftIndexSource(s.raftAppliedIndex),
+		)
 	}
 
 	switch strategy {
