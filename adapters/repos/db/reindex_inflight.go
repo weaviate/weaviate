@@ -29,6 +29,18 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
+// reindexBlockReason says which gate refused, so the refusal can give advice
+// that matches: a cancelled task mid-teardown must not be described as one the
+// operator can still cancel.
+type reindexBlockReason int
+
+const (
+	reindexNotBlocked reindexBlockReason = iota
+	reindexBlockedByLiveTask
+	reindexBlockedByCleanup
+	reindexBlockedPreWire
+)
+
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
 //
@@ -44,12 +56,12 @@ var unwiredGateWarnOnce sync.Once
 // install path; production HTTP gates on bootstrap completion so the
 // unwired window is unreachable by external traffic.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
-	if db.config.RuntimeReindexDisabled {
-		// Runtime reindex is off, so no new task can start. Return before
-		// consulting the lookup so the backup path makes no reindex check
-		// at all — the pre-gate behavior this restores.
-		return false
-	}
+	return db.reindexBlockReason(collection, shardName) != reindexNotBlocked
+}
+
+// reindexBlockReason is AnyLiveReindexForShard's answer with the branch kept,
+// so the refusal can match its advice to what actually blocked.
+func (db *DB) reindexBlockReason(collection, shardName string) reindexBlockReason {
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
@@ -64,11 +76,11 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 				Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
 					"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
 		})
-		return false
+		return reindexNotBlocked
 	}
 	lookup := activityBuilder()
 	if lookup == nil {
-		return false
+		return reindexNotBlocked
 	}
 	if lookup(collection, shardName) {
 		// Debug-level so flag-on operators get visibility into which
@@ -81,7 +93,7 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 				WithField("reason", "activity_lookup_live_task").
 				Debug("backup-reindex gate: refusing — DTM lists a live reindex task on this shard")
 		}
-		return true
+		return reindexBlockedByLiveTask
 	}
 	// Cleanup lookup is OR-d in: the DTM task may have flipped to
 	// terminal while autoCleanupAfterTerminal is still tearing the
@@ -89,11 +101,11 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	// wiring paths and test fixtures that install only the activity
 	// lookup keep the prior semantics.
 	if cleanupBuilder == nil {
-		return false
+		return reindexNotBlocked
 	}
 	cleanupLookup := cleanupBuilder()
 	if cleanupLookup == nil {
-		return false
+		return reindexNotBlocked
 	}
 	if cleanupLookup(collection, shardName) {
 		if db.logger != nil {
@@ -103,9 +115,9 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 				WithField("reason", "cleanup_in_progress").
 				Debug("backup-reindex gate: refusing — autoCleanupAfterTerminal still draining sidecars on this shard")
 		}
-		return true
+		return reindexBlockedByCleanup
 	}
-	return false
+	return reindexNotBlocked
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
@@ -132,9 +144,10 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.
-		return reindexInFlightError(collection, true)
+		return reindexInFlightError(collection, reindexBlockedPreWire)
 	}
-	if !i.db.AnyLiveReindexForShard(collection, shardName) {
+	reason := i.db.reindexBlockReason(collection, shardName)
+	if reason == reindexNotBlocked {
 		return nil
 	}
 	// The shard is what an operator needs to act on, and it is the one thing
@@ -146,7 +159,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 			WithField("node", i.db.localNodeName).
 			Warn("backup-reindex gate: refused a backup; a runtime-reindex is live on this shard")
 	}
-	return reindexInFlightError(collection, false)
+	return reindexInFlightError(collection, reason)
 }
 
 // reindexInFlightError formats the operator-facing rejection. The
@@ -157,17 +170,27 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // backing up a collection grants nothing on either. The caller already named
 // the collection, and the shard and node reach the operator through the log in
 // [Index.refuseIfReindexInFlight].
-func reindexInFlightError(collection string, preWire bool) error {
-	if preWire {
+func reindexInFlightError(collection string, reason reindexBlockReason) error {
+	switch reason {
+	case reindexBlockedPreWire:
 		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
 			"%s: collection %q: backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
 			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
 		)}
+	case reindexBlockedByCleanup:
+		// No cancel advice here: the task this is cleaning up after is already
+		// cancelled, and telling the operator to cancel it sends them looking
+		// for something that is gone.
+		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+			"%s: collection %q: a cancelled migration is still removing its temporary index files; retry once the cleanup finishes (usually a few seconds)",
+			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
+		)}
+	default:
+		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+			"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
+		)}
 	}
-	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
-		"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
-		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-	)}
 }
 
 // NoSearchableIndexHint identifies which `PUT /v1/schema/{class}/indexes/{prop}`
