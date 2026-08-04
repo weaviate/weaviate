@@ -13,6 +13,8 @@ package db
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestMigrationDirName pins the wire-format dir names each strategy produces.
@@ -142,4 +144,17 @@ func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T
 				got, MigrationDirSearchableMapToBlockmax)
 		}
 	}
+}
+
+// TestMigrationDirsForPropertyIndex_RangeableIsNotAFilterableDir pins the
+// separation between the two families. Listing the rangeable tracker under
+// "filterable" would let an orphaned rangeable tracker wedge an unrelated
+// filterable-family task's LocalCallbacksDone forever, and let
+// DELETE /indexes/filterable sweep a live rangeable tracker
+// (weaviate/0-weaviate-issues#465).
+func TestMigrationDirsForPropertyIndex_RangeableIsNotAFilterableDir(t *testing.T) {
+	rangeableDir := migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{"price"})
+
+	require.NotContains(t, migrationDirsForPropertyIndex("price", "filterable"), rangeableDir)
+	require.Contains(t, migrationDirsForPropertyIndex("price", "rangeable"), rangeableDir)
 }

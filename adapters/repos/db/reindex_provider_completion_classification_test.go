@@ -111,6 +111,40 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("enable-rangeable tolerates a missing property", func(t *testing.T) {
+		// Without the rangeable arm this returns "unexpected semantic
+		// migration type" and every converted task dies at completion.
+		p := newClassificationProvider(&models.Class{Class: "Docs"})
+		payload := &ReindexTaskPayload{
+			MigrationType: ReindexTypeEnableRangeable,
+			Collection:    "Docs",
+			Properties:    []string{"price"},
+		}
+		require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger))
+	})
+
+	t.Run("rangeable flip is a no-op when the flag is already true", func(t *testing.T) {
+		// The mutator returns apply=false, so no RAFT command is built —
+		// which is why repair-rangeable (flag true at submit) can share
+		// the arm. A commit attempt would panic on the stub's nil Handler.
+		trueVal := true
+		cls := &models.Class{
+			Class: "Docs",
+			Properties: []*models.Property{
+				{Name: "price", IndexRangeFilters: &trueVal},
+			},
+		}
+		for _, mt := range []ReindexMigrationType{ReindexTypeEnableRangeable, ReindexTypeRepairRangeable} {
+			p := newClassificationProvider(cls)
+			payload := &ReindexTaskPayload{
+				MigrationType: mt,
+				Collection:    "Docs",
+				Properties:    []string{"price"},
+			}
+			require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger), mt)
+		}
+	})
+
 	t.Run("enable-searchable tolerates a missing property", func(t *testing.T) {
 		p := newClassificationProvider(&models.Class{Class: "Docs"})
 		payload := &ReindexTaskPayload{
