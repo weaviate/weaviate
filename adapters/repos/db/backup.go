@@ -63,6 +63,10 @@ const (
 //
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.
+//
+// The one case that does short circuit is an unreachable cluster leader:
+// reindex state is then unknown for every shard, so there is nothing
+// per-shard to say and a single refusal is returned instead.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One shared snapshot for the whole precheck: resolving it is a
@@ -87,9 +91,18 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			continue
 		}
 		for _, shardName := range shards {
-			if err := idx.refuseIfReindexInFlightWithGate(gate, shardName); err != nil {
-				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
+			err := idx.refuseIfReindexInFlightWithGate(gate, shardName)
+			if err == nil {
+				continue
 			}
+			if gate.stateUnknown() {
+				// The leader query failed, so no shard's state is
+				// known. Refuse once for the whole node: judging shards
+				// individually would name every one of them as
+				// reindexing when none may be.
+				return err
+			}
+			errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
 		}
 	}
 	if len(errs) > 0 {

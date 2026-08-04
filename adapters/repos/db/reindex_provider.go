@@ -1780,8 +1780,8 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 type CleanupInProgressLookup func(collection, shard string) bool
 
 // CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
-// builder pattern used by [ShardReindexActivityLookupBuilder] so the
-// wiring in configure_api.go can install both lookups identically.
+// builder pattern used by [ShardReindexActivityLookupBuilder], minus its
+// error return: this one reads a local registry and cannot fail.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures

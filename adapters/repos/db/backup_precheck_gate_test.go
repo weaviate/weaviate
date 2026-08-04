@@ -198,10 +198,10 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	// First snapshot reports every shard busy, later ones none — this
 	// distinguishes "one snapshot per pass" from "one per shard".
 	taken := 0
-	counter := &countingActivityBuilder{snapshots: func() ShardReindexActivityLookup {
+	counter := &countingActivityBuilder{snapshots: func() (ShardReindexActivityLookup, error) {
 		taken++
 		busy := taken == 1
-		return func(string, string) bool { return busy }
+		return func(string, string) bool { return busy }, nil
 	}}
 	counter.install(db)
 
@@ -213,17 +213,18 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	require.Equal(t, 1, builds)
 }
 
-// TestBackupable_UnreachableTaskManagerRefusesEveryShard pins that a
-// failed DTM query (its snapshot reports every shard busy) refuses the
-// whole pass, not just the first shard.
-func TestBackupable_UnreachableTaskManagerRefusesEveryShard(t *testing.T) {
+// TestBackupable_LiveReindexOnEveryShardNamesEveryShard pins that a
+// genuine reindex covering the whole node refuses the whole pass, not
+// just the first shard, and names each refused shard. This is the
+// response body operators parse, so it stays per-shard.
+func TestBackupable_LiveReindexOnEveryShardNamesEveryShard(t *testing.T) {
 	for _, shardCount := range []int{3, 12} {
 		t.Run(fmt.Sprintf("%d shards", shardCount), func(t *testing.T) {
 			const className = "FailClosedCls"
 			shards := precheckShards(className, shardCount)
 			db := precheckDB(t, []precheckClass{{name: className, shards: shards}})
-			counter := &countingActivityBuilder{snapshots: func() ShardReindexActivityLookup {
-				return func(string, string) bool { return true }
+			counter := &countingActivityBuilder{snapshots: func() (ShardReindexActivityLookup, error) {
+				return func(string, string) bool { return true }, nil
 			}}
 			counter.install(db)
 
@@ -265,4 +266,50 @@ func TestBackupable_IndexWithoutDBRefusesEveryShard(t *testing.T) {
 	require.Contains(t, err.Error(), "startup window")
 	builds, _ := counter.stats()
 	require.Equal(t, 0, builds, "an index that cannot consult the gate must not query DTM")
+}
+
+// TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards pins the
+// refusal for "the leader query failed": one message stating that reindex
+// state is unknown, the same length whatever the node holds. Naming shards
+// here claimed a reindex on every one of them — 50 of 50 with none running
+// anywhere, and a 7 MB body on a 20,000-shard node.
+func TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards(t *testing.T) {
+	leaderErr := errors.New("list DTM tasks: leader not found")
+
+	var bodyLen []int
+	for _, shardCount := range []int{3, 50, 301} {
+		t.Run(fmt.Sprintf("%d shards", shardCount), func(t *testing.T) {
+			const className = "UnknownStateCls"
+			shards := precheckShards(className, shardCount)
+			db := precheckDB(t, []precheckClass{{name: className, shards: shards}})
+			counter := &countingActivityBuilder{snapshots: func() (ShardReindexActivityLookup, error) {
+				return nil, leaderErr
+			}}
+			counter.install(db)
+
+			err := db.Backupable(testCtx(), []string{className})
+
+			require.Error(t, err)
+			require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
+				"the refusal stays fail-closed and keeps the sentinel")
+			require.Empty(t, blockedShards(err, shards),
+				"no shard's state is known, so no shard may be named")
+			require.NotContains(t, err.Error(), "active runtime-reindex task in DTM",
+				"no reindex is known to exist; claiming one sends operators after a task that may not be there")
+			require.NotContains(t, err.Error(), "cancel",
+				"there is no task to cancel")
+			require.Contains(t, err.Error(), "cluster leader could not be reached")
+			require.Contains(t, err.Error(), leaderErr.Error(), "the underlying cause stays visible")
+			require.NotContains(t, err.Error(), "\n", "one refusal, not one per shard")
+
+			builds, probed := counter.stats()
+			require.Equal(t, 1, builds)
+			require.Empty(t, probed, "a failed resolution has nothing to judge shards against")
+			bodyLen = append(bodyLen, len(err.Error()))
+		})
+	}
+	if len(bodyLen) == 3 {
+		require.Equal(t, []int{bodyLen[0], bodyLen[0], bodyLen[0]}, bodyLen,
+			"the refusal must not grow with shard count")
+	}
 }

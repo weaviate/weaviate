@@ -28,10 +28,10 @@ import (
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
 // reports a fixed set of (collection, shard) pairs as live.
 func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuilder {
-	return func() ShardReindexActivityLookup {
+	return func() (ShardReindexActivityLookup, error) {
 		return func(collection, shardName string) bool {
 			return live[[2]string{collection, shardName}]
-		}
+		}, nil
 	}
 }
 
@@ -48,17 +48,20 @@ type countingActivityBuilder struct {
 }
 
 func (c *countingActivityBuilder) install(db *DB) {
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		c.mu.Lock()
 		c.builds++
 		c.mu.Unlock()
-		lookup := c.snapshots()
+		lookup, err := c.snapshots()
+		if err != nil {
+			return nil, err
+		}
 		return func(collection, shardName string) bool {
 			c.mu.Lock()
 			c.probed = append(c.probed, [2]string{collection, shardName})
 			c.mu.Unlock()
 			return lookup(collection, shardName)
-		}
+		}, nil
 	})
 }
 
@@ -135,8 +138,8 @@ func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
 // a misconfigured wiring).
 func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 	db := &DB{}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return nil
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, nil
 	})
 	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
 		"nil lookup must allow (same path as unwired)")
@@ -253,4 +256,40 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 
 	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
+}
+
+// TestRefuseIfReindexInFlight_UnreachableLeaderStatesTheCause pins that
+// the single-shard caller (replica movement, and each shard of a backup
+// execution pass) reports the leader failure as itself, rather than
+// borrowing the live-reindex wording.
+func TestRefuseIfReindexInFlight_UnreachableLeaderStatesTheCause(t *testing.T) {
+	leaderErr := errors.New("list DTM tasks: leader not found")
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, leaderErr
+	})
+	idx := &Index{
+		db:     db,
+		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
+	}
+
+	err := idx.refuseIfReindexInFlight("ABC123")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
+		"unknown state stays fail-closed")
+	assert.Contains(t, err.Error(), "cluster leader could not be reached")
+	assert.Contains(t, err.Error(), leaderErr.Error())
+	assert.NotContains(t, err.Error(), "active runtime-reindex task in DTM")
+	assert.NotContains(t, err.Error(), "cancel")
+}
+
+// TestAnyLiveReindexForShard_UnreachableLeaderIsBlocked pins that the
+// boolean form stays fail-closed when cluster state cannot be read.
+func TestAnyLiveReindexForShard_UnreachableLeaderIsBlocked(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, errors.New("leader not found")
+	})
+	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"unknown reindex state must block, not allow")
 }

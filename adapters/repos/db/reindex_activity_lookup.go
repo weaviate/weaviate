@@ -17,12 +17,18 @@ package db
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot.
-type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
+// ShardReindexActivityLookupBuilder returns a fresh snapshot, or an error
+// if cluster-wide reindex state could not be read at all (the RAFT leader
+// was unreachable). The error case is not "no reindex is running" and it
+// is not "a reindex is running on this shard" either — it is "unknown for
+// every shard", and the gate refuses the whole pass with one message
+// saying so. Reporting it as an error rather than as a lookup that
+// answers true keeps that distinction, which the refusal text needs.
+type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error)
 
 // SetShardReindexActivityLookup installs the builder used by the backup
-// gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
-// precheck to obtain a fresh DTM snapshot.
+// gate ([DB.AnyLiveReindexForShard]). The builder is invoked once per
+// backup pass to obtain a fresh DTM snapshot.
 //
 // Calls before installation default to "no live reindex" with a one-time
 // WARN: production HTTP gates on bootstrap completion (the lookup is

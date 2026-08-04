@@ -38,6 +38,10 @@ type reindexGate struct {
 	once     sync.Once
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
+	// unknown is set when the activity builder could not read
+	// cluster-wide reindex state. The gate stays fail-closed, but the
+	// refusal has to say that rather than name shards.
+	unknown error
 }
 
 func newReindexGate(db *DB) *reindexGate {
@@ -71,17 +75,20 @@ func (g *reindexGate) resolve() {
 
 		if activityBuilder == nil {
 			unwiredGateWarnOnce.Do(func() {
-				logger := g.db.logger
-				if logger == nil {
-					logger = logrus.New()
-				}
-				logger.WithField("action", "backup_reindex_gate").
+				g.logger().WithField("action", "backup_reindex_gate").
 					Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
 						"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
 			})
 			return
 		}
-		g.activity = activityBuilder()
+		activity, err := activityBuilder()
+		if err != nil {
+			g.unknown = err
+			g.logger().WithField("action", "backup_reindex_gate").
+				Warnf("backup-reindex gate: cannot read cluster-wide reindex state; refusing backups until the leader is reachable: %v", err)
+			return
+		}
+		g.activity = activity
 		// Cleanup builder is optional. Memoizing it doesn't freeze the
 		// answer: its closure reads a live registry on every call.
 		if cleanupBuilder != nil {
@@ -90,10 +97,42 @@ func (g *reindexGate) resolve() {
 	})
 }
 
+func (g *reindexGate) logger() logrus.FieldLogger {
+	if g.db == nil || g.db.logger == nil {
+		return logrus.New()
+	}
+	return g.db.logger
+}
+
+// stateUnknownErr returns the pass-wide refusal to use when cluster-wide
+// reindex state could not be read, and nil otherwise. One refusal covers
+// the whole pass: no shard's state is known, so naming shards would list
+// every shard on the node while saying nothing true about any of them.
+func (g *reindexGate) stateUnknownErr() error {
+	g.resolve()
+	if g.unknown == nil {
+		return nil
+	}
+	return reindexStateUnknownError(g.unknown)
+}
+
+// stateUnknown reports whether an already-resolved gate failed to read
+// cluster state. Unlike [reindexGate.stateUnknownErr] it does not resolve,
+// so a caller that has not queried yet stays unqueried.
+func (g *reindexGate) stateUnknown() bool {
+	return g.unknown != nil
+}
+
 // anyLiveReindexForShard reports whether the gate's snapshot blocks a
 // backup of (collection, shardName).
 func (g *reindexGate) anyLiveReindexForShard(collection, shardName string) bool {
 	g.resolve()
+	if g.unknown != nil {
+		// Fail-closed: state unknown counts as blocked. Callers that
+		// build an operator-facing refusal check stateUnknownErr first
+		// so the message states the real cause.
+		return true
+	}
 	if g.activity == nil {
 		return false
 	}
@@ -138,6 +177,11 @@ func (g *reindexGate) anyLiveReindexForShard(collection, shardName string) bool 
 // [DB.SetShardReindexActivityLookup] from the post-bootstrap goroutine
 // in configure_api.go.
 //
+// Reports true when the lookup could not read cluster state at all
+// (leader unreachable): the answer is unknown, and the gate is
+// fail-closed. Callers that build an operator-facing refusal use
+// [Index.refuseIfReindexInFlightWithGate], which distinguishes the two.
+//
 // Default to "no live reindex" when the lookup is unwired (with a
 // one-time WARN). The original conservative default (refuse) was
 // correct in isolation but broke every module-test fixture that
@@ -175,10 +219,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 		// fixtures, partial init). Be conservative.
 		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
 	}
-	if !i.db.AnyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
-		return nil
-	}
-	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
+	return i.refuseIfReindexInFlightWithGate(newReindexGate(i.db), shardName)
 }
 
 // refuseIfReindexInFlightWithGate is [Index.refuseIfReindexInFlight]
@@ -187,6 +228,9 @@ func (i *Index) refuseIfReindexInFlightWithGate(gate *reindexGate, shardName str
 	if i.db == nil {
 		// Same conservative default as the fresh-snapshot form.
 		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
+	}
+	if err := gate.stateUnknownErr(); err != nil {
+		return err
 	}
 	if !gate.anyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
 		return nil
@@ -207,6 +251,18 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 	return fmt.Errorf(
 		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
+	)
+}
+
+// reindexStateUnknownError is the refusal for "the cluster leader could
+// not be reached". It names no shard and suggests cancelling no task: no
+// reindex is known to exist, and one refusal per pass replaces what used
+// to be one per shard (a 7 MB response body on a 20,000-shard node, every
+// line of it naming a task that may not exist).
+func reindexStateUnknownError(cause error) error {
+	return fmt.Errorf(
+		"%w: the cluster leader could not be reached, so runtime-reindex state is unknown for every shard on this node; refusing the backup rather than risk snapshotting a shard mid-reindex. Retry once the leader is reachable: %w",
+		entitiesbackup.ErrBackupBlockedByInFlightReindex, cause,
 	)
 }
 
