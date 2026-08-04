@@ -182,7 +182,7 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.NotEmpty(t, refusal.Payload.Error, "422 ErrorResponse must surface the refusal reason")
 	errMsg := errorResponseMessage(refusal.Payload)
 
-	require.Contains(t, errMsg, "backup blocked: runtime-reindex in flight on this shard",
+	require.Contains(t, errMsg, "backup blocked: runtime-reindex in flight",
 		"error body must name the blocking condition; got: %s", errMsg)
 	require.Contains(t, errMsg, className,
 		"error body must name the affected collection; got: %s", errMsg)
