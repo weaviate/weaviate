@@ -480,12 +480,13 @@ func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *In
 
 	logger, _ := logrustest.NewNullLogger()
 	return &Index{
-		Config:            IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(className)},
-		namespace:         namespacing.NamespaceFromQualified(className),
-		namespacesExister: e,
-		logger:            logger,
-		shardCreateLocks:  esync.NewKeyRWLocker(),
-		closingCtx:        context.Background(),
+		Config:                 IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(className)},
+		namespace:              namespacing.NamespaceFromQualified(className),
+		namespacesExister:      e,
+		logger:                 logger,
+		shardCreateLocks:       esync.NewKeyRWLocker(),
+		replicaSnapshotOpLocks: esync.NewKeyRWLocker(),
+		closingCtx:             context.Background(),
 	}
 }
 
@@ -707,6 +708,77 @@ func TestReplicationExempt(t *testing.T) {
 		_, _, err := idx.getOrInitShard(ctx, "t1")
 		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 	})
+}
+
+// A movement begins by touching its source shard, and both ways in take the
+// request-path check — neither is exempt. That is what keeps a movement
+// registered against a suspended namespace from starting, and it is the reason
+// the target-side exemption needs no check of its own for whether a movement is
+// under way: only one that began while the namespace was active can reach it.
+func TestMovementCannotStartWhileSuspended(t *testing.T) {
+	const class = "alpha:Product"
+	const opID = "7"
+	ctx := context.Background()
+
+	entryPoints := []struct {
+		name string
+		call func(*Index) error
+		// admit sets the calls the entry point makes once the namespace lets it
+		// through, so the allow rows fail if it stops reaching the shard.
+		admit func(*MockShardLike)
+	}{
+		{
+			name: "starting change capture",
+			call: func(idx *Index) error { return idx.IncomingStartChangeCapture(ctx, "t1", opID) },
+			admit: func(s *MockShardLike) {
+				s.EXPECT().ActivateChangeLog(mock.Anything, opID).Return(nil, nil)
+			},
+		},
+		{
+			name: "creating the replica snapshot",
+			call: func(idx *Index) error {
+				_, err := idx.IncomingCreateReplicaSnapshot(ctx, "t1", opID)
+				return err
+			},
+			admit: func(s *MockShardLike) {
+				s.EXPECT().CreateReplicaSnapshot(mock.Anything, mock.Anything).Return(nil, nil)
+			},
+		},
+	}
+
+	refused := []struct {
+		name    string
+		state   api.NamespaceState
+		wantErr error
+	}{
+		{name: "suspended", state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
+		{name: "resuming", state: api.NamespaceStateResuming, wantErr: namespaces.ErrNamespaceResuming},
+		{name: "deleting", state: api.NamespaceStateDeleting, wantErr: namespaces.ErrNamespaceDeleting},
+	}
+
+	for _, ep := range entryPoints {
+		for _, tc := range refused {
+			t.Run(ep.name+" is refused while "+tc.name, func(t *testing.T) {
+				idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
+				// Resident, so a refusal cannot be mistaken for an absent shard.
+				idx.shards.Store("t1", NewMockShardLike(t))
+
+				require.ErrorIs(t, ep.call(idx), tc.wantErr)
+			})
+		}
+
+		// Without this, an entry point that refused every state would still pass
+		// every row above.
+		t.Run(ep.name+" is admitted while active", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateActive))
+			shard := NewMockShardLike(t)
+			shard.EXPECT().preventShutdown().Return(func() {}, nil)
+			ep.admit(shard)
+			idx.shards.Store("t1", shard)
+
+			require.NoError(t, ep.call(idx))
+		})
+	}
 }
 
 // getOptInitLocalShard is the read/write request path, which has two load points
