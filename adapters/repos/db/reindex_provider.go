@@ -137,6 +137,14 @@ type reindexCleanupKey struct {
 // filed under. No real shard is named "", so it cannot collide with one.
 const cleanupWholeCollection = ""
 
+// newReindexCleanupKey folds the collection name so a registration and a probe
+// that spell the class differently still meet. Registrations come from a task
+// payload and probes from the index's own class name, and those two agree on
+// case only by convention. Shard names are exact and stay as given.
+func newReindexCleanupKey(collection, shard string) reindexCleanupKey {
+	return reindexCleanupKey{collection: strings.ToLower(collection), shard: shard}
+}
+
 // phaseUnitResolution holds the per-unit setup work that every per-shard
 // phase callback needs before running. Skip=true → caller silently moves
 // on; non-empty Errs → setup failed, caller MUST NOT proceed; Rehydrate=true
@@ -1760,7 +1768,7 @@ func (p *ReindexProvider) AnyCleanupInProgress() bool {
 func (p *ReindexProvider) registerCleanup(collection, shard string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
-	p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}]++
+	p.cleanupInProgress[newReindexCleanupKey(collection, shard)]++
 }
 
 // unregisterCleanup releases one outstanding "cleanup-in-progress"
@@ -1776,7 +1784,7 @@ func (p *ReindexProvider) registerCleanup(collection, shard string) {
 func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
-	k := reindexCleanupKey{collection: collection, shard: shard}
+	k := newReindexCleanupKey(collection, shard)
 	p.cleanupInProgress[k]--
 	if p.cleanupInProgress[k] <= 0 {
 		delete(p.cleanupInProgress, k)
@@ -1804,10 +1812,10 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 	if p.cleanupInProgress == nil {
 		return false
 	}
-	if p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: cleanupWholeCollection}] > 0 {
+	if p.cleanupInProgress[newReindexCleanupKey(collection, cleanupWholeCollection)] > 0 {
 		return true
 	}
-	return p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}] > 0
+	return p.cleanupInProgress[newReindexCleanupKey(collection, shard)] > 0
 }
 
 // CleanupInProgressLookup is the per-(collection, shard) "is the
