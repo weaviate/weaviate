@@ -29,6 +29,13 @@ import (
 // adapters/repos/db/reindex_inflight.go.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
 
+// ErrReindexInFlight is the cluster-wide counterpart of
+// [ErrBackupBlockedByInFlightReindex]: it states only that some runtime-reindex
+// task is live somewhere in the cluster, naming neither a shard nor an
+// operation. Callers supply the operation framing ("restore blocked: ...")
+// themselves, so the text stays accurate wherever the sentinel travels.
+var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
+
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.
 // CloseWithError closes the reader and signals the given error to the writer,
 // so the writer sees the actual error instead of a generic "closed pipe" error.

@@ -11,6 +11,15 @@
 
 package db
 
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/sirupsen/logrus"
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+)
+
 // ShardReindexActivityLookup reports whether any LIVE reindex task in
 // the DTM snapshot targets (collection, shardName). Used by the backup
 // gate; consults RAFT-replicated DTM rather than local filesystem
@@ -35,4 +44,78 @@ func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBu
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.shardReindexActivityLookupBuilder = builder
+}
+
+// AnyReindexActivityLookup reports whether any runtime-reindex task is live in
+// the cluster. A non-nil error means the answer could not be determined.
+type AnyReindexActivityLookup func(ctx context.Context) (bool, error)
+
+// SetAnyReindexActivityLookup installs the cluster-wide predicate consulted by
+// [DB.RefuseIfAnyReindexInFlight]. Wired post-bootstrap in configure_api.go
+// alongside [DB.SetShardReindexActivityLookup].
+func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
+	db.reindexAuditMu.Lock()
+	defer db.reindexAuditMu.Unlock()
+	db.anyReindexActivityLookup = lookup
+}
+
+// unwiredRestoreGateWarnOnce keeps the "lookup not installed" WARN to one
+// line per process, matching [unwiredGateWarnOnce] on the backup side.
+var unwiredRestoreGateWarnOnce sync.Once
+
+// RefuseIfAnyReindexInFlight is the restore-side counterpart of the per-shard
+// backup gate. The question is deliberately cluster-wide rather than
+// per-class: a class being restored usually has no local index yet, so a
+// per-class lookup could only ever answer "no live reindex".
+//
+// The error names the condition only, never the operation, so the same text
+// stays accurate at every seam that consults it; callers prefix their own
+// framing. It wraps [entitiesbackup.ErrReindexInFlight] rather than the
+// per-shard backup sentinel, whose text would otherwise lead a restore
+// refusal with the wrong operation and a shard that is not involved.
+//
+// Refuses when the lookup itself fails, matching the backup gate's posture
+// when the task manager is unreachable. An uninstalled lookup allows the
+// restore with a one-time WARN, mirroring [DB.AnyLiveReindexForShard]:
+// production gates HTTP serving on bootstrap completion, while the
+// conservative default breaks every test fixture that skips the
+// post-bootstrap install path.
+func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
+	db.reindexAuditMu.RLock()
+	lookup := db.anyReindexActivityLookup
+	db.reindexAuditMu.RUnlock()
+
+	if lookup == nil {
+		unwiredRestoreGateWarnOnce.Do(func() {
+			logger := db.logger
+			if logger == nil {
+				logger = logrus.New()
+			}
+			logger.WithField("action", "restore_reindex_gate").
+				Warn("restore-reindex gate: AnyReindexActivityLookup not yet installed; allowing restore. " +
+					"Expected briefly during startup; if this persists past bootstrap, check the SetAnyReindexActivityLookup wiring in configure_api.go.")
+		})
+		return nil
+	}
+
+	live, err := lookup(ctx)
+	if err != nil {
+		// "(assumed)" is load-bearing: the condition was not observed, it is
+		// what the gate falls back to when it cannot see the task manager.
+		return fmt.Errorf(
+			"%w (assumed): the cluster task manager could not be queried: %w; retry once it is reachable",
+			entitiesbackup.ErrReindexInFlight, err,
+		)
+	}
+	if !live {
+		return nil
+	}
+	if db.logger != nil {
+		db.logger.WithField("action", "restore_reindex_gate").
+			Debug("restore-reindex gate: refusing — DTM lists a live runtime-reindex task in the cluster")
+	}
+	return fmt.Errorf(
+		"%w: retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+		entitiesbackup.ErrReindexInFlight,
+	)
 }

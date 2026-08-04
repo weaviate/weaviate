@@ -127,6 +127,52 @@ func (_c *MockSelector_ListClasses_Call) RunAndReturn(run func(context.Context) 
 	return _c
 }
 
+// RefuseIfAnyReindexInFlight provides a mock function with given fields: ctx
+func (_m *MockSelector) RefuseIfAnyReindexInFlight(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RefuseIfAnyReindexInFlight")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSelector_RefuseIfAnyReindexInFlight_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RefuseIfAnyReindexInFlight'
+type MockSelector_RefuseIfAnyReindexInFlight_Call struct {
+	*mock.Call
+}
+
+// RefuseIfAnyReindexInFlight is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockSelector_Expecter) RefuseIfAnyReindexInFlight(ctx interface{}) *MockSelector_RefuseIfAnyReindexInFlight_Call {
+	return &MockSelector_RefuseIfAnyReindexInFlight_Call{Call: _e.mock.On("RefuseIfAnyReindexInFlight", ctx)}
+}
+
+func (_c *MockSelector_RefuseIfAnyReindexInFlight_Call) Run(run func(ctx context.Context)) *MockSelector_RefuseIfAnyReindexInFlight_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockSelector_RefuseIfAnyReindexInFlight_Call) Return(_a0 error) *MockSelector_RefuseIfAnyReindexInFlight_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSelector_RefuseIfAnyReindexInFlight_Call) RunAndReturn(run func(context.Context) error) *MockSelector_RefuseIfAnyReindexInFlight_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Shards provides a mock function with given fields: ctx, class
 func (_m *MockSelector) Shards(ctx context.Context, class string) ([]string, error) {
 	ret := _m.Called(ctx, class)

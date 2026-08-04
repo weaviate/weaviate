@@ -282,3 +282,66 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 		})
 	}
 }
+
+// gateRefusal is the error shape DB.RefuseIfAnyReindexInFlight returns, kept
+// verbatim so the composed strings asserted below are the ones an operator
+// actually reads. adapters/repos/db pins the original.
+func gateRefusal() error {
+	return fmt.Errorf("%w: retry after the migration finishes", backup.ErrReindexInFlight)
+}
+
+// TestOnCanCommitRestore_RefusesDuringInFlightReindex pins the per-node half
+// of the restore gate. The fake backend carries no expectations, so the
+// refusal must land before restorer.validate reads the descriptor — a restore
+// that got that far would fail the test rather than pass it.
+func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
+	ctx := context.Background()
+
+	sourcer := &fakeSourcer{}
+	sourcer.reindexInFlightErr = gateRefusal()
+
+	bm := createManager(sourcer, nil, newFakeBackend(), nil)
+	resp := bm.OnCanCommit(ctx, &Request{
+		Method:   OpRestore,
+		ID:       "1",
+		Classes:  []string{"MyClass"},
+		Backend:  "s3",
+		Duration: time.Millisecond * 20,
+	})
+
+	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
+		"retry after the migration finishes", resp.Err)
+	assert.Equal(t, CanCommitErrCannotCommit, resp.ErrKind,
+		"the in-flight-reindex kind would re-materialize the message under the "+
+			"per-shard backup sentinel; the generic kind passes it through intact")
+	assert.Equal(t, time.Duration(0), resp.Timeout)
+}
+
+// TestOnCanCommitRestore_WordingSurvivesRoundTrip pins what an operator reads
+// after the refusal crosses the canCommit RPC boundary and the coordinator
+// rebuilds it into an error. The shared reindex vocabulary is backup-worded
+// ("backup blocked", "on this shard"); routing a restore through the
+// in-flight-reindex kind once put exactly that in front of the real reason.
+func TestOnCanCommitRestore_WordingSurvivesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+
+	sourcer := &fakeSourcer{}
+	sourcer.reindexInFlightErr = gateRefusal()
+
+	bm := createManager(sourcer, nil, newFakeBackend(), nil)
+	resp := bm.OnCanCommit(ctx, &Request{
+		Method:   OpRestore,
+		ID:       "1",
+		Classes:  []string{"MyClass"},
+		Backend:  "s3",
+		Duration: time.Millisecond * 20,
+	})
+
+	got := canCommitErrFromResponse(resp).Error()
+	assert.Equal(t, "cannot commit : restore blocked: runtime-reindex in flight in the cluster: "+
+		"retry after the migration finishes", got)
+	assert.NotContains(t, got, "backup blocked",
+		"a restore refusal must not be worded as a backup refusal")
+	assert.NotContains(t, got, "this shard",
+		"the gate is cluster-wide; no shard is involved")
+}
