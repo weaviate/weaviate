@@ -121,12 +121,11 @@ func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
 }
 
 // TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired
-// lookup defaults to "no live reindex" — production gates HTTP serving
-// on bootstrap completion so the unwired window is unreachable by
-// external traffic, and the prior refuse-by-default broke every
-// module-test fixture that spins up Weaviate without going through
-// the post-bootstrap install path. A one-time WARN fires to surface
-// the unwired path if it ever shows up in production logs.
+// lookup defaults to "no live reindex". The refuse-by-default it
+// replaced broke every module-test fixture that spins up Weaviate
+// without going through the post-bootstrap install path. The window is
+// reachable from outside — it closes after the node reports ready — and
+// a one-time WARN is what surfaces a backup that landed in it.
 func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
 	db := &DB{}
 	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),

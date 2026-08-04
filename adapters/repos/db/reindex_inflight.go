@@ -21,13 +21,15 @@ import (
 )
 
 // unwiredGateWarnOnce ensures the operator-facing WARN for the
-// "lookup-not-installed" path fires at most once per process. The
-// warning is informational: production gates HTTP serving on bootstrap
-// completion, so under normal startup the unwired window is unreachable
-// by an external backup request. If the WARN does fire in production
-// logs, it means either (a) startup ordering is broken (lookup wiring
-// never fires) or (b) a non-HTTP code path called Backupable before
-// the lookup installed.
+// "lookup-not-installed" path fires at most once per process.
+//
+// The window it warns about is externally reachable. The lookup is
+// installed after /v1/.well-known/ready returns 200, so a backup POSTed
+// on the first successful ready check lands inside it and is allowed
+// without a gate check — reproduced on the first attempt in every one
+// of 40+ boots. The window widens with schema size and with the work a
+// reindex scheduler does during bootstrap. The WARN is the only signal
+// that a backup took that path.
 var unwiredGateWarnOnce sync.Once
 
 // reindexGate resolves the backup-gate lookups once — the activity one
@@ -184,10 +186,11 @@ func (g *reindexGate) anyLiveReindexForShard(collection, shardName string) bool 
 //
 // Default to "no live reindex" when the lookup is unwired (with a
 // one-time WARN). The original conservative default (refuse) was
-// correct in isolation but broke every module-test fixture that
-// spins up Weaviate without going through the post-bootstrap
-// install path; production HTTP gates on bootstrap completion so the
-// unwired window is unreachable by external traffic.
+// correct in isolation but broke every module-test fixture that spins
+// up Weaviate without going through the post-bootstrap install path.
+// The trade is real, not theoretical: the unwired window opens before
+// the lookup is installed and after the node reports ready, so an
+// external backup request can reach it. See [unwiredGateWarnOnce].
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return newReindexGate(db).anyLiveReindexForShard(collection, shardName)
 }
