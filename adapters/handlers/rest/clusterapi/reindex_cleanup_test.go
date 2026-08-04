@@ -103,10 +103,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 	}
 }
 
-// A nil pointer boxed into the prober interface is not == nil, so a guard
-// written against the interface waves it through and the call panics on the
-// nil receiver. Passing an unset struct field straight into the constructor is
-// how that happens, so the route has to survive it.
+// Pins isNilProber: a nil pointer boxed into the prober must read as unwired.
 func TestInternalReindexCleanupActivityTypedNilProber(t *testing.T) {
 	var unset *db.ReindexProvider
 
@@ -124,11 +121,8 @@ func TestInternalReindexCleanupActivityTypedNilProber(t *testing.T) {
 		"an unusable prober must read as unwired, never as 'nothing running'")
 }
 
-// The internal server is constructed before bootstrap assigns the reindex
-// provider, so a route that captures the field at construction captures a nil
-// that never becomes real. This drives the same wiring production uses, in the
-// same order, rather than a handler built around a ready-made prober — the
-// latter stays green through exactly this bug.
+// Pins the late binding described on the resolve field, through the same
+// wiring and construction order production uses.
 func TestInternalReindexCleanupActivityResolvesProviderLate(t *testing.T) {
 	appState := &state.State{}
 
