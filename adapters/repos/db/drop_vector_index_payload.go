@@ -35,12 +35,11 @@ const DropVectorIndexNamespace = "drop-vector-index"
 type DropVectorIndexTaskPayload struct {
 	Collection string   `json:"collection"`
 	Targets    []string `json:"targets"`
-	// OpID keys the per-shard edit-ops bookkeeping. Invariant since the
-	// strip-resume change: OpID == DropEpochID, so every round of one drop
-	// re-arms the SAME op and resumes its recorded progress. Records written
-	// by older versions carry a per-round uuid here instead — readers must
-	// treat the field as opaque and never assume the equality on decoded
-	// payloads.
+	// OpID keys the per-shard edit-ops bookkeeping. OpID equals DropEpochID:
+	// every round of one drop re-arms the SAME op and resumes its recorded
+	// progress. Records written by older versions carry a per-round uuid
+	// here instead — treat the field as opaque on decode, never assume the
+	// equality.
 	OpID string `json:"opId"`
 
 	// UnitToNode maps a unit ID to the node that owns it; UnitToShard maps the

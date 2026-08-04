@@ -1047,6 +1047,39 @@ func TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig(t *testing
 		require.False(t, fin.called, "the marker must stand until the op drains")
 	})
 
+	t.Run("an inherited-coverage shard with rows defers the finalize", func(t *testing.T) {
+		// Round N-1 completed shardX; its disarm was vetoed (WAL re-pend) or
+		// the rows arrived after. Round N carries shardX only in
+		// CleanedShards — no unit — yet its op shares this drop's epoch, and
+		// once the marker falls those rows' bytes can never be stripped. The
+		// veto must span every locally-loaded covered shard, not just this
+		// task's own units.
+		own := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+		inherited := &fakeEditOpBucket{pendingSeq: [][]string{{"s9"}}}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{buckets: map[string]editOpBucket{
+			"shard1": own, "shardX": inherited,
+		}}, fin, newFakeRecorder())
+		p.sharding = &fakeShardingReader{shards: []string{"shard1", "shardX"}}
+
+		task := dropTask(distributedtask.TaskStatusSwapping, nil)
+		payload := &DropVectorIndexTaskPayload{
+			Collection:    "Collection",
+			Targets:       []string{"v1"},
+			OpID:          "op1",
+			UnitToNode:    map[string]string{"u1": "node1"},
+			UnitToShard:   map[string]string{"u1": "shard1"},
+			DropEpochID:   "op1",
+			CleanedShards: []string{"shardX"},
+		}
+		task.Payload, _ = payload.encode()
+
+		err := p.OnTaskCompleted(task)
+		require.Error(t, err)
+		require.False(t, fin.called, "the marker must stand while an inherited shard's op holds rows")
+		require.Empty(t, inherited.deleted)
+	})
+
 	t.Run("a failing delete defers the finalize", func(t *testing.T) {
 		bucket := &fakeEditOpBucket{deleteErr: errors.New("bolt write failed")}
 		fin := &fakeFinalizer{}

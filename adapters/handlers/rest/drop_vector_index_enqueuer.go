@@ -40,7 +40,7 @@ type dropVectorIndexEnqueuer struct {
 	// finalizer removes dropped VectorConfig entries directly — the escape
 	// for MT collections with ZERO tenants, where no cleanup task can ever
 	// exist to drive the finalize. Installed post-construction
-	// (SetFinalizer): the schema manager does not exist yet when the
+	// (SetVectorConfigFinalizer): the schema manager does not exist yet when the
 	// enqueuer is built. Nil-safe.
 	finalizer dropVectorFinalizer
 }
@@ -72,11 +72,11 @@ func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaStat
 	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
 }
 
-// SetFinalizer installs the direct-finalize hook (see the field doc). Must be
-// called before the drop-vector reconcile loop starts and before the REST API
-// serves — the only two paths that enqueue (restore-time shard loads during
-// ClusterService.Open use LiveOpIDs, never this).
-func (e *dropVectorIndexEnqueuer) SetFinalizer(f dropVectorFinalizer) {
+// SetVectorConfigFinalizer installs the direct-finalize hook (see the field
+// doc). Must be called before the drop-vector reconcile loop starts and
+// before the REST API serves — the only two paths that enqueue (restore-time
+// shard loads during ClusterService.Open use LiveOpIDs, never this).
+func (e *dropVectorIndexEnqueuer) SetVectorConfigFinalizer(f dropVectorFinalizer) {
 	e.finalizer = f
 }
 
@@ -175,14 +175,11 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 			// data to strip, and the FSM removal gate explicitly allows the
 			// empty-shard-set case for exactly this reason.
 			if e.finalizer == nil {
-				// Warn, not info: with no finalizer, NOTHING can ever remove
-				// this marker — a wiring regression here silently
-				// reintroduces the immortal-marker bug.
-				if e.logger != nil {
-					e.logger.WithField("collection", collection).
-						Warn("drop-vector enqueue: collection has no tenants but no finalizer is wired; the marker cannot be removed")
-				}
-				return nil
+				// An error, not a logged no-op: with no finalizer, NOTHING
+				// can ever remove this marker — a wiring regression that
+				// returned success here would hand the client a 200 for a
+				// drop that silently never completes.
+				return fmt.Errorf("drop-vector enqueue: collection %q has no tenants and no finalizer is wired; cannot remove the dropped vector entries", collection)
 			}
 			if err := e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets); err != nil {
 				return fmt.Errorf("drop-vector enqueue: finalize tenant-less collection %q: %w", collection, err)
@@ -424,9 +421,13 @@ type classLookup struct {
 }
 
 // opStillNeeded reports whether a task's edit op must survive a sidecar sweep:
-// always for an active task; for a terminal one, while any of its targets is
+// always for an active task; for a terminal one, while ANY of its targets is
 // still marked dropped — the marker means another round is coming, and the op's
-// pending set is that round's resume point. A superseded old-epoch op alongside
+// pending set is that round's resume point. The ANY fold is deliberate and
+// differs from the provider's ALL-fold targetsStillDropped: that one gates
+// destructive ARMING, where a single revived target must refuse the whole op;
+// liveness protects recorded progress, which stays valuable while any target
+// still owes a round. A superseded old-epoch op alongside
 // a NEW drop's marker also stays until that marker leaves the schema too: it
 // strips the same target name, which is idempotent, and the transformer's
 // dropped-target check stops it from touching the name once it is live. Fails open on

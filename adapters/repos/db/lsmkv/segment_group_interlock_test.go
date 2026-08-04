@@ -55,16 +55,15 @@ func TestRegisterEditOp_RefusedOnClosingBucket(t *testing.T) {
 // with ops in the sidecar, EVERY recovered WAL — including the one that
 // would otherwise seed the live memtable — is flushed into segments, and
 // those segments are PENDED for every surviving op. The re-pend is
-// load-bearing: a WAL on disk under a live op is not necessarily post-arm.
-// A failed cycle flush leaves its memtable in b.flushing, a later switch
-// (including the arm's own flush) overwrites the field, and the orphaned
-// WAL's pre-arm bytes are then in no segment and no pending row — recovery
-// would flush them into a segment that reads as clean, and the dropped
-// vector would survive finalize. For a genuinely post-arm WAL the re-pend
-// costs one idempotent re-clean of one small segment. The op here is
-// registered through a side-channel handle to keep the WAL alive across the
-// close — the same "WAL bytes the arm's flush never saw" shape the clobbered
-// b.flushing produces in production.
+// load-bearing: a WAL on disk under a live op is not necessarily post-arm —
+// an older binary's b.flushing clobber (since fixed) could orphan a failed
+// flush's memtable, leaving pre-arm bytes in no segment and no pending row;
+// its WALs survive an upgrade. Recovery would flush them into a segment that
+// reads as clean, and the dropped vector would survive finalize. For a
+// genuinely post-arm WAL the re-pend costs one idempotent re-clean of one
+// small segment. The op here is registered through a side-channel handle to
+// keep the WAL alive across the close — the same "WAL bytes the arm's flush
+// never saw" shape.
 func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

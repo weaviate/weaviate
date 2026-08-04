@@ -59,11 +59,12 @@ type retainVerdict struct {
 // editOpBucket is the slice of *lsmkv.Bucket the provider drives: register the
 // drop op (flush + snapshot) and poll its remaining pending segments. Narrowed
 // to an interface so the provider's poll loop is unit-testable.
+// Deliberately NO unguarded delete: every disarm goes through the drained
+// gate, so "op removed ⇒ its rows were observed empty" holds by construction.
 type editOpBucket interface {
 	RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error
 	EditOpPending(opID string) ([]string, error)
 	EditOpQuarantined(opID string) ([]string, error)
-	DeleteEditOp(opID string) error
 	DeleteEditOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error)
 }
 
@@ -699,7 +700,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 	}
 
 	// Delete the op before removing the schema entry so "schema entry removed ⇒
-	// no op armed by THIS task on a loaded shard" holds (see DeleteEditOp for
+	// no op armed by THIS task on a loaded shard" holds (see DeleteEditOpIfDrained for
 	// why a lingering op is unsafe). Ops disarmed best-effort by an earlier
 	// FAILED round of the same epoch may still linger on shards this task
 	// inherited as cleaned; the dropped-target fence keeps them inert once
@@ -796,9 +797,14 @@ func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Ta
 	return other != nil, nil
 }
 
-// targetsStillDropped reports whether every payload target is still present and
+// targetsStillDropped reports whether EVERY payload target is still present and
 // marked dropped in the leader-consistent class. A missing class or entry means
-// the drop was superseded (class deleted/re-created, or the name freed).
+// the drop was superseded (class deleted/re-created, or the name freed). The
+// ALL fold is deliberate: this gates destructive work (arming strips every
+// target, file removal deletes every target's files), so one revived target
+// must refuse the whole op. The enqueuer's liveness check (opStillNeeded)
+// deliberately folds ANY instead — recorded progress stays valuable while any
+// target still owes a round.
 func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTaskPayload) (bool, error) {
 	vclasses, err := p.sharding.QueryReadOnlyClasses(payload.Collection)
 	if err != nil {
@@ -970,13 +976,28 @@ func (p *DropVectorIndexProvider) deleteCompletedUnitEditOps(
 // drains the row within a pass or two, and the retried callback then deletes
 // and finalizes; retry exhaustion fails the task, which keeps the marker and
 // hands the remainder to reconciliation.
+//
+// The veto spans every locally-loaded shard of the DROP, not just this task's
+// own units: inherited-coverage shards (cleaned by an earlier round of the
+// same epoch) share the epoch's OpID and can hold the same re-pended rows —
+// their earlier disarm was vetoed for exactly that reason, and no later round
+// gives them a unit. Once the marker falls, nothing may strip those bytes
+// (the dropped-target fence rightly blocks post-finalize strips), so the
+// check MUST happen here. Unloaded shards stay unverifiable — the residual
+// window (re-pend, then deactivate before the cleanup pass, then finalize) is
+// accepted and logged by the sweeps that later delete over rows.
 func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTaskPayload) error {
-	var shardNames []string
+	shardSet := payload.CoveredShards()
 	for unitID, node := range payload.UnitToNode {
 		if node == p.localNode {
-			shardNames = append(shardNames, payload.UnitToShard[unitID])
+			shardSet[payload.UnitToShard[unitID]] = struct{}{}
 		}
 	}
+	shardNames := make([]string, 0, len(shardSet))
+	for shard := range shardSet {
+		shardNames = append(shardNames, shard)
+	}
+	sort.Strings(shardNames)
 	// Loaded shards only: forcing loads here would mass-load inactive shards on
 	// every replayed completion callback. An unloaded shard's op is disarmed by the
 	// sweep on its next load (this task is then terminal, so absent from the
@@ -985,11 +1006,14 @@ func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTas
 	if err != nil {
 		return fmt.Errorf("resolve buckets to delete edit op (deferring finalize): %w", err)
 	}
+	// Count + sample only: most covered shards live on other nodes or are
+	// unloaded here — expected, and a per-shard line would be a log flood on
+	// a large MT collection.
+	var notLoaded []string
 	for _, shardName := range shardNames {
 		bucket, ok := buckets[shardName]
 		if !ok {
-			p.logger.WithField("collection", payload.Collection).WithField("shard", shardName).
-				Info("drop-vector: shard not loaded for edit-op delete; the sweep on its next load disarms it")
+			notLoaded = append(notLoaded, shardName)
 			continue
 		}
 		deleted, pendingRows, quarantinedRows, err := bucket.DeleteEditOpIfDrained(payload.OpID)
@@ -1002,6 +1026,12 @@ func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTas
 					"(e.g. a WAL-recovered segment re-pended after a restart); deferring finalize until the cleanup drains it",
 				shardName, pendingRows, quarantinedRows)
 		}
+	}
+	if len(notLoaded) > 0 {
+		p.logger.WithField("collection", payload.Collection).
+			WithField("notLoadedCount", len(notLoaded)).
+			WithField("sample", notLoaded[:min(len(notLoaded), 10)]).
+			Info("drop-vector: shards not loaded on this node for the edit-op delete; the sweep on their next load disarms them")
 	}
 	return nil
 }

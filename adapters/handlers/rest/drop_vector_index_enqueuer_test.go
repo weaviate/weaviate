@@ -467,8 +467,11 @@ func TestEnqueueDropVectorIndex_ZeroTenants_FinalizesDirectly(t *testing.T) {
 			finalizer: &fakeEnqueuerFinalizer{},
 		},
 		{
-			name:   "no finalizer wired: no-op, no panic",
-			shards: map[string]sharding.Physical{},
+			// A wiring regression must surface as an error, not a 200 over
+			// a marker nothing can ever remove.
+			name:    "no finalizer wired: error, not silent success",
+			shards:  map[string]sharding.Physical{},
+			wantErr: "no finalizer is wired",
 		},
 		{
 			name:      "finalize failure surfaces",

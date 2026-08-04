@@ -17,39 +17,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFlushAndSwitch_DoesNotClobberFailedFlushingMemtable pins a KNOWN
-// pre-existing bug (present on main, independent of drop-vector; skipped
-// until the upstream fix lands — it needs its own change to the core flush
-// machinery): a failed cycle flush leaves its memtable in b.flushing
-// (flushAndSwitchLocked returns mid-way and nothing retries that memtable),
-// and the next atomicallySwitchMemtable overwrites the field unconditionally.
-// The orphaned memtable's acknowledged, fsynced writes become unreadable
-// until a restart replays its WAL. During a drop the orphan's WAL can hold
-// pre-arm bytes; without a restart before finalize nothing ever strips them —
-// the WAL-recovery pend only helps when a restart happens while the op still
-// exists. Desired behavior, asserted below: a switch must never discard a
-// non-nil b.flushing (drain it first, or refuse and retry).
-func TestFlushAndSwitch_DoesNotClobberFailedFlushingMemtable(t *testing.T) {
-	t.Skip("pins the known b.flushing clobber — pre-existing on main; unskip with the upstream flush-machinery fix")
-
+// TestFlushAndSwitch_RetriesLeftoverFlushingMemtable pins the b.flushing
+// clobber fix: a failed cycle flush leaves its memtable in b.flushing
+// (flushAndSwitchLocked returned mid-way, nothing else retries it), and the
+// next switch used to overwrite the field unconditionally — orphaning
+// acknowledged, fsynced writes until a restart's WAL replay, and, mid-drop,
+// leaving pre-arm bytes outside every snapshot (resurrection after finalize
+// if no restart intervened). The next flush attempt must instead complete the
+// leftover flush first, then proceed with its own.
+func TestFlushAndSwitch_RetriesLeftoverFlushingMemtable(t *testing.T) {
 	bucket, _ := newReplaceBucketWithEditOps(t, prefixTransformer)
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 
-	// A failed flush's aftermath: memtable switched into flushing, the flush
-	// itself never completed, nothing cleared the field.
+	// Aftermath of a failed flush: the memtable was switched into flushing,
+	// the flush itself never completed, and nothing cleared the field.
 	switched, err := bucket.atomicallySwitchMemtable(bucket.createNewActiveMemtable)
 	require.NoError(t, err)
 	require.True(t, switched)
 	require.NotNil(t, bucket.flushing)
 
-	// New writes land in the fresh active memtable, and the next threshold
-	// crossing (or a drop's arm) switches again.
-	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	// A direct switch over the leftover must refuse — the structural guard
+	// that makes the clobber impossible even if a future caller bypasses
+	// flushAndSwitchLocked's drain.
 	_, err = bucket.atomicallySwitchMemtable(bucket.createNewActiveMemtable)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "refusing to overwrite")
+
+	// The next real flush drains the leftover first, then flushes its own.
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.Nil(t, bucket.flushing)
+	require.Len(t, segIDsOf(bucket), 2, "both the leftover and the new memtable must land in segments")
 
 	v, err := bucket.Get([]byte("k1"))
 	require.NoError(t, err)
-	require.Equal(t, []byte("v1"), v,
-		"acknowledged writes must stay readable — the failed flush's memtable may not be silently orphaned")
+	require.Equal(t, []byte("v1"), v, "the failed flush's acknowledged writes must survive the next flush cycle")
+	v, err = bucket.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v2"), v)
 }

@@ -1191,7 +1191,7 @@ func initReindexAndDistributedTasks(
 	dropVectorFinalizer := db.NewSchemaVectorConfigFinalizer(appState.SchemaManager)
 	// Direct-finalize hook for tenant-less MT collections, where no cleanup
 	// task can ever exist to drive the finalize.
-	dropVectorEnqueuer.SetFinalizer(dropVectorFinalizer)
+	dropVectorEnqueuer.SetVectorConfigFinalizer(dropVectorFinalizer)
 	dropVectorProvider := db.NewDropVectorIndexProvider(
 		repo,
 		dropVectorFinalizer,

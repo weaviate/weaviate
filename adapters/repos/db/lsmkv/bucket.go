@@ -538,26 +538,20 @@ func (b *Bucket) EditOpPending(opID string) ([]string, error) {
 	return b.disk.editOps.Pending(opID)
 }
 
-// DeleteEditOp removes opID and its bookkeeping from the sidecar once this
-// bucket's work for it is finished for good: task success (delivered as
-// SWAPPING or a replayed FINISHED), a terminal round whose unit here COMPLETED
-// (the shard enters the epoch's inherited coverage, so no later round returns),
-// or the orphan sweep once the drop's marker leaves the schema. A lingering op
-// would re-decode every object on every future compaction and — once the
-// dropped name is freed for re-creation — strip the re-created vector (the
-// dropped-target fence is the runtime guard against exactly that). Idempotent.
-func (b *Bucket) DeleteEditOp(opID string) error {
-	if !b.HasEditOps() {
-		return fmt.Errorf("edit ops not enabled for this bucket")
-	}
-	return b.disk.editOps.DeleteOp(opID)
-}
-
-// DeleteEditOpIfDrained is DeleteEditOp gated, in one transaction, on the op
+// DeleteEditOpIfDrained removes opID and its bookkeeping from the sidecar
+// once this bucket's work for it is finished for good: task success
+// (delivered as SWAPPING or a replayed FINISHED), or a terminal round whose
+// unit here COMPLETED (the shard enters the epoch's inherited coverage, so no
+// later round returns). A lingering op would re-decode every object on every
+// future compaction and — once the dropped name is freed for re-creation —
+// strip the re-created vector (the dropped-target fence is the runtime guard
+// against exactly that). The delete is gated, in one transaction, on the op
 // having no pending and no quarantined rows — the caller's "this op is
-// drained" belief is verified atomically with the delete instead of across
-// separate reads. Reports whether the op was deleted and, when kept, the row
-// counts that vetoed it.
+// drained" belief is verified atomically instead of across separate reads,
+// because a pending row may be unstripped data's only cover. Reports whether
+// the op was deleted and, when kept, the row counts that vetoed it.
+// Idempotent; this is the ONLY delete the provider gets — an unguarded
+// variant existed and was removed so it cannot be reached for.
 func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error) {
 	if !b.HasEditOps() {
 		return false, 0, 0, fmt.Errorf("edit ops not enabled for this bucket")
@@ -2129,6 +2123,22 @@ func (b *Bucket) flushAndSwitchLocked() error {
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
 
+	// A non-nil b.flushing here is the aftermath of a FAILED earlier flush
+	// (flushAndSwitchLocked returned mid-way and nothing else retries that
+	// memtable). Its acknowledged, fsynced writes are readable only through
+	// the flushing memtable — switching over it would orphan them until a
+	// restart's WAL replay (and, mid-drop, leave pre-arm bytes outside every
+	// snapshot). Complete the leftover flush first; if it fails again, this
+	// attempt fails too and the data stays readable where it is.
+	if b.flushing != nil {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Warn("a previous memtable flush did not complete; retrying it before switching")
+		if err := b.flushFlushingLocked(); err != nil {
+			return fmt.Errorf("retry incomplete previous flush: %w", err)
+		}
+	}
+
 	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
@@ -2143,6 +2153,30 @@ func (b *Bucket) flushAndSwitchLocked() error {
 		return nil
 	}
 
+	if err := b.flushFlushingLocked(); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		Trace("finish flush and switch")
+
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		WithField("took", took).
+		Debugf("flush and switch took %s\n", took)
+
+	return nil
+}
+
+// flushFlushingLocked completes the flush of the memtable currently in
+// b.flushing (steps 2-4 of FlushAndSwitch): wait out its writers, flush it to
+// a segment, precompute metadata, and atomically add the segment while
+// clearing b.flushing. Split out so flushAndSwitchLocked can also drain a
+// memtable a FAILED earlier flush left behind before switching. The caller
+// must hold flushAndSwitchMu.
+func (b *Bucket) flushFlushingLocked() error {
 	// Before we can start the actual flush, we need to make sure that all
 	// ongoing writers have finished their write, otherwise we could lose the
 	// write.
@@ -2223,16 +2257,6 @@ func (b *Bucket) flushAndSwitchLocked() error {
 		}
 	}
 
-	took := time.Since(before)
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		Trace("finish flush and switch")
-
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		WithField("took", took).
-		Debugf("flush and switch took %s\n", took)
-
 	return nil
 }
 
@@ -2243,6 +2267,13 @@ func (b *Bucket) flushAndSwitchLocked() error {
 func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+
+	if b.flushing != nil {
+		// Overwriting a leftover flushing memtable would orphan its
+		// acknowledged writes (unreadable until a restart's WAL replay).
+		// Callers must drain it first — flushAndSwitchLocked does.
+		return false, fmt.Errorf("previous flushing memtable still present; refusing to overwrite it")
+	}
 
 	if b.active.Size() == 0 {
 		return false, nil
