@@ -33,9 +33,8 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// countingActivityBuilder wraps a builder to record how many snapshots
-// a pass built and which (collection, shard) pairs it probed — both
-// invisible at the API surface except as latency.
+// countingActivityBuilder counts snapshot builds and probed shards —
+// both invisible at the API surface except as latency.
 type countingActivityBuilder struct {
 	snapshots ShardReindexActivityLookupBuilder
 	builds    int

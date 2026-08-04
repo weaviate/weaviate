@@ -77,9 +77,8 @@ func blockedShards(err error, candidates []string) []string {
 	return blocked
 }
 
-// TestBackupable_BuildsReindexLookupOncePerPrecheck pins that a
-// precheck builds exactly one DTM snapshot, however many shards or
-// collections it walks.
+// TestBackupable_BuildsReindexLookupOncePerPrecheck pins that a precheck
+// builds exactly one DTM snapshot, no matter how many shards or classes.
 func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -119,8 +118,7 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 			wantShardsHit: 50,
 		},
 		{
-			// The snapshot is keyed (collection, shard), so it answers
-			// for every class in the pass, not just the first.
+			// One snapshot answers every class in the pass, not just the first.
 			name: "three collections",
 			classes: []precheckClass{
 				{name: "AlphaCls", shards: precheckShards("AlphaCls", 4)},
@@ -158,8 +156,7 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 }
 
 // TestBackupable_OneGateStillJudgesEachShardByItsOwnName pins that a
-// shared snapshot still judges each shard by its own name, not a
-// merged verdict.
+// shared snapshot judges each shard by its own name, not a merged verdict.
 func TestBackupable_OneGateStillJudgesEachShardByItsOwnName(t *testing.T) {
 	const className = "PerShardCls"
 	shards := precheckShards(className, 8)
@@ -195,9 +192,8 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	shards := precheckShards(className, 4)
 	db := precheckDB(t, []precheckClass{{name: className, shards: shards}})
 
-	// First snapshot reports every shard busy, later ones none: this
-	// distinguishes "one snapshot per pass" (refuses all four) from
-	// "one per shard" (refuses only the first checked).
+	// First snapshot reports every shard busy, later ones none — this
+	// distinguishes "one snapshot per pass" from "one per shard".
 	taken := 0
 	counter := &countingActivityBuilder{snapshots: func() ShardReindexActivityLookup {
 		taken++
@@ -214,8 +210,7 @@ func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 }
 
 // TestBackupable_UnreachableTaskManagerRefusesEveryShard pins that a
-// failed DTM query (snapshot reports every shard busy) refuses the
-// whole pass, not just the first shard checked.
+// failed DTM query refuses the whole pass, not just the first shard.
 func TestBackupable_UnreachableTaskManagerRefusesEveryShard(t *testing.T) {
 	for _, shardCount := range []int{3, 12} {
 		t.Run(fmt.Sprintf("%d shards", shardCount), func(t *testing.T) {

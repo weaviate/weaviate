@@ -45,9 +45,8 @@ func newReindexGate(db *DB) *reindexGate {
 
 func (g *reindexGate) resolve() {
 	g.once.Do(func() {
-		// Read at resolve time, not construction time: a gate built
-		// between the two install calls must still see both builders,
-		// not just whichever landed first.
+		// Read at resolve time: a gate built between the two install
+		// calls must still see both builders, not just whichever landed first.
 		g.db.reindexAuditMu.RLock()
 		activityBuilder := g.db.shardReindexActivityLookupBuilder
 		cleanupBuilder := g.db.reindexCleanupInProgressLookupBldr
@@ -66,9 +65,8 @@ func (g *reindexGate) resolve() {
 			return
 		}
 		g.activity = activityBuilder()
-		// Cleanup builder is optional (older wiring/tests install only
-		// activity). Its closure reads a live registry per call, so
-		// memoizing it here does not freeze the cleanup answer.
+		// Cleanup builder is optional. Memoizing it doesn't freeze the
+		// answer: its closure reads a live registry on every call.
 		if cleanupBuilder != nil {
 			g.cleanup = cleanupBuilder()
 		}
