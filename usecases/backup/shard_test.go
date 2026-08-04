@@ -1,0 +1,127 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package backup
+
+import (
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// resetIf is the slot's check-and-clear. Splitting it into a get plus a reset
+// lets a renew land in between, so the new owner's claim is thrown away and the
+// node reports itself idle to the reindex gate while it is still writing.
+func TestBackupStatResetIf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		claimedID  string
+		resetID    string
+		wantOK     bool
+		wantSlotID string
+	}{
+		{
+			name:       "slot holds the id being released",
+			claimedID:  "op-1",
+			resetID:    "op-1",
+			wantOK:     true,
+			wantSlotID: "",
+		},
+		{
+			name:       "slot holds a different owner",
+			claimedID:  "op-2",
+			resetID:    "op-1",
+			wantOK:     false,
+			wantSlotID: "op-2",
+		},
+		{
+			name:       "slot is free",
+			claimedID:  "",
+			resetID:    "op-1",
+			wantOK:     false,
+			wantSlotID: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s backupStat
+			if tc.claimedID != "" {
+				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
+			}
+
+			require.Equal(t, tc.wantOK, s.resetIf(tc.resetID))
+			require.Equal(t, tc.wantSlotID, s.get().ID)
+		})
+	}
+}
+
+// The whole point of the single acquisition: whoever holds the slot after a
+// losing resetIf must still hold every field of its claim.
+func TestBackupStatResetIfLeavesNewOwnerIntact(t *testing.T) {
+	t.Parallel()
+
+	var s backupStat
+	require.Empty(t, s.renew("live-restore", "home/dir", "bucket", "override"))
+
+	require.False(t, s.resetIf("cancelled-restore"))
+
+	got := s.get()
+	require.Equal(t, "live-restore", got.ID)
+	require.Equal(t, "home/dir", got.Path)
+	require.Equal(t, "bucket", got.OverrideBucket)
+	require.Equal(t, "override", got.OverridePath)
+}
+
+// The cancelled op releases the slot and a new restore claims it while a second
+// caller is releasing the cancelled id. A check and a clear under separate lock
+// acquisitions throw the new claim away here; one acquisition cannot.
+func TestBackupStatResetIfDoesNotDropAConcurrentRenew(t *testing.T) {
+	t.Parallel()
+
+	const (
+		cancelled = "cancelled-restore"
+		fresh     = "fresh-restore"
+	)
+
+	for i := 0; i < 5000; i++ {
+		var s backupStat
+		require.Empty(t, s.renew(cancelled, "path", "", ""))
+
+		var (
+			wg       sync.WaitGroup
+			start    = make(chan struct{})
+			renewErr string
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			s.resetIf(cancelled)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			s.reset()
+			renewErr = s.renew(fresh, "path", "", "")
+		}()
+		close(start)
+		wg.Wait()
+
+		require.Empty(t, renewErr)
+		require.Equal(t, fresh, s.get().ID,
+			"iteration %d: the fresh restore's claim was cleared by a stale release", i)
+	}
+}

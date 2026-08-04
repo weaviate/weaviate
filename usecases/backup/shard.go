@@ -67,12 +67,30 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 
 func (s *backupStat) reset() {
 	s.Lock()
+	s.clear()
+	s.Unlock()
+}
+
+// clear must be called with the lock held.
+func (s *backupStat) clear() {
 	s.reqState.ID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
-	s.Unlock()
+}
+
+// resetIf gives back the slot only when id still owns it, checking and
+// clearing under one lock so a renew cannot slip in between and lose its claim.
+// It reports whether the slot was cleared.
+func (s *backupStat) resetIf(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	s.clear()
+	return true
 }
 
 func (s *backupStat) set(st backup.Status) {
