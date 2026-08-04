@@ -108,6 +108,20 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 			"control: all %d updated objects must be served at >= %d", numUpdates, mark)
 	})
 
+	// KNOWN RED while enable-rangeable is a semantic migration and
+	// weaviate/weaviate#12211 is not in the base. Moving the schema flip
+	// from the first shard's swap to task completion opens a window on
+	// each shard between its own swap and the cluster-wide flip: the
+	// double-write callbacks are gone, and the normal write path still
+	// reads indexRangeFilters=false, so writes arriving in that window do
+	// not reach the range index. Measured here at 494/500.
+	//
+	// The data is not lost — it is in the objects bucket and the
+	// filterable index, and repair-rangeable recovers it — but this test
+	// pins the guarantee from weaviate/weaviate#11688 and that guarantee
+	// is not currently met. 12211's durable pending-flip marker plus its
+	// force-index overlay closes the window for every enable-* migration;
+	// this test going green again is the acceptance criterion for it.
 	t.Run("enable-rangeable migration with concurrent writes", func(t *testing.T) {
 		className := "F10RangeableMig"
 		ids := setupClassWithObjects(t, className, false)
