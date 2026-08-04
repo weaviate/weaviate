@@ -46,20 +46,16 @@ func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger lo
 	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
 }
 
-// NewReindexCleanupFromState is the wiring the internal server uses. The
-// provider is read from appState at request time, so the route starts serving
-// as soon as bootstrap assigns it and answers 503 until then.
+// NewReindexCleanupFromState is the wiring the internal server uses; see the
+// resolve field for why it binds late.
 func NewReindexCleanupFromState(appState *state.State, auth auth) *ReindexCleanup {
-	// Same nil-into-interface trap as the prober below: appState.Logger is a
-	// concrete pointer and must be compared as one before it is boxed.
+	// Both fields below are concrete pointers and must be compared as such
+	// before they are boxed; see isNilProber.
 	var logger logrus.FieldLogger
 	if appState != nil && appState.Logger != nil {
 		logger = appState.Logger
 	}
 	return NewReindexCleanup(func() ReindexCleanupProber {
-		// Compared as a concrete pointer. Returning appState.ReindexProvider
-		// directly would box a nil into the interface, and a nil interface
-		// holding a type is not nil.
 		if appState == nil || appState.ReindexProvider == nil {
 			return nil
 		}

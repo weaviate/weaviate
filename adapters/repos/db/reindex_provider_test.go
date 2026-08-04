@@ -538,10 +538,8 @@ func TestAnyCleanupInProgressForCollection(t *testing.T) {
 	}
 }
 
-// The DTM terminal hook drains the local worker before tearing its sidecars
-// down, and the task has already left DTM by then — so the drain is precisely
-// the stretch where the shards look free while the worker is still writing.
-// The gate has to be up for it, not raised once it finishes.
+// Pins the ordering autoCleanupAfterTerminal documents: the gate is up for the
+// drain, not raised once it finishes.
 func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-1", Version: 1}
 	payload := &ReindexTaskPayload{
@@ -587,8 +585,7 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 		"the gate must come back down once the hook returns")
 }
 
-// A task that tears nothing down must not hold the gate at all: the raise moved
-// past the drain, not past the applicability checks.
+// And the raise moved past the drain only, not past the applicability checks.
 func TestAutoCleanupAfterTerminalSkipsTheGateWhenNothingToClean(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-2", Version: 1}
 	serverCtx, cancel := context.WithTimeout(context.Background(), time.Second)
