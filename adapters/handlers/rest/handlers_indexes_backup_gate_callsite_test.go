@@ -44,6 +44,14 @@ type fixedMembership []string
 
 func (m fixedMembership) AllNames() []string { return m }
 
+// LocalName reports the first entry as this node.
+func (m fixedMembership) LocalName() string {
+	if len(m) == 0 {
+		return ""
+	}
+	return m[0]
+}
+
 // TestUpdateIndexRefusesWhileBackupRuns drives the full submission handler,
 // not just the gate, so a dropped call to it fails here too.
 func TestUpdateIndexRefusesWhileBackupRuns(t *testing.T) {

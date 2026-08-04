@@ -51,6 +51,7 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	}
 	if appState.ClusterHttpClient != nil && appState.Cluster != nil {
 		h.backupActivity = clients.NewClusterBackupActivity(appState.ClusterHttpClient, appState.Cluster)
+		h.reindexCleanup = clients.NewClusterReindexCleanup(appState.ClusterHttpClient, appState.Cluster)
 	}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
@@ -67,11 +68,21 @@ type indexesHandlers struct {
 
 	// nil until wired; both reindex routes answer 503 then.
 	tasks reindexTaskService
+
+	// nil in fixtures without a cluster HTTP client; the cancel handler then
+	// answers without confirming remote gates.
+	reindexCleanup reindexCleanupProber
 }
 
 // clusterMembership is the slice of the cluster state the backup gate needs.
 type clusterMembership interface {
 	AllNames() []string
+	LocalName() string
+}
+
+// reindexCleanupProber asks one node whether its reindex-cleanup gate is up.
+type reindexCleanupProber interface {
+	CleanupInProgress(ctx context.Context, nodeName, collection string) (bool, error)
 }
 
 // reindexTaskService is a narrow port over the four cluster-service methods the
@@ -702,6 +713,78 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	})
 }
 
+// reindexOwnerGateTimeout bounds the wait for remote owners to raise their
+// cleanup gates. A cancel must never become unanswerable because a node is
+// unreachable, so this is short and the handler proceeds either way.
+const reindexOwnerGateTimeout = 5 * time.Second
+
+// reindexOwnerGatePollInterval is how often each owner is re-asked.
+const reindexOwnerGatePollInterval = 100 * time.Millisecond
+
+// awaitOwnerCleanupGates blocks until every other node owning a unit of the
+// cancelled task reports its reindex-cleanup gate raised, or until the bound
+// elapses. It never fails the cancel: the task is already cancelled, and a
+// caller who cannot cancel at all is worse off than one told about a smaller
+// window.
+func (h *indexesHandlers) awaitOwnerCleanupGates(ctx context.Context, payload *db.ReindexTaskPayload, collection, taskID string) {
+	if h.reindexCleanup == nil {
+		return
+	}
+	local := ""
+	if h.cluster != nil {
+		local = h.cluster.LocalName()
+	}
+	owners := make(map[string]struct{}, len(payload.UnitToNode))
+	for _, node := range payload.UnitToNode {
+		if node != "" && node != local {
+			owners[node] = struct{}{}
+		}
+	}
+	if len(owners) == 0 {
+		return
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, reindexOwnerGateTimeout)
+	defer cancel()
+
+	degraded := map[string]string{}
+	for node := range owners {
+		for {
+			up, err := h.reindexCleanup.CleanupInProgress(waitCtx, node, collection)
+			if errors.Is(err, clients.ErrReindexCleanupUnsupported) {
+				// An older build cannot answer; waiting would burn the whole
+				// budget to learn nothing.
+				degraded[node] = "node does not serve the cleanup probe"
+				break
+			}
+			if err == nil && up {
+				break
+			}
+			select {
+			case <-waitCtx.Done():
+				if err != nil {
+					degraded[node] = err.Error()
+				} else {
+					degraded[node] = "gate not raised within " + reindexOwnerGateTimeout.String()
+				}
+			case <-time.After(reindexOwnerGatePollInterval):
+				continue
+			}
+			break
+		}
+	}
+
+	if len(degraded) > 0 {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_cancel_gate_unconfirmed",
+			"taskID":      taskID,
+			"collection":  collection,
+			"nodes":       degraded,
+		}).Warn("cancel: could not confirm every owner raised its cleanup gate; " +
+			"answering anyway — a backup started right now could still catch the teardown on those nodes")
+	}
+}
+
 // rollbackRacedReindexTask cancels a task committed into a backup that
 // claimed the same slot. Failures are only logged: the caller's 409 already
 // stands, and the backup's own commit-time check is the backstop.
@@ -1040,6 +1123,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			"index_type": indexType,
 		}).Warn("cancel: appState.ReindexProvider is nil; skipping drain+cleanup")
 	}
+
+	// This node may own none of the collection's shards, in which case nothing
+	// above raised a gate: the owners do that when the cancel reaches their own
+	// DTM hook, a second or two from now. Answering 202 before then tells the
+	// caller the cancel is done while a backup can still start into the
+	// teardown window.
+	h.awaitOwnerCleanupGates(ctx, &targetPayload, collection, target.ID)
 
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancelled",

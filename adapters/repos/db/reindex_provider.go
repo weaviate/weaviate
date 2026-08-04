@@ -1738,6 +1738,26 @@ func (p *ReindexProvider) AnyCleanupInProgress() bool {
 	return len(p.cleanupInProgress) > 0
 }
 
+// AnyCleanupInProgressForCollection reports whether this node is tearing down
+// reindex sidecars for any shard of the collection.
+//
+// A cancel routed to a node that owns none of the shards answers the caller as
+// soon as the task leaves DTM, which is before the owners have raised their own
+// gates. That node asks the owners this question before answering, so the
+// caller cannot be told the cancel is done while a backup could still slip into
+// the teardown window.
+func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) bool {
+	p.cleanupInProgressMu.RLock()
+	defer p.cleanupInProgressMu.RUnlock()
+	folded := strings.ToLower(collection)
+	for key, count := range p.cleanupInProgress {
+		if count > 0 && key.collection == folded {
+			return true
+		}
+	}
+	return false
+}
+
 // registerCleanup marks (collection, shard) as having an in-flight
 // terminal-task cleanup. Refcounted: paired calls to
 // [unregisterCleanup] release the slot, with the entry dropping out of
