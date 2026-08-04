@@ -682,13 +682,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	// Second probe, after the task is committed. The first one ran before this
-	// task existed, so a backup that claimed its slot in between saw nothing to
-	// refuse and admitted. AddTask returns only once the RAFT leader has applied
-	// it, and every backup resolves reindex state by reading that same leader,
-	// so from this point the two sides can no longer both believe they are
-	// alone: whichever published second sees the other. Roll ours back — the
-	// backup cannot roll back, it is already copying files.
+	// Second probe, now that the task is committed: a backup that claimed its
+	// slot before this point saw nothing to refuse. From here on, whichever
+	// side committed second sees the other. We roll back; the backup can't.
 	if responder := h.refuseIfBackupInFlight(ctx, principal); responder != nil {
 		h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName)
 		return responder
@@ -715,14 +711,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	})
 }
 
-// rollbackRacedReindexTask cancels a task that was committed into a backup
-// which claimed its slot at the same instant. The caller is about to be told
-// the migration did not start, so leaving it STARTED would run it anyway.
-//
-// Every failure here is logged rather than returned: the caller's 409 is
-// already correct, and the alternative — reporting success for a submission we
-// are refusing — is worse. A task that survives is caught by the backup's own
-// commit-time check, which fails that backup.
+// rollbackRacedReindexTask cancels a task committed into a backup that
+// claimed the same slot. Failures are only logged: the caller's 409 already
+// stands, and the backup's own commit-time check is the backstop.
 func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) {
 	fields := logrus.Fields{
 		"audit_event": "reindex_task_rolled_back",

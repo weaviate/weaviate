@@ -148,10 +148,8 @@ func TestRefuseIfAnyReindexInFlight_PropagatesContext(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-// The RAFT error behind a fail-closed refusal names the nodes it could not
-// reach. Restoring grants nothing on node names, so that detail belongs in the
-// log and not in the response body — the same rule the guard's 409 already
-// follows.
+// Pins: node names from a RAFT lookup failure must not leak into the
+// restore-refusal body.
 func TestRefuseIfAnyReindexInFlight_LookupFailureRedactsNodeNames(t *testing.T) {
 	raftErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
 

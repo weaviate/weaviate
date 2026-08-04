@@ -37,10 +37,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// raceTaskService stands in for the RAFT task service. onCommitted runs at the
-// point AddDistributedTask* returns, which is where the real service has
-// applied the task on the leader and made it visible to every backup's check.
-// Setting the backup flag from there is what reproduces the admission race.
+// raceTaskService stands in for the RAFT task service. onCommitted fires where
+// the real leader would make the task visible to every backup's check, which
+// is what lets tests place the race at that exact point.
 type raceTaskService struct {
 	mu          sync.Mutex
 	tasks       []*distributedtask.Task
@@ -187,10 +186,8 @@ func submitReindex(h *indexesHandlers) middleware.Responder {
 	}, &models.Principal{Username: "u1"})
 }
 
-// A backup and a reindex submitted at the same instant must never both be
-// admitted. Each side publishes its claim before probing the other, so in a tie
-// at least one of them sees the other and refuses. These cases place the backup
-// claim at each point of the submission sequence.
+// Pins: a backup and a reindex submitted at the same instant can never both
+// be admitted, at any point in the submission sequence.
 func TestUpdateIndexAdmissionRaceAgainstBackup(t *testing.T) {
 	tests := []struct {
 		name string
@@ -246,9 +243,8 @@ func TestUpdateIndexAdmissionRaceAgainstBackup(t *testing.T) {
 	}
 }
 
-// Both sides refusing is an acceptable outcome of a tie, but only if it is
-// retryable: the refused submission must leave nothing behind that blocks the
-// next attempt once the backup is gone.
+// Pins: a submission refused by the race must leave nothing behind that
+// blocks the retry.
 func TestUpdateIndexRefusedByRaceIsRetryable(t *testing.T) {
 	var busy atomic.Bool
 	svc := &raceTaskService{}
@@ -261,7 +257,6 @@ func TestUpdateIndexRefusedByRaceIsRetryable(t *testing.T) {
 	require.Truef(t, refused, "expected the tie to be refused, got %T", first)
 	require.Empty(t, svc.startedTasks())
 
-	// The backup finished and the caller retries.
 	svc.onCommitted = nil
 	busy.Store(false)
 

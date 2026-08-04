@@ -83,9 +83,8 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			continue
 		}
 		for _, shardName := range shards {
-			// No node prefix: the refusal is answered to a backup caller, who is
-			// granted nothing on node names. refuseIfReindexInFlight logs the
-			// node and shard for the operator.
+			// No node prefix: the backup caller has no grant on node names.
+			// refuseIfReindexInFlight logs node and shard for the operator.
 			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
 				errs = append(errs, err)
 			}

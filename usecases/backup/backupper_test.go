@@ -912,11 +912,8 @@ func TestResolveBaseBackupChain(t *testing.T) {
 	}
 }
 
-// Every per-shard reindex check runs before the files are captured, so a
-// migration that starts inside that window is invisible to all of them — and to
-// the admission checks on both sides, whatever version admitted it. The
-// commit-time re-resolve is what turns that into a loud failure instead of a
-// SUCCESS that silently spans a migration.
+// Pins: a reindex admitted after the pre-capture check still fails the
+// backup at commit time.
 func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 	t.Parallel()
 	var (

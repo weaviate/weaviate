@@ -74,9 +74,8 @@ func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
 
 // unwiredRestoreGateWarnOnce keeps the "lookup not installed" WARN to one
 // line per process, matching [unwiredGateWarnOnce] on the backup side.
-// redactedCauseErr keeps a cause reachable for errors.Is without printing it.
-// The RAFT error it carries names the nodes it could not reach, and this text
-// reaches an API response body.
+// redactedCauseErr keeps a cause reachable via errors.Is without printing it;
+// the cause may name nodes that must not reach an API response body.
 type redactedCauseErr struct {
 	msg   string
 	cause error
@@ -129,9 +128,8 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 
 	live, err := lookup(ctx)
 	if err != nil {
-		// The RAFT error names the nodes it could not reach. Restoring needs no
-		// grant on node names, so the detail stays in the log and the caller
-		// gets the condition only.
+		// The RAFT error may name nodes; restoring grants no access to node names,
+		// so the detail stays in the log only.
 		if db.logger != nil {
 			db.logger.WithField("action", "restore_reindex_gate").
 				Errorf("restore-reindex gate: cannot query the cluster task manager, assuming a migration is live: %v", err)
