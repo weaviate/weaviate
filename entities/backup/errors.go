@@ -33,19 +33,15 @@ import (
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
 
 // ErrBackupSpannedReindex marks a backup whose capture overlapped a
-// runtime-reindex. Distinct from [ErrBackupBlockedByInFlightReindex], which
-// refuses up front and reads as "something is running right now": by the time
-// this one is raised the migration has usually finished, and saying it is in
-// flight would send the operator looking for a task that is already gone.
+// runtime-reindex. Separate from [ErrBackupBlockedByInFlightReindex] because
+// the migration has usually finished by the time this is raised, and calling it
+// in-flight sends the operator after a task that is gone.
 var ErrBackupSpannedReindex = errors.New("backup spanned a runtime-reindex")
 
-// ReindexBlockedError is the API-safe form of a backup refused by the
-// reindex gate. Every wrapper between the shard that refused and the stored
-// failure meta prepends detail an operator wants and a backup caller is not
-// granted — "snapshot shard <id>", the node name. Those wrappers are what the
-// log gets; this carries the one message that may be published, so the
-// boundary can pull it back out with errors.As instead of trying to strip the
-// chain apart.
+// ReindexBlockedError is the API-safe form of a backup refused by the reindex
+// gate. Wrappers on the way out add the shard and node an operator wants and a
+// backup caller is not granted, so the publishable message travels alongside
+// them and the boundary recovers it with errors.As.
 type ReindexBlockedError struct{ Msg string }
 
 func (e ReindexBlockedError) Error() string { return e.Msg }

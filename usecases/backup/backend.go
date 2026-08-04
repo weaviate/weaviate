@@ -273,9 +273,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		// The full chain, shard id and all, has already been logged by the
-		// caller. This copy is stored in the failure meta and served from the
-		// status API, so it carries only what a backup caller is granted.
+		// The caller has already logged the full chain, shard id and all.
 		desc.Error = publishableErrMsg(err)
 
 		// Handle error cases
@@ -356,11 +354,8 @@ Loop:
 	}
 
 	// Commit-time backstop: per-shard checks ran before capture, so a reindex
-	// admitted during capture was invisible to them. The question has to be
-	// "did one overlap", not "is one running now" — a migration that both
-	// starts and finishes while the files are being copied leaves the capture
-	// just as inconsistent, with nothing left running to point at. Failing the
-	// backup beats a SUCCESS that silently spans a migration.
+	// admitted during capture was invisible to them. Failing the backup beats a
+	// SUCCESS that silently spans a migration.
 	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
 		u.setStatus(backup.Failed)
 		desc.Status = backup.Failed
@@ -374,11 +369,10 @@ Loop:
 	return nil
 }
 
-// publishableErrMsg is the failure text safe to store in the descriptor and
-// serve from GET /v1/backups/{backend}/{id}. A gate refusal travels here under
-// wrappers that name the shard it came from ("snapshot shard <id>: halt for
-// snapshot: ..."); backing up a collection grants nothing on shard ids, so the
-// refusal's own message is published instead of the traversal that found it.
+// publishableErrMsg is the failure text safe to serve from the status API. A
+// gate refusal arrives wrapped in the shard it came from; backing up a
+// collection grants nothing on shard ids, so the refusal's own message is
+// published rather than the traversal that found it.
 func publishableErrMsg(err error) string {
 	var blocked backup.ReindexBlockedError
 	if errors.As(err, &blocked) {

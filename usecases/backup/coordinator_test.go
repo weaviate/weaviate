@@ -1274,10 +1274,8 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 	}
 }
 
-// R1 observed `node "weaviate-0": backup blocked: ... : backup blocked: ...`
-// coming back from a coordinated backup in an all-new cluster: the node name
-// reached the failure reason, and the sentinel was printed twice because the
-// participant's message already opened with it.
+// A participant's refusal becomes the backup's failure reason: it may not name
+// the node, nor restate a condition the participant already stated.
 func TestCanCommitRefusalIsNeitherNamedNorDoubled(t *testing.T) {
 	t.Parallel()
 

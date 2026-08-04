@@ -160,8 +160,14 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 
 // ReindexOverlapLookup answers the backup's commit-time question: did any
 // reindex task on these collections have a lifetime overlapping [since, now]?
-// It returns a non-nil error both when one did and when the question can no
-// longer be answered, so the caller can fail closed on either.
+//
+// Overlap, not liveness. A migration that both starts and finishes while the
+// files are being copied leaves the capture just as inconsistent, and asking
+// whether one is running at commit time answers no — there is nothing left to
+// see. Every caller of this lookup depends on that distinction.
+//
+// A non-nil error means either that one overlapped or that the question can no
+// longer be answered; callers fail closed on both.
 type ReindexOverlapLookup func(ctx context.Context, collections []string, since time.Time) error
 
 // SetReindexOverlapLookup installs the lookup consulted by
@@ -173,20 +179,17 @@ func (db *DB) SetReindexOverlapLookup(lookup ReindexOverlapLookup) {
 	db.reindexOverlapLookup = lookup
 }
 
-// ReindexTaskLister lists DTM tasks by namespace. Narrowed from the cluster
-// service so the overlap rules below can be exercised without a RAFT node.
+// ReindexTaskLister lists DTM tasks by namespace, narrowed from the cluster
+// service so the overlap rules can be exercised without a RAFT node.
 type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.Task, error)
 
-// NewReindexOverlapLookup builds the commit-time overlap check.
+// NewReindexOverlapLookup builds the [ReindexOverlapLookup] rules: a task
+// overlaps when it is still running or reached a terminal status at or after
+// the backup started, equal timestamps counting as overlap.
 //
-// A task overlaps [since, now] when it is still running, or when it reached a
-// terminal status at or after the backup started. Equal timestamps count as
-// overlap: the capture and the migration cannot be ordered, so the backup loses.
-//
-// A finished task leaves the list once completedTaskTTL elapses, and after that
-// its absence proves nothing. Rather than read the empty list as "all clear",
-// refuse outright once the backup has run longer than the retention window —
-// the only case where this check could otherwise be silently wrong.
+// Past completedTaskTTL a finished task is dropped from the list, so its
+// absence stops being evidence; the lookup refuses outright rather than read an
+// empty list as all-clear.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
@@ -224,10 +227,8 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 
 var unwiredOverlapWarnOnce sync.Once
 
-// RefuseIfReindexOverlapped is the backup's commit-time backstop. Asking
-// whether a reindex is live right now misses the whole class of tasks that
-// started and finished inside the backup window — the capture is just as
-// inconsistent, and nothing is running by the time anyone looks.
+// RefuseIfReindexOverlapped is the backup's commit-time backstop; see
+// [ReindexOverlapLookup] for why the question is overlap and not liveness.
 //
 // Unwired means fail-open with a one-time WARN, matching the other gates:
 // module tests construct a DB without the post-bootstrap install path, and

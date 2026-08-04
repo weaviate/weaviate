@@ -1127,9 +1127,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// tens of seconds. The cleanup-in-progress lookup keeps the gate
 		// closed for that window so a backup landing in the gap doesn't
 		// snapshot half-removed sidecars.
-		// Commit-time overlap check. "Is a reindex live?" cannot see a task
-		// that started and finished inside the backup window, which leaves the
-		// capture just as inconsistent with nothing running to point at.
+		// Commit-time overlap check; see db.ReindexOverlapLookup.
 		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
 			appState.ClusterService.ListDistributedTasks,
 			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
