@@ -510,6 +510,15 @@ func (e remoteReindexInFlightErr) Error() string { return e.msg }
 
 func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFlight }
 
+// remoteBackupBlockedErr carries [backup.ErrBackupBlockedByInFlightReindex] for
+// errors.Is without restating it, for participants whose message already opens
+// with the sentinel.
+type remoteBackupBlockedErr struct{ msg string }
+
+func (e remoteBackupBlockedErr) Error() string { return e.msg }
+
+func (e remoteBackupBlockedErr) Unwrap() error { return backup.ErrBackupBlockedByInFlightReindex }
+
 // canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
 // typed error. When the response has [CanCommitErrInFlightReindex] kind, we
 // wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
@@ -523,6 +532,11 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
+		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()) {
+			// The participant's message already opens with the sentinel; %w
+			// would print the whole condition twice.
+			return remoteBackupBlockedErr{msg: resp.Err}
+		}
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
 	case CanCommitErrReindexInFlight:
 		return remoteReindexInFlightErr{msg: resp.Err}
@@ -595,7 +609,14 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
-				return fmt.Errorf("node %q: %w", req.NodeName, err)
+				// The node name goes to the operator, not into the error: this
+				// one becomes the backup's failure reason, and a backup caller
+				// is granted nothing on node names.
+				c.log.WithField("action", req.Method).
+					WithField("backup_id", req.ID).
+					WithField("node", req.NodeName).
+					Errorf("canCommit refused by participant: %v", err)
+				return err
 			}
 			mutex.Lock()
 			nodes[req.NodeName] = req.NodeHost

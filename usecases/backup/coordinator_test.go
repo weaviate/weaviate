@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,7 +246,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.Contains(t, err.Error(), nodes[1])
+		assert.NotContains(t, err.Error(), nodes[1],
+			"the participant's node name belongs in the log, not the failure reason")
 	})
 
 	t.Run("NodeDown", func(t *testing.T) {
@@ -483,7 +485,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.Contains(t, err.Error(), nodes[1])
+		assert.NotContains(t, err.Error(), nodes[1],
+			"the participant's node name belongs in the log, not the failure reason")
 	})
 
 	t.Run("PutInitialMeta", func(t *testing.T) {
@@ -956,7 +959,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,
 				ID:      backupID,
-				Err:     "Node-2/Class-A: " + backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard \"shard-a\" has 1 active tracker(s)",
+				Err:     backup.ErrBackupBlockedByInFlightReindex.Error() + ": collection \"Class-A\" has an active runtime-reindex task in DTM",
 				ErrKind: CanCommitErrInFlightReindex,
 			},
 			expectInFlight: true,
@@ -1029,8 +1032,11 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
 			}
-			// Surface the offending node so the operator knows where to look.
-			assert.Contains(t, err.Error(), nodes[1])
+			// The offending node reaches the operator through the log; this
+			// error becomes the backup's failure reason, and a backup caller is
+			// granted nothing on node names.
+			assert.NotContains(t, err.Error(), nodes[1],
+				"the refusal leaked the participant's node name")
 		})
 	}
 }
@@ -1264,6 +1270,52 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			require.Equal(t, tc.wantSlotID,
 				c.lastOp.renew("intruder", "path", "", ""),
 				"a live restore must still refuse a second claim")
+		})
+	}
+}
+
+// R1 observed `node "weaviate-0": backup blocked: ... : backup blocked: ...`
+// coming back from a coordinated backup in an all-new cluster: the node name
+// reached the failure reason, and the sentinel was printed twice because the
+// participant's message already opened with it.
+func TestCanCommitRefusalIsNeitherNamedNorDoubled(t *testing.T) {
+	t.Parallel()
+
+	participantMsg := backup.ErrBackupBlockedByInFlightReindex.Error() +
+		`: collection "Movies" has an active runtime-reindex task in DTM`
+
+	tests := []struct {
+		name    string
+		resp    *CanCommitResponse
+		wantMsg string
+	}{
+		{
+			name: "participant message already opens with the sentinel",
+			resp: &CanCommitResponse{
+				Method: OpCreate, ErrKind: CanCommitErrInFlightReindex, Err: participantMsg,
+			},
+			wantMsg: participantMsg,
+		},
+		{
+			name: "older participant sends a message without the sentinel",
+			resp: &CanCommitResponse{
+				Method: OpCreate, ErrKind: CanCommitErrInFlightReindex, Err: "shard is migrating",
+			},
+			wantMsg: backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard is migrating",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := canCommitErrFromResponse(tc.resp)
+			require.Error(t, err)
+			require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex,
+				"the sentinel must survive so the coordinator still answers 422")
+			assert.Equal(t, tc.wantMsg, err.Error())
+			assert.Equal(t, 1,
+				strings.Count(err.Error(), backup.ErrBackupBlockedByInFlightReindex.Error()),
+				"the condition must be stated once, not once per wrap")
 		})
 	}
 }
