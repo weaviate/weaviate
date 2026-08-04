@@ -274,6 +274,9 @@ func bytesForMax(max uint64) int {
 type columnarSegment struct {
 	keys keyColumn
 	docs *docIDColumn
+	// maxDoc is the largest docID the segment holds, recorded while building so
+	// a merge can size its output docID column without rescanning.
+	maxDoc uint64
 }
 
 // run is one flushed memtable copied into columnar form: the keys that got an
@@ -388,10 +391,26 @@ type segmentBuilder struct {
 	blob         []byte
 	docs         *docIDColumn
 	uniformWidth int // -1 unset, -2 mixed, >=0 the common width
+	maxDoc       uint64
 }
 
+// newSegmentBuilder builds at full docID width and grows its arrays on demand,
+// for producers that know neither the docID range nor the entry count up front.
 func newSegmentBuilder() *segmentBuilder {
 	return &segmentBuilder{offsets: []uint32{0}, docs: &docIDColumn{w: 8}, uniformWidth: -1}
+}
+
+// newSegmentBuilderSized presizes to upper bounds on the entry count and key
+// bytes, and packs docIDs at docWidth. Producers that know all three — the
+// startup build and the tier merge — write their whole output without a single
+// array regrowth.
+func newSegmentBuilderSized(numKeys, keyBytes, docWidth int) *segmentBuilder {
+	return &segmentBuilder{
+		offsets:      append(make([]uint32, 0, numKeys+1), 0),
+		blob:         make([]byte, 0, keyBytes),
+		docs:         &docIDColumn{w: docWidth, data: make([]byte, 0, numKeys*docWidth)},
+		uniformWidth: -1,
+	}
 }
 
 func (b *segmentBuilder) append(key []byte, docID uint64) {
@@ -399,6 +418,9 @@ func (b *segmentBuilder) append(key []byte, docID uint64) {
 	b.blob = append(b.blob, key...)
 	b.offsets = append(b.offsets, uint32(len(b.blob)))
 	b.docs.append(docID)
+	if docID > b.maxDoc {
+		b.maxDoc = docID
+	}
 
 	if b.uniformWidth == -1 {
 		b.uniformWidth = len(key)
@@ -409,8 +431,9 @@ func (b *segmentBuilder) append(key []byte, docID uint64) {
 
 func (b *segmentBuilder) segment() *columnarSegment {
 	return &columnarSegment{
-		keys: buildKeyColumn(b.blob, b.offsets, b.uniformWidth),
-		docs: b.docs,
+		keys:   buildKeyColumn(b.blob, b.offsets, b.uniformWidth),
+		docs:   b.docs,
+		maxDoc: b.maxDoc,
 	}
 }
 
@@ -658,41 +681,7 @@ func (idx *ColumnarIndex) foldRunsIntoBase() {
 		return
 	}
 
-	// Replay base then runs oldest→newest into a net key→docID map. owner is the
-	// reverse (docID→key) so a run's docID-based deletions can be applied — valid
-	// under 1-doc-per-key (a bijection).
-	//
-	// keyBuf is reused across appendKey calls; the map key copies out of it.
-	var keyBuf []byte
-	net := make(map[string]uint64, base.keys.len())
-	owner := make(map[uint64]string, base.keys.len())
-	for i := 0; i < base.keys.len(); i++ {
-		k := string(base.keys.appendKey(i, keyBuf[:0]))
-		d := base.docs.at(i)
-		net[k] = d
-		owner[d] = k
-	}
-	for _, r := range runs {
-		if r.delDocs != nil {
-			for _, d := range r.delDocs.ToArray() {
-				if k, ok := owner[d]; ok {
-					delete(net, k)
-					delete(owner, d)
-				}
-			}
-		}
-		for i := 0; i < r.adds.keys.len(); i++ {
-			k := string(r.adds.keys.appendKey(i, keyBuf[:0]))
-			d := r.adds.docs.at(i)
-			if old, ok := net[k]; ok {
-				delete(owner, old)
-			}
-			net[k] = d
-			owner[d] = k
-		}
-	}
-
-	newBase := segmentFromMap(net)
+	newBase := mergeTiers(base, runs)
 
 	// Publish the new base, dropping exactly the runs this fold consumed. Those
 	// are a prefix of whatever the current state holds — absorbs only ever append,
@@ -709,34 +698,125 @@ func (idx *ColumnarIndex) foldRunsIntoBase() {
 	}
 }
 
-// segmentFromMap builds a sorted columnarSegment from a net key→docID map, with
-// the docID column narrowed to the observed max docID.
-func segmentFromMap(net map[string]uint64) *columnarSegment {
-	keys := make([]string, 0, len(net))
-	var maxDoc uint64
-	for k, d := range net {
-		keys = append(keys, k)
-		if d > maxDoc {
-			maxDoc = d
-		}
+// keyBytesOf is how many bytes a column's keys occupy once written out at full
+// width. Fixed and prefix backings answer exactly from their width; the prefix
+// backing in particular stores only suffixes, so its resident size understates
+// what a merge has to write. The variable-width backing falls back to its
+// resident size, an over-estimate that still bounds the output.
+func keyBytesOf(c keyColumn) int {
+	if w := c.info().width; w > 0 {
+		return c.len() * w
 	}
-	sort.Strings(keys)
+	return c.info().sizeBytes
+}
 
-	offsets := []uint32{0}
-	var blob []byte
-	docs := &docIDColumn{w: bytesForMax(maxDoc)}
-	uniformWidth := -1
-	for _, k := range keys {
-		blob = append(blob, k...)
-		offsets = append(offsets, uint32(len(blob)))
-		docs.append(net[k])
-		if uniformWidth == -1 {
-			uniformWidth = len(k)
-		} else if uniformWidth != len(k) {
-			uniformWidth = -2
+// tierCursor walks one segment's (key, docID) entries in key order, keeping the
+// current key materialized in a buffer it reuses.
+type tierCursor struct {
+	seg *columnarSegment
+	i   int
+	key []byte
+}
+
+func (c *tierCursor) valid() bool { return c.i < c.seg.keys.len() }
+
+func (c *tierCursor) load() {
+	if c.valid() {
+		c.key = c.seg.keys.appendKey(c.i, c.key[:0])
+	}
+}
+
+func (c *tierCursor) at(key []byte) bool { return c.valid() && bytes.Equal(c.key, key) }
+
+func (c *tierCursor) doc() uint64 { return c.seg.docs.at(c.i) }
+
+func (c *tierCursor) next() {
+	c.i++
+	c.load()
+}
+
+// mergeTiers rebuilds the base by merging it with the runs layered over it.
+//
+// Every input is already sorted by key — the base because it was built that way,
+// each run because a memtable cursor yields keys in order — so the net state
+// comes out of a k-way merge in one pass, in sorted order, with no intermediate
+// map and no re-sort. Output arrays are sized to upper bounds known before the
+// merge starts, so nothing regrows.
+//
+// A key's fate is decided by replaying its tiers oldest to newest: the base
+// proposes a docID, then each run first retires the docIDs it deleted under that
+// key and then proposes its own addition. Deletions compare against the docID
+// currently held, so a flush retiring a docID that some later flush already
+// replaced correctly does nothing.
+func mergeTiers(base *columnarSegment, runs []*run) *columnarSegment {
+	// cursor 0 is the base; cursor i+1 is run i's additions.
+	adds := make([]tierCursor, len(runs)+1)
+	dels := make([]tierCursor, len(runs))
+	adds[0] = tierCursor{seg: base}
+	numKeys, keyBytes, maxDoc := base.keys.len(), keyBytesOf(base.keys), base.maxDoc
+	for i, r := range runs {
+		adds[i+1] = tierCursor{seg: r.adds}
+		dels[i] = tierCursor{seg: r.dels}
+		numKeys += r.adds.keys.len()
+		keyBytes += keyBytesOf(r.adds.keys)
+		if r.adds.maxDoc > maxDoc {
+			maxDoc = r.adds.maxDoc
 		}
 	}
-	return &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs}
+	for i := range adds {
+		adds[i].load()
+	}
+	for i := range dels {
+		dels[i].load()
+	}
+
+	// maxDoc is an upper bound: the document holding it may itself be deleted
+	// below, which costs at most a byte per entry versus an exact narrowing.
+	out := newSegmentBuilderSized(numKeys, keyBytes, bytesForMax(maxDoc))
+
+	var key []byte
+	for {
+		// smallest key still pending across every cursor
+		var min []byte
+		for i := range adds {
+			if adds[i].valid() && (min == nil || bytes.Compare(adds[i].key, min) < 0) {
+				min = adds[i].key
+			}
+		}
+		for i := range dels {
+			if dels[i].valid() && (min == nil || bytes.Compare(dels[i].key, min) < 0) {
+				min = dels[i].key
+			}
+		}
+		if min == nil {
+			break
+		}
+		// copy: advancing a cursor overwrites the buffer min points into
+		key = append(key[:0], min...)
+
+		var doc uint64
+		var live bool
+		if adds[0].at(key) {
+			doc, live = adds[0].doc(), true
+			adds[0].next()
+		}
+		for i := range runs {
+			for dels[i].at(key) {
+				if live && dels[i].doc() == doc {
+					live = false
+				}
+				dels[i].next()
+			}
+			if adds[i+1].at(key) {
+				doc, live = adds[i+1].doc(), true
+				adds[i+1].next()
+			}
+		}
+		if live {
+			out.append(key, doc)
+		}
+	}
+	return out.segment()
 }
 
 // mergeScanCheaper picks the fold strategy: merge-scan streams the corpus (cost
