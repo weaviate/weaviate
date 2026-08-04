@@ -172,8 +172,13 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 // A task cancelled before completing is not counted, whether it was withdrawn
 // because a backup claimed first or cancelled by an operator part-way through:
 // no cluster state tells the two apart, and neither is provably write-free
-// (0-wi#473). The residual that leaves is pinned by
-// TestReindexOverlapLookupResidual.
+// (0-wi#473).
+//
+// The gap that leaves is the backup's whole duration, not a window at the end
+// of it: a migration admitted through a fail-open route and cancelled before
+// commit is invisible to every layer from shard-halt onwards, because the
+// per-shard check runs once at halt and cannot see one that starts after it.
+// Pinned by TestReindexOverlapLookupResidual.
 type ReindexOverlapLookup func(ctx context.Context, collections []string, since time.Time) error
 
 // SetReindexOverlapLookup installs the lookup consulted by

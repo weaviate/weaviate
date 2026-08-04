@@ -386,7 +386,8 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 }
 
 // Pins the gap ReindexOverlapLookup documents: a migration cancelled part-way
-// through, inside the backup window, is not counted (0-wi#473).
+// through is not counted, leaving a fail-open admission unguarded from
+// shard-halt to commit (0-wi#473).
 func TestReindexOverlapLookupResidual(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
 
