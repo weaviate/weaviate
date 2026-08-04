@@ -157,7 +157,7 @@ func TestCleanupInProgress_ZeroRefcountDeletesEntry(t *testing.T) {
 
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
-	_, present := p.cleanupInProgress[reindexCleanupKey{collection: "C", shard: "shard1"}]
+	_, present := p.cleanupInProgress[newReindexCleanupKey("C", "shard1")]
 	require.False(t, present, "zero refcount must remove the map entry")
 	require.Equal(t, 0, len(p.cleanupInProgress),
 		"registry must be empty once every register has been paired")
@@ -336,6 +336,90 @@ func TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection(t *testing.T) {
 			release()
 			assert.False(t, p.AnyCleanupInProgress())
 			assert.False(t, p.IsCleanupInProgress("C", "shard1"))
+		})
+	}
+}
+
+// Registrations carry the collection name off the task payload; probes carry
+// the index's own class name. The cancel handler already matches tasks
+// case-insensitively, so the two can differ — and a key registered under one
+// spelling is invisible to a probe under the other, leaving the gate open for
+// exactly the cancel it exists to cover.
+func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
+	tests := []struct {
+		name           string
+		registerAs     string
+		probeAs        string
+		shards         map[string]string
+		probeShard     string
+		wantInProgress bool
+	}{
+		{
+			name:           "payload lowercase, index canonical",
+			registerAs:     "movies",
+			probeAs:        "Movies",
+			shards:         map[string]string{"u1": "shard1"},
+			probeShard:     "shard1",
+			wantInProgress: true,
+		},
+		{
+			name:           "payload canonical, index lowercase",
+			registerAs:     "Movies",
+			probeAs:        "movies",
+			shards:         map[string]string{"u1": "shard1"},
+			probeShard:     "shard1",
+			wantInProgress: true,
+		},
+		{
+			name:           "mixed case on both sides",
+			registerAs:     "MoViEs",
+			probeAs:        "mOvIeS",
+			shards:         map[string]string{"u1": "shard1"},
+			probeShard:     "shard1",
+			wantInProgress: true,
+		},
+		{
+			name:           "case folding also covers the whole-collection guard",
+			registerAs:     "movies",
+			probeAs:        "Movies",
+			shards:         nil,
+			probeShard:     "any-shard",
+			wantInProgress: true,
+		},
+		{
+			name:           "a genuinely different collection still does not match",
+			registerAs:     "movies",
+			probeAs:        "Actors",
+			shards:         map[string]string{"u1": "shard1"},
+			probeShard:     "shard1",
+			wantInProgress: false,
+		},
+		{
+			name:           "shard names stay exact",
+			registerAs:     "Movies",
+			probeAs:        "Movies",
+			shards:         map[string]string{"u1": "Shard1"},
+			probeShard:     "shard1",
+			wantInProgress: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newCleanupRegistryProvider()
+
+			release := p.MarkCleanupInProgress(&ReindexTaskPayload{
+				Collection:  tc.registerAs,
+				UnitToShard: tc.shards,
+			})
+
+			assert.Equal(t, tc.wantInProgress, p.IsCleanupInProgress(tc.probeAs, tc.probeShard))
+
+			release()
+			assert.False(t, p.IsCleanupInProgress(tc.probeAs, tc.probeShard),
+				"the release must find the same key the registration wrote")
+			assert.False(t, p.AnyCleanupInProgress(),
+				"a release under a different spelling would leak the entry forever")
 		})
 	}
 }
