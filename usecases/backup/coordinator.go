@@ -172,7 +172,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
+func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) (err error) {
 	req.Method = OpCreate
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
@@ -186,6 +186,15 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
+	// From here the slot is ours until the goroutine below takes it over, so
+	// every error return has to give it back. A leaked slot blocks all later
+	// backups on this node, and every reindex in the cluster, until restart.
+	defer func() {
+		if err != nil {
+			c.lastOp.reset()
+		}
+	}()
+
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
 		return backup.NewErrUnprocessable(err)
@@ -210,14 +219,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 
 	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
-		c.lastOp.reset()
 		return err
 	}
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
 	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.reset()
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
 
@@ -262,7 +269,12 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			c.lastOp.reset()
+			// Only give back the slot when it holds the restore being cancelled.
+			// Otherwise a different, live restore owns it, and clearing it makes
+			// this node report itself idle while it is still writing files.
+			if c.lastOp.get().ID == desc.ID {
+				c.lastOp.reset()
+			}
 			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
 			return nil
 		}
@@ -487,6 +499,15 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	return status, nil
 }
 
+// remoteReindexInFlightErr carries [backup.ErrReindexInFlight] for errors.Is
+// without restating it. Plain %w wrapping would print the sentinel twice: the
+// participant's message already opens with it.
+type remoteReindexInFlightErr struct{ msg string }
+
+func (e remoteReindexInFlightErr) Error() string { return e.msg }
+
+func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFlight }
+
 // canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
 // typed error. When the response has [CanCommitErrInFlightReindex] kind, we
 // wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
@@ -501,6 +522,8 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	case CanCommitErrReindexInFlight:
+		return remoteReindexInFlightErr{msg: resp.Err}
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}

@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -1130,5 +1131,138 @@ func TestCommitAllManyFailures(t *testing.T) {
 		assert.Equal(t, numNodes, nFailures)
 	case <-time.After(10 * time.Second):
 		t.Fatal("commitAll deadlocked with more failing participants than the connection limit")
+	}
+}
+
+// The coordinator's lastOp slot is both the backup subsystem's mutual-exclusion
+// lock and the source the reindex gate probes. A slot left claimed by a failed
+// operation refuses every later backup on this node and every reindex in the
+// cluster until the process restarts.
+func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		any          = mock.Anything
+		backupID     = "1"
+		ctx          = context.Background()
+		nodes        = []string{"N1", "N2"}
+		classes      = []string{"Class-A", "Class-B"}
+		nodeResolver = newFakeNodeResolver(nodes)
+		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+	)
+
+	tests := []struct {
+		name    string
+		level   CompressionLevel
+		arrange func(fc *fakeCoordinator)
+	}{
+		{
+			name:    "invalid compression level",
+			level:   CompressionLevel(-1),
+			arrange: func(*fakeCoordinator) {},
+		},
+		{
+			name:  "participant refused to commit",
+			level: GzipDefaultCompression,
+			arrange: func(fc *fakeCoordinator) {
+				fc.client.On("CanCommit", any, any, any).Return(nil, ErrAny)
+				fc.client.On("Abort", any, any, any).Return(nil)
+			},
+		},
+		{
+			name:  "initial meta write failed",
+			level: GzipDefaultCompression,
+			arrange: func(fc *fakeCoordinator) {
+				fc.client.On("CanCommit", any, any, any).Return(cresp, nil)
+				fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fc := newFakeCoordinator(nodeResolver)
+			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+			fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
+			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+			tc.arrange(fc)
+
+			c := fc.coordinator()
+			req := newReq(classes, backendName, backupID)
+			req.Level = tc.level
+			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+
+			require.Error(t, c.Backup(ctx, store, &req))
+			require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
+		})
+	}
+}
+
+// A restore request for a backup whose metadata is already CANCELLING returns
+// without starting anything. It may only give back the slot when the slot holds
+// that same backup: clearing another restore's claim makes this node report
+// itself idle to the reindex gate while it is still writing files.
+func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		backupID     = "1"
+		ctx          = context.Background()
+		nodes        = []string{"N1", "N2"}
+		nodeResolver = newFakeNodeResolver(nodes)
+	)
+	cancelling, err := json.Marshal(backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Cancelling})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		claimedID  string
+		wantSlotID string
+	}{
+		{
+			name:       "slot holds the backup being cancelled",
+			claimedID:  backupID,
+			wantSlotID: "",
+		},
+		{
+			name:       "slot holds a different, live restore",
+			claimedID:  "live-restore",
+			wantSlotID: "live-restore",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fc := newFakeCoordinator(nodeResolver)
+			fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(cancelling, nil)
+
+			c := fc.coordinator()
+			c.lastOp.renew(tc.claimedID, "path", "", "")
+
+			req := newReq(nil, backendName, backupID)
+			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+			desc := &backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Cancelling}
+
+			require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
+			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
+
+			probe := NewNodeActivityProbe(nil)
+			probe.AttachScheduler(&Scheduler{restorer: c})
+			want := NodeActivity{}
+			if tc.wantSlotID != "" {
+				want = NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: tc.wantSlotID}
+			}
+			require.Equal(t, want, probe.Activity(),
+				"the reindex gate reads this probe; reporting idle admits a reindex on top of a live restore")
+
+			// Second consequence of clearing a slot we don't own: the slot is
+			// also the subsystem's mutual exclusion, so a concurrent restore
+			// could claim it and run alongside the live one.
+			require.Equal(t, tc.wantSlotID,
+				c.lastOp.renew("intruder", "path", "", ""),
+				"a live restore must still refuse a second claim")
+		})
 	}
 }
