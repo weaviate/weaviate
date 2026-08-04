@@ -271,7 +271,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = err.Error()
+		// The full chain, shard id and all, has already been logged by the
+		// caller. This copy is stored in the failure meta and served from the
+		// status API, so it carries only what a backup caller is granted.
+		desc.Error = publishableErrMsg(err)
 
 		// Handle error cases
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
@@ -366,6 +369,19 @@ Loop:
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
+}
+
+// publishableErrMsg is the failure text safe to store in the descriptor and
+// serve from GET /v1/backups/{backend}/{id}. A gate refusal travels here under
+// wrappers that name the shard it came from ("snapshot shard <id>: halt for
+// snapshot: ..."); backing up a collection grants nothing on shard ids, so the
+// refusal's own message is published instead of the traversal that found it.
+func publishableErrMsg(err error) string {
+	var blocked backup.ReindexBlockedError
+	if errors.As(err, &blocked) {
+		return blocked.Error()
+	}
+	return err.Error()
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {

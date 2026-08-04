@@ -29,6 +29,19 @@ import (
 // adapters/repos/db/reindex_inflight.go.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
 
+// ReindexBlockedError is the API-safe form of a backup refused by the
+// reindex gate. Every wrapper between the shard that refused and the stored
+// failure meta prepends detail an operator wants and a backup caller is not
+// granted — "snapshot shard <id>", the node name. Those wrappers are what the
+// log gets; this carries the one message that may be published, so the
+// boundary can pull it back out with errors.As instead of trying to strip the
+// chain apart.
+type ReindexBlockedError struct{ Msg string }
+
+func (e ReindexBlockedError) Error() string { return e.Msg }
+
+func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
+
 // ErrReindexInFlight is the cluster-wide counterpart of
 // [ErrBackupBlockedByInFlightReindex]. It names neither shard nor operation,
 // so callers can frame it themselves (e.g. "restore blocked: ...").

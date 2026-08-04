@@ -1000,3 +1000,74 @@ func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 		})
 	}
 }
+
+// A backup that fails on the per-shard reindex check stores its reason in the
+// node's failure meta, which GET /v1/backups/{backend}/{id} serves back. The
+// wrappers between the shard and here name that shard; a backup caller is
+// granted nothing on shard ids, so the stored copy must carry the refusal only.
+func TestBackupFailureMetaOmitsTheShardThatRefused(t *testing.T) {
+	t.Parallel()
+	const (
+		cls   = "R2Race"
+		shard = "henhWXAbABqk"
+	)
+	var (
+		backendName = "gcs"
+		backupID    = "1"
+		ctx         = context.Background()
+		nodeHome    = backupID + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
+		any         = mock.Anything
+		req         = Request{
+			Method:   OpCreate,
+			ID:       backupID,
+			Classes:  []string{cls},
+			Backend:  backendName,
+			Duration: time.Millisecond * 20,
+		}
+	)
+
+	// The shape the real chain produces: the gate's publishable refusal under
+	// the snapshot wrappers that name the shard.
+	refusal := backup.ReindexBlockedError{Msg: fmt.Sprintf(
+		"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes",
+		backup.ErrBackupBlockedByInFlightReindex, cls)}
+	wrapped := fmt.Errorf("backup class %s descriptor: backup shards with hardlinks: snapshot shard %s: halt for snapshot: %w",
+		cls, shard, refusal)
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+	sourcer.On("Backupable", any, any).Return(nil)
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(
+		fakeBackupDescriptor(backup.ClassDescriptor{Name: cls, Error: wrapped}))
+	sourcer.On("ReleaseBackup", any, backupID, any).Return(nil)
+
+	backend := newFakeBackend()
+	backend.On("HomeDir", any, any, any).Return(path)
+	backend.On("SourceDataPath").Return(t.TempDir())
+	backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+	backend.On("Initialize", ctx, nodeHome).Return(nil)
+	backend.On("PutObject", any, nodeHome, BackupFile, any).Return(nil)
+	backend.On("Write", any, nodeHome, any, any).Return(any, nil)
+
+	m := createManager(sourcer, nil, backend, nil)
+	longReq := req
+	longReq.Duration = time.Hour
+	require.Equal(t, &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: _TimeoutShardCommit},
+		m.OnCanCommit(ctx, &longReq))
+	require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
+	m.backupper.waitForCompletion(50, 100)
+
+	_, errMsg := backend.getMetaStatus()
+	// OnStatus keys the participant's failure off meta.Error, not meta.Status:
+	// the per-shard path leaves Status at TRANSFERRING, unlike the commit-time
+	// backstop which sets FAILED.
+	require.NotEmpty(t, errMsg, "the failure has to be recorded for OnStatus to report it")
+	require.Contains(t, errMsg, backup.ErrBackupBlockedByInFlightReindex.Error(),
+		"the operator needs to know which condition failed the backup")
+	require.Contains(t, errMsg, cls, "the caller named this collection itself")
+	require.NotContains(t, errMsg, shard,
+		"the stored failure meta is served from the status API; it must not name the shard")
+	require.NotContains(t, errMsg, "snapshot shard",
+		"nor the traversal that found it")
+}
