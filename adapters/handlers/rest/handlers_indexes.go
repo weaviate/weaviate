@@ -74,10 +74,11 @@ type clusterMembership interface {
 	AllNames() []string
 }
 
-// reindexTaskService is the slice of the cluster service the reindex routes
-// drive. Submission interleaves task writes with cluster-wide backup probes to
-// settle the admission race between the two, and that ordering is only
-// assertable against a service the caller controls.
+// reindexTaskService is a narrow port over the four cluster-service methods the
+// reindex admission path uses; it exists because submission has to interleave
+// task writes with cluster-wide backup probes to settle the admission race
+// between the two, and neither that ordering nor the call sites around it can
+// be covered against a live RAFT node.
 type reindexTaskService interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
