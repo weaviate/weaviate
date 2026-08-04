@@ -42,6 +42,18 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
+	// descriptorJoinBudget is how long the uploader waits for the NEXT descriptor
+	// (or the channel close) while joining the descriptor producer, after which it
+	// releases anyway and hands the join to a detached goroutine. It is a
+	// per-descriptor budget, not a total join bound: each descriptor received
+	// re-arms it, so a producer that keeps making progress is waited on for as long
+	// as it keeps delivering. What the budget bounds is a producer that has STOPPED
+	// making progress, which is the case that would otherwise strand the uploader.
+	// Expiry is an ordinary operational event: the producer takes backupLock.Lock
+	// per shard and a concurrent tenant freeze holds the read side across an entire
+	// cloud upload, which no context cancellation can shorten.
+	descriptorJoinBudget = 5 * time.Minute
+
 	// maxCPUPercentage max CPU percentage can be consumed by the file writer
 	maxCPUPercentage = 80
 
@@ -249,13 +261,26 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = backup.Transferring
-	ch := u.sourcer.BackupDescriptors(ctx, u.op, classes, baseDescr)
+	// The producer runs detached; cancelling descCtx is what stops it admitting
+	// further classes once this operation is over.
+	descCtx, cancelDesc := context.WithCancel(ctx)
+	defer cancelDesc()
+	ch := u.sourcer.BackupDescriptors(descCtx, u.op, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
 	defer func() {
-		//  release indexes under all conditions
+		// Join the producer before releasing: a class admitted after its release has
+		// no releaser left, so its admission gate — and, on the non-hardlink path, a
+		// per-shard write lock — would leak for the life of the process.
+		cancelDesc()
+		u.joinDescriptorProducer(ch, classes)
+
+		//  release indexes under all conditions. This is the only whole-operation
+		//  release, so on the success path it runs after the RBAC and dynamic-user
+		//  snapshots. Both are in-memory FSM reads with no per-shard work, so on the
+		//  non-hardlink path compaction stays paused for a small, bounded extra window.
 		u.releaseIndexes(classes)
 
 		//  make sure context is not cancelled when uploading metadata
@@ -296,7 +321,6 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if ctxerr != nil {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
-			u.releaseIndexes(classes)
 		}
 		return ctxerr
 	}
@@ -306,7 +330,14 @@ Loop:
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
-				u.releaseIndexes(classes)
+				// The producer always closes the channel, including after a panic it
+				// recovered from, so a short stream is only distinguishable from
+				// success by counting: reporting a "successful" backup with fewer
+				// classes than requested would silently lose data.
+				if len(desc.Classes) != len(classes) {
+					return fmt.Errorf("backup descriptor stream ended early: got %d of %d classes, missing %v",
+						len(desc.Classes), len(classes), missingClasses(classes, desc.Classes))
+				}
 				break Loop // we are done
 			}
 			if cdesc.Error != nil {
@@ -356,6 +387,49 @@ Loop:
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
+}
+
+// joinDescriptorProducer waits until the detached descriptor producer has closed
+// its channel, so that no class can still be admitted when the caller releases.
+// On budget expiry it hands the join to a detached goroutine that re-releases once
+// the producer does finish: the second release is inert by construction (the
+// protection sweep and the resume are Op-scoped, the gate CAS is guarded on Op
+// equality, and RemoveAll on a missing staging dir is a no-op), and if the producer
+// never finishes at all the cost is one parked goroutine — strictly better than an
+// index wedged by a halt with no releaser.
+func (u *uploader) joinDescriptorProducer(ch <-chan backup.ClassDescriptor, classes []string) {
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-time.After(descriptorJoinBudget):
+			u.log.Errorf("descriptor producer did not finish within %s; releasing now and "+
+				"re-releasing when it does", descriptorJoinBudget)
+			enterrors.GoWrapper(func() {
+				for range ch { //nolint:revive // drain: the producer always closes (deferred close)
+				}
+				u.releaseIndexes(classes)
+			}, u.log)
+			return
+		}
+	}
+}
+
+// missingClasses reports which requested classes never produced a descriptor.
+func missingClasses(requested []string, got []backup.ClassDescriptor) []string {
+	seen := make(map[string]struct{}, len(got))
+	for _, c := range got {
+		seen[c.Name] = struct{}{}
+	}
+	var missing []string
+	for _, c := range requested {
+		if _, ok := seen[c]; !ok {
+			missing = append(missing, c)
+		}
+	}
+	return missing
 }
 
 func (u *uploader) releaseIndexes(classes []string) {

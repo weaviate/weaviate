@@ -517,3 +517,33 @@ func TestContextMutexNotify(t *testing.T) {
 
 	wg.Wait()
 }
+
+// Unlocking an ID that was never locked is misuse. The named panic makes it
+// diagnosable, where the bare type assertion on a nil value would not.
+func TestKeyRWLockerUnlockUnknownIDPanicsWithMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		unlock  func(l *KeyRWLocker, id string)
+		message string
+	}{
+		{
+			name:    "Unlock",
+			unlock:  func(l *KeyRWLocker, id string) { l.Unlock(id) },
+			message: "unlock on non-existent ID: never-locked",
+		},
+		{
+			name:    "RUnlock",
+			unlock:  func(l *KeyRWLocker, id string) { l.RUnlock(id) },
+			message: "runlock on non-existent ID: never-locked",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := NewKeyRWLocker()
+			require.PanicsWithValue(t, tt.message, func() {
+				tt.unlock(l, "never-locked")
+			})
+		})
+	}
+}

@@ -285,8 +285,10 @@ type Index struct {
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
 
-	// backupProtectedShards tracks shard names protected during non-hardlink backup.
-	// Activation and destructive status changes are blocked until ReleaseBackup.
+	// backupProtectedShards maps a shard name protected during a non-hardlink
+	// backup to the backup.Op that owns the protection. Activation and destructive
+	// status changes are blocked until that op's ReleaseBackup; a different op's
+	// release leaves the entry (and the backupLock it holds) alone.
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
 	backupProtectedShards sync.Map
 
@@ -742,6 +744,10 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
+// ForEachLoadedShard visits every shard that is currently loaded, skipping cold
+// lazy wrappers. Unlike ForEachShard it does NOT gate on closingCtx, so callers
+// that mutate shard state must take closeLock and check i.closed themselves — see
+// Index.ReleaseBackup, which wraps its sweep for exactly that reason.
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
 		// Skip lazy loaded shard which are not loaded
@@ -3191,6 +3197,10 @@ func (i *Index) drop() error {
 
 	i.closingCancel()
 
+	// Registered before the shard loop: the loop's error paths return early, and
+	// that is exactly when a registry entry pointing at a torn-down shard matters.
+	defer i.purgeReplicaSnapshots()
+
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
 	lastBackup := i.lastBackup.Load()
@@ -3357,6 +3367,10 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	i.closed = true
 
 	i.closingCancel()
+
+	// Registered before the shard loop: the loop's error path returns early, and
+	// that is exactly when a registry entry pointing at a torn-down shard matters.
+	defer i.purgeReplicaSnapshots()
 
 	// TODO allow every resource cleanup to run, before returning early with error
 	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {

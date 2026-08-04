@@ -889,6 +889,13 @@ func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error 
 // this is a near-zero wait; the timeout exists so a non-cancellable downstream
 // RPC cannot block shard shutdown indefinitely.
 func (s *Shard) mayStopAsyncReplication() {
+	s.stopAsyncReplication(true)
+}
+
+// stopAsyncReplication is mayStopAsyncReplication with the hashtree dump made
+// optional. Every other step runs either way, so the caller keeps the same
+// happens-before against in-flight hashbeat cycles.
+func (s *Shard) stopAsyncReplication(persistHashtree bool) {
 	s.asyncReplicationRWMux.Lock()
 
 	if s.hashtree == nil {
@@ -955,7 +962,7 @@ func (s *Shard) mayStopAsyncReplication() {
 			Warn("async replication worker did not stop within deadline; proceeding with forced shutdown")
 	}
 
-	if capturedHT != nil {
+	if persistHashtree && capturedHT != nil {
 		// the hashtree needs to be fully in sync with stored data before it can be persisted
 		s.dumpHashTreeWithTimeout(capturedHT)
 	}

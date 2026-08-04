@@ -71,6 +71,12 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.forceNoHardlink {
 				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			} else if os.Getenv("WEAVIATE_TEST_FORCE_NO_HARDLINK") == "true" {
+				// Same literal check as file.ProbeHardlinkSupport, so the skip fires
+				// exactly when the probe would force the fallback.
+				// This row asserts on the hardlink staging tree, which a forced
+				// fallback never populates.
+				t.Skip("hardlink mode is meaningless with WEAVIATE_TEST_FORCE_NO_HARDLINK enabled")
 			}
 
 			index, shard := newSharedHaltTestShard(t)

@@ -34,6 +34,10 @@ type Sourcer interface { // implemented by the index
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
 	// op tags every shard halt this operation places so its release can scope the resume to exactly them.
+	//
+	// The returned channel MUST be closed by the implementation under every
+	// outcome, including a recovered panic: the caller joins on the close before it
+	// releases, because a class admitted after its release has no releaser left.
 	BackupDescriptors(_ context.Context, op backup.Op, classes []string, baseDescr []*backup.BackupDescriptor,
 	) <-chan backup.ClassDescriptor
 }

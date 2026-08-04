@@ -171,14 +171,14 @@ func FromEnv(config *Config) error {
 		config.ForceFullReplicasSearch = true
 	}
 
-	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
-		timeout, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
-		}
-		config.TransferInactivityTimeout = timeout
-	} else {
-		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+	// Validated, not merely parsed: 0s or a negative value silently disables the
+	// only site that arms the transfer inactivity watchdog.
+	if err := parsePositiveDuration(
+		"TRANSFER_INACTIVITY_TIMEOUT",
+		func(val time.Duration) { config.TransferInactivityTimeout = val },
+		DefaultTransferInactivityTimeout,
+	); err != nil {
+		return err
 	}
 
 	err := parsePositiveDuration(

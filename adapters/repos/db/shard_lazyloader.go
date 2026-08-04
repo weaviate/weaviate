@@ -593,11 +593,13 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, owner string, offlo
 	return l.shard.HaltForTransfer(ctx, owner, offloading, inactivityTimeout)
 }
 
-// Skips Load: a never-loaded shard can't be halted, so there's no timer.
+// Skips Load: a never-loaded shard can't be halted, so there's no timer. The guard
+// tests l.loaded rather than l.shard, because Shutdown clears l.loaded but leaves
+// l.shard non-nil — a shard-nil guard would reach a shut-down shard.
 func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	if l.shard == nil {
+	if !l.loaded {
 		return
 	}
 	l.shard.MayResetTransferInactivityTimer()
@@ -631,9 +633,15 @@ func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoo
 	return l.shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 }
 
+// Never loads: an unloaded shard holds no halt to resume, and force-loading here
+// would build a second live shard on the same directory that is not in the index's
+// shard map and that nothing would ever shut down.
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context, owner string) error {
-	if err := l.Load(ctx); err != nil {
-		return err
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		return nil
 	}
 	return l.shard.resumeMaintenanceCycles(ctx, owner)
 }

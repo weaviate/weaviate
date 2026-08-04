@@ -38,25 +38,35 @@ import (
 
 // Pins that both cancel paths call ReleaseReplicaSnapshot — the cleanup
 // covers the case where CopyReplicaFiles' defer never registered because
-// the Create response was lost in transit.
+// the Create response was lost in transit — and that they release under the
+// same key the create path registered (consumer.go -> copier.go), the op UUID,
+// for an empty UUID as much as for a set one.
 func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
+	const opUUID = strfmt.UUID("11111111-2222-3333-4444-555555555555")
+
+	cancellationExpect := func(fsm *types.MockFSMUpdater) {
+		fsm.EXPECT().ReplicationCancellationComplete(mock.Anything, uint64(1)).Return(nil)
+	}
+	triggerCancellation := func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus {
+		s.TriggerCancellation()
+		return s
+	}
+
 	cases := []struct {
 		name        string
+		uuid        strfmt.UUID
 		fsmExpect   func(fsm *types.MockFSMUpdater)
 		statusSetup func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus
 	}{
 		{
-			name: "cancellation triggers ReleaseReplicaSnapshot",
-			fsmExpect: func(fsm *types.MockFSMUpdater) {
-				fsm.EXPECT().ReplicationCancellationComplete(mock.Anything, uint64(1)).Return(nil)
-			},
-			statusSetup: func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus {
-				s.TriggerCancellation()
-				return s
-			},
+			name:        "cancellation triggers ReleaseReplicaSnapshot",
+			uuid:        opUUID,
+			fsmExpect:   cancellationExpect,
+			statusSetup: triggerCancellation,
 		},
 		{
 			name: "deletion triggers ReleaseReplicaSnapshot",
+			uuid: opUUID,
 			fsmExpect: func(fsm *types.MockFSMUpdater) {
 				fsm.EXPECT().ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).Return(nil)
 			},
@@ -64,6 +74,14 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 				s.TriggerDeletion()
 				return s
 			},
+		},
+		{
+			// An op with no UUID must still release under the empty key: the numeric
+			// op ID is a key no create ever registered.
+			name:        "an empty UUID is released as the empty key, not the numeric op ID",
+			uuid:        "",
+			fsmExpect:   cancellationExpect,
+			statusSetup: triggerCancellation,
 		},
 	}
 
@@ -108,12 +126,21 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			mockFSMUpdater.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 
 			// Counter (not Times(N)): deletion can flow through cancelOp and
-			// then processCancelledOp, each calling Release once.
-			var releaseCalls atomic.Int32
+			// then processCancelledOp, each calling Release once. The keys are
+			// recorded rather than matched on, so a wrong key reports as an
+			// assertion instead of a strict-mock miss.
+			var (
+				releaseCalls atomic.Int32
+				keysMu       sync.Mutex
+				releaseKeys  []string
+			)
 			mockReplicaCopier.EXPECT().
 				ReleaseReplicaSnapshot(mock.Anything, "node1", "TestCollection", mock.Anything).
-				RunAndReturn(func(_ context.Context, _, _, _ string) error {
+				RunAndReturn(func(_ context.Context, _, _, key string) error {
 					releaseCalls.Add(1)
+					keysMu.Lock()
+					releaseKeys = append(releaseKeys, key)
+					keysMu.Unlock()
 					return nil
 				}).Maybe()
 
@@ -159,6 +186,7 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			go func() { doneChan <- consumer.Consume(ctx, opsChan) }()
 
 			op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
+			op.UUID = tc.uuid
 			status := tc.statusSetup(replication.NewShardReplicationStatus(api.HYDRATING))
 			opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 			time.Sleep(200 * time.Millisecond)
@@ -181,6 +209,13 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 
 			require.GreaterOrEqual(t, releaseCalls.Load(), int32(1),
 				"ReleaseReplicaSnapshot must be called from the cancel path")
+
+			keysMu.Lock()
+			defer keysMu.Unlock()
+			for _, key := range releaseKeys {
+				require.Equal(t, string(tc.uuid), key,
+					"the release must use the same key the create path registered")
+			}
 			mockReplicaCopier.AssertExpectations(t)
 		})
 	}

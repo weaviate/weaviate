@@ -87,9 +87,13 @@ func (s *KeyRWLocker) Lock(ID string) {
 	iLock.Lock()
 }
 
-// Unlock it unlocks a specific item by it's ID
+// Unlock it unlocks a specific item by it's ID.
+// It panics if the item does not exist, i.e. the ID was never locked.
 func (s *KeyRWLocker) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
+	if iLocks == nil {
+		panic(fmt.Sprintf("unlock on non-existent ID: %s", ID))
+	}
 	iLock := iLocks.(*sync.RWMutex)
 	iLock.Unlock()
 }
@@ -116,9 +120,13 @@ func (s *KeyRWLocker) TryRLock(ID string) bool {
 	return iLock.TryRLock()
 }
 
-// RUnlock it runlocks a specific item by it's ID
+// RUnlock it runlocks a specific item by it's ID.
+// It panics if the item does not exist, i.e. the ID was never rlocked.
 func (s *KeyRWLocker) RUnlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
+	if iLocks == nil {
+		panic(fmt.Sprintf("runlock on non-existent ID: %s", ID))
+	}
 	iLock := iLocks.(*sync.RWMutex)
 	iLock.RUnlock()
 }

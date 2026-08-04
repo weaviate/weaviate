@@ -13,11 +13,15 @@ package db
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -279,6 +283,12 @@ func TestForcedResumeReleasesAllArmedTransfers(t *testing.T) {
 	require.NoError(t, shard.HaltForTransfer(ctx, backupOwner, false, 0))
 	defer func() { _ = shard.resumeMaintenanceCycles(ctx, backupOwner) }()
 
+	// The registry is the only thing that knows WHO holds a halt, so a force-resume
+	// has to name the owners it lifted.
+	indexLogger, ok := index.logger.(*logrus.Logger)
+	require.True(t, ok, "the shared-halt harness must expose a concrete *logrus.Logger")
+	logHook := logrustest.NewLocal(indexLogger)
+
 	// T2 completes normally while T1 is still stalled; the monitor must survive.
 	require.NoError(t, index.IncomingReleaseReplicaSnapshot(ctx, opT2))
 	shard.haltForTransferMux.Lock()
@@ -300,6 +310,122 @@ func TestForcedResumeReleasesAllArmedTransfers(t *testing.T) {
 	require.True(t, backupPresent, "the non-armed backup co-holder must survive the fire")
 	require.True(t, monitorDown, "the monitor must be torn down once no armed owner remains")
 	requireHalted(t, ctx, shard, "the backup's halt must survive the watchdog fire")
+
+	var forceResumeEntries int
+	for _, e := range logHook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, replicaHaltOwner(opT1)) {
+			forceResumeEntries++
+		}
+	}
+	require.Equal(t, 1, forceResumeEntries,
+		"the fire must emit exactly one entry naming the force-resumed owner")
+}
+
+// The replica-snapshot registry describes shards this index owns, so no entry may
+// outlive the index — including when the shard loop returns early on an error.
+func TestIndexTeardownPurgesReplicaSnapshotRegistry(t *testing.T) {
+	tests := []struct {
+		name             string
+		wantShutdownErr  bool
+		registerBadShard func(t *testing.T, index *Index)
+	}{
+		{name: "clean shutdown"},
+		{
+			name:            "a shard whose shutdown errors",
+			wantShutdownErr: true,
+			registerBadShard: func(t *testing.T, index *Index) {
+				bad := NewMockShardLike(t)
+				bad.EXPECT().Shutdown(mock.Anything).Return(errors.New("shutdown exploded"))
+				index.shards.Store("bad-shard", bad)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			index, _ := newSharedHaltTestShard(t)
+			ctx := context.Background()
+			putSharedHaltObject(t, index, ownerScopeObj1, 0)
+
+			const opID = "00000000-0000-0000-0000-0000000000e0"
+			_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+			require.NoError(t, err)
+			index.replicaSnapshotsMu.Lock()
+			require.Len(t, index.replicaSnapshots, 1, "precondition: the snapshot must be registered")
+			index.replicaSnapshotsMu.Unlock()
+
+			if tt.registerBadShard != nil {
+				tt.registerBadShard(t, index)
+			}
+
+			err = index.Shutdown(ctx)
+			if tt.wantShutdownErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			index.replicaSnapshotsMu.Lock()
+			defer index.replicaSnapshotsMu.Unlock()
+			require.Empty(t, index.replicaSnapshots, "the registry must not outlive the index")
+		})
+	}
+}
+
+// The registry entry is the retry handle: it survives a failed release, so a retry —
+// the cancellation backstop included — does the work again instead of taking the
+// unknown-op early return and reporting success on a still-halted shard.
+func TestReleaseReplicaSnapshotRetriableAfterFailure(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	index, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+	putSharedHaltObject(t, index, ownerScopeObj1, 0)
+
+	const opID = "00000000-0000-0000-0000-0000000000d0"
+	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+	require.NoError(t, err)
+	requireTotal(t, shard, 1, "the fallback snapshot must hold the shard halted")
+
+	// GetShard returns errAlreadyShutdown on a closed index, which fails the release
+	// after the staging removal and before the resume.
+	index.closed = true
+	require.Error(t, index.IncomingReleaseReplicaSnapshot(ctx, opID))
+
+	index.replicaSnapshotsMu.Lock()
+	_, stillRegistered := index.replicaSnapshots[opID]
+	index.replicaSnapshotsMu.Unlock()
+	require.True(t, stillRegistered, "a failed release must keep its entry as the retry handle")
+
+	index.closed = false
+	require.NoError(t, index.IncomingReleaseReplicaSnapshot(ctx, opID))
+	requireTotal(t, shard, 0, "the retry must lift the halt the failed release left behind")
+}
+
+// With delete-last, a persistently failing release would otherwise block every later
+// create for the opID; the create is itself the retry, so it logs and proceeds.
+//
+// There is no red form: the blocking state needs a persistently failing resume,
+// which cannot be constructed deterministically in-process. What is pinned is the
+// mechanism — clearPriorReplicaSnapshot has no error value and leaves the entry.
+func TestCreateToleratesFailedPriorRelease(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	index, _ := newSharedHaltTestShard(t)
+	ctx := context.Background()
+	putSharedHaltObject(t, index, ownerScopeObj1, 0)
+
+	const opID = "00000000-0000-0000-0000-0000000000d1"
+	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+	require.NoError(t, err)
+
+	index.closed = true
+	index.clearPriorReplicaSnapshot(ctx, opID)
+	index.closed = false
+
+	index.replicaSnapshotsMu.Lock()
+	defer index.replicaSnapshotsMu.Unlock()
+	require.Contains(t, index.replicaSnapshots, opID,
+		"a failed clear must leave the entry for the next release to retry")
 }
 
 // The single-armer case: a fire lifts the armed transfer but must spare a

@@ -54,9 +54,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	}
 
 	// On retry the prior snapshot may be stale relative to current shard contents.
-	if rerr := i.releaseReplicaSnapshot(ctx, opID); rerr != nil {
-		return nil, fmt.Errorf("clean prior replica snapshot for op %q: %w", opID, rerr)
-	}
+	i.clearPriorReplicaSnapshot(ctx, opID)
 
 	owner := replicaHaltOwner(opID)
 
@@ -225,6 +223,14 @@ func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string, resumeSha
 	}
 }
 
+// purgeReplicaSnapshots drops the whole registry at index teardown: the entries
+// describe shards this index owns, so none of them can outlive it.
+func (i *Index) purgeReplicaSnapshots() {
+	i.replicaSnapshotsMu.Lock()
+	defer i.replicaSnapshotsMu.Unlock()
+	i.replicaSnapshots = nil
+}
+
 func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
 	i.replicaSnapshotsMu.Lock()
 	defer i.replicaSnapshotsMu.Unlock()
@@ -234,10 +240,20 @@ func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
 	i.replicaSnapshots[opID] = st
 }
 
+// releaseReplicaSnapshot removes the staging dir and, in halt-for-duration mode,
+// resumes the shard. The registry entry is deleted LAST, so it doubles as the retry
+// handle: a release whose RESUME fails leaves the entry in place and the next attempt
+// (the cancellation backstop included) does the work again instead of taking the
+// unknown-op early return and reporting success on a still-halted shard. That is
+// safe here precisely because the registry is read only by the replica-snapshot
+// paths themselves, never by a halt gate.
+//
+// A staging-removal failure alone does NOT retain the entry, and does not need to:
+// the removal is derived from opID only, needs no registry state, and runs
+// unconditionally at the top of every later release for that opID.
 func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	i.replicaSnapshotsMu.Lock()
 	st, ok := i.replicaSnapshots[opID]
-	delete(i.replicaSnapshots, opID)
 	i.replicaSnapshotsMu.Unlock()
 
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
@@ -247,6 +263,7 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	}
 	// Return early if the snapshot isn't local anymore or if it was a hardlink snapshot (already resumed at create time).
 	if !ok || st.isSnapshot {
+		i.deleteReplicaSnapshot(opID)
 		return removeErr
 	}
 
@@ -266,5 +283,27 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
 		}
 	}
+	i.deleteReplicaSnapshot(opID)
 	return removeErr
+}
+
+// clearPriorReplicaSnapshot drops any prior snapshot for opID. A failure is logged,
+// not returned: this create is itself the retry that replaces the prior snapshot, it
+// has already re-acquired the shard, and recordReplicaSnapshot overwrites the entry
+// afterwards. The only way to reach here with a failed release is a resume-machinery
+// error, and resumeOwnerLocked removes the owner before the fallible
+// completeResumeLocked runs — so the halt refcount is already correct and the
+// re-halt cannot double-count. The staging dir has already been removed
+// unconditionally before any fallible step, so proceeding cannot leave stale files.
+func (i *Index) clearPriorReplicaSnapshot(ctx context.Context, opID string) {
+	if err := i.releaseReplicaSnapshot(ctx, opID); err != nil {
+		i.logger.WithField("op_id", opID).
+			Warnf("clean prior replica snapshot before re-create: %v", err)
+	}
+}
+
+func (i *Index) deleteReplicaSnapshot(opID string) {
+	i.replicaSnapshotsMu.Lock()
+	defer i.replicaSnapshotsMu.Unlock()
+	delete(i.replicaSnapshots, opID)
 }

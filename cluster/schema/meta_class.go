@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sirupsen/logrus"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -401,6 +403,16 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	sc := make(map[string]int)
 
 	for idx := range req.TenantsProcesses {
+		// A producer that pre-sizes this slice per tenant and recovers a panic in one
+		// tenant's goroutine publishes a nil slot; a nil element round-trips through
+		// proto as a message with a nil Tenant. Dereferencing it here would panic
+		// inside the FSM apply, on every node, for a log entry that gets replayed —
+		// turning a node-local fault into a cluster-wide crash loop.
+		if req.TenantsProcesses[idx] == nil || req.TenantsProcesses[idx].Tenant == nil {
+			logrus.WithFields(logrus.Fields{"action": "update_tenants_process", "class": m.Class.Class}).
+				Errorf("skipping malformed tenant process at index %d: element or its tenant is nil", idx)
+			continue
+		}
 		name := req.TenantsProcesses[idx].Tenant.Name
 
 		shard, ok := m.Sharding.Physical[name]

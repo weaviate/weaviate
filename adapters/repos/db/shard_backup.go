@@ -65,6 +65,22 @@ func (s *Shard) haltRemoveOwnerLocked(owner string) (gone bool) {
 	return false
 }
 
+// clearHaltForTransferStateLocked drops every trace of halt-for-transfer state at
+// shard teardown: a shard whose store is closed must not keep answering "paused for
+// transfer" through ListBackupFiles/GetFile/GetFileMetadata, and must not keep
+// claiming an outstanding resume. Both owner maps go together — clearing only
+// haltForTransferOwners would leave an armed set that resumeOwnerLocked's
+// zero-total branch can never clean up. Caller must hold haltForTransferMux.
+func (s *Shard) clearHaltForTransferStateLocked() {
+	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
+	s.mayStopInactivityMonitoring()
+	s.haltForTransferOwners = nil
+	s.haltForTransferInactivityOwners = nil
+	s.haltForTransferInactivityTimeout = 0
+	s.haltForTransferInactivityDeadline = time.Time{}
+	s.maintenanceResumePending = false
+}
+
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload.
 // This method could be called multiple times with different inactivity timeouts,
 // a zeroed `inactivityTimeout` implies no timeout. Each caller names itself via
@@ -114,7 +130,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 	if offloading {
 		// TODO: tenant offloading is calling HaltForTransfer but
 		// if Shutdown is called this step is not needed
-		s.mayStopAsyncReplication()
+		//
+		// Do NOT persist the hashtree: a persisted tree is accepted as authoritative
+		// on the next load after a height-only check, which is sound only when the
+		// shard serves no further writes. This halt is exactly the case where it
+		// does — the tenant still takes internal replica writes during the halt, and
+		// an aborted freeze returns it to HOT and to external writes. With no .ht on
+		// disk the next activation rebuilds by full scan instead.
+		s.stopAsyncReplication(false)
 	}
 
 	// Placed before the pause branch so it also covers total>1 callers: on error
@@ -146,7 +169,8 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 		}
 	} else {
 		s.index.logger.WithField("shard", s.name).
-			Debugf("shard already halted for transfer (count=%d); re-sealing state on shared halt", newTotal)
+			Debugf("shard already halted for transfer by %q (owner count=%d, total=%d); re-sealing state on shared halt",
+				owner, s.haltForTransferOwners[owner], newTotal)
 	}
 
 	// Seal steps run on EVERY halt: a second consumer's snapshot deliberately
@@ -440,6 +464,25 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context, owner string) error
 // remains. Caller must hold haltForTransferMux.
 func (s *Shard) resumeOwnerLocked(ctx context.Context, owner string) error {
 	if s.haltTotalLocked() == 0 {
+		if s.maintenanceResumePending {
+			// A prior resume removed the owner bookkeeping below BEFORE the fallible
+			// completeResumeLocked ran and then failed, so without this retry every
+			// later attempt would report success on a shard whose maintenance never
+			// restarted. Blast radius of the state being repaired is "one queue or
+			// vector index stays in backup mode", not "compaction stays off":
+			// store.ResumeCompaction cannot fail and the errgroup runs every leg
+			// regardless of the first error.
+			//
+			// The retry handle has to be this physical flag, not a retained owner
+			// claim. haltForTransferOwners is a gate, not a handle: haltTotalLocked
+			// drives the "is this shard paused for transfer" answer that
+			// ListBackupFiles/GetFile/GetFileMetadata return, and the newTotal==1
+			// predicate that decides whether the next halt runs the pause steps.
+			// Since a failed resume has already restarted compaction, retaining the
+			// owner would report "paused" while compaction physically runs, and would
+			// make the next halt skip its own PauseCompaction at newTotal==2.
+			return s.completeResumeLocked(ctx)
+		}
 		// noop, maintenance cycles not halted
 		return nil
 	}
@@ -457,10 +500,14 @@ func (s *Shard) forceResumeArmedLocked(ctx context.Context) error {
 		return nil
 	}
 
+	forced := make([]string, 0, len(s.haltForTransferInactivityOwners))
 	for a := range s.haltForTransferInactivityOwners {
 		delete(s.haltForTransferOwners, a)
+		forced = append(forced, a)
 	}
 	s.haltForTransferInactivityOwners = nil
+	s.index.logger.WithField("shard", s.name).
+		Warnf("halt-for-transfer inactivity watchdog fired; force-resuming armed owners %v", forced)
 	// A tick in steady state means a transfer was force-resumed mid-stream —
 	// i.e. the read-path timer reset isn't reaching us.
 	if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
@@ -529,9 +576,11 @@ func (s *Shard) completeResumeLocked(ctx context.Context) error {
 	})
 
 	if err := g.Wait(); err != nil {
+		s.maintenanceResumePending = true
 		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}
 
+	s.maintenanceResumePending = false
 	return nil
 }
 

@@ -364,6 +364,11 @@ type Shard struct {
 	// this set is force-resumed; owners that never armed (backups, offload) survive.
 	haltForTransferInactivityOwners map[string]struct{}
 	haltForTransferCtxCancel        context.CancelFunc
+	// maintenanceResumePending records that the physical resume (completeResumeLocked)
+	// was attempted and failed. The owner bookkeeping is cleared before that fallible
+	// work runs, so without this flag a retry would early-return and report success on
+	// a shard whose maintenance never restarted.
+	maintenanceResumePending bool
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

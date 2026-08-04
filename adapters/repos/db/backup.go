@@ -101,8 +101,16 @@ func (db *DB) BackupDescriptors(ctx context.Context, op backup.Op, classes []str
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
+		// Defer in case of recovery-on-panic
+		defer close(ds)
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c, BackupID: op.ID}
+			// Stop admitting classes once the operation is over
+			if ctx.Err() != nil {
+				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, ctx.Err())
+				ds <- desc
+				break
+			}
 			func() {
 				idx := db.GetIndex(schema.ClassName(c))
 				if idx == nil {
@@ -135,7 +143,6 @@ func (db *DB) BackupDescriptors(ctx context.Context, op backup.Op, classes []str
 				break
 			}
 		}
-		close(ds)
 	}
 	enterrors.GoWrapper(f, db.logger)
 	return ds
@@ -161,8 +168,6 @@ func (db *DB) ReleaseBackup(ctx context.Context, op backup.Op, class string) (er
 
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx != nil {
-		idx.closeLock.RLock()
-		defer idx.closeLock.RUnlock()
 		return idx.ReleaseBackup(ctx, op)
 	} else {
 		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
@@ -178,9 +183,9 @@ func (db *DB) ReleaseBackup(ctx context.Context, op backup.Op, class string) (er
 		}
 
 		// Clean up staging directory that may have been created by CreateBackupSnapshot
-		stagingDir := backupStagingDir(db.config.RootPath, op.ID, schema.ClassName(class))
+		stagingDir := backupStagingDir(db.config.RootPath, op, schema.ClassName(class))
 		if err := os.RemoveAll(stagingDir); err != nil {
-			db.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+			db.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 		}
 	}
 	return nil
@@ -260,7 +265,7 @@ func (i *Index) descriptor(ctx context.Context, op backup.Op, desc *backup.Class
 // It iterates the sharding state (single source of truth) to discover all local shards,
 // then uses the shardMap to determine the backup method per shard under backupLock.Lock.
 func (i *Index) descriptorWithHardlinks(ctx context.Context, op backup.Op, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
-	stagingRoot := backupStagingDir(i.Config.RootPath, op.ID, i.Config.ClassName)
+	stagingRoot := backupStagingDir(i.Config.RootPath, op, i.Config.ClassName)
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return fmt.Errorf("create backup staging dir: %w", err)
 	}
@@ -268,7 +273,9 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, op backup.Op, desc 
 	defer func() {
 		if err != nil {
 			os.RemoveAll(stagingRoot)
-			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, op) }, i.logger)
+			// Release on context.Background() so that descriptor's cancellation does not
+			// prevent the release from lifting the halts it exists to lift
+			enterrors.GoWrapper(func() { i.ReleaseBackup(context.Background(), op) }, i.logger)
 		}
 	}()
 
@@ -461,8 +468,9 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 func (i *Index) descriptorWithoutHardlinks(ctx context.Context, op backup.Op, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	defer func() {
 		if err != nil {
-			// closelock is hold by the caller
-			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, op) }, i.logger)
+			// Release on context.Background() so that descriptor's cancellation does not
+			// prevent the release from lifting the halts it exists to lift
+			enterrors.GoWrapper(func() { i.ReleaseBackup(context.Background(), op) }, i.logger)
 		}
 	}()
 
@@ -525,7 +533,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, op
 		if shard == nil {
 			// Not in shardMap => back up from disk if directory exists.
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
-			i.backupProtectedShards.Store(name, struct{}{})
+			i.backupProtectedShards.Store(name, op)
 			unlockOnReturn = false
 			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 		}
@@ -537,7 +545,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, op
 			defer releaseBlock()
 			if !lazyShard.loaded {
 				// Shard is in the map but not loaded; protect and keep lock held.
-				i.backupProtectedShards.Store(name, struct{}{})
+				i.backupProtectedShards.Store(name, op)
 				unlockOnReturn = false
 				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 			}
@@ -629,46 +637,87 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 	return nil
 }
 
-func backupStagingDir(rootPath, backupID string, className schema.ClassName) string {
-	name := file.SafeStagingDirName(backup.BackupStagingPrefix, backupID, indexID(className))
+// backupStagingDir names the staging tree of ONE operation instance. The fence is
+// part of the hashed body, so a cancelled operation and its same-ID retry get
+// distinct directories and the stale instance's release cannot delete the retry's
+// live snapshot tree mid-hardlink.
+func backupStagingDir(rootPath string, op backup.Op, className schema.ClassName) string {
+	name := file.SafeStagingDirName(backup.BackupStagingPrefix, op.ID, op.Fence, indexID(className))
 	return filepath.Join(rootPath, name)
 }
 
 // ReleaseBackup marks the specified backup as inactive and restarts all
-// async background and maintenance processes. It errors if the backup does not exist
-// or is already inactive.
+// async background and maintenance processes. It errors only if resuming maintenance
+// fails; the release steps themselves are unconditional and idempotent, so a release
+// for an unknown or already-released operation is a no-op rather than an error.
+//
+// Lock order is critical. Index teardown holds closeLock for writing and then
+// waits on backupLock for every shard, so the protections below MUST be released
+// before this function ever waits on closeLock: otherwise teardown waits for a
+// lock only this release can drop while this release waits for teardown to finish,
+// and the index is wedged for the life of the process. Steps 1-3 are therefore
+// lock-free and only the resume sweep runs under closeLock.RLock.
+//
+// A lock-free gate CAS widens a pre-existing window: Index.drop reads lastBackup
+// under closeLock.Lock to pick keepFiles, so a drop can observe a gate that is
+// being cleared concurrently, choose keepFiles=true and rename the index directory
+// to the backup.DeleteMarkerAdd form although the backup did finish. The identical
+// outcome is already reachable through the existing db.GetIndex-then-drop window,
+// and the startup sweep removes every DeleteMarker-prefixed directory, so this is
+// an accepted widening of an existing window, not a new failure class.
 func (i *Index) ReleaseBackup(ctx context.Context, op backup.Op) error {
 	i.logger.WithField("backup_id", op.ID).WithField("class", i.Config.ClassName).Info("release backup")
 
-	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
-	stagingDir := backupStagingDir(i.Config.RootPath, op.ID, i.Config.ClassName)
+	// 1. Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
+	stagingDir := backupStagingDir(i.Config.RootPath, op, i.Config.ClassName)
 	if err := os.RemoveAll(stagingDir); err != nil {
-		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+		i.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 
-	// Release non-hardlink backup protections: clear the protection flag and
-	// release the held backupLock.Lock for each protected shard.
-	i.backupProtectedShards.Range(func(key, _ any) bool {
-		name := key.(string)
-		i.backupLock.Unlock(name)
-		i.backupProtectedShards.Delete(key)
+	// 2. Release THIS operation's non-hardlink backup protections: drop the
+	// protection entry and release the backupLock.Lock it kept held.
+	//
+	// CompareAndDelete makes the delete conditional on the value STILL being this
+	// op, atomically, which is what keeps this correct under concurrent releases.
+	// Exactly one of N concurrent same-Op releases wins the compare-and-delete and
+	// therefore exactly one unlocks; and a straggler whose Range visit read this op
+	// cannot unlock a successor's protection, because by the time it reaches the
+	// delete the value under that key is the successor's Op and the compare fails.
+	// A plain delete keyed on the Range-read value would not be safe: between the
+	// read and the delete the winning releaser can unlock and a successor op can
+	// take backupLock.Lock(name) and store its own protection.
+	i.backupProtectedShards.Range(func(key, value any) bool {
+		if owner, ok := value.(backup.Op); !ok || owner != op {
+			return true
+		}
+		if i.backupProtectedShards.CompareAndDelete(key, op) {
+			i.backupLock.Unlock(key.(string))
+		}
 		return true
 	})
 
-	// Free the admission gate only if it still holds THIS operation instance. A
+	// 3. Free the admission gate only if it still holds THIS operation instance. A
 	// stale prior-instance release must not clear a same-ID successor's live gate,
 	// so the guard compares the full Op (ID and fence), not the ID alone.
 	if cur := i.lastBackup.Load(); cur != nil && cur.Op == op {
 		i.lastBackup.CompareAndSwap(cur, nil)
 	}
-	// resumeMaintenanceCycles is still called for safety, but is a no-op since
+
+	// 4. resumeMaintenanceCycles is still called for safety, but is a no-op since
 	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
 	// a snapshot creation failed mid-way; it resumes only this operation's own
-	// halts, never a co-resident op's.
-	if err := i.resumeMaintenanceCycles(ctx, op.HaltOwner()); err != nil {
-		return err
+	// halts, never a co-resident op's. It mutates shard state, so unlike the steps
+	// above it needs closeLock.
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+	if i.closed {
+		// Every shard has already been shut down or dropped, so there is nothing
+		// left to resume.
+		i.logger.WithField("backup_id", op.ID).WithField("class", i.Config.ClassName).
+			Debug("index is closed; skipping backup resume sweep")
+		return nil
 	}
-	return nil
+	return i.resumeMaintenanceCycles(ctx, op.HaltOwner())
 }
 
 func (i *Index) initBackup(op backup.Op) error {
@@ -702,7 +751,6 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context, owner string) (last
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
 		}
-		time.Sleep(time.Millisecond * 10)
 		return nil
 	})
 	return lastErr
