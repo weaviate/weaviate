@@ -81,9 +81,11 @@ type keyColumn interface {
 
 	// Fold.
 
-	// keyAt returns the full key bytes at position i. May allocate (prefix
-	// backing reconstructs prefix+suffix); used by the base fold, not hot reads.
-	keyAt(i int) []byte
+	// appendKey appends the full key bytes at position i to dst, returning the
+	// extended slice. Append rather than return-a-view so the fold can write
+	// straight into the blob it is building, and so reconstructing a
+	// prefix-elided key costs no allocation.
+	appendKey(i int, dst []byte) []byte
 
 	// Reporting.
 
@@ -118,6 +120,8 @@ func (c *blobKeyColumn) keyAt(i int) []byte { return c.blob[c.offsets[i]:c.offse
 
 func (c *blobKeyColumn) compare(i int, q []byte) int { return bytes.Compare(c.keyAt(i), q) }
 
+func (c *blobKeyColumn) appendKey(i int, dst []byte) []byte { return append(dst, c.keyAt(i)...) }
+
 func (c *blobKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
 }
@@ -143,6 +147,8 @@ func (c *fixedKeyColumn) len() int { return len(c.data) / c.w }
 func (c *fixedKeyColumn) keyAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] }
 
 func (c *fixedKeyColumn) compare(i int, q []byte) int { return bytes.Compare(c.keyAt(i), q) }
+
+func (c *fixedKeyColumn) appendKey(i int, dst []byte) []byte { return append(dst, c.keyAt(i)...) }
 
 func (c *fixedKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
@@ -210,11 +216,8 @@ func comparePrefix(key, prefix []byte) int {
 	return bytes.Compare(key[:len(prefix)], prefix)
 }
 
-func (c *prefixKeyColumn) keyAt(i int) []byte {
-	k := make([]byte, len(c.prefix)+c.w)
-	copy(k, c.prefix)
-	copy(k[len(c.prefix):], c.suffixAt(i))
-	return k
+func (c *prefixKeyColumn) appendKey(i int, dst []byte) []byte {
+	return append(append(dst, c.prefix...), c.suffixAt(i)...)
 }
 
 func (c *prefixKeyColumn) info() keyColumnInfo {
@@ -621,10 +624,13 @@ func (idx *ColumnarIndex) foldRunsIntoBase() {
 	// Replay base then runs oldest→newest into a net key→docID map. owner is the
 	// reverse (docID→key) so a run's docID-based deletions can be applied — valid
 	// under 1-doc-per-key (a bijection).
+	//
+	// keyBuf is reused across appendKey calls; the map key copies out of it.
+	var keyBuf []byte
 	net := make(map[string]uint64, base.keys.len())
 	owner := make(map[uint64]string, base.keys.len())
 	for i := 0; i < base.keys.len(); i++ {
-		k := string(base.keys.keyAt(i))
+		k := string(base.keys.appendKey(i, keyBuf[:0]))
 		d := base.docs.at(i)
 		net[k] = d
 		owner[d] = k
@@ -639,7 +645,7 @@ func (idx *ColumnarIndex) foldRunsIntoBase() {
 			}
 		}
 		for i := 0; i < r.adds.keys.len(); i++ {
-			k := string(r.adds.keys.keyAt(i))
+			k := string(r.adds.keys.appendKey(i, keyBuf[:0]))
 			d := r.adds.docs.at(i)
 			if old, ok := net[k]; ok {
 				delete(owner, old)
