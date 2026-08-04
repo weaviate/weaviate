@@ -1216,19 +1216,30 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name       string
-		claimedID  string
-		wantSlotID string
+		name        string
+		claimedID   string
+		claimStatus backup.Status
+		wantSlotID  string
 	}{
 		{
-			name:       "slot holds the backup being cancelled",
-			claimedID:  backupID,
-			wantSlotID: "",
+			name:        "slot holds the cancelled backup",
+			claimedID:   backupID,
+			claimStatus: backup.Cancelled,
+			wantSlotID:  "",
 		},
 		{
-			name:       "slot holds a different, live restore",
-			claimedID:  "live-restore",
-			wantSlotID: "live-restore",
+			name:        "slot holds a different, live restore",
+			claimedID:   "live-restore",
+			claimStatus: backup.Transferring,
+			wantSlotID:  "live-restore",
+		},
+		{
+			// The cancel was claimed by another coordinator, so this node's own
+			// restore of the same id never saw a cancel and is still writing.
+			name:        "slot holds a live restore carrying the same id",
+			claimedID:   backupID,
+			claimStatus: backup.Transferring,
+			wantSlotID:  backupID,
 		},
 	}
 
@@ -1240,6 +1251,7 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 
 			c := fc.coordinator()
 			c.lastOp.renew(tc.claimedID, "path", "", "")
+			c.lastOp.set(tc.claimStatus)
 
 			req := newReq(nil, backendName, backupID)
 			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}

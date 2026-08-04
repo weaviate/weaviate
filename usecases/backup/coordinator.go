@@ -269,12 +269,14 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Only give back the slot when it holds the restore being cancelled.
-			// Otherwise a different, live restore owns it, and clearing it makes
-			// this node report itself idle while it is still writing files. The
-			// check and the clear share one lock acquisition so a restore that
-			// claims the slot in between does not lose it.
-			c.lastOp.resetIf(desc.ID)
+			// Only give back the slot when it holds a cancelled restore. Another
+			// restore owns it otherwise — even one carrying this same id, since
+			// the cancel could have been claimed by a different coordinator —
+			// and clearing it makes this node report itself idle while it is
+			// still writing files. The check and the clear share one lock
+			// acquisition so a restore that claims the slot in between does not
+			// lose it.
+			c.lastOp.resetIfCancelled(desc.ID)
 			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
 			return nil
 		}
