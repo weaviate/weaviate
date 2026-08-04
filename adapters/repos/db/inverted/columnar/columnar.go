@@ -172,14 +172,25 @@ func (c *prefixKeyColumn) searchGE(q []byte) int {
 // prefix differs, so they fall outside [min,max]); dropping them lets compare
 // skip the prefix check on every comparison. Two binary searches, no copy.
 func (c *prefixKeyColumn) prepareQueries(sorted [][]byte) [][]byte {
-	p := len(c.prefix)
 	lo := sort.Search(len(sorted), func(i int) bool {
-		return bytes.Compare(sorted[i][:p], c.prefix) >= 0
+		return comparePrefix(sorted[i], c.prefix) >= 0
 	})
 	hi := lo + sort.Search(len(sorted)-lo, func(i int) bool {
-		return bytes.Compare(sorted[lo+i][:p], c.prefix) > 0
+		return comparePrefix(sorted[lo+i], c.prefix) > 0
 	})
 	return sorted[lo:hi]
+}
+
+// comparePrefix orders a query key against a column's shared prefix by the key's
+// leading bytes. A key shorter than the prefix cannot carry it, so it is compared
+// whole: lexicographic order then places it before every key that does carry the
+// prefix (a shorter key sorts before its own extensions), which is exactly what
+// keeps the matching window contiguous for the binary searches above.
+func comparePrefix(key, prefix []byte) int {
+	if len(key) < len(prefix) {
+		return bytes.Compare(key, prefix)
+	}
+	return bytes.Compare(key[:len(prefix)], prefix)
 }
 
 func (c *prefixKeyColumn) width() int { return len(c.prefix) + c.w }

@@ -12,10 +12,12 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -1132,6 +1134,13 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 }
 
 // newBatchedContainsPair builds the batched Contains leaf from pre-encoded keys.
+//
+// The keys are sorted ascending here, once during extraction. The columnar
+// accelerator requires ascending input — its merge-scan advances a single query
+// cursor, and its prefix-window search binary-searches the query slice — and the
+// leaf is shared across every shard the query touches, so sorting at read time
+// would either race or cost a per-shard copy. The fold path is order-insensitive,
+// so hoisting the sort here changes nothing for it.
 func newBatchedContainsPair(property *models.Property, operator filters.Operator,
 	class *models.Class, keys [][]byte,
 ) (*propValuePair, error) {
@@ -1139,6 +1148,7 @@ func newBatchedContainsPair(property *models.Property, operator filters.Operator
 	if err != nil {
 		return nil, err
 	}
+	slices.SortFunc(keys, bytes.Compare)
 	pv.prop = property.Name
 	pv.operator = operator
 	pv.hasFilterableIndex = true

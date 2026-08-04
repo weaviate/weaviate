@@ -12,7 +12,9 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -196,9 +198,15 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Equal(t, tt.prop, pv.prop)
 			require.True(t, pv.hasFilterableIndex)
 			require.Len(t, pv.containsValues, tt.numVals)
-			for i := 0; i < tt.numVals; i++ {
-				require.Equal(t, tt.wantKey(t, i), pv.containsValues[i], "key %d", i)
+			// the keys are the encoded values in ascending order, not in the
+			// order the filter listed them — the columnar accelerator reads them
+			// as a sorted run (bool below is the case where the two differ)
+			want := make([][]byte, tt.numVals)
+			for i := range want {
+				want[i] = tt.wantKey(t, i)
 			}
+			slices.SortFunc(want, bytes.Compare)
+			require.Equal(t, want, pv.containsValues)
 		})
 	}
 }
