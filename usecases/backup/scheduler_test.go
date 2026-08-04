@@ -1089,6 +1089,11 @@ func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
 
 	fs := newFakeScheduler(nil)
 	fs.selector.reindexInFlightErr = gateRefusal()
+	// The backend answers rather than rejecting the call, so dropping the gate
+	// produces a wrong error to assert against instead of a mock panic.
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
 	_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
 		Backend: "s3",
@@ -1097,6 +1102,7 @@ func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	}, false)
 
 	require.Error(t, err)
+	fs.backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
 	// ErrUnprocessable doesn't unwrap, so check the sentinel via its text.
 	assert.IsType(t, backup.ErrUnprocessable{}, err)
 	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+

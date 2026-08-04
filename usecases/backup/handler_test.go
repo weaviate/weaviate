@@ -296,7 +296,13 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 	sourcer := &fakeSourcer{}
 	sourcer.reindexInFlightErr = gateRefusal()
 
-	bm := createManager(sourcer, nil, newFakeBackend(), nil)
+	// The backend answers rather than rejecting the call, so dropping the gate
+	// produces a wrong response to assert against instead of a mock panic.
+	backend := newFakeBackend()
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+	backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
+
+	bm := createManager(sourcer, nil, backend, nil)
 	resp := bm.OnCanCommit(ctx, &Request{
 		Method:   OpRestore,
 		ID:       "1",
@@ -311,6 +317,7 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 		"the per-shard in-flight-reindex kind would re-materialize the message "+
 			"under the backup sentinel; this kind carries the cluster-wide one")
 	assert.Equal(t, time.Duration(0), resp.Timeout)
+	backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestOnCanCommitRestore_WordingSurvivesRoundTrip pins that a restore
