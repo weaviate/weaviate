@@ -53,9 +53,8 @@ func contextWithReindexGate(ctx context.Context, gate *reindexGate) context.Cont
 	return context.WithValue(ctx, reindexGateCtxKey{}, gate)
 }
 
-// reindexGateFromContext returns the gate of the backup pass ctx belongs
-// to, or nil. Replica movement and offload are not passes: they install
-// no gate and keep resolving a fresh snapshot per call.
+// reindexGateFromContext returns nil outside a backup pass; replica
+// movement and offload resolve a fresh snapshot per call instead.
 func reindexGateFromContext(ctx context.Context) *reindexGate {
 	gate, _ := ctx.Value(reindexGateCtxKey{}).(*reindexGate)
 	return gate

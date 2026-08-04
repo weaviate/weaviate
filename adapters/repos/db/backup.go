@@ -103,11 +103,9 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
 func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
-	// One snapshot for the whole descriptor pass, resolved here rather
-	// than on first use: every per-shard check downstream runs while
-	// holding that shard's backup lock, and resolving is a round trip to
-	// the RAFT leader. Resolving up front keeps that trip out of the
-	// window in which writes to the shard are blocked.
+	// Resolved once here, not on first use, because the per-shard checks
+	// below run while holding the shard's write-blocking backup lock, and
+	// resolving is a round trip to the RAFT leader.
 	gate := newReindexGate(db)
 	gate.resolve()
 	ctx = contextWithReindexGate(ctx, gate)
@@ -263,8 +261,8 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 
 	gate := reindexGateFromContext(ctx)
 	if gate == nil {
-		// Reached outside a backup pass. Resolve a fresh snapshot and put
-		// it back in ctx so the loaded-shard checks below share it too.
+		// Reached outside a backup pass: resolve a fresh snapshot so the
+		// loaded-shard checks below still share one.
 		gate = newReindexGate(i.db)
 		ctx = contextWithReindexGate(ctx, gate)
 	}

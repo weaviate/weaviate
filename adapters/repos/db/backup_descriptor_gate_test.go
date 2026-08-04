@@ -54,8 +54,7 @@ func coldTenantIndex(t *testing.T, className string, tenants int) (*Index, []str
 
 // TestBackupDescriptors_BuildsReindexLookupOncePerPass pins that the
 // descriptor pass resolves one DTM snapshot for the whole backup, not
-// one per shard. This is the pass that does the snapshot work; the
-// admission precheck is a separate pass with its own snapshot.
+// one per shard.
 func TestBackupDescriptors_BuildsReindexLookupOncePerPass(t *testing.T) {
 	for _, tenants := range []int{1, 3, 12} {
 		t.Run(fmt.Sprintf("%d cold shards", tenants), func(t *testing.T) {
@@ -83,14 +82,9 @@ func TestBackupDescriptors_BuildsReindexLookupOncePerPass(t *testing.T) {
 	}
 }
 
-// TestBackupDescriptors_ResolvesBeforeReachingAnyShard pins that the
-// pass resolves its snapshot at entry rather than on first use. Every
-// per-shard check runs while holding that shard's backup lock, so
-// resolving on first use would put the round trip to the RAFT leader
-// inside a window that blocks writes to the shard.
-//
-// A pass with nothing to walk still resolves; that is the observable
-// difference between resolving at entry and resolving on first use.
+// TestBackupDescriptors_ResolvesBeforeReachingAnyShard pins that a pass
+// resolves its snapshot at entry, even with no shards to walk — the
+// observable proof it isn't resolved lazily on first use.
 func TestBackupDescriptors_ResolvesBeforeReachingAnyShard(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}, logger: logrus.New()}
 	counter := &countingActivityBuilder{snapshots: makeActivityBuilder(nil)}
@@ -189,11 +183,9 @@ func TestBackupDescriptors_TwoPassesResolveOneSnapshotEach(t *testing.T) {
 	assert.Len(t, probed, 2*len(names), "every shard judged in both passes")
 }
 
-// TestHaltForTransfer_UsesThePassGateAndFallsBackFresh pins both sides
-// of the loaded-shard check. Inside a backup pass it answers from the
-// pass's snapshot; outside one — replica movement, offload — it keeps
-// resolving fresh, which is what lets a halt see a reindex that started
-// after some other pass began.
+// TestHaltForTransfer_UsesThePassGateAndFallsBackFresh pins that a halt
+// answers from the pass's snapshot inside a backup pass, and resolves
+// fresh outside one (replica movement, offload).
 func TestHaltForTransfer_UsesThePassGateAndFallsBackFresh(t *testing.T) {
 	tests := []struct {
 		name       string

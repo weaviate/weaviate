@@ -35,13 +35,9 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// countingActivityBuilder counts snapshot builds and probed shards.
-// Both are metered in production as
-// schema_reads_leader_seconds_count{type="TYPE_DISTRIBUTED_TASK_LIST"},
-// but nothing in the backup API surfaces them per call.
-//
-// Guarded because a backup's descriptor pass probes shards from one
-// goroutine per shard.
+// countingActivityBuilder counts snapshot builds and probed shards so
+// tests can assert on gate reuse. Mutex-guarded: the descriptor pass
+// runs one goroutine per shard.
 type countingActivityBuilder struct {
 	snapshots ShardReindexActivityLookupBuilder
 
