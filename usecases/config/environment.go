@@ -1886,7 +1886,7 @@ const (
 	DefaultAsyncReplicationHashtreeInitConcurrency = 10
 	// Root pre-filter batch size: cluster-wide cap on same-collection hashtree roots
 	// compared per batched RPC. 1 disables it; <= 0 falls back to the default.
-	DefaultAsyncReplicationRootPrefilterBatchSize = 512
+	DefaultAsyncReplicationRootPrefilterBatchSize = 128
 	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
 	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
 	DefaultMaximumAllowedObjectsCount             = -1 // unlimited

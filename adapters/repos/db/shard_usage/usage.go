@@ -451,5 +451,8 @@ func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVect
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return scan, err
+	}
 	return scan, nil
 }

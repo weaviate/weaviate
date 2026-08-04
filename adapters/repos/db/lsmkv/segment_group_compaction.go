@@ -271,6 +271,20 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
+// discardSegmentFile closes f and removes path, for a new segment file that is
+// not going to be switched in. Failures are joined into err: a leftover .tmp
+// would be renamed onto a live segment name by a later init.
+func discardSegmentFile(f *os.File, path string, err error) error {
+	// f is already closed if the failure came after the write finished
+	if closeErr := f.Close(); closeErr != nil && !stderrors.Is(closeErr, os.ErrClosed) {
+		err = stderrors.Join(err, fmt.Errorf("close new segment file %q: %w", path, closeErr))
+	}
+	if removeErr := os.Remove(path); removeErr != nil && !stderrors.Is(removeErr, os.ErrNotExist) {
+		err = stderrors.Join(err, fmt.Errorf("remove new segment file %q: %w", path, removeErr))
+	}
+	return err
+}
+
 // compactOnce performs one compaction iteration. Cancelling ctx aborts
 // the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
 func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
@@ -358,11 +372,21 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		return false, err
 	}
 
+	// Until switchOnDisk marks a source segment for deletion, both sources still
+	// hold everything this file has, so discarding it on every exit before the
+	// switch costs nothing and leaves no .tmp for a later init to adopt.
+	discardNewSegment := true
+	defer func() {
+		if discardNewSegment {
+			err = discardSegmentFile(f, path, err)
+		}
+	}()
+
 	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
-	// aborted=true tells the caller to close the partial .tmp and bail
+	// aborted=true tells the caller to bail without reporting an error
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
 			if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
@@ -371,14 +395,6 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		return false, nil
-	}
-
-	abortAndClose := func() error {
-		// orphan .tmp is cleaned by segment_group.init on next start
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close aborted compactor output: %w", err)
-		}
-		return nil
 	}
 
 	switch strategy {
@@ -395,7 +411,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -407,7 +423,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -419,7 +435,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
@@ -431,7 +447,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 
 	case segmentindex.StrategyRoaringSetRange:
@@ -443,7 +459,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
@@ -476,7 +492,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
@@ -496,7 +512,9 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
-	oldLeft, oldRight, err := replacer.switchOnDisk()
+	oldLeft, oldRight, err := replacer.switchOnDisk(func() {
+		discardNewSegment = false
+	})
 	if err != nil {
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}
