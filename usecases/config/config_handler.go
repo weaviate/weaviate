@@ -137,6 +137,7 @@ type Config struct {
 	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
 	ModulesPath                      string                   `json:"modules_path" yaml:"modules_path"`
 	ModuleHttpClientTimeout          time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
+	TokenizerBPEDir                  string                   `json:"tokenizer_bpe_dir" yaml:"tokenizer_bpe_dir"`
 	AutoSchema                       AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                          cluster.Config           `json:"cluster" yaml:"cluster"`
 	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`

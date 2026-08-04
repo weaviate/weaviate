@@ -65,3 +65,26 @@ func Test_getTokensCount(t *testing.T) {
 		})
 	}
 }
+
+func Test_getTokensCount_nilTokenizer(t *testing.T) {
+	// When the tiktoken vocabulary is unavailable (download blocked), the
+	// tokenizer is nil and the count must fall back to a char-based estimate
+	// instead of panicking.
+	tests := []struct {
+		name  string
+		model string
+		input string
+		want  int
+	}{
+		{name: "empty input", model: "text-embedding-ada-002", input: "", want: 3},
+		{name: "short input", model: "text-embedding-ada-002", input: "hello world", want: 3 + 3},
+		{name: "gpt-3.5-turbo per-message offset", model: "gpt-3.5-turbo", input: "hello world", want: 4 + 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.NotPanics(t, func() {
+				assert.Equal(t, tt.want, GetTokensCount(tt.model, tt.input, nil))
+			})
+		})
+	}
+}
