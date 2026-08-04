@@ -1201,16 +1201,32 @@ catches that gap.
    sidecar dirs for the dropped index type, plus the tracker dir.
 4. Subsequent re-enable starts from clean state.
 
-## 13. Out of scope (broken; tracked follow-up)
+## 13. Backup, restore, and the reindex guard
 
-Backups and migrations across runtime-reindex state are intentionally
-left broken on this branch and will not be fixed in the v1.38 Preview
-merge. The fixes live on `backup-runtime-reindex-fixes` and will
-land as a follow-up PR. Tracking: weaviate/0-weaviate-issues#215.
+Backup, restore and reindex all rewrite the same on-disk buckets, so
+each refuses to start while another is running. The guard is symmetric
+and both halves fail closed:
 
-Operators should not rely on backup/restore or schema migration
-interacting cleanly with an in-flight or recently-completed reindex
-while running v1.38 Preview.
+| Submitted | Refused when | Where |
+| --- | --- | --- |
+| Backup | A live DTM reindex task targets the shard, or a cancelled task is still removing its sidecars | `Index.refuseIfReindexInFlight` |
+| Restore | Any reindex task is live in the cluster, or a cancelled one is still removing sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, checked in `validateRestoreRequest` and in each participant's `OnCanCommit` |
+| Reindex | Any node reports a backup or restore slot held | `indexesHandlers.refuseIfBackupInFlight`, over `GET /backups/node-activity` |
+
+Refusals are retryable, never terminal:
+
+- A reindex refused because of a backup gets 409; if a node cannot be
+  reached it gets 503, since an unanswered node cannot be assumed idle.
+- A restore refused because of a reindex gets 422.
+- Nothing needs operator action to clear. A backup or restore slot is
+  held in process memory only, so it dies with the process. Participant
+  slots expire on their own within 20s of an abandoned operation; a
+  coordinator slot can be held until its node-down timeout
+  (`_TimeoutNodeDown`, 7 minutes), which delays reindex submissions but
+  never blocks a backup.
+
+Schema migration against an in-flight reindex is still unguarded.
+Tracking: weaviate/0-weaviate-issues#215.
 
 ## 14. Files of interest
 
