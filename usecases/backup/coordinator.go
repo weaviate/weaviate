@@ -236,7 +236,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
 		} else {
-			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+			c.log.WithFields(logFields).Errorf("coordinator: %s", backup.TextForLog(c.descriptor.Error))
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
