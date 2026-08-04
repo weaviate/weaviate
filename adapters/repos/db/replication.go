@@ -895,9 +895,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 
 	ctx = withChangeLogReplay(ctx)
 
-	s, release, err := idx.getOrInitShard(ctx, shard)
+	s, release, err := idx.getOrInitShardForReplication(ctx, shard)
 	if err != nil {
-		return fmt.Errorf("shard %q not found locally: %w", shard, err)
+		return fmt.Errorf("get shard %q for change-log replay: %w", shard, err)
 	}
 	defer release()
 	if s == nil {

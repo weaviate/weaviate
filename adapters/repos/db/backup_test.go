@@ -372,7 +372,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 		idx.backupProtectedShards.Store(shardName, struct{}{})
 
-		_, release, err := idx.getOptInitLocalShard(ctx, shardName, true)
+		_, release, err := idx.getOptInitLocalShard(ctx, shardName, true, callerUserRequest)
 		defer release()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "protected for backup")
@@ -386,7 +386,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 		// With ensureInit=false, the function returns nil shard without error
 		// (the protection check is never reached).
-		shard, release, err := idx.getOptInitLocalShard(ctx, shardName, false)
+		shard, release, err := idx.getOptInitLocalShard(ctx, shardName, false, callerUserRequest)
 		defer release()
 		require.NoError(t, err)
 		assert.Nil(t, shard)
