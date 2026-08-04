@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -532,6 +534,100 @@ func TestAnyCleanupInProgressForCollection(t *testing.T) {
 			release()
 			assert.False(t, p.AnyCleanupInProgressForCollection(tc.probe),
 				"the answer must go back down or the owner looks busy forever")
+		})
+	}
+}
+
+// The DTM terminal hook drains the local worker before tearing its sidecars
+// down, and the task has already left DTM by then — so the drain is precisely
+// the stretch where the shards look free while the worker is still writing.
+// The gate has to be up for it, not raised once it finishes.
+func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "task-1", Version: 1}
+	payload := &ReindexTaskPayload{
+		Collection:    "Movies",
+		Properties:    []string{"body"},
+		MigrationType: ReindexTypeChangeTokenization,
+		UnitToShard:   map[string]string{"u1": "shard1"},
+	}
+
+	// A handle that never finishes keeps the drain blocked; the short serverCtx
+	// is what eventually releases it, standing in for the drain timeout.
+	serverCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	p := &ReindexProvider{
+		cleanupInProgress: make(map[reindexCleanupKey]int),
+		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+			desc: {doneCh: make(chan struct{})},
+		},
+		serverCtx: serverCtx,
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.autoCleanupAfterTerminal(&distributedtask.Task{TaskDescriptor: desc}, payload, logger)
+	}()
+
+	raised := false
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if p.AnyCleanupInProgressForCollection("Movies") {
+			raised = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	require.True(t, raised,
+		"the gate must be up while the drain is still blocked, not after it returns")
+
+	<-done
+	require.False(t, p.AnyCleanupInProgressForCollection("Movies"),
+		"the gate must come back down once the hook returns")
+}
+
+// A task that tears nothing down must not hold the gate at all: the raise moved
+// past the drain, not past the applicability checks.
+func TestAutoCleanupAfterTerminalSkipsTheGateWhenNothingToClean(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "task-2", Version: 1}
+	serverCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	tests := []struct {
+		name    string
+		payload *ReindexTaskPayload
+	}{
+		{
+			name: "migration type tears nothing down",
+			payload: &ReindexTaskPayload{
+				Collection: "Movies", Properties: []string{"body"},
+				MigrationType: ReindexMigrationType("something-else"),
+			},
+		},
+		{
+			name: "no properties named",
+			payload: &ReindexTaskPayload{
+				Collection: "Movies", MigrationType: ReindexTypeChangeTokenization,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &ReindexProvider{
+				cleanupInProgress: make(map[reindexCleanupKey]int),
+				runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+					desc: {doneCh: make(chan struct{})},
+				},
+				serverCtx: serverCtx,
+			}
+			logger, _ := logrustest.NewNullLogger()
+
+			p.autoCleanupAfterTerminal(&distributedtask.Task{TaskDescriptor: desc}, tc.payload, logger)
+
+			require.False(t, p.AnyCleanupInProgressForCollection("Movies"),
+				"nothing to tear down, so nothing to gate — and it must not block on the drain either")
 		})
 	}
 }
