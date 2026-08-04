@@ -1664,17 +1664,26 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
+	// Applicability first: a task with nothing to tear down must not hold the
+	// gate at all.
+	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
+		return
+	}
+
+	// Then the gate, before the drain rather than after it. The task left DTM
+	// the moment it went terminal, so from here both gates report the shards
+	// free while the worker is still writing — and the drain is exactly the
+	// stretch where it still is. Same ordering DrainWithCleanupGate uses on the
+	// REST cancel path; a drain that times out is when the gate matters most.
+	defer p.MarkCleanupInProgress(payload)()
+
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
 	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
-	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
-	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
-		return
-	}
-	defer p.MarkCleanupInProgress(payload)()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
 	swept, dropped := true, false
