@@ -297,3 +297,45 @@ func TestMarkCleanupInProgress(t *testing.T) {
 	assert.False(t, p.IsCleanupInProgress("C", "shard2"))
 	assert.False(t, p.AnyCleanupInProgress())
 }
+
+// A payload can reach teardown without a shard mapping — an older task written
+// before UnitToShard existed, or one cancelled before the mapping was filled
+// in. The sidecars still get torn down, so registering nothing would leave both
+// gates open for the whole window. Guard the collection instead.
+func TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload *ReindexTaskPayload
+	}{
+		{
+			name:    "no shard mapping at all",
+			payload: &ReindexTaskPayload{Collection: "C"},
+		},
+		{
+			name: "mapping present but every shard name empty",
+			payload: &ReindexTaskPayload{
+				Collection:  "C",
+				UnitToShard: map[string]string{"u1": "", "u2": ""},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newCleanupRegistryProvider()
+
+			release := p.MarkCleanupInProgress(tc.payload)
+			assert.True(t, p.AnyCleanupInProgress(),
+				"the restore gate must stay shut while the teardown runs")
+			assert.True(t, p.IsCleanupInProgress("C", "shard1"),
+				"the backup gate must refuse every shard of the collection")
+			assert.True(t, p.IsCleanupInProgress("C", "any-other-shard"))
+			assert.False(t, p.IsCleanupInProgress("Other", "shard1"),
+				"an unrelated collection is not part of this teardown")
+
+			release()
+			assert.False(t, p.AnyCleanupInProgress())
+			assert.False(t, p.IsCleanupInProgress("C", "shard1"))
+		})
+	}
+}
