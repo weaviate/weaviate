@@ -486,9 +486,14 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
+		valueBucketOpts := makeBucketOptions(lsmkv.StrategyRoaringSet)
+		if s.columnarContainsEligible(prop) {
+			valueBucketOpts = append(valueBucketOpts,
+				lsmkv.WithContainsAcceleratorFactory(s.containsAcceleratorFactory()))
+		}
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
+			valueBucketOpts...,
 		); err != nil {
 			return err
 		}

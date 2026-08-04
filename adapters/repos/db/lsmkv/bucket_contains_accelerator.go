@@ -72,6 +72,15 @@ func (b *Bucket) ContainsAnyAccelerator() ContainsAnyResolver {
 	return acc.resolver
 }
 
+// DetachContainsAccelerator drops the bucket's accelerator, sending ContainsAny
+// back to the standard fold from here on. Callers use this when something the
+// accelerator assumes about the bucket's contents stops holding — its
+// key→document mapping is built for one key per document, so a change that lets
+// a document span several keys invalidates it.
+func (b *Bucket) DetachContainsAccelerator() {
+	b.containsAcc.Store(nil)
+}
+
 // absorbFlushIntoAccelerator feeds a just-flushed memtable to the accelerator.
 // Called from the flush path once the memtable is durable but before the segment
 // swap, so the copy stays off flushLock. The memtable is immutable by then

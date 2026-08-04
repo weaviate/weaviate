@@ -19,11 +19,19 @@
 // merge-scan (dense queries) or binary-search sweep (sparse queries), emitting
 // docIDs into a slice and building exactly one bitmap at the end.
 //
-// POC scope: base tier only (populated once from disk segments at startup),
-// no memtable layering, no updates, and a strict 1-doc-per-key (unique)
-// assumption — so each key's docID column entry is scalar. See the package
-// design notes for how pending tiers, per-key postings, and updates extend
-// this.
+// The index requires a one-to-one mapping between keys and documents, in BOTH
+// directions:
+//
+//   - one document per key, so each key's docID column entry is scalar. Enforced
+//     here: BuildFromBucket and AbsorbFlush decline a key holding several docIDs.
+//   - one key per document, because a flushed memtable's deletions are applied to
+//     the whole result rather than per key. Enforced by the caller, which attaches
+//     the accelerator only to properties whose every document contributes exactly
+//     one key — a document spread over several keys would vanish from all of them
+//     the moment it lost any one.
+//
+// See the package design notes for how per-key postings would lift the second
+// requirement and allow array-valued properties.
 package columnar
 
 import (
@@ -267,8 +275,9 @@ type columnarSegment struct {
 
 // run is one flushed memtable copied into columnar form: the keys that got an
 // addition (key → added docID) as an adds segment, plus the set of docIDs this
-// flush deleted. Under 1-doc-per-key a deleted docID belongs to exactly one key,
-// so deletions are applied globally as an AndNot rather than per key.
+// flush deleted. Deletions are applied to the whole result rather than per key,
+// which is why the index requires each document to own exactly one key: a
+// document that also sat under another key would be dropped from that one too.
 type run struct {
 	adds *columnarSegment
 	dels *sroar.Bitmap
@@ -459,7 +468,8 @@ func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap 
 	result := sroar.FromSortedList(out)
 
 	// Fold runs oldest→newest over the base. Per run: remove the docIDs it
-	// deleted (global AndNot — safe under 1-doc-per-key), then union the docIDs
+	// deleted (whole-result AndNot — see the package doc on why a document must
+	// own exactly one key), then union the docIDs
 	// of its added keys that match the query. A newer run's add re-adds a docID
 	// an older run/base deleted, so newest-wins holds.
 	for _, r := range runs {
