@@ -352,6 +352,19 @@ Loop:
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
+	// Commit-time backstop. Every per-shard check ran before the files were
+	// captured, so a migration that started inside that window was invisible to
+	// all of them. This resolves reindex state once more, now that the capture
+	// is finished: it reads the DTM through the RAFT leader, which is where a
+	// racing submission commits before its caller is answered, so anything that
+	// overlapped this backup is visible here. Failing the backup is the point —
+	// a SUCCESS that silently spans a migration is the worst outcome available.
+	if err := u.sourcer.Backupable(ctx, classes); err != nil {
+		u.setStatus(backup.Failed)
+		desc.Status = backup.Failed
+		return fmt.Errorf("a runtime-reindex was live while this backup was captured: %w", err)
+	}
+
 	u.setStatus(backup.Transferred)
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes

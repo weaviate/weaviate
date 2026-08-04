@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -218,6 +219,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		)
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		// The commit-time re-resolve runs on the uploader's own cancellable ctx.
+		sourcer.On("Backupable", any, any).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
@@ -305,6 +308,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		// node deduplicates against nothing (full upload)
 		var gotBaseDescrs []*backup.BackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		// The commit-time re-resolve runs on the uploader's own cancellable ctx.
+		sourcer.On("Backupable", any, any).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
 			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
@@ -903,6 +908,98 @@ func TestResolveBaseBackupChain(t *testing.T) {
 					}
 				}
 			}
+		})
+	}
+}
+
+// Every per-shard reindex check runs before the files are captured, so a
+// migration that starts inside that window is invisible to all of them — and to
+// the admission checks on both sides, whatever version admitted it. The
+// commit-time re-resolve is what turns that into a loud failure instead of a
+// SUCCESS that silently spans a migration.
+func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
+	t.Parallel()
+	var (
+		cls         = "Class-A"
+		cls2        = "Class-B"
+		backendName = "gcs"
+		backupID    = "1"
+		ctx         = context.Background()
+		nodeHome    = backupID + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
+		any         = mock.Anything
+		req         = Request{
+			Method:   OpCreate,
+			ID:       backupID,
+			Classes:  []string{cls, cls2},
+			Backend:  backendName,
+			Duration: time.Millisecond * 20,
+		}
+	)
+
+	tests := []struct {
+		name        string
+		liveAtEnd   bool
+		wantStatus  backup.Status
+		wantErrPart string
+	}{
+		{
+			name:       "no migration appears; the backup stands",
+			liveAtEnd:  false,
+			wantStatus: backup.Success,
+		},
+		{
+			name:        "a migration became visible during capture",
+			liveAtEnd:   true,
+			wantStatus:  backup.Failed,
+			wantErrPart: "a runtime-reindex was live while this backup was captured",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sourcePath := t.TempDir()
+			sourcer := &fakeSourcer{}
+			backend := newFakeBackend()
+
+			// The admission check passes; only the commit-time one sees the task.
+			sourcer.On("Backupable", ctx, req.Classes).Return(nil).Once()
+			if tc.liveAtEnd {
+				sourcer.On("Backupable", any, any).Return(
+					fmt.Errorf("Node-1/%s: %w: shard %q has 1 active tracker(s)",
+						cls, backup.ErrBackupBlockedByInFlightReindex, "shard-a"))
+			} else {
+				sourcer.On("Backupable", any, any).Return(nil)
+			}
+			ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(ch)
+			sourcer.On("ReleaseBackup", any, backupID, any).Return(nil)
+
+			backend.On("HomeDir", any, any, any).Return(path)
+			backend.On("SourceDataPath").Return(sourcePath)
+			backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+			backend.On("Initialize", ctx, nodeHome).Return(nil)
+			backend.On("PutObject", any, nodeHome, BackupFile, any).Return(nil)
+			backend.On("Write", any, nodeHome, any, any).Return(any, nil)
+
+			m := createManager(sourcer, nil, backend, nil)
+			longReq := req
+			longReq.Duration = time.Hour
+			require.Equal(t, &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: _TimeoutShardCommit},
+				m.OnCanCommit(ctx, &longReq))
+			require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
+			m.backupper.waitForCompletion(50, 100)
+
+			status, errMsg := backend.getMetaStatus()
+			require.Equal(t, tc.wantStatus, status)
+			if tc.wantErrPart == "" {
+				require.Empty(t, errMsg)
+				return
+			}
+			require.Contains(t, errMsg, tc.wantErrPart)
+			require.Contains(t, errMsg, backup.ErrBackupBlockedByInFlightReindex.Error(),
+				"the operator needs to know which condition failed the backup")
 		})
 	}
 }
