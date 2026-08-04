@@ -290,6 +290,11 @@ func TestReindexGate_UnreachableLeaderIsBlocked(t *testing.T) {
 		"unknown reindex state must block, not allow")
 }
 
+// The refusal for an unreachable leader must keep the shape the
+// canCommit boundary is tested against. Narrowing its Unwrap breaks here
+// first.
+var _ entitiesbackup.CauseFirstRefusal = reindexStateUnknown{}
+
 // TestReindexStateUnknownError_ReadsAsItsOwnCause pins that the refusal
 // for an unreachable leader states the leader failure from its first
 // word. Wrapping the sentinel with %w rendered "backup blocked:
