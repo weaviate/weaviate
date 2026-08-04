@@ -313,3 +313,62 @@ func TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards(t *testing.T
 			"the refusal must not grow with shard count")
 	}
 }
+
+// TestBackupableRefusalsAreBoundedForLogging runs the real refusals
+// through the log bound: the unknown-state error is a type of its own,
+// so the bound must be exercised against it and not only against the
+// joined per-shard form.
+func TestBackupableRefusalsAreBoundedForLogging(t *testing.T) {
+	const className = "LogBoundCls"
+	const logBoundBytes = 8 << 10
+
+	tests := []struct {
+		name    string
+		build   func(*testing.T) error
+		wantBig bool
+	}{
+		{
+			name: "genuine reindex on every shard",
+			build: func(t *testing.T) error {
+				shards := precheckShards(className, 20000)
+				db := precheckDB(t, []precheckClass{{name: className, shards: shards}})
+				counter := &countingActivityBuilder{snapshots: func() (ShardReindexActivityLookup, error) {
+					return func(string, string) bool { return true }, nil
+				}}
+				counter.install(db)
+				return db.Backupable(testCtx(), []string{className})
+			},
+			wantBig: true,
+		},
+		{
+			name: "cluster leader unreachable",
+			build: func(t *testing.T) error {
+				shards := precheckShards(className, 20000)
+				db := precheckDB(t, []precheckClass{{name: className, shards: shards}})
+				counter := &countingActivityBuilder{snapshots: func() (ShardReindexActivityLookup, error) {
+					return nil, errors.New("list DTM tasks: leader not found")
+				}}
+				counter.install(db)
+				return db.Backupable(testCtx(), []string{className})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.build(t)
+			require.Error(t, err)
+			if tt.wantBig {
+				require.Greater(t, len(err.Error()), 1<<20,
+					"fixture must produce the body the bound exists for")
+			}
+
+			bounded := entitiesbackup.ErrorForLog(err)
+			require.LessOrEqual(t, len(bounded.Error()), logBoundBytes,
+				"what reaches the log must not grow with shard count")
+			require.True(t, errors.Is(bounded, entitiesbackup.ErrBackupBlockedByInFlightReindex) ||
+				len(bounded.Error()) < len(err.Error()),
+				"a bounded refusal is either the original error or a strictly shorter rendering")
+		})
+	}
+}
