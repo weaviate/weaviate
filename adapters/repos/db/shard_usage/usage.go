@@ -44,8 +44,12 @@ func shardPathDimensionsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
 }
 
+// usageFileName lives in the shard root that CalculateNonLSMStorage sums, so it
+// must be excluded there or the reported size grows once usage has been calculated.
+const usageFileName = "usage.json.tmp"
+
 func usageTmpFilePath(indexPath, shardName string) string {
-	return path.Join(indexPath, shardName, "usage.json.tmp")
+	return path.Join(indexPath, shardName, usageFileName)
 }
 
 // ComputedUsageDataExists checks if pre-calculated shard usage data file exists
@@ -289,8 +293,11 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 		return 0, 0, err
 	}
 
-	// Add sizes of all files in the shard root directory
-	for _, size := range files {
+	// Add sizes of the shard root's files, skipping our own usage cache
+	for name, size := range files {
+		if name == usageFileName {
+			continue
+		}
 		otherNonLSMFoldersStorageSize += uint64(size)
 	}
 	for _, dir := range dirs {
