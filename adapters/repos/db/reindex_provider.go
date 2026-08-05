@@ -2623,21 +2623,48 @@ func (p *ReindexProvider) adoptCancelApplyGate(desc distributedtask.TaskDescript
 	return release
 }
 
+// reindexWorkerExitGateCap bounds the wait in
+// [ReindexProvider.ReleaseCleanupGateOnWorkerExit]. A worker that never exits
+// would otherwise hold the gate until the process restarts, and the restore
+// gate this feeds is node-wide: one wedged worker on one collection would
+// refuse every restore on the node indefinitely. Longer than the cancel-apply
+// cap because the worker here is doing real work and the drain it already lost
+// was only ten seconds. Reaching it opens the gate over a possibly still-writing
+// worker, so it is logged at Error, same posture as reindexCancelApplyGateCap.
+const reindexWorkerExitGateCap = 5 * time.Minute
+
 // ReleaseCleanupGateOnWorkerExit keeps the cleanup gate closed past the caller's
-// return and drops it only once the local worker exits.
+// return and drops it once the local worker exits, or at
+// [reindexWorkerExitGateCap], whichever comes first.
 //
 // A drain that times out is the case the gate exists for: the worker is still
 // writing, and the commit-time overlap check skips cancelled tasks, so releasing
 // on return would open the gate over a live writer with nothing behind it.
-// Bounded by the server context.
 func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
 	desc distributedtask.TaskDescriptor,
 	release func(),
 	logger logrus.FieldLogger,
 ) {
+	p.releaseCleanupGateOnWorkerExit(desc, release, logger, reindexWorkerExitGateCap)
+}
+
+// releaseCleanupGateOnWorkerExit takes the cap as an argument so the bound
+// itself is reachable without waiting it out in wall time.
+func (p *ReindexProvider) releaseCleanupGateOnWorkerExit(
+	desc distributedtask.TaskDescriptor,
+	release func(),
+	logger logrus.FieldLogger,
+	gateCap time.Duration,
+) {
 	enterrors.GoWrapper(func() {
 		defer release()
-		if err := p.WaitForLocalTaskDrain(p.serverCtx, desc); err != nil {
+		base := p.serverCtx
+		if base == nil {
+			base = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(base, gateCap)
+		defer cancel()
+		if err := p.WaitForLocalTaskDrain(ctx, desc); err != nil {
 			logger.Errorf("reindex provider: releasing the cleanup gate without having observed the worker exit; "+
 				"a backup starting now could catch a half-removed sidecar: %v", err)
 		}
