@@ -247,7 +247,13 @@ type Config struct {
 
 	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
 	// off by default. With it off, new reindex submissions are refused and
-	// the backup path performs no reindex check.
+	// neither the backup nor the restore path performs any reindex check,
+	// including the backup's commit-time overlap check.
+	//
+	// One case is not covered: a task that was already running when the flag
+	// was turned off keeps running, and with the checks off a backup can span
+	// it. Turning the flag off does not stop live work, it only stops new
+	// submissions and the gates.
 	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
