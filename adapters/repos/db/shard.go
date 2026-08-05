@@ -188,19 +188,7 @@ type ShardLike interface {
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
-	// ActivateChangeLog registers a change-capture log under opID and returns
-	// it for in-process callers.
-	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
-	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
-	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
-	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
-	// seals the log and returns the final LSN. Tailers drain to finalLSN
-	// and EOF.
-	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
-	// StopChangeCapture unregisters and deactivates the log without sealing.
-	StopChangeCapture(ctx context.Context, opID string) error
-	// GetChangeLog returns the active log for opID, or (nil, false) if none.
-	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
+	shardChangeLogger
 
 	// CreateAsyncCheckpoint takes createdAt from the initiator as the
 	// strict-greater-than tie-breaker; older/equal proposals are rejected.
@@ -224,6 +212,23 @@ type ShardLike interface {
 
 	// Debug method for docID lock debugging and contention detection and simulation
 	DebugGetDocIdLockStatus() (bool, error)
+}
+
+// shardChangeLogger is the replica-movement change-capture surface of a shard.
+type shardChangeLogger interface {
+	// ActivateChangeLog registers a change-capture log under opID and returns
+	// it for in-process callers.
+	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
+	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
+	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
+	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
+	// seals the log and returns the final LSN. Tailers drain to finalLSN
+	// and EOF.
+	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
+	// StopChangeCapture unregisters and deactivates the log without sealing.
+	StopChangeCapture(ctx context.Context, opID string) error
+	// GetChangeLog returns the active log for opID, or (nil, false) if none.
+	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
 }
 
 // asyncReplicationController is a package-internal interface implemented by
