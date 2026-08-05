@@ -451,6 +451,11 @@ func TestReindexOverlapLookupRedactsItsCauses(t *testing.T) {
 			if tc.cause != nil {
 				assert.ErrorIs(t, err, tc.cause, "the cause must stay reachable for callers that classify it")
 			}
+			// Redacting the text must not also hide what kind of refusal this
+			// is: a caller that cannot match the sentinel treats a fail-closed
+			// overlap refusal as an unrelated failure.
+			assert.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+				"the refusal must stay classifiable through the redaction wrapper")
 		})
 	}
 }

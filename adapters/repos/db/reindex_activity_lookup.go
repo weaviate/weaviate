@@ -201,7 +201,12 @@ type redactedOverlapErr struct {
 
 func (e redactedOverlapErr) Error() string { return e.msg }
 
-func (e redactedOverlapErr) Unwrap() error { return e.cause }
+// Unwrap yields the sentinel as well as the cause. Without it every caller
+// classifying this refusal with errors.Is sees a plain error and treats a
+// fail-closed overlap refusal as an unrelated failure. Matches redactedCauseErr.
+func (e redactedOverlapErr) Unwrap() []error {
+	return []error{entitiesbackup.ErrBackupSpannedReindex, e.cause}
+}
 
 // ReindexTaskLister lists DTM tasks by namespace, narrowed from the cluster
 // service so the overlap rules can be exercised without a RAFT node.
