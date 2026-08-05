@@ -123,7 +123,8 @@ type reindexGateSnapshot struct {
 func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	var snap reindexGateSnapshot
 	if db.config.RuntimeReindexDisabled {
-		// No new task can start, so this gate checks nothing. Returning before
+		// No new task can start, so this gate checks nothing — which is not the
+		// same as no task running; see [DB.RefuseIfReindexOverlapped]. Returning before
 		// the builders run is the point: the activity builder issues a
 		// leader-forwarded RAFT query, and the kill switch has to cost nothing.
 		// Every gate consumer builds its snapshot here, so this covers the
@@ -136,9 +137,11 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 		// [DB.RefuseIfReindexOverlapped], and the submission route in
 		// adapters/handlers/rest, which stays open for cancel on purpose.
 		// Together they make the flag-off behavior "no reindex check anywhere",
-		// with one accepted residual: a task already running when the flag went
-		// off is not covered, so a backup can span it. See
-		// [DB.RefuseIfReindexOverlapped].
+		// with one accepted residual, stated in full at
+		// [DB.RefuseIfReindexOverlapped]. Pointed at rather than repeated: a
+		// third copy of that enumeration is a drift hazard, and widening it in
+		// only some copies is exactly how this comment ended up narrower than
+		// the other two.
 		return snap
 	}
 
