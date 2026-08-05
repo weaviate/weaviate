@@ -15,10 +15,12 @@ package compressionhelpers_test
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -167,6 +169,46 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		_, err = compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), 1, 2)
 		var e storobj.ErrNotFound
 		assert.ErrorAs(t, err, &e)
+	})
+
+	t.Run("dynamic prefill skips the bucket but keeps the cache", func(t *testing.T) {
+		vectors := map[uint64][]float32{
+			1: {-0.5, 0.5},
+			2: {0.25, 0.7},
+		}
+		vectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
+			v, ok := vectors[id]
+			if !ok {
+				return nil, storobj.NewErrNotFoundf(id, "not found")
+			}
+			return v, nil
+		}
+
+		store := testinghelpers.NewDummyStore(t)
+		compressor, err := compressionhelpers.NewBQCompressor(
+			distancer.NewCosineDistanceProvider(), 1e12, nil,
+			store, lsmkv.MakeNoopBucketOptions, nil, "name", vectorForID)
+		require.NoError(t, err)
+		bucket := store.Bucket(helpers.GetCompressedBucketName("name"))
+		idBytes := make([]byte, 8)
+
+		compressor.SetDynamicPrefill(true)
+		compressor.Preload(1, vectors[1])
+
+		// the code is served from the cache but was never persisted
+		_, err = compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), 1, 1)
+		assert.NoError(t, err)
+		binary.BigEndian.PutUint64(idBytes, 1)
+		code, err := bucket.Get(idBytes)
+		require.NoError(t, err)
+		assert.Empty(t, code)
+
+		compressor.SetDynamicPrefill(false)
+		compressor.Preload(2, vectors[2])
+		binary.BigEndian.PutUint64(idBytes, 2)
+		code, err = bucket.Get(idBytes)
+		require.NoError(t, err)
+		assert.NotEmpty(t, code)
 	})
 
 	t.Run("don't panic when vector dimensions are mismatched", func(t *testing.T) {

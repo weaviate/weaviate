@@ -17,6 +17,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -87,6 +88,8 @@ type VectorCompressor interface {
 	Stats() CompressionStats
 	Get(id uint64) ([]float32, error)
 	GetCompressed(id uint64) (any, error)
+	SetDynamicPrefill(enabled bool)
+	PersistCache(ctx context.Context) error
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -99,6 +102,41 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	targetVector      string
 	makeBucketOptions lsmkv.MakeBucketOptions
 	vectorForID       common.VectorForID[float32]
+	dynamicPrefill    atomic.Bool
+}
+
+func (compressor *quantizedVectorsCompressor[T]) SetDynamicPrefill(enabled bool) {
+	compressor.dynamicPrefill.Store(enabled)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) PersistCache(ctx context.Context) error {
+	bucket := compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector))
+	all := uint64(compressor.cache.Len())
+	pageSize := compressor.cache.PageSize()
+	out := make([][]T, pageSize)
+	errs := make([]error, pageSize)
+	for id := uint64(0); id < all; {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		vecs, _, start, end := compressor.cache.GetAllInCurrentLock(ctx, id, out, errs)
+		for i, vec := range vecs {
+			cur := start + uint64(i)
+			if cur >= end || cur >= all {
+				break
+			}
+			if len(vec) == 0 {
+				continue
+			}
+			idBytes := make([]byte, 8)
+			compressor.storeId(idBytes, cur)
+			if err := bucket.Put(idBytes, compressor.quantizer.CompressedBytes(vec)); err != nil {
+				return errors.Wrapf(err, "persist compressed vector %d", cur)
+			}
+		}
+		id = end
+	}
+	return nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Get(id uint64) ([]float32, error) {
@@ -157,9 +195,11 @@ func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id 
 
 func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []float32) {
 	compressedVector := compressor.quantizer.Encode(vector)
-	idBytes := make([]byte, 8)
-	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	if !compressor.dynamicPrefill.Load() {
+		idBytes := make([]byte, 8)
+		compressor.storeId(idBytes, id)
+		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	}
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressedVector)
 }
@@ -170,10 +210,13 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 		compressedVectors[i] = compressor.quantizer.Encode(vector)
 	}
 	maxID := ids[0]
+	persist := !compressor.dynamicPrefill.Load()
 	for i, id := range ids {
-		idBytes := make([]byte, 8)
-		compressor.storeId(idBytes, id)
-		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
+		if persist {
+			idBytes := make([]byte, 8)
+			compressor.storeId(idBytes, id)
+			compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
+		}
 		if id > maxID {
 			maxID = id
 		}
@@ -184,9 +227,11 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 
 func (compressor *quantizedVectorsCompressor[T]) PreloadPassage(id, docID, relativeID uint64, vec []float32) {
 	compressedVector := compressor.quantizer.Encode(vec)
-	idBytes := make([]byte, 8)
-	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	if !compressor.dynamicPrefill.Load() {
+		idBytes := make([]byte, 8)
+		compressor.storeId(idBytes, id)
+		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	}
 	compressor.cache.Grow(id)
 	compressor.cache.PreloadPassage(id, docID, relativeID, compressedVector)
 }

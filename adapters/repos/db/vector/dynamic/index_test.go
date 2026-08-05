@@ -13,6 +13,7 @@ package dynamic
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -627,6 +629,201 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			assert.Equal(t, recall, recall2)
 		})
 	}
+}
+
+func TestDynamicUpgradeCodecMismatchWipe(t *testing.T) {
+	tests := []struct {
+		name            string
+		setupFlatConfig func(*flatent.UserConfig)
+	}{
+		{
+			name: "RQ8->BQ",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.RQ = flatent.RQUserConfig{
+					Enabled: true,
+					Bits:    8,
+				}
+			},
+		},
+		{
+			name: "BQ->BQ",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.BQ = flatent.CompressionUserConfig{
+					Enabled: true,
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testDynamicUpgradeWipe(t, tt.setupFlatConfig)
+		})
+	}
+}
+
+func testDynamicUpgradeWipe(t *testing.T, setupFlatConfig func(*flatent.UserConfig)) {
+	ctx := context.Background()
+	t.Setenv("ASYNC_INDEXING", "true")
+	dimensions := 20
+	vectors_size := 1_000
+	threshold := 600
+	queries_size := 10
+	k := 10
+
+	tempDir := t.TempDir()
+
+	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	distancerProvider := distancer.NewL2SquaredProvider()
+	truths := make([][]uint64, queries_size)
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancerProvider))
+	})
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	setupFlatConfig(&fuc)
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+	hnswuc.SetDefaults()
+	hnswuc.BQ = hnswent.BQConfig{Enabled: true}
+
+	config := Config{
+		AllocChecker: memwatch.NewDummyMonitor(),
+		TargetVector: "",
+		RootPath:     tempDir,
+		ID:           "vector-test_0",
+		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback)
+		},
+		DistanceProvider: distancerProvider,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		HNSWWaitForCachePrefill:      true,
+		AsyncIndexingEnabled:         true,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+	}
+	uc := ent.UserConfig{
+		Threshold: uint64(threshold),
+		Distance:  distancerProvider.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}
+
+	dummyStore := testinghelpers.NewDummyStore(t)
+	dynamic, err := New(config, uc, dummyStore)
+	require.NoError(t, err)
+
+	compressionhelpers.Concurrently(logger, uint64(threshold), func(i uint64) {
+		err := dynamic.Add(ctx, i, vectors[i])
+		require.NoError(t, err)
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	err = dynamic.Upgrade(func() {
+		wg.Done()
+	})
+	require.NoError(t, err)
+	wg.Wait()
+	require.True(t, dynamic.Upgraded())
+
+	bucketName := helpers.GetCompressedBucketName("")
+	bqCodeLen := 8 * ((dimensions + 63) / 64)
+	countRows := func() int {
+		require.NoError(t, dummyStore.CreateOrLoadBucket(ctx, bucketName,
+			lsmkv.MakeNoopBucketOptions(lsmkv.StrategyReplace)...))
+		bucket := dummyStore.Bucket(bucketName)
+		count := 0
+		cursor := bucket.Cursor()
+		for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
+			require.Len(t, v, bqCodeLen)
+			count++
+		}
+		cursor.Close()
+		return count
+	}
+
+	// the upgrade wiped flat's codes and re-persisted the HNSW half's BQ
+	// codes from its cache: every surviving row must have BQ width
+	require.Equal(t, threshold, countRows())
+	require.NoError(t, db.View(func(tx *bbolt.Tx) error {
+		require.Nil(t, tx.Bucket(dynamicBucket).Get([]byte(composerWipePendingKey)))
+		return nil
+	}))
+
+	// codes written after the upgrade are persisted directly
+	compressionhelpers.Concurrently(logger, uint64(vectors_size-threshold), func(i uint64) {
+		err := dynamic.Add(ctx, uint64(threshold)+i, vectors[threshold+int(i)])
+		require.NoError(t, err)
+	})
+	require.Equal(t, vectors_size, countRows())
+
+	recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
+	require.Greater(t, recall, float32(0.55))
+	t.Logf("recall: %f, latency %f\n", recall, latency)
+
+	// restart: prefill loads the re-persisted codes straight from the bucket
+	require.NoError(t, dynamic.Flush())
+	require.NoError(t, dynamic.Shutdown(t.Context()))
+	dummyStore.FlushMemtables(t.Context())
+
+	dynamic, err = New(config, uc, dummyStore)
+	require.NoError(t, err)
+	dynamic.PostStartup(context.Background())
+	require.True(t, dynamic.Compressed())
+	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
+	assert.Equal(t, recall, recall2)
+
+	// simulate a crash between the upgraded-flag flip and the wipe: a stale
+	// 80-byte RQ code under an 8-byte BQ reader plus the pending marker
+	require.NoError(t, dynamic.Flush())
+	require.NoError(t, dynamic.Shutdown(t.Context()))
+	dummyStore.FlushMemtables(t.Context())
+
+	require.NoError(t, dummyStore.CreateOrLoadBucket(ctx, bucketName,
+		lsmkv.MakeNoopBucketOptions(lsmkv.StrategyReplace)...))
+	staleKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(staleKey, 3)
+	require.NoError(t, dummyStore.Bucket(bucketName).Put(staleKey, make([]byte, 80)))
+	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(dynamicBucket).Put([]byte(composerWipePendingKey), []byte{1})
+	}))
+
+	dynamic, err = New(config, uc, dummyStore)
+	require.NoError(t, err)
+	dynamic.PostStartup(context.Background())
+
+	// the startup wipe removed the stale row and cleared the marker
+	stale, err := dummyStore.Bucket(bucketName).Get(staleKey)
+	require.NoError(t, err)
+	require.Empty(t, stale)
+	require.NoError(t, db.View(func(tx *bbolt.Tx) error {
+		require.Nil(t, tx.Bucket(dynamicBucket).Get([]byte(composerWipePendingKey)))
+		return nil
+	}))
+
+	recall3, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
+	require.Greater(t, recall3, float32(0.55))
+	require.NoError(t, dynamic.Shutdown(t.Context()))
 }
 
 func TestDynamicIndexUnderlyingIndexDetection(t *testing.T) {

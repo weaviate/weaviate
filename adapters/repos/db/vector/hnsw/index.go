@@ -181,6 +181,7 @@ type hnsw struct {
 
 	disableSnapshots  bool
 	snapshotOnStartup bool
+	dynamicPrefill    atomic.Bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig

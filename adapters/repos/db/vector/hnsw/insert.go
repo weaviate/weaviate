@@ -130,6 +130,9 @@ func (h *hnsw) checkAndCompress() error {
 			if err == nil {
 				h.Lock()
 				defer h.Unlock()
+				if h.dynamicPrefill.Load() {
+					h.compressor.SetDynamicPrefill(true)
+				}
 				h.compressed.Store(true)
 				if h.cache != nil {
 

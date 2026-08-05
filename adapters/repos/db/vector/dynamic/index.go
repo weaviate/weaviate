@@ -43,9 +43,10 @@ import (
 )
 
 const (
-	composerUpgradedKey = "upgraded"
-	batchSize           = 500
-	StateDBFileName     = "index.db"
+	composerUpgradedKey    = "upgraded"
+	composerWipePendingKey = "compressedWipePending"
+	batchSize              = 500
+	StateDBFileName        = "index.db"
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -183,6 +184,16 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	if upgraded {
 		index.upgraded.Store(true)
+		if pending, err := index.readWipePending(); err != nil {
+			return nil, errors.Wrap(err, "read compressed codes wipe state")
+		} else if pending {
+			if err := index.wipeCompressedBucketKeys(); err != nil {
+				return nil, errors.Wrap(err, "wipe stale compressed codes")
+			}
+			if err := index.clearWipePending(); err != nil {
+				return nil, errors.Wrap(err, "clear compressed codes wipe state")
+			}
+		}
 		hnsw, err := hnsw.New(
 			hnsw.Config{
 				Logger:                       index.logger,
@@ -240,12 +251,83 @@ func (dynamic *dynamic) dbKey() []byte {
 	return key
 }
 
+func (dynamic *dynamic) wipePendingKey() []byte {
+	if dynamic.targetVector != "" {
+		return []byte(composerWipePendingKey + "_" + dynamic.targetVector)
+	}
+	return []byte(composerWipePendingKey)
+}
+
 func (dynamic *dynamic) getBucketName() string {
 	if dynamic.targetVector != "" {
 		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, dynamic.targetVector)
 	}
 
 	return helpers.VectorsBucketLSM
+}
+
+func (dynamic *dynamic) wipeCompressedBucketKeys() error {
+	bucketName := dynamic.getCompressedBucketName()
+	if err := dynamic.store.CreateOrLoadBucket(dynamic.ctx, bucketName,
+		dynamic.MakeBucketOptions(lsmkv.StrategyReplace)...); err != nil {
+		return errors.Wrap(err, "load compressed vectors bucket")
+	}
+	bucket := dynamic.store.Bucket(bucketName)
+
+	var next []byte
+	keys := make([][]byte, 0, batchSize)
+	for {
+		if err := dynamic.ctx.Err(); err != nil {
+			return err
+		}
+
+		keys = keys[:0]
+		cursor := bucket.Cursor()
+		var k []byte
+		if next == nil {
+			k, _ = cursor.First()
+		} else {
+			k, _ = cursor.Seek(next)
+		}
+		for k != nil && len(keys) < batchSize {
+			keys = append(keys, append([]byte(nil), k...))
+			k, _ = cursor.Next()
+		}
+		next = nil
+		if k != nil {
+			next = append([]byte(nil), k...)
+		}
+		cursor.Close()
+
+		for _, key := range keys {
+			if err := bucket.Delete(key); err != nil {
+				return errors.Wrap(err, "delete compressed code")
+			}
+		}
+		if next == nil {
+			return nil
+		}
+	}
+}
+
+func (dynamic *dynamic) readWipePending() (bool, error) {
+	var pending bool
+	err := dynamic.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		v := b.Get(dynamic.wipePendingKey())
+		pending = len(v) > 0 && v[0] != 0
+		return nil
+	})
+	return pending, err
+}
+
+func (dynamic *dynamic) clearWipePending() error {
+	return dynamic.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(dynamicBucket).Delete(dynamic.wipePendingKey())
+	})
 }
 
 func (dynamic *dynamic) init(cfg *Config) (bool, error) {
@@ -593,6 +675,15 @@ func (dynamic *dynamic) doUpgrade() error {
 		return err
 	}
 
+	// The flat index quantized vectors should be removed but share the same
+	// bucket name, this is achieved via disabling writing the new quantized vectors to the
+	// cache until it is safe to do so. Any cache misses will be recovered from
+	// uncompressed vectors.
+	flatQuantized := dynamic.uc.FlatUC.BQ.Enabled || dynamic.uc.FlatUC.RQ.Enabled
+	if flatQuantized {
+		index.SetDynamicPrefill(true)
+	}
+
 	err = dynamic.copyToVectorIndex(index)
 	if err != nil {
 		dynamic.RUnlock()
@@ -619,7 +710,13 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		return b.Put(dynamic.dbKey(), []byte{1})
+		if err := b.Put(dynamic.dbKey(), []byte{1}); err != nil {
+			return err
+		}
+		if flatQuantized {
+			return b.Put(dynamic.wipePendingKey(), []byte{1})
+		}
+		return nil
 	})
 	if err != nil {
 		return errors.Wrap(err, "update dynamic")
@@ -639,23 +736,14 @@ func (dynamic *dynamic) doUpgrade() error {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	// Due to the potential for a different quantizer using a different endianness
-	// we remove the bucket here if needed
-	removeCompressedBucket := false
-	if dynamic.uc.FlatUC.BQ.Enabled || dynamic.uc.FlatUC.RQ.Enabled {
-		if !dynamic.uc.HnswUC.BQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
-			removeCompressedBucket = true
-		}
-	}
-
-	if removeCompressedBucket {
-		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
-		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
-		if err != nil {
+	if flatQuantized {
+		wipeErr := dynamic.wipeCompressedBucketKeys()
+		index.SetDynamicPrefill(false)
+		if wipeErr != nil {
+			errs = append(errs, wipeErr)
+		} else if err := index.PersistCache(dynamic.ctx); err != nil {
 			errs = append(errs, err)
-		}
-		err = os.RemoveAll(bDir)
-		if err != nil {
+		} else if err := dynamic.clearWipePending(); err != nil {
 			errs = append(errs, err)
 		}
 	}

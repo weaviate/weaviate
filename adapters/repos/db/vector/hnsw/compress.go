@@ -22,6 +22,25 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// Used by dynamic index to compress without writing to disk
+func (h *hnsw) SetDynamicPrefill(enabled bool) {
+	h.dynamicPrefill.Store(enabled)
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+	if h.compressor != nil {
+		h.compressor.SetDynamicPrefill(enabled)
+	}
+}
+
+func (h *hnsw) PersistCache(ctx context.Context) error {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+	if h.compressor == nil {
+		return nil
+	}
+	return h.compressor.PersistCache(ctx)
+}
+
 func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.RQ.Enabled {
 		return nil
@@ -129,6 +148,9 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.compressActionLock.Unlock()
 		h.checkAndCompress()
 		return nil
+	}
+	if h.dynamicPrefill.Load() {
+		h.compressor.SetDynamicPrefill(true)
 	}
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
