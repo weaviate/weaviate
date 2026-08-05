@@ -865,6 +865,9 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 		"property":    propertyName,
 	}
 
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reindexRollbackTimeout)
+	defer cancel()
+
 	tasks, err := h.tasks.ListDistributedTasks(ctx)
 	if err != nil {
 		h.appState.Logger.WithFields(fields).Errorf(
