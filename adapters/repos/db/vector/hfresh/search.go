@@ -169,6 +169,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	// One bucket view shared by all workers avoids a lock acquisition per
 	// candidate; pooled buffers avoid allocating per fetched vector.
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	view := h.objectsBucketView()
 	defer view.ReleaseView()
 

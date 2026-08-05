@@ -48,6 +48,9 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 	// One bucket view shared by all workers avoids a lock acquisition per
 	// candidate; pooled buffers avoid allocating per fetched vector (see
 	// fetchNormalizedVector).
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	view := h.objectsBucketView()
 	defer view.ReleaseView()
 
