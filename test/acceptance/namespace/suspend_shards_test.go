@@ -76,21 +76,44 @@ func requireShardsEventually(t *testing.T, qualifiedClass string, want ...string
 	}, 30*time.Second, 200*time.Millisecond, "shard set never settled on %v", want)
 }
 
+// presentShard names a shard that must stay listed while an absence is
+// asserted. A namespace's home node pins every one of its shards, so any shard
+// of any class on that node answers for the node that would have hosted the
+// absent one.
+type presentShard struct {
+	qualifiedClass string
+	name           string
+}
+
 // requireShardAbsent holds for a window asserting the shard never appears. A
 // one-shot check would pass simply by running before the materialization it is
 // meant to rule out.
 //
-// The two counters are what stop it passing on an absence nobody established:
-// require.Never returns true on its own deadline even if no check finished, and
-// an unreachable node is reported as a node with no shards and no error.
-func requireShardAbsent(t *testing.T, qualifiedClass, shardName string) {
+// The three counters are what stop it passing on an absence nobody established.
+// require.Never returns true on its own deadline even if no check finished. An
+// unreachable node is reported as a node with no shards and no error, so every
+// check has to see live present as well: without it, an absent shard and an
+// absent host are the same answer.
+func requireShardAbsent(t *testing.T, qualifiedClass, shardName string, live presentShard) {
 	t.Helper()
 
-	var listed, failed atomic.Int64
+	var listed, failed, unproven atomic.Int64
 	require.Never(t, func() bool {
 		got, err := shardsForClass(t, qualifiedClass)
 		if err != nil {
 			failed.Add(1)
+			return false
+		}
+		alive := got
+		if live.qualifiedClass != qualifiedClass {
+			alive, err = shardsForClass(t, live.qualifiedClass)
+			if err != nil {
+				failed.Add(1)
+				return false
+			}
+		}
+		if !slices.Contains(alive, live.name) {
+			unproven.Add(1)
 			return false
 		}
 		listed.Add(1)
@@ -98,6 +121,8 @@ func requireShardAbsent(t *testing.T, qualifiedClass, shardName string) {
 	}, 5*time.Second, 250*time.Millisecond, "shard %q must not be materialized", shardName)
 
 	require.Zero(t, failed.Load(), "listing shards for %q failed", qualifiedClass)
+	require.Zero(t, unproven.Load(), "%q stopped being listed, so the absence of %q proves nothing",
+		live.name, shardName)
 	require.Positive(t, listed.Load(), "no shard listing finished for %q", qualifiedClass)
 }
 
@@ -149,7 +174,7 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 		}, adminKey)
 
 		requireTenantEventually(t, qualified, "added", models.TenantActivityStatusHOT)
-		requireShardAbsent(t, qualified, "added")
+		requireShardAbsent(t, qualified, "added", presentShard{qualified, "warm"})
 	})
 
 	t.Run("activating a COLD tenant materializes no shard", func(t *testing.T) {
@@ -158,7 +183,7 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 		}, adminKey)
 
 		requireTenantEventually(t, qualified, "chilled", models.TenantActivityStatusHOT)
-		requireShardAbsent(t, qualified, "chilled")
+		requireShardAbsent(t, qualified, "chilled", presentShard{qualified, "warm"})
 	})
 
 	// The shard that was already open when the suspend landed stays open: the
@@ -296,12 +321,13 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 			require.NoError(t, sharedCompose.StopNode(ctx, restartNodeIndex, tc.timeout))
 			require.NoError(t, sharedCompose.StartNode(ctx, restartNodeIndex))
 
-			// A node that is down reports no shards and no error, so this is also
-			// what rules out "absent because nobody answered" below.
+			// The active namespace's shard coming back is what says the node is
+			// answering again; requireShardAbsent keeps checking it below.
 			requireShardsEventually(t, keepQualified, keepShards...)
 
-			requireShardAbsent(t, dropSTQualified, dropSTShards[0])
-			requireShardAbsent(t, dropMTQualified, tenant)
+			live := presentShard{keepQualified, keepShards[0]}
+			requireShardAbsent(t, dropSTQualified, dropSTShards[0], live)
+			requireShardAbsent(t, dropMTQualified, tenant, live)
 		})
 	}
 
@@ -321,8 +347,9 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	t.Run("resuming alone reopens no shards", func(t *testing.T) {
 		helper.ResumeNamespace(t, dropNS, adminKey)
 
-		requireShardAbsent(t, dropSTQualified, dropSTShards[0])
-		requireShardAbsent(t, dropMTQualified, tenant)
+		live := presentShard{keepQualified, keepShards[0]}
+		requireShardAbsent(t, dropSTQualified, dropSTShards[0], live)
+		requireShardAbsent(t, dropMTQualified, tenant, live)
 	})
 
 	t.Run("a write reopens the shard with its data intact", func(t *testing.T) {
