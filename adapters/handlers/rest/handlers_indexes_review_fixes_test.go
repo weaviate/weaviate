@@ -23,6 +23,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -168,9 +169,11 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 	tests := []struct {
 		name                string
 		svc                 *scriptedRollbackService
+		expectedListCalls   int
 		expectedCancelCalls int
 		expectedLevel       logrus.Level
 		expectedMessage     string
+		expectedAudit       string
 	}{
 		{
 			name: "the listing fails, so the task to cancel is never identified",
@@ -178,9 +181,11 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 				tasks:   liveTask,
 				listErr: errors.New("raft: not leader"),
 			},
+			expectedListCalls:   reindexRollbackAttempts,
 			expectedCancelCalls: 0,
 			expectedLevel:       logrus.ErrorLevel,
-			expectedMessage:     "rollback: cannot list tasks to find the one to cancel",
+			expectedMessage:     "rollback: could not cancel the task in",
+			expectedAudit:       "reindex_task_rollback_failed",
 		},
 		{
 			name: "the cancel itself fails",
@@ -188,23 +193,29 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 				tasks:     liveTask,
 				cancelErr: errors.New("raft: timeout"),
 			},
-			expectedCancelCalls: 1,
+			expectedListCalls:   reindexRollbackAttempts,
+			expectedCancelCalls: reindexRollbackAttempts,
 			expectedLevel:       logrus.ErrorLevel,
-			expectedMessage:     "rollback: cancelling the task failed",
+			expectedMessage:     "rollback: could not cancel the task in",
+			expectedAudit:       "reindex_task_rollback_failed",
 		},
 		{
 			name:                "the task is no longer in the listing",
 			svc:                 &scriptedRollbackService{},
+			expectedListCalls:   1,
 			expectedCancelCalls: 0,
 			expectedLevel:       logrus.WarnLevel,
 			expectedMessage:     "rollback: the task was already gone",
+			expectedAudit:       "reindex_task_rolled_back",
 		},
 		{
 			name:                "the task is cancelled",
 			svc:                 &scriptedRollbackService{tasks: liveTask},
+			expectedListCalls:   1,
 			expectedCancelCalls: 1,
 			expectedLevel:       logrus.InfoLevel,
 			expectedMessage:     "rollback: cancelled a reindex task that raced a backup claim",
+			expectedAudit:       "reindex_task_rolled_back",
 		},
 	}
 
@@ -221,14 +232,15 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 
 			test.svc.mu.Lock()
 			defer test.svc.mu.Unlock()
-			require.Equal(t, 1, test.svc.listCalls)
+			require.Equal(t, test.expectedListCalls, test.svc.listCalls,
+				"a failing rollback is retried; a settled one is not")
 			require.Equal(t, test.expectedCancelCalls, test.svc.cancelCalls)
 
 			entries := hook.AllEntries()
 			require.Len(t, entries, 1, "every outcome is worth exactly one audit line")
 			require.Contains(t, entries[0].Message, test.expectedMessage)
 			require.Equal(t, test.expectedLevel, entries[0].Level)
-			require.Equal(t, "reindex_task_rolled_back", entries[0].Data["audit_event"])
+			require.Equal(t, test.expectedAudit, entries[0].Data["audit_event"])
 			require.Equal(t, taskID, entries[0].Data["taskID"])
 			require.Equal(t, collection, entries[0].Data["collection"])
 			require.Equal(t, property, entries[0].Data["property"])
@@ -378,4 +390,39 @@ func TestAwaitOwnerCleanupGatesGivesEachOwnerItsOwnBudget(t *testing.T) {
 	require.Contains(t, degraded, slowOwner)
 	require.NotContains(t, degraded, fastOwner,
 		"a healthy owner must not be reported degraded because another owner was slow")
+}
+
+// clearThenUnreachableProber answers the pre-commit probe and fails every probe
+// after it, which is what a client disconnecting mid-submission looks like: the
+// task is committed, then nothing can be reached to confirm anything.
+type clearThenUnreachableProber struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *clearThenUnreachableProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	if p.calls == 1 {
+		return backup.NodeActivity{}, nil
+	}
+	return backup.NodeActivity{}, errors.New("dial tcp: connection refused")
+}
+
+// "Nobody answered" is not evidence that a backup claimed the slot, and a client
+// disconnect produces exactly that verdict on every node. Rolling back on it
+// destroys a cleanly committed migration at the one moment the caller is no
+// longer there to resubmit — so the task must survive an unconfirmed probe.
+func TestUpdateIndexKeepsTheTaskWhenThePostCommitProbeCannotConfirm(t *testing.T) {
+	svc := &raceTaskService{}
+	h := submissionHandlers(t, svc, &clearThenUnreachableProber{})
+
+	responder := submitReindex(h)
+
+	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
+	require.Truef(t, ok, "an unconfirmable probe must answer 503, got %T", responder)
+	require.Equal(t, 1, svc.adds, "the task must have been committed, or the post-commit probe is untested")
+	require.Empty(t, svc.cancelled,
+		"an unreachable verdict is not proof of a backup; the committed migration must not be rolled back")
 }
