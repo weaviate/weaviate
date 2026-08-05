@@ -66,7 +66,7 @@ func startActivityCluster(t *testing.T, behaviors map[string]nodeBehavior) fakeA
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(behavior.activity)
+			json.NewEncoder(w).Encode(backup.NewNodeActivityResponse(behavior.activity))
 		}))
 		if behavior.unreachable {
 			server.Close()

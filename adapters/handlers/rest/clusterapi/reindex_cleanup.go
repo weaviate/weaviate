@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
 
 // ReindexCleanupProber answers whether this node has seen a cancel for the
@@ -31,8 +32,11 @@ type ReindexCleanupProber interface {
 }
 
 // ReindexCleanupActivity is the answer to "have you processed the cancel yet".
+// Probe is what tells the caller the answer came from a node at all; see
+// [clusterprobe.ReindexCleanupMarker].
 type ReindexCleanupActivity struct {
-	CleaningUp bool `json:"cleaningUp"`
+	Probe      string `json:"probe"`
+	CleaningUp bool   `json:"cleaningUp"`
 }
 
 type ReindexCleanup struct {
@@ -128,7 +132,10 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 				WithField("cleaning_up", cleaningUp).
 				Debug("reindex cleanup probe answered")
 		}
-		data, err := json.Marshal(ReindexCleanupActivity{CleaningUp: cleaningUp})
+		data, err := json.Marshal(ReindexCleanupActivity{
+			Probe:      clusterprobe.ReindexCleanupMarker,
+			CleaningUp: cleaningUp,
+		})
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
 			return

@@ -50,7 +50,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			prober:     &stubCleanupProber{cleaningUp: true},
 			query:      "?collection=Movies",
 			wantStatus: http.StatusOK,
-			wantBody:   `{"cleaningUp":true}`,
+			wantBody:   `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":true}`,
 			wantAsked:  "Movies",
 		},
 		{
@@ -58,7 +58,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			prober:     &stubCleanupProber{},
 			query:      "?collection=Movies",
 			wantStatus: http.StatusOK,
-			wantBody:   `{"cleaningUp":false}`,
+			wantBody:   `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":false}`,
 			wantAsked:  "Movies",
 		},
 		{

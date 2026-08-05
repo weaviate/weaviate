@@ -36,7 +36,7 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 			name:       "idle probe",
 			probe:      backup.NewNodeActivityProbe(nil),
 			wantStatus: http.StatusOK,
-			wantBody:   `{"busy":false}`,
+			wantBody:   `{"probe":"weaviate/backup-node-activity","busy":false}`,
 		},
 		{
 			name:       "probe not wired",

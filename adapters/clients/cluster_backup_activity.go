@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -35,10 +36,14 @@ func NewClusterBackupActivity(client *http.Client, resolver nodeResolver) *Clust
 }
 
 func (c *ClusterBackupActivity) NodeActivity(ctx context.Context, nodeName string) (backup.NodeActivity, error) {
-	var activity backup.NodeActivity
+	var res backup.NodeActivityResponse
 	if err := c.getJSON(ctx, nodeName, pathBackupNodeActivity, nil,
-		ErrNodeActivityUnsupported, "node activity", &activity); err != nil {
+		ErrNodeActivityUnsupported, "node activity", &res); err != nil {
 		return backup.NodeActivity{}, err
+	}
+	activity, err := res.Activity()
+	if err != nil {
+		return backup.NodeActivity{}, fmt.Errorf("node activity: %w", err)
 	}
 	return activity, nil
 }

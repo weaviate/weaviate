@@ -37,13 +37,13 @@ func TestClusterReindexCleanup(t *testing.T) {
 		{
 			name:       "node still confirming the cancel",
 			statusCode: http.StatusOK,
-			body:       `{"cleaningUp":true}`,
+			body:       `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":true}`,
 			want:       true,
 		},
 		{
 			name:       "node has nothing to confirm",
 			statusCode: http.StatusOK,
-			body:       `{"cleaningUp":false}`,
+			body:       `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":false}`,
 		},
 		{
 			name:      "older build does not serve the route",
