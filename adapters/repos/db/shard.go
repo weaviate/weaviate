@@ -69,14 +69,28 @@ var (
 	errTeardownFailed     = errors.New("previous shutdown attempt failed mid-teardown")
 )
 
+// shardWriter is the object-mutation and status surface of a shard. Callbacks
+// take this rather than ShardLike so they cannot reach the shard's locks,
+// teardown or reference counting.
+type shardWriter interface {
+	PutObject(context.Context, *storobj.Object) error
+	PutObjectBatch(context.Context, []*storobj.Object) []error
+	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
+	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
+	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
+	MergeObject(ctx context.Context, object objects.MergeDocument) error
+	UpdateStatus(status, reason string) error
+}
+
 type ShardLike interface {
+	shardWriter
+
 	Index() *Index                                                                                 // Get the parent index
 	Name() string                                                                                  // Get the shard name
 	Store() *lsmkv.Store                                                                           // Get the underlying store
 	NotifyReady()                                                                                  // Set shard status to ready
 	GetStatus() storagestate.Status                                                                // Return the shard status
 	GetStatusReason() string                                                                       // Return the reason for the current status
-	UpdateStatus(status, reason string) error                                                      // Set shard status
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
 
@@ -85,8 +99,6 @@ type ShardLike interface {
 	ObjectCountAsync(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
-	PutObject(context.Context, *storobj.Object) error
-	PutObjectBatch(context.Context, []*storobj.Object) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
@@ -95,9 +107,6 @@ type ShardLike interface {
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	DropVectorIndex(ctx context.Context, targetVector string) error
-	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
-	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
-	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error)
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
@@ -123,7 +132,6 @@ type ShardLike interface {
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	HashTreeRoot() (root hashtree.Digest, ok bool)
-	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
 	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
