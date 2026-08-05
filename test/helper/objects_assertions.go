@@ -182,6 +182,17 @@ func TenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) (*m
 	return getResp.Payload, nil
 }
 
+func TenantObjectCL(t *testing.T, class string, id strfmt.UUID, tenant string, cl types.ConsistencyLevel) (*models.Object, error) {
+	cls := string(cl)
+	req := objects.NewObjectsClassGetParams().
+		WithClassName(class).WithID(id).WithTenant(&tenant).WithConsistencyLevel(&cls)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
 func TenantObjectWithInclude(t *testing.T, class string, id strfmt.UUID, tenant string, includes string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().
 		WithClassName(class).WithID(id).WithTenant(&tenant).WithInclude(&includes)
