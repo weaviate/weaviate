@@ -22,13 +22,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 )
 
-// ReindexCleanupProber answers whether this node is still tearing down reindex
-// sidecars for a collection.
+// ReindexCleanupProber answers whether this node has seen a cancel for the
+// collection or is still tearing down its reindex sidecars. This is the
+// confirmation signal a cancelling node waits on; it blocks nothing itself,
+// unlike the cleanup gate the backup and restore admission checks read.
 type ReindexCleanupProber interface {
 	AnyCleanupInProgressForCollection(collection string) bool
 }
 
-// ReindexCleanupActivity is the answer to "have you raised your gate yet".
+// ReindexCleanupActivity is the answer to "have you processed the cancel yet".
 type ReindexCleanupActivity struct {
 	CleaningUp bool `json:"cleaningUp"`
 }
@@ -94,6 +96,11 @@ func isNilProber(prober ReindexCleanupProber) bool {
 func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
+
+		if r.Method != http.MethodGet {
+			http.Error(w, "/reindex/cleanup-activity only serves GET", http.StatusMethodNotAllowed)
+			return
+		}
 
 		collection := r.URL.Query().Get("collection")
 		if collection == "" {

@@ -80,8 +80,9 @@ func (p *NodeActivityProbe) Activity() NodeActivity {
 	}
 
 	for _, s := range slots {
-		// A non-empty ID is the inverse of renew() having succeeded; Status can't
-		// stand in since a live op sits in any of Transferring/Finalizing/Cancelling.
+		// renew() writes the ID when it takes the slot and reset() clears it when
+		// the op ends, so a non-empty ID is exactly "held". Status can't stand in
+		// since a live op sits in any of Transferring/Finalizing/Cancelling.
 		if id := s.stat.get().ID; id != "" {
 			return NodeActivity{Busy: true, Kind: s.kind, ID: id}
 		}

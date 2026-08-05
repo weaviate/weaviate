@@ -33,8 +33,8 @@ func NewClusterReindexCleanup(client *http.Client, resolver nodeResolver) *Clust
 	return &ClusterReindexCleanup{nodeProbe{client: client, resolver: resolver}}
 }
 
-// CleanupInProgress asks one node whether it is still tearing down reindex
-// sidecars for the collection.
+// CleanupInProgress asks one node whether it has seen a cancel for the
+// collection or is still tearing down its reindex sidecars.
 func (c *ClusterReindexCleanup) CleanupInProgress(ctx context.Context, nodeName, collection string) (bool, error) {
 	var activity struct {
 		CleaningUp bool `json:"cleaningUp"`
