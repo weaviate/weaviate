@@ -614,6 +614,34 @@ func TestReleaseCleanupGateOnWorkerExitHoldsUntilTheWorkerIsGone(t *testing.T) {
 		"the gate must reopen once the worker exits")
 }
 
+// A worker that never exits must not hold the gate forever: the restore gate
+// this feeds is node-wide, so one wedged worker would refuse every restore on
+// the node until the process is restarted.
+func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "task-wedged", Version: 1}
+	p := &ReindexProvider{
+		cleanupInProgress: make(map[reindexCleanupKey]int),
+		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+			// Never closed: this is the worker that does not come back.
+			desc: {doneCh: make(chan struct{})},
+		},
+		// Never cancelled, so the cap is the only way out.
+		serverCtx: context.Background(),
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	release := p.MarkCleanupInProgress(&ReindexTaskPayload{
+		Collection:  "Movies",
+		UnitToShard: map[string]string{"u1": "shard1"},
+	})
+	p.releaseCleanupGateOnWorkerExit(desc, release, logger, 50*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		return !p.AnyCleanupInProgressForCollection("Movies")
+	}, 5*time.Second, 5*time.Millisecond,
+		"the gate must reopen at the cap rather than wait for a process restart")
+}
+
 // And the raise moved past the drain only, not past the applicability checks.
 func TestAutoCleanupAfterTerminalSkipsTheGateWhenNothingToClean(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-2", Version: 1}
