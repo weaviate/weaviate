@@ -112,7 +112,7 @@ func (e *executor) AddReplicaToShard(class string, shard string, targetNode stri
 	} else if !slices.Contains(replicas, targetNode) {
 		return fmt.Errorf("replica %s does not exists for collection %s shard %s", targetNode, class, shard)
 	}
-	return e.migrator.LoadShard(ctx, class, shard)
+	return e.migrator.LoadShardForReplication(ctx, class, shard)
 }
 
 func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
@@ -131,7 +131,7 @@ func (e *executor) ReconcileAsyncReplicationForShard(class string, shard string)
 
 func (e *executor) LoadShard(class string, shard string) {
 	ctx := context.Background()
-	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {
+	if err := e.migrator.LoadShardForReplication(ctx, class, shard); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "load_shard",
 			"class":  class,

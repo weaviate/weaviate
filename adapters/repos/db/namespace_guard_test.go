@@ -579,13 +579,15 @@ func TestGuardLoadPath(t *testing.T) {
 	})
 }
 
-// A movement reaches its target shard twice — once to load it, once to replay the
-// change log onto it — and a suspend or resume must fail neither, while a deleting
-// namespace refuses both. What these rows do not say is that the movement then
-// finishes: its source shard is read through the request path, which still refuses.
+// A movement reaches its target shard three times — to load it, to replay the
+// change log onto it, and once more from the apply that adds the replica to the
+// sharding state — and a suspend or resume must fail none of them, while a
+// deleting namespace refuses all three. What these rows do not say is that the
+// movement then finishes: its source shard is read through the request path,
+// which still refuses.
 //
 // Each row drives the entry point itself rather than the guard adapter, so
-// routing either one back through the request path turns it red.
+// routing any of them back through the request path turns it red.
 func TestReplicationExempt(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
@@ -643,9 +645,21 @@ func TestReplicationExempt(t *testing.T) {
 			}
 			require.NoError(t, err)
 		})
+
+		t.Run("at the replica-add apply, "+tc.name, func(t *testing.T) {
+			db, idx := dbForReopen(t, class, existerWithState(t, tc.state))
+			seedShard(t, idx, tc.wantErr == nil, false)
+
+			err := NewMigrator(db, idx.logger, "node1").LoadShardForReplication(ctx, class, "t1")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
 	}
 
-	// Both fail-closed arms of the chokepoint, at both entry points: a namespaced
+	// Both fail-closed arms of the chokepoint, at every entry point: a namespaced
 	// class with no lookup at all, and one whose namespace row is absent.
 	refusals := []struct {
 		name    string
@@ -681,6 +695,14 @@ func TestReplicationExempt(t *testing.T) {
 			seedShard(t, idx, false, false)
 
 			require.ErrorIs(t, idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay), tc.wantErr)
+		})
+
+		t.Run(tc.name+" is refused at the replica-add apply", func(t *testing.T) {
+			db, idx := dbForReopen(t, class, tc.exister(t))
+			seedShard(t, idx, false, false)
+
+			err := NewMigrator(db, idx.logger, "node1").LoadShardForReplication(ctx, class, "t1")
+			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 
