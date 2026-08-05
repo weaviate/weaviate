@@ -343,10 +343,31 @@ func (m *Manager) startCancelDrainerWithLock() {
 					return
 				default:
 				}
-				m.runCancelObserver(task)
+				m.runCancelObserverSafely(task)
 			}
 		}
 	}, m.dispatchLogger())
+}
+
+// runCancelObserverSafely keeps one namespace's panicking observer from taking
+// the drainer down for all of them.
+//
+// GoWrapper's recover sits outside the loop, so a panic there ends the
+// goroutine for good — and cancelDrainerRunning stays true, so nothing ever
+// restarts it and re-registering an observer does not help. Cancel observation
+// then stops for EVERY namespace until the process restarts, from one
+// namespace's bug. The overflow dispatch already recovers per event; this makes
+// the primary path match.
+func (m *Manager) runCancelObserverSafely(task *Task) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.dispatchLogger().
+				WithField("namespace", task.Namespace).
+				WithField("task_id", task.ID).
+				Errorf("distributedtask: cancel observer panicked; dropping this event and keeping the drainer alive: %v", r)
+		}
+	}()
+	m.runCancelObserver(task)
 }
 
 // dispatchLogger keeps the drainer usable from fixtures that build a Manager

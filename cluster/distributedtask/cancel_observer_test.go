@@ -389,3 +389,56 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 		500*time.Millisecond, 10*time.Millisecond,
 		"no drainer may deliver a queued cancel after Close")
 }
+
+// A panicking observer must not end cancel observation for everyone.
+//
+// GoWrapper's recover is outside the drainer loop, so a panic there exits the
+// goroutine while cancelDrainerRunning stays true — nothing restarts it, and
+// re-registering does not help. One namespace's bug then silences cancels for
+// every namespace until the process restarts.
+func TestCancelDrainerSurvivesAPanickingObserver(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	defer h.manager.Close()
+
+	var rec observerRecorder
+	panicked := make(chan struct{}, 1)
+	h.manager.RegisterCancelObserver(observerNamespace, func(task *Task) {
+		if task.Version == observerVersion {
+			select {
+			case panicked <- struct{}{}:
+			default:
+			}
+			panic("observer blew up")
+		}
+		rec.record(task)
+	})
+
+	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+
+	select {
+	case <-panicked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the panicking observer was never reached")
+	}
+
+	// A second, later cancel: the drainer has to still be there to deliver it.
+	const nextVersion = observerVersion + 1
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             observerNamespace,
+		Id:                    "2",
+		Payload:               []byte(`{"collection":"Movies"}`),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), nextVersion))
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace:             observerNamespace,
+		Id:                    "2",
+		Version:               nextVersion,
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	require.Eventually(t, func() bool { return rec.count() == 1 },
+		10*time.Second, 10*time.Millisecond,
+		"the drainer died with the panicking observer, so no later cancel is ever observed again")
+}
