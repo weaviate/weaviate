@@ -178,6 +178,7 @@ func (db *DB) init(ctx context.Context) error {
 				HaltForTransferTimeout:                       db.config.HaltForTransferTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
 				SkipWriteClassNameOnDisk:                     db.config.LSMSkipWriteClassNameEnabled,
+				RuntimeReindexDisabled:                       db.config.RuntimeReindexDisabled,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationConfig:                       asyncConfig,
 				AsyncReplicationScheduler:                    db.asyncReplicationScheduler,

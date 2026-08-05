@@ -72,6 +72,7 @@ func TestRestartDuringSwap(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviate().
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		// 1s tick gives us up to ~1s after FINISHED is reported in RAFT

@@ -1168,6 +1168,11 @@ type IndexConfig struct {
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 
+	// RuntimeReindexDisabled is copied from [Config.RuntimeReindexDisabled]
+	// when the index is built. Kept on the index (rather than read through
+	// i.db) so the backup gate can answer without a back-reference.
+	RuntimeReindexDisabled bool
+
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
 	HNSWSnapshotIntervalSeconds                  int

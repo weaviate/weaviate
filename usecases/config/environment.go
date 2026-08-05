@@ -1405,6 +1405,8 @@ func FromEnv(config *Config) error {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
+	config.RuntimeReindexEnabled = entcfg.Enabled(os.Getenv("RUNTIME_REINDEX_ENABLED"))
+
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")

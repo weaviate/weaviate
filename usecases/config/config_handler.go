@@ -245,6 +245,13 @@ type Config struct {
 
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 
+	// RuntimeReindexEnabled is the master switch for runtime reindex
+	// (RUNTIME_REINDEX_ENABLED, off by default). With it off the reindex
+	// REST endpoints reject every request, the distributed-task reindex
+	// namespace is not registered, no reindex state is discovered or
+	// deleted at startup, and the backup path performs no reindex checks.
+	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
+
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
 	// interaction with a tenant leads to a log line. However, this may
 	// temporarily be desired, e.g. for analysis or debugging purposes. In this

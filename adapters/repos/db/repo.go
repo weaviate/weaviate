@@ -459,6 +459,13 @@ type Config struct {
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
+	// RuntimeReindexDisabled mirrors an off RUNTIME_REINDEX_ENABLED. It is
+	// stated negatively so the zero value keeps the pre-flag behavior: the
+	// only production caller (configure_api) sets it explicitly, while the
+	// many test fixtures that build a Config literal continue to exercise
+	// runtime reindex without having to opt in.
+	RuntimeReindexDisabled bool
+
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
 	HNSWSnapshotIntervalSeconds                  int

@@ -119,9 +119,18 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
 // replaced only saw the local node and lagged DTM's actual state.
 //
+// Returns early with no error when runtime reindex is disabled, so the
+// backup path stays free of reindex calls.
+//
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
+	if i.Config.RuntimeReindexDisabled {
+		// Runtime reindex is off cluster-wide, so no task can be in
+		// flight. Return before touching the lookup so the backup path
+		// makes no reindex call at all.
+		return nil
+	}
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.

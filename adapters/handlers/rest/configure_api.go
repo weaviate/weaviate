@@ -480,6 +480,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		LSMSkipWriteClassNameEnabled:        appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 		NamespacesEnabled:                   appState.ServerConfig.Config.Namespaces.Enabled,
+		RuntimeReindexDisabled:              !appState.ServerConfig.Config.RuntimeReindexEnabled,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -691,6 +692,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := classDirMover(class); err != nil {
 			return err
 		}
+		if !appState.ServerConfig.Config.RuntimeReindexEnabled {
+			// The audit quarantines tracker dirs, so it must not run
+			// while runtime reindex is off.
+			return nil
+		}
 		// Background ctx: invoked from the RAFT FSM apply path,
 		// which does not propagate an audit-scoped ctx.
 		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
@@ -799,14 +805,23 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// (written by ReindexProvider.persistRecoveryRecord before reindex
 	// starts), plus the existing started.mig / tidied.mig sentinels to
 	// decide which migrations are still in flight.
-	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
-		appState.ServerConfig.Config.Persistence.DataPath,
-		appState.Logger,
-		appState.SchemaManager,
-	)
-	if recoveryErr != nil {
-		appState.Logger.WithError(recoveryErr).
-			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
+	//
+	// With RUNTIME_REINDEX_ENABLED off the scan is skipped entirely, so a
+	// node that crashed mid-migration resumes nothing. The on-disk state
+	// is only read here, never written, so skipping leaves it intact for
+	// a later restart with the flag on.
+	var recoveredReindexes []db.RecoveredReindex
+	if appState.ServerConfig.Config.RuntimeReindexEnabled {
+		var recoveryErr error
+		recoveredReindexes, recoveryErr = db.DiscoverInFlightReindexTasks(
+			appState.ServerConfig.Config.Persistence.DataPath,
+			appState.Logger,
+			appState.SchemaManager,
+		)
+		if recoveryErr != nil {
+			appState.Logger.WithError(recoveryErr).
+				Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
+		}
 	}
 	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
 	repo.SetReindexer(reindexer)
@@ -994,6 +1009,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 
+		if !appState.ServerConfig.Config.RuntimeReindexEnabled {
+			// Everything below this point is reindex-only: the orphan
+			// audit (which deletes state) and the backup-gate lookups.
+			// With the flag off none of it may run.
+			return
+		}
+
 		// Post-bootstrap orphan-reindex audit. Must run AFTER
 		// Scheduler.Start so the lookup observes the steady-state
 		// view of RAFT-known tasks.
@@ -1148,8 +1170,13 @@ func initReindexAndDistributedTasks(
 	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
 	// to load already-loaded ingest buckets.
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
-	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+	// Registering the namespace is what makes the scheduler run reindex
+	// tasks. Leaving it out with the flag off means a task still recorded
+	// in RAFT from an earlier flag-on run is not picked up on this node.
+	if appState.ServerConfig.Config.RuntimeReindexEnabled {
+		providers[db.ReindexNamespace] = reindexProvider
+	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,

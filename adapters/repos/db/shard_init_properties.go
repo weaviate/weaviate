@@ -169,6 +169,13 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
+	if s.index.Config.RuntimeReindexDisabled {
+		// With runtime reindex off, any migration dir on disk is left
+		// over from a period when it was on. Deleting it here would
+		// destroy state the operator may still need after re-enabling,
+		// so leave the directory untouched.
+		return
+	}
 	cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
 }
 

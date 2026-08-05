@@ -202,6 +202,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			HaltForTransferTimeout:                       m.db.config.HaltForTransferTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
+			RuntimeReindexDisabled:                       m.db.config.RuntimeReindexDisabled,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationConfig:                       asyncConfig,
 			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
