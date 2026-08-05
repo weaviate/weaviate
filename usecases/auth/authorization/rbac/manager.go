@@ -552,7 +552,7 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	// has to be refused while the target's state is still untouched, otherwise a
 	// rejected restore wipes the target's roles and then returns an error.
 	if stripNamespaces {
-		stripped, err := stripRBACSnapshot(snapshot)
+		stripped, err := stripRBACSnapshot(snapshot, StaticAPIKeyUsers(m.authNconf))
 		if err != nil {
 			return err
 		}

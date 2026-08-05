@@ -163,9 +163,11 @@ type dynUserSnapshotter interface {
 	Restore(snapshot []byte, stripNamespaces bool) error
 }
 
-// rbacSnapshotter is the backup-side contract for the RBAC FSM. The variadic
+// RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
 // Snapshot filters to a role subset for backups; zero args is the full snapshot.
-type rbacSnapshotter interface {
+// It is exported so the wiring can hold one as a genuinely nil interface when
+// RBAC is off, rather than boxing a nil *rbac.Manager into a non-nil interface.
+type RBACSnapshotter interface {
 	Snapshot(roles ...string) ([]byte, error)
 	Restore(snapshot []byte, stripNamespaces bool) error
 }
@@ -197,7 +199,7 @@ func NewHandler(
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-	rbacSourcer rbacSnapshotter,
+	rbacSourcer RBACSnapshotter,
 	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
 	node := schema.NodeName()

@@ -36,7 +36,7 @@ type restorer struct {
 	node              string // node name
 	logger            logrus.FieldLogger
 	sourcer           Sourcer
-	rbacSourcer       rbacSnapshotter
+	rbacSourcer       RBACSnapshotter
 	dynUserSourcer    dynUserSnapshotter
 	backends          BackupBackendProvider
 	namespacesEnabled bool
@@ -50,7 +50,7 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer rbacSnapshotter, dynUserSourcer dynUserSnapshotter,
+	sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter,
 	backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
 	return &restorer{

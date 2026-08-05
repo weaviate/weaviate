@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestSnapshotAndRestore(t *testing.T) {
@@ -280,17 +281,18 @@ func equalPolicies(a, b []string) bool {
 }
 
 // TestStripRBACSnapshot covers the strip over a casbin blob: which namespaces
-// strip (only ones a role name mentions, so global OIDC identities and the
-// placeholder survive), that every column is rewritten (p[0], p[1], g[0], g[1]),
-// and the four kinds of collision that are rejected rather than left for casbin
-// to merge silently.
+// strip (only ones a role name mentions, except on db subjects, which follow
+// the configured static user list instead), that every column is rewritten
+// (p[0], p[1], g[0], g[1]), and the four kinds of collision that are rejected
+// rather than left for casbin to merge silently.
 func TestStripRBACSnapshot(t *testing.T) {
 	tests := []struct {
-		name    string
-		in      snapshot
-		wantP   [][]string
-		wantG   [][]string
-		wantErr []string // substrings; empty means the strip must succeed
+		name        string
+		in          snapshot
+		staticUsers []string // AUTHENTICATION_APIKEY_USERS on the restoring cluster
+		wantP       [][]string
+		wantG       [][]string
+		wantErr     []string // substrings; empty means the strip must succeed
 	}{
 		{
 			// The role, the resource, the subject and the role reference all lose
@@ -311,16 +313,19 @@ func TestStripRBACSnapshot(t *testing.T) {
 			},
 		},
 		{
-			// Namespaces are taken from role names only, so a namespace no role
-			// mentions is never stripped. The global OIDC "a:b" and the db subject
-			// in ns2 stay qualified, which is intended and not an error. Group
-			// subjects are global and left alone.
-			name: "a namespace no role mentions stays qualified, as do global subjects",
+			// An OIDC name may contain a ':' of its own, so an OIDC subject is
+			// stripped only when a role names its namespace. "a" is not a namespace
+			// and no role names ns2, so "oidc:a:b" and "oidc:ns2:erin" are both left
+			// as they are. "db:ns2:dave" is not a configured static user, so it is a
+			// dynamic user and strips whatever the role names say. Group subjects are
+			// global and left alone.
+			name: "an unnamed namespace survives on an OIDC subject but not on a db one",
 			in: snapshot{
 				Policy: [][]string{{"role:ns1:editor", "roles/ns1:editor", "R", "roles"}},
 				GroupingPolicy: [][]string{
 					{"oidc:ns1:carol", "role:ns1:editor"},
 					{"oidc:a:b", "role:ns1:editor"},
+					{"oidc:ns2:erin", "role:ns1:editor"},
 					{"db:ns2:dave", "role:ns1:editor"},
 					{"group:ns1:team", "role:ns1:editor"},
 				},
@@ -329,9 +334,68 @@ func TestStripRBACSnapshot(t *testing.T) {
 			wantG: [][]string{
 				{"oidc:carol", "role:editor"},
 				{"oidc:a:b", "role:editor"},
-				{"db:ns2:dave", "role:editor"},
+				{"oidc:ns2:erin", "role:editor"},
+				{"db:dave", "role:editor"},
 				{"group:ns1:team", "role:editor"},
 			},
+		},
+		{
+			// The subject's only role is a built-in, so no role name carries ns1 and
+			// the namespace set is empty. The db subject is a dynamic user and must
+			// strip anyway. A cluster with namespaces disabled refuses to start while
+			// any db grouping subject is still qualified, so leaving this row would
+			// turn a successful restore into a failure on the next boot.
+			name: "a db subject holding only a global role still strips",
+			in: snapshot{
+				Policy:         [][]string{{"role:viewer", "*", "R", "*"}},
+				GroupingPolicy: [][]string{{"db:ns1:alice", "role:viewer"}},
+			},
+			wantP: [][]string{{"role:viewer", "*", "R", "*"}},
+			wantG: [][]string{{"db:alice", "role:viewer"}},
+		},
+		{
+			// A static API key user is a global identity taken verbatim from
+			// configuration, and its name may contain a ':'. Stripping it would move
+			// the grant to the unrelated user "reporting", so it must survive whole.
+			// No role names "svc", so the namespace set cannot save this row either:
+			// only the static user list can.
+			name: "a colon-bearing static user is kept whole",
+			in: snapshot{
+				Policy:         [][]string{{"role:viewer", "*", "R", "*"}},
+				GroupingPolicy: [][]string{{"db:svc:reporting", "role:viewer"}},
+			},
+			staticUsers: []string{"svc:reporting", "reporting"},
+			wantP:       [][]string{{"role:viewer", "*", "R", "*"}},
+			wantG:       [][]string{{"db:svc:reporting", "role:viewer"}},
+		},
+		{
+			// The conv layer round-trips a colon-bearing db id verbatim and treats it
+			// as one global name, so the strip must agree with it wherever the id is
+			// a configured static user. The cluster really does have a namespace
+			// called customer1 here, named by the role, so the namespace set would
+			// strip this subject: only the static user list keeps it whole.
+			name: "a static user whose name starts with a real namespace is kept whole",
+			in: snapshot{
+				Policy:         [][]string{{"role:customer1:editor", "data/collections/customer1:Movies/shards/*/objects/*", "R", "data"}},
+				GroupingPolicy: [][]string{{"db:customer1:alice", "role:customer1:editor"}},
+			},
+			staticUsers: []string{"customer1:alice"},
+			wantP:       [][]string{{"role:editor", "data/collections/Movies/shards/*/objects/*", "R", "data"}},
+			wantG:       [][]string{{"db:customer1:alice", "role:editor"}},
+		},
+		{
+			// The same name is stripped once the restoring cluster does not configure
+			// it, because then it can only be a dynamic user, whose own name can hold
+			// no ':'. This is the rule's known limitation: a static user configured on
+			// the source but not on the target loses its qualifier.
+			name: "an unconfigured colon-bearing db subject strips",
+			in: snapshot{
+				Policy:         [][]string{{"role:ns1:editor", "data/collections/ns1:Movies/shards/*/objects/*", "R", "data"}},
+				GroupingPolicy: [][]string{{"db:customer1:alice", "role:ns1:editor"}},
+			},
+			staticUsers: []string{"someone-else"},
+			wantP:       [][]string{{"role:editor", "data/collections/Movies/shards/*/objects/*", "R", "data"}},
+			wantG:       [][]string{{"db:alice", "role:editor"}},
 		},
 		{
 			// A whole-cluster blob carries real built-in rows. They have no
@@ -387,11 +451,33 @@ func TestStripRBACSnapshot(t *testing.T) {
 			}},
 			wantErr: []string{"db:ns1:bob", "db:ns2:bob", `"db:bob"`},
 		},
+		{
+			// The target configures an operator key called alice, and nothing names
+			// her in the blob, so no comparison between two blob rows can see this.
+			// Restoring it would hand that key the namespaced user's role.
+			name: "a namespaced principal strips onto a configured static user",
+			in: snapshot{GroupingPolicy: [][]string{
+				{"db:ns1:alice", "role:ns1:editor"},
+			}},
+			staticUsers: []string{"alice"},
+			wantErr:     []string{"db:ns1:alice", `"alice"`, "static API key user"},
+		},
+		{
+			// The same static user, but the blob's subject arrived unqualified, so it
+			// is that same identity and the strip changed nothing. Rejecting this
+			// would refuse every backup that holds a grant to an operator key.
+			name: "an unqualified subject matching a static user is not a takeover",
+			in: snapshot{GroupingPolicy: [][]string{
+				{"db:alice", "role:ns1:editor"},
+			}},
+			staticUsers: []string{"alice"},
+			wantG:       [][]string{{"db:alice", "role:editor"}},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := stripRBACSnapshot(tt.in)
+			got, err := stripRBACSnapshot(tt.in, tt.staticUsers)
 			if len(tt.wantErr) > 0 {
 				require.Error(t, err)
 				for _, want := range tt.wantErr {
@@ -425,18 +511,34 @@ func TestValidateNamespaceStrip(t *testing.T) {
 	}})
 
 	t.Run("CollidingSnapshotErrors", func(t *testing.T) {
-		err := ValidateNamespaceStrip(colliding)
+		err := ValidateNamespaceStrip(colliding, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `"editor"`)
 	})
 	t.Run("CleanSnapshotPasses", func(t *testing.T) {
-		require.NoError(t, ValidateNamespaceStrip(clean))
+		require.NoError(t, ValidateNamespaceStrip(clean, nil))
 	})
 	t.Run("EmptySnapshotIsNoOp", func(t *testing.T) {
-		require.NoError(t, ValidateNamespaceStrip(nil))
+		require.NoError(t, ValidateNamespaceStrip(nil, nil))
 	})
 	t.Run("MalformedSnapshotErrors", func(t *testing.T) {
-		require.Error(t, ValidateNamespaceStrip([]byte("{")))
+		require.Error(t, ValidateNamespaceStrip([]byte("{"), nil))
+	})
+
+	// The dry run reaches the same verdict as the per-node strip only when it is
+	// given the same static user list. Here "svc:reporting" and "reporting" are
+	// two distinct global identities while it is configured, and become one name
+	// as soon as it is not.
+	t.Run("StaticUserListChangesTheVerdict", func(t *testing.T) {
+		blob := marshal(t, snapshot{GroupingPolicy: [][]string{
+			{"db:svc:reporting", "role:ns1:editor"},
+			{"db:reporting", "role:ns1:editor"},
+		}})
+		require.NoError(t, ValidateNamespaceStrip(blob, []string{"svc:reporting"}))
+
+		err := ValidateNamespaceStrip(blob, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `"db:reporting"`)
 	})
 }
 
@@ -476,6 +578,98 @@ func TestRestoreStripNamespaces(t *testing.T) {
 	}
 	assert.Contains(t, subjects, "db:alice", "stripped subject must keep its assignment")
 	assert.Contains(t, subjects, "db:wv_internal_empty", "placeholder must survive")
+}
+
+// TestRestoreStripKeepsConfiguredStaticUser checks that Restore hands the
+// cluster's own static API key users to the strip. A colon-bearing static user
+// is a global identity, so its grant must survive a stripping restore whole.
+// Pass an empty list into the strip instead and the subject becomes
+// "db:reporting", handing the grant to a different user.
+func TestRestoreStripKeepsConfiguredStaticUser(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	dst, err := setupTestManagerWithStaticUsers(t, logger, "svc:reporting")
+	require.NoError(t, err)
+
+	blob, err := json.Marshal(snapshot{
+		Policy: [][]string{{"role:ns1:editor", "data/collections/ns1:Movies/shards/*/objects/*", "R", "data"}},
+		GroupingPolicy: [][]string{
+			{"db:svc:reporting", "role:ns1:editor"},
+			{"db:ns1:alice", "role:ns1:editor"},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, dst.Restore(blob, true))
+
+	editorG, err := dst.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName("editor"))
+	require.NoError(t, err)
+	subjects := make([]string, len(editorG))
+	for i, g := range editorG {
+		subjects[i] = g[0]
+	}
+	assert.Contains(t, subjects, "db:svc:reporting", "a configured static user must survive whole")
+	assert.NotContains(t, subjects, "db:reporting", "the grant must not move to another user")
+	assert.Contains(t, subjects, "db:alice", "a dynamic user must still strip")
+}
+
+// TestRestoreStripIgnoresDisabledStaticUsers checks the strip treats a disabled
+// API key configuration as having no static users. A configuration file can
+// populate the list and disable API keys at once, and those names are never
+// checked for format, so trusting the list here would keep a namespaced dynamic
+// user qualified and make the next boot fatal.
+func TestRestoreStripIgnoresDisabledStaticUsers(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	dst, err := setupTestManagerWithAPIKey(t, logger, config.StaticAPIKey{Enabled: false, Users: []string{"ns1:alice"}})
+	require.NoError(t, err)
+
+	blob, err := json.Marshal(snapshot{
+		Policy:         [][]string{{"role:ns1:editor", "data/collections/ns1:Movies/shards/*/objects/*", "R", "data"}},
+		GroupingPolicy: [][]string{{"db:ns1:alice", "role:ns1:editor"}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, dst.Restore(blob, true))
+
+	editorG, err := dst.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName("editor"))
+	require.NoError(t, err)
+	subjects := make([]string, len(editorG))
+	for i, g := range editorG {
+		subjects[i] = g[0]
+	}
+	assert.Contains(t, subjects, "db:alice", "a disabled list must not keep a subject qualified")
+	assert.NotContains(t, subjects, "db:ns1:alice")
+}
+
+// TestStaticAPIKeyUsers covers the accessor both strip entry points read the
+// configured list through: it returns nothing while API keys are turned off.
+// The per-node Restore and the coordinator's dry run share it so they cannot
+// reach different verdicts on the same blob.
+func TestStaticAPIKeyUsers(t *testing.T) {
+	tests := []struct {
+		name string
+		in   config.StaticAPIKey
+		want []string
+	}{
+		{
+			name: "enabled with users",
+			in:   config.StaticAPIKey{Enabled: true, Users: []string{"alice", "svc:reporting"}},
+			want: []string{"alice", "svc:reporting"},
+		},
+		{
+			name: "disabled with users",
+			in:   config.StaticAPIKey{Enabled: false, Users: []string{"alice", "svc:reporting"}},
+			want: nil,
+		},
+		{
+			name: "enabled with no users",
+			in:   config.StaticAPIKey{Enabled: true},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, StaticAPIKeyUsers(config.Authentication{APIKey: tt.in}))
+		})
+	}
 }
 
 // TestRestoreStripCollisionLeavesTargetIntact checks that a colliding strip is

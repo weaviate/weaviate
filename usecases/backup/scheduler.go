@@ -64,6 +64,11 @@ type Scheduler struct {
 	// nil when RBAC is not enabled.
 	roleLister RoleLister
 	schema     schemaManger
+	// The cluster's configured static API key users, empty when API keys are off.
+	// The namespace-strip dry run needs them to tell a global static user from a
+	// namespaced dynamic one. Build it with rbac.StaticAPIKeyUsers, so this list
+	// is the same one the nodes strip with.
+	staticAPIKeyUsers []string
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -76,15 +81,17 @@ func NewScheduler(
 	backends BackupBackendProvider,
 	nodeResolver NodeResolver,
 	schema schemaManger,
+	staticAPIKeyUsers []string,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{
-		logger:     logger,
-		authorizer: authorizer,
-		backends:   backends,
-		userLister: userLister,
-		roleLister: roleLister,
-		schema:     schema,
+		logger:            logger,
+		authorizer:        authorizer,
+		backends:          backends,
+		userLister:        userLister,
+		roleLister:        roleLister,
+		schema:            schema,
+		staticAPIKeyUsers: staticAPIKeyUsers,
 		backupper: newCoordinator(
 			sourcer,
 			client,
@@ -1039,7 +1046,7 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 	// strip runs again per node at apply time and refuses the blob there too.
 	if rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
 		for _, blob := range rbacBlobs {
-			if err := rbac.ValidateNamespaceStrip(blob); err != nil {
+			if err := rbac.ValidateNamespaceStrip(blob, s.staticAPIKeyUsers); err != nil {
 				errs = append(errs, fmt.Sprintf("roles: %v", err))
 			}
 		}

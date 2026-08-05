@@ -209,7 +209,7 @@ func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBuck
 type uploader struct {
 	cfg            config.Backup
 	sourcer        Sourcer
-	rbacSourcer    rbacSnapshotter
+	rbacSourcer    RBACSnapshotter
 	dynUserSourcer dynUserSnapshotter
 	// Resolved includeUsers ids; empty → whole-cluster snapshot.
 	users []string
@@ -222,7 +222,7 @@ type uploader struct {
 	log       logrus.FieldLogger
 }
 
-func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer rbacSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{

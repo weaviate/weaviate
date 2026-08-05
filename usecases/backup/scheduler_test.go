@@ -29,8 +29,10 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -1275,6 +1277,9 @@ type fakeScheduler struct {
 	auth         authorization.Authorizer
 	nodeResolver NodeResolver
 	log          logrus.FieldLogger
+	// staticAPIKeyUsers is what the cluster configures in
+	// AUTHENTICATION_APIKEY_USERS.
+	staticAPIKeyUsers []string
 }
 
 // fakeUserLister is a static UserLister for scheduler tests.
@@ -1310,7 +1315,7 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
 	c := NewScheduler(f.auth, &f.client, &f.selector, &f.userLister, &f.roleLister, provider,
-		f.nodeResolver, &f.schema, f.log)
+		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
@@ -2065,7 +2070,7 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		setup(fs, &req)
 
 		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"ns1:reader", "ns1:writer"}, fs.backend.glMeta.Roles)
 	})
 
@@ -2080,7 +2085,7 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		setup(fs, &req)
 
 		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		assert.Nil(t, fs.backend.glMeta.Roles)
 	})
 }
@@ -2127,6 +2132,30 @@ func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 	return snap
 }
 
+// makeRbacSnapshotWithSubjects builds a real RBAC snapshot blob holding one
+// namespaced role assigned to each of the given db user ids, so the dry-run has
+// db grouping subjects to strip.
+func makeRbacSnapshotWithSubjects(t *testing.T, role string, dbUserIDs ...string) []byte {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, logger)
+	require.NoError(t, err)
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		role: {{
+			Resource: "data/collections/Movies/shards/*/objects/*",
+			Verb:     authorization.READ,
+			Domain:   authorization.DataDomain,
+		}},
+	}))
+	for _, id := range dbUserIDs {
+		require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(id, authentication.AuthTypeDb), []string{role}))
+	}
+	snap, err := m.Snapshot()
+	require.NoError(t, err)
+	return snap
+}
+
 func classDesc(t *testing.T, name string, aliases ...string) backup.ClassDescriptor {
 	t.Helper()
 	d := backup.ClassDescriptor{Name: name}
@@ -2161,6 +2190,9 @@ func TestValidateNamespaceStripping(t *testing.T) {
 	cleanUsers := makeUserSnapshot(t, "ns1:alice", "ns2:bob")
 	collidingRoles := makeRbacSnapshot(t, "ns1:editor", "ns2:editor")
 	cleanRoles := makeRbacSnapshot(t, "ns1:editor", "ns1:auditor")
+	// "svc:reporting" is a global static user while the cluster configures it,
+	// and a namespaced dynamic user once it does not.
+	staticUserRoles := makeRbacSnapshotWithSubjects(t, "ns1:editor", "svc:reporting", "reporting")
 
 	tests := []struct {
 		name              string
@@ -2173,6 +2205,7 @@ func TestValidateNamespaceStripping(t *testing.T) {
 		namespacesEnabled bool
 		userRestoreOption string
 		rbacRestoreOption string
+		staticAPIKeyUsers []string
 		nilUserLister     bool
 		wantErr           []string // substrings; empty means no error
 	}{
@@ -2441,6 +2474,21 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			rbacRestoreOption: models.RestoreConfigRolesOptionsNoRestore,
 		},
 		{
+			// The dry run must judge db subjects with the cluster's own static API
+			// key users, the same list the nodes strip with. With "svc:reporting"
+			// configured the two subjects stay distinct.
+			name:              "ConfiguredStaticUserKeepsSubjectsDistinct",
+			rbacBlobs:         [][]byte{staticUserRoles},
+			staticAPIKeyUsers: []string{"svc:reporting"},
+		},
+		{
+			// Without it configured, "svc:reporting" can only be a namespaced
+			// dynamic user, so it strips onto the other subject and collides.
+			name:      "UnconfiguredStaticUserCollides",
+			rbacBlobs: [][]byte{staticUserRoles},
+			wantErr:   []string{"roles:", `"db:reporting"`},
+		},
+		{
 			// Users and roles collisions are reported together in one aggregate.
 			name:      "UserAndRoleCollisionsBothReported",
 			userBlobs: [][]byte{collidingUsers},
@@ -2453,6 +2501,7 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			fs := newFakeScheduler(nil)
 			fs.schema.namespacesEnabled = tc.namespacesEnabled
 			fs.schema.liveEntities = tc.liveEntities
+			fs.staticAPIKeyUsers = tc.staticAPIKeyUsers
 			if tc.liveClasses != nil {
 				fs.selector.On("ListClasses", mock.Anything).Return(tc.liveClasses)
 			}

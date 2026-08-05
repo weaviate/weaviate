@@ -944,6 +944,26 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, false, logger)
 }
 
+// setupTestManagerWithStaticUsers is setupTestManager with a caller-chosen
+// AUTHENTICATION_APIKEY_USERS list, for the paths that read it.
+func setupTestManagerWithStaticUsers(t *testing.T, logger *logrus.Logger, users ...string) (*Manager, error) {
+	return setupTestManagerWithAPIKey(t, logger, config.StaticAPIKey{Enabled: true, Users: users})
+}
+
+// setupTestManagerWithAPIKey is setupTestManager with a caller-chosen static API
+// key configuration, so a test can also populate the user list while API keys
+// are turned off, which a configuration file is free to do.
+func setupTestManagerWithAPIKey(t *testing.T, logger *logrus.Logger, apiKey config.StaticAPIKey) (*Manager, error) {
+	rbacDir := filepath.Join(t.TempDir(), "rbac")
+	if err := os.MkdirAll(rbacDir, 0o755); err != nil {
+		return nil, err
+	}
+
+	return New(filepath.Join(rbacDir, "policy.csv"), rbacconf.Config{Enabled: true},
+		config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: apiKey},
+		false, logger)
+}
+
 // setupNSEnabledTestManager is setupTestManager with namespacesEnabled=true:
 // admin/viewer get the narrowed shape, root/read-only stay wildcard.
 func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {

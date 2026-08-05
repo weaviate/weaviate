@@ -453,7 +453,7 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{})
 }
 
-// fakeRbacBackupWrapper satisfies rbacSnapshotter (variadic Snapshot).
+// fakeRbacBackupWrapper satisfies RBACSnapshotter (variadic Snapshot).
 type fakeRbacBackupWrapper struct{}
 
 func (r fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
