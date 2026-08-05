@@ -43,10 +43,10 @@ func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
-		if skip {
-			return nil
+		if bucket == nil {
+			return err
 		}
 		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
@@ -63,10 +63,10 @@ func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
-		if skip {
-			return nil
+		if bucket == nil {
+			return err
 		}
 		for _, item := range property.Items {
 			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
