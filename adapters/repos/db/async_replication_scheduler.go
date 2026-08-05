@@ -43,11 +43,12 @@ const (
 	fallbackRootPrefilterBatchSize = config.DefaultAsyncReplicationRootPrefilterBatchSize
 	maxRootPrefilterBatchSize      = config.MaxAsyncReplicationRootPrefilterBatchSize
 
-	// asyncRepRebuildBaseBackoff is the wait after the first consecutive rebuild
-	// failure. Each subsequent failure doubles the wait up to asyncRepRebuildMaxBackoff.
-	asyncRepRebuildBaseBackoff = 30 * time.Second
-	asyncRepRebuildMaxBackoff  = 30 * time.Minute
+	asyncRepRebuildMaxBackoff = 30 * time.Minute
 )
+
+// asyncRepRebuildBaseBackoff is the wait after the first consecutive rebuild
+// failure, doubled per failure up to asyncRepRebuildMaxBackoff. var for tests.
+var asyncRepRebuildBaseBackoff = 30 * time.Second
 
 // ErrSchedulerClosed is returned by Register / Deregister when called after Close.
 var ErrSchedulerClosed = errors.New("AsyncReplicationScheduler is closed")
@@ -1530,40 +1531,62 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 
 // rebuildHashtree stops then restarts async replication on s, picking up the
 // new hashtree height from runtime config via enableAsyncReplication's
-// internal Effective() call.
+// internal Effective() call. A failed attempt is retried with backoff: after
+// disable the shard is deregistered, so no runEntry would ever consume the
+// re-armed rebuild flag — without the retry, async replication would silently
+// stay off until the next restart or config change.
 func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// Wait for any cycle dispatched between our Done() and the disable below.
 	s.asyncRepWg.Wait()
 
+	for {
+		if !sched.tryRebuildHashtree(s) {
+			return
+		}
+		backoff := asyncRepRebuildBackoffDuration(s.asyncRepRebuildFailures.Load())
+		select {
+		case <-sched.ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
+// tryRebuildHashtree performs one disable→enable attempt; retry reports
+// whether the caller should back off and try again.
+func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool) {
 	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
 	// across store teardown): enable either finishes before shutdown or is skipped.
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
 
 	if s.shut.Load() {
-		return
+		return false
 	}
 
-	// disableAsyncReplication does not persist; its .ht scrub costs one ReadDir
-	// (remove+fsync only if a stray file exists), safe under shutdownLock.RLock.
-	if err := s.disableAsyncReplication(sched.ctx); err != nil {
+	fail := func(stage string, err error) {
 		if sched.logger != nil {
 			sched.logger.
 				WithField("action", "async_replication_rebuild").
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
-				Errorf("hashtree rebuild: stop failed: %v", err)
+				Errorf("hashtree rebuild: %s failed: %v", stage, err)
 		}
 		failures := s.asyncRepRebuildFailures.Add(1)
 		s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(asyncRepRebuildBackoffDuration(failures)).UnixNano())
-		s.asyncRepNeedsRebuild.Store(true)
-		return
+	}
+
+	// disableAsyncReplication does not persist; its .ht scrub costs one ReadDir
+	// (remove+fsync only if a stray file exists), safe under shutdownLock.RLock.
+	if err := s.disableAsyncReplication(sched.ctx); err != nil {
+		fail("stop", err)
+		return true
 	}
 
 	// Bail if Close() fired: enableAsyncReplication would otherwise spawn an
 	// init-scan goroutine with no cancellable context.
 	if sched.ctx.Err() != nil {
-		return
+		return false
 	}
 
 	s.asyncReplicationRWMux.RLock()
@@ -1572,21 +1595,12 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 
 	// Re-check after the RLock window.
 	if sched.ctx.Err() != nil {
-		return
+		return false
 	}
 
 	if err := s.enableAsyncReplication(sched.ctx, baseCfg); err != nil {
-		if sched.logger != nil {
-			sched.logger.
-				WithField("action", "async_replication_rebuild").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Errorf("hashtree rebuild: start failed: %v", err)
-		}
-		failures := s.asyncRepRebuildFailures.Add(1)
-		s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(asyncRepRebuildBackoffDuration(failures)).UnixNano())
-		s.asyncRepNeedsRebuild.Store(true)
-		return
+		fail("start", err)
+		return true
 	}
 
 	// Reset backoff so subsequent height changes start clean.
@@ -1602,4 +1616,5 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
 		}
 	}
+	return false
 }

@@ -22,7 +22,8 @@ import (
 
 const (
 	hashTreeMagicNumber uint32 = 0xD1D1D1D1
-	hashTreeVersion     byte   = 1
+
+	hashTreeVersion byte = 1
 
 	// magicnumber version height root checksum
 	hashTreeHeaderLength int = 4 + 1 + 4 + DigestLength + DigestLength
@@ -126,7 +127,7 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	hdrOff += 4
 
 	if hdr[hdrOff] != hashTreeVersion {
-		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], hashTreeVersion)
+		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[hdrOff], hashTreeVersion)
 	}
 	hdrOff++
 
@@ -137,7 +138,8 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength])
 	hdrOff += DigestLength
 
-	// Checked before NewHashTree so a corrupt height cannot drive a huge allocation.
+	// The checksum catches bit-rot; NewHashTree's MaxHeight bound catches
+	// crafted or echo-validated heights. Both run before the allocation.
 	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
 		return nil, fmt.Errorf("header checksum mismatch")
 	}

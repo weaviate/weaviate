@@ -351,7 +351,7 @@ func (l *LazyLoadShard) removePersistedHashtree() error {
 	loaded := l.loaded
 	l.mutex.Unlock()
 	if !loaded {
-		return nil // not loaded: a stale .ht is discarded on next load
+		return nil // unloaded shards take no writes, so a persisted .ht stays valid; init scrubs it when async is off
 	}
 	return l.shard.removePersistedHashtree()
 }

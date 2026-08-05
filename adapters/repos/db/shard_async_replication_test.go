@@ -1993,19 +1993,20 @@ func TestLoadHashtreeRejectsCorruptNewestFile(t *testing.T) {
 	require.Empty(t, htFilesInDir(t, dir), "both files must be consumed")
 }
 
-// TestLoadHashtreeRemoveFailureIsFatal: an unremovable file must fail the load, not linger to be trusted later.
-func TestLoadHashtreeRemoveFailureIsFatal(t *testing.T) {
+// TestLoadHashtreeRemoveFailure: an unremovable .ht fails the load (it would be trusted later); an unremovable .tmp only degrades to a rescan.
+func TestLoadHashtreeRemoveFailure(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("requires non-root to make the hashtree directory read-only")
 	}
 
 	tests := []struct {
-		name  string
-		class string
-		plant string
+		name    string
+		class   string
+		plant   string
+		wantErr bool
 	}{
-		{name: "sweep of a stray tmp", class: "LoadHashtreeRemoveFatalTmpTest", plant: "hashtree-0000000000000001.ht.tmp"},
-		{name: "removal of a corrupt newest", class: "LoadHashtreeRemoveFatalCorruptTest", plant: "hashtree-0000000000000001.ht"},
+		{name: "stray tmp degrades to rescan", class: "LoadHashtreeRemoveFatalTmpTest", plant: "hashtree-0000000000000001.ht.tmp", wantErr: false},
+		{name: "corrupt newest ht is fatal", class: "LoadHashtreeRemoveFatalCorruptTest", plant: "hashtree-0000000000000001.ht", wantErr: true},
 	}
 
 	for _, tc := range tests {
@@ -2023,8 +2024,13 @@ func TestLoadHashtreeRemoveFailureIsFatal(t *testing.T) {
 			require.NoError(t, os.Chmod(dir, 0o555))
 			t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
-			_, err := s.tryLoadHashtreeFromDisk(16)
-			require.Error(t, err, "an unremovable %s must fail the load", tc.plant)
+			loaded, err := s.tryLoadHashtreeFromDisk(16)
+			if tc.wantErr {
+				require.Error(t, err, "an unremovable %s must fail the load", tc.plant)
+				return
+			}
+			require.NoError(t, err, "an unremovable %s must degrade to a rescan", tc.plant)
+			require.Nil(t, loaded)
 		})
 	}
 }
@@ -2211,6 +2217,173 @@ func TestDumpHashTreeOfRemovesTmpOnError(t *testing.T) {
 	entries, readErr := os.ReadDir(dir)
 	require.NoError(t, readErr)
 	require.Empty(t, entries, "a failed dump must not leave a .tmp behind")
+}
+
+// blockingSerializeHashTree blocks Serialize until release is closed.
+type blockingSerializeHashTree struct {
+	hashtree.AggregatedHashTree
+	release chan struct{}
+}
+
+func (b blockingSerializeHashTree) Serialize(io.Writer) (int64, error) {
+	<-b.release
+	return 0, nil
+}
+
+// TestDumpHashTreeWithTimeoutSkipsLatePublication: a timed-out dump returns promptly and the late writer can never publish.
+func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
+	ctx := context.Background()
+	const class = "DumpTimeoutNoLatePublishTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	release := make(chan struct{})
+	start := time.Now()
+	s.dumpHashTreeWithTimeout(blockingSerializeHashTree{release: release}, 25*time.Millisecond)
+	require.Less(t, time.Since(start), 5*time.Second, "timed-out dump must not wait for the writer")
+	require.Empty(t, htFilesInDir(t, s.pathHashTree()))
+
+	close(release)
+	assert.Eventually(t, func() bool {
+		entries, err := os.ReadDir(s.pathHashTree())
+		return err == nil && len(entries) == 0
+	}, 5*time.Second, 10*time.Millisecond, "the late writer must publish nothing and clean up its .tmp")
+}
+
+// TestDisableAsyncReplicationScrubsWhenAlreadyStopped: disable scrubs even when the tree is already nil (the offload-halt shape).
+func TestDisableAsyncReplicationScrubsWhenAlreadyStopped(t *testing.T) {
+	ctx := context.Background()
+	const class = "DisableScrubsWhenStoppedTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	s.mayStopAsyncReplication(false)
+
+	stray := filepath.Join(s.pathHashTree(), "hashtree-00000000000000aa.ht")
+	require.NoError(t, os.WriteFile(stray, []byte("stale snapshot"), 0o600))
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	require.Empty(t, htFilesInDir(t, s.pathHashTree()), "already-stopped disable must still scrub")
+}
+
+// TestDisableAsyncReplicationPropagatesScrubError: a surviving .ht is a divergence risk, so the failure must surface.
+func TestDisableAsyncReplicationPropagatesScrubError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires non-root to make the hashtree directory read-only")
+	}
+
+	ctx := context.Background()
+	const class = "DisableScrubErrorTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	dir := s.pathHashTree()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashtree-00000000000000aa.ht"), []byte("stale snapshot"), 0o600))
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	require.ErrorContains(t, s.disableAsyncReplication(ctx), "removing persisted hashtree")
+}
+
+// TestEnableAsyncReplicationSkipsShutShard: enable on a shut shard is a no-op and must not consume a snapshot.
+func TestEnableAsyncReplicationSkipsShutShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "EnableSkipsShutShardTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	dir := s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	stray := filepath.Join(dir, "hashtree-00000000000000aa.ht")
+	require.NoError(t, os.WriteFile(stray, []byte("snapshot"), 0o600))
+
+	s.shut.Store(true)
+	t.Cleanup(func() { s.shut.Store(false) })
+
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree)
+	s.asyncReplicationRWMux.RUnlock()
+	require.Len(t, htFilesInDir(t, dir), 1, "skip must not consume the snapshot")
+}
+
+// TestDumpHashTreeOfCreatesDir: a dump must not silently fail when the hashtree dir was never created.
+func TestDumpHashTreeOfCreatesDir(t *testing.T) {
+	ctx := context.Background()
+	const class = "DumpCreatesDirTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	require.NoError(t, os.RemoveAll(s.pathHashTree()))
+
+	ht, err := hashtree.NewHashTree(2)
+	require.NoError(t, err)
+	require.NoError(t, s.dumpHashTreeOf(ht))
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1)
+}
+
+// TestRebuildHashtreeRetriesAfterFailure: a failed rebuild leaves the shard deregistered, so it must retry until it recovers.
+func TestRebuildHashtreeRetriesAfterFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires non-root to make the hashtree directory read-only")
+	}
+
+	prevBackoff := asyncRepRebuildBaseBackoff
+	asyncRepRebuildBaseBackoff = 5 * time.Millisecond
+	t.Cleanup(func() { asyncRepRebuildBaseBackoff = prevBackoff })
+
+	ctx := context.Background()
+	const class = "RebuildRetriesTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	dir := s.pathHashTree()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashtree-00000000000000aa.ht"), []byte("stale snapshot"), 0o600))
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	rebuildDone := make(chan struct{})
+	go func() {
+		defer close(rebuildDone)
+		s.index.asyncReplicationScheduler.rebuildHashtree(s)
+	}()
+
+	require.Eventually(t, func() bool {
+		return s.asyncRepRebuildFailures.Load() >= 2
+	}, 10*time.Second, 10*time.Millisecond, "rebuild must keep retrying while the scrub fails")
+
+	require.NoError(t, os.Chmod(dir, 0o755))
+	select {
+	case <-rebuildDone:
+	case <-time.After(30 * time.Second):
+		t.Fatal("rebuild did not recover after the failure cleared")
+	}
+	awaitHashtreeInitialized(t, s)
+	require.Empty(t, htFilesInDir(t, dir), "the recovered rebuild must have scrubbed the stale snapshot")
 }
 
 // TestResolveObjectConflictTimeBasedNoClobber pins that a TimeBased repair keeps a live local object at least as new as the remote deletion, even when the stale pre-RPC snapshot said it was older.

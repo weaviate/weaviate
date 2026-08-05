@@ -13,6 +13,7 @@ package hashtree
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"testing"
 
@@ -63,6 +64,11 @@ func TestHashTreeDeserializationHeaderValidation(t *testing.T) {
 	require.NoError(t, err)
 	valid := buf.Bytes()
 
+	reseal := func(b []byte) {
+		cs := headerChecksum(b[:25])
+		copy(b[25:41], cs[:])
+	}
+
 	tests := []struct {
 		name    string
 		mutate  func(b []byte)
@@ -76,6 +82,8 @@ func TestHashTreeDeserializationHeaderValidation(t *testing.T) {
 		{name: "corrupt root", mutate: func(b []byte) { b[9] ^= 0xff }, wantErr: "header checksum mismatch"},
 		{name: "corrupt checksum", mutate: func(b []byte) { b[25] ^= 0xff }, wantErr: "header checksum mismatch"},
 		{name: "corrupt leaf", mutate: func(b []byte) { b[41] ^= 0xff }, wantErr: "root digest mismatch"},
+		{name: "height above max with valid checksum", mutate: func(b []byte) { binary.BigEndian.PutUint32(b[5:9], MaxHeight+1); reseal(b) }, wantErr: "illegal height"},
+		{name: "height above max with legacy echo checksum", mutate: func(b []byte) { binary.BigEndian.PutUint32(b[5:9], 62); copy(b[25:41], b[0:16]) }, wantErr: "illegal height"},
 		{name: "truncated header", mutate: nil, wantErr: "unexpected EOF"},
 	}
 

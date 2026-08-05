@@ -67,8 +67,11 @@ func TestCompactHashTreeDeserializationHeaderValidation(t *testing.T) {
 	require.NoError(t, err)
 	valid := buf.Bytes()
 
-	legacyChecksum := make([]byte, DigestLength)
-	copy(legacyChecksum, valid[0:13])
+	// Legacy echo = the header's own bytes zero-padded to DigestLength.
+	echo := func(b []byte) {
+		copy(b[13:29], b[0:13])
+		b[26], b[27], b[28] = 0, 0, 0
+	}
 
 	tests := []struct {
 		name    string
@@ -76,7 +79,7 @@ func TestCompactHashTreeDeserializationHeaderValidation(t *testing.T) {
 		wantErr string
 	}{
 		{name: "valid roundtrip", mutate: func(b []byte) {}},
-		{name: "legacy echo checksum", mutate: func(b []byte) { copy(b[13:29], legacyChecksum) }},
+		{name: "legacy echo checksum", mutate: echo},
 		{name: "corrupt magic", mutate: func(b []byte) { b[0] ^= 0xff }, wantErr: "magic number mismatch"},
 		{name: "corrupt version", mutate: func(b []byte) { b[4] ^= 0xff }, wantErr: "unsupported version"},
 		{name: "corrupt capacity", mutate: func(b []byte) { b[5] ^= 0xff }, wantErr: "header checksum mismatch"},

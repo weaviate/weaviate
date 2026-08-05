@@ -19,7 +19,8 @@ import (
 
 const (
 	compactHashTreeMagicNumber uint32 = 0xD2D2D2D2
-	compactHashtreeVersion     byte   = 1
+
+	compactHashtreeVersion byte = 1
 
 	// magicnumber version capacity checksum
 	compactHashtreeHeaderLength int = 4 + 1 + 8 + DigestLength
@@ -76,7 +77,7 @@ func DeserializeCompactHashTree(r io.Reader) (*CompactHashTree, error) {
 	hdrOff += 4
 
 	if hdr[hdrOff] != compactHashtreeVersion {
-		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], compactHashtreeVersion)
+		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[hdrOff], compactHashtreeVersion)
 	}
 	hdrOff++
 
