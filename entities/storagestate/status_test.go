@@ -17,6 +17,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestErrStatusReadOnlyWithReason pins the sentinel contract: the with-reason
+// constructor must %w-wrap ErrStatusReadOnly — errors.Is classification (the
+// transient-error classifier, the raft apply path's park decision) depends on
+// it — while keeping the exact message text emitted today, because operators
+// and log-based tooling match on it.
+func TestErrStatusReadOnlyWithReason(t *testing.T) {
+	err := ErrStatusReadOnlyWithReason("resource pressure")
+	require.Equal(t, "store is read-only due to: resource pressure", err.Error(),
+		"message text is part of the operator-facing contract and must not change")
+	require.ErrorIs(t, err, ErrStatusReadOnly,
+		"ErrStatusReadOnlyWithReason must wrap ErrStatusReadOnly so errors.Is classification works")
+}
+
 func TestStatusValidation(t *testing.T) {
 	t.Run("with invalid status", func(t *testing.T) {
 		tests := []string{

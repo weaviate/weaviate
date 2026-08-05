@@ -129,6 +129,29 @@ type Bucket struct {
 	minMMapSize       int64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
+
+	// raftIndexSource, when set (raft-replicated shards only), returns the
+	// owning shard's raft applied index — the highest log index whose
+	// materialization has fully completed. It is read once per memtable seal
+	// (atomicallySwitchMemtable) to stamp the sealed memtable with the raft
+	// progress its contents are guaranteed to cover; see sealedRaftIndex.
+	raftIndexSource func() uint64
+
+	// sealedRaftIndex is the raftIndexSource value captured at the last
+	// memtable seal, under flushLock.Lock(). Because bucket writes hold
+	// flushLock.RLock and the FSM advances the applied index only after a
+	// unit's writes complete, every entry at or below this value has all its
+	// writes to this bucket in the sealed-or-earlier memtables. Guarded by
+	// flushLock.
+	sealedRaftIndex uint64
+
+	// durableRaftFloor is sealedRaftIndex as of the last COMPLETED flush:
+	// entries at or below it are durable in fsynced segments of this bucket
+	// (Memtable.flush syncs the segment and its parent directory before
+	// returning). Published under flushLock.Lock at flush completion
+	// (atomicallyAddDiskSegmentAndRemoveFlushing); read via DurableRaftFloor.
+	// Guarded by flushLock.
+	durableRaftFloor uint64
 	// Strategy inverted index is supposed to be created with, but existing
 	// segment files were created with different one.
 	// It can happen when new strategy were introduced to weaviate, but
@@ -271,6 +294,9 @@ type Bucket struct {
 	// during compaction for the SetCollection strategy
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
+	// walDisabled skips WAL creation for this bucket. When true, durability
+	// is assumed to be provided externally (e.g. by a RAFT log).
+	walDisabled           bool
 	skipSecondaryKeyCheck bool
 
 	// immutable prevents all write operations. Set via WithImmutable, used by
@@ -1670,9 +1696,15 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newLazyCommitLogger(path, b.strategy)
-	if err != nil {
-		return nil, errors.Wrap(err, "init commit logger")
+	var cl memtableCommitLogger
+	if b.walDisabled {
+		cl = &nopCommitLogger{}
+	} else {
+		var err error
+		cl, err = newLazyCommitLogger(path, b.strategy)
+		if err != nil {
+			return nil, errors.Wrap(err, "init commit logger")
+		}
 	}
 
 	mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
@@ -1931,7 +1963,19 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	}
 }
 
+// shouldReuseWAL reports whether the active memtable's WAL is small enough
+// that flushing would produce a wastefully tiny segment: instead of flushing,
+// the flush cycle keeps the memtable and merely fsyncs the WAL (durability
+// without segment spam). This is strictly a WAL-backed optimization: for
+// WAL-disabled buckets (raft-replicated shards) durability comes from the
+// RAFT log, the nop commit logger's size is always 0, and reusing "the WAL"
+// would permanently exempt the bucket from the size/dirty flush drivers —
+// memtable RAM would only ever be released by a snapshot flush, and the
+// flushed watermark gating RAFT log compaction would never advance.
 func (b *Bucket) shouldReuseWAL() bool {
+	if b.walDisabled {
+		return false
+	}
 	return uint64(b.active.commitlogSize()) <= uint64(b.minWalThreshold)
 }
 
@@ -1990,6 +2034,34 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 
 func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 	return b.active.getAndUpdateWritesSinceLastSync(b.logger)
+}
+
+// publishDurableRaftFloor records that the flush covering the last sealed
+// memtable has completed: everything the seal stamped is now durable in
+// fsynced segments. Callers must hold flushLock.Lock().
+func (b *Bucket) publishDurableRaftFloor() {
+	if b.raftIndexSource != nil {
+		b.durableRaftFloor = b.sealedRaftIndex
+	}
+}
+
+// DurableRaftFloor returns the highest raft applied index whose writes to
+// this bucket are guaranteed durable in flushed segments. A bucket holding no
+// un-flushed writes (empty active memtable, no flush in flight) imposes no
+// cap and returns MaxUint64. A bucket that has un-flushed writes but has
+// never completed a flush returns 0 — nothing is durable yet.
+//
+// Only meaningful on buckets configured with WithRaftIndexSource; without a
+// source the floor never advances past 0 while writes are pending, and
+// callers are expected not to consult it.
+func (b *Bucket) DurableRaftFloor() uint64 {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if b.active.Size() == 0 && b.flushing == nil {
+		return math.MaxUint64
+	}
+	return b.durableRaftFloor
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
@@ -2236,6 +2308,15 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtab
 	b.active = mt
 	b.flushing = flushing
 
+	// Seal point for the raft flush watermark: under the exclusive lock no
+	// bucket write is in flight, so every raft entry whose materialization
+	// completed by now has its writes in `flushing` or older state. The
+	// captured value becomes the bucket's durable floor once this flush
+	// completes.
+	if b.raftIndexSource != nil {
+		b.sealedRaftIndex = b.raftIndexSource()
+	}
+
 	return true, nil
 }
 
@@ -2278,6 +2359,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 
 	if b.flushing.Size() == 0 {
 		b.flushing = nil
+		b.publishDurableRaftFloor()
 		return nil
 	}
 
@@ -2286,6 +2368,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 	}
 	flushing := b.flushing
 	b.flushing = nil
+	b.publishDurableRaftFloor()
 
 	switch b.strategy {
 	case StrategyReplace:

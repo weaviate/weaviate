@@ -70,6 +70,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
+	if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, className, id, updates.Tenant); err != nil {
+		return nil, fmt.Errorf("ensure replica caught up: %w", err)
+	}
+
 	maxSchemaVersion := fetchedClasses[className].Version
 	if updates.Tenant != "" {
 		// Ensure tenant is active before read when AutoTenantActivation is enabled.

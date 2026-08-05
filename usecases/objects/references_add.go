@@ -53,6 +53,10 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
+	if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, input.Class, input.ID, tenant); err != nil {
+		return &Error{"ensure replica caught up", StatusInternalServerError, err}
+	}
+
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint {
 		// NS-enabled: refuse the legacy scan-all-collections fallback. The

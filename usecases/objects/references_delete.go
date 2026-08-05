@@ -64,6 +64,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
+	if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, input.Class, input.ID, tenant); err != nil {
+		return &Error{"ensure replica caught up", StatusInternalServerError, err}
+	}
+
 	// Parse + prefix-validate AFTER authz so unauthorized callers get 403
 	// rather than a body-shape 422 (TestAuthzViewerEndpoints pins this).
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())

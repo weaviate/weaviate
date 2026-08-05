@@ -619,12 +619,34 @@ func (l *hnswCommitLogger) Flush() error {
 	l.Lock()
 	defer l.Unlock()
 
-	// Buffered writer flush is sufficient here: the OS page cache absorbs the
-	// bytes and the per-batch durability the fsync used to provide isn't
-	// load-bearing for HNSW (the index is rebuilt from the object store on
-	// any unclean shutdown). The fsync is retained on `switchCommitLogs`
-	// (file rotation) and on backup/snapshot paths. Per-batch fsync was the
-	// dominant contributor to the ~15-30% import time regression on slow
-	// disks observed in weaviate/0-weaviate-issues#199.
+	// Buffered writer flush only — no fsync: the OS page cache absorbs the
+	// bytes, so a process crash loses at most the intra-batch buffer tail
+	// while a power loss can lose everything since the last rotation fsync
+	// (`switchCommitLogs`). NOTE: there is NO automatic rebuild of the index
+	// from the object store on unclean shutdown — recovery is commit-log
+	// replay, and the only object-store-driven repair is the manual debug
+	// RepairIndex endpoint (async-indexing only). Callers that are about to
+	// discard their own replay source (RAFT log compaction) must use
+	// SyncCommitLog instead. Per-batch fsync was the dominant contributor to
+	// the ~15-30% import time regression on slow disks observed in
+	// weaviate/0-weaviate-issues#199.
 	return l.currentWriter.Flush()
+}
+
+// SyncCommitLog flushes the buffered writer and fsyncs the current commit
+// log file, making every commit accepted so far durable. This is the
+// compaction-durability gate hook: before a RAFT snapshot compacts the log —
+// discarding the entries that could re-materialize recently indexed vectors
+// — the commit log tail must be made durable, because on unclean shutdown
+// the index is recovered from this log alone (no automatic rebuild from the
+// object store exists). Runs on snapshot workers only, never on the
+// per-batch write path (see Flush).
+func (l *hnswCommitLogger) SyncCommitLog() error {
+	l.Lock()
+	defer l.Unlock()
+
+	if err := l.currentWriter.Flush(); err != nil {
+		return errors.Wrap(err, "flush commit log buffer")
+	}
+	return l.currentFile.Sync()
 }

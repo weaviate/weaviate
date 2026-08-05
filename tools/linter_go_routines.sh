@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-# Search for all tracked non-test .go files in the Git repository
-all_files=$(git ls-files | grep -E '\.go$' | grep -vE '_test\.go$')
+# Search for all tracked non-test .go files in the Git repository. Filter to
+# files that still exist in the working tree: git ls-files also reports files
+# deleted-but-uncommitted, which would hard-fail the grep below.
+all_files=$(git ls-files | grep -E '\.go$' | grep -vE '_test\.go$' | while read -r f; do [ -f "$f" ] && echo "$f"; done)
 
 # Get all files with 'go ' in them, ignoring lines that start with a comment
 files=$(grep -E -l '^[[:space:]]*[^/]*go ' ${all_files})

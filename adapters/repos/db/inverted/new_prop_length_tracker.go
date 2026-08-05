@@ -356,11 +356,28 @@ func (t *JsonShardMetaData) lockFreeFlush() error {
 
 	filename := t.path
 
-	// Do a write+rename to avoid corrupting the file if we crash while writing
+	// Write + fsync + rename so a crash at any point leaves either the old
+	// or the new file intact. Without the fsync before the rename, a power
+	// loss can persist the rename but not the file's contents, replacing a
+	// valid tracker with an empty or torn one.
 	tempfile := filename + ".tmp"
 
-	err = os.WriteFile(tempfile, bytes, 0o666)
+	f, err := os.OpenFile(tempfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
+		return err
+	}
+	if _, err := f.Write(bytes); err != nil {
+		f.Close()
+		os.Remove(tempfile)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tempfile)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tempfile)
 		return err
 	}
 

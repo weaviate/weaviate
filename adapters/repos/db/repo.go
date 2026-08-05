@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/shard"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -485,6 +486,7 @@ type Config struct {
 	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
 
+	ShardRegistry           *shard.Registry
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 }
 

@@ -463,6 +463,18 @@ func (dynamic *dynamic) Flush() error {
 	return dynamic.index.Flush()
 }
 
+// SyncCommitLog forwards the raft snapshot durability gate to the underlying
+// index: meaningful once upgraded to HNSW (commit-log-backed); the flat
+// index persists through the LSM store and has nothing extra to sync.
+func (dynamic *dynamic) SyncCommitLog() error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if s, ok := dynamic.index.(interface{ SyncCommitLog() error }); ok {
+		return s.SyncCommitLog()
+	}
+	return nil
+}
+
 func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	if dynamic.ctx.Err() != nil {
 		// already closed

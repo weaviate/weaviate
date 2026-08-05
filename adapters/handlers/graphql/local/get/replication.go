@@ -30,9 +30,12 @@ func consistencyLevelArgument(class *models.Class) *graphql.ArgumentConfig {
 		Type: graphql.NewEnum(graphql.EnumConfig{
 			Name: fmt.Sprintf("%sConsistencyLevelEnum", class.Class),
 			Values: graphql.EnumValueConfigMap{
-				string(types.ConsistencyLevelOne):    &graphql.EnumValueConfig{},
-				string(types.ConsistencyLevelQuorum): &graphql.EnumValueConfig{},
-				string(types.ConsistencyLevelAll):    &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelOne):      &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelQuorum):   &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelAll):      &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelEventual): &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelStrong):   &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelDirect):   &graphql.EnumValueConfig{},
 			},
 		}),
 	}
