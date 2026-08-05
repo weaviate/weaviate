@@ -58,10 +58,12 @@ func TestUpdateIndexRefusesWhileBackupRuns(t *testing.T) {
 		errorMessage(t, conflict.Payload))
 }
 
-// TestUpdateIndexWithoutClusterServiceIsUnavailable pins a 503 instead of a nil-deref panic.
+// A missing cluster service is a 503, and it is reached through a gate that ran
+// and cleared: the probe comes first, so a wired cluster with no task service
+// still gets the refusal rather than a nil-deref panic.
 func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
-	// No prober: the gate allows submission and the missing task service answers.
-	h := submissionHandlers(t, nil, nil)
+	prober := &countingProber{}
+	h := submissionHandlers(t, nil, prober)
 
 	responder := submitReindex(h)
 
@@ -69,18 +71,28 @@ func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 	require.Truef(t, ok, "expected 503, got %T", responder)
 	require.Equal(t, "cluster service unavailable; cannot submit reindex task",
 		errorMessage(t, unavailable.Payload))
+
+	prober.mu.Lock()
+	defer prober.mu.Unlock()
+	require.Equal(t, 1, prober.calls,
+		"the pre-commit gate runs before the task service is needed; only it can have probed")
 }
 
-// TestUpdateIndexWithoutClusterMembershipIsUnavailable pins a 503, not a
-// nil-deref panic, when cluster membership is nil (a real state before a node joins).
-func TestUpdateIndexWithoutClusterMembershipIsUnavailable(t *testing.T) {
-	h := submissionHandlers(t, nil, nil)
+// Cluster membership is nil before a node joins. There is no one to probe then,
+// so the gate fails open — the same posture as an unwired probe — and the
+// submission proceeds instead of dereferencing the missing membership.
+func TestUpdateIndexWithoutClusterMembershipSkipsTheBackupGate(t *testing.T) {
+	svc := &raceTaskService{}
+	// Would refuse the submission if it were ever asked.
+	prober := fixedActivityProber{fixtureNode: backup.NodeActivity{
+		Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1",
+	}}
+	h := submissionHandlers(t, svc, prober)
 	h.cluster = nil
 
 	responder := submitReindex(h)
 
-	unavailable, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
-	require.Truef(t, ok, "expected 503, got %T", responder)
-	require.Equal(t, "cluster service unavailable; cannot submit reindex task",
-		errorMessage(t, unavailable.Payload))
+	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+	require.Truef(t, ok, "with no membership there is nothing to probe; expected the submission to proceed, got %T", responder)
+	require.Equal(t, 1, svc.adds)
 }

@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -313,6 +315,16 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// validateTokenizationChange rejects with 400.
 	// Key on the qualified class (the reindex-task key) so short- and qualified-name
 	// callers for the same collection share the DeleteClassPropertyIndex lock.
+	//
+	// Worst case with one unreachable node: the lock is held for the 5s
+	// pre-commit backup probe, the RAFT task-add, the 5s post-commit probe and
+	// a rollback of up to reindexRollbackTimeout — around 20s, during which a
+	// DELETE on the same property waits and MarkSubmitInProgress refuses the
+	// collection's backups. The probes are not hoisted out of the lock even
+	// though they read no schema state: outside it they would run before the
+	// 404, conflict and cap checks, so every request that fails locally would
+	// pay a cluster-wide fan-out first, and a submit for a collection that does
+	// not exist would answer 409 instead of 404.
 	propLock := h.submitLock(collection, propertyName)
 	propLock.Lock()
 	defer propLock.Unlock()
@@ -717,7 +729,12 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// context, which makes every probe fail, and rolling back on that would
 		// destroy a cleanly committed migration precisely when the caller is no
 		// longer there to resubmit it.
-		if scan.BusyNode != "" && ctx.Err() == nil {
+		//
+		// A positive report is not weakened by the same disconnect: the node
+		// answered before the context died, and the migration would otherwise
+		// run against a backup that is known to hold the slot. That is why
+		// rollbackRacedReindexTask detaches from this context.
+		if scan.BusyNode != "" {
 			h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName)
 			return responder
 		}
@@ -729,7 +746,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}).Error("submit: the post-commit probe could not confirm the cluster is free of backups, " +
 			"so the task was left running rather than rolled back on unreliable evidence; " +
 			"the backup side's commit-time overlap check is the remaining guard")
-		return responder
+		// The migration is committed and running. Answering without its id sends
+		// the caller into a retry that checkReindexConflict answers 409, for a
+		// task the caller was never told about.
+		return reindexTaskKeptResponder(principal, namespacing.StripOwnNamespace(principal, taskID))
 	}
 
 	// Operational audit line: reindex is a privileged cluster-wide operation
@@ -860,25 +880,33 @@ func (h *indexesHandlers) awaitOneOwnerCleanupGate(ctx context.Context, node, co
 	}
 }
 
-// reindexRollbackTimeout bounds the detached rollback. Short: the task is
-// already committed and the caller is gone, so a rollback that cannot finish
-// quickly is better abandoned to the backup's commit-time check than left
-// holding a goroutine.
+// reindexRollbackTimeout bounds the rollback, which the refused PUT waits on.
+// A rollback that cannot finish quickly is better abandoned to the backup's
+// commit-time check than left holding the request open.
 const reindexRollbackTimeout = 10 * time.Second
 
 // reindexRollbackAttempts bounds the rollback retry. A cancel that fails three
 // times in a row is failing for a reason a fourth will not fix.
 const reindexRollbackAttempts = 3
 
+// reindexRollbackRetryDelay is the first wait between rollback attempts; it
+// grows and is jittered from there. The transient this retry exists for is a
+// RAFT leader election, which lasts seconds while failing in microseconds, so
+// back-to-back attempts would spend all three inside a millisecond and never
+// outlive the condition they are retrying.
+const reindexRollbackRetryDelay = 500 * time.Millisecond
+
 // rollbackRacedReindexTask cancels a task committed into a backup that
 // claimed the same slot.
 //
-// The caller has already been told 409, so a rollback that never lands leaves a
-// migration running that its submitter believes was refused. It is retried, and
-// a final failure is logged at Error under its own audit event so the state is
-// findable. Escalating further is not available: the response is long gone, and
-// leaving the task is safer than any blind second cancel — the backup side's
-// commit-time overlap check still refuses to publish a backup that spans it.
+// It runs before the 409 is answered, so the caller told the submission was
+// refused is told so after the rollback was attempted; a rollback that never
+// lands leaves a migration running that its submitter believes was refused. It
+// is retried with a growing delay, and a final failure is logged at Error under
+// its own audit event so the state is findable. Escalating further is not
+// available: the refusal is the only answer the caller gets, and leaving the
+// task is safer than any blind second cancel — the backup side's commit-time
+// overlap check still refuses to publish a backup that spans it.
 //
 // The rollback deliberately does not run on the request context. A client
 // disconnect is itself one of the inputs that makes the second probe report
@@ -895,6 +923,8 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reindexRollbackTimeout)
 	defer cancel()
 
+	delays := utils.NewExponentialBackoff(reindexRollbackRetryDelay, reindexRollbackTimeout)
+
 	var lastErr error
 	for attempt := 1; attempt <= reindexRollbackAttempts; attempt++ {
 		done, err := h.tryRollbackRacedReindexTask(ctx, taskID, fields)
@@ -905,10 +935,30 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 		if ctx.Err() != nil {
 			break
 		}
+		if attempt < reindexRollbackAttempts && !waitBeforeRollbackRetry(ctx, delays) {
+			break
+		}
 	}
 	h.appState.Logger.WithFields(fields).WithField("audit_event", "reindex_task_rollback_failed").Errorf(
 		"rollback: could not cancel the task in %d attempts: %v; it is still running while its submitter was told the "+
 			"submission was refused — cancel it by hand", reindexRollbackAttempts, lastErr)
+}
+
+// waitBeforeRollbackRetry waits out the next backoff step, reporting whether
+// another attempt is still worth making.
+func waitBeforeRollbackRetry(ctx context.Context, delays backoff.BackOff) bool {
+	delay := delays.NextBackOff()
+	if delay == backoff.Stop {
+		return false
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // tryRollbackRacedReindexTask makes one rollback attempt. done is true when
@@ -1018,6 +1068,18 @@ func backupActivityResponder(principal *models.Principal, scan backupActivitySca
 			"reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers"))
 	}
 	return nil
+}
+
+// reindexTaskKeptResponder is the refusal for a migration that is committed and
+// running while the post-commit probe could not confirm the cluster is free of
+// backups. Same 503 as [backupActivityResponder]'s unreachable verdict, plus the
+// task id: the caller is being refused for a migration that did start, and the
+// id is the only handle it has on it.
+func reindexTaskKeptResponder(principal *models.Principal, taskID string) middleware.Responder {
+	return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers. "+
+			"The migration was committed and is running as task %q; cancel it if you do not want it to continue.",
+			taskID)))
 }
 
 // refuseIfBackupInFlight blocks reindex submission while any node holds a
@@ -1181,85 +1243,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			fmt.Sprintf("cancelling task: %v", err)))
 	}
 
-	// Drain the local reindex goroutine BEFORE cleaning partial on-disk
-	// state. Without this, the cleanup races against the worker which is
-	// still writing to the __reindex / __ingest buckets — ShutdownBucket
-	// would tear those buckets out from under the writer and corrupt the
-	// store. CancelDistributedTask above cancels the per-task ctx, so the
-	// worker should be exiting; the wait simply blocks until it does.
-	//
-	// Bounded wait: a stuck goroutine must not turn the cancel HTTP
-	// request into an open-ended hang. The same timeout (10s) is used by
-	// the DTM scheduler for analogous waits. If we time out, we still
-	// return 202 — the next submit's defense-in-depth cleanup will pick
-	// up the work.
 	if h.appState.ReindexProvider != nil {
-		h.appState.Logger.WithFields(logrus.Fields{
-			"taskID":     target.ID,
-			"collection": collection,
-			"property":   propertyName,
-			"index_type": indexType,
-		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
-		// Hold the backup/restore gates across drain and teardown: a timed-out
-		// drain leaves the worker writing, which needs the gate most.
-		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-		releaseGate, drainErr := h.appState.ReindexProvider.DrainWithCleanupGate(
-			drainCtx, &targetPayload, target.TaskDescriptor)
-		drainCancel()
-		if drainErr != nil {
-			// The gate outlives this request rather than the deferred release
-			// dropping it over a still-writing worker; see
-			// [db.ReindexProvider.ReleaseCleanupGateOnWorkerExit].
-			h.appState.ReindexProvider.ReleaseCleanupGateOnWorkerExit(
-				target.TaskDescriptor, releaseGate, h.appState.Logger)
-			h.appState.Logger.WithFields(logrus.Fields{
-				"taskID":     target.ID,
-				"collection": collection,
-				"property":   propertyName,
-				"index_type": indexType,
-			}).Errorf("cancel: timed out waiting for local reindex goroutine to drain (%v); skipping inline cleanup — next submit will retry", drainErr)
-		} else {
-			defer releaseGate()
-			h.appState.Logger.WithFields(logrus.Fields{
-				"taskID":     target.ID,
-				"collection": collection,
-				"property":   propertyName,
-				"index_type": indexType,
-			}).Info("cancel: drain complete, running on-disk cleanup")
-			// Goroutine has drained. Wipe the sidecars and migration
-			// directories for every indexType this migration touches —
-			// change-tokenization spawns both a searchable and a
-			// filterable strategy under one task, so cleaning only the
-			// URL's indexType leaves the sibling orphaned. Errors are
-			// logged; submit-time pre-cleanup will retry.
-			indexTypesToClean, known := indexTypesFromMigrationType(targetPayload.MigrationType)
-			if !known || len(indexTypesToClean) == 0 {
-				// Unknown migration type: fall back to the indexType
-				// named in the URL.
-				indexTypesToClean = []string{indexType}
-			}
-			var cleanupErrs []error
-			for _, it := range indexTypesToClean {
-				if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
-					cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
-				}
-			}
-			if len(cleanupErrs) > 0 {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"taskID":     target.ID,
-					"collection": collection,
-					"property":   propertyName,
-					"index_type": indexType,
-					"strategies": indexTypesToClean,
-				}).Errorf("cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry", len(cleanupErrs), cleanupErrs)
-			} else {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"taskID":     target.ID,
-					"collection": collection,
-					"property":   propertyName,
-					"index_type": indexType,
-				}).Info("cancel: on-disk cleanup complete")
-			}
+		// The gate is released once the handler answers, not once the cleanup
+		// ends: awaitOwnerCleanupGates below still reports on this node's
+		// teardown window.
+		if release := h.drainAndCleanupCancelledTask(ctx, h.appState.ReindexProvider,
+			target, &targetPayload, collection, propertyName, indexType); release != nil {
+			defer release()
 		}
 	} else {
 		h.appState.Logger.WithFields(logrus.Fields{
@@ -1287,6 +1277,82 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		TaskID: namespacing.StripOwnNamespace(principal, target.ID),
 		Status: "CANCELLED",
 	})
+}
+
+// reindexCleanupGateProvider is the reindex provider as the cancel path uses
+// it: close the gates, wait for the local worker, and hand the gate over when
+// the wait times out.
+type reindexCleanupGateProvider interface {
+	DrainWithCleanupGate(ctx context.Context, payload *db.ReindexTaskPayload,
+		desc distributedtask.TaskDescriptor) (func(), error)
+	ReleaseCleanupGateOnWorkerExit(desc distributedtask.TaskDescriptor,
+		release func(), logger logrus.FieldLogger)
+}
+
+// drainAndCleanupCancelledTask drains the local reindex goroutine and then
+// wipes the partial on-disk state the cancelled task left behind, with the
+// backup and restore gates closed across both.
+//
+// The drain has to come first: the worker is still writing to the __reindex /
+// __ingest buckets, and ShutdownBucket would tear them out from under it and
+// corrupt the store. It is bounded so a stuck goroutine cannot turn the cancel
+// into an open-ended hang; a cancel that times out still answers 202 and the
+// next submit's cleanup picks the work up.
+//
+// It returns the gate release for the caller to defer, or nil when the drain
+// timed out: the worker is then still writing, which is the case the gate
+// exists for, so it is handed to
+// [db.ReindexProvider.ReleaseCleanupGateOnWorkerExit] to outlive this request
+// rather than dropped at its return.
+func (h *indexesHandlers) drainAndCleanupCancelledTask(
+	ctx context.Context,
+	provider reindexCleanupGateProvider,
+	target *distributedtask.Task,
+	payload *db.ReindexTaskPayload,
+	collection, propertyName, indexType string,
+) func() {
+	fields := logrus.Fields{
+		"taskID":     target.ID,
+		"collection": collection,
+		"property":   propertyName,
+		"index_type": indexType,
+	}
+	h.appState.Logger.WithFields(fields).Info("cancel: starting drain+cleanup for cancelled reindex task")
+
+	drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
+	releaseGate, drainErr := provider.DrainWithCleanupGate(drainCtx, payload, target.TaskDescriptor)
+	drainCancel()
+	if drainErr != nil {
+		provider.ReleaseCleanupGateOnWorkerExit(target.TaskDescriptor, releaseGate, h.appState.Logger)
+		h.appState.Logger.WithFields(fields).Errorf(
+			"cancel: timed out waiting for local reindex goroutine to drain (%v); skipping inline cleanup — next submit will retry", drainErr)
+		return nil
+	}
+
+	h.appState.Logger.WithFields(fields).Info("cancel: drain complete, running on-disk cleanup")
+	// Wipe the sidecars and migration directories for every indexType this
+	// migration touches — change-tokenization spawns both a searchable and a
+	// filterable strategy under one task, so cleaning only the URL's indexType
+	// leaves the sibling orphaned. Errors are logged; submit-time pre-cleanup
+	// will retry.
+	indexTypesToClean, known := indexTypesFromMigrationType(payload.MigrationType)
+	if !known || len(indexTypesToClean) == 0 {
+		indexTypesToClean = []string{indexType}
+	}
+	var cleanupErrs []error
+	for _, it := range indexTypesToClean {
+		if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
+		}
+	}
+	if len(cleanupErrs) > 0 {
+		h.appState.Logger.WithFields(fields).WithField("strategies", indexTypesToClean).Errorf(
+			"cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry",
+			len(cleanupErrs), cleanupErrs)
+	} else {
+		h.appState.Logger.WithFields(fields).Info("cancel: on-disk cleanup complete")
+	}
+	return releaseGate
 }
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the

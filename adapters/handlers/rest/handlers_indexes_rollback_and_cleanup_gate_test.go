@@ -433,9 +433,99 @@ func TestUpdateIndexKeepsTheTaskWhenThePostCommitProbeCannotConfirm(t *testing.T
 		"an unreachable verdict is not proof of a backup; the committed migration must not be rolled back")
 }
 
+// disconnectingProber answers the pre-commit probe clear and kills the request
+// context at the post-commit probe, in the same instant it delivers its verdict.
+type disconnectingProber struct {
+	mu     sync.Mutex
+	calls  int
+	cancel context.CancelFunc
+	// busy is the post-commit verdict: a node reporting a backup, or nobody
+	// answering at all.
+	busy bool
+}
+
+func (p *disconnectingProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	if p.calls == 1 {
+		return backup.NodeActivity{}, nil
+	}
+	p.cancel()
+	if p.busy {
+		return backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1"}, nil
+	}
+	return backup.NodeActivity{}, errors.New("dial tcp: connection refused")
+}
+
+// The two verdicts are deliberately opposite under the same client disconnect.
+// A node that reports a backup answered before the context died: certain
+// evidence that the migration is committed on top of a live backup, so it is
+// rolled back even though nobody is left to hear the refusal. "Nobody answered"
+// is what a disconnect alone produces, and rolling back on it would destroy a
+// cleanly committed migration; the backup side's commit-time overlap check is
+// what refuses that pairing instead.
+func TestUpdateIndexPostCommitVerdictSurvivesClientDisconnect(t *testing.T) {
+	tests := []struct {
+		name           string
+		busy           bool
+		wantRolledBack bool
+	}{
+		{name: "a node reports a backup as the caller disconnects", busy: true, wantRolledBack: true},
+		{name: "nobody answers as the caller disconnects", busy: false, wantRolledBack: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
+			svc := &raceTaskService{}
+			prober := &disconnectingProber{busy: test.busy}
+			h := submissionHandlers(t, svc, prober)
+			h.appState.Logger = logger
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			prober.cancel = cancel
+
+			responder := submitReindexOn(h, ctx)
+
+			require.Equal(t, 1, svc.adds, "the task must be committed, or the post-commit probe is untested")
+			require.Equal(t, context.Canceled, ctx.Err(), "the caller has to be gone by the time the verdict lands")
+
+			if test.wantRolledBack {
+				_, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
+				require.Truef(t, ok, "a confirmed backup must be refused with 409, got %T", responder)
+				require.Len(t, svc.cancelled, 1,
+					"a node positively reported a backup; the committed migration must be rolled back "+
+						"even though the caller disconnected")
+				require.Empty(t, svc.startedTasks())
+				for _, entry := range hook.AllEntries() {
+					require.NotContains(t, entry.Message, "could not confirm the cluster is free of backups",
+						"the probe confirmed the opposite; reporting it as unconfirmed misleads the operator")
+				}
+				return
+			}
+
+			unavailable, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
+			require.Truef(t, ok, "an unconfirmable probe must answer 503, got %T", responder)
+			require.Empty(t, svc.cancelled,
+				"an unreachable verdict is not proof of a backup; the committed migration must not be rolled back")
+			started := svc.startedTasks()
+			require.Len(t, started, 1)
+			require.Contains(t, errorMessage(t, unavailable.Payload), started[0].ID,
+				"the migration is running; without its id the caller's retry is answered 409 for a task it never heard of")
+		})
+	}
+}
+
 // The retry exists for the transient case, so the transient case is what has to
 // be pinned: a cancel that fails once and then lands must leave the task
-// cancelled and report success, not the give-up line.
+// cancelled and report success, not the give-up line. It must also wait between
+// attempts — the transient it retries (a RAFT leader election) lasts seconds
+// while failing in microseconds, so three immediate attempts would all fail
+// inside the same millisecond.
 func TestRollbackRacedReindexTaskSucceedsOnRetry(t *testing.T) {
 	const (
 		taskID     = "Movies:change-tokenization:title:ab12"
@@ -456,11 +546,16 @@ func TestRollbackRacedReindexTaskSucceedsOnRetry(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	h := &indexesHandlers{appState: &state.State{Logger: logger}, tasks: svc}
 
+	start := time.Now()
 	h.rollbackRacedReindexTask(context.Background(), taskID, collection, property)
+	elapsed := time.Since(start)
 
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 	require.Equal(t, 2, svc.cancelCalls, "the first cancel failed, so a second must have been made")
+	// The delay is jittered down to half the base, so half is the floor.
+	require.Greater(t, elapsed, reindexRollbackRetryDelay/2,
+		"the second attempt must be spaced from the first, or the retry never outlives the transient it exists for")
 
 	entries := hook.AllEntries()
 	require.Len(t, entries, 1, "one outcome, one audit line")
