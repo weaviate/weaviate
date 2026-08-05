@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 func TestInternalBackupsNodeActivity(t *testing.T) {
@@ -63,6 +64,56 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 			body, err := io.ReadAll(res.Body)
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.wantBody, string(body))
+		})
+	}
+}
+
+// The route reports whether this node is part of a backup, which is
+// cluster-internal state: an unauthenticated caller must be refused rather
+// than answered.
+func TestInternalBackupsNodeActivityRequiresAuth(t *testing.T) {
+	const (
+		user = "alice"
+		pass = "s3cret"
+	)
+	auth := clusterapi.NewBasicAuthHandler(cluster.AuthConfig{
+		BasicAuth: cluster.BasicAuth{Username: user, Password: pass},
+	})
+
+	tests := []struct {
+		name       string
+		setAuth    bool
+		user, pass string
+		wantStatus int
+	}{
+		{name: "no credentials", wantStatus: http.StatusUnauthorized},
+		{name: "wrong user", setAuth: true, user: "mallory", pass: pass, wantStatus: http.StatusUnauthorized},
+		{name: "wrong password", setAuth: true, user: user, pass: "guess", wantStatus: http.StatusUnauthorized},
+		{name: "correct credentials", setAuth: true, user: user, pass: pass, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil), auth)
+			server := httptest.NewServer(handler.NodeActivity())
+			defer server.Close()
+
+			req, err := http.NewRequest(http.MethodGet, server.URL+"/backups/node-activity", nil)
+			require.NoError(t, err)
+			if tt.setAuth {
+				req.SetBasicAuth(tt.user, tt.pass)
+			}
+
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			require.Equal(t, tt.wantStatus, res.StatusCode)
+			if tt.wantStatus != http.StatusOK {
+				body, err := io.ReadAll(res.Body)
+				require.NoError(t, err)
+				assert.Empty(t, body, "a refused caller must not be told what this node is doing")
+			}
 		})
 	}
 }
