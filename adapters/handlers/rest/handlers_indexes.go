@@ -1369,10 +1369,14 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	}
 	h.appState.Logger.WithFields(fields).Info("cancel: starting drain+cleanup for cancelled reindex task")
 
-	// Detached from the request for the same reason as the sweep below: a
-	// disconnect here fails the drain, and a failed drain skips the sweep
-	// entirely and leaves the work to the next submit. Its own timeout still
-	// bounds it, so a stuck worker cannot hold the goroutine open.
+	// Detached from the request for the same reason as the sweep below, and it
+	// is the wider of the two: a disconnect here fails the drain, the handler
+	// returns before the sweep, and the gate goes to the worker-exit watcher —
+	// so the sweep never runs at all. What the sweep would have healed then
+	// survives until some later submit sweeps it, which may be never.
+	//
+	// Its own timeout still bounds it, so a stuck worker cannot hold the
+	// goroutine open.
 	drainCtx, drainCancel := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelDrainTimeout)
 	releaseGate, drainErr := provider.DrainWithCleanupGate(drainCtx, payload, target.TaskDescriptor)
