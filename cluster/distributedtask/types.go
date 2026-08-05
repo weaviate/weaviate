@@ -51,9 +51,10 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 //
 // Runs on the Manager's drainer goroutine, not on the RAFT-apply path, so it
 // may take locks and do work. It gets a clone of the task and must not mutate
-// RAFT-replicated state. Two guarantees it does NOT have: it may run after the
-// scheduler has already acted on the cancel, and under queue overflow two
-// events may run concurrently — see [Manager.dispatchCancelWithLock].
+// RAFT-replicated state. Three guarantees it does NOT have: it may run after
+// the scheduler has already acted on the cancel, under queue overflow two
+// events may run concurrently, and past [cancelDispatchOverflowLimit] an event
+// is dropped rather than delivered — see [Manager.dispatchCancelWithLock].
 //
 // Cancels older than [cancelObserverStaleAfter] when they apply are skipped, so
 // a node replaying the RAFT log does not pay for cancels nobody is waiting on.

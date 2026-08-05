@@ -211,9 +211,10 @@ func TestManagerCancelObserver(t *testing.T) {
 	})
 }
 
-// Close stops the drainer, so a cancel applying after shutdown must not be
-// dispatched. Without this the drainer goroutine outlives the Manager and keeps
-// a provider reachable after the node has torn its dependencies down.
+// Close has to stop two separate things, and each half is pinned on its own:
+// the drainer goroutine, which otherwise outlives the Manager and keeps a
+// provider reachable after the node tore its dependencies down, and the apply
+// path's handover, which otherwise keeps feeding that goroutine.
 func TestManagerCloseStopsTheCancelDrainer(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
@@ -224,9 +225,25 @@ func TestManagerCloseStopsTheCancelDrainer(t *testing.T) {
 	h.manager.Close()
 	h.manager.Close() // idempotent: shutdown runs on paths that may both fire
 
-	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
-
+	// Put an event on the queue by hand, bypassing the apply path's own guard:
+	// only a live drainer can take it off again, so this asks about the
+	// goroutine and nothing else.
+	h.manager.cancelDispatch <- &Task{
+		TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
+		Namespace:      observerNamespace,
+		Status:         TaskStatusCancelled,
+		FinishedAt:     h.clock.Now(),
+	}
 	require.Never(t, func() bool { return rec.count() > 0 },
 		300*time.Millisecond, 10*time.Millisecond,
-		"the drainer must not dispatch after Close; its goroutine has been told to exit")
+		"a queued event must not reach an observer after Close; the drainer has been told to exit")
+
+	// The drainer is gone by now, so the queue below reads the apply path alone
+	// rather than racing a consumer.
+	for len(h.manager.cancelDispatch) > 0 {
+		<-h.manager.cancelDispatch
+	}
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+	require.Empty(t, h.manager.cancelDispatch,
+		"the apply path must not hand a cancel over after Close")
 }
