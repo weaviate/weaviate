@@ -2530,11 +2530,23 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 // consults HTTP_PROXY/HTTPS_PROXY.
 //
 // The probes ask a named peer a question only that peer can answer, and read a
-// 404 as "this build predates the route". An egress proxy standing in for the
-// peer answers 404 to everything, which would report every node as free of
-// backups and fail the gate open cluster-wide. Scoped to these probes on
-// purpose: whether cluster-internal traffic in general should honour a proxy is
-// a separate, deployment-visible question this PR does not settle.
+// 404 as "this build predates the route". A proxy answering in the peer's stead
+// 404s everything, and the gate would read that as "no backups anywhere".
+//
+// The probe corroborates a 404 against the shape this server's own mux emits, so
+// an ordinary proxy error page is rejected and the cluster refuses closed. That
+// leaves one measured hole: a proxy answering these two routes with a 404 byte-
+// identical to Go's stdlib one, which anything fronted by a Go default mux
+// produces. Corroboration cannot tell it from a real old node, so submission is
+// admitted over a live backup — and the operator is told a rolling upgrade is in
+// progress on a fully upgraded cluster. The commit-time overlap check still
+// failed that backup, so what this closes is the admission-side fail-open, not a
+// path to a corrupt backup. Not routing these probes through a proxy removes the
+// class rather than narrowing it.
+//
+// Scoped to these probes on purpose: whether cluster-internal traffic in general
+// should honour a proxy is a deployment-visible question this PR does not
+// settle.
 func reindexGateProbeHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
 	return clusterHttpClient(authConfig, minimumInternalTimeout, nil)
 }
