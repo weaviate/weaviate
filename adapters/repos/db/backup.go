@@ -65,6 +65,8 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
+	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
+	gate := db.newReindexGateSnapshot()
 	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
@@ -85,7 +87,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 		for _, shardName := range shards {
 			// No node prefix: the backup caller has no grant on node names.
 			// refuseIfReindexInFlight logs node and shard for the operator.
-			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
+			if err := idx.refuseIfReindexInFlightIn(gate, shardName); err != nil {
 				errs = append(errs, err)
 			}
 		}
