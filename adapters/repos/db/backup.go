@@ -108,53 +108,67 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			// of byte-identical sentences — the same O(shards) growth that made
 			// the original per-shard log line a merge blocker, minus the shard
 			// name that justified repeating it.
-			if _, dup := gateSeen[err.Error()]; !dup {
-				gateSeen[err.Error()] = struct{}{}
-				gateErrs = append(gateErrs, err)
-			}
+			gateErrs = appendUniqueGateErr(gateSeen, gateErrs, err)
 			blockedShards[c] = append(blockedShards[c], shardName)
 		}
 	}
 	if len(gateErrs) > 0 {
-		if db.logger != nil {
-			// One line per collection, not per shard, and the shard list is
-			// capped: this pass can cover five-figure shard counts, so an
-			// uncapped field just moves the O(shards) growth out of the body
-			// and into a log line. The count is exact; the names are a sample.
-			// Sorted so repeated refusals diff cleanly.
-			collections := make([]string, 0, len(blockedShards))
-			for c := range blockedShards {
-				collections = append(collections, c)
-			}
-			sort.Strings(collections)
-			for _, c := range collections {
-				shardNames := blockedShards[c]
-				sort.Strings(shardNames)
-				sample := shardNames
-				if len(sample) > reindexRefusalShardSample {
-					sample = sample[:reindexRefusalShardSample]
-				}
-				db.logger.WithField("action", "backup_reindex_gate").
-					WithField("collection", c).
-					WithField("node", nodeName).
-					WithField("blocked_shards", sample).
-					WithField("blocked_shard_count", len(shardNames)).
-					Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
-						"blocked_shards lists the first %d", len(shardNames), c, len(sample))
-			}
-		}
-		if len(errs) > 0 && db.logger != nil {
-			// Withheld from the response, not from the operator.
-			db.logger.WithField("action", "backup_reindex_gate").
-				Warnf("backup precheck refused by the reindex gate; also hit %d other error(s), "+
-					"reported here only: %v", len(errs), stderrors.Join(errs...))
-		}
+		db.logReindexRefusals(nodeName, blockedShards, errs)
 		return stderrors.Join(gateErrs...)
 	}
 	if len(errs) > 0 {
 		return stderrors.Join(errs...)
 	}
 	return nil
+}
+
+// appendUniqueGateErr appends err to gateErrs unless an error with the same
+// message was already appended, tracking what it has seen in seen.
+func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) []error {
+	if _, dup := seen[err.Error()]; dup {
+		return gateErrs
+	}
+	seen[err.Error()] = struct{}{}
+	return append(gateErrs, err)
+}
+
+// logReindexRefusals logs the gate refusals collected by [DB.Backupable].
+// blockedShards maps a collection to the shards the gate held; errs are the
+// other precheck errors, which are withheld from the response.
+func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]string, errs []error) {
+	if db.logger != nil {
+		// One line per collection, not per shard, and the shard list is
+		// capped: this pass can cover five-figure shard counts, so an
+		// uncapped field just moves the O(shards) growth out of the body
+		// and into a log line. The count is exact; the names are a sample.
+		// Sorted so repeated refusals diff cleanly.
+		collections := make([]string, 0, len(blockedShards))
+		for c := range blockedShards {
+			collections = append(collections, c)
+		}
+		sort.Strings(collections)
+		for _, c := range collections {
+			shardNames := blockedShards[c]
+			sort.Strings(shardNames)
+			sample := shardNames
+			if len(sample) > reindexRefusalShardSample {
+				sample = sample[:reindexRefusalShardSample]
+			}
+			db.logger.WithField("action", "backup_reindex_gate").
+				WithField("collection", c).
+				WithField("node", nodeName).
+				WithField("blocked_shards", sample).
+				WithField("blocked_shard_count", len(shardNames)).
+				Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
+					"blocked_shards lists the first %d", len(shardNames), c, len(sample))
+		}
+	}
+	if len(errs) > 0 && db.logger != nil {
+		// Withheld from the response, not from the operator.
+		db.logger.WithField("action", "backup_reindex_gate").
+			Warnf("backup precheck refused by the reindex gate; also hit %d other error(s), "+
+				"reported here only: %v", len(errs), stderrors.Join(errs...))
+	}
 }
 
 // BackupDescriptors returns a channel of class descriptors.
