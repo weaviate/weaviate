@@ -23,9 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// cancelGateProvider builds the smallest ReindexProvider that OnCancelApplied
-// needs: the cleanup registry, the payload cache it reads through, a logger for
-// the reopen goroutine, and the server context that bounds the hold.
+// cancelGateProvider builds the smallest ReindexProvider OnCancelApplied needs.
 func cancelGateProvider(serverCtx context.Context) *ReindexProvider {
 	logger, _ := logrustest.NewNullLogger()
 	return &ReindexProvider{
@@ -51,16 +49,8 @@ func cancelGateTask(t *testing.T, payload *ReindexTaskPayload) *distributedtask.
 	}
 }
 
-// TestOnCancelAppliedClosesCleanupGate pins the reason OnCancelApplied exists:
-// the node handling a cancel has to be able to tell its caller that no backup
-// can start into a half-torn-down shard, and it only has a few seconds to learn
-// that. Every other path that closes the cleanup gate is driven by the
-// scheduler tick (one minute by default), so the gate must be closed by the
-// apply itself.
-//
-// The provider here has no scheduler, no DB, and no running task: if the gate
-// is closed after OnCancelApplied returns, nothing but the apply can have
-// closed it.
+// The gate must be closed by the apply itself. This provider has no scheduler,
+// no DB and no running task, so nothing else could have closed it.
 func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 	const collection = "Movies"
 

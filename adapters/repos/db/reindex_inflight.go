@@ -78,21 +78,14 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return db.reindexBlockReason(collection, shardName) != reindexNotBlocked
 }
 
-// reindexGateSnapshot is one admission pass's view of both backup-gate
-// lookups. Building it invokes each builder exactly once, and the activity
-// builder's work is a leader-forwarded RAFT query
-// (ListDistributedTasks), so rebuilding per shard would cost one leader
-// round trip per shard checked: 128 for a 128-shard class.
+// reindexGateSnapshot is one admission pass's view of both backup-gate lookups,
+// built once per pass because the activity builder issues a leader-forwarded
+// RAFT query: per-shard rebuilds cost one leader round trip per shard.
 //
-// One snapshot per pass means shards checked late in the pass do not see
-// a reindex task that appeared mid-pass. That is acceptable: the pass was
-// never atomic to begin with, and a task that starts after the snapshot is
-// caught by the commit-time overlap check. Admission-pass consistency plus
-// a commit-time backstop is the intended two-layer shape.
+// Shards checked late therefore miss a task that appeared mid-pass. The pass was
+// never atomic anyway, and the commit-time overlap check catches those.
 //
-// A nil activity lookup means "gate unwired or builder declined" and
-// admits the backup, matching the fail-open default documented on
-// [DB.AnyLiveReindexForShard].
+// A nil activity lookup admits the backup, per [DB.AnyLiveReindexForShard].
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup

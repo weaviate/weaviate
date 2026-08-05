@@ -642,15 +642,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// missing directories are silently skipped by the per-shard helper.
 	indexTypesForCleanup, indexTypeKnown := indexTypesFromMigrationType(migrationType)
 	if indexTypeKnown {
-		// This deletion runs before the RAFT commit, so the reindex is not
-		// yet visible to any backup gate — a backup claiming its slot in
-		// this window captures shards whose sidecar files this loop is
-		// removing, and the post-commit rollback can cancel the task but
-		// cannot put the files back. Holding the cleanup gate makes the
-		// removal itself visible to the backup gate, the same protection
-		// [db.ReindexProvider.MarkCleanupInProgress] gives the teardown paths.
-		// Held until the handler returns, so the deletion and the commit that
-		// makes the task visible are one window rather than two.
+		// The deletion below is not yet visible to any backup gate: the task
+		// is not committed. Close the gate over it, per
+		// [db.ReindexProvider.MarkCleanupInProgress], and hold it until the
+		// handler returns so the deletion and the commit are one window.
 		if h.appState.ReindexProvider != nil {
 			defer h.appState.ReindexProvider.MarkSubmitInProgress(collection)()
 		}

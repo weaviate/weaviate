@@ -19,10 +19,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// TestManagerCancelObserver pins the apply-path hook a namespace needs to make
-// "this node has seen the cancel" observable to its peers. Without it the
-// earliest signal is the next scheduler tick, which is a minute away by default
-// and far outside what a caller waiting on a cancel can budget for.
+// A registered observer must fire from the CANCEL apply itself.
 func TestManagerCancelObserver(t *testing.T) {
 	const (
 		namespace = "test"
