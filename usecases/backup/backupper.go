@@ -47,7 +47,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
-		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5), log: logger},
 	}
 }
 

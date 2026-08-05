@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -67,10 +69,10 @@ func (s *Shard) haltRemoveOwnerLocked(owner string) (gone bool) {
 
 // clearHaltForTransferStateLocked drops every trace of halt-for-transfer state at
 // shard teardown: a shard whose store is closed must not keep answering "paused for
-// transfer" through ListBackupFiles/GetFile/GetFileMetadata, and must not keep
-// claiming an outstanding resume. Both owner maps are cleared together — clearing only
-// haltForTransferOwners would leave an armed set that resumeOwnerLocked's
-// zero-total branch can never clean up. Caller must hold haltForTransferMux.
+// transfer", nor keep claiming an outstanding resume. Both owner maps are cleared
+// together; clearing only haltForTransferOwners would leave an armed set that
+// resumeOwnerLocked's zero-total branch can never clean up. Caller must hold
+// haltForTransferMux.
 func (s *Shard) clearHaltForTransferStateLocked() {
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 	s.mayStopInactivityMonitoring()
@@ -129,12 +131,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 			s.mayInitInactivityMonitoring()
 		}
 		// A halt that returns successfully is itself liveness, and neither call above
-		// moves an existing deadline: mayUpdateInactivityTimeout only ever shortens
-		// the timeout, and mayInitInactivityMonitoring returns early once a monitor
-		// is running. Without this, an overlapping consumer inherits a deadline the
-		// first consumer's seal steps already spent, and the watchdog's force-resume
-		// drops the halt for every armed holder rather than only the one that timed
-		// out. No-ops when no timeout is armed.
+		// moves an existing deadline: mayUpdateInactivityTimeout only shortens the
+		// timeout, and mayInitInactivityMonitoring returns early once a monitor is
+		// running. Without this reset an overlapping consumer inherits a deadline the
+		// first consumer's seal steps already spent. No-ops when no timeout is armed.
 		s.mayResetInactivityDeadline()
 	}()
 
@@ -144,10 +144,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 		//
 		// Do NOT persist the hashtree: a persisted tree is accepted as authoritative
 		// on the next load after a height-only check, which is sound only when the
-		// shard serves no further writes. This halt is exactly the case where it
-		// does — the tenant still takes internal replica writes during the halt, and
-		// an aborted freeze returns it to HOT and to external writes. With no .ht on
-		// disk the next activation rebuilds by full scan instead.
+		// shard serves no further writes. This shard still takes internal replica
+		// writes during the halt, and an aborted freeze returns it to HOT. With no
+		// .ht on disk the next activation rebuilds by full scan.
 		s.stopAsyncReplication(false)
 	}
 
@@ -472,26 +471,37 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context, owner string) error
 
 // resumeOwnerLocked removes one of owner's halts and, once the owner is fully
 // gone, un-arms it; maintenance physically resumes only when no live halt
-// remains. Caller must hold haltForTransferMux.
+// remains. A pending retry from an earlier failed resume is deferred while a
+// reindex is in flight on this shard. Caller must hold haltForTransferMux.
 func (s *Shard) resumeOwnerLocked(ctx context.Context, owner string) error {
 	if s.haltTotalLocked() == 0 {
 		if s.maintenanceResumePending {
+			// The backup release sweep reaches every loaded shard, so this retry can
+			// arrive uninvited. The store's compaction pause is a shared boolean, so
+			// retrying while the reindex/orphan-audit machinery holds that pause would
+			// restart compaction underneath its file removals. Skipping keeps the flag
+			// set for the next attempt.
+			if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
+				s.index.logger.WithFields(logrus.Fields{
+					"action": "resume_maintenance",
+					"shard":  s.name,
+					"reason": "reindex_in_flight",
+				}).Debugf("deferring pending maintenance resume: %v", blockedErr)
+				return nil
+			}
+
 			// A prior resume removed the owner bookkeeping below BEFORE the fallible
-			// completeResumeLocked ran and then failed, so without this retry every
-			// later attempt would report success on a shard whose maintenance never
-			// restarted. Blast radius of the state being repaired is "one queue or
-			// vector index stays in backup mode", not "compaction stays off":
-			// store.ResumeCompaction cannot fail and the error group runs every leg
-			// regardless of the first error.
+			// completeResumeLocked ran and then failed; without this retry every later
+			// attempt reports success on a shard whose maintenance never restarted. The
+			// state being repaired is a queue or vector index left in backup mode, not
+			// compaction left off: store.ResumeCompaction cannot fail and the error
+			// group runs every leg regardless of the first error.
 			//
-			// The retry handle has to be this physical flag, not a retained owner
-			// claim. haltForTransferOwners is a gate, not a handle: haltTotalLocked
-			// drives the "is this shard paused for transfer" answer that
-			// ListBackupFiles/GetFile/GetFileMetadata return, and the newTotal==1
-			// predicate that decides whether the next halt runs the pause steps.
-			// Since a failed resume has already restarted compaction, retaining the
-			// owner would report "paused" while compaction physically runs, and would
-			// make the next halt skip its own PauseCompaction at newTotal==2.
+			// The retry handle is this flag rather than a retained owner claim, because
+			// haltForTransferOwners is a gate: haltTotalLocked answers "is this shard
+			// paused for transfer" and decides whether the next halt runs the pause
+			// steps. A failed resume has already restarted compaction, so a retained
+			// owner would report "paused" while compaction physically runs.
 			return s.completeResumeLocked(ctx)
 		}
 		// noop, maintenance cycles not halted

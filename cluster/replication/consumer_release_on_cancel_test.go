@@ -13,6 +13,8 @@ package replication_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -40,7 +42,8 @@ import (
 // covers the case where CopyReplicaFiles' defer never registered because
 // the Create response was lost in transit — and that they release under the
 // same key the create path registered (consumer.go -> copier.go), the op UUID,
-// for an empty UUID as much as for a set one.
+// for an empty UUID as much as for a set one. The last row pins that a failing
+// release is warn-only and does not hold up the terminal state.
 func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 	const opUUID = strfmt.UUID("11111111-2222-3333-4444-555555555555")
 
@@ -52,11 +55,20 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 		return s
 	}
 
+	deletionExpect := func(fsm *types.MockFSMUpdater) {
+		fsm.EXPECT().ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).Return(nil)
+	}
+	triggerDeletion := func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus {
+		s.TriggerDeletion()
+		return s
+	}
+
 	cases := []struct {
 		name        string
 		uuid        strfmt.UUID
 		fsmExpect   func(fsm *types.MockFSMUpdater)
 		statusSetup func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus
+		releaseErr  error
 	}{
 		{
 			name:        "cancellation triggers ReleaseReplicaSnapshot",
@@ -65,15 +77,21 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			statusSetup: triggerCancellation,
 		},
 		{
-			name: "deletion triggers ReleaseReplicaSnapshot",
-			uuid: opUUID,
-			fsmExpect: func(fsm *types.MockFSMUpdater) {
-				fsm.EXPECT().ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).Return(nil)
-			},
-			statusSetup: func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus {
-				s.TriggerDeletion()
-				return s
-			},
+			name:        "deletion triggers ReleaseReplicaSnapshot",
+			uuid:        opUUID,
+			fsmExpect:   deletionExpect,
+			statusSetup: triggerDeletion,
+		},
+		{
+			// Deletion is terminal: no later release exists to retry the staging
+			// removal, so a failing release is warn-only and the op leaves the FSM
+			// regardless. The next create refuses to proceed into a surviving staging
+			// dir (Index.clearPriorReplicaSnapshot); the startup sweep reclaims it.
+			name:        "a failing release is warned and the deletion still completes",
+			uuid:        opUUID,
+			fsmExpect:   deletionExpect,
+			statusSetup: triggerDeletion,
+			releaseErr:  errors.New("staging dir busy"),
 		},
 		{
 			// An op with no UUID must still release under the empty key: the numeric
@@ -87,7 +105,7 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := logrustest.NewNullLogger()
+			logger, logHook := logrustest.NewNullLogger()
 			mockFSMUpdater := types.NewMockFSMUpdater(t)
 			mockReplicaCopier := types.NewMockReplicaCopier(t)
 
@@ -141,7 +159,7 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 					keysMu.Lock()
 					releaseKeys = append(releaseKeys, key)
 					keysMu.Unlock()
-					return nil
+					return tc.releaseErr
 				}).Maybe()
 
 			// Loop until cancelled — drives the consumer into the cancel-handler paths.
@@ -215,6 +233,15 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			for _, key := range releaseKeys {
 				require.Equal(t, string(tc.uuid), key,
 					"the release must use the same key the create path registered")
+			}
+			if tc.releaseErr != nil {
+				var warned bool
+				for _, e := range logHook.AllEntries() {
+					if e.Level == logrus.WarnLevel && strings.Contains(e.Message, tc.releaseErr.Error()) {
+						warned = true
+					}
+				}
+				require.True(t, warned, "a failed release must be reported to the operator")
 			}
 			mockReplicaCopier.AssertExpectations(t)
 		})

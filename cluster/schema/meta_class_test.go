@@ -21,11 +21,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// A malformed tenant-process element is producible today (the migrator pre-sizes the
-// slice per tenant and ErrorGroupWrapper.Go recovers panics, leaving a nil slot that
-// is published). Dereferencing it here would panic inside the FSM apply, on every
-// node, for a log entry that gets replayed — a node-local fault becoming a
-// cluster-wide crash loop.
+// A malformed tenant-process element is producible today: the migrator pre-sizes the
+// slice per tenant and ErrorGroupWrapper.Go recovers panics, so a nil slot gets
+// published. Dereferencing it in the FSM apply would crash-loop every node.
 func TestUpdateTenantsProcessSkipsMalformedEntries(t *testing.T) {
 	const (
 		nodeID = "node1"

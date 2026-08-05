@@ -101,7 +101,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, op backup.Op, classes []str
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
-		// Defer in case of recovery-on-panic
+		// Deferred: GoWrapper recovers panics, and the channel must close on that path too.
 		defer close(ds)
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c, BackupID: op.ID}
@@ -275,8 +275,8 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, op backup.Op, desc 
 	defer func() {
 		if err != nil {
 			os.RemoveAll(stagingRoot)
-			// Release on context.Background() so that descriptor's cancellation does not
-			// prevent the release from lifting the halts it exists to lift
+			// context.Background(): a cancelled descriptor ctx must not stop the
+			// release from lifting its halts.
 			enterrors.GoWrapper(func() { i.ReleaseBackup(context.Background(), op) }, i.logger)
 		}
 	}()
@@ -474,16 +474,15 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
 // hardlinks. Compaction remains paused for the entire backup upload duration.
 //
-// The op (not a bare backup ID) is threaded through so the halts this path places
-// carry op.HaltOwner(): Index.ReleaseBackup resumes by that fenced key, and an
-// unfenced owner would orphan every halt this path takes.
+// Halts placed here carry op.HaltOwner(), the fenced key Index.ReleaseBackup
+// resumes by; an unfenced owner would orphan them.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) descriptorWithoutHardlinks(ctx context.Context, op backup.Op, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	defer func() {
 		if err != nil {
-			// Release on context.Background() so that descriptor's cancellation does not
-			// prevent the release from lifting the halts it exists to lift
+			// context.Background(): a cancelled descriptor ctx must not stop the
+			// release from lifting its halts.
 			enterrors.GoWrapper(func() { i.ReleaseBackup(context.Background(), op) }, i.logger)
 		}
 	}()
@@ -524,8 +523,8 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, op backup.Op, de
 // For inactive shards, backupProtectedShards is set and backupLock.Lock is held
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
 //
-// The op is threaded through so the halt below registers under op.HaltOwner(),
-// the fenced key Index.ReleaseBackup resumes.
+// The halt below registers under op.HaltOwner(), the fenced key
+// Index.ReleaseBackup resumes.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, op backup.Op, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
@@ -658,10 +657,9 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 	return nil
 }
 
-// backupStagingDir names the staging tree of ONE operation instance. The fence is
-// part of the hashed body, so a cancelled operation and its same-ID retry get
-// distinct directories and the stale instance's release cannot delete the retry's
-// live snapshot tree mid-hardlink.
+// backupStagingDir names the staging tree of ONE operation instance. op.Fence is
+// part of the hashed name, so a stale instance's release cannot delete a same-ID
+// retry's live snapshot tree mid-hardlink.
 func backupStagingDir(rootPath string, op backup.Op, className schema.ClassName) string {
 	name := file.SafeStagingDirName(backup.BackupStagingPrefix, op.ID, op.Fence, indexID(className))
 	return filepath.Join(rootPath, name)
@@ -669,23 +667,19 @@ func backupStagingDir(rootPath string, op backup.Op, className schema.ClassName)
 
 // ReleaseBackup marks the specified backup as inactive and restarts all
 // async background and maintenance processes. It errors only if resuming maintenance
-// fails; the release steps themselves are unconditional and idempotent, so a release
-// for an unknown or already-released operation is a no-op rather than an error.
+// fails; the other release steps are idempotent, so releasing an unknown or
+// already-released operation is a no-op rather than an error.
 //
-// Lock order is critical. Index teardown holds closeLock for writing and then
-// waits on backupLock for every shard, so the protections below MUST be released
-// before this function ever waits on closeLock: otherwise teardown waits for a
-// lock only this release can drop while this release waits for teardown to finish,
-// and the index is wedged for the life of the process. Steps 1-3 are therefore
-// lock-free and only the resume sweep runs under closeLock.RLock.
+// Steps 1-3 must not wait on closeLock. Index teardown holds closeLock for writing
+// and then waits on backupLock for every shard, so a release that waits on closeLock
+// before dropping those protections deadlocks against teardown. Only the resume
+// sweep runs under closeLock.RLock.
 //
-// A lock-free gate CAS widens a pre-existing window: Index.drop reads lastBackup
-// under closeLock.Lock to pick keepFiles, so a drop can observe a gate that is
-// being cleared concurrently, choose keepFiles=true and rename the index directory
-// to the backup.DeleteMarkerAdd form although the backup did finish. The identical
-// outcome is already reachable through the existing db.GetIndex-then-drop window,
-// and the startup sweep removes every DeleteMarker-prefixed directory, so this is
-// an accepted widening of an existing window, not a new failure class.
+// The lock-free gate CAS in step 3 widens an existing window: Index.drop reads
+// lastBackup under closeLock.Lock to pick keepFiles, so a concurrent drop can pick
+// keepFiles=true for a backup that did finish and rename the index directory to the
+// backup.DeleteMarkerAdd form. The startup sweep removes every DeleteMarker-prefixed
+// directory.
 func (i *Index) ReleaseBackup(ctx context.Context, op backup.Op) error {
 	i.logger.WithField("backup_id", op.ID).WithField("class", i.Config.ClassName).Info("release backup")
 
@@ -713,16 +707,14 @@ func (i *Index) ReleaseBackup(ctx context.Context, op backup.Op) error {
 		i.lastBackup.CompareAndSwap(cur, nil)
 	}
 
-	// 4. resumeMaintenanceCycles is still called for safety, but is a no-op since
-	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
-	// a snapshot creation failed mid-way; it resumes only this operation's own
-	// halts, never a co-resident op's. It mutates shard state, so unlike the steps
-	// above it needs closeLock.
+	// 4. resumeMaintenanceCycles covers a snapshot creation that failed mid-way;
+	// CreateBackupSnapshot already resumed compaction on the normal path. It resumes
+	// only this operation's own halts, and it mutates shard state, so unlike steps
+	// 1-3 it needs closeLock.
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 	if i.closed {
-		// Every shard has already been shut down or dropped, so there is nothing
-		// left to resume.
+		// Every shard is already shut down or dropped, so nothing is left to resume.
 		i.logger.WithField("backup_id", op.ID).WithField("class", i.Config.ClassName).
 			Debug("index is closed; skipping backup resume sweep")
 		return nil
@@ -749,10 +741,9 @@ func (i *Index) initBackup(op backup.Op) error {
 	return nil
 }
 
-// resumeMaintenanceCycles resumes owner's halt on every loaded shard. The
-// index-wide breadth is required for aborted-mid-halt recovery — the index does
-// not track which active shards a backup halted — but each shard now resumes by
-// owner, so a shard a different op holds is a clean no-op and its halt survives.
+// resumeMaintenanceCycles resumes owner's halt on every loaded shard. The sweep is
+// index-wide because the index does not track which shards a backup halted; each
+// shard resumes by owner, so a shard a different op holds is a no-op.
 func (i *Index) resumeMaintenanceCycles(ctx context.Context, owner string) (lastErr error) {
 	// Only loaded shards have maintenance cycles to resume; a cold shard has
 	// none, so skip it rather than force-load every shard after a backup.

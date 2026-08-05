@@ -782,11 +782,9 @@ func TestLazyShardResetTimerIgnoresUnloadedShard(t *testing.T) {
 // completeResumeLocked runs, so without the pending flag every later attempt
 // early-returns and reports success on a shard still in backup mode.
 //
-// This test drives the flag directly, so it covers the branch's three shapes
-// cheaply: flag clear, flag set, and a fresh halt on top of a set flag.
-// TestResumeRetriesAfterFailedLegRecovers is the end-to-end companion — it fails
-// the resume for real by unregistering a callback control, heals it, and pins that
-// the retry re-runs the physical resume.
+// This test drives the flag directly and covers the branch's three shapes: flag
+// clear, flag set, and a fresh halt on top of a set flag.
+// TestResumeRetriesAfterFailedLegRecovers is the end-to-end companion.
 func TestResumeRetriesPendingMaintenanceResume(t *testing.T) {
 	tests := []struct {
 		name string
@@ -972,9 +970,8 @@ func TestShard_FullResumeResetsInactivityTimeout(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
-// Defence in depth against the tag-free owner-scope suite: on a metrics-wired
-// real shard, a forced resume must lift only the armed transfer's halt and spare
-// a non-armed backup co-holder.
+// On a metrics-wired real shard, a forced resume must lift only the armed transfer's
+// halt and spare a non-armed backup co-holder.
 func TestShard_ForcedResumeReleasesArmedOwnerOnly(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"

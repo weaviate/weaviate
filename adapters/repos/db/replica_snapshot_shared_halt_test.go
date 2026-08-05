@@ -160,9 +160,9 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 }
 
 // The owner bookkeeping is cleared ahead of the errgroup that can fail, so a failed
-// resume still drops the halt count while the cycles it could not restart stay
-// paused. That is why the shard records the failure as a pending physical resume:
-// the count alone can no longer drive a retry.
+// resume drops the halt count while the cycles it could not restart stay paused. The
+// shard therefore records the failure as a pending physical resume: the count alone
+// can no longer drive a retry.
 func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
 	_, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
@@ -183,11 +183,10 @@ func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
 		"the failed physical resume must be recorded so a later resume re-runs it")
 }
 
-// The retry itself: once the failing leg is healthy again, a later resume must
-// actually re-run the physical resume and clear the pending flag. Without the
-// pending re-run in resumeOwnerLocked's zero-total branch, that second resume
-// early-returns on the already-zero halt count and reports success on a shard whose
-// maintenance never restarted.
+// Once the failing leg is healthy again, a later resume must re-run the physical
+// resume and clear the pending flag. Without that re-run in resumeOwnerLocked's
+// zero-total branch, the second resume early-returns on the already-zero halt count
+// and reports success on a shard whose maintenance never restarted.
 func TestResumeRetriesAfterFailedLegRecovers(t *testing.T) {
 	_, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()

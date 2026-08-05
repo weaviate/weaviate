@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,16 +29,15 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// These tests drive the real Index+Shard+LSM harness (newSharedHaltTestShard) so
-// index.ReleaseBackup / index.resumeMaintenanceCycles run the REAL index-wide sweep
-// against a REAL counter. Each pins the owner-scoping invariant: a foreign
-// operation's release (or a watchdog fire) must not lift a halt a different
-// in-flight operation still holds. The observable is the guard site itself —
-// ListBackupFiles returns "not paused for transfer" only when the shard's total
-// halt count is zero — so a survivor's ListBackupFiles succeeding proves its halt
-// survived.
+// These tests drive the real Index+Shard+LSM harness (newSharedHaltTestShard), so
+// index.ReleaseBackup and index.resumeMaintenanceCycles run the real index-wide
+// sweep. Each pins owner scoping: a foreign operation's release, or a watchdog fire,
+// must not lift a halt a different in-flight operation still holds. The observable is
+// the guard site: ListBackupFiles reports "not paused for transfer" only when the
+// shard's total halt count is zero.
 
 const ownerScopeObj1 = strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b")
 
@@ -436,11 +437,14 @@ func TestReleaseReplicaSnapshotRetriableAfterFailure(t *testing.T) {
 }
 
 // With delete-last, a persistently failing release would otherwise block every later
-// create for the opID; the create is itself the retry, so it logs and proceeds.
+// create for the opID; the create is itself the retry, so a resume failure is logged
+// and the create proceeds.
 //
-// There is no red form: the blocking state needs a persistently failing resume,
-// which cannot be constructed deterministically in-process. What is pinned is the
-// mechanism — clearPriorReplicaSnapshot has no error value and leaves the entry.
+// What is pinned is the mechanism, not the blocking state: that state needs a
+// persistently failing resume, which cannot be built deterministically in-process.
+// clearPriorReplicaSnapshot does not surface a resume failure and leaves the entry. A
+// staging-removal failure is the one case it does surface; see
+// TestCreateFailsOnUnremovablePriorStaging.
 func TestCreateToleratesFailedPriorRelease(t *testing.T) {
 	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
 	index, _ := newSharedHaltTestShard(t)
@@ -454,7 +458,8 @@ func TestCreateToleratesFailedPriorRelease(t *testing.T) {
 	// nil held: the clear resolves the shard itself, and a closed index makes that
 	// resolution fail, which is the failure this test needs.
 	index.closed = true
-	index.clearPriorReplicaSnapshot(ctx, opID, nil)
+	require.NoError(t, index.clearPriorReplicaSnapshot(ctx, opID, nil),
+		"a resume failure must not fail the create")
 	index.closed = false
 
 	index.replicaSnapshotsMu.Lock()
@@ -463,33 +468,31 @@ func TestCreateToleratesFailedPriorRelease(t *testing.T) {
 		"a failed clear must leave the entry for the next release to retry")
 }
 
-// The single-armer case: a fire lifts the armed transfer but must spare a
-// non-armed backup co-holder (vs. the old whole-shard zero).
-func TestForcedResumeSpareBackupCoHolder(t *testing.T) {
+// A staging dir that survives its removal is not recoverable by proceeding: the
+// create hardlinks into it and dies on EEXIST, naming a file instead of the stale
+// directory. Fail while the cause is still nameable.
+func TestCreateFailsOnUnremovablePriorStaging(t *testing.T) {
 	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-	index, shard := newSharedHaltTestShard(t)
-	index.Config.TransferInactivityTimeout = time.Hour
+	index, _ := newSharedHaltTestShard(t)
 	ctx := context.Background()
 	putSharedHaltObject(t, index, ownerScopeObj1, 0)
 
-	const opT = "00000000-0000-0000-0000-0000000000ff"
-	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opT)
+	const opID = "00000000-0000-0000-0000-0000000000d2"
+	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
 	require.NoError(t, err)
 
-	backupOwner := backup.NewOp("B").HaltOwner()
-	require.NoError(t, shard.HaltForTransfer(ctx, backupOwner, false, 0))
-	defer func() { _ = shard.resumeMaintenanceCycles(ctx, backupOwner) }()
+	stagingRoot := replicaStagingDir(index.Config.RootPath, opID, schema.ClassName(index.Config.ClassName))
+	require.DirExists(t, stagingRoot, "pre-condition: the first create must have staged")
+	// A read-only parent is what makes RemoveAll of a non-empty dir fail; the staging
+	// dir holds the listed segment files, so it is not empty.
+	require.NoError(t, os.WriteFile(filepath.Join(stagingRoot, "pinned"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(index.Config.RootPath, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(index.Config.RootPath, 0o700) })
 
-	forceInactivityFire(t, shard)
-
-	shard.haltForTransferMux.Lock()
-	_, tPresent := shard.haltForTransferOwners[replicaHaltOwner(opT)]
-	_, backupPresent := shard.haltForTransferOwners[backupOwner]
-	shard.haltForTransferMux.Unlock()
-
-	require.False(t, tPresent, "the armed transfer must be force-resumed")
-	require.True(t, backupPresent, "the backup co-holder must survive")
-	requireHalted(t, ctx, shard, "the backup's halt must survive the fire")
+	_, err = index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+	require.Error(t, err, "the retry must not proceed into a staging dir it could not clear")
+	require.ErrorIs(t, err, errReplicaStagingNotRemoved)
+	require.ErrorContains(t, err, stagingRoot, "the error must name the directory that survived")
 }
 
 // A replica-snapshot holder must survive a foreign backup release too — the

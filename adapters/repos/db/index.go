@@ -772,9 +772,8 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 }
 
 // ForEachLoadedShard visits every shard that is currently loaded, skipping cold
-// lazy wrappers. Unlike ForEachShard it does NOT gate on closingCtx, so callers
-// that mutate shard state must take closeLock and check i.closed themselves — see
-// Index.ReleaseBackup, which wraps its sweep for exactly that reason.
+// lazy wrappers. Unlike ForEachShard it does NOT gate on closingCtx, so callers that
+// mutate shard state must take closeLock and check i.closed themselves.
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
 		// Skip lazy loaded shard which are not loaded
@@ -3297,9 +3296,8 @@ func (i *Index) drop() error {
 
 	i.closingCancel()
 
-	// Deferred rather than inlined at the end: the registry describes shards this
-	// index owns, so it must be purged on every exit path from here on, whatever
-	// the shard drops and the cycle managers report.
+	// The registry describes shards this index owns, so every exit path from here
+	// on must purge it.
 	defer i.purgeReplicaSnapshots()
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
@@ -3540,9 +3538,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	i.closingCancel()
 
-	// Deferred rather than inlined at the end: the registry describes shards this
-	// index owns, so it must be purged on every exit path from here on, whatever
-	// the shard loop and the cycle managers report.
+	// The registry describes shards this index owns, so every exit path from here
+	// on must purge it.
 	defer i.purgeReplicaSnapshots()
 
 	ec := errorcompounder.NewSafe()

@@ -16,10 +16,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -514,10 +516,9 @@ func TestReleaseBackupSkipsSweepOnClosedIndex(t *testing.T) {
 	protectShard(t, idx, shardName)
 	idx.lastBackup.Store(&BackupState{Op: op, InProgress: true})
 
-	// A strict mock with NO resumeMaintenanceCycles expectation: reaching the sweep
-	// on a closed index is an unexpected call and fails the test. Without it the
-	// guard would be indistinguishable from its absence, since an index with no
-	// shards makes the sweep a no-op either way.
+	// Strict mock with NO resumeMaintenanceCycles expectation: reaching the sweep is
+	// an unexpected call and fails the test. Without a shard registered, an empty
+	// index makes the sweep a no-op and the guard untestable.
 	sweptShard := NewMockShardLike(t)
 	idx.shards.Store("loaded-tenant", sweptShard)
 
@@ -532,12 +533,11 @@ func TestReleaseBackupSkipsSweepOnClosedIndex(t *testing.T) {
 }
 
 // A release belonging to another operation instance must not delete the live
-// operation's staging tree — the fence in the directory name is what separates a
-// cancelled operation from its same-ID retry mid-hardlink.
+// operation's staging tree.
 //
-// Only the staging resource is covered. The protection map is deliberately not:
-// its sweep is operation-agnostic on the deprecated non-hardlink path
-// (NO-HARDLINK-BACKUP, removed in v1.40). The admission-gate column is pinned by
+// Only the staging resource is covered. The protection map is not: its sweep is
+// operation-agnostic on the deprecated non-hardlink path (NO-HARDLINK-BACKUP,
+// removed in v1.40). The admission gate is pinned by
 // TestStaleGenerationReleaseInertAgainstSuccessor.
 func TestStaleReleaseLeavesLiveStagingIntact(t *testing.T) {
 	ctx := context.Background()
@@ -663,8 +663,51 @@ func TestLazyShardResumeDoesNotForceLoad(t *testing.T) {
 	require.False(t, lazy.isLoaded(), "the resume must not force-load a cold shard")
 }
 
-// The sweep costs no per-shard wall-clock delay, so its runtime stays proportional
-// to the resume work itself rather than to the tenant count.
+// countingResumeShard stands in for a mockery mock, whose hundreds of microseconds
+// per dispatch under -race would land within an order of magnitude of the delay this
+// measurement has to detect.
+type countingResumeShard struct {
+	ShardLike
+	name  string
+	calls *sweepCounter
+}
+
+func (s *countingResumeShard) resumeMaintenanceCycles(context.Context, string) error {
+	s.calls.record(s.name)
+	return nil
+}
+
+// sweepCounter counts resumes per shard, so a shard swept twice cannot compensate
+// for one that was skipped. A mutex-guarded map costs a few hundred nanoseconds per
+// call, inside the measurement budget below.
+type sweepCounter struct {
+	mu    sync.Mutex
+	perID map[string]int
+}
+
+func newSweepCounter() *sweepCounter {
+	return &sweepCounter{perID: map[string]int{}}
+}
+
+func (c *sweepCounter) record(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.perID[name]++
+}
+
+func (c *sweepCounter) snapshot() map[string]int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return maps.Clone(c.perID)
+}
+
+// The sweep costs no per-shard wall-clock delay, so its runtime is proportional to
+// the resume work rather than to the tenant count.
+//
+// The bound sits between two scales: 200 counter increments cost tens of
+// microseconds, while the smallest per-shard sleep worth catching (10 ms) floors the
+// sweep at 2 s. Do not tighten 500 ms; that gap is what keeps it from flaking under
+// suite load. Shard construction stays outside the measured window.
 func TestResumeMaintenanceCyclesHasNoPerShardDelay(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := tlog.NewNullLogger()
@@ -673,17 +716,21 @@ func TestResumeMaintenanceCyclesHasNoPerShardDelay(t *testing.T) {
 		logger: logger,
 	}
 
-	const shards = 50
+	const shards = 200
+	calls := newSweepCounter()
+	want := make(map[string]int, shards)
 	for i := range shards {
-		mockShard := NewMockShardLike(t)
-		mockShard.EXPECT().resumeMaintenanceCycles(mock.Anything, mock.Anything).Return(nil)
-		idx.shards.Store(fmt.Sprintf("tenant-%d", i), mockShard)
+		name := fmt.Sprintf("tenant-%d", i)
+		want[name] = 1
+		idx.shards.Store(name, &countingResumeShard{name: name, calls: calls})
 	}
 
 	begin := time.Now()
 	require.NoError(t, idx.resumeMaintenanceCycles(ctx, backup.NewOp("B").HaltOwner()))
-	// A 10 ms per-shard delay would put a 500 ms floor under 50 shards.
-	require.Less(t, time.Since(begin), 100*time.Millisecond)
+	elapsed := time.Since(begin)
+
+	require.Equal(t, want, calls.snapshot(), "every loaded shard must be swept exactly once")
+	require.Less(t, elapsed, 500*time.Millisecond)
 }
 
 // A class admitted after the operation is over has no releaser left: its admission
@@ -722,10 +769,10 @@ func TestBackupDescriptorsDoesNotAdmitAfterCancel(t *testing.T) {
 // idx.descriptor; without the deferred close the channel would stay open forever and
 // the uploader's join would hang until its budget expires.
 func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
-	// The guarantee under test only exists on the recovered-panic path, which is the
-	// production posture. The CI suite exports DISABLE_RECOVERY_ON_PANIC=true globally
+	// The guarantee exists only on the recovered-panic path, the production posture.
+	// The CI suite exports DISABLE_RECOVERY_ON_PANIC=true globally
 	// (test/integration/run.sh) and GoWrapper reads it at recover time, so without
-	// this pin the injected panic escapes the wrapper and kills the whole test binary.
+	// this pin the injected panic kills the whole test binary.
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 
 	const className = "PanicDescriptorClass"

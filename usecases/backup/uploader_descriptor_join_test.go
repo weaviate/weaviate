@@ -27,11 +27,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// The invariant these tests establish is PER CLASS: no class may be admitted after
-// a release for that class has been issued, and the terminal release happens after
-// the producer has finished. It is deliberately NOT "every release happens after the
-// producer finished" — the per-class release in uploader.class fires as soon as that
-// class's upload ends, which is already ordered after that class's admission.
+// The invariant these tests establish is PER CLASS: no class may be admitted after a
+// release for that class has been issued, and the terminal release happens after the
+// producer has finished. It is NOT "every release happens after the producer
+// finished": the per-class release in uploader.class fires when that class's upload
+// ends, already ordered after that class's admission.
+//
+// The invariant covers the non-cancelled paths only. A cancelled operation releases
+// without waiting for its producer and re-releases afterwards; that weaker contract
+// is pinned in uploader_cancel_detach_test.go.
 
 // recordingSourcer is a Sourcer whose producer is driven by explicit handshakes, so
 // the test never has to sleep to know where the producer is.
@@ -41,6 +45,7 @@ type recordingSourcer struct {
 	admittedAfterRelease map[string]bool
 	releaseSawClose      map[string]bool
 	releaseSawOpen       map[string]bool
+	releaseOps           []backup.Op
 
 	producerClosed atomic.Bool
 
@@ -78,9 +83,10 @@ func (s *recordingSourcer) BackupDescriptors(ctx context.Context, _ backup.Op, c
 	return ch
 }
 
-func (s *recordingSourcer) ReleaseBackup(_ context.Context, _ backup.Op, class string) error {
+func (s *recordingSourcer) ReleaseBackup(_ context.Context, op backup.Op, class string) error {
 	s.mu.Lock()
 	s.released[class] = true
+	s.releaseOps = append(s.releaseOps, op)
 	if s.producerClosed.Load() {
 		s.releaseSawClose[class] = true
 	} else {
@@ -115,6 +121,12 @@ func (s *recordingSourcer) snapshot() (admittedAfterRelease, releaseSawClose, re
 	return cp(s.admittedAfterRelease), cp(s.releaseSawClose), cp(s.releaseSawOpen)
 }
 
+func (s *recordingSourcer) ops() []backup.Op {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]backup.Op(nil), s.releaseOps...)
+}
+
 func newJoinTestUploader(t *testing.T, s Sourcer) *uploader {
 	t.Helper()
 	fb := newFakeBackend()
@@ -131,16 +143,17 @@ func newJoinTestUploader(t *testing.T, s Sourcer) *uploader {
 // channel immediately, and with the fix no release of B exists to wait for.
 const interimReleaseGrace = 500 * time.Millisecond
 
-// runCancelledTwoClassBackup drives uploader.all over classes A and B against a
+// runFailedTwoClassBackup drives uploader.all over classes A and B against a
 // producer that emits A, waits until the test has observed A's release, then admits
-// and emits B before returning (and thus closing the channel). The consume loop is
-// ended by cancelling the operation context while the producer is still parked, so
-// the pre-fix interim releases run against a live producer.
-func runCancelledTwoClassBackup(t *testing.T) *recordingSourcer {
+// and emits B before returning (closing the channel). Class A's upload fails on a
+// descriptor naming a missing file, ending the consume loop while the producer is
+// still parked, so any interim release runs against a live producer.
+//
+// The trigger is a FAILURE, not a cancellation: a cancelled operation detaches the
+// join instead of waiting for it (uploader.all), so join-before-release is the
+// contract of the non-cancelled paths only.
+func runFailedTwoClassBackup(t *testing.T) *recordingSourcer {
 	t.Helper()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	aReleased := make(chan struct{})
 	bReleaseStarted := make(chan struct{})
@@ -149,7 +162,7 @@ func runCancelledTwoClassBackup(t *testing.T) *recordingSourcer {
 	var s *recordingSourcer
 	s = newRecordingSourcer(func(_ context.Context, emit func(backup.ClassDescriptor)) {
 		s.admit("A")
-		emit(backup.ClassDescriptor{Name: "A"})
+		emit(missingFileClassDescriptor("A"))
 
 		select {
 		case <-aReleased:
@@ -169,8 +182,6 @@ func runCancelledTwoClassBackup(t *testing.T) *recordingSourcer {
 			return
 		}
 		aOnce.Do(func() {
-			// Ends the consume loop while the producer is still parked.
-			cancel()
 			select {
 			case <-bReleaseStarted:
 			case <-time.After(interimReleaseGrace):
@@ -180,17 +191,31 @@ func runCancelledTwoClassBackup(t *testing.T) *recordingSourcer {
 	}
 
 	u := newJoinTestUploader(t, s)
-	_ = u.all(ctx, []string{"A", "B"}, &backup.BackupDescriptor{}, nil, "", "")
+	err := u.all(context.Background(), []string{"A", "B"}, &backup.BackupDescriptor{}, nil, "", "")
+	require.Error(t, err, "the fixture must end the consume loop with an upload failure")
+	require.NotErrorIs(t, err, context.Canceled, "the failure must not be a cancellation")
 
 	return s
 }
 
-// Unlike the terminal-release assertion below, a single read is sound here:
+// missingFileClassDescriptor builds a descriptor whose single shard names a file
+// that does not exist, so uploader.class fails while listing it. That ends the
+// consume loop after the class's own per-class release has been issued, which is
+// what unparks the producer.
+func missingFileClassDescriptor(class string) backup.ClassDescriptor {
+	return backup.ClassDescriptor{
+		Name: class,
+		Shards: []*backup.ShardDescriptor{
+			{Name: "shard1", Files: []string{"no-such-file"}},
+		},
+	}
+}
+
+// A single read is sound here, unlike in the terminal-release assertion below:
 // admittedAfterRelease is written only by the producer, via admit(), and the join
-// guarantees the producer has finished before uploader.all returns. No detached
-// goroutine can add to it afterwards.
+// guarantees the producer finished before uploader.all returned.
 func TestNoClassIsAdmittedAfterItsRelease(t *testing.T) {
-	s := runCancelledTwoClassBackup(t)
+	s := runFailedTwoClassBackup(t)
 
 	admittedAfterRelease, _, _ := s.snapshot()
 	require.Empty(t, admittedAfterRelease,
@@ -198,14 +223,12 @@ func TestNoClassIsAdmittedAfterItsRelease(t *testing.T) {
 }
 
 func TestTerminalReleaseHappensAfterProducerClose(t *testing.T) {
-	s := runCancelledTwoClassBackup(t)
+	s := runFailedTwoClassBackup(t)
 
 	// releaseIndexes fires one detached goroutine per class, so uploader.all
-	// returning does not mean every release has been recorded yet — only that each
-	// was issued after the join. The ordering under test is the product's; the lag
-	// is purely in this fixture's observation of it, so poll instead of reading
-	// once. Each map entry is only ever set, never cleared, so the condition is
-	// monotone and cannot flap.
+	// returning does not mean every release has been recorded yet, only that each was
+	// issued after the join. The lag is in this fixture's observation, so poll. Each
+	// map entry is only ever set, never cleared, so the condition cannot flap.
 	require.Eventually(t, func() bool {
 		_, releaseSawClose, _ := s.snapshot()
 		return releaseSawClose["A"] && releaseSawClose["B"]
@@ -216,9 +239,9 @@ func TestTerminalReleaseHappensAfterProducerClose(t *testing.T) {
 	// poll: require.Eventually runs its condition in a separate goroutine.
 	_, _, releaseSawOpen := s.snapshot()
 	// The consume loop never reaches B, so B has no per-class release of its own:
-	// every release it gets is terminal and must therefore follow the close. Safe to
-	// read once here — releaseSawOpen is only ever set while producerClosed is false,
-	// and the poll above has already observed it true.
+	// every release it gets is terminal and must follow the close. Reading once is
+	// safe: releaseSawOpen is only set while producerClosed is false, and the poll
+	// above already observed it true.
 	require.False(t, releaseSawOpen["B"],
 		"a class the loop never consumed must not be released while the producer is still running")
 }

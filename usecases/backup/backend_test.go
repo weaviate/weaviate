@@ -36,11 +36,10 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// Pins the operation identity the owner-scoped halt relies on: the uploader
-// mints its op ONCE (so BackupDescriptors and every ReleaseBackup carry the same
-// Op), and a same-ID cancel->retry — which builds a NEW uploader — mints a
-// DISTINCT fence, so a prior release cannot resume the retry's halts even though
-// the ID matches.
+// Pins the operation identity the owner-scoped halt relies on: the uploader mints
+// its op ONCE, so BackupDescriptors and every ReleaseBackup carry the same Op, and a
+// same-ID cancel->retry builds a NEW uploader with a DISTINCT fence, so a prior
+// release cannot resume the retry's halts.
 func TestNewUploaderMintsDistinctOp(t *testing.T) {
 	mk := func() *uploader {
 		return newUploader(config.Backup{}, nil, nil, nil, nil, nodeStore{}, "same-id",

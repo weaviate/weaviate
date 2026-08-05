@@ -24,16 +24,24 @@ import (
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	entbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// failingOffloadCloud is an OffloadCloud whose Upload always fails.
-type failingOffloadCloud struct{ uploadErr error }
+// failingOffloadCloud is an OffloadCloud whose Upload always fails, or panics when
+// uploadPanic is set.
+type failingOffloadCloud struct {
+	uploadErr   error
+	uploadPanic string
+}
 
 func (f *failingOffloadCloud) VerifyBucket(context.Context) error { return nil }
 
 func (f *failingOffloadCloud) Upload(context.Context, string, string, string) error {
+	if f.uploadPanic != "" {
+		panic(f.uploadPanic)
+	}
 	return f.uploadErr
 }
 
@@ -94,4 +102,56 @@ func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
 		tp := proc.req.TenantsProcesses[0]
 		return tp.Op == command.TenantsProcess_OP_ABORT && tp.Tenant.Status == models.TenantActivityStatusHOT
 	}, 5*time.Second, 20*time.Millisecond, "freeze must record OP_ABORT back to HOT")
+}
+
+// A freeze goroutine that panics after the halt must abort like the upload-failure
+// path: every node's FSM skips a nil slot, leaving the pre-recorded OP_START
+// standing, the tenant FREEZING, and this node's halt leaked with no watchdog armed.
+func TestFreezeAbortRestoresShardOnUploadPanic(t *testing.T) {
+	// The abort exists only on the recovered-panic path, the production posture. The
+	// CI suite exports DISABLE_RECOVERY_ON_PANIC=true globally
+	// (test/integration/run.sh) and the error-group wrapper reads it at recover time,
+	// so without this pin the injected panic kills the whole test binary.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	ctx := context.Background()
+	const class = "FreezeAbortPanicRestoresShard"
+
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	setShardReplicas(t, idx, "node1", "node2")
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+	require.NoError(t, s.store.FlushMemtables(ctx))
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	logger, _ := test.NewNullLogger()
+	m := NewMigrator(nil, logger, "node1")
+	m.SetNode("node1")
+	proc := &recordingProcessor{}
+	m.SetCluster(proc)
+	m.cloud = &failingOffloadCloud{uploadPanic: "simulated upload panic"}
+
+	ec := errorcompounder.New()
+	m.freeze(ctx, idx, class, []string{s.name}, ec)
+
+	requireTotal(t, s, 0, "a panicking freeze must lift its own halt")
+	_, err := s.ListBackupFiles(ctx, &entbackup.ShardDescriptor{})
+	require.ErrorContains(t, err, "not paused for transfer",
+		"compaction must be resumed after the panicking freeze")
+	require.ErrorContains(t, ec.ToError(), "panic occurred",
+		"the discarded group error is what made this silent")
+
+	require.Eventually(t, func() bool {
+		proc.mu.Lock()
+		defer proc.mu.Unlock()
+		if proc.req == nil || len(proc.req.TenantsProcesses) != 1 {
+			return false
+		}
+		tp := proc.req.TenantsProcesses[0]
+		return tp.Op == command.TenantsProcess_OP_ABORT && tp.Tenant.Status == models.TenantActivityStatusHOT
+	}, 5*time.Second, 20*time.Millisecond, "a panicking freeze must record OP_ABORT back to HOT")
 }

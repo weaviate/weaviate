@@ -42,16 +42,12 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
-	// descriptorJoinBudget is how long the uploader waits for the NEXT descriptor
-	// (or the channel close) while joining the descriptor producer, after which it
-	// releases anyway and hands the join to a detached goroutine. It is a
-	// per-descriptor budget, not a total join bound: each descriptor received
-	// re-arms it, so a producer that keeps making progress is waited on for as long
-	// as it keeps delivering. What the budget bounds is a producer that has STOPPED
-	// making progress, which is the case that would otherwise strand the uploader.
-	// Expiry is an ordinary operational event: the producer takes backupLock.Lock
-	// per shard and a concurrent tenant freeze holds the read side across an entire
-	// cloud upload, which no context cancellation can shorten.
+	// descriptorJoinBudget is the default uploader.joinBudget: how long the uploader
+	// waits for the NEXT descriptor (or the channel close) before releasing anyway and
+	// handing the join to a detached goroutine. Each descriptor received re-arms it, so
+	// it bounds a producer that has STOPPED making progress, not the total join. Expiry
+	// is an ordinary operational event: the producer takes backupLock.Lock per shard,
+	// and a concurrent tenant freeze holds the read side across an entire cloud upload.
 	descriptorJoinBudget = 5 * time.Minute
 
 	// maxCPUPercentage max CPU percentage can be consumed by the file writer
@@ -227,6 +223,9 @@ type uploader struct {
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
+	// joinBudget bounds a stalled descriptor producer; see descriptorJoinBudget,
+	// which is the production value. Tests shorten it.
+	joinBudget time.Duration
 }
 
 func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
@@ -244,8 +243,9 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setStatus: setstatus,
-		log:       l,
+		setStatus:  setstatus,
+		log:        l,
+		joinBudget: descriptorJoinBudget,
 	}
 }
 
@@ -268,16 +268,31 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
 	defer func() {
-		// Join the producer before releasing: a class admitted after its release has
-		// no releaser left, so its admission gate — and, on the non-hardlink path, a
-		// per-shard write lock — would leak for the life of the process.
 		cancelDesc()
-		u.joinDescriptorProducer(ch, classes)
+
+		// Read the operation ctx here, before the metadata upload below shadows ctx
+		// with context.Background().
+		cancelled := err != nil &&
+			(errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled))
+
+		if cancelled {
+			// A cancelled operation must not hold its admission gate while a wedged
+			// producer finishes: the participant's lastOp is reset only after this
+			// function returns, and until then a same-ID retry is refused at CanCommit.
+			// The detached join re-releases when the producer finishes, so no class it
+			// admits afterwards is left without a releaser.
+			u.detachDescriptorProducer(ch, classes)
+		} else {
+			// Join the producer before releasing: a class admitted after its release has
+			// no releaser left, so its admission gate — and, on the non-hardlink path, a
+			// per-shard write lock — would leak for the life of the process.
+			u.joinDescriptorProducer(ch, classes)
+		}
 
 		//  release indexes under all conditions. This is the only whole-operation
 		//  release, so on the success path it runs after the RBAC and dynamic-user
-		//  snapshots. Both are in-memory FSM reads with no per-shard work, so on the
-		//  non-hardlink path compaction stays paused for a small, bounded extra window.
+		//  snapshots; both are in-memory FSM reads with no per-shard work, so the extra
+		//  pause window on the non-hardlink path is bounded.
 		u.releaseIndexes(classes)
 
 		//  make sure context is not cancelled when uploading metadata
@@ -297,7 +312,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		desc.Error = err.Error()
 
 		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		if cancelled {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
@@ -327,10 +342,9 @@ Loop:
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
-				// The producer always closes the channel, including after a panic it
-				// recovered from, so a short stream is only distinguishable from
-				// success by counting: reporting a "successful" backup with fewer
-				// classes than requested would silently lose data.
+				// The producer closes the channel on every outcome, a recovered panic
+				// included, so only counting distinguishes a short stream from success.
+				// A "successful" backup with fewer classes than requested loses data.
 				if len(desc.Classes) != len(classes) {
 					return fmt.Errorf("backup descriptor stream ended early: got %d of %d classes, missing %v",
 						len(desc.Classes), len(classes), missingClasses(classes, desc.Classes))
@@ -388,12 +402,7 @@ Loop:
 
 // joinDescriptorProducer waits until the detached descriptor producer has closed
 // its channel, so that no class can still be admitted when the caller releases.
-// On budget expiry it hands the join to a detached goroutine that re-releases once
-// the producer does finish: the second release is inert by construction (the
-// protection sweep and the resume are Op-scoped, the gate CAS is guarded on Op
-// equality, and RemoveAll on a missing staging dir is a no-op), and if the producer
-// never finishes at all the cost is one parked goroutine — strictly better than an
-// index wedged by a halt with no releaser.
+// On budget expiry it detaches instead.
 func (u *uploader) joinDescriptorProducer(ch <-chan backup.ClassDescriptor, classes []string) {
 	for {
 		select {
@@ -401,17 +410,36 @@ func (u *uploader) joinDescriptorProducer(ch <-chan backup.ClassDescriptor, clas
 			if !ok {
 				return
 			}
-		case <-time.After(descriptorJoinBudget):
+		case <-time.After(u.joinBudget):
 			u.log.Errorf("descriptor producer did not finish within %s; releasing now and "+
-				"re-releasing when it does", descriptorJoinBudget)
-			enterrors.GoWrapper(func() {
-				for range ch { //nolint:revive // drain: the producer always closes (deferred close)
-				}
-				u.releaseIndexes(classes)
-			}, u.log)
+				"re-releasing when it does", u.joinBudget)
+			u.detachDescriptorProducer(ch, classes)
 			return
 		}
 	}
+}
+
+// detachDescriptorProducer hands the join to a goroutine that drains the producer
+// and re-releases once it finishes, so the caller can release immediately. A producer
+// that never finishes costs one parked goroutine, against an index wedged by a halt
+// with no releaser.
+//
+// The late re-release carries u.op, so against a same-ID successor it is fenced on
+// three of the four release steps: the staging directory embeds op.Fence, the
+// admission gate CAS compares the full Op, and the maintenance resume names
+// op.HaltOwner(), which embeds the fence.
+//
+// The fourth step is not fenced: the non-hardlink protection sweep unlocks and
+// deletes every entry in backupProtectedShards regardless of which operation added
+// it, so a late re-release can drop a successor's protection there. That is a
+// declared residual of the deprecated no-hardlink path (see the PR's deferred item
+// 11), not an invariant this function provides.
+func (u *uploader) detachDescriptorProducer(ch <-chan backup.ClassDescriptor, classes []string) {
+	enterrors.GoWrapper(func() {
+		for range ch { //nolint:revive // drain: the producer always closes (deferred close)
+		}
+		u.releaseIndexes(classes)
+	}, u.log)
 }
 
 // missingClasses reports which requested classes never produced a descriptor.

@@ -361,8 +361,8 @@ type Shard struct {
 	// haltForTransferOwners maps an owner key to the number of live halts that
 	// owner holds on this shard. The summed value (haltTotalLocked) is the total
 	// live halt count; total==0 means the shard is not paused for transfer.
-	// Owner-scoping a resume is what stops one operation's release from lifting a
-	// halt a different in-flight operation still holds.
+	// Resumes are owner-scoped so one operation's release cannot lift a halt that a
+	// different in-flight operation still holds.
 	haltForTransferOwners map[string]int
 	// haltForTransferInactivityOwners is the set of owners that armed the inactivity
 	// watchdog (halted with inactivityTimeout>0). On a watchdog fire every owner in

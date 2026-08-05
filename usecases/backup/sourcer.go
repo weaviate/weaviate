@@ -22,7 +22,7 @@ type Sourcer interface { // implemented by the index
 	// ReleaseBackup signals to the underlying index that the files have been
 	// copied (or the operation aborted), and that it is safe for the index to
 	// change the files, such as start compactions. op fences the release to the
-	// halts its own operation instance placed, so it only resumes its own.
+	// halts its own operation instance placed.
 	ReleaseBackup(_ context.Context, op backup.Op, class string) error
 
 	// Backupable returns whether all given class can be backed up.

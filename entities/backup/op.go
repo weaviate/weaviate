@@ -17,11 +17,11 @@ import (
 )
 
 // Op identifies one runtime instance of a backup operation. Backup IDs are
-// user-supplied and reusable across a cancel→retry, so the ID alone cannot
-// scope a release; Fence distinguishes the instance. A release carrying an Op
-// resumes only the shard halts that same Op placed, and a stale Op's release
-// is inert against an identically-named successor (its halt keys don't match
-// and the admission-gate clear is guarded on Op equality) — a fencing token.
+// user-supplied and reusable across a cancel→retry, so the ID alone cannot scope
+// a release; Fence distinguishes the instance. A release carrying an Op resumes
+// only the shard halts that same Op placed, and a stale Op's release is inert
+// against an identically-named successor: its halt keys do not match, and the
+// admission-gate clear is guarded on Op equality.
 //
 // Mint via NewOp exactly once per operation, at the point that owns the
 // operation's lifecycle (the uploader); construct literals only in tests.
@@ -38,7 +38,7 @@ func NewOp(id string) Op {
 	return Op{ID: id, Fence: strconv.FormatUint(opFence.Add(1), 10)}
 }
 
-// HaltOwner is the shard-halt owner key this operation halts and resumes
-// under. Namespaced "backup:" — see the owner-key scheme at the builders in
-// adapters/repos/db/shard_backup.go, which this must stay disjoint from.
+// HaltOwner is the shard-halt owner key this operation halts and resumes under.
+// The "backup:" namespace must stay disjoint from the other owner-key builders in
+// adapters/repos/db/shard_backup.go.
 func (o Op) HaltOwner() string { return "backup:" + o.ID + ":" + o.Fence }
