@@ -362,6 +362,18 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		return false, errors.Wrap(err, "get dynamic state")
 	}
 
+	// If not yet upgraded, remove any stale HNSW commit log left by an
+	// upgrade that was aborted or crashed before completing. hnsw.New()
+	// replays every file in the commit log directory, so without this
+	// cleanup the next upgrade attempt inherits partial state from the
+	// prior one, corrupting the rebuilt index.
+	if !upgraded {
+		commitLogDir := hnswCommitLogDirectory(cfg.RootPath, cfg.ID)
+		if err := os.RemoveAll(commitLogDir); err != nil {
+			return false, errors.Wrap(err, "clean up stale hnsw commit log")
+		}
+	}
+
 	return upgraded, nil
 }
 
@@ -682,6 +694,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		}
 
 		if err := dynamic.copyToVectorIndex(index); err != nil {
+			dynamic.cleanupAbortedUpgrade(index)
 			return nil, err
 		}
 
@@ -702,6 +715,7 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	if err := dynamic.ctx.Err(); err != nil {
 		// already closed
+		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
@@ -710,6 +724,9 @@ func (dynamic *dynamic) doUpgrade() error {
 		return b.Put(dynamic.dbKey(), []byte{1})
 	})
 	if err != nil {
+		// the new index is never installed, so tear it down like any other
+		// aborted upgrade
+		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "update dynamic")
 	}
 
@@ -752,6 +769,25 @@ func (dynamic *dynamic) doUpgrade() error {
 	}
 
 	return nil
+}
+
+// cleanupAbortedUpgrade tears down a partially-built HNSW index after an
+// aborted flat->HNSW upgrade. The commit log written so far must not stay on
+// disk: the next hnsw.New() (upgrade retry or shard restart) replays every
+// file in the commit log directory, so leftover partial state would corrupt
+// the rebuilt index. Uses a fresh context because the abort is typically
+// caused by dynamic.ctx being canceled.
+func (dynamic *dynamic) cleanupAbortedUpgrade(index VectorIndex) {
+	if err := index.Drop(context.Background(), false); err != nil {
+		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+			Error(errors.Wrap(err, "drop partially-built hnsw index"))
+	}
+	// Drop removes the commit log directory, but remove it explicitly in case
+	// Drop failed partway through.
+	if err := os.RemoveAll(hnswCommitLogDirectory(dynamic.rootPath, dynamic.id)); err != nil {
+		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+			Error(errors.Wrap(err, "remove partial hnsw commit log"))
+	}
 }
 
 // Loop over the store and add each vector to the HNSW.
@@ -798,9 +834,8 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 
 		cursor.Close()
 
-		err := index.AddBatch(dynamic.ctx, ids, vectors)
-		if err != nil {
-			dynamic.logger.WithError(err).Error("failed to add vectors")
+		if err := index.AddBatch(dynamic.ctx, ids, vectors); err != nil {
+			return errors.Wrap(err, "add vectors to upgraded index")
 		}
 
 		if k == nil {
