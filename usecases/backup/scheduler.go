@@ -233,6 +233,18 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
+			// The gate answers before existence does, the way authorization
+			// does: a caller who cannot restore right now should be told that,
+			// not sent to fix an id that was never the problem. On this path
+			// there are no classes to authorize against, so the broad grant
+			// stands in — the gate's answer is cluster-wide state and must not
+			// reach a principal with no backup permission at all.
+			if authErr := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...); authErr != nil {
+				return nil, authErr
+			}
+			if gateErr := s.refuseRestoreDuringReindex(ctx); gateErr != nil {
+				return nil, gateErr
+			}
 			return nil, backup.NewErrNotFound(err)
 		}
 		return nil, backup.NewErrUnprocessable(err)
