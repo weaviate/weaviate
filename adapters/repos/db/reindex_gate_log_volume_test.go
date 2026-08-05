@@ -80,8 +80,8 @@ func TestReindexGateLogVolumeAcrossShardCounts(t *testing.T) {
 			logger.SetLevel(logrus.DebugLevel)
 			db := multiCollectionBackupableFixture(t, node, map[string][]string{collection: shards})
 			db.logger = logger
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-				return func(string, string) bool { return true }
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+				return func(string, string) bool { return true }, nil
 			})
 			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 				return func(string, string) ReindexHold { return ReindexHoldNone }
@@ -153,8 +153,8 @@ func TestReindexGateLogVolumeIsPerCollection(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	db := multiCollectionBackupableFixture(t, node, byCollection)
 	db.logger = logger
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true }
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return func(string, string) bool { return true }, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		return func(string, string) ReindexHold { return ReindexHoldNone }
@@ -212,8 +212,8 @@ func TestBackupableWithheldErrorsReachTheOperator(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	db := multiCollectionBackupableFixture(t, node, map[string][]string{blocked: {"s1"}})
 	db.logger = logger
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true }
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return func(string, string) bool { return true }, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		return func(string, string) ReindexHold { return ReindexHoldNone }

@@ -41,6 +41,11 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
 	}
+	if errors.Is(err, backup.ErrReindexStateUnknown) {
+		// Checked first: it also carries the in-flight sentinel, because
+		// it is fail-closed, but its message is its own.
+		return CanCommitErrReindexStateUnknown
+	}
 	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
 		return CanCommitErrInFlightReindex
 	}

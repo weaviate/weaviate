@@ -40,9 +40,9 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 
 		// All three consumers of the leader-forwarded list, wired exactly as
 		// configure_api.go wires them.
-		db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 			queries.Add(1) // the builder IS the query
-			return func(string, string) bool { return true }
+			return func(string, string) bool { return true }, nil
 		})
 		db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 			return func(string, string) ReindexHold { return ReindexHoldNone }
@@ -64,7 +64,7 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 
 		// The per-shard backup gate, the restore gate, and the commit-time
 		// backstop — the three places this branch can query the leader.
-		require.False(t, db.AnyLiveReindexForShard(collection, "shard1"))
+		require.False(t, newReindexGate(db).anyLiveReindexForShard(collection, "shard1"))
 		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{collection}))
 		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{collection}, time.Now()))
 
@@ -77,7 +77,7 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 		var queries atomic.Int64
 		db := newDB(t, false, &queries)
 
-		require.True(t, db.AnyLiveReindexForShard(collection, "shard1"))
+		require.True(t, newReindexGate(db).anyLiveReindexForShard(collection, "shard1"))
 		require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{collection}))
 		require.Error(t, db.RefuseIfReindexOverlapped(context.Background(), []string{collection}, time.Now()))
 

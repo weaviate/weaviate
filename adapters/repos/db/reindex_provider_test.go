@@ -27,7 +27,7 @@ import (
 // Wave 2 S1: cleanup-vs-status-visibility race in
 // [ReindexProvider.autoCleanupAfterTerminal].
 //
-// The DTM-backed [DB.AnyLiveReindexForShard] flips to "not live" the
+// The DTM-backed activity lookup flips to "not live" the
 // instant a task lands in FAILED / CANCELLED, but [autoCleanup
 // AfterTerminal] is still tearing __reindex / __ingest sidecars for
 // tens of seconds after that. A backup landing in that gap sees the

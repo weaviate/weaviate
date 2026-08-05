@@ -22,13 +22,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAnyLiveReindexForShard_RuntimeReindexDisabled pins the backup half
-// of the kill switch: with the feature off the gate consults nothing, so
-// a backup runs exactly as it would on a build without the gate.
+// TestReindexGate_RuntimeReindexDisabled pins the backup half of the kill
+// switch: with the feature off the gate consults nothing, so a backup runs
+// exactly as it would on a build without the gate.
 //
 // The lookup reports every shard as reindexing, so a gate that still ran
 // would both refuse and bump the counter.
-func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
+func TestReindexGate_RuntimeReindexDisabled(t *testing.T) {
 	tests := []struct {
 		name       string
 		disabled   bool
@@ -43,12 +43,13 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var lookups atomic.Int64
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 				lookups.Add(1)
-				return func(string, string) bool { return true }
+				return func(string, string) bool { return true }, nil
 			})
 
-			require.Equal(t, tt.wantBlock, db.AnyLiveReindexForShard("MyClass", "shard1"))
+			gate := newReindexGate(db)
+			require.Equal(t, tt.wantBlock, gate.anyLiveReindexForShard("MyClass", "shard1"))
 			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
 				"the backup path must make no reindex lookup while the feature is off")
 		})

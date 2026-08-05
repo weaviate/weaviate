@@ -1927,7 +1927,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 // IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
 // currently tearing partial sidecar state on (collection, shard).
 //
-// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
+// Backup gate consumer: the cluster-wide activity lookup
 // answer must include this signal — the DTM activity lookup it wraps
 // flips a task to terminal as soon as the FSM lands, but the
 // node-local sidecar buckets are still being shut down for tens of
@@ -1936,7 +1936,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 //
 // Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
 // over this method) on the DB alongside [DB.SetShardReindexActivity
-// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
+// Lookup] so the backup gate consults both. Returns false
 // if the registry is nil (test fixtures that construct the provider
 // without going through [NewReindexProvider]).
 func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
@@ -2018,8 +2018,8 @@ func (p *ReindexProvider) HoldForShard(collection, shard string) ReindexHold {
 type CleanupInProgressLookup func(collection, shard string) ReindexHold
 
 // CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
-// builder pattern used by [ShardReindexActivityLookupBuilder] so the
-// wiring in configure_api.go can install both lookups identically.
+// builder pattern used by [ShardReindexActivityLookupBuilder], minus its
+// error return: this one reads a local registry and cannot fail.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures

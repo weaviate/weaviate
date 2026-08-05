@@ -29,20 +29,23 @@ import (
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot.
-type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
+// ShardReindexActivityLookupBuilder returns a fresh snapshot, or an error
+// if cluster-wide reindex state could not be read (RAFT leader
+// unreachable). That case means "unknown for every shard," not "no
+// reindex running," so the gate refuses the whole pass with one message.
+type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error)
 
 // SetShardReindexActivityLookup installs the builder used by the backup
-// gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
-// precheck to obtain a fresh DTM snapshot.
+// gate ([reindexGate]), invoked once per backup pass for a
+// fresh DTM snapshot.
 //
-// Calls before installation default to "no live reindex" with a one-time
-// WARN: production HTTP gates on bootstrap completion (the lookup is
-// wired by configure_api.go's post-bootstrap goroutine), so an external
-// backup request cannot land before this builder is installed. The WARN
-// is the operator-facing signal if startup ordering ever breaks the
-// wiring. Refusing instead would block every module-test fixture that
-// bypasses the bootstrap path. See [DB.AnyLiveReindexForShard].
+// Before installation, calls default to "no live reindex" with a
+// rate-limited WARN. The builder is wired by configure_api.go's
+// post-bootstrap goroutine, which runs after the node reports ready, so
+// an external backup request can land in the gap and be allowed without a
+// gate check — the WARN is the only signal. Refusing instead would block
+// every module-test fixture that bypasses the bootstrap path.
+// See [reindexGate].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
@@ -98,7 +101,7 @@ func (e redactedCauseErr) Unwrap() []error {
 // the per-shard backup gate: a restoring class has no local index yet, so a
 // per-class lookup could never see a live task. Fails closed on a live task
 // or a lookup error; an unwired lookup allows the restore with a rate-limited
-// WARN, matching [DB.AnyLiveReindexForShard].
+// WARN, matching [reindexGate].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error {
 	if db.config.RuntimeReindexDisabled {
 		// Same contract the backup half honours: with RUNTIME_REINDEX_ENABLED
