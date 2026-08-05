@@ -634,7 +634,8 @@ func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 		Collection:  "Movies",
 		UnitToShard: map[string]string{"u1": "shard1"},
 	})
-	p.releaseCleanupGateOnWorkerExit(desc, release, logger, 50*time.Millisecond)
+	p.workerExitGateCap = 50 * time.Millisecond
+	p.ReleaseCleanupGateOnWorkerExit(desc, release, logger)
 
 	require.Eventually(t, func() bool {
 		return !p.AnyCleanupInProgressForCollection("Movies")

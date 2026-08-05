@@ -133,6 +133,10 @@ type ReindexProvider struct {
 	// cancelApplyGates holds the cleanup-gate release taken at cancel-apply
 	// time, until the teardown for that task takes over.
 	cancelApplyGates map[distributedtask.TaskDescriptor]func()
+	// workerExitGateCap overrides [reindexWorkerExitGateCap]; zero means the
+	// default. Shortening it is how the bound is reached without waiting it out.
+	workerExitGateCap time.Duration
+
 	// cancelTeardownSettled records tasks whose teardown has already run here,
 	// so an apply that lands after it releases at once instead of waiting out
 	// the cap. See [ReindexProvider.OnCancelApplied] for why either order
@@ -2645,17 +2649,10 @@ func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
 	release func(),
 	logger logrus.FieldLogger,
 ) {
-	p.releaseCleanupGateOnWorkerExit(desc, release, logger, reindexWorkerExitGateCap)
-}
-
-// releaseCleanupGateOnWorkerExit takes the cap as an argument so the bound
-// itself is reachable without waiting it out in wall time.
-func (p *ReindexProvider) releaseCleanupGateOnWorkerExit(
-	desc distributedtask.TaskDescriptor,
-	release func(),
-	logger logrus.FieldLogger,
-	gateCap time.Duration,
-) {
+	gateCap := p.workerExitGateCap
+	if gateCap <= 0 {
+		gateCap = reindexWorkerExitGateCap
+	}
 	enterrors.GoWrapper(func() {
 		defer release()
 		base := p.serverCtx
