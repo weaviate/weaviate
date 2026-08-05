@@ -27,8 +27,6 @@ import (
 // that, a reindex submission is admitted over a live backup while the operator
 // is told a rolling upgrade is in progress.
 //
-// Fail-without receipt: /tmp/qa-pr12474/rvcd/logs/case1e-stdlib404.log
-//
 // Asserted on the transport rather than on the built client because the tracing
 // wrapper in front of it exposes no way back to its base, and adding one purely
 // so a test can look would be a seam in production code.
