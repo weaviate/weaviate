@@ -14,10 +14,14 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -56,7 +60,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		nAllowList = h.wrapAllowList(ctx, allowList)
 		defer nAllowList.Close()
 	}
+	beforeCentroids := time.Now()
 	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -87,7 +93,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	// read all the selected postings
+	beforeRead := time.Now()
 	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -97,6 +105,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	var decompressBuf []uint64
 
+	beforeScan := time.Now()
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -145,19 +154,64 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 		}
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_scan_took", time.Since(beforeScan))
+
+	beforeRescore := time.Now()
+	candidates := make([]uint64, 0, q.Len())
+	for id := range q.Iter() {
+		candidates = append(candidates, id)
+	}
+
+	// Budget-aware fan-out: the context budget caps the worker count under
+	// concurrent load; without one we default to 2*GOMAXPROCS (IO-bound).
+	workers := concurrency.NumWorkers(ctx, len(candidates), concurrency.GOMAXPROCSx2)
+
+	// Workers compute distances in parallel; results are inserted after,
+	// in candidate order, so ties resolve the same way on every run.
+	candidateDists := make([]float32, len(candidates))
+	skipped := make([]bool, len(candidates))
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := range workers {
+		eg.Go(func() error {
+			for pos := workerID; pos < len(candidates); pos += workers {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				vec, err := h.vectorForId(ctx, candidates[pos])
+				if err != nil {
+					// The object may have been deleted between the posting scan
+					// and the rescore step (race condition). Skip stale entries
+					// gracefully.
+					var notFound storobj.ErrNotFound
+					if errors.As(err, &notFound) {
+						skipped[pos] = true
+						continue
+					}
+					return err
+				}
+				vec = h.normalizeVec(vec)
+				dist, err := h.distancer.distancer.SingleDist(vector, vec)
+				if err != nil {
+					return err
+				}
+				candidateDists[pos] = dist
+			}
+			return nil
+		})
+	}
+	err = eg.Wait()
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_rescore_took", time.Since(beforeRescore))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	rescored := NewResultSet(k)
-	for id := range q.Iter() {
-		vec, err := h.vectorForId(ctx, id)
-		if err != nil {
-			return nil, nil, err
+	for pos, id := range candidates {
+		if skipped[pos] {
+			continue
 		}
-		vec = h.normalizeVec(vec)
-		dist, err := h.distancer.distancer.SingleDist(vector, vec)
-		if err != nil {
-			return nil, nil, err
-		}
-		rescored.Insert(id, dist)
+		rescored.Insert(id, candidateDists[pos])
 	}
 
 	ids := make([]uint64, rescored.Len())

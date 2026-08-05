@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 const (
@@ -43,7 +44,7 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for workerID := 0; workerID < flatSearchConcurrency; workerID++ {
+	for workerID := range flatSearchConcurrency {
 		workerID := workerID
 		eg.Go(func() error {
 			if err := ctx.Err(); err != nil {
@@ -55,6 +56,12 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 
 				dist, err := h.distToNode(ctx, candidate, queryVector)
 				if err != nil {
+					// The object may have been deleted between allowList iteration
+					// and vector fetch. Skip stale entries gracefully.
+					var notFound storobj.ErrNotFound
+					if errors.As(err, &notFound) {
+						continue
+					}
 					return err
 				}
 
