@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -892,7 +893,13 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 // backupActivityScanTimeout bounds the cluster fan-out so one hung node cannot hang the PUT.
 const backupActivityScanTimeout = 5 * time.Second
 
-var backupActivityGateWarnOnce sync.Once
+// backupActivityGateWarnSampler rate-limits the fail-open WARN to one line per
+// hour. The condition it reports — no probe wired, or an empty node list — is a
+// persistent misconfiguration rather than a transient one, so a once-per-process
+// line leaves every later submission silent for an operator who starts reading
+// the logs after the first one. Same posture as the unwired warning on the
+// backup side of the gate.
+var backupActivityGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
 
 type nodeActivityProber interface {
 	NodeActivity(ctx context.Context, nodeName string) (backup.NodeActivity, error)
@@ -978,7 +985,7 @@ func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal 
 	}
 
 	if h.backupActivity == nil || len(nodes) == 0 {
-		backupActivityGateWarnOnce.Do(func() {
+		backupActivityGateWarnSampler.WithSampling(func(logrus.FieldLogger) {
 			h.appState.Logger.WithField("action", "reindex_backup_gate").
 				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
 					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")
