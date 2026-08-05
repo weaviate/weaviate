@@ -90,10 +90,6 @@ func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
 	return s.backend.HomeDir(s.backupId, overrideBucket, overridePath)
 }
 
-func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
-	return s.backend.WriteToFile(ctx, s.backupId, key, destPath, overrideBucket, overridePath)
-}
-
 // SourceDataPath is data path of all source files
 func (s *objectStore) SourceDataPath() string {
 	return s.backend.SourceDataPath()
