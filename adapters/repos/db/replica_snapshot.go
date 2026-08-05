@@ -54,7 +54,9 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	}
 
 	// On retry the prior snapshot may be stale relative to current shard contents.
-	i.clearPriorReplicaSnapshot(ctx, opID)
+	// Pass the pin we already hold: resolving the shard again here could lose to a
+	// concurrent teardown.
+	i.clearPriorReplicaSnapshot(ctx, opID, shard)
 
 	owner := replicaHaltOwner(opID)
 
@@ -101,7 +103,8 @@ func (i *Index) IncomingReleaseReplicaSnapshot(ctx context.Context, opID string)
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
-	return i.releaseReplicaSnapshot(ctx, opID)
+	// No shard pinned here, unlike IncomingCreateReplicaSnapshot.
+	return i.releaseReplicaSnapshot(ctx, opID, nil)
 }
 
 func (i *Index) IncomingGetReplicaSnapshotFileMetadata(ctx context.Context, opID, relativeFilePath string) (file.FileMetadata, error) {
@@ -191,10 +194,10 @@ func (i *Index) mayResetReplicaSnapshotInactivity(opID string) {
 	if !ok || st.isSnapshot {
 		return
 	}
-	shard, release, err := i.GetShard(context.Background(), st.shardName)
-	if err == nil && shard != nil {
+	// A shard that is not loaded has no live timer to reset. Needs no shutdown
+	// guard: resetting the deadline on a torn-down shard restarts nothing.
+	if shard := i.shards.Loaded(st.shardName); shard != nil {
 		shard.MayResetTransferInactivityTimer()
-		release()
 	}
 }
 
@@ -223,6 +226,16 @@ func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string, resumeSha
 	}
 }
 
+// errIfClosed reports errAlreadyShutdown once the index has been torn down.
+func (i *Index) errIfClosed() error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+	if i.closed {
+		return errAlreadyShutdown
+	}
+	return nil
+}
+
 // purgeReplicaSnapshots drops the whole registry at index teardown: the entries
 // describe shards this index owns, so none of them can outlive it.
 func (i *Index) purgeReplicaSnapshots() {
@@ -246,12 +259,18 @@ func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
 // (the cancellation backstop included) does the work again instead of taking the
 // unknown-op early return and reporting success on a still-halted shard. That is
 // safe here precisely because the registry is read only by the replica-snapshot
-// paths themselves, never by a halt gate.
+// paths themselves, never by a halt gate. The retry does resume: the shard records
+// the failed physical resume as pending, so a later release re-runs it even though
+// the owner bookkeeping was already cleared.
 //
 // A staging-removal failure alone does NOT retain the entry, and does not need to:
 // the removal is derived from opID only, needs no registry state, and runs
 // unconditionally at the top of every later release for that opID.
-func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
+//
+// held is the caller's already-pinned shard for this op, or nil when the caller
+// holds no pin — then the shard is resolved under the shutdown guard instead, so a
+// namespace that is not active cannot refuse the resume.
+func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string, held ShardLike) error {
 	i.replicaSnapshotsMu.Lock()
 	st, ok := i.replicaSnapshots[opID]
 	i.replicaSnapshotsMu.Unlock()
@@ -264,17 +283,38 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	// Return early if the snapshot isn't local anymore or if it was a hardlink snapshot (already resumed at create time).
 	if !ok || st.isSnapshot {
 		i.deleteReplicaSnapshot(opID)
+		if !ok {
+			// An unknown op on a LIVE index is a genuine no-op: the release already
+			// ran, and retries are idempotent. On a closed index it is ambiguous,
+			// because index teardown purges the registry — so the entry may have
+			// existed and been dropped from under this caller. Report the shutdown
+			// rather than claim a release that may never have happened.
+			if err := i.errIfClosed(); err != nil {
+				if removeErr != nil {
+					return fmt.Errorf("%w; replica snapshot release: %w", removeErr, err)
+				}
+				return fmt.Errorf("replica snapshot release: %w", err)
+			}
+		}
 		return removeErr
 	}
 
-	shard, release, err := i.GetShard(ctx, st.shardName)
-	if err != nil {
-		if removeErr != nil {
-			return fmt.Errorf("%w; get shard for replica snapshot release: %w", removeErr, err)
+	shard := held
+	if shard == nil {
+		// The pinned caller must not take these locks: it would invert the order
+		// an unload acquires them in, which holds them while waiting on the pin.
+		loaded, release, err := i.getLoadedShard(st.shardName)
+		if err != nil {
+			if removeErr != nil {
+				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
+			}
+			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
 		}
-		return fmt.Errorf("get shard for replica snapshot release: %w", err)
+		defer release()
+		shard = loaded
 	}
-	defer release()
+
+	// A shard that is not loaded has nothing halted.
 	if shard != nil {
 		if err := shard.resumeMaintenanceCycles(ctx, replicaHaltOwner(opID)); err != nil {
 			if removeErr != nil {
@@ -295,8 +335,11 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 // completeResumeLocked runs — so the halt refcount is already correct and the
 // re-halt cannot double-count. The staging dir has already been removed
 // unconditionally before any fallible step, so proceeding cannot leave stale files.
-func (i *Index) clearPriorReplicaSnapshot(ctx context.Context, opID string) {
-	if err := i.releaseReplicaSnapshot(ctx, opID); err != nil {
+//
+// held is the caller's pin, threaded through so the clear cannot lose the shard to a
+// concurrent teardown.
+func (i *Index) clearPriorReplicaSnapshot(ctx context.Context, opID string, held ShardLike) {
+	if err := i.releaseReplicaSnapshot(ctx, opID, held); err != nil {
 		i.logger.WithField("op_id", opID).
 			Warnf("clean prior replica snapshot before re-create: %v", err)
 	}

@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -363,7 +362,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 		idx := newTestIndex()
 		shardName := "tenant1"
 
-		idx.backupProtectedShards.Store(shardName, backup.NewOp("protector"))
+		idx.backupProtectedShards.Store(shardName, struct{}{})
 
 		class := &models.Class{Class: className}
 		err := idx.initLocalShardWithForcedLoading(ctx, class, shardName, true, false)
@@ -375,7 +374,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 		idx := newTestIndex()
 		shardName := "tenant2"
 
-		idx.backupProtectedShards.Store(shardName, backup.NewOp("protector"))
+		idx.backupProtectedShards.Store(shardName, struct{}{})
 
 		_, release, err := idx.getOptInitLocalShard(ctx, shardName, true)
 		defer release()
@@ -387,7 +386,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 		idx := newTestIndex()
 		shardName := "tenant3"
 
-		idx.backupProtectedShards.Store(shardName, backup.NewOp("protector"))
+		idx.backupProtectedShards.Store(shardName, struct{}{})
 
 		// With ensureInit=false, the function returns nil shard without error
 		// (the protection check is never reached).
@@ -403,7 +402,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 		op := backup.NewOp("test-backup")
 		for _, name := range shards {
-			protectShardUnderOp(t, idx, name, op)
+			protectShard(t, idx, name)
 		}
 		// Set backup state so ReleaseBackup has something to reset.
 		idx.lastBackup.Store(&BackupState{Op: op, InProgress: true})
@@ -439,13 +438,15 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 	})
 }
 
-// protectShardUnderOp reproduces exactly what backupShardWithoutHardlinks does for
-// an inactive shard: take the per-shard write lock and record the protection under
-// the owning Op, both held until that Op's ReleaseBackup.
-func protectShardUnderOp(t *testing.T, idx *Index, name string, op backup.Op) {
+// protectShard reproduces what backupShardWithoutHardlinks does for an inactive
+// shard: take the per-shard write lock and record the protection, both held until
+// ReleaseBackup.
+//
+// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
+func protectShard(t *testing.T, idx *Index, name string) {
 	t.Helper()
 	idx.backupLock.Lock(name)
-	idx.backupProtectedShards.Store(name, op)
+	idx.backupProtectedShards.Store(name, struct{}{})
 }
 
 // Index teardown holds closeLock for writing while waiting on backupLock, so a
@@ -467,7 +468,7 @@ func TestReleaseBackupDoesNotBlockIndexClose(t *testing.T) {
 	require.NotEmpty(t, shardName, "fixture must have registered a shard")
 
 	op := backup.NewOp("release-no-block")
-	protectShardUnderOp(t, idx, shardName, op)
+	protectShard(t, idx, shardName)
 	idx.lastBackup.Store(&BackupState{Op: op, InProgress: true})
 
 	teardownDone := make(chan struct{})
@@ -510,7 +511,7 @@ func TestReleaseBackupSkipsSweepOnClosedIndex(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingDir, 0o755))
 
 	const shardName = "tenantA"
-	protectShardUnderOp(t, idx, shardName, op)
+	protectShard(t, idx, shardName)
 	idx.lastBackup.Store(&BackupState{Op: op, InProgress: true})
 
 	// A strict mock with NO resumeMaintenanceCycles expectation: reaching the sweep
@@ -530,20 +531,16 @@ func TestReleaseBackupSkipsSweepOnClosedIndex(t *testing.T) {
 	assert.Nil(t, idx.lastBackup.Load(), "the admission gate must be cleared on a closed index")
 }
 
-// A release belonging to another operation instance must leave the live operation's
-// resources alone. The admission-gate column is deliberately not asserted here:
-// TestStaleGenerationReleaseInertAgainstSuccessor already pins it.
+// A release belonging to another operation instance must not delete the live
+// operation's staging tree — the fence in the directory name is what separates a
+// cancelled operation from its same-ID retry mid-hardlink.
 //
-// The rows below cover the sequential case: the other op's release runs while the
-// live op's protection is already in place. The concurrent variant — a straggler
-// same-Op releaser that read its own Op during Range and only reaches the delete
-// after a successor has stored ITS protection under the same key — is closed by the
-// sweep's value-conditional CompareAndDelete rather than pinned here: hitting that
-// window deterministically needs a hook between sync.Map.Range's value read and the
-// delete, which the API does not offer. Stated rather than faked with a sleep.
-func TestStaleReleaseLeavesLiveOpResourcesIntact(t *testing.T) {
+// Only the staging resource is covered. The protection map is deliberately not:
+// its sweep is operation-agnostic on the deprecated non-hardlink path
+// (NO-HARDLINK-BACKUP, removed in v1.40). The admission-gate column is pinned by
+// TestStaleGenerationReleaseInertAgainstSuccessor.
+func TestStaleReleaseLeavesLiveStagingIntact(t *testing.T) {
 	ctx := context.Background()
-	const shardName = "tenantA"
 
 	// Fence "0" is what makes the same-ID row stale: NewOp's counter starts at 1,
 	// so it precedes every minted fence.
@@ -571,83 +568,15 @@ func TestStaleReleaseLeavesLiveOpResourcesIntact(t *testing.T) {
 			liveOp := backup.NewOp("live-id")
 			other := tt.otherOp(liveOp)
 
-			protectShardUnderOp(t, idx, shardName, liveOp)
 			liveStaging := backupStagingDir(idx.Config.RootPath, liveOp, idx.Config.ClassName)
 			require.NoError(t, os.MkdirAll(liveStaging, 0o755))
 
 			require.NoError(t, idx.ReleaseBackup(ctx, other))
-
-			_, protected := idx.backupProtectedShards.Load(shardName)
-			require.True(t, protected, "a release for %s must not drop the live op's protection", tt.relation)
-			require.False(t, idx.backupLock.TryRLock(shardName),
-				"a release for %s must not release the live op's shard lock", tt.relation)
 			require.DirExists(t, liveStaging,
 				"a release for %s must not delete the live op's staging tree", tt.relation)
 
 			require.NoError(t, idx.ReleaseBackup(ctx, liveOp))
-
-			_, protected = idx.backupProtectedShards.Load(shardName)
-			require.False(t, protected, "the live op's own release must drop its protection")
-			require.True(t, idx.backupLock.TryRLock(shardName), "the live op's own release must free its shard lock")
-			idx.backupLock.RUnlock(shardName)
 			require.NoDirExists(t, liveStaging, "the live op's own release must remove its staging tree")
-		})
-	}
-}
-
-// Concurrent releases of the SAME operation must unlock each protected shard exactly
-// once: a second Unlock on an already-unlocked RWMutex is an uncatchable runtime
-// fatal that kills the whole test binary.
-//
-// The repro is probabilistic by necessity — deterministically hitting the
-// read-vs-delete window would need a hook inside sync.Map.Range, which does not
-// exist. Across 800 shard-releases a single hit is fatal, so a miss is very
-// unlikely; the exact rate is not measured here.
-func TestConcurrentReleasesNeverDoubleUnlock(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		shards    int
-		releasers int
-		rounds    int
-	}{
-		{name: "4 shards, 8 releasers, 200 rounds", shards: 4, releasers: 8, rounds: 200},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			idx := newReleaseTestIndex(t)
-
-			names := make([]string, tt.shards)
-			for i := range names {
-				names[i] = fmt.Sprintf("tenant-%d", i)
-			}
-
-			for round := range tt.rounds {
-				op := backup.NewOp(fmt.Sprintf("round-%d", round))
-				for _, name := range names {
-					protectShardUnderOp(t, idx, name, op)
-				}
-
-				var wg sync.WaitGroup
-				for range tt.releasers {
-					wg.Add(1)
-					enterrors.GoWrapper(func() {
-						defer wg.Done()
-						assert.NoError(t, idx.ReleaseBackup(ctx, op))
-					}, idx.logger)
-				}
-				wg.Wait()
-
-				for _, name := range names {
-					require.True(t, idx.backupLock.TryRLock(name),
-						"round %d: %s must be unlocked exactly once", round, name)
-					idx.backupLock.RUnlock(name)
-					_, protected := idx.backupProtectedShards.Load(name)
-					require.False(t, protected, "round %d: %s must no longer be protected", round, name)
-				}
-			}
 		})
 	}
 }
@@ -1277,6 +1206,81 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	idx.shardCreateLocks.RUnlock(shardName)
 }
 
+// Asserts the shard reference is dropped only after backupLock is unlocked, on
+// every return that follows preventShutdown. Dropping the last reference can run
+// the shard teardown inline, which under backupLock blocks all writes to the shard.
+func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
+	className := "TestClass"
+	shardName := "test-shard"
+	snapshotFile := "objects/segment-0001.db"
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		snapshotErr error
+		// missingBigFile makes FillFileInfo stat a file that is absent from the staging dir.
+		missingBigFile bool
+		expectedErr    string
+	}{
+		{name: "success"},
+		{name: "snapshot fails", snapshotErr: errors.New("out of disk"), expectedErr: "snapshot shard"},
+		{name: "file info fails", missingBigFile: true, expectedErr: "gather shard"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(shardName, models.TenantActivityStatusHOT).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+
+			var released, backupLockFreeAtRelease bool
+			mockShard := NewMockShardLike(t)
+			mockShard.EXPECT().preventShutdown().Return(func() {
+				released = true
+				backupLockFreeAtRelease = idx.backupLock.TryRLock(shardName)
+				if backupLockFreeAtRelease {
+					idx.backupLock.RUnlock(shardName)
+				}
+			}, nil)
+			mockShard.EXPECT().
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ string, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+					if tt.snapshotErr != nil {
+						return nil, tt.snapshotErr
+					}
+					sd.Name = shardName
+					sd.Node = "node1"
+					return []string{snapshotFile}, nil
+				})
+			idx.shards.Store(shardName, mockShard)
+
+			var baseDescrs []*backup.ClassDescriptor
+			if tt.missingBigFile {
+				baseDescrs = []*backup.ClassDescriptor{{
+					BackupID: "base-backup",
+					Shards: []*backup.ShardDescriptor{{
+						Name:          shardName,
+						BigFilesChunk: map[string]backup.BigFileInfo{snapshotFile: {Size: 1}},
+					}},
+				}}
+			}
+
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, backup.NewOp("test-backup"), baseDescrs, t.TempDir())
+			if tt.expectedErr != "" {
+				require.ErrorContains(t, err, tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.True(t, released, "shard reference must be released")
+			assert.True(t, backupLockFreeAtRelease,
+				"backupLock must be unlocked before the shard reference is dropped")
+		})
+	}
+}
+
 // Asserts both locks are released on the preventShutdown error path — guards
 // the shardCreateLocksHeld bookkeeping that supports the early-release.
 func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T) {
@@ -1293,7 +1297,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
 
 	mockShard := NewMockShardLike(t)
-	mockShard.EXPECT().preventShutdown().Return(nil, errors.New("shard is shutting down"))
+	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
 	_, err := idx.backupShardWithHardlinks(ctx, shardName, backup.NewOp("test-backup"), nil, t.TempDir())

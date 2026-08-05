@@ -13,6 +13,8 @@ package sync
 
 import (
 	"context"
+	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -336,6 +338,235 @@ func TestKeyRWLockerTryRLock(t *testing.T) {
 		require.True(t, s.TryRLock("k3"))
 		s.RUnlock("k3")
 	})
+}
+
+// lockPair is one locker's acquire/release pair, so one concurrent test body
+// can drive every locker type.
+type lockPair struct {
+	acquire func(ID string) error
+	release func(ID string)
+}
+
+// TestKeyLockersConcurrentColdKey locks a key that does not exist yet, so every
+// goroutine misses the map and has to create the mutex. They must all end up on
+// the one mutex that wins: run with -race, and a goroutine holding a private
+// mutex shows up as a data race on the counter.
+func TestKeyLockersConcurrentColdKey(t *testing.T) {
+	const (
+		writers    = 16
+		readers    = 16
+		iterations = 200
+		coldKey    = "cold"
+	)
+
+	ctx := t.Context()
+
+	tests := []struct {
+		name string
+		// write is the exclusive pair; read is the shared pair, left zero for
+		// lockers that have no read side.
+		pairs func() (write, read lockPair)
+	}{
+		{
+			name: "KeyLocker",
+			pairs: func() (lockPair, lockPair) {
+				l := NewKeyLocker()
+				return lockPair{
+					acquire: func(ID string) error { l.Lock(ID); return nil },
+					release: l.Unlock,
+				}, lockPair{}
+			},
+		},
+		{
+			name: "KeyRWLocker",
+			pairs: func() (lockPair, lockPair) {
+				l := NewKeyRWLocker()
+				return lockPair{
+						acquire: func(ID string) error { l.Lock(ID); return nil },
+						release: l.Unlock,
+					}, lockPair{
+						acquire: func(ID string) error { l.RLock(ID); return nil },
+						release: l.RUnlock,
+					}
+			},
+		},
+		{
+			name: "KeyRWLocker/TryRLock",
+			pairs: func() (lockPair, lockPair) {
+				l := NewKeyRWLocker()
+				return lockPair{
+						acquire: func(ID string) error { l.Lock(ID); return nil },
+						release: l.Unlock,
+					}, lockPair{
+						acquire: func(ID string) error {
+							for !l.TryRLock(ID) {
+								runtime.Gosched()
+							}
+							return nil
+						},
+						release: l.RUnlock,
+					}
+			},
+		},
+		{
+			name: "KeyLockerContext",
+			pairs: func() (lockPair, lockPair) {
+				l := NewKeyLockerContext()
+				return lockPair{
+					acquire: func(ID string) error { l.Lock(ID); return nil },
+					release: l.Unlock,
+				}, lockPair{}
+			},
+		},
+		{
+			name: "KeyLockerContext/LockWithContext",
+			pairs: func() (lockPair, lockPair) {
+				l := NewKeyLockerContext()
+				return lockPair{
+					acquire: func(ID string) error { return l.LockWithContext(ID, ctx) },
+					release: l.Unlock,
+				}, lockPair{}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			write, read := test.pairs()
+
+			counter := 0
+			lastSeen := atomic.Int64{}
+			acquireErrs := make(chan error, writers+readers)
+
+			wg := sync.WaitGroup{}
+			for i := 0; i < writers; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for j := 0; j < iterations; j++ {
+						if err := write.acquire(coldKey); err != nil {
+							acquireErrs <- err
+							return
+						}
+						counter++
+						write.release(coldKey)
+					}
+				}()
+			}
+
+			if read.acquire != nil {
+				for i := 0; i < readers; i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						for j := 0; j < iterations; j++ {
+							if err := read.acquire(coldKey); err != nil {
+								acquireErrs <- err
+								return
+							}
+							// reading the counter here is what the race
+							// detector checks: a reader holding some other
+							// mutex is an unsynchronized read
+							lastSeen.Store(int64(counter))
+							read.release(coldKey)
+						}
+					}()
+				}
+			}
+
+			wg.Wait()
+			close(acquireErrs)
+			for err := range acquireErrs {
+				require.NoError(t, err)
+			}
+			require.Equal(t, writers*iterations, counter)
+			if read.acquire != nil {
+				require.LessOrEqual(t, lastSeen.Load(), int64(writers*iterations))
+			}
+		})
+	}
+}
+
+// TestKeyLockersNoAllocationOnWarmKey pins the steady state: keys are shard,
+// tenant and class names that already exist, so locking one must not allocate.
+func TestKeyLockersNoAllocationOnWarmKey(t *testing.T) {
+	keyLocker := NewKeyLocker()
+	rwLocker := NewKeyRWLocker()
+	ctxLocker := NewKeyLockerContext()
+	ctx := t.Context()
+
+	tests := []struct {
+		name       string
+		lockUnlock func() error
+	}{
+		{
+			name:       "KeyLocker.Lock",
+			lockUnlock: func() error { keyLocker.Lock(id); keyLocker.Unlock(id); return nil },
+		},
+		{
+			name:       "KeyRWLocker.Lock",
+			lockUnlock: func() error { rwLocker.Lock(id); rwLocker.Unlock(id); return nil },
+		},
+		{
+			name:       "KeyRWLocker.RLock",
+			lockUnlock: func() error { rwLocker.RLock(id); rwLocker.RUnlock(id); return nil },
+		},
+		{
+			name: "KeyRWLocker.TryRLock",
+			lockUnlock: func() error {
+				if !rwLocker.TryRLock(id) {
+					return errors.New("TryRLock failed on an uncontended key")
+				}
+				rwLocker.RUnlock(id)
+				return nil
+			},
+		},
+		{
+			name:       "KeyLockerContext.Lock",
+			lockUnlock: func() error { ctxLocker.Lock(id); ctxLocker.Unlock(id); return nil },
+		},
+		{
+			name: "KeyLockerContext.LockWithContext",
+			lockUnlock: func() error {
+				if err := ctxLocker.LockWithContext(id, ctx); err != nil {
+					return err
+				}
+				ctxLocker.Unlock(id)
+				return nil
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// the failure is recorded rather than reported, so that nothing but
+			// the locking itself runs inside the measured window
+			var lockErr error
+			run := func() {
+				if err := test.lockUnlock(); err != nil {
+					lockErr = err
+				}
+			}
+
+			run() // the key exists from here on
+			allocs := testing.AllocsPerRun(100, run)
+
+			require.NoError(t, lockErr)
+			require.Zerof(t, allocs, "locking an existing key allocated %v times per call", allocs)
+		})
+	}
+}
+
+// TestKeyLockerContextLockWithContextColdKeyCanceled pins the miss path: a
+// context that is already done aborts the lock but still registers the key, so
+// Unlock reports an unlocked mutex rather than a missing ID.
+func TestKeyLockerContextLockWithContextColdKeyCanceled(t *testing.T) {
+	s := NewKeyLockerContext()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	require.ErrorIs(t, s.LockWithContext("cold", ctx), context.Canceled)
+	require.PanicsWithValue(t, "unlock of unlocked contextMutex", func() { s.Unlock("cold") })
 }
 
 func TestContextMutex(t *testing.T) {

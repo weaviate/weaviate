@@ -14,8 +14,10 @@ package db
 import (
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,4 +50,42 @@ func TestTransferActivityReader_ResetsPerChunk(t *testing.T) {
 	assert.Greater(t, readCalls, 1, "payload must span multiple chunks for this to be meaningful")
 	assert.Equal(t, readCalls, resets,
 		"the watchdog must be reset on every chunk read, not just at file open")
+}
+
+// A halt that returns successfully is itself liveness. Without pushing the
+// deadline forward, an overlapping consumer inherits a deadline the first
+// consumer's seal steps already spent, and the watchdog's force-resume drops
+// the halt for every holder rather than only the one that timed out.
+func TestShard_HaltForTransferExtendsInactivityDeadline(t *testing.T) {
+	ctx := testCtx()
+	shd, idx := testShard(t, ctx, "TestClass")
+	t.Cleanup(func() {
+		_ = idx.drop()
+		_ = os.RemoveAll(idx.Config.RootPath)
+	})
+	s := shd.(*Shard)
+
+	// Two distinct owners, so the second halt is the overlapping-consumer case the
+	// deadline push exists for.
+	require.NoError(t, s.HaltForTransfer(ctx, "test:opA", false, time.Hour))
+
+	// Stands in for a halt whose preparation outlasted the remaining budget.
+	s.haltForTransferMux.Lock()
+	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
+	s.haltForTransferMux.Unlock()
+
+	require.NoError(t, s.HaltForTransfer(ctx, "test:opB", false, time.Hour))
+
+	s.haltForTransferMux.Lock()
+	deadline := s.haltForTransferInactivityDeadline
+	s.haltForTransferMux.Unlock()
+	require.True(t, deadline.After(time.Now()),
+		"an overlapping halt left the deadline in the past — the monitor will force-resume a shard two consumers still hold")
+
+	for _, owner := range []string{"test:opA", "test:opB"} {
+		require.NoError(t, s.resumeMaintenanceCycles(ctx, owner))
+	}
+	s.haltForTransferMux.Lock()
+	require.Zero(t, s.haltTotalLocked())
+	s.haltForTransferMux.Unlock()
 }

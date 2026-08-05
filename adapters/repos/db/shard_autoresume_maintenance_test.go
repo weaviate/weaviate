@@ -782,11 +782,11 @@ func TestLazyShardResetTimerIgnoresUnloadedShard(t *testing.T) {
 // completeResumeLocked runs, so without the pending flag every later attempt
 // early-returns and reports success on a shard still in backup mode.
 //
-// There is no red form of this test: a deterministically failing resume leg cannot
-// be constructed in the unit harness — store.ResumeCompaction always returns nil,
-// and the remaining legs need a queue or vector index in a failure state this
-// fixture cannot produce. What is pinned here is the mechanism, driven by setting
-// the flag directly.
+// This test drives the flag directly, so it covers the branch's three shapes
+// cheaply: flag clear, flag set, and a fresh halt on top of a set flag.
+// TestResumeRetriesAfterFailedLegRecovers is the end-to-end companion — it fails
+// the resume for real by unregistering a callback control, heals it, and pins that
+// the retry re-runs the physical resume.
 func TestResumeRetriesPendingMaintenanceResume(t *testing.T) {
 	tests := []struct {
 		name string

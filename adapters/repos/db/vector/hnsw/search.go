@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -113,7 +114,10 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		for _, docID := range docIDs {
 			candidateSet[docID] = struct{}{}
 		}
-		return h.computeLateInteraction(vectors, k, candidateSet)
+		beforeRescore := time.Now()
+		ids, dists, err := h.computeLateInteraction(ctx, vectors, k, candidateSet)
+		helpers.AnnotateSlowQueryLog(ctx, "muvera_rescore_took", time.Since(beforeRescore))
+		return ids, dists, err
 	}
 
 	h.compressActionLock.RLock()
@@ -1004,34 +1008,80 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 			candidateSet[docId] = struct{}{}
 		}
 	}
-	return h.computeLateInteraction(queryVectors, k, candidateSet)
+	beforeRescore := time.Now()
+	ids, dists, err := h.computeLateInteraction(ctx, queryVectors, k, candidateSet)
+	helpers.AnnotateSlowQueryLog(ctx, "multivector_rescore_took", time.Since(beforeRescore))
+	return ids, dists, err
 }
 
-func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
-	resultsQueue := priorityqueue.NewMax[any](1)
+func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
+	// Convert map to slice for stride-based index access across workers.
+	ids := make([]uint64, 0, len(candidateSet))
 	for docID := range candidateSet {
-		sim, err := h.computeScore(queryVectors, docID)
-		if err != nil {
-			return nil, nil, err
-		}
-		resultsQueue.Insert(docID, sim)
+		ids = append(ids, docID)
+	}
+
+	// Acquire a single consistent view for all disk reads to avoid per-candidate flushLock acquisitions.
+	view := h.GetViewThunk()
+	defer view.ReleaseView()
+
+	resultsQueue := priorityqueue.NewMax[any](k)
+	mu := sync.Mutex{}
+	addResult := func(id uint64, sim float32) {
+		mu.Lock()
+		defer mu.Unlock()
+		resultsQueue.Insert(id, sim)
 		if resultsQueue.Len() > k {
 			resultsQueue.Pop()
 		}
 	}
 
-	distances := make([]float32, resultsQueue.Len())
-	ids := make([]uint64, resultsQueue.Len())
+	// Respect the per-query concurrency budget if the context carries one
+	// (see entities/concurrency): under concurrent load the budget shrinks
+	// the fan-out, without one we fall back to the full rescore concurrency.
+	// The floor of 1 keeps a zero budget from silently skipping rescoring.
+	workers := max(1, min(concurrency.BudgetFromCtx(ctx, h.rescoreConcurrency), h.rescoreConcurrency, len(ids)))
 
-	i := len(ids) - 1
-	for resultsQueue.Len() > 0 {
-		element := resultsQueue.Pop()
-		ids[i] = element.ID
-		distances[i] = element.Dist
-		i--
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < workers; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			slice := h.pools.tempVectors.Get(int(h.dims.Load()))
+			defer h.pools.tempVectors.Put(slice)
+
+			for idPos := workerID; idPos < len(ids); idPos += workers {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("computeLateInteraction: %w", err)
+				}
+				docID := ids[idPos]
+				sim, err := h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
+				if err != nil {
+					h.logger.
+						WithField("action", "computeLateInteraction").
+						WithError(err).
+						Warnf("could not compute score for docID %d", docID)
+					continue
+				}
+				addResult(docID, sim)
+			}
+			return nil
+		}, h.logger)
 	}
 
-	return ids, distances, nil
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	distances := make([]float32, resultsQueue.Len())
+	resultIDs := make([]uint64, resultsQueue.Len())
+	i := len(resultIDs) - 1
+	for resultsQueue.Len() > 0 {
+		el := resultsQueue.Pop()
+		resultIDs[i] = el.ID
+		distances[i] = el.Dist
+		i--
+	}
+	return resultIDs, distances, nil
 }
 
 func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
@@ -1085,6 +1135,30 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		similarity += maxSim
 	}
 
+	return similarity, nil
+}
+
+func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32, docID uint64, slice *common.VectorSlice, view common.BucketView) (float32, error) {
+	docVecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
+	if err != nil {
+		return 0, errors.Wrap(err, "get vectors for docID")
+	}
+
+	similarity := float32(0.0)
+	for _, searchVec := range searchVecs {
+		maxSim := float32(math.MaxFloat32)
+		dist := h.multiDistancerProvider.New(searchVec)
+		for _, docVec := range docVecs {
+			d, err := dist.Distance(docVec)
+			if err != nil {
+				return 0, errors.Wrap(err, "calculate distance")
+			}
+			if d < maxSim {
+				maxSim = d
+			}
+		}
+		similarity += maxSim
+	}
 	return similarity, nil
 }
 
@@ -1162,12 +1236,18 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 		}
 	}
 
+	// Respect the per-query concurrency budget if the context carries one
+	// (see entities/concurrency): under concurrent load the budget shrinks
+	// the fan-out, without one we fall back to the full rescore concurrency.
+	// The floor of 1 keeps a zero budget from silently skipping rescoring.
+	workers := max(1, min(concurrency.BudgetFromCtx(ctx, h.rescoreConcurrency), h.rescoreConcurrency, len(ids)))
+
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
+	for workerID := 0; workerID < workers; workerID++ {
 		workerID := workerID
 
 		eg.Go(func() error {
-			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+			for idPos := workerID; idPos < len(ids); idPos += workers {
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("rescore: %w", err)
 				}

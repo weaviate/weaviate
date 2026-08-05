@@ -346,6 +346,23 @@ func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
 	return l.shard.hasActiveAsyncReplicationTargetOverrides()
 }
 
+func (l *LazyLoadShard) removePersistedHashtree() error {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		return nil // not loaded: a stale .ht is discarded on next load
+	}
+	return l.shard.removePersistedHashtree()
+}
+
+func (l *LazyLoadShard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
+}
+
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if err := l.Load(ctx); err != nil {
 		return err
@@ -487,6 +504,10 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 				return fmt.Errorf("delete shard index checkpoints: %w", err)
 			}
 		}
+
+		// The registry tracks open buckets in memory, not files, so purge the
+		// shard's residual entries before deleting the files
+		lsmkv.GlobalBucketRegistry.RemoveByPrefixes(shardPathLSM(idx.path(), shardName))
 
 		// rename sync (must complete even if ctx is expired); RemoveAll async.
 		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
@@ -789,7 +810,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	if err := l.Load(context.Background()); err != nil {
-		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
+		return func() {}, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}
 	return l.shard.preventShutdown()
 }

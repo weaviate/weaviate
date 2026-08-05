@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"runtime"
 	"sync"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -270,14 +272,7 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 		total += db.localShardsToLoad(className)
 	}
 
-	db.indexLock.RLock()
-	indices := make([]*Index, 0, len(db.indices))
-	for _, idx := range db.indices {
-		indices = append(indices, idx)
-	}
-	db.indexLock.RUnlock()
-
-	for _, idx := range indices {
+	for _, idx := range db.copyIndices() {
 		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
 			if _, ok := shard.(*LazyLoadShard); ok {
 				total--
@@ -482,6 +477,7 @@ type Config struct {
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	QueryBatchedContainsEnabled *configRuntime.DynamicValue[bool]
 	LazyPropertyLengthsEnabled  *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
@@ -537,6 +533,18 @@ func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard strin
 	return index.replicator.WaitForDrain(ctx, shard)
 }
 
+// copyIndices returns a copy of the index map so long-running scans can iterate it
+// without holding indexLock. A writer waiting on indexLock blocks every index
+// lookup on the node, including the ones the schema apply loop needs.
+func (db *DB) copyIndices() map[string]*Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	indices := make(map[string]*Index, len(db.indices))
+	maps.Copy(indices, db.indices)
+	return indices
+}
+
 // GetLocalShardNames returns the names of all shards local to this node for
 // the given collection. Returns an error if the collection is not found or has
 // no local shards.
@@ -586,9 +594,8 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 		return nil
 	}
 
-	// abort in-flight usage scans so the dropIndex write lock below is not
-	// blocked behind an hours-long reader while db.indexLock is held
-	index.signalDropRequested()
+	// a reader holding dropIndex would block the drop below while db.indexLock is held
+	index.signalCloseRequested(errIndexDropped)
 
 	// drop index
 	db.indexLock.Lock()
@@ -621,11 +628,11 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	// keep going on failure: a failing step must not skip the cleanup below
+	ec := errorcompounder.New()
+
 	// shut down the async workers
-	err := db.scheduler.Close(ctx)
-	if err != nil {
-		return errors.Wrap(err, "close scheduler")
-	}
+	ec.AddWrapf(db.scheduler.Close(ctx), "close scheduler")
 
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
@@ -635,8 +642,8 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	defer db.indexLock.Unlock()
 	defer db.asyncReplicationScheduler.Close()
 	for id, index := range db.indices {
-		if err := index.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shutdown index %q", id)
+		if err := index.Shutdown(ctx); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			ec.AddWrapf(err, "shutdown index %q", id)
 		}
 	}
 
@@ -646,7 +653,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.indexCheckpoints.Close()
 	}
 
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 type job struct {

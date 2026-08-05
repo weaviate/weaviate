@@ -1272,9 +1272,18 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 	return nil
 }
 
+// snapshotBlockBufferPool holds readSnapshotBody's block-sized read buffers. Each
+// shard re-reads its previous snapshot every time it writes a new one, so a fresh
+// multi-megabyte buffer per worker per read is a large share of allocation churn.
+// *[]byte so Put won't allocate.
+var snapshotBlockBufferPool = sync.Pool{
+	New: func() any { return new([]byte) },
+}
+
 // readSnapshotBody reads the snapshot body from the file for snapshot versions >= 3.
 func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationResult) error {
 	var mu sync.Mutex
+	var lastNodeID uint64 // highest node slot any block reached, guarded by mu
 
 	finfo, err := f.Stat()
 	if err != nil {
@@ -1285,16 +1294,32 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 	if err != nil {
 		return err
 	}
+	snapshotBlockSize := int(l.snapshotBlockSize)
 	bodySize := int(fsize - seek)
+	// the writer always pads to whole blocks, so a body that is not one was truncated.
+	// an empty body would otherwise read back as an all-nil node set with no error
+	if bodySize <= 0 || bodySize%snapshotBlockSize != 0 {
+		return fmt.Errorf("snapshot body of %d bytes is not a whole number of %d byte blocks", bodySize, snapshotBlockSize)
+	}
+	blockCount := bodySize / snapshotBlockSize
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(l.logger, context.Background())
 	eg.SetLimit(snapshotConcurrency)
 
 	ch := make(chan int, snapshotConcurrency)
 
-	for i := 0; i < snapshotConcurrency; i++ {
+	// every worker holds a whole block, so starting more workers than there are
+	// blocks costs a block-sized buffer each and reads nothing
+	for i := 0; i < min(snapshotConcurrency, blockCount); i++ {
 		eg.Go(func() error {
-			buf := make([]byte, l.snapshotBlockSize)
+			bufPtr := snapshotBlockBufferPool.Get().(*[]byte)
+			defer snapshotBlockBufferPool.Put(bufPtr)
+			// New cannot see the block size, so a pool miss comes back empty
+			if cap(*bufPtr) < snapshotBlockSize {
+				*bufPtr = make([]byte, snapshotBlockSize)
+			}
+			buf := (*bufPtr)[:snapshotBlockSize]
+
 			var b [8]byte
 
 			for {
@@ -1311,8 +1336,8 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 					if err != nil {
 						return err
 					}
-					if n != int(l.snapshotBlockSize) {
-						return fmt.Errorf("read %d bytes, expected %d bytes at offset %d", n, l.snapshotBlockSize, seek+int64(offset))
+					if n != snapshotBlockSize {
+						return fmt.Errorf("read %d bytes, expected %d bytes at offset %d", n, snapshotBlockSize, seek+int64(offset))
 					}
 
 					hasher := crc32.NewIEEE()
@@ -1387,13 +1412,17 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 						mu.Unlock()
 						currNodeID++
 					}
+
+					mu.Lock()
+					lastNodeID = max(lastNodeID, currNodeID)
+					mu.Unlock()
 				}
 			}
 		})
 	}
 
 LOOP:
-	for i := 0; i < bodySize; i += int(l.snapshotBlockSize) {
+	for i := 0; i < bodySize; i += snapshotBlockSize {
 		select {
 		case <-ctx.Done():
 			break LOOP
@@ -1402,7 +1431,18 @@ LOOP:
 	}
 	close(ch)
 
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	// the writer emits one slot per node, so a complete body ends at the node count
+	// the metadata records. a shorter one means whole blocks are missing, which the
+	// per-block checksums cannot see
+	if lastNodeID != uint64(len(res.Nodes)) {
+		return fmt.Errorf("snapshot body ends at node %d, metadata declares %d nodes", lastNodeID, len(res.Nodes))
+	}
+
+	return nil
 }
 
 func (l *hnswCommitLogger) readMetadata(f common.File, res *DeserializationResult) (int, error) {

@@ -79,3 +79,10 @@ func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
 		panic(err)
 	}
 }
+
+// pre-built and never mutated, so the RoaringSet check doesn't allocate per call
+var strategiesRoaringSet = []Strategy{StrategyRoaringSet}
+
+func CheckStrategyRoaringSet(strategy Strategy) error {
+	return CheckExpectedStrategy(strategy, strategiesRoaringSet...)
+}

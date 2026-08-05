@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -48,12 +49,13 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 			if !ok {
 				// shard already does not exist or inactive, so remove local files if exists
 				// this pass will happen if the shard was COLD for example
+				var removeErr error
 				if err := os.RemoveAll(fmt.Sprintf("%s/%s", idx.path(), name)); err != nil {
-					err = fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
-					ec.Add(err)
-					return err
+					removeErr = fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
+					ec.Add(removeErr)
 				}
-				return nil
+				lsmkv.GlobalBucketRegistry.RemoveByPrefixes(shardPathLSM(idx.path(), name))
+				return removeErr
 			}
 
 			if err := shard.drop(false); err != nil {
@@ -121,6 +123,21 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 
 			owner := offloadHaltOwner(name)
 
+			// restoreAfterAbort reverses an already-run offloading HaltForTransfer.
+			restoreAfterAbort := func() {
+				if shard == nil {
+					return // COLD/inactive: no local shard was halted
+				}
+				if err := idx.resumeAfterAbortedOffload(ctx, name); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"action": "resume_after_aborted_offload",
+						"name":   class,
+						"tenant": name,
+					}).Errorf("resume after aborted offload: %v", err)
+					ec.Add(fmt.Errorf("resume after aborted offload: %w", err))
+				}
+			}
+
 			if shard != nil {
 				if err := shard.HaltForTransfer(ctx, owner, true, 0); err != nil {
 					m.logger.WithFields(logrus.Fields{
@@ -137,6 +154,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 						Op: command.TenantsProcess_OP_ABORT,
 					}
 					ec.Add(err)
+					restoreAfterAbort()
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
 			}
@@ -157,21 +175,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 					},
 					Op: command.TenantsProcess_OP_ABORT,
 				}
-				// The abort reverts the tenant to HOT without dropping the shard,
-				// so its halt has no teardown to release it. Lift the offload's own
-				// halt here or a live, writable tenant stays paused for compaction
-				// forever (unbounded LSM/WAL growth). Resume on context.Background()
-				// (like the sibling abort paths): the operation ctx may already be
-				// cancellation-driven, and the halt must still be lifted.
-				if shard != nil {
-					if rerr := shard.resumeMaintenanceCycles(context.Background(), owner); rerr != nil {
-						m.logger.WithFields(logrus.Fields{
-							"action": "resume_maintenance_after_offload_abort",
-							"name":   class,
-							"tenant": name,
-						}).Errorf("resume maintenance after offload abort: %v", rerr)
-					}
-				}
+				restoreAfterAbort()
 			} else {
 				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
 					Tenant: &command.Tenant{

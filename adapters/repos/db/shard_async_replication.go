@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1074,6 +1075,47 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 	return nil
 }
 
+// rebuildAsyncReplicationFromScratch drops any tree, deletes the snapshot, and rebuilds from a full scan when enabled — atomically, so no racing enable can trust the stale snapshot.
+func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
+	var clearStats bool
+	err := func() error {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock()
+
+		if s.hashtree != nil { // drop any tree a racing enable may have installed
+			s.asyncReplicationCancelFunc()
+			s.hashtree = nil
+			s.hashtreeFullyInitialized = false
+			s.clearAsyncCheckpointLocked()
+
+			// Deadlock-free: removeCh takes only sched.mu, never asyncReplicationRWMux.
+			if s.index.asyncReplicationScheduler != nil {
+				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+					s.index.logger.WithField("action", "async_replication").Error(err)
+				}
+			}
+			clearStats = true
+		}
+
+		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached
+			return err
+		}
+
+		if enabled {
+			return s.initAsyncReplication(config, nil) // cached=nil forces a full scan
+		}
+		return nil
+	}()
+
+	// Clear stats outside the mux, matching disableAsyncReplication.
+	if clearStats {
+		s.asyncReplicationStatsMux.Lock()
+		s.asyncReplicationStatsByTargetNode = nil
+		s.asyncReplicationStatsMux.Unlock()
+	}
+	return err
+}
+
 func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	func() {
 		s.asyncReplicationRWMux.Lock()
@@ -1183,7 +1225,9 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	defer s.asyncReplicationStatsMux.RUnlock()
 
 	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
-	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
+	// a fixed order keeps repeated reads from reshuffling the reported targets
+	for _, targetNodeName := range slices.Sorted(maps.Keys(s.asyncReplicationStatsByTargetNode)) {
+		asyncReplicationStats := s.asyncReplicationStatsByTargetNode[targetNodeName]
 		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
 			ObjectsPropagated:       uint64(max(0, asyncReplicationStats.localObjectsPropagationCount-asyncReplicationStats.objectsNotResolved)),
 			StartDiffTimeUnixMillis: asyncReplicationStats.hashtreeDiffStartTime.UnixMilli(),

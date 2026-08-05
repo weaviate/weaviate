@@ -83,12 +83,13 @@ type BucketCreator interface {
 }
 
 type Bucket struct {
-	dir      string
-	rootDir  string
-	active   memtable
-	flushing memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+	dir            string
+	registeredPath string
+	rootDir        string
+	active         memtable
+	flushing       memtable
+	disk           *SegmentGroup
+	logger         logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -277,7 +278,12 @@ type Bucket struct {
 	sequentialAccess bool
 }
 
-func NewBucketCreator() *Bucket { return &Bucket{} }
+// bucketCreator satisfies BucketCreator without being a Bucket itself: a Bucket
+// that has not been through NewBucket has no logger, no memtables and no
+// segment group, so it must never be handed out as one.
+type bucketCreator struct{}
+
+func NewBucketCreator() BucketCreator { return bucketCreator{} }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
@@ -285,7 +291,7 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (b *Bucket, err error) {
@@ -408,6 +414,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		// prevent accidentally trying to register the same bucket twice
 		return nil, err
 	}
+	// The actual path of the bucket can change, e.g. on delete, without updating the registry. Keep the registered path in the bucket so we can remove it from the registry on shutdown.
+	b.registeredPath = dir
 
 	return b, nil
 }
@@ -622,7 +630,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
@@ -649,10 +657,7 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	// logger nil-guard: test buckets are built as bare literals without one, and
-	// under load this slow-lock branch can fire (RLock timed >100ms) where it never
-	// would in production; a nil FieldLogger would then panic on WithFields.
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond && b.logger != nil {
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
 		b.logger.WithFields(logrus.Fields{
 			"duration": duration,
 			"action":   "lsm_bucket_get_acquire_flush_lock",
@@ -1704,7 +1709,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	close(drained)
 	defer b.lifetimeLock.Unlock()
 
-	defer GlobalBucketRegistry.Remove(b.GetDir())
+	defer GlobalBucketRegistry.Remove(b.registeredPath)
 
 	start := time.Now()
 

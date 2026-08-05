@@ -68,7 +68,7 @@ func (s *Shard) haltRemoveOwnerLocked(owner string) (gone bool) {
 // clearHaltForTransferStateLocked drops every trace of halt-for-transfer state at
 // shard teardown: a shard whose store is closed must not keep answering "paused for
 // transfer" through ListBackupFiles/GetFile/GetFileMetadata, and must not keep
-// claiming an outstanding resume. Both owner maps go together — clearing only
+// claiming an outstanding resume. Both owner maps are cleared together — clearing only
 // haltForTransferOwners would leave an armed set that resumeOwnerLocked's
 // zero-total branch can never clean up. Caller must hold haltForTransferMux.
 func (s *Shard) clearHaltForTransferStateLocked() {
@@ -117,7 +117,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 	newTotal := s.haltAddOwnerLocked(owner)
 
 	defer func() {
-		if err == nil && inactivityTimeout > 0 {
+		if err != nil {
+			return
+		}
+		if inactivityTimeout > 0 {
 			if s.haltForTransferInactivityOwners == nil {
 				s.haltForTransferInactivityOwners = map[string]struct{}{}
 			}
@@ -125,6 +128,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
 			s.mayInitInactivityMonitoring()
 		}
+		// A halt that returns successfully is itself liveness, and neither call above
+		// moves an existing deadline: mayUpdateInactivityTimeout only ever shortens
+		// the timeout, and mayInitInactivityMonitoring returns early once a monitor
+		// is running. Without this, an overlapping consumer inherits a deadline the
+		// first consumer's seal steps already spent, and the watchdog's force-resume
+		// drops the halt for every armed holder rather than only the one that timed
+		// out. No-ops when no timeout is armed.
+		s.mayResetInactivityDeadline()
 	}()
 
 	if offloading {

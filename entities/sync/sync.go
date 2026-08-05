@@ -34,16 +34,22 @@ func NewKeyLocker() *KeyLocker {
 	}
 }
 
+// mutexFor returns ID's mutex, creating it on first use. The Load comes first
+// so that an ID that already exists does not allocate a mutex it would discard.
+func (s *KeyLocker) mutexFor(ID string) *sync.Mutex {
+	iLock, ok := s.m.Load(ID)
+	if !ok {
+		iLock, _ = s.m.LoadOrStore(ID, &sync.Mutex{})
+	}
+	return iLock.(*sync.Mutex)
+}
+
 // Lock it locks a specific bucket by it's ID
 // to hold ant concurrent access to that specific item
 //
 //	do not forget calling Unlock() after locking it.
 func (s *KeyLocker) Lock(ID string) {
-	iLock := &sync.Mutex{}
-	iLocks, _ := s.m.LoadOrStore(ID, iLock)
-
-	iLock = iLocks.(*sync.Mutex)
-	iLock.Lock()
+	s.mutexFor(ID).Lock()
 }
 
 // Unlock it unlocks a specific item by it's ID
@@ -75,16 +81,22 @@ func NewKeyRWLocker() *KeyRWLocker {
 	}
 }
 
+// mutexFor returns ID's mutex, creating it on first use. The Load comes first
+// so that an ID that already exists does not allocate a mutex it would discard.
+func (s *KeyRWLocker) mutexFor(ID string) *sync.RWMutex {
+	iLock, ok := s.m.Load(ID)
+	if !ok {
+		iLock, _ = s.m.LoadOrStore(ID, &sync.RWMutex{})
+	}
+	return iLock.(*sync.RWMutex)
+}
+
 // Lock it locks a specific bucket by it's ID
 // to hold ant concurrent access to that specific item
 //
 //	do not forget calling Unlock() after locking it.
 func (s *KeyRWLocker) Lock(ID string) {
-	iLock := &sync.RWMutex{}
-	iLocks, _ := s.m.LoadOrStore(ID, iLock)
-
-	iLock = iLocks.(*sync.RWMutex)
-	iLock.Lock()
+	s.mutexFor(ID).Lock()
 }
 
 // Unlock it unlocks a specific item by it's ID.
@@ -103,21 +115,13 @@ func (s *KeyRWLocker) Unlock(ID string) {
 //
 //	do not forget calling RUnlock() after rlocking it.
 func (s *KeyRWLocker) RLock(ID string) {
-	iLock := &sync.RWMutex{}
-	iLocks, _ := s.m.LoadOrStore(ID, iLock)
-
-	iLock = iLocks.(*sync.RWMutex)
-	iLock.RLock()
+	s.mutexFor(ID).RLock()
 }
 
 // TryRLock attempts to acquire a read lock without blocking.
 // Returns true if the lock was acquired, false otherwise.
 func (s *KeyRWLocker) TryRLock(ID string) bool {
-	iLock := &sync.RWMutex{}
-	iLocks, _ := s.m.LoadOrStore(ID, iLock)
-
-	iLock = iLocks.(*sync.RWMutex)
-	return iLock.TryRLock()
+	return s.mutexFor(ID).TryRLock()
 }
 
 // RUnlock it runlocks a specific item by it's ID.
@@ -152,16 +156,22 @@ func NewKeyLockerContext() *KeyLockerContext {
 	}
 }
 
+// mutexFor returns ID's mutex, creating it on first use. The Load comes first
+// so that an ID that already exists does not allocate a mutex it would discard.
+func (s *KeyLockerContext) mutexFor(ID string) *contextMutex {
+	iLock, ok := s.m.Load(ID)
+	if !ok {
+		iLock, _ = s.m.LoadOrStore(ID, newContextMutex())
+	}
+	return iLock.(*contextMutex)
+}
+
 // Lock locks a specific bucket by it's ID
 // to hold any concurrent access to that specific item
 //
 //	do not forget to call Unlock() after locking it.
 func (s *KeyLockerContext) Lock(ID string) {
-	iLock := newContextMutex()
-	iLocks, _ := s.m.LoadOrStore(ID, iLock)
-
-	iLock = iLocks.(*contextMutex)
-	iLock.Lock()
+	s.mutexFor(ID).Lock()
 }
 
 // LockWithContext tries to lock the mutex with a context.
@@ -175,11 +185,7 @@ func (s *KeyLockerContext) Lock(ID string) {
 // You must call Unlock if the returned error is nil to release the lock.
 // Do not call Unlock if the returned error is not nil.
 func (s *KeyLockerContext) LockWithContext(ID string, ctx context.Context) error {
-	iLock := newContextMutex()
-	iLocks, _ := s.m.LoadOrStore(ID, iLock)
-	iLock = iLocks.(*contextMutex)
-	err := iLock.LockWithContext(ctx)
-	return err
+	return s.mutexFor(ID).LockWithContext(ctx)
 }
 
 // Unlock unlocks a specific item by it's ID.

@@ -37,5 +37,6 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules, s.index.Config.QueryHybridMaximumResults,
 		s.TokenizationFor).
 		WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket).
+		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		Do(ctx)
 }

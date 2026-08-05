@@ -256,6 +256,8 @@ func (i *Index) descriptor(ctx context.Context, op backup.Op, desc *backup.Class
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, op, desc, classBaseDescrs)
 	}
+	// NO-HARDLINK-BACKUP: only reachable on filesystems without hardlink support.
+	// Removed in v1.40; bugs here are not fixed.
 	return i.descriptorWithoutHardlinks(ctx, op, desc, classBaseDescrs)
 }
 
@@ -337,6 +339,12 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, op backup.Op, desc 
 func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, op backup.Op, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
+	// Deferred before backupLock so it runs after the unlock: dropping the last
+	// shard reference can run the shard teardown inline, and doing that under
+	// backupLock blocks every write to the shard for the teardown's duration.
+	releaseShard := func() {}
+	defer func() { releaseShard() }()
+
 	i.backupLock.Lock(name)
 	defer i.backupLock.Unlock(name)
 
@@ -389,7 +397,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, op ba
 	if err != nil {
 		return nil, fmt.Errorf("prevent shutdown of shard %v: %w", name, err)
 	}
-	defer release()
+	releaseShard = release
 
 	i.shardCreateLocks.Unlock(name)
 	shardCreateLocksHeld = false
@@ -465,6 +473,12 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
 // hardlinks. Compaction remains paused for the entire backup upload duration.
+//
+// The op (not a bare backup ID) is threaded through so the halts this path places
+// carry op.HaltOwner(): Index.ReleaseBackup resumes by that fenced key, and an
+// unfenced owner would orphan every halt this path takes.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) descriptorWithoutHardlinks(ctx context.Context, op backup.Op, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	defer func() {
 		if err != nil {
@@ -509,6 +523,11 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, op backup.Op, de
 //
 // For inactive shards, backupProtectedShards is set and backupLock.Lock is held
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
+//
+// The op is threaded through so the halt below registers under op.HaltOwner(),
+// the fenced key Index.ReleaseBackup resumes.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, op backup.Op, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
@@ -533,7 +552,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, op
 		if shard == nil {
 			// Not in shardMap => back up from disk if directory exists.
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
-			i.backupProtectedShards.Store(name, op)
+			i.backupProtectedShards.Store(name, struct{}{})
 			unlockOnReturn = false
 			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 		}
@@ -545,7 +564,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, op
 			defer releaseBlock()
 			if !lazyShard.loaded {
 				// Shard is in the map but not loaded; protect and keep lock held.
-				i.backupProtectedShards.Store(name, op)
+				i.backupProtectedShards.Store(name, struct{}{})
 				unlockOnReturn = false
 				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 			}
@@ -576,6 +595,8 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, op
 
 // backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading
 // its files directly from disk.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
@@ -674,25 +695,14 @@ func (i *Index) ReleaseBackup(ctx context.Context, op backup.Op) error {
 		i.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 
-	// 2. Release THIS operation's non-hardlink backup protections: drop the
-	// protection entry and release the backupLock.Lock it kept held.
+	// 2. Release non-hardlink backup protections: clear the protection flag and
+	// release the held backupLock.Lock for each protected shard.
 	//
-	// CompareAndDelete makes the delete conditional on the value STILL being this
-	// op, atomically, which is what keeps this correct under concurrent releases.
-	// Exactly one of N concurrent same-Op releases wins the compare-and-delete and
-	// therefore exactly one unlocks; and a straggler whose Range visit read this op
-	// cannot unlock a successor's protection, because by the time it reaches the
-	// delete the value under that key is the successor's Op and the compare fails.
-	// A plain delete keyed on the Range-read value would not be safe: between the
-	// read and the delete the winning releaser can unlock and a successor op can
-	// take backupLock.Lock(name) and store its own protection.
-	i.backupProtectedShards.Range(func(key, value any) bool {
-		if owner, ok := value.(backup.Op); !ok || owner != op {
-			return true
-		}
-		if i.backupProtectedShards.CompareAndDelete(key, op) {
-			i.backupLock.Unlock(key.(string))
-		}
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
+	i.backupProtectedShards.Range(func(key, _ any) bool {
+		name := key.(string)
+		i.backupLock.Unlock(name)
+		i.backupProtectedShards.Delete(key)
 		return true
 	})
 

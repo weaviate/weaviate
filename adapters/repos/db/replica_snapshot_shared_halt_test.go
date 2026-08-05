@@ -159,6 +159,78 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	shard.haltForTransferMux.Unlock()
 }
 
+// The owner bookkeeping is cleared ahead of the errgroup that can fail, so a failed
+// resume still drops the halt count while the cycles it could not restart stay
+// paused. That is why the shard records the failure as a pending physical resume:
+// the count alone can no longer drive a retry.
+func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
+	_, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+
+	require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
+
+	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+	require.Error(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
+
+	shard.haltForTransferMux.Lock()
+	haltCount := shard.haltTotalLocked()
+	pending := shard.maintenanceResumePending
+	shard.haltForTransferMux.Unlock()
+	require.Zero(t, haltCount,
+		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
+	require.True(t, pending,
+		"the failed physical resume must be recorded so a later resume re-runs it")
+}
+
+// The retry itself: once the failing leg is healthy again, a later resume must
+// actually re-run the physical resume and clear the pending flag. Without the
+// pending re-run in resumeOwnerLocked's zero-total branch, that second resume
+// early-returns on the already-zero halt count and reports success on a shard whose
+// maintenance never restarted.
+func TestResumeRetriesAfterFailedLegRecovers(t *testing.T) {
+	_, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+
+	require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
+
+	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+	require.Error(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
+
+	shard.haltForTransferMux.Lock()
+	require.True(t, shard.maintenanceResumePending, "pre-condition: the failure must be recorded")
+	require.Zero(t, shard.haltTotalLocked(), "pre-condition: the owner bookkeeping is already cleared")
+	shard.haltForTransferMux.Unlock()
+
+	// Heal the leg that failed, then retry under the same owner. The owner is gone,
+	// so only the pending flag can drive this resume.
+	rebindVectorCallbacksCtrl(t, shard)
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
+
+	shard.haltForTransferMux.Lock()
+	defer shard.haltForTransferMux.Unlock()
+	require.False(t, shard.maintenanceResumePending,
+		"a successful retry must clear the pending resume")
+	require.True(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(),
+		"the retry must actually re-run the physical resume, not just clear the flag")
+}
+
+// rebindVectorCallbacksCtrl re-registers the vector callback controls that
+// Unregister tore down, so a subsequent Activate can succeed. It mirrors the
+// registration in shard_cyclecallbacks.go, reusing the shard's own callback groups.
+func rebindVectorCallbacksCtrl(t *testing.T, s *Shard) {
+	t.Helper()
+	commitLogger := s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
+		"rebound-vector-commit-logger", s.cycleCallbacks.vectorCommitLoggerCallbacks.CycleCallback)
+	tombstoneCleanup := s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
+		"rebound-vector-tombstone-cleanup", s.cycleCallbacks.vectorTombstoneCleanupCallbacks.CycleCallback)
+	s.cycleCallbacks.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(
+		2, s.index.logger, commitLogger, tombstoneCleanup)
+	// Deactivated so the retry's Activate is an observable state change.
+	require.NoError(t, s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(context.Background()))
+}
+
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire
 // file list (copying every listed lsm/objects/* file out of sourceRoot into a
 // throwaway dir), opens it read-only, and reports whether id is retrievable —

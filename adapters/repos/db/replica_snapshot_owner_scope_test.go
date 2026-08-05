@@ -195,7 +195,7 @@ func TestOffloadAbortResumesOwnHalt(t *testing.T) {
 	putSharedHaltObject(t, index, ownerScopeObj1, 0)
 
 	m := &Migrator{
-		cloud:   &fakeOffloadCloud{uploadErr: context.DeadlineExceeded},
+		cloud:   &fakeAbortOffloadCloud{uploadErr: context.DeadlineExceeded},
 		cluster: fakeTenantProcessor{},
 		nodeId:  "node1",
 		logger:  logrus.New(),
@@ -222,7 +222,7 @@ func TestOffloadAbortResumesOwnHaltUnderCanceledCtx(t *testing.T) {
 	putSharedHaltObject(t, index, ownerScopeObj1, 0)
 
 	m := &Migrator{
-		cloud:   &fakeOffloadCloud{uploadErr: context.Canceled, onUpload: cancel},
+		cloud:   &fakeAbortOffloadCloud{uploadErr: context.Canceled, onUpload: cancel},
 		cluster: fakeTenantProcessor{},
 		nodeId:  "node1",
 		logger:  logrus.New(),
@@ -322,7 +322,8 @@ func TestForcedResumeReleasesAllArmedTransfers(t *testing.T) {
 }
 
 // The replica-snapshot registry describes shards this index owns, so no entry may
-// outlive the index — including when the shard loop returns early on an error.
+// outlive the index — including when a shard's own shutdown fails and the teardown
+// reports an error.
 func TestIndexTeardownPurgesReplicaSnapshotRegistry(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -418,8 +419,10 @@ func TestCreateToleratesFailedPriorRelease(t *testing.T) {
 	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
 	require.NoError(t, err)
 
+	// nil held: the clear resolves the shard itself, and a closed index makes that
+	// resolution fail, which is the failure this test needs.
 	index.closed = true
-	index.clearPriorReplicaSnapshot(ctx, opID)
+	index.clearPriorReplicaSnapshot(ctx, opID, nil)
 	index.closed = false
 
 	index.replicaSnapshotsMu.Lock()
@@ -494,25 +497,25 @@ func forceInactivityFire(t *testing.T, shard *Shard) {
 		"a genuine fire stops watching")
 }
 
-type fakeOffloadCloud struct {
+type fakeAbortOffloadCloud struct {
 	uploadErr error
 	// onUpload fires at the start of Upload — used to cancel the operation ctx
 	// mid-offload so the abort's resume path is exercised under cancellation.
 	onUpload func()
 }
 
-func (f *fakeOffloadCloud) VerifyBucket(context.Context) error { return nil }
+func (f *fakeAbortOffloadCloud) VerifyBucket(context.Context) error { return nil }
 
-func (f *fakeOffloadCloud) Upload(context.Context, string, string, string) error {
+func (f *fakeAbortOffloadCloud) Upload(context.Context, string, string, string) error {
 	if f.onUpload != nil {
 		f.onUpload()
 	}
 	return f.uploadErr
 }
 
-func (f *fakeOffloadCloud) Download(context.Context, string, string, string) error { return nil }
+func (f *fakeAbortOffloadCloud) Download(context.Context, string, string, string) error { return nil }
 
-func (f *fakeOffloadCloud) Delete(context.Context, string, string, string) error { return nil }
+func (f *fakeAbortOffloadCloud) Delete(context.Context, string, string, string) error { return nil }
 
 type fakeTenantProcessor struct{}
 
