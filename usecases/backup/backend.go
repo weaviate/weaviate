@@ -253,6 +253,11 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 
+	// The commit-time overlap backstop is the only failure that makes FAILED
+	// observable while the operation is still running, so its flip waits for the
+	// deferred meta write below: a poll that sees FAILED must be able to read why.
+	var overlapRefused bool
+
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
 	defer func() {
@@ -289,6 +294,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
+		} else if overlapRefused {
+			u.setStatus(backup.Failed)
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -357,7 +364,7 @@ Loop:
 	// admitted during capture was invisible to them. Failing the backup beats a
 	// SUCCESS that silently spans a migration.
 	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
-		u.setStatus(backup.Failed)
+		overlapRefused = true
 		desc.Status = backup.Failed
 		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)
 	}
