@@ -61,9 +61,15 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 	// the shard's NAME is already counted as covered, and nothing ever
 	// re-arms it (resurrection on a same-name re-create, with no log).
 	// Mirror the finalize-time drained veto instead: defer the snapshot until
-	// the cleanup drains the rows (seconds on a loaded shard; the replication
-	// engine retries). A read error defers too — deferral is the reversible
-	// direction.
+	// the cleanup drains the rows. A read error defers too — deferral is the
+	// reversible direction.
+	//
+	// The wait can be long. Draining shares one goroutine with compaction,
+	// which takes precedence, so on a write-active shard the rows can sit
+	// until the segment group's force-cleanup interval gives cleanup a turn.
+	// The replication engine retries, so the move still completes on its own;
+	// a move that keeps deferring means a drop is still stripping this shard,
+	// not a stuck transfer.
 	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
 		hasRows, err := bucket.EditOpsHaveRows()
 		if err != nil {
