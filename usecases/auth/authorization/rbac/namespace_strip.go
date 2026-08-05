@@ -25,48 +25,30 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// stripRBACSnapshot rewrites a namespaced RBAC snapshot so it can be restored
-// into a cluster that has namespaces disabled, which the rest of the codebase
-// calls graduation. It drops the "<namespace>:" prefix from names.
+// stripRBACSnapshot rewrites a namespaced RBAC snapshot for restore into a
+// cluster with namespaces disabled, which this codebase calls graduation. It
+// drops the "<namespace>:" prefix from names, or refuses the snapshot.
 //
-// Role names, resources and OIDC subjects are stripped only when the namespace
-// is one the snapshot's own roles name, because a ':' in those can also be part
-// of a global name. That is complete only while every namespace in the blob is
-// named by some role in it, which holds because a resource is qualified with its
-// role's namespace when it is created. If a future path lets a resource carry a
-// namespace no role name mentions, those rows stay qualified and nothing reports
-// it. A users resource is a partial exception. Its name segment is an identity,
-// so it borrows one half of the db subject rule below.
+// Two rules apply, because a ':' is not always a namespace separator. Role
+// names, resources and OIDC subjects strip only when the prefix is a namespace
+// some role in the snapshot names, since each of those may hold a ':' of its
+// own.
 //
-// A db subject is handled by a different rule, because it is one of exactly two
-// things. It is either a static API key user, whose name is taken verbatim from
-// configuration and may contain a ':' of its own, or a dynamic user, whose name
-// is validated on create against a pattern that admits no ':'. So a db subject
-// that the cluster lists as a static API key user is left exactly as it is, and
-// any other db subject is stripped unconditionally. The namespace set must not
-// be consulted for the second case: a namespaced user whose only role is global
-// carries a namespace no role name mentions, and a cluster with namespaces
-// disabled refuses to start while any db grouping subject is still qualified.
-// A users resource names the same identity a db subject names, so a name the
-// cluster lists as a static API key user is kept whole there too. The rest of
-// that rule does not carry over. A users resource does not record whether the
-// identity is a db user or an OIDC subject, so every other users name follows
-// the namespace set rule above.
+// A db subject cannot use that rule. A namespaced user whose only role is
+// global carries a namespace no role name mentions, and the target refuses to
+// start while any db grouping subject is still qualified. A dynamic user name
+// admits no ':' of its own, so a db subject strips unconditionally unless the
+// restoring cluster configures its full name as a static API key user. Those
+// names are taken from configuration unchecked and may hold a ':'. A users
+// resource names an identity rather than a schema name, so it keeps a
+// configured static name whole as well.
 //
-// staticAPIKeyUsers is the restoring cluster's own configured list. A static
-// user that exists on the source cluster but not on the target is therefore
-// treated as a dynamic user and stripped.
+// staticAPIKeyUsers is the restoring cluster's own list, not the source's, so a
+// static user the target does not configure is treated as a dynamic one.
 //
-// A snapshot is rejected instead of applied when stripping would damage it, for
-// any of three reasons. Two different names may strip to the same name, which
-// casbin would merge on Restore with no error reported. A single namespaced role
-// may strip onto a built-in name. On restore, applyPredefinedRoles would wipe
-// that role's permissions, and its assignments would either transfer to the
-// built-in or be reset from configuration depending on which built-in it hit. A
-// db subject may strip onto a name the cluster configures as a static API key
-// user, which would hand that operator key the roles the namespaced user held.
-// Returns the rewritten snapshot, or an error listing everything that was
-// rejected.
+// Stripping is refused rather than applied when two entities would collapse
+// into one, because casbin merges colliding rows on Restore and reports
+// nothing. The error names every rejection.
 func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error) {
 	staticUsers := make(map[string]struct{}, len(staticAPIKeyUsers))
 	for _, user := range staticAPIKeyUsers {
@@ -77,6 +59,11 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 	// are created, so a role name's "<ns>:" prefix really is a namespace. Other
 	// names cannot be split that way: an OIDC subject or a resource can contain a
 	// ':' of its own.
+	//
+	// This set is complete only while every namespace in the snapshot is named by
+	// some role in it. A resource is qualified with its own role's namespace on
+	// create, which holds it today. A resource carrying a namespace no role name
+	// mentions would stay qualified after the strip and nothing would report it.
 	namespaces := map[string]struct{}{}
 	addNamespace := func(roleKey string) {
 		if ns := namespacing.NamespaceFromQualified(conv.TrimRoleNamePrefix(roleKey)); ns != "" {
