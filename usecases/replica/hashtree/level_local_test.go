@@ -355,3 +355,28 @@ func TestLevelResponseEquivalentAcrossBufferSizing(t *testing.T) {
 		}
 	}
 }
+
+func TestLevelRejectsUnderstatedSetCount(t *testing.T) {
+	ht, err := NewHashTree(3)
+	require.NoError(t, err)
+
+	disc := NewBitset(nodesAtLevel(2)).Set(0).Set(1).Set(2)
+	disc.setCount = 1
+
+	_, err = ht.Level(2, disc, make([]Digest, 1))
+	require.ErrorIs(t, err, ErrIllegalArguments)
+}
+
+func TestSizeDigests(t *testing.T) {
+	buf := SizeDigests(nil, 3)
+	require.Len(t, buf, 3)
+
+	grown := SizeDigests(buf, 5)
+	require.Len(t, grown, 5)
+
+	shrunk := SizeDigests(grown, 2)
+	require.Len(t, shrunk, 2)
+	require.Equal(t, 5, cap(shrunk))
+
+	require.Empty(t, SizeDigests(nil, 0))
+}

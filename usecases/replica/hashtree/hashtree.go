@@ -224,6 +224,10 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 
 	for i := 0; i < expectedSize; i++ {
 		if discriminant.IsSet(i) {
+			// bound writes even if the cached set count understates the bits
+			if n == len(digests) {
+				return 0, fmt.Errorf("%w: discriminant set count understates its set bits", ErrIllegalArguments)
+			}
 			digests[n] = ht.nodes[offset+i]
 			n++
 		}

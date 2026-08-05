@@ -158,3 +158,34 @@ func TestCollectShardDifferencesMixedTargets(t *testing.T) {
 	require.NotNil(t, dr.RangeReader)
 	assert.Equal(t, diffLeaves, collectRangeLeaves(t, dr.RangeReader))
 }
+
+func TestCollectShardDifferencesRejectsMalformedLevelResponse(t *testing.T) {
+	testCases := []struct {
+		name     string
+		response []hashtree.Digest
+	}{
+		{"empty response", []hashtree.Digest{}},
+		{"overlong response", make([]hashtree.Digest, 3)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := newFakeFactory(t, "C1", "SH1", []string{"A", "B", "C"}, false)
+			finder := f.newFinder("A")
+
+			ht, err := hashtree.NewHashTree(4)
+			require.NoError(t, err)
+			require.NoError(t, ht.AggregateLeafWith(0, []byte("x")))
+
+			f.RClient.EXPECT().
+				HashTreeLevel(mock.Anything, mock.Anything, "C1", "SH1", mock.Anything, mock.Anything).
+				Return(tc.response, nil)
+
+			_, err = finder.CollectShardDifferences(ctx, "SH1", ht, time.Second, nil)
+			require.Error(t, err)
+			require.NotErrorIs(t, err, replicaerrors.ErrNoDiffFound)
+			require.ErrorContains(t, err, "digests")
+		})
+	}
+}

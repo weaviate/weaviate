@@ -32,13 +32,9 @@ func (ht *HashTree) Diff(ht2 AggregatedHashTree) (*Bitset, error) {
 	walk.Set(0) // root
 
 	for l := 0; l <= height; l++ {
-		if need := walk.SetCount(); cap(digests1) < need {
-			digests1 = make([]Digest, need)
-			digests2 = make([]Digest, need)
-		} else {
-			digests1 = digests1[:need]
-			digests2 = digests2[:need]
-		}
+		need := walk.SetCount()
+		digests1 = SizeDigests(digests1, need)
+		digests2 = SizeDigests(digests2, need)
 
 		if _, err := ht.Level(l, walk, digests1); err != nil {
 			return nil, err

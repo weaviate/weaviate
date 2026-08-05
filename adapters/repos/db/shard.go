@@ -344,6 +344,8 @@ type Shard struct {
 	// treated as "epoch = very long ago"). Atomic to satisfy the race detector:
 	// initAsyncReplication resets it while runHashbeatCycle reads/writes it.
 	asyncRepLastLog atomic.Int64
+	// asyncRepFailLastLog throttles the failure Warn separately so success Debugs cannot starve it.
+	asyncRepFailLastLog atomic.Int64
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex

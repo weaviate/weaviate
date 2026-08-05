@@ -21,6 +21,9 @@ type AggregatedHashTree interface {
 	AggregateLeafWith(i uint64, val []byte) error
 	Sync()
 	Root() Digest
+	// Level writes one digest per set discriminant bit into digests, densely
+	// from index 0 in ascending node order — the positional layout LevelDiff
+	// relies on. digests must hold at least discriminant.SetCount() entries.
 	Level(level int, discriminant *Bitset, digests []Digest) (n int, err error)
 	Reset()
 	Clone() AggregatedHashTree

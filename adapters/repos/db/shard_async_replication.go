@@ -399,6 +399,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.asyncRepCtx = ctx
 
 	s.asyncRepLastLog.Store(0)
+	s.asyncRepFailLastLog.Store(0)
 	s.asyncReplicationConfig = config
 
 	effectiveConfig := config
@@ -1338,16 +1339,13 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	if level < 0 {
 		return nil, fmt.Errorf("hashtree level must be non-negative: %d", level)
 	}
+	// the request-supplied level is otherwise unbounded and sizes scale with 2^level
+	if level > maxHashtreeHeight {
+		return nil, fmt.Errorf("hashtree level %d exceeds the maximum height %d", level, maxHashtreeHeight)
+	}
 	if discriminant == nil {
 		return nil, fmt.Errorf("hashtree level %d: nil discriminant", level)
 	}
-
-	expected := hashtree.LeavesCount(level)
-	if discriminant.Size() != expected {
-		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (height mismatch?)",
-			level, discriminant.Size(), expected)
-	}
-	digests = make([]hashtree.Digest, discriminant.SetCount())
 
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
@@ -1355,6 +1353,18 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	if !s.hashtreeFullyInitialized {
 		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
+
+	if height := s.hashtree.Height(); level > height {
+		return nil, fmt.Errorf("hashtree level %d exceeds height %d on shard %q", level, height, s.ID())
+	}
+
+	expected := hashtree.LeavesCount(level)
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (height mismatch?)",
+			level, discriminant.Size(), expected)
+	}
+
+	digests = make([]hashtree.Digest, discriminant.SetCount())
 
 	n, err := s.hashtree.Level(level, discriminant, digests)
 	if err != nil {
@@ -1579,8 +1589,8 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			return false, replicaerrors.ErrNoDiffFound
 		}
 
-		if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
-			s.asyncRepLastLog.Store(time.Now().Unix())
+		if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= config.loggingFrequency {
+			s.asyncRepFailLastLog.Store(time.Now().Unix())
 			s.index.logger.
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).

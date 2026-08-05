@@ -102,7 +102,7 @@ func TestBitsetUnmarshalRejectsInconsistentSetCount(t *testing.T) {
 			binary.BigEndian.PutUint32(b[4:], tc.claimedCount)
 
 			var decoded Bitset
-			require.ErrorContains(t, decoded.Unmarshal(b), "invalid bset serialization")
+			require.ErrorIs(t, decoded.Unmarshal(b), ErrInvalidBsetSerialization)
 		})
 	}
 }
