@@ -85,7 +85,7 @@ func newNumericFixture(tb testing.TB, numDocs int) *numericFixture {
 }
 
 // sampleKeys picks `size` int values spread across the corpus, returns their
-// encoded keys (sorted ascending, as ResolveContainsAny requires) and the
+// encoded keys (sorted ascending, as ResolvePerKey requires) and the
 // docIDs they resolve to.
 func (f *numericFixture) sampleKeys(tb testing.TB, size int) (keys [][]byte, docIDs []uint64) {
 	tb.Helper()
@@ -128,14 +128,14 @@ func TestColumnarIndexNumericPOC_Correctness(t *testing.T) {
 	f := newNumericFixture(t, 20_000)
 	ctx := context.Background()
 
-	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), false, columnarTestLogger())
+	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), columnarTestLogger())
 	require.NoError(t, err)
 	require.Equal(t, 8, idx.Info().KeyWidth, "int64 corpus must select the fixed 8-byte key backing")
 
 	for _, size := range []int{1, 100, 1_000, 10_000} {
 		keys, want := f.sampleKeys(t, size)
 
-		got := idx.ResolveContainsAny(keys).ToArray()
+		got := idx.ResolvePerKey(keys).Bitmap().ToArray()
 		require.Equal(t, want, got, "columnar vs sampled docIDs at N=%d", size)
 
 		point := numericPointLookup(ctx, f.bucket, keys).ToArray()
@@ -150,7 +150,7 @@ func BenchmarkColumnarIndexNumericPOC(b *testing.B) {
 	f := newNumericFixture(b, benchCorpusSize)
 	ctx := context.Background()
 
-	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), false, columnarTestLogger())
+	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), columnarTestLogger())
 	require.NoError(b, err)
 	info := idx.Info()
 	require.Equal(b, 8, info.KeyWidth)
@@ -162,7 +162,7 @@ func BenchmarkColumnarIndexNumericPOC(b *testing.B) {
 		b.Run(fmt.Sprintf("columnar/N=%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				idx.ResolveContainsAny(keys)
+				idx.ResolvePerKey(keys).Bitmap()
 			}
 		})
 		b.Run(fmt.Sprintf("roaringset_point/N=%d", size), func(b *testing.B) {

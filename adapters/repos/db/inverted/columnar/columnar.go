@@ -19,12 +19,14 @@
 // merge-scan (dense queries) or binary-search sweep (sparse queries), emitting
 // docIDs into a slice and building exactly one bitmap at the end.
 //
-// The index requires one document per key: each key's docID column entry is a
-// single fixed-width slot, so BuildFromBucket and AbsorbFlush decline a key that
-// holds several documents, and the caller falls back to the standard fold. In
-// practice this means the property's values must be near-unique — a value shared
-// by many documents is what the accelerator cannot represent, whatever the
-// property's datatype.
+// The index is built for a property whose values are unique: each key's docID
+// column entry is a single fixed-width slot, which is what makes rank access and
+// the merge-scan fast. Values that turn out not to be unique are still answered
+// correctly — the extra documents go into a per-segment overflow, and a warning
+// names the property — so a broken assumption costs a little memory and speed
+// rather than results. Past overflowLimit the data is not near-unique at all,
+// and the build fails so ContainsAny stays on the standard fold, whose bitmaps
+// suit that shape far better than a list of docIDs.
 //
 // The reverse does not hold: a document may sit under as many keys as it likes.
 // An array-valued property puts one document under one key per element, and a
@@ -279,9 +281,22 @@ func bytesForMax(max uint64) int {
 type columnarSegment struct {
 	keys keyColumn
 	docs *docIDColumn
+	// overflow holds the documents beyond the first for a key that has several,
+	// addressed by row position. Nil whenever values are unique, so the scan
+	// reads one hoisted branch and never this map. Keeping extras here rather
+	// than as repeated rows keeps the columns sized by distinct keys rather than
+	// by documents, which is what a badly-chosen property would otherwise cost.
+	overflow map[uint32][]uint64
 	// maxDoc is the largest docID the segment holds, recorded while building so
 	// a merge can size its output docID column without rescanning.
 	maxDoc uint64
+}
+
+// appendDocs appends every document row i holds — its column entry and any
+// overflow — to dst.
+func (seg *columnarSegment) appendDocs(i int, dst []uint64) []uint64 {
+	dst = append(dst, seg.docs.at(i))
+	return append(dst, seg.overflow[uint32(i)]...)
 }
 
 // run is one flushed memtable copied into columnar form: the keys that got an
@@ -334,56 +349,42 @@ type ColumnarIndex struct {
 // same width the denser fixedKeyColumn is used (no offset table), otherwise the
 // variable-length blobKeyColumn. Both consume the same contiguous blob.
 //
-// requireUnique enforces the one-document-per-key assumption: when true, a key
-// holding more than one docID makes the build fail, so callers wiring this into
-// a live query path decline and fall back rather than silently drop docIDs.
-//
-// When false the key keeps its highest docID and the rest are dropped. Highest
-// because docIDs are assigned in increasing order, so it is the most recently
-// written of the documents under that key — the least surprising one to keep,
-// though keeping any single one is a loss. This is for benchmarks over corpora
-// known to be effectively unique for the queried keys; a live query path must
-// pass true.
-func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool,
+// A key holding several documents is kept in full: the first goes in the column
+// and the rest into overflow, with a warning naming the scale of the problem.
+// Past overflowLimit the build fails instead, leaving ContainsAny on the fold.
+func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64,
 	logger logrus.FieldLogger,
 ) (*ColumnarIndex, error) {
 	c := bucket.CursorRoaringSet()
 	defer c.Close()
 
-	offsets := []uint32{0}
-	var blob []byte
-	docs := &docIDColumn{w: bytesForMax(maxDocID)}
-	uniformWidth := -1 // -1 unset, -2 mixed, >=0 the common width
+	builder := newSegmentBuilder()
+	builder.docs.w = bytesForMax(maxDocID)
 
 	for k, bm := c.First(); k != nil; k, bm = c.Next() {
 		if bm.IsEmpty() {
 			continue
 		}
-		id := bm.Maximum()
-		if requireUnique && bm.Minimum() != id {
-			// more than one docID under this key violates the 1-doc-per-key
-			// assumption; decline rather than silently drop docIDs.
-			return nil, fmt.Errorf("columnar index requires a unique property: a key holds multiple docIDs")
+		if max := bm.Maximum(); max > maxDocID {
+			return nil, fmt.Errorf("docID %d exceeds maxDocID %d", max, maxDocID)
 		}
-		if id > maxDocID {
-			return nil, fmt.Errorf("docID %d exceeds maxDocID %d", id, maxDocID)
-		}
-		// copy the key: the cursor may reuse its key buffer across Next().
-		blob = append(blob, k...)
-		offsets = append(offsets, uint32(len(blob)))
-		docs.append(id)
+		builder.appendBitmap(k, bm)
+	}
 
-		if uniformWidth == -1 {
-			uniformWidth = len(k)
-		} else if uniformWidth != len(k) {
-			uniformWidth = -2
+	if keys, extras, limit := builder.overflowReport(); extras > 0 {
+		if keys > limit {
+			return nil, fmt.Errorf("columnar index wants unique values: %d keys hold more than "+
+				"one document (%d extra between them), past the %d such keys worth building "+
+				"this structure for", keys, extras, limit)
 		}
+		logger.WithField("action", "columnar_build").
+			Warnf("columnar index built over values that are not unique: %d keys hold %d extra "+
+				"documents between them; results stay correct, but the index is sized and tuned "+
+				"for one document per value", keys, extras)
 	}
 
 	idx := &ColumnarIndex{logger: logger}
-	idx.state.Store(&indexState{
-		base: &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: docs},
-	})
+	idx.state.Store(&indexState{base: builder.segment()})
 	return idx, nil
 }
 
@@ -395,6 +396,8 @@ type segmentBuilder struct {
 	offsets      []uint32
 	blob         []byte
 	docs         *docIDColumn
+	overflow     map[uint32][]uint64
+	numOverflow  int
 	uniformWidth int // -1 unset, -2 mixed, >=0 the common width
 	maxDoc       uint64
 }
@@ -418,6 +421,8 @@ func newSegmentBuilderSized(numKeys, keyBytes, docWidth int) *segmentBuilder {
 	}
 }
 
+// append opens a new row for key holding docID. Keys must arrive sorted and
+// distinct; a key holding several documents adds the rest through appendExtra.
 func (b *segmentBuilder) append(key []byte, docID uint64) {
 	// copy the key: a cursor's key buffer may be reused across Next().
 	b.blob = append(b.blob, key...)
@@ -434,13 +439,85 @@ func (b *segmentBuilder) append(key []byte, docID uint64) {
 	}
 }
 
-func (b *segmentBuilder) segment() *columnarSegment {
-	return &columnarSegment{
-		keys:   buildKeyColumn(b.blob, b.offsets, b.uniformWidth),
-		docs:   b.docs,
-		maxDoc: b.maxDoc,
+// rows is how many rows have been opened. Both constructors seed offsets with a
+// single zero and append adds exactly one per row, so the offsets carry the
+// count already.
+func (b *segmentBuilder) rows() int { return len(b.offsets) - 1 }
+
+// appendExtra records another document for the row append last opened.
+func (b *segmentBuilder) appendExtra(docID uint64) {
+	if b.overflow == nil {
+		b.overflow = map[uint32][]uint64{}
+	}
+	pos := uint32(b.rows() - 1)
+	b.overflow[pos] = append(b.overflow[pos], docID)
+	b.numOverflow++
+	if docID > b.maxDoc {
+		b.maxDoc = docID
 	}
 }
+
+// appendBitmap opens a row for key holding every document in bm: the first in
+// the column, the rest in overflow.
+//
+// The single-document case — all a unique property ever produces — is read
+// straight off the bitmap. Walking it with an iterator instead would read better
+// but costs an allocation per call, since sroar's iterator is heap-constructed;
+// on a build that is one per key.
+func (b *segmentBuilder) appendBitmap(key []byte, bm *sroar.Bitmap) {
+	first := bm.Minimum()
+	if bm.Maximum() == first {
+		b.append(key, first)
+		return
+	}
+	all := bm.ToArray()
+	b.append(key, all[0])
+	for _, d := range all[1:] {
+		b.appendExtra(d)
+	}
+}
+
+// overflowReport describes how far a built segment departed from unique values,
+// for the caller to warn or refuse on. The limit applies to keys rather than to
+// extras, because keys are what the cost tracks — see overflowLimit.
+func (b *segmentBuilder) overflowReport() (keys, extras, limit int) {
+	return len(b.overflow), b.numOverflow, overflowLimit(b.rows())
+}
+
+func (b *segmentBuilder) segment() *columnarSegment {
+	return &columnarSegment{
+		keys:     buildKeyColumn(b.blob, b.offsets, b.uniformWidth),
+		docs:     b.docs,
+		overflow: b.overflow,
+		maxDoc:   b.maxDoc,
+	}
+}
+
+// overflowLimit is how many keys of a segment of rows keys may hold more than
+// one document before the property is judged unfit for this structure. Past it
+// the data is not unique-with-mistakes but genuinely multi-valued, and
+// roaringset's bitmaps hold that shape far more compactly than a docID list.
+//
+// The bound counts keys rather than the extra documents themselves because that
+// is what the cost follows: overflow is a map, so its footprint scales with
+// entries, not with the documents inside them. Measured on 100k extra documents,
+// spreading them one per key over 100k keys costs 5.8MB, while packing them a
+// hundred per key over 1k keys costs 0.9MB — against 0.76MB of actual docIDs
+// either way. So a value shared by very many documents stays cheap and is
+// allowed; a corpus where a great many values are each duplicated is what this
+// refuses, and that is also the likelier accident.
+func overflowLimit(rows int) int {
+	if limit := rows / overflowRowsPerKeyLimit; limit > overflowFloor {
+		return limit
+	}
+	return overflowFloor
+}
+
+// Package vars for tuning and tests.
+var (
+	overflowFloor           = 1024 // tolerated on any corpus, however small
+	overflowRowsPerKeyLimit = 100  // ...and beyond that, one such key per this many keys
+)
 
 // buildKeyColumn selects the key backing from the collected keys. Variable-width
 // keys use blobKeyColumn. Uniform-width keys use fixedKeyColumn, or — when the
@@ -531,56 +608,35 @@ func (idx *ColumnarIndex) Info() Info {
 // retiring a docID some later flush already replaced does nothing. The caller
 // gets the per-key state rather than a bitmap so it can layer unflushed
 // memtables on the same terms before materializing once.
-func (idx *ColumnarIndex) ResolvePerKey(sortedKeys [][]byte) (docs []uint64, live []bool) {
+func (idx *ColumnarIndex) ResolvePerKey(sortedKeys [][]byte) *Resolution {
 	state := idx.state.Load()
+	res := newResolution(len(sortedKeys))
 
-	docs = make([]uint64, len(sortedKeys))
-	live = make([]bool, len(sortedKeys))
-
-	state.base.applyHits(sortedKeys, docs, live, true)
+	state.base.applyHits(sortedKeys, res, true)
 	for _, r := range state.runs {
-		r.dels.applyHits(sortedKeys, docs, live, false)
-		r.adds.applyHits(sortedKeys, docs, live, true)
+		r.dels.applyHits(sortedKeys, res, false)
+		r.adds.applyHits(sortedKeys, res, true)
 	}
-	return docs, live
-}
-
-// ResolveContainsAny returns the docIDs whose key is in sortedKeys, over the
-// base and every absorbed flush. Unflushed memtables are layered by the caller.
-func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap {
-	return MaterializeLive(idx.ResolvePerKey(sortedKeys))
-}
-
-// MaterializeLive collects the live docIDs of a per-key resolution into one
-// bitmap. Built from a sorted slice in a single step — no union or container op
-// happens mid-flight, which is the whole point of the columnar layout.
-func MaterializeLive(docs []uint64, live []bool) *sroar.Bitmap {
-	out := make([]uint64, 0, len(docs))
-	for i, ok := range live {
-		if ok {
-			out = append(out, docs[i])
-		}
-	}
-	slices.Sort(out)
-	return sroar.FromSortedList(out)
+	return res
 }
 
 // applyHits folds this segment's matches for sortedKeys into a per-query-key
 // working set, indexed by position in sortedKeys.
 //
-// With adds set, a match records its docID as what that key now holds. Without
-// it, a match retires the key's docID if that is exactly the docID being
-// deleted — so a deletion reaches only the key it was issued under, and a flush
-// retiring a docID that a later flush already replaced does nothing.
+// With adds set, a match records its documents as held by that key. Without it,
+// a match retires them — from that key alone, which is what lets a document that
+// also sits under another key survive losing this one.
 //
 // Adaptive merge-scan vs binary-search, no bitmap ops, and no per-hit
 // bookkeeping: matches are applied where they are found. Shared by the base and
 // by each run's adds and dels segments.
-func (seg *columnarSegment) applyHits(sortedKeys [][]byte, docs []uint64, live []bool, adds bool) {
+func (seg *columnarSegment) applyHits(sortedKeys [][]byte, res *Resolution, adds bool) {
 	n := seg.keys.len()
 	if n == 0 {
 		return
 	}
+	// Hoisted: unique values leave overflow nil, so the scan never consults it.
+	overflowed := len(seg.overflow) > 0
 	// Adapt the query keys to the backing once (identity for blob/fixed; drops
 	// prefix-mismatched keys for prefix), so per-comparison stays a single
 	// compare. offset relocates a window position back to the caller's.
@@ -594,37 +650,47 @@ func (seg *columnarSegment) applyHits(sortedKeys [][]byte, docs []uint64, live [
 				si++
 			case cmp > 0: // query key absent from the corpus — advance the query
 				qi++
-			default: // match; only the scan advances, so repeated corpus keys all apply
-				p, doc := qi+offset, seg.docs.at(si)
-				if adds {
-					docs[p], live[p] = doc, true
-				} else if live[p] && docs[p] == doc {
-					live[p] = false
-				}
+			default: // match — one row per key, so both cursors advance
+				seg.applyRow(si, qi+offset, res, adds, overflowed)
 				si++
+				qi++
 			}
 		}
 		return
 	}
 
 	for qi, q := range keys {
-		for i := seg.keys.searchGE(q); i < n && seg.keys.compare(i, q) == 0; i++ {
-			p, doc := qi+offset, seg.docs.at(i)
-			if adds {
-				docs[p], live[p] = doc, true
-			} else if live[p] && docs[p] == doc {
-				live[p] = false
-			}
+		if i := seg.keys.searchGE(q); i < n && seg.keys.compare(i, q) == 0 {
+			seg.applyRow(i, qi+offset, res, adds, overflowed)
+		}
+	}
+}
+
+// applyRow applies row i's documents to query position qi.
+func (seg *columnarSegment) applyRow(i, qi int, res *Resolution, adds, overflowed bool) {
+	if adds {
+		res.insert(qi, seg.docs.at(i))
+	} else {
+		res.delete(qi, seg.docs.at(i))
+	}
+	if !overflowed {
+		return
+	}
+	for _, d := range seg.overflow[uint32(i)] {
+		if adds {
+			res.insert(qi, d)
+		} else {
+			res.delete(qi, d)
 		}
 	}
 }
 
 // AbsorbFlush copies a flushed memtable — iterated via its roaringset cursor —
-// into a new run appended to the index. A key's additions become an entry in the
-// run's adds segment (key → added docID = the additions bitmap's minimum under
-// 1-doc-per-key); a key's deletions become one entry per removed docID in the
-// dels segment, which the cursor's key order leaves sorted. The docID columns
-// are full-width (runs are small; sizing them narrow would need the current
+// into a new run appended to the index. A key's additions become a row in the
+// run's adds segment, its deletions a row in the dels segment, in both cases
+// with everything past the first document going to that row's overflow. The
+// cursor's key order leaves both segments sorted. The docID columns are
+// full-width (runs are small; sizing them narrow would need the current
 // maxDocID, which may have grown past the base's).
 func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 	addCol := newSegmentBuilder()
@@ -637,22 +703,29 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 		if k == nil {
 			break
 		}
-		// one entry per deleted docID: a key can retire several over its lifetime,
-		// and which key they belonged to is what lets the fold and resolution
-		// apply a deletion to that key alone rather than to the whole result.
-		for _, d := range layer.Deletions.ToArray() {
-			delCol.append(k, d)
+		// deletions keep the key they were issued under, which is what lets the
+		// fold and resolution retire a document from that key alone rather than
+		// from the whole result. Several deletions under one key is ordinary
+		// history rather than a data problem, so this never warns.
+		if !layer.Deletions.IsEmpty() {
+			delCol.appendBitmap(k, layer.Deletions)
 		}
 		if layer.Additions.IsEmpty() {
 			continue
 		}
-		id := layer.Additions.Maximum()
-		if layer.Additions.Minimum() != id {
-			// a key with multiple added docIDs violates 1-doc-per-key; decline so
-			// the caller detaches the accelerator rather than dropping docIDs.
-			return fmt.Errorf("columnar index requires a unique property: a flushed key holds multiple docIDs")
+		addCol.appendBitmap(k, layer.Additions)
+	}
+
+	if keys, extras, limit := addCol.overflowReport(); extras > 0 {
+		if keys > limit {
+			return fmt.Errorf("columnar index wants unique values: a flush brought %d keys "+
+				"holding more than one document (%d extra between them), past the %d such "+
+				"keys worth maintaining this structure for", keys, extras, limit)
 		}
-		addCol.append(k, id)
+		idx.logger.WithField("action", "columnar_absorb_flush").
+			Warnf("flush carried values that are not unique: %d keys hold %d extra documents "+
+				"between them; results stay correct, but the index is sized and tuned for one "+
+				"document per value", keys, extras)
 	}
 
 	r := &run{
@@ -754,7 +827,48 @@ func (c *tierCursor) load() {
 
 func (c *tierCursor) at(key []byte) bool { return c.valid() && bytes.Equal(c.key, key) }
 
-func (c *tierCursor) doc() uint64 { return c.seg.docs.at(c.i) }
+// appendDocs adds every document the current row holds to dst, skipping any it
+// already contains — tiers add to a key's set rather than replacing it.
+//
+// The row's own document is handled without gathering the row first, so a
+// segment with no overflow — every segment over unique values — touches only
+// the column. The membership scans are linear because dst holds one document
+// for every key such a segment has.
+func (c *tierCursor) appendDocs(dst []uint64) []uint64 {
+	if d := c.seg.docs.at(c.i); !slices.Contains(dst, d) {
+		dst = append(dst, d)
+	}
+	if len(c.seg.overflow) == 0 {
+		return dst
+	}
+	for _, d := range c.seg.overflow[uint32(c.i)] {
+		if !slices.Contains(dst, d) {
+			dst = append(dst, d)
+		}
+	}
+	return dst
+}
+
+// removeDocs drops every document the current row names from dst. Naming one
+// the key no longer holds is a no-op, which is what makes a deletion left behind
+// by an already-superseded document harmless.
+func (c *tierCursor) removeDocs(dst []uint64) []uint64 {
+	dst = removeDoc(dst, c.seg.docs.at(c.i))
+	if len(c.seg.overflow) == 0 {
+		return dst
+	}
+	for _, d := range c.seg.overflow[uint32(c.i)] {
+		dst = removeDoc(dst, d)
+	}
+	return dst
+}
+
+func removeDoc(docs []uint64, doc uint64) []uint64 {
+	if i := slices.Index(docs, doc); i >= 0 {
+		return slices.Delete(docs, i, i+1)
+	}
+	return docs
+}
 
 func (c *tierCursor) next() {
 	c.i++
@@ -801,6 +915,7 @@ func mergeTiers(base *columnarSegment, runs []*run) *columnarSegment {
 	out := newSegmentBuilderSized(numKeys, keyBytes, bytesForMax(maxDoc))
 
 	var key []byte
+	var held []uint64
 	for {
 		// smallest key still pending across every cursor
 		var min []byte
@@ -820,26 +935,28 @@ func mergeTiers(base *columnarSegment, runs []*run) *columnarSegment {
 		// copy: advancing a cursor overwrites the buffer min points into
 		key = append(key[:0], min...)
 
-		var doc uint64
-		var live bool
+		// The key's documents, replayed oldest tier to newest. Almost always one,
+		// so the slice is reused across keys rather than allocated per key.
+		held = held[:0]
 		if adds[0].at(key) {
-			doc, live = adds[0].doc(), true
+			held = adds[0].appendDocs(held)
 			adds[0].next()
 		}
 		for i := range runs {
-			for dels[i].at(key) {
-				if live && dels[i].doc() == doc {
-					live = false
-				}
+			if dels[i].at(key) {
+				held = dels[i].removeDocs(held)
 				dels[i].next()
 			}
 			if adds[i+1].at(key) {
-				doc, live = adds[i+1].doc(), true
+				held = adds[i+1].appendDocs(held)
 				adds[i+1].next()
 			}
 		}
-		if live {
-			out.append(key, doc)
+		if len(held) > 0 {
+			out.append(key, held[0])
+			for _, d := range held[1:] {
+				out.appendExtra(d)
+			}
 		}
 	}
 	return out.segment()

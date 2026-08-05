@@ -29,17 +29,49 @@ import (
 // plus every memtable flushed since, fed in via AbsorbFlush. Live active/flushing
 // memtables are layered separately by LayerMemtablesOverBase at read time.
 type ContainsAnyResolver interface {
-	// ResolvePerKey resolves each key of sortedKeys (encoded, ascending)
-	// independently over the base plus all absorbed flushes, returning a docID
-	// and a liveness flag per query position. Per key rather than as one set so
-	// the caller can layer unflushed memtables on the same terms — a deletion
-	// belongs to the key it was issued under, not to the result as a whole.
-	ResolvePerKey(sortedKeys [][]byte) (docs []uint64, live []bool)
 	// AbsorbFlush copies a just-flushed memtable (iterated via its roaringset
 	// cursor) into the index so its data stays served without re-reading disk.
 	// It returns once the flushed data is queryable; any consolidation it
 	// schedules off the back of it runs in the background.
 	AbsorbFlush(cursor roaringset.InnerCursor) error
+}
+
+// RoaringSetLayerReader reads one unflushed tier's view of a key. Handed out by
+// [Bucket.MemtableReaders] so a query layer can consult tiers it cannot reach
+// itself — memtables and their accessors are unexported.
+type RoaringSetLayerReader interface {
+	// Get returns the tier's additions and deletions for key. A key the tier
+	// never touched reports an empty layer, not an error.
+	Get(key []byte) (roaringset.BitmapLayer, error)
+}
+
+type memtableLayerReader struct{ mt memtable }
+
+func (r memtableLayerReader) Get(key []byte) (roaringset.BitmapLayer, error) {
+	layer, err := r.mt.roaringSetGet(key)
+	if err != nil && errors.Is(err, entlsmkv.NotFound) {
+		return roaringset.BitmapLayer{}, nil
+	}
+	return layer, err
+}
+
+// MemtableReaders returns readers over the tiers this bucket has not flushed
+// yet, oldest first — flushing before active, so a caller replaying them in
+// order sees a document added while flushing and deleted in the active memtable
+// as deleted. Empty tiers are left out.
+//
+// Exists because resolving a query against an accelerator that covers only
+// flushed data has to consult these too, and the tiers themselves are not
+// reachable from outside this package.
+func (b *Bucket) MemtableReaders(view BucketConsistentView) []RoaringSetLayerReader {
+	var readers []RoaringSetLayerReader
+	for _, mt := range []memtable{view.Flushing, view.Active} {
+		if mt == nil || mt.Size() == 0 {
+			continue
+		}
+		readers = append(readers, memtableLayerReader{mt: mt})
+	}
+	return readers
 }
 
 // ContainsAcceleratorFactory builds an accelerator for a freshly opened bucket
@@ -102,63 +134,6 @@ func (b *Bucket) absorbFlushIntoAccelerator(flushing memtable) error {
 	if err := acc.resolver.AbsorbFlush(flushing.newRoaringSetCursor()); err != nil {
 		b.containsAcc.Store(nil)
 		return err
-	}
-	return nil
-}
-
-// errAcceleratorNotApplicable reports that the accelerator cannot represent what
-// the memtables hold, and the caller should fall back to the standard fold.
-var errAcceleratorNotApplicable = errors.New("columnar accelerator cannot represent this key's docIDs")
-
-// LayerMemtablesOverBase applies the flushing then active memtables over a
-// per-key resolution of the flushed tiers, returning the net docIDs.
-//
-// Each key is carried independently: for that key, a tier first retires the
-// docID the key currently holds if the tier deleted it, then takes the tier's
-// addition. Deletions therefore reach only the key they were issued under, which
-// is what stops a document that also sits under another key from vanishing from
-// both. The order (flushing before active) matters — a docID added while
-// flushing and deleted in the active memtable must not survive.
-//
-// docs and live come from ContainsAnyResolver.ResolvePerKey and are mutated in
-// place. A key whose memtable additions hold more than one docID cannot be
-// represented by the accelerator's scalar column, so the whole query declines
-// and falls back to the fold.
-func (b *Bucket) LayerMemtablesOverBase(view BucketConsistentView, keys [][]byte,
-	docs []uint64, live []bool,
-) error {
-	for _, mt := range []memtable{view.Flushing, view.Active} {
-		if mt == nil || mt.Size() == 0 {
-			continue // no unflushed writes in this tier — nothing to layer
-		}
-		for i, key := range keys {
-			layer, err := mt.roaringSetGet(key)
-			if err != nil {
-				if errors.Is(err, entlsmkv.NotFound) {
-					continue
-				}
-				return err
-			}
-			if live[i] && layer.Deletions.Contains(docs[i]) {
-				live[i] = false
-			}
-			if layer.Additions.IsEmpty() {
-				continue
-			}
-			id := layer.Additions.Minimum()
-			if layer.Additions.Maximum() != id {
-				return errAcceleratorNotApplicable
-			}
-			// An addition adds a docID to the key's set; it does not replace what
-			// the key already holds. A different docID still living under this key
-			// means the key now has two, which the scalar column cannot represent —
-			// and the memtable alone cannot show that, since the other docID may
-			// have come from the flushed tiers.
-			if live[i] && docs[i] != id {
-				return errAcceleratorNotApplicable
-			}
-			docs[i], live[i] = id, true
-		}
 	}
 	return nil
 }

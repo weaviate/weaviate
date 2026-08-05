@@ -20,12 +20,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// segmentPairs reads a segment back out as key → docID, for comparing a merged
-// base against an independently computed expectation.
-func segmentPairs(seg *columnarSegment) map[string]uint64 {
-	out := make(map[string]uint64, seg.keys.len())
+// segmentPairs reads a segment back out as key → its documents, sorted, for
+// comparing a merged base against an independently computed expectation.
+func segmentPairs(seg *columnarSegment) map[string][]uint64 {
+	out := make(map[string][]uint64, seg.keys.len())
 	for i := 0; i < seg.keys.len(); i++ {
-		out[string(seg.keys.appendKey(i, nil))] = seg.docs.at(i)
+		docs := seg.appendDocs(i, nil)
+		sort.Slice(docs, func(a, b int) bool { return docs[a] < docs[b] })
+		out[string(seg.keys.appendKey(i, nil))] = docs
+	}
+	return out
+}
+
+// docSet is the test's model of what one key holds.
+type docSet map[uint64]bool
+
+func (s docSet) sorted() []uint64 {
+	out := make([]uint64, 0, len(s))
+	for d := range s {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a] < out[b] })
+	return out
+}
+
+// modelPairs renders the model the same way segmentPairs renders a segment.
+func modelPairs(model map[string]docSet) map[string][]uint64 {
+	out := make(map[string][]uint64, len(model))
+	for k, set := range model {
+		if len(set) > 0 {
+			out[k] = set.sorted()
+		}
 	}
 	return out
 }
@@ -45,7 +70,7 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 	for _, seed := range []int64{1, 2, 3, 7, 11, 42} {
 		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
 			rnd := rand.New(rand.NewSource(seed))
-			model := map[string]uint64{}
+			model := map[string]docSet{}
 
 			// base: a random subset of the universe, docIDs 1..universe
 			var baseKeys [][]byte
@@ -56,7 +81,7 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 				}
 				baseKeys = append(baseKeys, []byte(keyOf(i)))
 				baseDocs = append(baseDocs, uint64(i+1))
-				model[keyOf(i)] = uint64(i + 1)
+				model[keyOf(i)] = docSet{uint64(i + 1): true}
 			}
 			idx := newTestIndex(segFromPairs(baseKeys, baseDocs))
 
@@ -70,41 +95,35 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 
 					switch rnd.Intn(6) {
 					case 0: // delete whatever the key currently holds
-						if cur, ok := model[k]; ok {
-							dels = []uint64{cur}
-						}
+						dels = model[k].sorted()
 					case 1: // stale delete: a docID this key does not hold, sometimes one
 						// another key does. Both resolution and the fold apply a
 						// deletion only to the key it was issued under, so neither is
 						// allowed to disturb the owning key.
 						dels = []uint64{uint64(rnd.Intn(universe) + 1)}
-					case 2: // replace: retire the current docID and add a fresh one
-						if cur, ok := model[k]; ok {
-							dels = []uint64{cur}
-						}
+					case 2: // replace: retire what is there and add a fresh document
+						dels = model[k].sorted()
 						adds = []uint64{nextDoc}
 						nextDoc++
-					case 3: // add, but only where the key holds nothing — a key with two
-						// live docIDs is refused at build time, so the index never
-						// holds one and the merge is not defined for it
-						if _, ok := model[k]; !ok {
-							adds = []uint64{nextDoc}
-							nextDoc++
-						}
+					case 3: // add without deleting — the key ends up holding several,
+						// which is the non-unique case the overflow carries
+						adds = []uint64{nextDoc}
+						nextDoc++
 					}
 					if len(adds) == 0 && len(dels) == 0 {
 						continue
 					}
 					cursor.add([]byte(k), adds, dels)
 
-					// same order the merge replays: deletions, then the addition
+					// same order the merge replays: deletions, then additions
 					for _, d := range dels {
-						if cur, ok := model[k]; ok && cur == d {
-							delete(model, k)
-						}
+						delete(model[k], d)
 					}
 					for _, a := range adds {
-						model[k] = a
+						if model[k] == nil {
+							model[k] = docSet{}
+						}
+						model[k][a] = true
 					}
 				}
 				require.NoError(t, idx.AbsorbFlush(cursor))
@@ -112,7 +131,7 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 
 			state := idx.state.Load()
 			merged := mergeTiers(state.base, state.runs)
-			require.Equal(t, model, segmentPairs(merged),
+			require.Equal(t, modelPairs(model), segmentPairs(merged),
 				"merged base must equal the replayed net state")
 
 			// keys must come out sorted, since everything downstream binary-searches
@@ -147,7 +166,7 @@ func TestMergeTiersEdgeCases(t *testing.T) {
 			adds []uint64
 			dels []uint64
 		}
-		want map[string]uint64
+		want map[string][]uint64
 	}{
 		{
 			name: "empty base, run adds",
@@ -156,7 +175,7 @@ func TestMergeTiersEdgeCases(t *testing.T) {
 				adds []uint64
 				dels []uint64
 			}{{key: "a", adds: []uint64{1}}},
-			want: map[string]uint64{"a": 1},
+			want: map[string][]uint64{"a": {1}},
 		},
 		{
 			name: "deletion of a key the base never held",
@@ -166,7 +185,7 @@ func TestMergeTiersEdgeCases(t *testing.T) {
 				adds []uint64
 				dels []uint64
 			}{{key: "a", dels: []uint64{9}}},
-			want: map[string]uint64{"b": 2},
+			want: map[string][]uint64{"b": {2}},
 		},
 		{
 			name: "delete then re-add in the same flush",
@@ -176,7 +195,7 @@ func TestMergeTiersEdgeCases(t *testing.T) {
 				adds []uint64
 				dels []uint64
 			}{{key: "a", adds: []uint64{5}, dels: []uint64{1}}},
-			want: map[string]uint64{"a": 5},
+			want: map[string][]uint64{"a": {5}},
 		},
 		{
 			name: "every base key deleted",
@@ -186,7 +205,7 @@ func TestMergeTiersEdgeCases(t *testing.T) {
 				adds []uint64
 				dels []uint64
 			}{{key: "a", dels: []uint64{1}}, {key: "b", dels: []uint64{2}}},
-			want: map[string]uint64{},
+			want: map[string][]uint64{},
 		},
 	}
 
@@ -238,7 +257,7 @@ func TestMergeTiersAcrossKeyBackings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var keys [][]byte
 			var docs []uint64
-			model := map[string]uint64{}
+			model := map[string][]uint64{}
 			names := make([]string, 0, 40)
 			for i := 0; i < 40; i++ {
 				names = append(names, tt.keyOf(i))
@@ -247,7 +266,7 @@ func TestMergeTiersAcrossKeyBackings(t *testing.T) {
 			for i, n := range names {
 				keys = append(keys, []byte(n))
 				docs = append(docs, uint64(i+1))
-				model[n] = uint64(i + 1)
+				model[n] = []uint64{uint64(i + 1)}
 			}
 			idx := newTestIndex(segFromPairs(keys, docs))
 			require.IsType(t, tt.backing, idx.state.Load().base.keys)
@@ -258,7 +277,7 @@ func TestMergeTiersAcrossKeyBackings(t *testing.T) {
 					continue
 				}
 				cursor.add([]byte(n), []uint64{uint64(1000 + i)}, []uint64{uint64(i + 1)})
-				model[n] = uint64(1000 + i)
+				model[n] = []uint64{uint64(1000 + i)}
 			}
 			require.NoError(t, idx.AbsorbFlush(cursor))
 

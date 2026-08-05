@@ -28,12 +28,12 @@ func TestColumnarIndexPOC_ResidentSize(t *testing.T) {
 	const n = benchCorpusSize
 
 	numeric := newNumericFixture(t, n)
-	numIdx, err := columnar.BuildFromBucket(numeric.bucket, uint64(numeric.numDocs+1), false, columnarTestLogger())
+	numIdx, err := columnar.BuildFromBucket(numeric.bucket, uint64(numeric.numDocs+1), columnarTestLogger())
 	require.NoError(t, err)
 
 	textF := newContainsFixture(t, n)
 	textBucket := textF.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	textIdx, err := columnar.BuildFromBucket(textBucket, uint64(textF.numDocs+1), false, columnarTestLogger())
+	textIdx, err := columnar.BuildFromBucket(textBucket, uint64(textF.numDocs+1), columnarTestLogger())
 	require.NoError(t, err)
 
 	report := func(name string, idx *columnar.ColumnarIndex) {

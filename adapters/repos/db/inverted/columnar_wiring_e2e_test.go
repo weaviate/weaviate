@@ -117,7 +117,7 @@ func columnarTestLogger() logrus.FieldLogger {
 // decline on the flush and detach.
 func columnarTestFactory(numDocs int) lsmkv.ContainsAcceleratorFactory {
 	return func(bkt *lsmkv.Bucket) lsmkv.ContainsAnyResolver {
-		idx, err := columnar.BuildFromBucket(bkt, uint64(numDocs+1), true, columnarTestLogger())
+		idx, err := columnar.BuildFromBucket(bkt, uint64(numDocs+1), columnarTestLogger())
 		if err != nil {
 			return nil
 		}
@@ -407,10 +407,11 @@ func TestColumnarWiring_MultiKeyDocDeletion(t *testing.T) {
 	}
 }
 
-// TestColumnarWiring_UnflushedNonUniqueKey covers an unflushed memtable holding
-// two documents under one key. The accelerator's docID column is scalar and
-// cannot represent that, so the query must decline and fall back to the fold
-// rather than report one of the two.
+// TestColumnarWiring_UnflushedNonUniqueKey covers an unflushed memtable putting
+// a second document under a key the flushed tiers already hold one for — a
+// collision the build-time check cannot have seen. Both documents must come
+// back: the memtable's addition adds to the key rather than replacing what it
+// held, and the extra is carried alongside the scalar column.
 func TestColumnarWiring_UnflushedNonUniqueKey(t *testing.T) {
 	const numDocs = 2_000
 	searcher, store := newUniqueTextSearcher(t, numDocs)
@@ -434,7 +435,7 @@ func TestColumnarWiring_UnflushedNonUniqueKey(t *testing.T) {
 	fold := run("")
 	require.Equal(t, []uint64{7, 8, numDocs + 1}, fold, "sanity: both documents hold value 7")
 	require.Equal(t, fold, run("true"),
-		"a key with two documents must fall back rather than drop one")
+		"a key holding two documents must resolve to both, not one")
 }
 
 // TestColumnarWiring_UnflushedWrites pins that the accelerator serves correctly
@@ -519,30 +520,33 @@ func TestColumnarWiring_ManyFlushes(t *testing.T) {
 	require.NotNil(t, bucket.ContainsAnyAccelerator())
 }
 
-// TestColumnarWiring_DeclinesNonUnique pins that a non-unique property (a key
-// with multiple docIDs) makes the accelerator decline, so the real path falls
-// back to the fold and still returns correct (multi-doc) results.
-func TestColumnarWiring_DeclinesNonUnique(t *testing.T) {
-	// The shared benchmark fixture seeds shared_a/b/c -> {11,17}, so it is
-	// non-unique — exactly the decline case.
+// TestColumnarWiring_ServesNonUniqueValues pins that a property whose values are
+// not unique — a key holding several documents — keeps being served and returns
+// every one of them. The index is configured on the understanding that values
+// are unique; when that turns out to be wrong the operator gets a warning, not
+// missing documents.
+func TestColumnarWiring_ServesNonUniqueValues(t *testing.T) {
+	// The shared benchmark fixture seeds shared_a/b/c -> {11,17}.
 	f := newContainsFixture(t, 5_000)
 	ctx := context.Background()
 
 	values := containsSharedValues // shared_a/b/c -> docs {11,17}
 
-	t.Setenv(entcfg.EnvEnableColumnarContains, "true")
-	al, err := f.searcher.DocIDs(ctx, containsFilter(filters.ContainsAny, values),
-		additional.Properties{}, className)
-	require.NoError(t, err)
-	got := sortedDocIDs(al)
-	al.Close()
+	run := func(flag string) []uint64 {
+		t.Setenv(entcfg.EnvEnableColumnarContains, flag)
+		al, err := f.searcher.DocIDs(ctx, containsFilter(filters.ContainsAny, values),
+			additional.Properties{}, className)
+		require.NoError(t, err)
+		defer al.Close()
+		return sortedDocIDs(al)
+	}
 
-	require.Equal(t, []uint64{11, 17}, got,
-		"non-unique key must fall back to the fold and keep BOTH docIDs")
+	fold := run("")
+	require.Equal(t, []uint64{11, 17}, fold, "sanity: both documents hold the shared values")
+	require.Equal(t, fold, run("true"),
+		"a key holding several documents must resolve to all of them")
 
-	// the non-unique flush must have detached the accelerator, so the bucket has
-	// none and ContainsAny falls back to the fold.
 	bkt := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	require.Nil(t, bkt.ContainsAnyAccelerator(),
-		"non-unique property must detach the accelerator on flush")
+	require.NotNil(t, bkt.ContainsAnyAccelerator(),
+		"a handful of duplicates is warned about, not a reason to stop serving")
 }

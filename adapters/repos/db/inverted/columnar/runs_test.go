@@ -104,7 +104,7 @@ func resolveSorted(idx *ColumnarIndex, keys ...string) []uint64 {
 		q[i] = []byte(k)
 	}
 	sort.Slice(q, func(i, j int) bool { return string(q[i]) < string(q[j]) })
-	arr := idx.ResolveContainsAny(q).ToArray()
+	arr := idx.ResolvePerKey(q).Bitmap().ToArray()
 	sort.Slice(arr, func(i, j int) bool { return arr[i] < arr[j] })
 	return arr
 }
@@ -275,7 +275,7 @@ func TestAbsorbFlushKeepsDeletionsKeyed(t *testing.T) {
 	gotDels := map[string][]uint64{}
 	for i := 0; i < r.dels.keys.len(); i++ {
 		k := string(r.dels.keys.appendKey(i, nil))
-		gotDels[k] = append(gotDels[k], r.dels.docs.at(i))
+		gotDels[k] = r.dels.appendDocs(i, nil)
 	}
 	require.Equal(t, map[string][]uint64{"a": {3, 7}, "b": {5}}, gotDels,
 		"every deletion keeps the key it was issued under")
@@ -285,17 +285,80 @@ func TestAbsorbFlushKeepsDeletionsKeyed(t *testing.T) {
 	require.Equal(t, uint64(9), r.adds.docs.at(0))
 }
 
-// TestBuildKeepsHighestDocIDWhenNotUnique pins which document survives when a
-// key holds several and the caller opted out of the uniqueness check: the
-// highest docID, which is the most recently written. A live query path passes
-// requireUnique and gets a declined build instead.
-func TestBuildKeepsHighestDocIDWhenNotUnique(t *testing.T) {
-	// AbsorbFlush never opts out — a flushed key with several additions is
-	// always refused, whichever docID it would otherwise have kept.
+// TestFlushedKeyWithSeveralDocumentsKeepsBoth pins that a key arriving with more
+// than one document keeps all of them rather than being refused or truncated:
+// the property was configured on the understanding that its values are unique,
+// and a violation must cost the operator a warning, not a document.
+func TestFlushedKeyWithSeveralDocumentsKeepsBoth(t *testing.T) {
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
-	err := idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{5, 9}, nil))
-	require.Error(t, err, "a flushed key holding two documents must be refused")
-	require.Contains(t, err.Error(), "unique")
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{5, 9}, nil)))
+
+	require.Equal(t, []uint64{5, 9}, resolveSorted(idx, "b"),
+		"both documents under the key must resolve")
+	require.Equal(t, []uint64{1, 5, 9}, resolveSorted(idx, "a", "b"))
+
+	// and they survive a fold
+	idx.foldRunsIntoBase()
+	require.Equal(t, []uint64{1, 5, 9}, resolveSorted(idx, "a", "b"),
+		"folding must not lose the extra document")
+
+	// deleting one leaves the other
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{5})))
+	require.Equal(t, []uint64{9}, resolveSorted(idx, "b"),
+		"a deletion retires one document, not the key")
+}
+
+// TestOverflowBoundCountsKeysNotDocuments pins what the bound measures. Overflow
+// is a map, so its cost follows the number of keys holding more than one
+// document, not the documents inside them: one value shared by many documents is
+// cheap and stays, many values each duplicated is what gets refused.
+func TestOverflowBoundCountsKeysNotDocuments(t *testing.T) {
+	oldFloor, oldRate := overflowFloor, overflowRowsPerKeyLimit
+	overflowFloor, overflowRowsPerKeyLimit = 1, 10
+	defer func() { overflowFloor, overflowRowsPerKeyLimit = oldFloor, oldRate }()
+
+	t.Run("one key with many documents is allowed", func(t *testing.T) {
+		idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
+		require.NoError(t, idx.AbsorbFlush(newMockCursor().
+			add([]byte("b"), []uint64{5, 6, 7, 8, 9, 10, 11, 12}, nil)))
+		require.Equal(t, []uint64{5, 6, 7, 8, 9, 10, 11, 12}, resolveSorted(idx, "b"))
+	})
+
+	t.Run("many keys each with a duplicate is refused", func(t *testing.T) {
+		idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
+		cursor := newMockCursor()
+		for _, k := range []string{"b", "c", "d"} { // past the floor of 1
+			cursor.add([]byte(k), []uint64{5, 6}, nil)
+		}
+		err := idx.AbsorbFlush(cursor)
+		require.Error(t, err, "past the bound the structure is the wrong one for this data")
+		require.Contains(t, err.Error(), "unique values")
+	})
+}
+
+// TestResolutionCarriesSeveralDocumentsPerKey pins the working set's two ways of
+// holding a document — the slot and the extras list — against each other:
+// deleting either must leave the other, and the bitmap must carry both.
+func TestResolutionCarriesSeveralDocumentsPerKey(t *testing.T) {
+	base := segFromPairs([][]byte{[]byte("a"), []byte("b")}, []uint64{1, 2})
+	idx := newTestIndex(base)
+	// b gains two more documents, so its key holds three
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{7, 9}, nil)))
+
+	require.Equal(t, []uint64{2, 7, 9}, resolveSorted(idx, "b"), "all three resolve")
+	require.Equal(t, []uint64{1, 2, 7, 9}, resolveSorted(idx, "a", "b"))
+
+	// retire the one in the slot: the extras survive
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{2})))
+	require.Equal(t, []uint64{7, 9}, resolveSorted(idx, "b"))
+
+	// retire one of the extras: the other survives
+	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{7})))
+	require.Equal(t, []uint64{9}, resolveSorted(idx, "b"))
+
+	// document 0 is ordinary; nothing about it reads as an empty slot
+	idx0 := newTestIndex(segFromPairs([][]byte{[]byte("z")}, []uint64{0}))
+	require.Equal(t, []uint64{0}, resolveSorted(idx0, "z"))
 }
 
 func TestRunsDeleteOnlyFlush(t *testing.T) {

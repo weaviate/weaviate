@@ -49,7 +49,7 @@ func columnarSortedKeys(values []string) [][]byte {
 func columnarBucketIndex(tb testing.TB, f *containsFixture) *columnar.ColumnarIndex {
 	tb.Helper()
 	bucket := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	idx, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), false, columnarTestLogger())
+	idx, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), columnarTestLogger())
 	require.NoError(tb, err)
 	return idx
 }
@@ -66,7 +66,7 @@ func TestColumnarIndexPOC_Correctness(t *testing.T) {
 		values, wantSampled := f.sampleValues(size)
 		keys := columnarSortedKeys(values)
 
-		got := idx.ResolveContainsAny(keys).ToArray()
+		got := idx.ResolvePerKey(keys).Bitmap().ToArray()
 
 		// against the known sampled docIDs
 		require.Equal(t, wantSampled, got, "columnar vs sampled docIDs at N=%d", size)
@@ -96,7 +96,7 @@ func BenchmarkColumnarIndexPOC(b *testing.B) {
 		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				idx.ResolveContainsAny(keys)
+				idx.ResolvePerKey(keys).Bitmap()
 			}
 		})
 	}
@@ -110,7 +110,7 @@ func BenchmarkColumnarIndexPOC_Build(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), false, columnarTestLogger()); err != nil {
+		if _, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), columnarTestLogger()); err != nil {
 			b.Fatal(err)
 		}
 	}

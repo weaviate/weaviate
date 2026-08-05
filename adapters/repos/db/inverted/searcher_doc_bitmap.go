@@ -346,19 +346,18 @@ func (s *Searcher) resolveContainsColumnar(b containsBatchBucket,
 		return docBitmap{}, false // no accelerator: flag off, non-roaringset, or declined
 	}
 
-	// Resolve the flushed tiers per key, layer the live flushing/active memtables
-	// on the same per-key terms, then materialize once. Layering declines when a
-	// memtable holds several docIDs under one key, which the accelerator's scalar
-	// column cannot represent — the caller then falls back to the fold.
-	docs, live := resolver.ResolvePerKey(pv.containsValues)
-	if err := bkt.LayerMemtablesOverBase(view, pv.containsValues, docs, live); err != nil {
+	idx, ok := resolver.(*columnar.ColumnarIndex)
+	if !ok {
+		return docBitmap{}, false // some other accelerator; this path only knows the columnar one
+	}
+
+	// Resolve the flushed tiers per key, layer the unflushed ones on the same
+	// per-key terms, then materialize once.
+	res := idx.ResolvePerKey(pv.containsValues)
+	if err := res.LayerUnflushed(bkt.MemtableReaders(view), pv.containsValues); err != nil {
 		return docBitmap{}, false
 	}
-	return docBitmap{
-		docIDs:     columnar.MaterializeLive(docs, live),
-		release:    noopRelease,
-		isDenyList: false,
-	}, true
+	return docBitmap{docIDs: res.Bitmap(), release: noopRelease, isDenyList: false}, true
 }
 
 // foldContainsAnyAccumulator unions the rows of all keys through a
