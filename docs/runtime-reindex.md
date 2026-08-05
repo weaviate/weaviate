@@ -1186,14 +1186,42 @@ catches that gap.
 ## 13. Backup, restore, and the reindex guard
 
 Backup, restore and reindex all rewrite the same on-disk buckets, so
-each refuses to start while another is running. The guard is symmetric
-and both halves fail closed:
+each refuses to start while another is running:
 
 | Submitted | Refused when | Where |
 | --- | --- | --- |
 | Backup | A live DTM reindex task targets the shard, or a cancelled task is still removing its sidecars | `Index.refuseIfReindexInFlight` |
 | Restore | Any reindex task is live in the cluster, or a cancelled one is still removing sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, checked in `validateRestoreRequest` and in each participant's `OnCanCommit` |
 | Reindex | Any node reports a backup or restore slot held | `indexesHandlers.refuseIfBackupInFlight`, over `GET /backups/node-activity` |
+
+**Where each gate fails closed.** Once its lookup is installed, every
+gate treats an uncertain answer as a blocking one. The backup gate
+refuses every backup while the cluster task manager cannot be listed
+(`buildShardReindexActivity` in `configure_api.go`). The restore gate
+refuses the restore on the same failure. The reindex gate answers 503
+for a node that does not respond to the probe. An `Index` built without
+a back-reference to `DB` refuses the backup outright.
+
+**Where each gate fails open.** Two windows are deliberately left open,
+and both are logged:
+
+- *Lookup not yet installed.* The lookups are wired from a
+  post-bootstrap goroutine in `configure_api.go`. Until it runs, the
+  backup gate, the restore gate, the commit-time overlap check
+  (`DB.RefuseIfReindexOverlapped`) and the reindex gate each allow the
+  operation and emit a one-time WARN. Production does not serve HTTP
+  until bootstrap completes, so no external request can land in this
+  window; a WARN in a production log means the wiring itself is broken.
+  The cleanup half of the backup gate is skipped without a WARN when
+  only the activity lookup is installed, which is the shape module-test
+  fixtures use.
+- *Old node during a rolling upgrade.* A node that predates
+  `GET /backups/node-activity` answers 404. The reindex gate counts that
+  node as free of backups and admits the submission, with a WARN naming
+  the node. So a backup running only on not-yet-upgraded nodes is
+  invisible to the reindex gate. The commit-time overlap check is the
+  backstop on the backup side: a backup whose capture window overlapped
+  a reindex fails at commit rather than being stored as good.
 
 Refusals are retryable, never terminal:
 

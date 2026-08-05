@@ -454,3 +454,82 @@ func TestReindexOverlapLookupRedactsItsCauses(t *testing.T) {
 		})
 	}
 }
+
+// TestRefuseIfReindexOverlapped_Unwired pins the startup-window default: allow + warn once.
+func TestRefuseIfReindexOverlapped_Unwired(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	db := &DB{logger: logger}
+
+	require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, time.Now()))
+	require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, time.Now()))
+
+	warnings := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.WarnLevel &&
+			strings.Contains(entry.Message, "lookup not yet installed") {
+			warnings++
+		}
+	}
+	assert.Equal(t, 1, warnings,
+		"the unwired WARN must fire once per process, not once per backup")
+}
+
+// The commit-time question is asked per backup, and a backup covers anywhere
+// from zero to every collection in the cluster. A task outside that set must not
+// fail the backup, and one anywhere inside it must.
+func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+	migrated := overlapTask("Actors", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))
+
+	tests := []struct {
+		name        string
+		collections []string
+		wantRefuse  bool
+	}{
+		{
+			name:        "no collections in the backup",
+			collections: nil,
+			wantRefuse:  false,
+		},
+		{
+			name:        "one collection, migrated",
+			collections: []string{"Actors"},
+			wantRefuse:  true,
+		},
+		{
+			name:        "one collection, untouched",
+			collections: []string{"Movies"},
+			wantRefuse:  false,
+		},
+		{
+			name:        "many collections, the migrated one is last",
+			collections: []string{"Movies", "Directors", "Actors"},
+			wantRefuse:  true,
+		},
+		{
+			name:        "many collections, none migrated",
+			collections: []string{"Movies", "Directors", "Studios"},
+			wantRefuse:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			db := &DB{logger: logger}
+			db.SetReindexOverlapLookup(NewReindexOverlapLookup(
+				func(context.Context) (map[string][]*distributedtask.Task, error) {
+					return map[string][]*distributedtask.Task{ReindexNamespace: {migrated}}, nil
+				}, time.Hour))
+
+			err := db.RefuseIfReindexOverlapped(context.Background(), tc.collections, backupStart)
+			if !tc.wantRefuse {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex)
+			assert.Contains(t, err.Error(), "Actors")
+		})
+	}
+}
