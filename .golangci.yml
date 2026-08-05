@@ -26,6 +26,8 @@ linters:
         - deferInLoop
     exhaustive:
       default-signifies-exhaustive: true
+      check: [switch, map]
+      explicit-exhaustive-map: true
     forbidigo:
       forbid:
         - pattern: ^print(ln)?$

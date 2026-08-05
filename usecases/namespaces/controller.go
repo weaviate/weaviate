@@ -106,6 +106,8 @@ var reservedNames = map[string]struct{}{
 // deleting is terminal: re-entry only via RemoveEntity + fresh Create. Every
 // other state may reach deleting, so a namespace whose home node died mid-flip
 // can still be deleted.
+//
+//exhaustive:enforce
 var stateTransitions = map[cmd.NamespaceState]map[cmd.NamespaceState]struct{}{
 	cmd.NamespaceStateActive: {
 		cmd.NamespaceStateSuspended: {},
