@@ -210,3 +210,23 @@ func TestManagerCancelObserver(t *testing.T) {
 		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
 	})
 }
+
+// Close stops the drainer, so a cancel applying after shutdown must not be
+// dispatched. Without this the drainer goroutine outlives the Manager and keeps
+// a provider reachable after the node has torn its dependencies down.
+func TestManagerCloseStopsTheCancelDrainer(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var rec observerRecorder
+	h.manager.RegisterCancelObserver(observerNamespace, rec.record)
+	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+
+	h.manager.Close()
+	h.manager.Close() // idempotent: shutdown runs on paths that may both fire
+
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+
+	require.Never(t, func() bool { return rec.count() > 0 },
+		300*time.Millisecond, 10*time.Millisecond,
+		"the drainer must not dispatch after Close; its goroutine has been told to exit")
+}
