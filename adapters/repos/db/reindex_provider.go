@@ -133,6 +133,11 @@ type ReindexProvider struct {
 	// cancelApplyGates holds the cleanup-gate release taken at cancel-apply
 	// time, until the teardown for that task takes over.
 	cancelApplyGates map[distributedtask.TaskDescriptor]func()
+	// cancelTeardownSettled records tasks whose teardown has already run here,
+	// so an apply that lands after it releases at once instead of waiting out
+	// the cap. See [ReindexProvider.OnCancelApplied] for why either order
+	// happens.
+	cancelTeardownSettled map[distributedtask.TaskDescriptor]time.Time
 
 	// submitInProgress mirrors [cleanupInProgress] for the sweep a NEW
 	// submission runs over stale sidecars before its task is committed. It is a
@@ -229,7 +234,9 @@ func NewReindexProvider(
 		cleanupInProgress: make(map[reindexCleanupKey]int),
 		cancelSeen:        make(map[string]int),
 		cancelApplyGates:  make(map[distributedtask.TaskDescriptor]func()),
-		submitInProgress:  make(map[reindexCleanupKey]int),
+
+		cancelTeardownSettled: make(map[distributedtask.TaskDescriptor]time.Time),
+		submitInProgress:      make(map[reindexCleanupKey]int),
 	}
 }
 
@@ -2493,6 +2500,14 @@ const reindexCancelApplyGateCap = time.Minute
 // blocks nothing. Making the blocking gate carry the confirmation window instead
 // would refuse every backup for that whole window.
 //
+// The apply and the teardown arrive in either order, so neither may assume it
+// runs first. This node parks the gate from its OWN raft apply, while the
+// scheduler that drives the teardown reads task state through a leader-forwarded
+// query: on a follower whose local apply lags the leader's, the teardown sees
+// CANCELLED and runs before the apply parks anything. Whichever side is second
+// releases, via the settled set below; the cap only covers a teardown that never
+// runs here at all.
+//
 // Registered via [distributedtask.Manager.RegisterCancelObserver], whose
 // [distributedtask.CancelObserver] godoc carries the apply-path contract.
 func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
@@ -2540,16 +2555,25 @@ func (p *ReindexProvider) holdCleanupGateUntilTeardown(
 	release := p.MarkCleanupInProgress(payload)
 
 	p.cancelAppliedMu.Lock()
-	if _, ok := p.cancelApplyGates[desc]; ok {
-		// A second apply for the same task would otherwise park a release
-		// nobody collects.
+	_, alreadyParked := p.cancelApplyGates[desc]
+	_, teardownRan := p.cancelTeardownSettled[desc]
+	if !alreadyParked && !teardownRan {
+		p.cancelApplyGates[desc] = release
 		p.cancelAppliedMu.Unlock()
-		release()
+		p.startCancelApplyGateCap(desc)
 		return
 	}
-	p.cancelApplyGates[desc] = release
 	p.cancelAppliedMu.Unlock()
+	// Either a second apply for the same task, or an apply that lost the race
+	// with its own teardown. Both mean this release has no gap left to cover.
+	release()
+}
 
+// startCancelApplyGateCap is the backstop for a task whose teardown never runs
+// on this node at all. The ordinary races are handled by
+// [ReindexProvider.adoptCancelApplyGate] and the settled set, so reaching this
+// means a gate was about to leak.
+func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescriptor) {
 	enterrors.GoWrapper(func() {
 		select {
 		case <-time.After(reindexCancelApplyGateCap):
@@ -2570,6 +2594,20 @@ func (p *ReindexProvider) holdCleanupGateUntilTeardown(
 func (p *ReindexProvider) adoptCancelApplyGate(desc distributedtask.TaskDescriptor) func() {
 	p.cancelAppliedMu.Lock()
 	defer p.cancelAppliedMu.Unlock()
+
+	now := time.Now()
+	if p.cancelTeardownSettled == nil {
+		// Fixtures build the provider by literal; production goes through
+		// [NewReindexProvider]. Same nil tolerance as the cleanup registry.
+		p.cancelTeardownSettled = make(map[distributedtask.TaskDescriptor]time.Time, 1)
+	}
+	p.cancelTeardownSettled[desc] = now
+	for other, at := range p.cancelTeardownSettled {
+		if now.Sub(at) > reindexCancelApplyGateCap {
+			delete(p.cancelTeardownSettled, other)
+		}
+	}
+
 	release, ok := p.cancelApplyGates[desc]
 	if !ok {
 		return nil
