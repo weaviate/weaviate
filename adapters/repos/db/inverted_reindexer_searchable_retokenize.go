@@ -12,8 +12,6 @@
 package db
 
 import (
-	"time"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,31 +32,9 @@ func NewRuntimeSearchableRetokenizeTask(
 		generation:         generation,
 	}
 
-	selectedProps := map[string]struct{}{
-		propName: {},
-	}
-
-	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
-		concurrency:                   2,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
-		checkProcessingEveryNoObjects: 1000,
-
-		selectionEnabled: true,
-		selectedPropsByCollection: map[string]map[string]struct{}{
-			collectionName: selectedProps,
-		},
-		selectedShardsByCollection: map[string]map[string]struct{}{
-			collectionName: nil, // nil = all shards
-		},
-	}
-
 	return NewShardReindexTaskGeneric(
-		"SearchableRetokenize", logger, strategy, cfg,
+		"SearchableRetokenize", logger, strategy,
+		semanticSwapTaskConfig([]string{propName}, collectionName),
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }

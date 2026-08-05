@@ -32,3 +32,15 @@ func NewRuntimeRebuildSearchableTask(
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }
+
+// semanticSwapTaskConfig returns the shared reindexTaskConfig for the semantic
+// runtime migrations (map→blockmax, enable-filterable, and the
+// filterable/searchable retokenizations). It is blockmaxSearchableTaskConfig
+// plus stagedSwapCommit: semantic migrations gate their terminal swap effects
+// on the cluster-wide task verdict (weaviate/0-weaviate-issues#220), whereas
+// the format-only blockmax rebuild commits inline.
+func semanticSwapTaskConfig(propNames []string, collectionName string) reindexTaskConfig {
+	cfg := blockmaxSearchableTaskConfig(propNames, collectionName)
+	cfg.stagedSwapCommit = true
+	return cfg
+}

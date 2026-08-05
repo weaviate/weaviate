@@ -12,6 +12,8 @@
 package db
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -183,6 +185,16 @@ func fileExistsInDir(dirPath, fileName string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// StagedMigrationVerdictFunc resolves the cluster verdict for a
+// staged-but-uncommitted semantic swap at startup
+// (weaviate/0-weaviate-issues#220). The schema is the verdict record —
+// the flip only commits via RAFT once the ack barrier confirmed every
+// unit — so comparing the schema against the migration's target answers
+// "did the task commit?" without needing DTM state, unavailable this
+// early in shard init. flipped=true: COMMIT (promote NEW); flipped=false:
+// pending/FAILED (restore OLD); ok=false: schema unavailable.
+type StagedMigrationVerdictFunc func(payload *ReindexTaskPayload) (flipped bool, ok bool)
+
 // FinalizeCompletedMigrations scans the shard's .migrations/ directory for
 // completed migrations that still need filesystem cleanup, and runs the
 // deferred ingest→canonical rename for each.
@@ -242,6 +254,19 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // the next startup when no buckets are loaded. See
 // `docs/runtime-reindex.md` for the rationale.
 func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
+	FinalizeCompletedMigrationsWithVerdict(lsmPath, logger, nil)
+}
+
+// FinalizeCompletedMigrationsWithVerdict is [FinalizeCompletedMigrations]
+// plus staged-window crash recovery (weaviate/0-weaviate-issues#220): a
+// STAGED gen (staged.mig, or a semantic migration's
+// merged-but-unverdicted state) is resolved via verdict rather than
+// blindly promoted — see [resolveStagedSwapAtStartup] for the two
+// outcomes. Gens carrying unswapped.mig (a deferred rollback restore)
+// are handled by [restoreRolledBackStagedSwap]. The nil-verdict wrapper
+// above is the least-destructive default: treat every staged gen as
+// unresolved.
+func FinalizeCompletedMigrationsWithVerdict(lsmPath string, logger logrus.FieldLogger, verdict StagedMigrationVerdictFunc) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -259,12 +284,6 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 	// Within each namespace, find the highest tidied gen and any lower
 	// gens to clean up. Higher (untidied) gens are deferred to recovery
 	// EXCEPT when they have merged.mig — see the recovery path below.
-	type genInfo struct {
-		dirName string
-		gen     int
-		tidied  bool
-		merged  bool
-	}
 	groups := map[string][]genInfo{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -277,24 +296,50 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			// this branch never produces such entries; defensive.
 			continue
 		}
-		tidied := fileExists(filepath.Join(migrationsDir, name, "tidied.mig"))
-		merged := fileExists(filepath.Join(migrationsDir, name, "merged.mig"))
+		dirPath := filepath.Join(migrationsDir, name)
 		groups[namespace] = append(groups[namespace], genInfo{
-			dirName: name,
-			gen:     gen,
-			tidied:  tidied,
-			merged:  merged,
+			dirName:   name,
+			gen:       gen,
+			tidied:    fileExists(filepath.Join(dirPath, "tidied.mig")),
+			merged:    fileExists(filepath.Join(dirPath, "merged.mig")),
+			staged:    fileExists(filepath.Join(dirPath, "staged.mig")),
+			unswapped: fileExists(filepath.Join(dirPath, "unswapped.mig")),
 		})
 	}
 
 	for namespace, gens := range groups {
+		// Staged-window pre-pass: resolve rolled-back/staged gens before
+		// promotion candidates are computed, so an unverdicted swap can
+		// never be promoted by the generic paths below.
+		pending := map[int]bool{}
+		for i := range gens {
+			g := gens[i]
+			migDir := filepath.Join(migrationsDir, g.dirName)
+			switch {
+			case g.unswapped:
+				restoreRolledBackStagedSwap(lsmPath, migDir, g.dirName, namespace, logger)
+				pending[g.gen] = true
+			case !g.tidied && (g.staged || isUnverdictedSemanticGen(migDir, g)):
+				if resolveStagedSwapAtStartup(lsmPath, migDir, g.dirName, namespace, verdict, logger) {
+					// COMMIT direction: the tidied sentinels were written;
+					// the gen is now an ordinary promotion candidate.
+					gens[i].tidied = true
+				} else {
+					pending[g.gen] = true
+				}
+			}
+		}
 		// Find the highest tidied gen and the highest merged gen.
 		// The "effective" promotion candidate is the larger of the two
 		// — see the godoc on FinalizeCompletedMigrations for why a
 		// merged-but-not-tidied gen is safe (and required) to promote.
+		// Gens parked by the staged-window pre-pass are not candidates.
 		highestTidied := -1
 		highestMerged := -1
 		for _, g := range gens {
+			if pending[g.gen] {
+				continue
+			}
 			if g.tidied && g.gen > highestTidied {
 				highestTidied = g.gen
 			}
@@ -347,6 +392,11 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 		// effective (their data was superseded by this gen's complete
 		// or recovered ingest dir).
 		for _, g := range gens {
+			if pending[g.gen] {
+				// Parked by the staged-window pre-pass — never promote or
+				// delete these here.
+				continue
+			}
 			migDir := filepath.Join(migrationsDir, g.dirName)
 			switch {
 			case g.gen == effective:
@@ -378,6 +428,274 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			}
 		}
 	}
+}
+
+// genInfo captures one migration tracker dir's sentinel state for
+// [FinalizeCompletedMigrationsWithVerdict]'s per-namespace walk.
+type genInfo struct {
+	dirName   string
+	gen       int
+	tidied    bool
+	merged    bool
+	staged    bool
+	unswapped bool
+}
+
+// isUnverdictedSemanticGen reports whether a merged-but-untidied gen is
+// a semantic migration whose cluster verdict is unknown at boot — such
+// gens must skip the generic merged-promotion recovery path, whose "the
+// schema flip already committed" assumption is wrong when a sibling unit
+// failed (weaviate/0-weaviate-issues#220). A gen without payload.mig is
+// a legacy/format-only flow and keeps the old behavior.
+func isUnverdictedSemanticGen(migDir string, g genInfo) bool {
+	if !g.merged {
+		return false
+	}
+	rec, err := readReindexRecoveryRecord(migDir)
+	if err != nil {
+		return false
+	}
+	return IsSemanticMigration(rec.Payload.MigrationType)
+}
+
+// readReindexRecoveryRecord loads the payload.mig recovery record from a
+// migration tracker dir.
+func readReindexRecoveryRecord(migDir string) (*reindexRecoveryRecord, error) {
+	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
+	if err != nil {
+		return nil, err
+	}
+	var rec reindexRecoveryRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return nil, fmt.Errorf("unmarshal %s: %w", reindexRecoveryPayloadFile, err)
+	}
+	return &rec, nil
+}
+
+// resolveStagedSwapAtStartup resolves one staged (or semantic
+// merged-but-unverdicted) generation against the cluster verdict at
+// startup. Returns true when the verdict is COMMIT and the gen was
+// upgraded to an ordinary promotion candidate (tidied sentinels
+// written); false when the gen was parked (restored to OLD / left
+// merged) and must be excluded from promotion and cleanup this pass.
+//
+// Runs pre-bucket-load, so directory renames are safe.
+func resolveStagedSwapAtStartup(
+	lsmPath, migDir, dirName, namespace string,
+	verdict StagedMigrationVerdictFunc,
+	logger logrus.FieldLogger,
+) bool {
+	flipped := false
+	rec, err := readReindexRecoveryRecord(migDir)
+	switch {
+	case err != nil:
+		logger.WithField("migration", dirName).
+			Errorf("reindex finalize: staged swap with unreadable recovery payload; conservatively restoring OLD data (nothing is deleted — the NEW ingest data stays staged on disk): %v", err)
+	case verdict == nil:
+		logger.WithField("migration", dirName).
+			Warn("reindex finalize: staged swap but no verdict source wired; conservatively restoring OLD data")
+	default:
+		var ok bool
+		flipped, ok = verdict(&rec.Payload)
+		if !ok {
+			logger.WithField("migration", dirName).
+				Errorf("reindex finalize: staged swap for %q but the schema cannot be consulted; conservatively restoring OLD data", rec.Payload.Collection)
+			flipped = false
+		}
+	}
+
+	if flipped {
+		// COMMIT: the cluster-wide schema flip landed before this node's
+		// local commit finished. Upgrade the gen to a normal promotion
+		// candidate; the caller's finalize pass renames ingest→canonical
+		// and drops the OLD backup + tracker.
+		if err := writeRecoveryTidiedSentinels(migDir); err != nil {
+			logger.WithField("migration", dirName).
+				Errorf("reindex finalize: staged swap verdict is COMMIT but tidied sentinels could not be written; leaving staged (this node serves OLD under the flipped schema until repaired): %v", err)
+			return false
+		}
+		if err := os.Remove(filepath.Join(migDir, "staged.mig")); err != nil && !os.IsNotExist(err) {
+			logger.WithField("migration", dirName).
+				Warnf("reindex finalize: failed to remove staged.mig after commit resolution: %v", err)
+		}
+		logger.WithField("migration", dirName).
+			Info("reindex finalize: staged swap resolved as COMMIT (schema already flipped); promoting staged data")
+		return true
+	}
+
+	// Verdict pending or FAILED: restore OLD as canonical and revert the
+	// tracker to the merged state. The NEW ingest data and the tracker
+	// stay so a still-live task can re-stage via the DTM re-drive; a
+	// FAILED task's leftovers are inert.
+	restoreStagedDirsToOld(lsmPath, migDir, dirName, namespace, logger)
+	logger.WithField("migration", dirName).
+		Info("reindex finalize: staged swap resolved as PENDING/FAILED (schema not flipped); OLD data restored to canonical, tracker reverted to merged")
+	return false
+}
+
+// migrationDirCoords resolves the two silently-guarded per-property inputs
+// every finalize/restore walk needs from a migration dir name: the strategy's
+// bucket-name suffixes and the `_<gen>` dir-name tail. ok=false (caller bails
+// silently, matching pre-refactor behavior) when the strategy prefix is
+// unknown or the name carries no gen suffix — both defensive guards against
+// dirs this branch never writes. The gen tail is reconstructed by re-appending
+// `_<N>` rather than asking the strategy instance (finalize does not have one),
+// which is exact because every strategy's suffix methods compose the on-disk
+// name as `<base>_<N>`. Safe to run before the properties.mig read: at every
+// real call site parseMigrationDirName already succeeded upstream in
+// [FinalizeCompletedMigrationsWithVerdict]'s grouping, so this re-parse never
+// fails and cannot reorder an observable early return.
+func migrationDirCoords(dirName string) (suffixes *migrationBucketSuffixes, genTail string, ok bool) {
+	suffixes = migrationSuffixes(dirName)
+	if suffixes == nil {
+		return nil, "", false
+	}
+	_, gen, ok := parseMigrationDirName(dirName)
+	if !ok {
+		return nil, "", false
+	}
+	return suffixes, "_" + strconv.Itoa(gen), true
+}
+
+// restoreStagedDirsToOld restores the OLD data to the canonical bucket
+// dir for every prop of a staged gen and clears the swap/staged
+// sentinels, reverting the tracker to the "merged" state. Handles both
+// staged layouts: the deferred-rename layout (canonical dir absent, OLD
+// at backup_<gen>, NEW at ingest_<gen>) and the dir-rename layout from
+// [recoverRuntimeSwapBuckets] (NEW at the canonical name, OLD at
+// backup_<gen>, ingest absent — NEW is moved back to ingest_<gen>).
+// Presence-checked and idempotent: a crash mid-restore re-converges on
+// the next pass.
+func restoreStagedDirsToOld(lsmPath, migDir, dirName, namespace string, logger logrus.FieldLogger) {
+	suffixes, genTail, ok := migrationDirCoords(dirName)
+	if !ok {
+		return
+	}
+	props, err := readMigrationProps(migDir)
+	if err != nil {
+		logger.WithField("migration", dirName).
+			Errorf("reindex finalize: staged restore: properties.mig unreadable; leaving dirs untouched: %v", err)
+		return
+	}
+
+	for _, propName := range props {
+		mainDir := filepath.Join(lsmPath, suffixes.sourceBucketName(propName))
+		backupDir := filepath.Join(lsmPath, suffixes.sourceBucketName(propName)+suffixes.backupSuffix+genTail)
+		ingestDir := filepath.Join(lsmPath, suffixes.sourceBucketName(propName)+suffixes.ingestSuffix+genTail)
+
+		if !fileExists(backupDir) {
+			// Already restored on a prior pass, or this prop never
+			// swapped. Nothing to do either way.
+			continue
+		}
+		if fileExists(mainDir) {
+			// Dir-rename layout: the canonical name currently holds NEW.
+			// Move it back to the ingest slot so OLD can take the
+			// canonical name.
+			if fileExists(ingestDir) {
+				// Ambiguous: NEW exists under both names. Should be
+				// impossible (the dir-rename swap consumed the ingest
+				// dir); refuse to guess.
+				logger.WithField("migration", dirName).WithField("property", propName).
+					Errorf("reindex finalize: staged restore: canonical, backup AND ingest dirs all present — ambiguous layout, skipping prop")
+				continue
+			}
+			if err := os.Rename(mainDir, ingestDir); err != nil {
+				logger.WithField("migration", dirName).WithField("property", propName).
+					Errorf("reindex finalize: staged restore: failed to move NEW data off the canonical name: %v", err)
+				continue
+			}
+		}
+		if err := os.Rename(backupDir, mainDir); err != nil {
+			logger.WithField("migration", dirName).WithField("property", propName).
+				Errorf("reindex finalize: staged restore: failed to restore OLD data to the canonical name: %v", err)
+			continue
+		}
+	}
+
+	// Revert the tracker to "merged": clear the global + per-prop swapped
+	// sentinels and the staged marker. merged.mig, properties.mig and
+	// payload.mig stay for the DTM re-drive.
+	trackerEntries, err := os.ReadDir(migDir)
+	if err != nil {
+		logger.WithField("migration", dirName).
+			Warnf("reindex finalize: staged restore: cannot list tracker dir for sentinel cleanup: %v", err)
+		return
+	}
+	for _, e := range trackerEntries {
+		name := e.Name()
+		if name == "swapped.mig" || name == "staged.mig" || strings.HasPrefix(name, "swapped.mig.") {
+			if err := os.Remove(filepath.Join(migDir, name)); err != nil {
+				logger.WithField("migration", dirName).
+					Warnf("reindex finalize: staged restore: failed to remove sentinel %s: %v", name, err)
+			}
+		}
+	}
+
+	// Durably record that THIS gen reached merged-only via the boot-revert
+	// path (0-weaviate-issues#220). The flip-apply re-resolve hook requires
+	// this positive evidence before re-driving a merged-only gen: a gen that
+	// reached merged-only by failing mid-swap is on-disk identical in every
+	// other sentinel but never ran this revert, so it lacks the marker and
+	// the hook leaves it (and its OLD backup) untouched. Written last and
+	// fsync-durable so a crash before it lands simply re-runs this revert on
+	// the next boot (idempotent) rather than mis-classifying the gen. A
+	// failure to persist it is non-fatal: the hook then declines to re-drive
+	// (the gen converges on the next restart's finalize instead), which is
+	// strictly no worse than the pre-hook status quo.
+	if err := createFileDurableAt(migDir, reindexRevertedMarkerFile, nil); err != nil {
+		logger.WithField("migration", dirName).
+			Warnf("reindex finalize: staged restore: failed to write revert marker %s; flip-apply re-resolve will defer to the next restart: %v", reindexRevertedMarkerFile, err)
+	}
+}
+
+// restoreRolledBackStagedSwap completes the on-disk half of an
+// in-process rollback ([ShardReindexTaskGeneric.RollbackSwapOnShard]):
+// the OLD data still lives under its backup-named dir (it was the live
+// bucket when the rollback ran, so the rename had to wait for a
+// restart). Restores it to the canonical name, discards the migration's
+// remaining sidecar dirs and removes the tracker — the task is terminal,
+// nothing re-drives this gen.
+func restoreRolledBackStagedSwap(lsmPath, migDir, dirName, namespace string, logger logrus.FieldLogger) {
+	suffixes, genTail, ok := migrationDirCoords(dirName)
+	if !ok {
+		return
+	}
+	props, err := readMigrationProps(migDir)
+	if err != nil {
+		logger.WithField("migration", dirName).
+			Errorf("reindex finalize: rollback restore: properties.mig unreadable; leaving dirs untouched: %v", err)
+		return
+	}
+
+	for _, propName := range props {
+		mainDir := filepath.Join(lsmPath, suffixes.sourceBucketName(propName))
+		backupDir := filepath.Join(lsmPath, suffixes.sourceBucketName(propName)+suffixes.backupSuffix+genTail)
+		if !fileExists(mainDir) && fileExists(backupDir) {
+			if err := os.Rename(backupDir, mainDir); err != nil {
+				logger.WithField("migration", dirName).WithField("property", propName).
+					Errorf("reindex finalize: rollback restore: failed to restore OLD data to the canonical name; tracker kept for a retry next restart: %v", err)
+				return
+			}
+		}
+		// Discard the failed migration's remaining sidecars (the in-process
+		// rollback already removed the ingest dirs; presence-checked).
+		for _, suff := range []string{suffixes.ingestSuffix + genTail, reindexSuffixForFinalize(namespace) + genTail} {
+			p := filepath.Join(lsmPath, suffixes.sourceBucketName(propName)+suff)
+			if fileExists(p) {
+				if err := os.RemoveAll(p); err != nil {
+					logger.WithField("path", p).
+						Warnf("reindex finalize: rollback restore: failed to remove discarded sidecar dir: %v", err)
+				}
+			}
+		}
+	}
+	if err := os.RemoveAll(migDir); err != nil {
+		logger.WithField("path", migDir).
+			Warnf("reindex finalize: rollback restore: failed to remove tracker dir: %v", err)
+	}
+	logger.WithField("migration", dirName).
+		Info("reindex finalize: completed on-disk restore of a rolled-back staged swap")
 }
 
 // writeRecoveryTidiedSentinels is the recovery-path equivalent of the
@@ -423,8 +741,8 @@ func writeRecoveryTidiedSentinels(migDir string) error {
 // latter is defensive against partial pre-migration state).
 func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus.FieldLogger) {
 	migDir := filepath.Join(lsmPath, ".migrations", dirName)
-	suffixes := migrationSuffixes(dirName)
-	if suffixes == nil {
+	suffixes, genTail, ok := migrationDirCoords(dirName)
+	if !ok {
 		return
 	}
 	props, err := readMigrationProps(migDir)
@@ -433,15 +751,6 @@ func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus
 			Debugf("reindex finalize: stale-gen cleanup: properties.mig missing/unreadable; sidecars (if any) will be left as orphans: %v", err)
 		return
 	}
-	// The gen suffix is implicit in `dirName`'s trailing `_<N>`; the
-	// strategy's suffix methods compute IngestSuffix/etc. as
-	// `<base>_<N>`. We don't have the strategy instance here, so emulate
-	// by appending the same gen to each suffix base.
-	_, gen, ok := parseMigrationDirName(dirName)
-	if !ok {
-		return
-	}
-	genTail := "_" + strconv.Itoa(gen)
 	for _, propName := range props {
 		main := suffixes.sourceBucketName(propName)
 		for _, suff := range []string{suffixes.ingestSuffix, suffixes.backupSuffix, reindexSuffixForFinalize(namespace)} {
@@ -503,16 +812,10 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// the strategy's IngestSuffix / BackupSuffix methods on the writer
 	// side appended the same gen to the suffix base. Reproduce that here
 	// to find the matching on-disk sidecar dirs.
-	suffixes := migrationSuffixes(migName)
-	if suffixes == nil {
-		return
-	}
-	_, gen, ok := parseMigrationDirName(migName)
+	suffixes, genTail, ok := migrationDirCoords(migName)
 	if !ok {
-		// Defensive — every dir on disk should carry the gen suffix.
 		return
 	}
-	genTail := "_" + strconv.Itoa(gen)
 
 	logger = logger.WithField("migration", migName)
 
@@ -564,6 +867,52 @@ func readMigrationProps(migDir string) ([]string, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// reindexRevertedMarkerFile is the durable "boot-revert evidence" sentinel
+// written by [restoreStagedDirsToOld] when it reverts a staged semantic-swap
+// gen back to merged (0-weaviate-issues#220). It is the discriminator the
+// flip-apply re-resolve hook ([Shard.reResolveStagedSwapsOnSchemaFlip] via
+// [isRevertedMergedStagedGen]) requires before re-driving a merged-only gen:
+// a gen that reached merged-only by FAILING mid-swap (Phase 2b) is on-disk
+// identical in every other sentinel, but never went through the revert path,
+// so it lacks this marker and is left untouched — its OLD backup survives.
+const reindexRevertedMarkerFile = "reverted.mig"
+
+// createFileDurableAt writes a sentinel file crash-durably: content fsync'd
+// before close, parent dir fsync'd after, so the file survives a power cut
+// once this returns nil. Package-level twin of
+// [fileReindexTracker.createFileDurable] for the free-function finalize path
+// (which has no tracker). Idempotent for sentinel use: an already-present
+// marker (O_EXCL EEXIST) is treated as success.
+func createFileDurableAt(dirPath, filename string, content []byte) error {
+	path := filepath.Join(dirPath, filename)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil
+		}
+		return err
+	}
+	if len(content) > 0 {
+		if _, err := file.Write(content); err != nil {
+			file.Close()
+			return err
+		}
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	dir, err := os.Open(dirPath)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 // migrationBucketSuffixes maps a migration dir name to its bucket naming scheme.

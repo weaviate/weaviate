@@ -39,7 +39,7 @@ func NewRuntimeEnableSearchableTask(
 			tokenization: tokenization,
 			generation:   generation,
 		},
-		blockmaxSearchableTaskConfig(propNames, collectionName),
+		semanticSwapTaskConfig(propNames, collectionName),
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }

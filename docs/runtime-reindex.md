@@ -251,6 +251,11 @@ preceding a transition on the per-task field. Annotations
         │   flipSemanticMigrationSchema — RAFT UpdatePropertyInternal   │
         │   (idempotent: every node fires, first commit wins)           │
         │   ClearTokenizationOverlay on every local shard               │
+        │   CommitSwapOnShard per staged local unit — the task-level    │
+        │   COMMIT of the pre-commit staging protocol (§ below):        │
+        │   OnMigrationComplete + tidied.mig + destructive trim of the  │
+        │   OLD backup. On FAILED/CANCELLED instead: RollbackSwapOnShard│
+        │   restores the OLD data under the canonical name.             │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  scheduler marks finalized
                                   ┌────────▼────────┐
@@ -362,6 +367,28 @@ mechanisms:
    the PreparationCompleteAck barrier (no cross-replica tokenization
    alignment to bound) and gate `SWAPPING → FINISHED` on
    PostCompletionAck only. See §6.3.
+3. **Pre-commit staging (the rollback guarantee,
+   weaviate/0-weaviate-issues#220).** The ack barrier alone can only
+   *skip* the schema flip on a failure — it cannot undo a shard whose
+   local swap already destroyed its OLD data. So for semantic
+   migrations the local swap only STAGES: `runtimeSwap` stops after
+   the reversible work (pointer flip, old→backup rename, swapped.mig)
+   and records a durable `staged.mig`; double-writes into the
+   preserved OLD backup keep it fresh during the verdict window. The
+   destructive terminal work (`OnMigrationComplete`, `tidied.mig`, the
+   trim that deletes the OLD backup) runs only from `OnTaskCompleted`
+   once the flip verdict is durable (`CommitSwapOnShard`); on
+   FAILED/CANCELLED, `RollbackSwapOnShard` re-points the canonical
+   bucket at the preserved OLD backup in memory and defers the on-disk
+   backup→canonical rename to the next startup via `unswapped.mig`. A
+   restart inside the staged window is resolved by
+   `FinalizeCompletedMigrationsWithVerdict` (pre-LSM init), which
+   reads the verdict from the schema itself: flipped → complete the
+   commit and promote the staged data; not flipped → restore OLD to
+   the canonical name and revert the tracker to `merged` so a
+   still-live task's DTM re-drive can re-stage. Format-only
+   migrations keep the legacy inline commit — their schema effects
+   are per-shard, so no cluster verdict can contradict them.
 
 ### Why PREP runs inside PREPARING (not earlier)
 
