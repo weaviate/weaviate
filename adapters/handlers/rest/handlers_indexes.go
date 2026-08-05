@@ -653,7 +653,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	if indexTypeKnown {
 		// The deletion below is not yet visible to any backup gate: the task
 		// is not committed. Close the gate over it, per
-		// [db.ReindexProvider.MarkCleanupInProgress], and hold it until the
+		// [db.ReindexProvider.MarkSubmitInProgress], and hold it until the
 		// handler returns so the deletion and the commit are one window.
 		if h.appState.ReindexProvider != nil {
 			defer h.appState.ReindexProvider.MarkSubmitInProgress(collection)()

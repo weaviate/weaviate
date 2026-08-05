@@ -75,8 +75,7 @@ func gatesIdle(p *ReindexProvider) bool {
 }
 
 // The cancel-apply gate must be adopted and released by the teardown, promptly.
-// A fixed hold instead would refuse backups long after the teardown finished,
-// which is what broke TestMultiNode_CancelClearsAcrossReplicas.
+// A fixed hold instead would refuse backups long after the teardown finished.
 func TestCancelApplyGateIsReleasedByTheTeardown(t *testing.T) {
 	serverCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
