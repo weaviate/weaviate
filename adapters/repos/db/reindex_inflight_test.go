@@ -26,6 +26,7 @@ import (
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -94,7 +95,7 @@ func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
 // on bootstrap completion so the unwired window is unreachable by
 // external traffic, and the prior refuse-by-default broke every
 // module-test fixture that spins up Weaviate without going through
-// the post-bootstrap install path. A one-time WARN fires to surface
+// the post-bootstrap install path. A rate-limited WARN fires to surface
 // the unwired path if it ever shows up in production logs.
 func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
 	db := &DB{}
@@ -112,6 +113,24 @@ func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 	})
 	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
 		"nil lookup must allow (same path as unwired)")
+}
+
+// The unwired gate is a persistent misconfiguration, so the WARN is rate
+// limited rather than once-ever — but it must still not fire once per shard
+// checked. Reopening after the window is covered by logrusext's own test.
+func TestWarnUnwiredReindexGate_RateLimited(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	sampler := logrusext.NewSampler(logger, 1, time.Hour)
+
+	for range 5 {
+		warnUnwiredReindexGate(sampler, logger)
+	}
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1, "the unwired WARN must be rate limited, not repeated per call")
+	assert.Equal(t, logrus.WarnLevel, entries[0].Level)
+	assert.Equal(t, "backup_reindex_gate", entries[0].Data["action"])
+	assert.Contains(t, entries[0].Message, "ShardReindexActivityLookup not yet installed")
 }
 
 // TestRefuseIfReindexInFlight_ErrorShape pins that the error wraps the
@@ -311,6 +330,86 @@ func TestBackupable_RefusalRedactsNodeAndShard(t *testing.T) {
 	assert.Contains(t, body, collection)
 	for _, leaked := range []string{shard, node} {
 		assert.NotContainsf(t, body, leaked, "DB.Backupable leaked %q into the refusal", leaked)
+	}
+}
+
+// backupableFixture wires the minimum a DB.Backupable call needs: one index
+// whose sharding state lists the given local shards.
+func backupableFixture(t *testing.T, collection, node string, shards ...string) *DB {
+	t.Helper()
+
+	physical := make(map[string]sharding.Physical, len(shards))
+	for _, s := range shards {
+		physical[s] = sharding.Physical{Name: s, BelongsToNodes: []string{node}}
+	}
+	shardState := &sharding.State{IndexID: collection, Physical: physical}
+
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
+		require.NoError(t, fn(&models.Class{Class: collection}, shardState))
+	})
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.On("NodeName").Return(node)
+
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{logger: logger, localNodeName: node}
+	idx := &Index{
+		db:           db,
+		Config:       IndexConfig{ClassName: schema.ClassName(collection)},
+		schemaReader: reader,
+		getSchema:    getter,
+	}
+	db.indices = map[string]*Index{indexID(schema.ClassName(collection)): idx}
+	return db
+}
+
+// Building the activity snapshot is a leader-forwarded RAFT query, so a
+// per-shard rebuild costs one leader round trip per shard. Pins one build per
+// admission pass regardless of shard count.
+func TestBackupable_BuildsGateSnapshotOncePerCall(t *testing.T) {
+	const (
+		collection = "SnapshotBuildCountClass"
+		node       = "weaviate-0"
+	)
+	liveShard := "s3"
+
+	tests := []struct {
+		name    string
+		live    bool
+		wantErr bool
+	}{
+		{name: "all shards admitted", live: false},
+		{name: "one shard refuses", live: true, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := backupableFixture(t, collection, node, "s1", "s2", "s3", "s4", "s5")
+
+			var activityBuilds, cleanupBuilds int
+			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+				activityBuilds++
+				return func(_, shardName string) bool {
+					return test.live && shardName == liveShard
+				}
+			})
+			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+				cleanupBuilds++
+				return func(string, string) bool { return false }
+			})
+
+			err := db.Backupable(context.Background(), []string{collection})
+			if test.wantErr {
+				require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+				// Byte-identical to what the single-shard path produces.
+				require.Equal(t, reindexInFlightError(collection, reindexBlockedByLiveTask).Error(), err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, 1, activityBuilds, "activity snapshot must be built once per admission pass, not once per shard")
+			assert.Equal(t, 1, cleanupBuilds, "cleanup snapshot must be built once per admission pass, not once per shard")
+		})
 	}
 }
 

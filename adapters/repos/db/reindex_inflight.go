@@ -13,21 +13,39 @@ package db
 
 import (
 	"fmt"
-	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
-// unwiredGateWarnOnce ensures the operator-facing WARN for the
-// "lookup-not-installed" path fires at most once per process. The
-// warning is informational: production gates HTTP serving on bootstrap
-// completion, so under normal startup the unwired window is unreachable
-// by an external backup request. If the WARN does fire in production
-// logs, it means either (a) startup ordering is broken (lookup wiring
-// never fires) or (b) a non-HTTP code path called Backupable before
-// the lookup installed.
-var unwiredGateWarnOnce sync.Once
+// unwiredGateWarnSampler rate-limits the operator-facing WARN for the
+// "lookup-not-installed" path to one line per hour. Production gates
+// HTTP serving on bootstrap completion, so under normal startup the
+// unwired window is unreachable by an external backup request. If the
+// WARN does fire, it means either (a) startup ordering is broken
+// (lookup wiring never fires) or (b) a non-HTTP code path called
+// Backupable before the lookup installed. Both are persistent
+// misconfigurations, so the line has to keep reappearing for an
+// operator who starts reading the logs after the first backup
+// attempt — but not once per shard checked.
+var unwiredGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
+
+// warnUnwiredReindexGate emits the fail-open WARN through sampler, which
+// production passes as [unwiredGateWarnSampler]. Taking the sampler as an
+// argument keeps the rate limiting exercisable without mutating package
+// state under a race detector.
+func warnUnwiredReindexGate(sampler *logrusext.Sampler, logger logrus.FieldLogger) {
+	sampler.WithSampling(func(l logrus.FieldLogger) {
+		if logger != nil {
+			l = logger
+		}
+		l.WithField("action", "backup_reindex_gate").
+			Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
+				"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
+	})
+}
 
 // reindexBlockReason says which gate refused, so the refusal can give advice
 // that matches: a cancelled task mid-teardown must not be described as one the
@@ -50,7 +68,7 @@ const (
 // in configure_api.go.
 //
 // Default to "no live reindex" when the lookup is unwired (with a
-// one-time WARN). The original conservative default (refuse) was
+// rate-limited WARN). The original conservative default (refuse) was
 // correct in isolation but broke every module-test fixture that
 // spins up Weaviate without going through the post-bootstrap
 // install path; production HTTP gates on bootstrap completion so the
@@ -59,30 +77,63 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return db.reindexBlockReason(collection, shardName) != reindexNotBlocked
 }
 
-// reindexBlockReason is AnyLiveReindexForShard's answer with the branch kept,
-// so the refusal can match its advice to what actually blocked.
-func (db *DB) reindexBlockReason(collection, shardName string) reindexBlockReason {
+// reindexGateSnapshot is one admission pass's view of both backup-gate
+// lookups. Building it invokes each builder exactly once, and the activity
+// builder's work is a leader-forwarded RAFT query
+// (ListDistributedTasks), so rebuilding per shard would cost one leader
+// round trip per shard checked: 128 for a 128-shard class.
+//
+// One snapshot per pass means shards checked late in the pass do not see
+// a reindex task that appeared mid-pass. That is acceptable: the pass was
+// never atomic to begin with, and a task that starts after the snapshot is
+// caught by the commit-time overlap check. Admission-pass consistency plus
+// a commit-time backstop is the intended two-layer shape.
+//
+// A nil activity lookup means "gate unwired or builder declined" and
+// admits the backup, matching the fail-open default documented on
+// [DB.AnyLiveReindexForShard].
+type reindexGateSnapshot struct {
+	activity ShardReindexActivityLookup
+	cleanup  CleanupInProgressLookup
+}
+
+// newReindexGateSnapshot builds the per-admission-pass snapshot. Callers
+// that check more than one shard must build it once and reuse it; see
+// [reindexGateSnapshot].
+func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
 	db.reindexAuditMu.RUnlock()
+
+	var snap reindexGateSnapshot
 	if activityBuilder == nil {
-		unwiredGateWarnOnce.Do(func() {
-			logger := db.logger
-			if logger == nil {
-				logger = logrus.New()
-			}
-			logger.WithField("action", "backup_reindex_gate").
-				Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
-					"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
-		})
+		warnUnwiredReindexGate(unwiredGateWarnSampler, db.logger)
+		return snap
+	}
+	snap.activity = activityBuilder()
+	// Cleanup lookup is optional: older wiring paths and test fixtures
+	// install only the activity lookup.
+	if cleanupBuilder != nil {
+		snap.cleanup = cleanupBuilder()
+	}
+	return snap
+}
+
+// reindexBlockReason is AnyLiveReindexForShard's answer with the branch kept,
+// so the refusal can match its advice to what actually blocked. Single-shard
+// callers only: it builds its own snapshot.
+func (db *DB) reindexBlockReason(collection, shardName string) reindexBlockReason {
+	return db.reindexBlockReasonIn(db.newReindexGateSnapshot(), collection, shardName)
+}
+
+// reindexBlockReasonIn answers for one shard against an already-built
+// snapshot.
+func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardName string) reindexBlockReason {
+	if snap.activity == nil {
 		return reindexNotBlocked
 	}
-	lookup := activityBuilder()
-	if lookup == nil {
-		return reindexNotBlocked
-	}
-	if lookup(collection, shardName) {
+	if snap.activity(collection, shardName) {
 		// Debug-level so flag-on operators get visibility into which
 		// side of the OR fired the gate refusal. The matching cleanup
 		// branch below logs at the same level.
@@ -97,17 +148,11 @@ func (db *DB) reindexBlockReason(collection, shardName string) reindexBlockReaso
 	}
 	// Cleanup lookup is OR-d in: the DTM task may have flipped to
 	// terminal while autoCleanupAfterTerminal is still tearing the
-	// sidecar buckets. The cleanup builder is optional — older
-	// wiring paths and test fixtures that install only the activity
-	// lookup keep the prior semantics.
-	if cleanupBuilder == nil {
+	// sidecar buckets.
+	if snap.cleanup == nil {
 		return reindexNotBlocked
 	}
-	cleanupLookup := cleanupBuilder()
-	if cleanupLookup == nil {
-		return reindexNotBlocked
-	}
-	if cleanupLookup(collection, shardName) {
+	if snap.cleanup(collection, shardName) {
 		if db.logger != nil {
 			db.logger.WithField("action", "backup_reindex_gate").
 				WithField("collection", collection).
@@ -139,14 +184,27 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 //
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
+//
+// Single-shard call sites only — it builds a fresh gate snapshot per
+// call. Multi-shard passes must use [Index.refuseIfReindexInFlightIn];
+// see [reindexGateSnapshot].
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
+	if i.db == nil {
+		return reindexInFlightError(i.Config.ClassName.String(), reindexBlockedPreWire)
+	}
+	return i.refuseIfReindexInFlightIn(i.db.newReindexGateSnapshot(), shardName)
+}
+
+// refuseIfReindexInFlightIn is [Index.refuseIfReindexInFlight] against an
+// already-built snapshot, for callers that check many shards in one pass.
+func (i *Index) refuseIfReindexInFlightIn(snap reindexGateSnapshot, shardName string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.
 		return reindexInFlightError(collection, reindexBlockedPreWire)
 	}
-	reason := i.db.reindexBlockReason(collection, shardName)
+	reason := i.db.reindexBlockReasonIn(snap, collection, shardName)
 	if reason == reindexNotBlocked {
 		return nil
 	}
@@ -162,9 +220,9 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(collection, reason)
 }
 
-// reindexInFlightError formats the operator-facing rejection. The
-// `preWire` flag distinguishes "DTM lookup says live" from "lookup not
-// yet installed" so the error body can hint at the right next step.
+// reindexInFlightError formats the operator-facing rejection. reason picks the
+// advice: a live task, a cancelled task still tearing down, and a lookup that
+// is not yet installed each need a different next step.
 //
 // Names no shard and no node: this text reaches an API response body, and
 // backing up a collection grants nothing on either. The caller already named
