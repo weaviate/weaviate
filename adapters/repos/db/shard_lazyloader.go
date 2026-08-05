@@ -319,8 +319,10 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 }
 
 func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
-	if err := l.Load(ctx); err != nil {
-		return err
+	// Never load: init applies config at load, and loading here ABBA-deadlocks
+	// under a caller-held replicationConfigLock.
+	if !l.isLoaded() {
+		return nil
 	}
 	return l.shard.enableAsyncReplication(ctx, config)
 }
@@ -357,8 +359,9 @@ func (l *LazyLoadShard) removePersistedHashtree() error {
 }
 
 func (l *LazyLoadShard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
-	if err := l.Load(ctx); err != nil {
-		return err
+	// Never load: matches resumeAfterAbortedOffload's no-op-when-unloaded contract.
+	if !l.isLoaded() {
+		return nil
 	}
 	return l.shard.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
 }

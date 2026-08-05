@@ -1635,10 +1635,9 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	s.asyncRepRebuildFailures.Store(0)
 	s.asyncRepRebuildBackoffUntil.Store(0)
 
-	// If Close() fired during enableAsyncReplication, or performShutdown set
-	// s.shut between the entry-time check and now, the enable touched a store
-	// being torn down or registered against a cancelled scheduler. Disable to
-	// clean up (bounded: Deregister round-trip plus one ReadDir).
+	// If Close() fired during enableAsyncReplication, it registered against a
+	// cancelled scheduler — disable to clean up. (s.shut cannot flip here:
+	// shutdownLock.RLock is held for the whole attempt.)
 	if sched.ctx.Err() != nil || s.shut.Load() {
 		if err := s.disableAsyncReplication(sched.ctx); err != nil {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)

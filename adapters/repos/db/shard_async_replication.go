@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -61,17 +62,9 @@ const (
 	defaultPropagationConcurrency     = 1
 	defaultPropagationBatchSize       = 100
 	defaultPropagationDelay           = 30 * time.Second
-	// asyncReplicationWorkerDrainTimeout is the maximum time mayStopAsyncReplication
-	// will wait for in-flight hashbeat workers to exit after the per-shard context
-	// has been cancelled. Workers should unblock almost immediately once their
-	// context is done; this deadline exists solely to prevent a non-cancellable
-	// downstream RPC (kernel-level TCP stall, buggy transport) from blocking
-	// shard shutdown indefinitely.
-	asyncReplicationWorkerDrainTimeout = 10 * time.Second
-
-	// hashtreeDumpTimeout caps the shutdown dump: fsync can stall for minutes on
-	// degraded storage while performShutdown holds shutdownLock ahead of the
-	// durability-critical flushes. dumpPublishGate blocks late publication.
+	// hashtreeDumpTimeout caps the post-flush shutdown dump so a wedged fsync
+	// cannot stall the tail of performShutdown; dumpPublishGate blocks late
+	// publication.
 	hashtreeDumpTimeout = 30 * time.Second
 
 	minHashtreeHeight = 0
@@ -469,6 +462,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	var err error
 	s.hashtree, err = hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
 	if err != nil {
+		cancelFunc() // don't leak the child ctx in the scheduler's children
 		return err
 	}
 	s.minimalHashtreeInitializationCh = make(chan struct{})
@@ -562,15 +556,24 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 
 			s.asyncReplicationRWMux.Lock()
 			if s.hashtree == nil || ctx.Err() != nil {
-				// Async replication was disabled (hashtree nil-ed) or the
-				// context was cancelled while we slept. Exit the retry loop
-				// instead of resetting so we neither panic on a nil hashtree
-				// nor corrupt a newly-allocated hashtree from a concurrent
-				// enableAsyncReplication call.
+				// Disabled or cancelled while we slept — a concurrent
+				// enableAsyncReplication owns any newly-allocated tree.
 				s.asyncReplicationRWMux.Unlock()
 				return
 			}
-			s.hashtree.Reset()
+			// Fresh tree instead of Reset: folds that raced the failed attempt die
+			// with the old object; the rescan folds their store writes once.
+			fresh, freshErr := hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
+			if freshErr != nil {
+				s.asyncReplicationRWMux.Unlock()
+				s.index.logger.
+					WithField("action", "async_replication").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
+					Errorf("hashtree reallocation failed, aborting init retry: %v", freshErr)
+				return
+			}
+			s.hashtree = fresh
 			// initHashtree already closed ownedCh (afterInMemCallback fires once, even
 			// on error); take ownership of a fresh channel so writes arriving during
 			// the retry block until the next attempt completes.
@@ -957,13 +960,14 @@ func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTre
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
 	}
+	drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
 	drainStart := time.Now()
 	workersDone := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		defer close(workersDone)
 		s.asyncRepWg.Wait()
 		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
-		if elapsed := time.Since(drainStart); elapsed > asyncReplicationWorkerDrainTimeout {
+		if elapsed := time.Since(drainStart); elapsed > drainTimeout {
 			s.index.logger.
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).
@@ -973,12 +977,15 @@ func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTre
 	}, s.index.logger)
 	select {
 	case <-workersDone:
-	case <-time.After(asyncReplicationWorkerDrainTimeout):
+	case <-time.After(drainTimeout):
+		// A surviving worker can still write to the store; a snapshot missing
+		// those writes must not be published.
+		capturedHT = nil
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
-			Warn("async replication worker did not stop within deadline; proceeding with forced shutdown")
+			Warn("async replication worker did not stop within deadline; skipping snapshot and proceeding with forced shutdown")
 	}
 
 	return capturedHT
@@ -1106,6 +1113,11 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		s.asyncReplicationStatsMux.Lock()
 		s.asyncReplicationStatsByTargetNode = nil
 		s.asyncReplicationStatsMux.Unlock()
+	}
+
+	// Re-check post-mux: a shutdown that won the mux ordering owns the snapshot.
+	if s.shut.Load() {
+		return nil
 	}
 
 	// Scrub even when already stopped: HaltForTransfer nils the tree without
@@ -1289,6 +1301,14 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 
 // errHashtreeDumpCancelled aborts a dump whose deadline fired before publish.
 var errHashtreeDumpCancelled = errors.New("hashtree dump cancelled")
+
+// asyncReplicationWorkerDrainTimeout (ns) bounds mayStopAsyncReplication's wait
+// for in-flight hashbeat workers; atomic so tests can shrink it.
+var asyncReplicationWorkerDrainTimeout atomic.Int64
+
+func init() {
+	asyncReplicationWorkerDrainTimeout.Store(int64(10 * time.Second))
+}
 
 // dumpPublishGate serializes publish (rename) against timeout cancellation:
 // once cancel returns true, no publish can ever happen.

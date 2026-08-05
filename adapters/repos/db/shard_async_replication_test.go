@@ -2359,7 +2359,8 @@ func TestPerformShutdownSkipsDumpWhenStoreShutdownFails(t *testing.T) {
 
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	require.Error(t, s.performShutdown(cancelledCtx))
+	require.ErrorContains(t, s.performShutdown(cancelledCtx), "stop lsmkv store",
+		"the store flush itself must have failed for this test to be meaningful")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
 		"no snapshot may be published when the store flush did not complete")
 }
@@ -2391,24 +2392,63 @@ func TestDisableAsyncReplicationSkipsShutShard(t *testing.T) {
 	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "the shutdown snapshot must survive a late disable")
 }
 
-// TestEnableAsyncReplicationShutObservedUnderLock: shut set while enable waits on the write lock must still be observed.
+// TestEnableAsyncReplicationShutObservedUnderLock: shut set while enable is parked on the mux must still be observed.
 func TestEnableAsyncReplicationShutObservedUnderLock(t *testing.T) {
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "EnableShutUnderLockTest")
-
-	s.asyncReplicationRWMux.Lock()
-	enableDone := make(chan error, 1)
-	go func() { enableDone <- s.enableAsyncReplication(ctx, minAsyncReplicationConfig()) }()
-
-	time.Sleep(100 * time.Millisecond)
-	s.shut.Store(true)
 	t.Cleanup(func() { s.shut.Store(false) })
-	s.asyncReplicationRWMux.Unlock()
 
-	require.NoError(t, <-enableDone)
-	s.asyncReplicationRWMux.RLock()
-	require.Nil(t, s.hashtree, "enable must not install a tree once shut is observed under the lock")
-	s.asyncReplicationRWMux.RUnlock()
+	dir := s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	stale := filepath.Join(dir, "hashtree-00000000000000aa.ht")
+
+	for attempt := 0; attempt < 50; attempt++ {
+		require.NoError(t, os.WriteFile(stale, []byte("junk"), 0o600))
+		s.shut.Store(false)
+
+		s.asyncReplicationRWMux.Lock()
+		enableDone := make(chan error, 1)
+		go func() { enableDone <- s.enableAsyncReplication(ctx, minAsyncReplicationConfig()) }()
+		time.Sleep(time.Millisecond)
+		s.shut.Store(true)
+		s.asyncReplicationRWMux.Unlock()
+		require.NoError(t, <-enableDone)
+
+		s.asyncReplicationRWMux.RLock()
+		tree := s.hashtree
+		s.asyncReplicationRWMux.RUnlock()
+		require.Nil(t, tree, "no tree may be installed once shut is set")
+
+		// Consumed ⇒ the entry guard passed ⇒ the in-lock check did the skip.
+		if len(htFilesInDir(t, dir)) == 0 {
+			return
+		}
+	}
+	t.Fatal("enable never reached the in-lock check across attempts")
+}
+
+// TestMayStopSkipsCaptureOnDrainTimeout: a timed-out drain must not capture — a surviving worker can still write.
+func TestMayStopSkipsCaptureOnDrainTimeout(t *testing.T) {
+	prev := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prev) })
+
+	ctx := context.Background()
+	_, s := newSeededAsyncShard(t, ctx, "MayStopDrainTimeoutTest")
+
+	s.asyncRepWg.Add(1)
+	defer s.asyncRepWg.Done()
+
+	require.Nil(t, s.mayStopAsyncReplication(true), "timed-out drain must not capture")
+}
+
+// TestLazyWrappersDoNotLoad: async-rep wrappers on an unloaded shard must not trigger a load (a load attempt would nil-deref).
+func TestLazyWrappersDoNotLoad(t *testing.T) {
+	l := &LazyLoadShard{}
+	require.NoError(t, l.enableAsyncReplication(context.Background(), AsyncReplicationConfig{}))
+	require.NoError(t, l.rebuildAsyncReplicationFromScratch(context.Background(), true, AsyncReplicationConfig{}))
+	require.NoError(t, l.disableAsyncReplication(context.Background()))
+	require.NoError(t, l.removePersistedHashtree())
 }
 
 // TestResolveObjectConflictTimeBasedNoClobber pins that a TimeBased repair keeps a live local object at least as new as the remote deletion, even when the stale pre-RPC snapshot said it was older.

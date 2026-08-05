@@ -173,12 +173,16 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		storeDurable = err == nil
 	}
 
-	// The .ht is trusted verbatim on load, so publish it only once the store
-	// flushed the digested writes: a crash before that must not leave a
-	// snapshot that over-represents the store (lost WAL tail would mask
-	// divergence as convergence).
+	// Publish only after the store flushed the digested writes: a snapshot
+	// surviving a crash must never over-represent the store.
 	if capturedHT != nil && storeDurable {
 		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
+	} else if capturedHT != nil {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warn("skipping hashtree snapshot: store shutdown did not complete cleanly; tree will be rebuilt on next startup")
 	}
 
 	if s.dynamicVectorIndexDB != nil {
