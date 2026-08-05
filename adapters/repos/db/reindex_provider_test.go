@@ -421,7 +421,8 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 	}
 }
 
-// drainGateProvider carries the cleanup registry and running-handle map DrainWithCleanupGate consults.
+// drainGateProvider carries the cleanup registry and running-handle map the
+// drain gate consults.
 func drainGateProvider(handles map[distributedtask.TaskDescriptor]*reindexTaskHandle) *ReindexProvider {
 	return &ReindexProvider{
 		cleanupInProgress: make(map[reindexCleanupKey]int),
@@ -553,13 +554,10 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 	// is what eventually releases it, standing in for the drain timeout.
 	serverCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	p := &ReindexProvider{
-		cleanupInProgress: make(map[reindexCleanupKey]int),
-		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-			desc: {doneCh: make(chan struct{})},
-		},
-		serverCtx: serverCtx,
-	}
+	p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+		desc: {doneCh: make(chan struct{})},
+	})
+	p.serverCtx = serverCtx
 
 	logger, _ := logrustest.NewNullLogger()
 	done := make(chan struct{})
@@ -568,16 +566,8 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 		p.autoCleanupAfterTerminal(&distributedtask.Task{TaskDescriptor: desc}, payload, logger)
 	}()
 
-	raised := false
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if p.AnyCleanupInProgressForCollection("Movies") {
-			raised = true
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	require.True(t, raised,
+	require.Eventually(t, func() bool { return p.AnyCleanupInProgressForCollection("Movies") },
+		500*time.Millisecond, 5*time.Millisecond,
 		"the gate must be up while the drain is still blocked, not after it returns")
 
 	<-done
@@ -651,13 +641,10 @@ func TestAutoCleanupAfterTerminalSkipsTheGateWhenNothingToClean(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := &ReindexProvider{
-				cleanupInProgress: make(map[reindexCleanupKey]int),
-				runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-					desc: {doneCh: make(chan struct{})},
-				},
-				serverCtx: serverCtx,
-			}
+			p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+				desc: {doneCh: make(chan struct{})},
+			})
+			p.serverCtx = serverCtx
 			logger, _ := logrustest.NewNullLogger()
 
 			p.autoCleanupAfterTerminal(&distributedtask.Task{TaskDescriptor: desc}, tc.payload, logger)

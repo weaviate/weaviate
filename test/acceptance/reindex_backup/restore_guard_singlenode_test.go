@@ -18,9 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
-	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -30,15 +28,7 @@ import (
 func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithBackendFilesystem().
-		WithWeaviate().
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		// Start on the legacy Map (WAND) strategy so the tokenization change
-		// below has real migration work to do.
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		Start(ctx)
-	require.NoError(t, err)
+	compose := startGuardNode(ctx, t)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
@@ -55,15 +45,9 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	)
 
 	// Delete after backing up so the restore below is otherwise valid.
-	helper.CreateClass(t, &models.Class{
-		Class: restoredClass,
-		Properties: []*models.Property{
-			{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-		},
-		Vectorizer: "none",
-	})
+	createBodyClass(t, restoredClass, "body")
 	importBodies(t, restoredClass, 200)
-	_, err = helper.CreateBackup(t, helper.DefaultBackupConfig(), restoredClass, "filesystem", backupID)
+	_, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), restoredClass, "filesystem", backupID)
 	require.NoError(t, err)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil,
 		helper.WithDeadline(2*time.Minute))
@@ -71,13 +55,7 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 
 	// 50k objects keep the tokenization change live for several seconds, long
 	// enough for the restore call below to land inside the window.
-	helper.CreateClass(t, &models.Class{
-		Class: reindexClass,
-		Properties: []*models.Property{
-			{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-		},
-		Vectorizer: "none",
-	})
+	createBodyClass(t, reindexClass, "body")
 	// Not deleted on the way out: the migration is still live at that point and
 	// the mutation guard rejects the delete. The container goes away regardless.
 	importBodies(t, reindexClass, 50_000)
@@ -118,8 +96,8 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		"the gate is cluster-wide; no shard is involved; got: %s", errMsg)
 
 	// The class must stay absent: a refused restore may not partially land.
-	require.False(t, classExists(t, restURI, restoredClass),
-		"a refused restore must not create %s", restoredClass)
+	_, exists := reindexhelpers.FetchClass(restURI, restoredClass, true)
+	require.Falsef(t, exists, "a refused restore must not create %s", restoredClass)
 }
 
 // reindexTaskStatus reads one reindex task's DTM status.
@@ -144,10 +122,4 @@ func liveReindexStatus(status string) bool {
 	default:
 		return false
 	}
-}
-
-func classExists(t *testing.T, restURI, className string) bool {
-	t.Helper()
-	_, ok := reindexhelpers.FetchClass(restURI, className, true)
-	return ok
 }
