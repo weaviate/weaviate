@@ -246,12 +246,13 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	})
 }
 
-// TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet proves the new
-// batched-read primitive returns byte-identical results to the per-key
-// RoaringSetGet entry point, whether the key is present across several
-// on-disk segments plus the active memtable, or absent entirely, and that a
-// single GetConsistentView() call serves every RoaringSetGetFromView read.
-func TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet(t *testing.T) {
+// TestBucket_RoaringSetBatchReader_MatchesRoaringSetGet proves the batched-read
+// primitive returns byte-identical results to the per-key RoaringSetGet entry
+// point, whether the key is present across several on-disk segments plus the
+// active memtable, or absent entirely, and that one reader serves every read.
+// The active memtable holds unflushed data when the reader is built, so the
+// batch reads it too and parity is exact.
+func TestBucket_RoaringSetBatchReader_MatchesRoaringSetGet(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	tmpDir := t.TempDir()
@@ -297,31 +298,31 @@ func TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet(t *testing.T) {
 	releaseWantMissing()
 	require.Empty(t, arrWantMissing, "absent key must resolve to an empty, non-nil bitmap")
 
-	// one shared view serves all three RoaringSetGetFromView reads below
-	view := b.GetConsistentView()
+	// one reader serves all three reads below
+	reader, err := b.NewRoaringSetBatchReader()
+	require.NoError(t, err)
+	defer reader.Release()
 
-	gotA, releaseA, err := b.RoaringSetGetFromView(ctx, view, keyA)
+	gotA, releaseA, err := reader.Get(keyA, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	require.Equal(t, arrWantA, gotA.ToArray())
 	releaseA()
 
-	gotB, releaseB, err := b.RoaringSetGetFromView(ctx, view, keyB)
+	gotB, releaseB, err := reader.Get(keyB, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	require.Equal(t, arrWantB, gotB.ToArray())
 	releaseB()
 
-	gotMissing, releaseMissing, err := b.RoaringSetGetFromView(ctx, view, keyMissing)
+	gotMissing, releaseMissing, err := reader.Get(keyMissing, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	require.NotNil(t, gotMissing)
 	require.Empty(t, gotMissing.ToArray())
 	releaseMissing()
-
-	view.ReleaseView()
 }
 
-// TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch pins the view
-// stability that justifies the caller-held-view API: reads through a view
-// taken before a FlushAndSwitch must keep resolving without error (the
+// TestBucket_RoaringSetBatchReader_SurvivesFlushAndSwitch pins the view
+// stability that justifies holding one view for a whole batch: reads through a
+// reader built before a FlushAndSwitch must keep resolving without error (the
 // flushed-away memtable stays readable through the held reference) and keep
 // returning the pre-switch state — writes landing in the new active memtable
 // must stay invisible. A fresh RoaringSetGet sees the post-switch write,
@@ -330,7 +331,7 @@ func TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet(t *testing.T) {
 // (A view is not a write snapshot: writes before the switch go to the old
 // active memtable the view references, so only post-switch invisibility is
 // asserted.)
-func TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch(t *testing.T) {
+func TestBucket_RoaringSetBatchReader_SurvivesFlushAndSwitch(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 
@@ -351,10 +352,11 @@ func TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch(t *testing.T) {
 	require.NoError(t, b.FlushAndSwitch())
 	require.NoError(t, b.RoaringSetAddList(key, []uint64{4}))
 
-	view := b.GetConsistentView()
-	defer view.ReleaseView()
+	reader, err := b.NewRoaringSetBatchReader()
+	require.NoError(t, err)
+	defer reader.Release()
 
-	before, releaseBefore, err := b.RoaringSetGetFromView(ctx, view, key)
+	before, releaseBefore, err := reader.Get(key, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	arrBefore := append([]uint64(nil), before.ToArray()...)
 	releaseBefore()
@@ -364,7 +366,7 @@ func TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch(t *testing.T) {
 	require.NoError(t, b.FlushAndSwitch())
 	require.NoError(t, b.RoaringSetAddList(key, []uint64{5}))
 
-	after, releaseAfter, err := b.RoaringSetGetFromView(ctx, view, key)
+	after, releaseAfter, err := reader.Get(key, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	require.Equal(t, arrBefore, after.ToArray(),
 		"view read must keep returning the pre-switch state")
@@ -375,29 +377,6 @@ func TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, fresh.ToArray(),
 		"a fresh read must see the post-switch write the view cannot")
 	releaseFresh()
-}
-
-// TestBucket_RoaringSetGetFromView_WrongStrategy pins the strategy guard: a
-// view read on a non-roaringset bucket must error before touching the view
-// at all (a zero view makes that observable — reaching the memtable read
-// would nil-panic), and the returned release must be safe to call. The
-// deeper layers reject the wrong strategy too, so without the guard the
-// error would only surface after the disk descent.
-func TestBucket_RoaringSetGetFromView_WrongStrategy(t *testing.T) {
-	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
-
-	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
-
-	bm, release, err := b.RoaringSetGetFromView(ctx, BucketConsistentView{}, []byte("key"))
-	require.Error(t, err)
-	require.Nil(t, bm)
-	require.NotNil(t, release)
-	release()
 }
 
 // TestBucket_RoaringSet_DeleteThenReaddAcrossSegments is a read-path regression

@@ -131,28 +131,6 @@ func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitma
 	return b.roaringSetGetFromConsistentView(view, key, mergeConc)
 }
 
-// RoaringSetGetFromView reads key using a caller-held BucketConsistentView,
-// skipping the per-call GetConsistentView()/ReleaseView() pair (RLock +
-// disk-segment pinning) that RoaringSetGet performs on every invocation.
-// Intended for callers that read many keys from the same bucket in one
-// logical operation: call GetConsistentView() once, pass the result to every
-// RoaringSetGetFromView call, then call view.ReleaseView() exactly once when
-// done. The view must come from this bucket's GetConsistentView: a view of
-// another bucket is not detected and would silently read that bucket's data.
-//
-// For a batch of many keys, NewRoaringSetBatchReader avoids repeating this
-// method's per-call strategy check and per-call budget derivation.
-func (b *Bucket) RoaringSetGetFromView(
-	ctx context.Context, view BucketConsistentView, key []byte,
-) (bm *sroar.Bitmap, release func(), err error) {
-	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
-		return nil, noopRelease, err
-	}
-
-	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
-	return b.roaringSetGetFromConsistentView(view, key, mergeConc)
-}
-
 // A nil view.Active is skipped, the same way a nil view.Flushing is: the caller
 // has established that the layer contributes nothing.
 func (b *Bucket) roaringSetGetFromConsistentView(

@@ -403,6 +403,46 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 		}
 	}
 
+	// Every case above runs against a fully flushed corpus, which is exactly
+	// the shape where the batch reader skips the active memtable — so batched
+	// and desugared can agree by both reading only disk. This case leaves a
+	// write unflushed so the active memtable is non-empty, the one shape where
+	// the two paths could diverge: the batch reader must probe it per key like
+	// the desugared path does.
+	t.Run("unflushed write in the active memtable", func(t *testing.T) {
+		g := newContainsFixture(t, 200)
+		bucket := g.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+		require.NotNil(t, bucket)
+
+		// The doc ID must be inside the universe or ContainsNone's complement is
+		// the same whether the write is seen or not, and it must land on both
+		// values or ContainsAll's intersection excludes it either way — either
+		// slip leaves two of the three operators asserting nothing.
+		const unflushedDocID = 7
+		for _, v := range []string{benchValue(3), benchValue(4)} {
+			require.NoError(t, bucket.RoaringSetAddList([]byte(v), []uint64{unflushedDocID}))
+		}
+
+		values := []string{benchValue(3), benchValue(4)}
+		for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+			t.Run(op.Name(), func(t *testing.T) {
+				batched := g.resolveDocIDs(t, ctx, containsFilter(op, values))
+				desugared := g.resolveDocIDs(t, ctx, equalCompoundFilter(op, values))
+				require.Equal(t, desugared, batched,
+					"batched Contains must read the active memtable like the desugared path")
+			})
+		}
+
+		// Without these the case is vacuous: if both paths skipped the active
+		// memtable they would agree on results that are missing the write.
+		require.Contains(t, g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAny, values)),
+			uint64(unflushedDocID), "ContainsAny must see the unflushed write")
+		require.Contains(t, g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAll, values)),
+			uint64(unflushedDocID), "ContainsAll must see it on both values")
+		require.NotContains(t, g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsNone, values)),
+			uint64(unflushedDocID), "ContainsNone must exclude it")
+	})
+
 	t.Run("[]interface{} values from the API layer", func(t *testing.T) {
 		values := []string{containsSharedValues[0], containsSharedValues[1], benchValue(11)}
 		iface := make([]interface{}, len(values))
