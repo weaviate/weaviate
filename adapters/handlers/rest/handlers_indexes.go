@@ -1403,8 +1403,9 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	// logged and the gate released anyway, here and in
 	// [db.ReindexProvider.autoCleanupAfterTerminal], which sweeps the same
 	// state on the provider's shutdown context. Recovery is the next submit's
-	// pre-cleanup and the restart audit. See
-	// weaviate/0-weaviate-issues#352 for the window that remains.
+	// pre-cleanup and the restart audit — nothing clears it before then, so
+	// what a failed sweep leaves behind persists rather than passing. See
+	// weaviate/0-weaviate-issues#352.
 	cleanupCtx, cancelCleanup := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 	defer cancelCleanup()
