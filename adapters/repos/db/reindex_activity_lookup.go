@@ -190,6 +190,18 @@ func (db *DB) SetReindexOverlapLookup(lookup ReindexOverlapLookup) {
 	db.reindexOverlapLookup = lookup
 }
 
+// redactedOverlapErr keeps a cause reachable for errors.Is without printing
+// it. The causes here are RAFT and decoding errors that name nodes and task
+// internals, and this text reaches an API response body.
+type redactedOverlapErr struct {
+	msg   string
+	cause error
+}
+
+func (e redactedOverlapErr) Error() string { return e.msg }
+
+func (e redactedOverlapErr) Unwrap() error { return e.cause }
+
 // ReindexTaskLister lists DTM tasks by namespace, narrowed from the cluster
 // service so the overlap rules can be exercised without a RAFT node.
 type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.Task, error)
@@ -210,7 +222,12 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 		}
 		tasksByNamespace, err := list(ctx)
 		if err != nil {
-			return fmt.Errorf("cannot rule out a runtime-reindex during this backup: %w", err)
+			// The RAFT error names the nodes it could not reach, and this text
+			// is stored in the failure meta and served from the status API.
+			return redactedOverlapErr{
+				msg:   "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried",
+				cause: err,
+			}
 		}
 		wanted := make(map[string]struct{}, len(collections))
 		for _, c := range collections {
@@ -219,8 +236,10 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 		for _, task := range tasksByNamespace[ReindexNamespace] {
 			var payload ReindexTaskPayload
 			if err := json.Unmarshal(task.Payload, &payload); err != nil {
-				return fmt.Errorf(
-					"cannot rule out a runtime-reindex during this backup: a task payload is unreadable: %w", err)
+				return redactedOverlapErr{
+					msg:   "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
+					cause: err,
+				}
 			}
 			if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
 				continue
