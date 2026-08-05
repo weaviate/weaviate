@@ -502,6 +502,22 @@ func awaitHashtreeInitialized(t *testing.T, s *Shard) {
 	}, 10*time.Second, 10*time.Millisecond, "hashtree did not become fully initialized within timeout")
 }
 
+// newAsyncTestShard builds a scheduler-backed shard with shutdown cleanup.
+func newAsyncTestShard(t *testing.T, ctx context.Context, class string) (ShardLike, *Shard) {
+	t.Helper()
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	return sl, s
+}
+
+// enableAndAwaitAsync enables async replication and waits for full hashtree init.
+func enableAndAwaitAsync(t *testing.T, ctx context.Context, s *Shard) {
+	t.Helper()
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+}
+
 // TestAsyncReplicationEnableDisableCycle verifies the shard can be cycled
 // through enable → disable → re-enable without panicking or deadlocking, and
 // that hashtree state is correctly managed across transitions.
@@ -2012,10 +2028,7 @@ func TestLoadHashtreeRemoveFailure(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-
-			sl, _ := testShard(t, ctx, tc.class, withAsyncScheduler(t))
-			s := concreteShard(t, sl)
-			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+			_, s := newAsyncTestShard(t, ctx, tc.class)
 
 			dir := s.pathHashTree()
 			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
@@ -2233,11 +2246,7 @@ func (b blockingSerializeHashTree) Serialize(io.Writer) (int64, error) {
 // TestDumpHashTreeWithTimeoutSkipsLatePublication: a timed-out dump returns promptly and the late writer can never publish.
 func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
 	ctx := context.Background()
-	const class = "DumpTimeoutNoLatePublishTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	_, s := newAsyncTestShard(t, ctx, "DumpTimeoutNoLatePublishTest")
 
 	release := make(chan struct{})
 	start := time.Now()
@@ -2255,15 +2264,8 @@ func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
 // TestDisableAsyncReplicationScrubsWhenAlreadyStopped: disable scrubs even when the tree is already nil (the offload-halt shape).
 func TestDisableAsyncReplicationScrubsWhenAlreadyStopped(t *testing.T) {
 	ctx := context.Background()
-	const class = "DisableScrubsWhenStoppedTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	_, s := newAsyncTestShard(t, ctx, "DisableScrubsWhenStoppedTest")
+	enableAndAwaitAsync(t, ctx, s)
 
 	s.mayStopAsyncReplication(false)
 
@@ -2281,15 +2283,8 @@ func TestDisableAsyncReplicationPropagatesScrubError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	const class = "DisableScrubErrorTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	_, s := newAsyncTestShard(t, ctx, "DisableScrubErrorTest")
+	enableAndAwaitAsync(t, ctx, s)
 
 	dir := s.pathHashTree()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashtree-00000000000000aa.ht"), []byte("stale snapshot"), 0o600))
@@ -2302,11 +2297,7 @@ func TestDisableAsyncReplicationPropagatesScrubError(t *testing.T) {
 // TestEnableAsyncReplicationSkipsShutShard: enable on a shut shard is a no-op and must not consume a snapshot.
 func TestEnableAsyncReplicationSkipsShutShard(t *testing.T) {
 	ctx := context.Background()
-	const class = "EnableSkipsShutShardTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	_, s := newAsyncTestShard(t, ctx, "EnableSkipsShutShardTest")
 
 	dir := s.pathHashTree()
 	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
@@ -2326,11 +2317,7 @@ func TestEnableAsyncReplicationSkipsShutShard(t *testing.T) {
 // TestDumpHashTreeOfCreatesDir: a dump must not silently fail when the hashtree dir was never created.
 func TestDumpHashTreeOfCreatesDir(t *testing.T) {
 	ctx := context.Background()
-	const class = "DumpCreatesDirTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	_, s := newAsyncTestShard(t, ctx, "DumpCreatesDirTest")
 
 	require.NoError(t, os.RemoveAll(s.pathHashTree()))
 
@@ -2351,15 +2338,8 @@ func TestRebuildHashtreeRetriesAfterFailure(t *testing.T) {
 	t.Cleanup(func() { asyncRepRebuildBaseBackoff = prevBackoff })
 
 	ctx := context.Background()
-	const class = "RebuildRetriesTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	_, s := newAsyncTestShard(t, ctx, "RebuildRetriesTest")
+	enableAndAwaitAsync(t, ctx, s)
 
 	dir := s.pathHashTree()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashtree-00000000000000aa.ht"), []byte("stale snapshot"), 0o600))

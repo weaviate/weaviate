@@ -583,10 +583,26 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	return nil
 }
 
+// removeSnapshotFile removes one hashtree file. An unremovable .ht is an error
+// (it would be trusted by a later load); an unremovable .tmp only warns (no
+// loader ever trusts a .tmp).
+func (s *Shard) removeSnapshotFile(filename, ext string) (removed bool, err error) {
+	if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+		if ext == ".ht" {
+			return false, err
+		}
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warnf("removing stray hashtree tmp file %q: %v", filename, err)
+		return false, nil
+	}
+	return true, nil
+}
+
 // removePersistedHashtree deletes persisted .ht and stray .ht.tmp files: a
 // leftover .ht goes stale on the first write and a later enable would trust it.
-// An unremovable .ht is an error (it would be trusted by a later load); an
-// unremovable .tmp is only warned about (no loader ever trusts a .tmp).
 func (s *Shard) removePersistedHashtree() error {
 	dir := s.pathHashTree()
 	dirEntries, err := os.ReadDir(dir)
@@ -605,19 +621,11 @@ func (s *Shard) removePersistedHashtree() error {
 		if ext != ".ht" && ext != ".tmp" {
 			continue
 		}
-		filename := filepath.Join(dir, dirEntry.Name())
-		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-			if ext == ".ht" {
-				return err
-			}
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("removing stray hashtree tmp file %q: %v", filename, err)
-			continue
+		removed, err := s.removeSnapshotFile(filepath.Join(dir, dirEntry.Name()), ext)
+		if err != nil {
+			return err
 		}
-		removedAny = true
+		removedAny = removedAny || removed
 	}
 	if removedAny {
 		if err := diskio.Fsync(dir); err != nil {
@@ -665,14 +673,11 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 
 		// Sweep everything but the newest .ht.
 		if attemptedNewest || ext != ".ht" {
-			if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-				if ext == ".ht" {
-					return nil, fmt.Errorf("deleting stale hashtree file %q: %w", filename, err)
-				}
-				logger.Warnf("deleting stale hashtree tmp file %q: %v", filename, err)
-				continue
+			removed, err := s.removeSnapshotFile(filename, ext)
+			if err != nil {
+				return nil, fmt.Errorf("deleting stale hashtree file %q: %w", filename, err)
 			}
-			removedAny = true
+			removedAny = removedAny || removed
 			continue
 		}
 		attemptedNewest = true
@@ -1336,7 +1341,7 @@ func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) error {
 	return s.dumpGatedHashTreeOf(ht, nil)
 }
 
-func (s *Shard) dumpGatedHashTreeOf(ht hashtree.AggregatedHashTree, gate *dumpPublishGate) (err error) {
+func (s *Shard) dumpGatedHashTreeOf(ht hashtree.AggregatedHashTree, gate *dumpPublishGate) error {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
 
@@ -1347,60 +1352,19 @@ func (s *Shard) dumpGatedHashTreeOf(ht hashtree.AggregatedHashTree, gate *dumpPu
 	finalFilename := filepath.Join(dir, fmt.Sprintf("hashtree-%x.ht", b[:]))
 	tmpFilename := finalFilename + ".tmp"
 
-	f, err := os.OpenFile(tmpFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("storing hashtree %q: %w", tmpFilename, err)
-	}
-	// Deferred close is a no-op after the pre-rename Close; on error the .tmp is removed.
-	var closed bool
-	defer func() {
-		if !closed {
-			if closeErr := f.Close(); closeErr != nil && err == nil {
-				err = fmt.Errorf("closing hashtree %q: %w", tmpFilename, closeErr)
-			}
-		}
-		if err == nil {
-			return
-		}
-		if rmErr := os.Remove(tmpFilename); rmErr != nil && !os.IsNotExist(rmErr) {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("removing partial hashtree file %q: %v", tmpFilename, rmErr)
-		}
-	}()
-
-	w := bufio.NewWriter(f)
-
-	_, err = ht.Serialize(w)
-	if err != nil {
-		return fmt.Errorf("storing hashtree %q: %w", tmpFilename, err)
-	}
-
-	err = w.Flush()
-	if err != nil {
-		return fmt.Errorf("flushing hashtree %q: %w", tmpFilename, err)
-	}
-
-	err = f.Sync()
-	if err != nil {
-		return fmt.Errorf("syncing hashtree %q: %w", tmpFilename, err)
-	}
-
-	// Close explicitly before rename so the fd is released on all platforms.
-	closed = true
-	if err = f.Close(); err != nil {
-		return fmt.Errorf("closing hashtree %q: %w", tmpFilename, err)
+	if err := s.writeHashTreeTmp(ht, tmpFilename); err != nil {
+		return err
 	}
 
 	rename := func() error { return os.Rename(tmpFilename, finalFilename) }
+	var err error
 	if gate != nil {
 		err = gate.publish(rename)
 	} else {
 		err = rename()
 	}
 	if err != nil {
+		s.removePartialHashTreeTmp(tmpFilename)
 		if errors.Is(err, errHashtreeDumpCancelled) {
 			return err
 		}
@@ -1418,6 +1382,56 @@ func (s *Shard) dumpGatedHashTreeOf(ht hashtree.AggregatedHashTree, gate *dumpPu
 	}
 
 	return nil
+}
+
+// writeHashTreeTmp serializes ht into tmpFilename and syncs it; on any error
+// the .tmp is removed.
+func (s *Shard) writeHashTreeTmp(ht hashtree.AggregatedHashTree, tmpFilename string) (err error) {
+	f, err := os.OpenFile(tmpFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("storing hashtree %q: %w", tmpFilename, err)
+	}
+	// Deferred close is a no-op after the pre-rename Close.
+	var closed bool
+	defer func() {
+		if !closed {
+			if closeErr := f.Close(); closeErr != nil && err == nil {
+				err = fmt.Errorf("closing hashtree %q: %w", tmpFilename, closeErr)
+			}
+		}
+		if err != nil {
+			s.removePartialHashTreeTmp(tmpFilename)
+		}
+	}()
+
+	w := bufio.NewWriter(f)
+	if _, err = ht.Serialize(w); err != nil {
+		return fmt.Errorf("storing hashtree %q: %w", tmpFilename, err)
+	}
+	if err = w.Flush(); err != nil {
+		return fmt.Errorf("flushing hashtree %q: %w", tmpFilename, err)
+	}
+	if err = f.Sync(); err != nil {
+		return fmt.Errorf("syncing hashtree %q: %w", tmpFilename, err)
+	}
+
+	// Close explicitly before rename so the fd is released on all platforms.
+	closed = true
+	if err = f.Close(); err != nil {
+		return fmt.Errorf("closing hashtree %q: %w", tmpFilename, err)
+	}
+	return nil
+}
+
+// removePartialHashTreeTmp best-effort removes a leftover .tmp; already-gone is fine.
+func (s *Shard) removePartialHashTreeTmp(tmpFilename string) {
+	if rmErr := os.Remove(tmpFilename); rmErr != nil && !os.IsNotExist(rmErr) {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warnf("removing partial hashtree file %q: %v", tmpFilename, rmErr)
+	}
 }
 
 // HashTreeLevel returns the digests at level of the shard's async-replication
