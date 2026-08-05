@@ -288,6 +288,19 @@ func TestAbsorbFlushKeepsDeletionsKeyed(t *testing.T) {
 		"the flat docID set still carries every deletion")
 }
 
+// TestBuildKeepsHighestDocIDWhenNotUnique pins which document survives when a
+// key holds several and the caller opted out of the uniqueness check: the
+// highest docID, which is the most recently written. A live query path passes
+// requireUnique and gets a declined build instead.
+func TestBuildKeepsHighestDocIDWhenNotUnique(t *testing.T) {
+	// AbsorbFlush never opts out — a flushed key with several additions is
+	// always refused, whichever docID it would otherwise have kept.
+	idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
+	err := idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{5, 9}, nil))
+	require.Error(t, err, "a flushed key holding two documents must be refused")
+	require.Contains(t, err.Error(), "unique")
+}
+
 func TestRunsDeleteOnlyFlush(t *testing.T) {
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("k")}, []uint64{7}))
 	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("k"), nil, []uint64{7})))

@@ -336,11 +336,16 @@ type ColumnarIndex struct {
 // same width the denser fixedKeyColumn is used (no offset table), otherwise the
 // variable-length blobKeyColumn. Both consume the same contiguous blob.
 //
-// requireUnique enforces the 1-doc-per-key assumption: when true, a key holding
-// more than one docID makes the build fail (so callers wiring this into a live
-// query path decline and fall back rather than silently drop docIDs). When false
-// the extra docIDs are ignored (only the minimum is kept) — intended for
-// benchmarks over corpora known to be effectively unique for the queried keys.
+// requireUnique enforces the one-document-per-key assumption: when true, a key
+// holding more than one docID makes the build fail, so callers wiring this into
+// a live query path decline and fall back rather than silently drop docIDs.
+//
+// When false the key keeps its highest docID and the rest are dropped. Highest
+// because docIDs are assigned in increasing order, so it is the most recently
+// written of the documents under that key — the least surprising one to keep,
+// though keeping any single one is a loss. This is for benchmarks over corpora
+// known to be effectively unique for the queried keys; a live query path must
+// pass true.
 func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool,
 	logger logrus.FieldLogger,
 ) (*ColumnarIndex, error) {
@@ -356,8 +361,8 @@ func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64, requireUnique bool,
 		if bm.IsEmpty() {
 			continue
 		}
-		id := bm.Minimum()
-		if requireUnique && bm.Maximum() != id {
+		id := bm.Maximum()
+		if requireUnique && bm.Minimum() != id {
 			// more than one docID under this key violates the 1-doc-per-key
 			// assumption; decline rather than silently drop docIDs.
 			return nil, fmt.Errorf("columnar index requires a unique property: a key holds multiple docIDs")
@@ -647,8 +652,8 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 		if layer.Additions == nil || layer.Additions.IsEmpty() {
 			continue
 		}
-		id := layer.Additions.Minimum()
-		if layer.Additions.Maximum() != id {
+		id := layer.Additions.Maximum()
+		if layer.Additions.Minimum() != id {
 			// a key with multiple added docIDs violates 1-doc-per-key; decline so
 			// the caller detaches the accelerator rather than dropping docIDs.
 			return fmt.Errorf("columnar index requires a unique property: a flushed key holds multiple docIDs")
