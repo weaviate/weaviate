@@ -341,7 +341,15 @@ func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 
 // WithImmutable marks the bucket as immutable. All write operations (Put,
 // Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrImmutable.
-// Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
+//
+// Opening and closing the bucket is read-only too: the directory is not
+// created, write-ahead-logs are opened read-only and merged into the active
+// memtable instead of being flushed to segments, and shutdown neither fsyncs
+// nor deletes anything. Compaction and segment cleanup never run, so
+// WithSegmentsCleanupInterval is ignored. What a crash left behind is read
+// around rather than repaired: temporary files, files marked for deletion and
+// a segment shadowed by its write-ahead-log all stay where they are. A missing
+// .bloom / .cna / .metadata sidecar is still recomputed and written.
 //
 // This is distinct from the shard-level read-only status
 // (storagestate.StatusReadOnly) which temporarily halts flushes during

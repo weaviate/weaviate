@@ -794,7 +794,9 @@ func TestCountApproximate(t *testing.T) {
 		b := newBucket(t)
 		putKeys(t, b, 5)
 
-		switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+			return b.createNewActiveMemtable()
+		})
 		require.NoError(t, err)
 		require.True(t, switched)
 
@@ -3125,7 +3127,9 @@ func TestApplyToObjectDigestsWithFlushingMemtable(t *testing.T) {
 	require.NoError(t, b.Put(keyA, objValue(t, keyA, 3, updateTime+1)))
 	require.NoError(t, b.Put(keyC, objValue(t, keyC, 4, updateTime)))
 
-	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+		return b.createNewActiveMemtable()
+	})
 	require.NoError(t, err)
 	require.True(t, switched)
 	require.NotNil(t, b.flushing, "the scan must run against a live flushing memtable")

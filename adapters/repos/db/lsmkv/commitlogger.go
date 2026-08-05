@@ -47,6 +47,7 @@ type memtableCommitLogger interface {
 var (
 	_ memtableCommitLogger = (*lazyCommitLogger)(nil)
 	_ memtableCommitLogger = (*commitLogger)(nil)
+	_ memtableCommitLogger = (*noopMemtableCommitLogger)(nil)
 )
 
 type lazyCommitLogger struct {

@@ -278,8 +278,9 @@ func SnapshotBucketFromDisk(srcDir, snapshotsRoot, snapshotName string) (string,
 }
 
 // NewSnapshotBucket opens a read-only bucket backed by hard-linked segment
-// files (created by CreateSnapshot). It has no compaction and no flush cycle.
-// An empty memtable and WAL are created in snapshotDir but never written to.
+// files (created by CreateSnapshot). It has no compaction, no segment cleanup
+// and no flush cycle. An empty memtable is created with a no-op commit logger,
+// so the open writes nothing into snapshotDir — not even a write-ahead-log.
 //
 // The directory base name must start with SnapshotDirPrefix. The bucket is
 // opened in immutable mode — all write operations will return ErrImmutable.
