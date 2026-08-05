@@ -938,6 +938,18 @@ const reindexRollbackRetryDelay = 500 * time.Millisecond
 // disconnect is itself one of the inputs that makes the second probe report
 // every node unreachable, so the very condition that decides a rollback is
 // needed would also kill it, leaving the task STARTED against a live backup.
+//
+// Each rollback leaves a CANCELLED task in DTM until the retention window drops
+// it, and those are not inert: the commit-time overlap check reads them, and a
+// cancelled task that reached a unit counts as an overlap. So a run of races
+// leaves a run of corpses the backstop must classify, and it classifies them by
+// unit state rather than by ignoring them — see reindexTaskTouchedShards, whose
+// waiver exists precisely so a rollback that never claimed a unit stays
+// harmless. Bounding the accumulation would mean deleting task records the
+// backstop still needs, which trades a tidy list for a blind spot; the
+// retention window is the intended bound and is operator-tunable. Recorded here
+// because an earlier pass dispositioned this as cosmetic, before it was known
+// that the backstop reads these records.
 func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) {
 	fields := logrus.Fields{
 		"audit_event": "reindex_task_rolled_back",
