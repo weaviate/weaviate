@@ -99,8 +99,13 @@ type Bucket struct {
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
 	minMMapSize       int64
-	memtableResizer   *memtableSizeAdvisor
-	strategy          string
+
+	// see WithSegmentIndexPin
+	segmentIndexPinThreshold  int64
+	segmentIndexPinTotalLimit int64
+	segmentIndexPinScope      string
+	memtableResizer           *memtableSizeAdvisor
+	strategy                  string
 	// Strategy inverted index is supposed to be created with, but existing
 	// segment files were created with different one.
 	// It can happen when new strategy were introduced to weaviate, but
@@ -318,6 +323,8 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 		return nil, err
 	}
 
+	pinThreshold, pinBucketLabel := b.resolveSegmentIndexPin()
+
 	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
 			dir:                          dir,
@@ -334,6 +341,9 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			enableChecksumValidation:     b.enableChecksumValidation,
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
+			segmentIndexPinThreshold:     pinThreshold,
+			segmentIndexPinTotalLimit:    b.segmentIndexPinTotalLimit,
+			pinBucketLabel:               pinBucketLabel,
 			bm25config:                   b.bm25Config,
 			lazyPropertyLengths:          b.lazyPropertyLengths,
 			keepLevelCompaction:          b.keepLevelCompaction,
@@ -372,6 +382,29 @@ func (b *Bucket) GetDir() string {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 	return b.dir
+}
+
+// resolveSegmentIndexPin resolves this bucket's pin threshold/label from the
+// config set via WithSegmentIndexPin; 0/"" means disabled or out of scope.
+func (b *Bucket) resolveSegmentIndexPin() (threshold int64, bucketLabel string) {
+	if b.segmentIndexPinThreshold <= 0 {
+		return 0, ""
+	}
+
+	label := "other"
+	if filepath.Base(b.dir) == helpers.ObjectsBucketLSM {
+		label = "objects"
+	}
+
+	switch b.segmentIndexPinScope {
+	case SegmentIndexPinScopeAll:
+		return b.segmentIndexPinThreshold, label
+	case SegmentIndexPinScopeObjects, "":
+		if label == "objects" {
+			return b.segmentIndexPinThreshold, label
+		}
+	}
+	return 0, ""
 }
 
 func (b *Bucket) GetRootDir() string {
