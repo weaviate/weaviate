@@ -170,6 +170,10 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords
 		if recordCount > int64(maxRecords) {
 			recordCount = int64(maxRecords)
 		}
+		// a caller-supplied negative bound must not reach make
+		if recordCount < 0 {
+			recordCount = 0
+		}
 		results = make([]types.RepairResponse, 0, int(recordCount))
 	}
 	var buf [replica.DigestObjectsInRangeRecordLength]byte
@@ -249,6 +253,9 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords
 		recordCount := contentLength / int64(replica.CompareDigestsRecordLength)
 		if recordCount > int64(maxRecords) {
 			recordCount = int64(maxRecords)
+		}
+		if recordCount < 0 {
+			recordCount = 0
 		}
 		results = make([]types.RepairResponse, 0, int(recordCount))
 	}
@@ -864,6 +871,9 @@ func readDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords int) (
 		recordCount := contentLength / int64(hashtree.DigestLength)
 		if recordCount > int64(maxRecords) {
 			recordCount = int64(maxRecords)
+		}
+		if recordCount < 0 {
+			recordCount = 0
 		}
 		digests = make([]hashtree.Digest, 0, int(recordCount))
 	}
