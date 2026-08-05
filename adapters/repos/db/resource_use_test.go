@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -512,4 +513,26 @@ func TestSetShardsReady_PartialFailure(t *testing.T) {
 	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should remain true when some shards fail to transition")
 	successShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
 	failingShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+}
+
+// Shards held read-only by memory pressure must go ready again once memory
+// drops — the scan pass is the only thing refreshing the monitor.
+func TestScanResourceUsageOnce_SeesMemoryDropWhileReadOnly(t *testing.T) {
+	shard := NewMockShardLike(t)
+	shard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
+	shard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
+	shard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+
+	var used atomic.Int64
+	used.Store(95)
+	mon := memwatch.NewMonitor(used.Load, func(int64) int64 { return 100 }, 1.0)
+
+	db := testResourceDB(t, 0, 90, map[string]*MockShardLike{"shard1": shard})
+	db.resourceScanState.isReadOnly = true
+
+	used.Store(10)
+	db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 100, avail: 100}, false)
+
+	assert.False(t, db.resourceScanState.isReadOnly, "isReadOnly should lift once memory drops")
+	shard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
 }
