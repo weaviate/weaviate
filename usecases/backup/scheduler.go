@@ -220,6 +220,9 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
 			return nil, err
 		}
+		if err := s.refuseRestoreDuringReindex(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
@@ -241,6 +244,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			return nil, err
 		}
 		meta.Include(allowed)
+		// Deferred to here on this path: the class list only exists once the meta
+		// is read, so this is the first point at which the caller is authorized.
+		if err := s.refuseRestoreDuringReindex(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	schema, userBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
@@ -306,6 +314,20 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 		return nil, authzerrors.NewForbidden(pr, verb, authorization.Backups(classes...)...)
 	}
 	return allowed, nil
+}
+
+// refuseRestoreDuringReindex refuses a restore while any runtime-reindex task is
+// live in the cluster. It refuses rather than waits: waiting would hold the
+// restore slot the reverse guard reads, deadlocking both sides.
+//
+// Every caller must authorize first. Both the refusal text and the time this
+// takes disclose cluster-wide reindex state, so a principal without a backup
+// grant must never reach it.
+func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context) error {
+	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("restore blocked: %w", err))
+	}
+	return nil
 }
 
 // authorizeBackupByID authorizes the caller against the classes recorded in the
@@ -778,11 +800,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	// Check for duplicates in raw patterns early (before backend operations)
 	if dup := findDuplicate(req.Include); dup != "" {
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
-	}
-	// Refuse eagerly rather than waiting for the migration: waiting would hold
-	// the restore slot the reverse guard reads, deadlocking both sides.
-	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx); err != nil {
-		return nil, fmt.Errorf("restore blocked: %w", err)
 	}
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path)
