@@ -20,20 +20,53 @@ import (
 	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
-// unwiredGateWarnSampler rate-limits the operator-facing WARN for the
-// "lookup-not-installed" path to one line per hour. Production gates
-// HTTP serving on bootstrap completion, so under normal startup the
-// unwired window is unreachable by an external backup request. If the
-// WARN does fire, it means either (a) startup ordering is broken
-// (lookup wiring never fires) or (b) a non-HTTP code path called
-// Backupable before the lookup installed. Both are persistent
-// misconfigurations, so the line has to keep reappearing for an
-// operator who starts reading the logs after the first backup
-// attempt — but not once per shard checked.
-var unwiredGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
+// reindexGateSamplerBudget rate-limits each operator-facing "lookup not
+// installed" WARN to one line per hour. Production gates HTTP serving on
+// bootstrap completion, so under normal startup the unwired window is
+// unreachable by an external request. If a WARN does fire it means either
+// startup ordering is broken or a non-HTTP path reached a gate before the
+// lookup installed. Both are persistent misconfigurations, so the line has to
+// keep reappearing for an operator who starts reading the logs later — but not
+// once per shard checked.
+const reindexGateSamplerBudget = time.Hour
+
+// reindexGateSamplers holds one budget per fail-open gate.
+//
+// Built per [DB], not per process. The budget describes the node that is
+// failing open, and a package-level one would also make every test after the
+// first in a package see an exhausted budget — which is why the package could
+// not be run with -count=2.
+type reindexGateSamplers struct {
+	unwiredGate        *logrusext.Sampler
+	unwiredRestoreGate *logrusext.Sampler
+	unwiredOverlap     *logrusext.Sampler
+}
+
+func newReindexGateSamplers(logger logrus.FieldLogger) *reindexGateSamplers {
+	if logger == nil {
+		logger = logrus.StandardLogger()
+	}
+	return &reindexGateSamplers{
+		unwiredGate:        logrusext.NewSampler(logger, 1, reindexGateSamplerBudget),
+		unwiredRestoreGate: logrusext.NewSampler(logger, 1, reindexGateSamplerBudget),
+		unwiredOverlap:     logrusext.NewSampler(logger, 1, reindexGateSamplerBudget),
+	}
+}
+
+// gateSamplers returns this DB's samplers, building them on first use so the
+// many fixtures that construct a bare &DB{} still get the production budget
+// rather than a nil dereference.
+func (db *DB) gateSamplers() *reindexGateSamplers {
+	db.reindexAuditMu.Lock()
+	defer db.reindexAuditMu.Unlock()
+	if db.reindexGateSamplers == nil {
+		db.reindexGateSamplers = newReindexGateSamplers(db.logger)
+	}
+	return db.reindexGateSamplers
+}
 
 // warnUnwiredReindexGate emits the fail-open WARN through sampler, which
-// production passes as [unwiredGateWarnSampler]. Taking the sampler as an
+// production supplies from [DB.gateSamplers]. Taking the sampler as an
 // argument keeps the rate limiting exercisable without mutating package
 // state under a race detector.
 func warnUnwiredReindexGate(sampler *logrusext.Sampler, logger logrus.FieldLogger) {
@@ -48,7 +81,7 @@ func warnUnwiredReindexGate(sampler *logrusext.Sampler, logger logrus.FieldLogge
 }
 
 // unknownHoldWarnSampler rate-limits the WARN for a [ReindexHold] value this
-// build does not recognise. See [unwiredGateWarnSampler] for why the line
+// build does not recognise. See [reindexGateSamplerBudget] for why the line
 // repeats hourly rather than firing once: the condition is a code defect that
 // persists until someone ships a fix, and it must not repeat per shard checked.
 var unknownHoldWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
@@ -150,7 +183,7 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 
 	var snap reindexGateSnapshot
 	if activityBuilder == nil {
-		warnUnwiredReindexGate(unwiredGateWarnSampler, db.logger)
+		warnUnwiredReindexGate(db.gateSamplers().unwiredGate, db.logger)
 		return snap
 	}
 	snap.activity = activityBuilder()

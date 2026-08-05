@@ -125,6 +125,12 @@ type DB struct {
 	// SetReindexAuditDeps call, if the counter is non-zero, the
 	// install path runs a single replay sweep so the deferred
 	// per-class audits are not silently lost. Closes B2.
+	// reindexGateSamplers rate-limits the fail-open gate WARNs for THIS DB
+	// rather than for the process. The budget is a property of the node that
+	// is failing open, and a package-level one is also indistinguishable from
+	// a leak: it makes the first test in a package see the warn and every
+	// later one see none, so the package stops being soakable.
+	reindexGateSamplers                *reindexGateSamplers
 	reindexAuditMu                     sync.RWMutex
 	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
 	reindexAuditLogger                 logrus.FieldLogger
