@@ -661,9 +661,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// Held until the handler returns, so the deletion and the commit that
 		// makes the task visible are one window rather than two.
 		if h.appState.ReindexProvider != nil {
-			release := h.appState.ReindexProvider.MarkCleanupInProgress(
-				&db.ReindexTaskPayload{Collection: collection})
-			defer release()
+			defer h.appState.ReindexProvider.MarkSubmitInProgress(collection)()
 		}
 		// Loop over every index type this migration touches. For
 		// single-index migrations the slice has one entry; for

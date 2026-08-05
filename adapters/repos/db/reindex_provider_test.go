@@ -182,7 +182,7 @@ func TestCleanupInProgress_LookupBuilder(t *testing.T) {
 	lookup := builder()
 	require.NotNil(t, lookup, "builder() must return a non-nil lookup")
 	require.Equal(t, ReindexHoldNone, lookup("C", "shard1"),
-		"lookup on a fresh registry must report false")
+		"lookup on a fresh registry must report no hold")
 
 	p.registerCleanup("C", "shard1")
 	require.Equal(t, ReindexHoldCleanup, lookup("C", "shard1"),

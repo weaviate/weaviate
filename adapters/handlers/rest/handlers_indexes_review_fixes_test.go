@@ -256,13 +256,26 @@ type gateWatchProber struct {
 	provider   *db.ReindexProvider
 	collection string
 	gateAtCall []bool
+	holdAtCall []db.ReindexHold
 }
 
 func (p *gateWatchProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
 	p.mu.Lock()
 	p.gateAtCall = append(p.gateAtCall, p.provider.AnyCleanupInProgressForCollection(p.collection))
+	p.holdAtCall = append(p.holdAtCall, p.provider.HoldForShard(p.collection, "shard1"))
 	p.mu.Unlock()
 	return backup.NodeActivity{}, nil
+}
+
+// holds mirrors calls, but records WHICH hold covered the shard: a submission
+// reported as a cancelled migration sends the operator hunting for a task that
+// does not exist.
+func (p *gateWatchProber) holds() []db.ReindexHold {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]db.ReindexHold, len(p.holdAtCall))
+	copy(out, p.holdAtCall)
+	return out
 }
 
 func (p *gateWatchProber) calls() []bool {
@@ -323,6 +336,11 @@ func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 	require.True(t, probes[1],
 		"a backup probing here would be looking straight at the deletion; "+
 			"it must see the gate closed")
+
+	holds := prober.holds()
+	require.Equal(t, db.ReindexHoldSubmit, holds[1],
+		"an ordinary submission must refuse backups as a submission, not as a "+
+			"cancelled migration that never happened")
 
 	require.False(t, provider.AnyCleanupInProgressForCollection(collection),
 		"the gate must be released once the handler returns")
