@@ -1212,6 +1212,10 @@ each refuses to start while another is running:
 | Restore | Any reindex task is live in the cluster, or a cancelled one is still removing sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, checked in `validateRestoreRequest` and in each participant's `OnCanCommit` |
 | Reindex | Any node reports a backup or restore slot held | `indexesHandlers.refuseIfBackupInFlight`, over `GET /backups/node-activity` |
 
+These rows describe behavior with `RUNTIME_REINDEX_ENABLED=true`. The flag is
+off by default, and with it off these gates return before checking anything —
+see "Where each gate fails open" below, whose third window is that default.
+
 **Where each gate fails closed.** Once its lookup is installed, every
 gate treats an uncertain answer as a blocking one. The backup gate
 refuses every backup while the cluster task manager cannot be listed
