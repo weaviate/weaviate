@@ -158,6 +158,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// so that buckets are found at their canonical directory names.
 	FinalizeCompletedMigrations(s.pathLSM(), class, s.reindexTaskLivenessLookup(), s.index.logger)
 
+	// Detection only, and only here: the deferred renames above have just
+	// run, so a shard that still has no range-index data has a real
+	// problem rather than a pending one.
+	warnOnUnexplainedEmptyRangeableIndex(s, class)
+
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
