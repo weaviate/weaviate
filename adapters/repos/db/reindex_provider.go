@@ -46,8 +46,7 @@ import (
 //   - "Semantic" migrations are the ones that change query
 //     semantics for the migrated property — change-tokenization,
 //     change-tokenization-filterable, enable-filterable,
-//     enable-searchable, change-algorithm, enable-rangeable,
-//     repair-rangeable.
+//     enable-searchable, change-algorithm, enable-rangeable.
 //     These get the full barrier dance: every shard reindexes first
 //     (RunReindexOnlyOnShard), and only after every unit is terminal does
 //     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
@@ -55,10 +54,10 @@ import (
 //     No shard serves new data until ALL shards are ready. This is where
 //     the SWAPPING-window tokenization overlay lives.
 //
-//   - "Format-only" migrations don't change query semantics — they only
-//     change the on-disk bucket format. repair-filterable,
-//     repair-searchable (Map→Blockmax), and the RoaringSetRefresh
-//     strategy fall in this bucket. Each shard runs the full lifecycle
+//   - "Format-only" migrations require no schema change — they rebuild or
+//     re-format an index that is already enabled. repair-rangeable,
+//     repair-filterable, repair-searchable (Map→Blockmax), and the
+//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the full lifecycle
 //     independently via RunOnShard; there is no cluster-wide schema flip
 //     to coordinate.
 type ReindexProvider struct {
@@ -2200,10 +2199,11 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"filterable"}
 	case ReindexTypeChangeAlgorithm:
 		return []string{"searchable"}
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+	case ReindexTypeEnableRangeable:
 		return []string{"rangeable"}
 	case ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable:
+		ReindexTypeRepairFilterable,
+		ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
 		// LocalCallbacksDone's recovery check — they don't go through
 		// the swap barrier so there's nothing to recover at this layer.
@@ -2336,7 +2336,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			Info("reindex provider: enable-searchable cutover committed")
 		return nil
 
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+	case ReindexTypeEnableRangeable:
 		trueVal := true
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexRangeFilters},
@@ -2350,9 +2350,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		if err != nil {
 			return fmt.Errorf("flip indexRangeFilters: %w", err)
 		}
-		// Repair requires the flag to be true already, so its update is a
-		// no-op at the mutator level and commits nothing.
-		logger.Info("reindex provider: rangeable cutover committed")
+		logger.Info("reindex provider: enable-rangeable cutover committed")
 		return nil
 
 	case ReindexTypeChangeAlgorithm:
@@ -2413,29 +2411,31 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	return false, nil
 }
 
-// IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier + cluster-
-// wide schema flip after every node has acknowledged.
+// IsSemanticMigration returns true for migration types that require a
+// global schema flip, and therefore the cross-replica swap barrier that
+// makes the flip safe: no shard may serve the new state until every shard
+// can.
+//
+// repair-rangeable is deliberately absent. It changes no schema — it
+// rebuilds an index that is already enabled, into a parallel bucket that
+// is atomically swapped in per shard. With nothing to flip there is
+// nothing to coordinate, so it keeps the format-only shape and, with it,
+// per-tenant targeting: repairing 20 tenants out of 50,000 must not
+// require touching all of them.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable ||
 		mt == ReindexTypeChangeAlgorithm ||
-		mt == ReindexTypeEnableRangeable ||
-		mt == ReindexTypeRepairRangeable
-}
-
-// isRangeableMigration reports whether mt builds a rangeable index.
-func isRangeableMigration(mt ReindexMigrationType) bool {
-	return mt == ReindexTypeEnableRangeable || mt == ReindexTypeRepairRangeable
+		mt == ReindexTypeEnableRangeable
 }
 
 // runsUnitsInline reports whether a task's units run the full
 // reindex+prep+swap lifecycle inside processOneUnit, leaving the group
 // callbacks nothing to do.
 //
-// Rangeable tasks submitted before rangeable joined the semantic family
+// enable-rangeable tasks submitted before it joined the semantic family
 // carry NeedsPreparationBarrier=false and must keep running with the
 // shape they were submitted with: their units already swapped inline, so
 // re-running the swap from OnGroupCompleted would fail on trackers that
@@ -2443,7 +2443,7 @@ func isRangeableMigration(mt ReindexMigrationType) bool {
 // group callbacks regardless of the barrier flag — that has always been
 // their shape.
 func runsUnitsInline(task *distributedtask.Task, mt ReindexMigrationType) bool {
-	if isRangeableMigration(mt) {
+	if mt == ReindexTypeEnableRangeable {
 		return !task.NeedsPreparationBarrier
 	}
 	return !IsSemanticMigration(mt)

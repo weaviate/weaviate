@@ -101,6 +101,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationI
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeRepairFilterable,
 		ReindexTypeRebuildSearchable,
+		ReindexTypeRepairRangeable,
 	} {
 		t.Run(string(mt), func(t *testing.T) {
 			hook.Reset()
