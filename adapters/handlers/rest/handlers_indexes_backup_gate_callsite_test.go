@@ -71,10 +71,8 @@ func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 		errorMessage(t, unavailable.Payload))
 }
 
-// TestUpdateIndexWithoutClusterMembershipIsUnavailable drives the gate with a
-// nil cluster, which is a real state on a node that has not joined yet. Without
-// the nil check the gate dereferences it and the handler panics instead of
-// answering 503.
+// TestUpdateIndexWithoutClusterMembershipIsUnavailable pins a 503, not a
+// nil-deref panic, when cluster membership is nil (a real state before a node joins).
 func TestUpdateIndexWithoutClusterMembershipIsUnavailable(t *testing.T) {
 	h := submissionHandlers(t, nil, nil)
 	h.cluster = nil

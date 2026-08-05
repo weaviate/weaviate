@@ -184,11 +184,8 @@ func TestScanBackupActivityDeterministic(t *testing.T) {
 	}
 }
 
-// Each case checks two things about the refusal: it carries the right message,
-// and it withholds privileged detail. Node names, backup IDs, and peer
-// addresses must never leak into a response requiring only update_collections,
-// so the scans below use realistic values and every one of them is asserted
-// absent from the message.
+// Checks refusal wording and that privileged detail (node names, backup IDs,
+// addresses) never leaks into a response requiring only update_collections.
 func TestBackupActivityResponder(t *testing.T) {
 	principal := &models.Principal{Username: "alice"}
 	probeErr := &url.Error{
