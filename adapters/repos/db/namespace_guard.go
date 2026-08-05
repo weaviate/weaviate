@@ -28,17 +28,21 @@ import (
 )
 
 var (
-	// errNamespaceRowMissing is returned when a class resolves to a namespace
+	// errNamespaceUnknownLocally is returned when a class resolves to a namespace
 	// that the namespace map does not hold. Every shard decision refuses on it.
-	errNamespaceRowMissing = errors.New("namespace row missing for a locally-known class")
+	errNamespaceUnknownLocally = errors.New("namespace not known on this node")
 
-	// errNamespaceLookupMissing is returned when a namespaced class has no
-	// namespace lookup to consult, which only a lost wiring line can produce.
-	errNamespaceLookupMissing = errors.New("no namespace lookup for a namespaced class")
+	// errNoNamespaceLookup is returned when a namespaced class has no namespace
+	// lookup to consult, which only a lost wiring line can produce.
+	errNoNamespaceLookup = errors.New("no namespace lookup for a namespaced class")
 
 	// errShardNamespaceClosed is returned when the reopen path is asked for a
 	// shard whose namespace no longer keeps any open.
 	errShardNamespaceClosed = errors.New("namespace keeps no shards open")
+
+	// errUnknownShardLoadCaller is returned for a caller the load decision has no
+	// case for, so a wiring fault does not read as a namespace state.
+	errUnknownShardLoadCaller = errors.New("unknown shard load caller")
 )
 
 // shardLoadCaller says who wants a shard loaded. Each caller gets a different
@@ -75,11 +79,11 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 		return api.NamespaceStateActive, nil
 	}
 	if e == nil {
-		return "", refuseShardDecision(logger, namespace, class, errNamespaceLookupMissing)
+		return "", refuseShardDecision(logger, namespace, class, errNoNamespaceLookup)
 	}
 	ns, ok := e.GetNamespace(namespace)
 	if !ok {
-		return "", refuseShardDecision(logger, namespace, class, errNamespaceRowMissing)
+		return "", refuseShardDecision(logger, namespace, class, errNamespaceUnknownLocally)
 	}
 	return ns.State, nil
 }
@@ -173,5 +177,5 @@ func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
 	case callerReplication:
 		return namespaces.AdmitReplicationTarget(state)
 	}
-	return errShardNamespaceClosed
+	return errUnknownShardLoadCaller
 }
