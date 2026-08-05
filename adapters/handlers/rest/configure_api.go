@@ -1145,20 +1145,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 		// Same race, restore side: the cluster lookup above sees only DTM,
 		// which has already forgotten the task by the time sidecars come down.
-		repo.SetAnyCleanupInProgressLookup(func(collections []string) bool {
-			// Blind only when the caller has no class list yet; otherwise a
-			// teardown stuck on one collection must not refuse restores of the
-			// rest. See [db.AnyCleanupInProgressLookup].
-			if len(collections) == 0 {
-				return appState.ReindexProvider.AnyCleanupInProgress()
-			}
-			for _, c := range collections {
-				if appState.ReindexProvider.AnyCleanupInProgressForCollection(c) {
-					return true
-				}
-			}
-			return false
-		})
+		repo.SetAnyCleanupInProgressLookup(anyCleanupInProgressLookup(appState.ReindexProvider))
 	}, appState.Logger)
 
 	return appState
@@ -2581,6 +2568,31 @@ func clusterHttpClient(
 		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
 	}
 	return &http.Client{Transport: transport}
+}
+
+// cleanupProber is the half of [db.ReindexProvider] the restore gate needs.
+type cleanupProber interface {
+	AnyCleanupInProgress() bool
+	AnyCleanupInProgressForCollection(collection string) bool
+}
+
+// anyCleanupInProgressLookup answers the restore gate's node-local half.
+//
+// Blind only when the caller has no class list yet; otherwise a teardown stuck
+// on one collection must not refuse restores of the rest. See
+// [db.AnyCleanupInProgressLookup].
+func anyCleanupInProgressLookup(prober cleanupProber) db.AnyCleanupInProgressLookup {
+	return func(collections []string) bool {
+		if len(collections) == 0 {
+			return prober.AnyCleanupInProgress()
+		}
+		for _, c := range collections {
+			if prober.AnyCleanupInProgressForCollection(c) {
+				return true
+			}
+		}
+		return false
+	}
 }
 
 func clusterHttpTransport(

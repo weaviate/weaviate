@@ -611,6 +611,9 @@ type fakeSelector struct {
 
 	// Plain field so pre-existing restore tests pass without a mock.On call.
 	reindexInFlightErr error
+	// reindexCollections records what each gate call was scoped to, so an arm
+	// that passes the wrong class list cannot pass silently.
+	reindexCollections [][]string
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
@@ -628,7 +631,8 @@ func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 	return args.Error(0)
 }
 
-func (s *fakeSelector) RefuseIfAnyReindexInFlight(context.Context, []string) error {
+func (s *fakeSelector) RefuseIfAnyReindexInFlight(_ context.Context, collections []string) error {
+	s.reindexCollections = append(s.reindexCollections, collections)
 	return s.reindexInFlightErr
 }
 

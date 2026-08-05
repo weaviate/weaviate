@@ -142,3 +142,46 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 		fs.backend.AssertCalled(t, "GetObject", ctx, backupID+"/"+node, BackupFile)
 	})
 }
+
+// Each restore arm has a different class list in hand, and the gate's node-local
+// half is scoped by it. An arm that passes the wrong list — or nil where it has
+// classes — silently widens or narrows the check, and nothing else notices.
+func TestRestoreGateIsScopedPerArm(t *testing.T) {
+	ctx := context.Background()
+	const backendName = "s3"
+
+	t.Run("explicit include passes the requested classes", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "some-backup",
+			Include: []string{"Movies", "Actors"},
+		}, false)
+
+		require.Error(t, err)
+		require.Len(t, fs.selector.reindexCollections, 1, "the gate must run exactly once on this arm")
+		require.Equal(t, []string{"Movies", "Actors"}, fs.selector.reindexCollections[0],
+			"the explicit-include arm knows its classes and must scope the gate to them")
+	})
+
+	t.Run("meta-not-found falls back to the blind check", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("root/123")
+		fs.backend.On("GetObject", ctx, "no-such-backup", GlobalBackupFile).
+			Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		fs.backend.On("GetObject", ctx, "no-such-backup", BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "no-such-backup",
+		}, false)
+
+		require.Error(t, err)
+		require.Len(t, fs.selector.reindexCollections, 1)
+		require.Empty(t, fs.selector.reindexCollections[0],
+			"this arm answers before the meta is read, so it has no classes to scope by")
+	})
+}
