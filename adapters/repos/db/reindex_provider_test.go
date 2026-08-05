@@ -628,3 +628,28 @@ func TestAutoCleanupAfterTerminalSkipsTheGateWhenNothingToClean(t *testing.T) {
 		})
 	}
 }
+
+// Every caller reads a true here as "leave it alone", so a status this build
+// does not recognise — a newer node's — has to answer true. Guessing "not live"
+// admits a backup over a migration added after this build shipped.
+func TestIsLiveReindexTaskStatusFailsClosedOnUnknown(t *testing.T) {
+	tests := []struct {
+		status   distributedtask.TaskStatus
+		wantLive bool
+	}{
+		{distributedtask.TaskStatusStarted, true},
+		{distributedtask.TaskStatusPreparing, true},
+		{distributedtask.TaskStatusSwapping, true},
+		{distributedtask.TaskStatusFinished, false},
+		{distributedtask.TaskStatusCancelled, false},
+		{distributedtask.TaskStatusFailed, false},
+		{distributedtask.TaskStatus("VERIFYING"), true},
+		{distributedtask.TaskStatus(""), true},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.status), func(t *testing.T) {
+			require.Equal(t, tc.wantLive, IsLiveReindexTaskStatus(tc.status))
+		})
+	}
+}
