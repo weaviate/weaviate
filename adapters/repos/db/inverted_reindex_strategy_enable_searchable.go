@@ -105,16 +105,18 @@ func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 
 // PreReindexHook creates empty blockmax searchable buckets for the targeted
 // properties and marks them as blockmax, so queries route to the new bucket
-// as soon as it exists.
+// as soon as it exists. Null/length buckets are created too — see
+// [EnableFilterableStrategy.PreReindexHook] for why.
 func (s *EnableSearchableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
+		shard.ensureNullLengthBucketsForMigration(ctx, propName)
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 		if shard.store.Bucket(bucketName) == nil {
 			opts := shard.makeDefaultBucketOptions(lsmkv.StrategyInverted)
 			if err := shard.store.CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
 				shard.index.logger.WithField("bucket", bucketName).
-					WithError(err).Error("PreReindexHook: failed to create searchable bucket")
+					Errorf("PreReindexHook: failed to create searchable bucket: %v", err)
 			}
 		}
 	}

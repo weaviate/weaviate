@@ -241,7 +241,9 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // (via DTM) marking tidied while the directory renames are deferred to
 // the next startup when no buckets are loaded. See
 // `docs/runtime-reindex.md` for the rationale.
-func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
+func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) FinalizeResult {
+	var result FinalizeResult
+
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -252,7 +254,7 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			logger.WithField("path", migrationsDir).
 				Warnf("reindex finalize: unable to read migrations dir; pending finalizations skipped: %v", err)
 		}
-		return
+		return result
 	}
 
 	// Group entries by namespace (prefix returned by parseMigrationDirName).
@@ -350,7 +352,10 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			migDir := filepath.Join(migrationsDir, g.dirName)
 			switch {
 			case g.gen == effective:
-				finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
+				promoted := finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
+				// The tracker is the last place the swap-vs-flip window is
+				// recorded, so read it out before the RemoveAll below.
+				result.addPromotions(namespace, migDir, promoted)
 				// finalizeMigrationDir performs the ingest→canonical
 				// rename + backup removal. We also remove the tracker
 				// dir itself: its sentinels have done their job.
@@ -377,6 +382,40 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 				// payload.mig read.
 			}
 		}
+	}
+
+	return result
+}
+
+// FinalizeResult reports the enable-* promotions of a finalize pass.
+//
+// A promoted property's schema flag has not necessarily flipped yet, and the
+// tracker dir that recorded the migration is gone by the time this returns.
+// Shard init therefore needs this list to open the promoted bucket and arm
+// the write overlay — see [Shard.resolvePendingFlips].
+type FinalizeResult struct {
+	Promoted []PendingFlip
+}
+
+// addPromotions records the properties an enable-* migration just promoted.
+// Other strategies are ignored: they migrate properties the schema already
+// flags as indexed, so their buckets load and their writes are analyzed
+// without any help.
+func (r *FinalizeResult) addPromotions(namespace, migDir string, props []string) {
+	if len(props) == 0 {
+		return
+	}
+	indexType, ok := enableMigrationIndexType(namespace)
+	if !ok {
+		return
+	}
+	tokenization := readRecoveryTargetTokenization(migDir)
+	for _, prop := range props {
+		r.Promoted = append(r.Promoted, PendingFlip{
+			Prop:         prop,
+			IndexType:    indexType,
+			Tokenization: tokenization,
+		})
 	}
 }
 
@@ -483,19 +522,23 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
-func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) {
+// finalizeMigrationDir returns the properties whose canonical bucket now
+// holds the migrated data — either this call renamed the ingest dir onto it,
+// or an earlier pass did and died before clearing the tracker. Callers use
+// this list to react to the promotion (see [FinalizeResult]).
+func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) []string {
 	// Only finalize if both swapped and tidied sentinels exist.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
-		return
+		return nil
 	}
 	if !fileExists(filepath.Join(migDir, "tidied.mig")) {
-		return
+		return nil
 	}
 
 	// Read properties from the migration.
 	props, err := readMigrationProps(migDir)
 	if err != nil || len(props) == 0 {
-		return
+		return nil
 	}
 
 	// Determine bucket naming from migration dir name. The migration dir
@@ -505,17 +548,18 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// to find the matching on-disk sidecar dirs.
 	suffixes := migrationSuffixes(migName)
 	if suffixes == nil {
-		return
+		return nil
 	}
 	_, gen, ok := parseMigrationDirName(migName)
 	if !ok {
 		// Defensive — every dir on disk should carry the gen suffix.
-		return
+		return nil
 	}
 	genTail := "_" + strconv.Itoa(gen)
 
 	logger = logger.WithField("migration", migName)
 
+	promoted := make([]string, 0, len(props))
 	for _, propName := range props {
 		mainName := suffixes.sourceBucketName(propName)
 		ingestDir := filepath.Join(lsmPath, mainName+suffixes.ingestSuffix+genTail)
@@ -545,8 +589,16 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			}
 			logger.WithField("from", ingestDir).WithField("to", mainDir).
 				Debug("finalize: renamed ingest dir to main")
+			promoted = append(promoted, propName)
+			continue
+		}
+		if fileExists(mainDir) {
+			// No ingest dir but a canonical one: an earlier pass already did
+			// the rename and died before removing the tracker.
+			promoted = append(promoted, propName)
 		}
 	}
+	return promoted
 }
 
 func readMigrationProps(migDir string) ([]string, error) {

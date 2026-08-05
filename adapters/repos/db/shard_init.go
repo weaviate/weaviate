@@ -52,7 +52,27 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
+	// An enable-* migration that swapped this shard's bucket before its schema
+	// flip landed leaves a canonical bucket indistinguishable from a deleted
+	// index. Read pending migrations first, or removal destroys the only copy
+	// of the migrated data.
+	//
+	// An unreadable marker means a migration was recorded and we cannot tell
+	// which, so the sweep runs blind. Skip it entirely for this shard: keeping
+	// a bucket that may be garbage costs disk, sweeping one that may be the
+	// only copy is permanent, and from the second restart on the sidecars it
+	// was built from are gone. An absent marker is not that state — it proves
+	// there is no pending flip, so the sweep runs as usual.
+	flips, unreadable := scanPendingFlips(shardPathLSM(index.path(), shardName), index.logger)
+	if unreadable {
+		index.logger.WithFields(logrus.Fields{
+			"action": "init_shard",
+			"shard":  shardName,
+			"index":  index.ID(),
+		}).Warn("reindex: flip-pending records unreadable; skipping the nonexistent-property-index sweep " +
+			"so a swapped-but-not-flipped migration cannot lose its bucket")
+	} else if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
+		index.path(), shardName, class, newPendingFlipShield(flips)); err != nil {
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 
@@ -159,7 +179,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
 	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	finalized := FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+
+	// Re-arm the force-index overlay for every enable-* migration that swapped
+	// without its schema flip landing yet: the in-memory overlay did not
+	// survive the restart, and both bucket loading below and writes after
+	// NotifyReady key off it. See [Shard.resolvePendingFlips].
+	s.resolvePendingFlips(finalized.Promoted, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.

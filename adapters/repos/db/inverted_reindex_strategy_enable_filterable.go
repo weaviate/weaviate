@@ -130,10 +130,13 @@ func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 
 // PreReindexHook creates empty filterable (RoaringSet) buckets for the
 // targeted properties so the generic state machine has a "source" bucket
-// to swap with the populated ingest bucket.
+// to swap with the populated ingest bucket, plus the null/length buckets
+// an unindexed property lacks — the force-index overlay makes writes emit
+// them before the live schema flag would otherwise trigger creation.
 func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
+		shard.ensureNullLengthBucketsForMigration(ctx, propName)
 		bucketName := helpers.BucketFromPropNameLSM(propName)
 		if shard.store.Bucket(bucketName) != nil {
 			continue
@@ -141,7 +144,7 @@ func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) 
 		opts := shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)
 		if err := shard.store.CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
 			shard.index.logger.WithField("bucket", bucketName).
-				WithError(err).Error("PreReindexHook: failed to create filterable bucket")
+				Errorf("PreReindexHook: failed to create filterable bucket: %v", err)
 		}
 	}
 }
