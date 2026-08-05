@@ -152,6 +152,60 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 	})
 }
 
+// droppedAndLiveVectorClass builds a class whose "dropped" named vector is
+// mid-drop (VectorIndexType "none") while "live" still has its index, both
+// backed by the same vectorizer module.
+func droppedAndLiveVectorClass(className, modName string) *models.Class {
+	return &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"dropped": {
+				Vectorizer:      map[string]interface{}{modName: map[string]interface{}{}},
+				VectorIndexType: "none",
+			},
+			"live": {
+				Vectorizer:        map[string]interface{}{modName: map[string]interface{}{}},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: hnsw.UserConfig{},
+			},
+		},
+	}
+}
+
+func TestProvider_BatchUpdateVector(t *testing.T) {
+	t.Run("module vectorizer skips a mid-drop named vector", func(t *testing.T) {
+		// Regression for weaviate/0-weaviate-issues#481: a mid-drop named
+		// vector keeps its vectorizer config, but its index and queue are gone
+		// and the shard put rejects any object carrying the dropped vector.
+		// Computing it here would therefore fail every write to the collection
+		// until the drop finalizes. Single-object twin in TestProvider_UpdateVector.
+		ctx := context.Background()
+		modName := "some-vzr"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
+		class := droppedAndLiveVectorClass(className, modName)
+		sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider(logger, config.Config{})
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		objs := []*models.Object{
+			{Class: className, ID: newUUID()},
+			{Class: className, ID: newUUID()},
+		}
+		vecErrs, err := p.BatchUpdateVector(ctx, class, objs, (&fakeObjectsRepo{}).Object, logger)
+		require.NoError(t, err)
+		require.Empty(t, vecErrs)
+		for i, obj := range objs {
+			assert.NotContains(t, obj.Vectors, "dropped",
+				"object %d: mid-drop target must not be vectorized — the write path rejects objects carrying it", i)
+			assert.Contains(t, obj.Vectors, "live", "object %d missing the live vector", i)
+		}
+	})
+}
+
 func TestProvider_UpdateVector(t *testing.T) {
 	t.Run("with Vectorizer", func(t *testing.T) {
 		ctx := context.Background()
@@ -271,6 +325,29 @@ func TestProvider_UpdateVector(t *testing.T) {
 				require.NoError(t, err)
 			})
 		}
+	})
+
+	t.Run("module vectorizer skips a mid-drop named vector", func(t *testing.T) {
+		// Regression for weaviate/0-weaviate-issues#481 — see
+		// TestProvider_BatchUpdateVector for the batch twin.
+		ctx := context.Background()
+		modName := "some-vzr"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
+		class := droppedAndLiveVectorClass(className, modName)
+		sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider(logger, config.Config{})
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
+		require.NoError(t, err)
+		assert.NotContains(t, obj.Vectors, "dropped",
+			"mid-drop target must not be vectorized — the write path rejects objects carrying it")
+		assert.Contains(t, obj.Vectors, "live")
 	})
 
 	t.Run("with ReferenceVectorizer", func(t *testing.T) {

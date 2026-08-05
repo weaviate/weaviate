@@ -540,6 +540,13 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	modConfigs := map[string]map[string]any{}
 	// get all named vectorizers for classs
 	for name, vectorConfig := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			// A mid-drop named vector keeps its vectorizer config, but its
+			// index is gone and the write path rejects any object carrying the
+			// vector — computing it would fail every write to the collection
+			// until the drop finalizes, and waste the module inference call.
+			continue
+		}
 		modConfig, ok := vectorConfig.Vectorizer.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("class %v vectorizer %s not present", class.Class, name)
