@@ -156,6 +156,94 @@ func TestSegmentCleanerEditOps_DrainsWithCleanupIntervalDisabled(t *testing.T) {
 	require.False(t, cleaned)
 }
 
+// TestSegmentCleanerEditOps_FactorylessOpRowsStayPending pins the
+// mixed-version gate AND its liveness: a rewrite strips only for the ops its
+// transformer was built from, so a factory-less op's rows are never marked
+// done (that would finalize the drop without stripping) — and a segment whose
+// rows ALL belong to factory-less ops is skipped entirely, not rewritten:
+// rewriting it would strip nothing, mark nothing done, and report work done —
+// an endless full rewrite of the same segment on every prompt re-run, with
+// built-op rows on later segments never reached. The op IDs here order the
+// factory-less op's segment FIRST to pin exactly that shape.
+func TestSegmentCleanerEditOps_FactorylessOpRowsStayPending(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 2)
+
+	// "a-future" sorts before "b-covered", so the factory-less op's segment
+	// (segs[0]) heads the pass's segment order.
+	require.NoError(t, editOps.RegisterOp("a-future", OpDescriptor{Type: "op_type_from_a_newer_version", CreatedAt: 2}))
+	require.NoError(t, editOps.RegisterOp("b-covered", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("a-future", segs[:1]))
+	require.NoError(t, editOps.SnapshotSegments("b-covered", segs[1:]))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.True(t, cleaned, "the pass must skip past the factory-less segment and clean the covered op's")
+
+	pCovered, err := editOps.Pending("b-covered")
+	require.NoError(t, err)
+	require.Empty(t, pCovered, "the built op's row drains despite the factory-less segment heading the order")
+	pFuture, err := editOps.Pending("a-future")
+	require.NoError(t, err)
+	require.Equal(t, segs[:1], pFuture,
+		"a factory-less op's row must not be marked done by a rewrite that did not strip for it")
+
+	v, err := bucket.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v2"), v, "the covered op's transform ran")
+
+	// Only factory-less work remains: the pass must report NO work done —
+	// cleaned=true here would re-run promptly and rewrite the same segment
+	// forever (unbounded write amplification while the drop stalls visibly).
+	cleaned, err = bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.False(t, cleaned, "a pass with only factory-less rows must not claim progress")
+	v, err = bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v, "the factory-less op's segment is skipped, not pointlessly rewritten")
+}
+
+// TestSegmentCleanerEditOps_MixedRowsOnOneSegment pins the exact pre-gate bug
+// shape: a built op AND a factory-less op both pending the SAME segment. The
+// rewrite runs (the built op's rows justify it) and must mark done ONLY the
+// built op's row — marking both would drain the factory-less op without its
+// transform ever executing, and its drop would finalize without stripping.
+func TestSegmentCleanerEditOps_MixedRowsOnOneSegment(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	require.NoError(t, editOps.RegisterOp("covered", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, editOps.RegisterOp("future", OpDescriptor{Type: "op_type_from_a_newer_version", CreatedAt: 2}))
+	require.NoError(t, editOps.SnapshotSegments("covered", segs))
+	require.NoError(t, editOps.SnapshotSegments("future", segs))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.True(t, cleaned, "the built op's row justifies the rewrite")
+
+	pCovered, err := editOps.Pending("covered")
+	require.NoError(t, err)
+	require.Empty(t, pCovered)
+	pFuture, err := editOps.Pending("future")
+	require.NoError(t, err)
+	require.Equal(t, segs, pFuture,
+		"the shared segment's rewrite ran without the factory-less op's transform; its row must survive")
+
+	v, err := bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v, "the built op's transform ran exactly once")
+}
+
 // TestSegmentEditOps_SweepOrphans pins the cleanup-cycle orphan sweep: an op with
 // no live task is deleted, a live one is kept, the sweep is rate-limited, and a
 // liveness error sweeps nothing.

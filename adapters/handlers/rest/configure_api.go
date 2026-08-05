@@ -1188,9 +1188,13 @@ func initReindexAndDistributedTasks(
 	// Wake the reconcile loop when a round ends with work remaining (batch
 	// chains, deferrals, failed rounds) instead of idling a full interval.
 	dropVectorReconcileNudge := make(chan struct{}, 1)
+	dropVectorFinalizer := db.NewSchemaVectorConfigFinalizer(appState.SchemaManager)
+	// Direct-finalize hook for tenant-less MT collections, where no cleanup
+	// task can ever exist to drive the finalize.
+	dropVectorEnqueuer.SetVectorConfigFinalizer(dropVectorFinalizer)
 	dropVectorProvider := db.NewDropVectorIndexProvider(
 		repo,
-		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		dropVectorFinalizer,
 		appState.ClusterService.Raft,
 		appState.Logger,
 		appState.Cluster.LocalName(),

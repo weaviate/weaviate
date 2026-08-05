@@ -34,6 +34,35 @@ func testLogger() logrus.FieldLogger {
 	return l
 }
 
+// TestSnapshotExcludesEditOpsSidecar pins the exclusion on both snapshot
+// paths: the sidecar is a live, mutating bolt file — a hard-link would share
+// the inode with every later mutation, and any captured pending state paired
+// with these segments could mark unstripped segments clean on a consumer that
+// trusts the recorded pending set. A snapshot therefore carries NO drop-op
+// state; a still-live drop re-arms fresh on whatever resurrects the data.
+func TestSnapshotExcludesEditOpsSidecar(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	bucket := reopenableEditOpsBucket(t, ctx, dir)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.RegisterEditOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+	require.FileExists(t, filepath.Join(bucket.disk.dir, segmentEditOpsFileName))
+
+	snapshotDir, err := bucket.CreateSnapshot(ctx, t.TempDir(), "test")
+	require.NoError(t, err)
+	require.NoFileExists(t, filepath.Join(snapshotDir, segmentEditOpsFileName),
+		"a loaded-bucket snapshot must not carry the live sidecar")
+
+	require.NoError(t, bucket.Shutdown(ctx))
+	fromDiskDir, err := SnapshotBucketFromDisk(dir, t.TempDir(), "test-from-disk")
+	require.NoError(t, err)
+	require.NoFileExists(t, filepath.Join(fromDiskDir, segmentEditOpsFileName),
+		"an unloaded-bucket snapshot must not carry the sidecar either")
+}
+
 func TestCreateSnapshotAndOpen(t *testing.T) {
 	tests := []struct {
 		name       string
