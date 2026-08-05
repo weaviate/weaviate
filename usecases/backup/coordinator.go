@@ -276,9 +276,13 @@ func (c *coordinator) Restore(
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
 			// Only clear the slot if it still holds this cancelled restore; a
-			// newer restore may have claimed it since, and must keep it.
-			c.lastOp.resetIfCancelled(desc.ID)
-			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
+			// newer restore may have claimed it since, and must keep it. The
+			// outcome decides whether the node is idle after this line, which
+			// is what an operator chasing a stuck slot needs to know.
+			cleared := c.lastOp.resetIfCancelled(desc.ID)
+			c.log.WithField("backup_id", desc.ID).
+				WithField("slot_cleared", cleared).
+				Info("restore cancellation already in progress")
 			return nil
 		}
 	}
@@ -517,6 +521,13 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 // [CanCommitErrCannotCommit] kinds (including responses from older nodes
 // that don't set the field) keep the legacy [errCannotCommit] wrapping so
 // existing callers and tests continue to match.
+//
+// Known partial-rollout gap, deliberately open: a participant from before
+// the shard-name redaction sets the same [CanCommitErrInFlightReindex] kind
+// and names the shard in its message, which this promotion republishes.
+// Partial-rollout states are outside this feature's scope (a rollout note,
+// like the symmetric old-coordinator degradation), and closing the gap would
+// cost a wire field whose only job is telling peer versions apart.
 func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	if resp == nil {
 		return errCannotCommit
