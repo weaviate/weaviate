@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -582,4 +583,39 @@ func TestBackupableNeverJoinsTheGateRefusalWithANodeNamingError(t *testing.T) {
 		"the refusal must still classify as a gate refusal")
 	require.NotContainsf(t, err.Error(), node,
 		"a refusal the coordinator is allowed to republish must never carry a node name: %q", err.Error())
+}
+
+// After redaction every refusing shard produces the same sentence, so a
+// per-shard join returns one identical line per shard: a 60-shard node answered
+// with 60 copies, and the fixture sizes in this repo reach five figures. That is
+// the O(shards) growth that made the original per-shard log line a merge
+// blocker, now without the shard name that justified repeating it.
+func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
+	const (
+		collection = "WideClass"
+		node       = "weaviate-0"
+	)
+	shards := make([]string, 0, 60)
+	for i := range 60 {
+		shards = append(shards, fmt.Sprintf("s%02d", i))
+	}
+
+	db := backupableFixture(t, collection, node, shards...)
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true } // every shard refuses
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return func(string, string) ReindexHold { return ReindexHoldNone }
+	})
+
+	err := db.Backupable(context.Background(), []string{collection})
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+
+	lines := strings.Count(err.Error(), "\n") + 1
+	require.Equalf(t, 1, lines,
+		"every shard refuses for the same reason and the text names no shard, so the body must carry "+
+			"that reason once, not %d times", len(shards))
+	require.Equal(t, reindexInFlightError(collection, reindexBlockedByLiveTask).Error(), err.Error(),
+		"deduping must not change the sentence itself")
 }
