@@ -186,8 +186,14 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 }
 
 func submitReindex(h *indexesHandlers) middleware.Responder {
+	return submitReindexOn(h, context.Background())
+}
+
+// submitReindexOn submits on a context the test controls, which is how a client
+// disconnect mid-submission is reproduced.
+func submitReindexOn(h *indexesHandlers, ctx context.Context) middleware.Responder {
 	return h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
-		HTTPRequest:  httptest.NewRequest("PUT", "/", nil),
+		HTTPRequest:  httptest.NewRequest("PUT", "/", nil).WithContext(ctx),
 		ClassName:    "Movies",
 		PropertyName: "title",
 		Body: &models.IndexUpdateRequest{
