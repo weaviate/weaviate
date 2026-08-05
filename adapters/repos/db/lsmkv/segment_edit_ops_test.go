@@ -760,6 +760,8 @@ func TestSegmentEditOps_RequeueQuarantined_BoundedPerSegment(t *testing.T) {
 		require.Len(t, pending, 1, "round %d still has budget, so the segment retries", round)
 		require.Zero(t, pending[0].Attempts, "a new round starts with a fresh per-round budget")
 		require.Equal(t, round, pending[0].Requeues, "the second-chance count carries across rounds")
+		require.Equal(t, "cannot rewrite", pending[0].LastError,
+			"the budget resets but the evidence must not: LastError is the only record of why")
 	}
 
 	// One more failure: the segment has now failed every round it was given.

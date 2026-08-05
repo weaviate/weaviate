@@ -732,6 +732,15 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 					Warnf("edit-ops cleanup interrupted before completing segment %q (not counted as a failed attempt): %v", segID, cerr)
 				return false, true, nil
 			}
+			// The ONLY place this cause is surfaced. It is not returned (the
+			// pass reports no error, so the retry budget rather than the cycle
+			// decides what happens next) and the copy recorded on the row is
+			// reset by the next round's requeue. Without this line a drop that
+			// stalls on a quarantined segment reports which segment and never
+			// why.
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("edit-ops cleanup failed to rewrite segment %q (attempt %d of %d before quarantine): %v",
+					segID, strippedRows[0].Attempts+1, maxCleanupAttempts, cerr)
 			// Only the rows this pass was working for accrue the failure;
 			// factory-less rows must not drift toward quarantine over
 			// rewrites that never ran their transform.

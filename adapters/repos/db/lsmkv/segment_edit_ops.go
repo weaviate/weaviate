@@ -846,10 +846,15 @@ func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) er
 				continue
 			}
 			// The quarantine row is gone (above), so addPendingRowsTx's
-			// quarantine-skip cannot undo the requeue. Attempts resets — the
-			// point of a new round — while Requeues carries forward.
+			// quarantine-skip cannot undo the requeue. Attempts resets — a new
+			// round is the whole point of a fresh budget — but the EVIDENCE
+			// does not: LastError is the only record of why the rewrites
+			// failed, and zeroing it here would erase the diagnosis exactly
+			// when repeated requeues prove it is needed.
 			if err := s.addPendingWithMetaTx(tx, opID, segID, PendingSegment{
-				Requeues: meta.Requeues + 1,
+				Requeues:      meta.Requeues + 1,
+				LastError:     meta.LastError,
+				LastAttemptAt: meta.LastAttemptAt,
 			}); err != nil {
 				return err
 			}
