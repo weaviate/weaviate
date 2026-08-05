@@ -16,12 +16,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 // ShardReindexActivityLookup reports whether any LIVE reindex task in
@@ -42,8 +42,8 @@ type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 // wired by configure_api.go's post-bootstrap goroutine), so an external
 // backup request cannot land before this builder is installed. The WARN
 // is the operator-facing signal if startup ordering ever breaks the
-// wiring; the prior conservative-refuse default broke every module-test
-// fixture that bypassed the bootstrap path. See [DB.AnyLiveReindexForShard].
+// wiring. Refusing instead would block every module-test fixture that
+// bypasses the bootstrap path. See [DB.AnyLiveReindexForShard].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
@@ -89,15 +89,16 @@ func (e redactedCauseErr) Unwrap() []error {
 	return []error{entitiesbackup.ErrReindexInFlight, e.cause}
 }
 
-// unwiredRestoreGateWarnOnce keeps the "lookup not installed" WARN to one
-// line per process, matching [unwiredGateWarnOnce] on the backup side.
-var unwiredRestoreGateWarnOnce sync.Once
+// unwiredRestoreGateWarnSampler rate-limits the "lookup not installed" WARN,
+// matching [unwiredGateWarnSampler] on the backup side; see that variable for
+// why the line has to keep reappearing rather than fire once per process.
+var unwiredRestoreGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
 
 // RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart of
 // the per-shard backup gate: a restoring class has no local index yet, so a
 // per-class lookup could never see a live task. Fails closed on a live task
-// or a lookup error; an unwired lookup allows the restore once with a WARN,
-// matching [DB.AnyLiveReindexForShard].
+// or a lookup error; an unwired lookup allows the restore with a rate-limited
+// WARN, matching [DB.AnyLiveReindexForShard].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 	db.reindexAuditMu.RLock()
 	lookup := db.anyReindexActivityLookup
@@ -118,7 +119,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 	}
 
 	if lookup == nil {
-		unwiredRestoreGateWarnOnce.Do(func() {
+		unwiredRestoreGateWarnSampler.WithSampling(func(logrus.FieldLogger) {
 			logger := db.logger
 			if logger == nil {
 				logger = logrus.New()
@@ -259,12 +260,13 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 	}
 }
 
-var unwiredOverlapWarnOnce sync.Once
+// See [unwiredGateWarnSampler] for the rate-limiting rationale.
+var unwiredOverlapWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
 
 // RefuseIfReindexOverlapped is the backup's commit-time backstop; see
 // [ReindexOverlapLookup] for why the question is overlap and not liveness.
 //
-// Unwired means fail-open with a one-time WARN, matching the other gates:
+// Unwired means fail-open with a rate-limited WARN, matching the other gates:
 // module tests construct a DB without the post-bootstrap install path, and
 // production gates external traffic on bootstrap completion.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []string, since time.Time) error {
@@ -273,7 +275,7 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []strin
 	db.reindexAuditMu.RUnlock()
 
 	if lookup == nil {
-		unwiredOverlapWarnOnce.Do(func() {
+		unwiredOverlapWarnSampler.WithSampling(func(logrus.FieldLogger) {
 			logger := db.logger
 			if logger == nil {
 				logger = logrus.New()
