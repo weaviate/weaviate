@@ -514,13 +514,19 @@ func (e remoteReindexInFlightErr) Error() string { return e.msg }
 
 func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFlight }
 
-// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
-// typed error. When the response has [CanCommitErrInFlightReindex] kind, we
-// wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
-// upstream `errors.Is` checks succeed across the RPC boundary. Empty or
-// [CanCommitErrCannotCommit] kinds (including responses from older nodes
-// that don't set the field) keep the legacy [errCannotCommit] wrapping so
-// existing callers and tests continue to match.
+// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a typed
+// error, one arm per [CanCommitErrorKind], so upstream `errors.Is` checks
+// survive the RPC boundary:
+//
+//   - [CanCommitErrInFlightReindex] (backup refused) carries
+//     [backup.ErrBackupBlockedByInFlightReindex], either by wrapping it or, when
+//     the participant's message already opens with the sentinel, as a
+//     [backup.ReindexBlockedError] that unwraps to it.
+//   - [CanCommitErrRestoreBlockedByReindex] (restore refused) carries
+//     [backup.ErrReindexInFlight] and not [errCannotCommit]. A caller that maps
+//     it to [errCannotCommit] answers 500 for what the scheduler answers 422.
+//   - every other kind, including the empty one older nodes send, keeps the
+//     legacy [errCannotCommit] wrapping so existing callers and tests match.
 //
 // Known partial-rollout gap, deliberately open: a participant from before
 // the shard-name redaction sets the same [CanCommitErrInFlightReindex] kind

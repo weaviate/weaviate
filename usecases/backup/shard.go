@@ -102,6 +102,21 @@ func (s *backupStat) resetIfCancelled(id string) bool {
 	return true
 }
 
+// resetIfOwned clears the slot only if id still holds it. An operation whose
+// slot was already handed to a newer one must not free the newcomer's claim:
+// the slot is the node's busy signal, so a false idle lets a runtime-reindex
+// start on top of a live backup or restore. Check-and-clear happens under one
+// lock so a concurrent renew can't be lost. Reports whether it cleared.
+func (s *backupStat) resetIfOwned(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	s.clear()
+	return true
+}
+
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
 	defer s.Unlock()
