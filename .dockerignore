@@ -1,43 +1,112 @@
+# Everything listed here is withheld from the Docker build context.
+#
+# NOTE: Docker does NOT support trailing comments. A line like
+#   **/*.fvecs  # sift data
+# is read as a literal pattern including the "  # sift data" suffix, so it
+# matches nothing. Comments must be on their own line.
+
+# Version control
 .git
+.gitattributes
+
+# Docker/compose scaffolding that is not needed inside the image
 Dockerfile.*
 docker-compose.yml
-data*
-logs/
-snapshots/
-snapshots-fs/
-snapshots-node2/
-snapshots-s3/
-snapshots-gcs/
-backups/
-backups-fs/
-backups-node2/
-backups-s3/
-backups-gcs/
-test/
-tools/
-**/*.fvecs  # sift data
-**/*.png  # profiling
-**/*.out
-**/*.csv
-**/*.md
-**/*_test.go
-**/.DS_Store
-**/testdata/
-**/test_data/
-coverage-integration.txt
-coverage-unit.txt
+docker-compose/
+docker-compose-raft/
 
-# wikipedia dataset when downloaded according to docs
-weaviate-wikipedia-*
-# the local path when extracting the wiki dataset
+# Local runtime state produced by running Weaviate on the host
+data*
+logs
+logs/
+snapshots*
+backups*
+**/*.db
+**/*.wal
 var/weaviate/
 
-# IDE files
+# Test code, fixtures and tooling: the server image builds from source only
+test/
+tools/
+**/*_test.go
+**/testdata/
+**/test_data/
+
+# Datasets used by benchmarks and manual experiments
+**/*.fvecs
+**/*.ivecs
+**/*.bvecs
+**/*.hdf5
+**/*.parquet
+weaviate-wikipedia-*
+
+# Profiling, tracing and coverage output
+**/*.out
+**/*.prof
+**/*.pprof
+**/*.test
+coverage-integration.txt
+coverage-unit.txt
+**/*.csv
+
+# Logs and crash artifacts
+**/*.log
+**/core
+**/core.*
+
+# Documentation and images
+**/*.md
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.svg
+docs/
+openapi-specs/
+# Note: deprecations/ is NOT excluded, it is a Go package imported by
+# usecases/config.
+
+# Compiled binaries that may be sitting in the working tree. These run to
+# hundreds of MB each and are rebuilt inside the image anyway.
+weaviate
+weaviate-server
+weaviate-debug
+cmd/weaviate-server/weaviate
+cmd/weaviate-server/weaviate-server
+cmd/weaviate-server/weaviate-debug
+
+# Vendored or stale dependency trees kept around by hand. The image resolves
+# dependencies with `go mod download`, so these are dead weight.
+vendor.stale-*
+**/node_modules/
+
+# Agent and IDE scratch space. `.claude/worktrees` in particular holds full
+# checkouts of other branches and measured 7.7 GB of build context.
+.claude/
+.claude-wt/
+.playwright-mcp/
 .idea
 .vscode/
+.devcontainer/
 
-# Local files
+# Python virtualenvs and caches used by helper scripts
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Local scratch directories
 _local
+namespace_demo/
 
-# ignore archives, they are most likely part of some debugging and never part of actual code
+# Archives are almost always debugging leftovers, never build inputs
 *.tar.gz
+*.tgz
+*.zip
+
+# macOS / editor noise
+**/.DS_Store
+**/*.swp
+**/*~
