@@ -317,17 +317,23 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// callers for the same collection share the DeleteClassPropertyIndex lock.
 	//
 	// Worst case with one unreachable node: the lock is held for the 5s
-	// pre-commit backup probe, the RAFT task-add, the 5s post-commit probe and
-	// a rollback of up to reindexRollbackTimeout — around 20s, during which a
-	// DELETE on the same property waits and MarkSubmitInProgress refuses the
-	// collection's backups. The probes are not hoisted out of the lock even
-	// though they read no schema state: outside it they would run before the
-	// 404, conflict and cap checks, so every request that fails locally would
-	// pay a cluster-wide fan-out first, and a submit for a collection that does
-	// not exist would answer 409 instead of 404.
+	// pre-commit backup probe, the RAFT task-add and the 5s post-commit probe —
+	// around 10s, during which a DELETE on the same property waits and
+	// MarkSubmitInProgress refuses the collection's backups. The rollback that
+	// can follow the post-commit probe runs outside both, see there. The probes
+	// are not hoisted out of the lock even though they read no schema state:
+	// outside it they would run before the 404, conflict and cap checks, so
+	// every request that fails locally would pay a cluster-wide fan-out first,
+	// and a submit for a collection that does not exist would answer 409
+	// instead of 404.
+	//
+	// Released through a OnceFunc rather than a bare deferred Unlock so the
+	// rollback path can hand it back early and this defer still covers every
+	// other return.
 	propLock := h.submitLock(collection, propertyName)
 	propLock.Lock()
-	defer propLock.Unlock()
+	releaseSubmitLock := sync.OnceFunc(propLock.Unlock)
+	defer releaseSubmitLock()
 
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)
 	if class == nil {
@@ -667,6 +673,11 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	//
 	// Safe to call even when no stale state exists: missing buckets and
 	// missing directories are silently skipped by the per-shard helper.
+	// Set when the submit gate below is taken; the rollback path releases it
+	// early, so it cannot be a plain deferred call.
+	releaseSubmitGate := func() {}
+	defer func() { releaseSubmitGate() }()
+
 	indexTypesForCleanup, indexTypeKnown := indexTypesFromMigrationType(migrationType)
 	if indexTypeKnown {
 		// The deletion below is not yet visible to any backup gate: the task
@@ -674,7 +685,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// [db.ReindexProvider.MarkSubmitInProgress], and hold it until the
 		// handler returns so the deletion and the commit are one window.
 		if h.appState.ReindexProvider != nil {
-			defer h.appState.ReindexProvider.MarkSubmitInProgress(collection)()
+			releaseSubmitGate = sync.OnceFunc(h.appState.ReindexProvider.MarkSubmitInProgress(collection))
 		}
 		// Loop over every index type this migration touches. For
 		// single-index migrations the slice has one entry; for
@@ -735,6 +746,21 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// run against a backup that is known to hold the slot. That is why
 		// rollbackRacedReindexTask detaches from this context.
 		if scan.BusyNode != "" {
+			// Hand back the submit lock and the submit gate before rolling
+			// back. Both exist to keep the schema read, the sidecar sweep and
+			// the task-add one window; the task is committed, so nothing left
+			// in this handler reads schema state and neither protects anything
+			// from here on. Holding them across a rollback of up to
+			// reindexRollbackTimeout would make a disconnected client — whose
+			// request nobody is waiting for — block an unrelated DELETE on this
+			// property and every backup of this collection for those 10s.
+			// Released in acquisition-inverse order.
+			//
+			// The rollback stays on this goroutine: the caller, if still there,
+			// must not be told the submission was refused before the rollback
+			// was attempted.
+			releaseSubmitGate()
+			releaseSubmitLock()
 			h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName)
 			return responder
 		}
@@ -1472,9 +1498,6 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 	return false, false
 }
 
-// normalizeSearchableAlgorithm maps an explicit searchable.algorithm
-// value to its canonical form ("BlockMaxWAND") or "" if unsupported.
-// The reverse direction (BlockMax→WAND) is not supported: the
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
 // reindex payload. The handler builds a slice of these once per request
 // so mergeReindexStatus doesn't re-unmarshal task.Payload N times where

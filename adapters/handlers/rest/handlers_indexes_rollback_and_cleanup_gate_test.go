@@ -598,3 +598,72 @@ func TestUpdateIndexWithRuntimeReindexDisabledSkipsTheGate(t *testing.T) {
 		"the cluster must not be probed for backups when no reindex can start")
 	require.Zero(t, svc.adds, "no task may be committed while the feature is off")
 }
+
+// rollbackObservingService reports what the submission still holds at the
+// moment the rollback cancels the task. CancelDistributedTask is only reached
+// from the rollback, so it is an unambiguous hook for that instant.
+type rollbackObservingService struct {
+	*raceTaskService
+	onCancel func()
+}
+
+func (s *rollbackObservingService) CancelDistributedTask(
+	ctx context.Context, namespace, taskID string, version uint64,
+) error {
+	s.onCancel()
+	return s.raceTaskService.CancelDistributedTask(ctx, namespace, taskID, version)
+}
+
+// A rollback takes up to reindexRollbackTimeout, and the client that triggered
+// it has usually disconnected — so nobody is waiting for it, yet an unrelated
+// DELETE on the same property and every backup of the collection would wait for
+// it if it ran under the submit lock and the submit gate. The committed task is
+// what the backup gate reads from here on; neither hold protects anything, so
+// both must be back before the rollback starts.
+func TestUpdateIndexRollbackRunsWithoutTheSubmitHolds(t *testing.T) {
+	const (
+		collection = "Movies"
+		property   = "title"
+		shard      = "shard1"
+	)
+
+	svc := &rollbackObservingService{raceTaskService: &raceTaskService{}}
+	prober := &disconnectingProber{busy: true}
+	h := submissionHandlers(t, svc, prober)
+
+	provider := &db.ReindexProvider{}
+	h.appState.ReindexProvider = provider
+
+	var (
+		rolledBack   atomic.Bool
+		lockWasFree  atomic.Bool
+		gateAtCancel atomic.Int32
+	)
+	propLock := h.submitLock(collection, property)
+	svc.onCancel = func() {
+		rolledBack.Store(true)
+		if propLock.TryLock() {
+			lockWasFree.Store(true)
+			propLock.Unlock()
+		}
+		gateAtCancel.Store(int32(provider.HoldForShard(collection, shard)))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	prober.cancel = cancel
+
+	responder := submitReindexOn(h, ctx)
+
+	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
+	require.Truef(t, ok, "a confirmed backup must be refused with 409, got %T", responder)
+	require.Equal(t, context.Canceled, ctx.Err(), "the caller has to be gone by the time the rollback runs")
+	require.True(t, rolledBack.Load(), "the rollback must run, or this test pins nothing")
+
+	require.True(t, lockWasFree.Load(),
+		"the submit lock is still held during the rollback; a DELETE on this property waits out "+
+			"a rollback nobody is listening for")
+	require.Equal(t, db.ReindexHoldNone, db.ReindexHold(gateAtCancel.Load()),
+		"the submit gate is still closed during the rollback; every backup of this collection "+
+			"waits out a rollback nobody is listening for")
+}
