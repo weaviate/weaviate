@@ -15,11 +15,13 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -43,6 +45,12 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 		candidates = append(candidates, candidate)
 	}
 
+	// One bucket view shared by all workers avoids a lock acquisition per
+	// candidate; pooled buffers avoid allocating per fetched vector (see
+	// fetchNormalizedVector).
+	view := h.objectsBucketView()
+	defer view.ReleaseView()
+
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for workerID := range flatSearchConcurrency {
 		workerID := workerID
@@ -50,11 +58,13 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			slice := h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
+			defer h.tempVectors.Put(slice)
 			localResults := priorityqueue.NewMax[any](k)
 			for idPos := workerID; idPos < len(candidates); idPos += flatSearchConcurrency {
 				candidate := candidates[idPos]
 
-				dist, err := h.distToNode(ctx, candidate, queryVector)
+				dist, err := h.distToNode(ctx, candidate, queryVector, slice, view)
 				if err != nil {
 					// The object may have been deleted between allowList iteration
 					// and vector fetch. Skip stale entries gracefully.
@@ -104,10 +114,8 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 	return ids, dists, nil
 }
 
-func (h *HFresh) distToNode(ctx context.Context, node uint64, vecB []float32) (float32, error) {
-	var vecA []float32
-	var err error
-	vecA, err = h.vectorForId(ctx, node)
+func (h *HFresh) distToNode(ctx context.Context, node uint64, vecB []float32, slice *common.VectorSlice, view common.BucketView) (float32, error) {
+	vecA, err := h.fetchNormalizedVector(ctx, node, slice, view)
 	if err != nil {
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,
@@ -124,7 +132,6 @@ func (h *HFresh) distToNode(ctx context.Context, node uint64, vecB []float32) (f
 			"got a nil or zero-length vector as search vector")
 	}
 
-	vecA = h.normalizeVec(vecA)
 	return h.distancer.distancer.SingleDist(vecA, vecB)
 }
 
