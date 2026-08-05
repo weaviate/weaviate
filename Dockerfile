@@ -39,7 +39,7 @@ COPY . .
 # cross-platform builds do not evict each other, and locked so that concurrent
 # builds of the same arch serialize. This does not change the produced binary.
 RUN --mount=type=cache,target=/root/.cache/go-build,id=weaviate-gobuild-${TARGETARCH},sharing=locked \
-    GOOS=linux GOARCH=${TARGETARCH} \
+    GOOS=linux GOARCH="${TARGETARCH}" \
     go build $EXTRA_BUILD_ARGS -trimpath \
       -ldflags="-s -w -extldflags '-static' \
         -X github.com/weaviate/weaviate/usecases/build.Branch=${GIT_BRANCH} \
