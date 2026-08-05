@@ -20,7 +20,11 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/schema"
 )
+
+// lifecycleCollection is the one class every fixture in this file uses.
+const lifecycleCollection = "Movies"
 
 // Every site that closes the cleanup gate must also reopen it. Stuck-closed is
 // the safe direction, so nothing fails loudly when a pairing is missed: the
@@ -39,16 +43,20 @@ func lifecycleProvider(t *testing.T, serverCtx context.Context) *ReindexProvider
 		runningHandles:        map[distributedtask.TaskDescriptor]*reindexTaskHandle{},
 		serverCtx:             serverCtx,
 		logger:                logger,
-		// No local index, so the teardown sweeps nothing and the test is about
-		// the gate lifecycle around it rather than the sweep itself.
-		db: &DB{},
+		// An empty local index: the teardown sweeps nothing either way, so the
+		// test stays about the gate lifecycle. Registered rather than absent
+		// because [DB.GetIndex] retries with a backoff when the class is not
+		// found locally, which costs ~150ms per teardown here.
+		db: &DB{indices: map[string]*Index{
+			indexID(schema.ClassName(lifecycleCollection)): {closingCtx: context.Background()},
+		}},
 	}
 }
 
 func lifecycleTask(t *testing.T, id string) (*distributedtask.Task, *ReindexTaskPayload) {
 	t.Helper()
 	payload := &ReindexTaskPayload{
-		Collection:    "Movies",
+		Collection:    lifecycleCollection,
 		Properties:    []string{"body"},
 		MigrationType: ReindexTypeChangeTokenization,
 		UnitToShard:   map[string]string{"u1": "shard1"},
@@ -85,13 +93,13 @@ func TestCancelApplyGateIsReleasedByTheTeardown(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 
 	p.OnCancelApplied(task)
-	require.True(t, p.IsCleanupInProgress("Movies", "shard1"),
+	require.True(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
 		"the apply must close the gate over the gap before the teardown starts")
-	require.Equal(t, ReindexHoldCleanup, p.HoldForShard("Movies", "shard1"))
+	require.Equal(t, ReindexHoldCleanup, p.HoldForShard(lifecycleCollection, "shard1"))
 
 	p.autoCleanupAfterTerminal(task, payload, logger)
 
-	require.False(t, p.IsCleanupInProgress("Movies", "shard1"),
+	require.False(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
 		"the teardown must reopen the gate as soon as it finishes, not on a timer")
 	require.True(t, gatesIdle(p), "no gate may be left parked or held")
 }
@@ -107,7 +115,7 @@ func TestCancelApplyGateIsReleasedWhenThereIsNothingToTearDown(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 
 	p.OnCancelApplied(task)
-	require.True(t, p.IsCleanupInProgress("Movies", "shard1"))
+	require.True(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"))
 
 	p.autoCleanupAfterTerminal(task, payload, logger)
 
@@ -127,9 +135,9 @@ func TestCancelConfirmationOutlivesTheBlockingGate(t *testing.T) {
 	p.OnCancelApplied(task)
 	p.autoCleanupAfterTerminal(task, payload, logger)
 
-	require.False(t, p.IsCleanupInProgress("Movies", "shard1"),
+	require.False(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
 		"backups must be admitted again once the teardown is done")
-	require.True(t, p.AnyCleanupInProgressForCollection("Movies"),
+	require.True(t, p.AnyCleanupInProgressForCollection(lifecycleCollection),
 		"the cancel must still be confirmable to the node handling it")
 }
 
@@ -141,13 +149,13 @@ func TestSubmitHoldIsDistinctAndReleases(t *testing.T) {
 	defer cancel()
 	p := lifecycleProvider(t, serverCtx)
 
-	release := p.MarkSubmitInProgress("Movies")
-	require.Equal(t, ReindexHoldSubmit, p.HoldForShard("Movies", "shard1"),
+	release := p.MarkSubmitInProgress(lifecycleCollection)
+	require.Equal(t, ReindexHoldSubmit, p.HoldForShard(lifecycleCollection, "shard1"),
 		"a submission sweep must not be reported as a cancelled migration")
 	require.True(t, p.AnyCleanupInProgress(), "the restore gate must see it too")
 
 	release()
-	require.Equal(t, ReindexHoldNone, p.HoldForShard("Movies", "shard1"))
+	require.Equal(t, ReindexHoldNone, p.HoldForShard(lifecycleCollection, "shard1"))
 	require.True(t, gatesIdle(p))
 }
 
@@ -159,6 +167,11 @@ func TestGateRefcountsBalanceOverManyCycles(t *testing.T) {
 	p := lifecycleProvider(t, serverCtx)
 	logger, _ := logrustest.NewNullLogger()
 
+	// The window's length is not what is under test; that every raise expires
+	// exactly once is. Waiting out the production window costs 15s per run.
+	const confirmWindow = 200 * time.Millisecond
+	p.cancelConfirmWindow = confirmWindow
+
 	const cycles = 50
 	for i := range cycles {
 		task, payload := lifecycleTask(t, "task-soak")
@@ -167,7 +180,7 @@ func TestGateRefcountsBalanceOverManyCycles(t *testing.T) {
 		p.OnCancelApplied(task)
 		p.autoCleanupAfterTerminal(task, payload, logger)
 
-		releaseSubmit := p.MarkSubmitInProgress("Movies")
+		releaseSubmit := p.MarkSubmitInProgress(lifecycleCollection)
 		releaseDrain, err := p.DrainWithCleanupGate(serverCtx, payload, task.TaskDescriptor)
 		require.NoError(t, err)
 		releaseDrain()
@@ -180,7 +193,7 @@ func TestGateRefcountsBalanceOverManyCycles(t *testing.T) {
 		p.cancelAppliedMu.RLock()
 		defer p.cancelAppliedMu.RUnlock()
 		return len(p.cancelSeen) == 0
-	}, reindexCancelConfirmWindow+5*time.Second, 50*time.Millisecond,
+	}, confirmWindow+5*time.Second, 10*time.Millisecond,
 		"the confirmation window must expire rather than accumulate")
 }
 
@@ -199,7 +212,7 @@ func TestCancelApplyGateReleasesWhenTheTeardownRanFirst(t *testing.T) {
 	p.autoCleanupAfterTerminal(task, payload, logger)
 	p.OnCancelApplied(task)
 
-	require.False(t, p.IsCleanupInProgress("Movies", "shard1"),
+	require.False(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
 		"an apply that lost the race to its own teardown has no gap left to cover, "+
 			"so it must not hold the gate until the cap")
 	require.True(t, gatesIdle(p), "no gate may be left parked or held")
@@ -217,13 +230,13 @@ func TestBlockingHoldClearsWithTheTeardownNotTheConfirmationWindow(t *testing.T)
 	logger, _ := logrustest.NewNullLogger()
 
 	p.OnCancelApplied(task)
-	require.True(t, p.BlockingHoldForCollection("Movies"),
+	require.True(t, p.BlockingHoldForCollection(lifecycleCollection),
 		"the teardown is pending, so a restore must be refused")
 
 	p.autoCleanupAfterTerminal(task, payload, logger)
 
-	require.False(t, p.BlockingHoldForCollection("Movies"),
+	require.False(t, p.BlockingHoldForCollection(lifecycleCollection),
 		"the teardown is done, so the restore gate must open with it and not wait out the confirmation window")
-	require.True(t, p.AnyCleanupInProgressForCollection("Movies"),
+	require.True(t, p.AnyCleanupInProgressForCollection(lifecycleCollection),
 		"the confirmation window is unaffected; it is what the cancel handler polls")
 }
