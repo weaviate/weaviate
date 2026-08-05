@@ -139,10 +139,10 @@ func (b *Bucket) LayerMemtablesOverBase(view BucketConsistentView, keys [][]byte
 				}
 				return err
 			}
-			if layer.Deletions != nil && live[i] && layer.Deletions.Contains(docs[i]) {
+			if live[i] && layer.Deletions.Contains(docs[i]) {
 				live[i] = false
 			}
-			if layer.Additions == nil || layer.Additions.IsEmpty() {
+			if layer.Additions.IsEmpty() {
 				continue
 			}
 			id := layer.Additions.Minimum()

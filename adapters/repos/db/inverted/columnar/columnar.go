@@ -286,14 +286,9 @@ type columnarSegment struct {
 // deletion (key → removed docID) as a dels segment. Unlike adds, the dels
 // segment may repeat a key — one flush can retire several docIDs from the same
 // key — so it is a plain sorted (key, docID) pair list, not a lookup table.
-//
-// delDocs carries the same deletions as a flat docID set. Resolution still
-// applies deletions to the whole result rather than per key, which is why the
-// index currently requires each document to own exactly one key.
 type run struct {
-	adds    *columnarSegment
-	dels    *columnarSegment
-	delDocs *sroar.Bitmap
+	adds *columnarSegment
+	dels *columnarSegment
 }
 
 // indexState is the tier set a query resolves against: an immutable base plus
@@ -631,7 +626,6 @@ func (seg *columnarSegment) applyHits(sortedKeys [][]byte, docs []uint64, live [
 func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 	addCol := newSegmentBuilder()
 	delCol := newSegmentBuilder()
-	delDocs := sroar.NewBitmap()
 
 	for k, layer, err := cursor.First(); ; k, layer, err = cursor.Next() {
 		if err != nil {
@@ -640,16 +634,13 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 		if k == nil {
 			break
 		}
-		if layer.Deletions != nil && !layer.Deletions.IsEmpty() {
-			delDocs.Or(layer.Deletions)
-			// one entry per deleted docID: a key can retire several over its
-			// lifetime, and which key they belonged to is what lets the fold and
-			// (later) resolution apply them per key instead of result-wide.
-			for _, d := range layer.Deletions.ToArray() {
-				delCol.append(k, d)
-			}
+		// one entry per deleted docID: a key can retire several over its lifetime,
+		// and which key they belonged to is what lets the fold and resolution
+		// apply a deletion to that key alone rather than to the whole result.
+		for _, d := range layer.Deletions.ToArray() {
+			delCol.append(k, d)
 		}
-		if layer.Additions == nil || layer.Additions.IsEmpty() {
+		if layer.Additions.IsEmpty() {
 			continue
 		}
 		id := layer.Additions.Maximum()
@@ -662,9 +653,8 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 	}
 
 	r := &run{
-		adds:    addCol.segment(),
-		dels:    delCol.segment(),
-		delDocs: delDocs,
+		adds: addCol.segment(),
+		dels: delCol.segment(),
 	}
 	// Publish a state carrying the new run. The runs slice is copied rather than
 	// appended in place so a reader holding the previous state keeps a slice no

@@ -283,9 +283,6 @@ func TestAbsorbFlushKeepsDeletionsKeyed(t *testing.T) {
 	require.Equal(t, 1, r.adds.keys.len(), "only c was added")
 	require.Equal(t, "c", string(r.adds.keys.appendKey(0, nil)))
 	require.Equal(t, uint64(9), r.adds.docs.at(0))
-
-	require.Equal(t, []uint64{3, 5, 7}, r.delDocs.ToArray(),
-		"the flat docID set still carries every deletion")
 }
 
 // TestBuildKeepsHighestDocIDWhenNotUnique pins which document survives when a
