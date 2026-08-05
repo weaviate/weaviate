@@ -12,9 +12,14 @@
 package rest
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // stuckOnProber reports a wedged teardown on exactly one collection, and records
@@ -77,4 +82,43 @@ func TestAnyCleanupInProgressLookupIsScopedByCollection(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The layer above the one the fake covers: which method the wiring CALLS.
+//
+// Driven through a real *db.ReindexProvider on the exported lifecycle, because
+// the fake pins what each method means and would survive a mechanical rename of
+// the call. The discriminator is the window after a teardown finishes: the
+// blocking hold is gone, the confirmation latch is still up for its fixed
+// window, and only one of the two answers correctly.
+func TestAnyCleanupInProgressLookupClearsWithTheTeardown(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	provider := db.NewReindexProvider(nil, nil, logger, "node1",
+		func() int { return 1 }, context.Background())
+
+	// No properties, so the teardown adopts the gate the apply parked and
+	// returns without touching the DB this provider does not have.
+	payload := &db.ReindexTaskPayload{
+		Collection:  "Movies",
+		UnitToShard: map[string]string{"u1": "shard1"},
+	}
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:change-tokenization:body:ab12", Version: 1},
+		Namespace:      db.ReindexNamespace,
+		Status:         distributedtask.TaskStatusCancelled,
+		Payload:        raw,
+	}
+
+	lookup := anyCleanupInProgressLookup(provider)
+
+	provider.OnCancelApplied(task)
+	require.True(t, lookup([]string{"Movies"}),
+		"the teardown is pending, so a restore of this collection must be refused")
+
+	require.NoError(t, provider.OnTaskCompleted(task))
+
+	require.False(t, lookup([]string{"Movies"}),
+		"the teardown is done, so the restore gate must open with it rather than wait out the confirmation window")
 }
