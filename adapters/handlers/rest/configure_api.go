@@ -1011,6 +1011,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 
+		// Runs with the flag on OR off: an orphaned task is a task whose
+		// collection is already gone, so there is nothing left to protect
+		// and nothing to resume — only a stale entry that a same-name
+		// recreation could adopt. Cleaning it up is not reindex work.
+		discardOrphanedReindexTasks(serverShutdownCtx, appState)
+
 		if !appState.ServerConfig.Config.RuntimeReindexEnabled {
 			// Everything below this point is reindex-only: the orphan
 			// audit (which deletes state) and the backup-gate lookups.
@@ -1200,11 +1206,13 @@ func initReindexAndDistributedTasks(
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
 	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
 
+	detectorProviders := detectorProvidersFor(providers, reindexProvider)
+
 	// FSM-deterministic conflict reject (closes the multi-node parallel-submit
 	// race that per-node submit locks cannot cover; see
 	// weaviate/0-weaviate-issues#54 / weaviate/weaviate#10675).
 	conflictDetectors := map[string]distributedtask.ConflictDetector{}
-	for ns, p := range providers {
+	for ns, p := range detectorProviders {
 		if cd, ok := p.(distributedtask.ConflictDetector); ok {
 			conflictDetectors[ns] = cd
 		}
@@ -1212,14 +1220,122 @@ func initReindexAndDistributedTasks(
 	appState.ClusterService.SetDistributedTaskConflictDetectors(conflictDetectors)
 
 	// Symmetric guard in the other direction: protect in-flight tasks from
-	// out-of-band schema mutations.
+	// out-of-band schema mutations (DeleteClass, DeleteTenants,
+	// UpdateProperty).
 	schemaMutationDetectors := map[string]distributedtask.SchemaMutationDetector{}
-	for ns, p := range providers {
+	for ns, p := range detectorProviders {
 		if smd, ok := p.(distributedtask.SchemaMutationDetector); ok {
 			schemaMutationDetectors[ns] = smd
 		}
 	}
 	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
+}
+
+// orphanedReindexTasks returns the live reindex tasks whose collection no
+// longer exists in the schema, paired with the collection name the
+// payload named.
+//
+// A task becomes orphaned when its collection was deleted while the task
+// was live — possible on builds predating the flag-off DeleteClass guard,
+// or on older versions. It is dangerous rather than merely stale because
+// task payloads identify their collection **by name only**: nothing in
+// the payload or descriptor distinguishes the deleted collection from a
+// later one created with the same name, so a recreated collection would
+// adopt the stale task and run its cutover against fresh data.
+//
+// classExists is injected rather than read from a schema manager so the
+// caller controls the schema snapshot, and so this stays a pure function
+// of (tasks, schema).
+func orphanedReindexTasks(
+	tasks []*distributedtask.Task,
+	classExists func(collection string) bool,
+) (orphans []*distributedtask.Task, collections []string) {
+	for _, task := range tasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			// Undecodable payload: we cannot name a collection, so we
+			// cannot prove it is an orphan. Leave it for the operator.
+			continue
+		}
+		if payload.Collection == "" || classExists(payload.Collection) {
+			continue
+		}
+		orphans = append(orphans, task)
+		collections = append(collections, payload.Collection)
+	}
+	return orphans, collections
+}
+
+// discardOrphanedReindexTasks cancels every reindex task whose collection
+// no longer exists, with a WARN naming the task and the collection.
+//
+// Cancelling (rather than leaving it) is what stops a same-name
+// recreation from adopting the task: cancelled is terminal, so the
+// scheduler will not resume it when the flag goes back on. The cancel
+// goes through RAFT, so concurrent attempts from several nodes converge
+// on the same terminal state.
+func discardOrphanedReindexTasks(ctx context.Context, appState *state.State) {
+	if appState.ClusterService == nil || appState.SchemaManager == nil {
+		return
+	}
+	tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
+	if err != nil {
+		appState.Logger.WithField("action", "reindex_orphan_task_discard").
+			Warnf("cannot list distributed tasks; orphaned reindex tasks (if any) stay until the next restart: %v", err)
+		return
+	}
+
+	orphans, collections := orphanedReindexTasks(
+		tasksByNamespace[db.ReindexNamespace],
+		func(collection string) bool {
+			return appState.SchemaManager.ReadOnlyClass(collection) != nil
+		},
+	)
+	for i, task := range orphans {
+		logger := appState.Logger.WithField("action", "reindex_orphan_task_discard").
+			WithField("collection", collections[i]).
+			WithField("task_id", task.ID).
+			WithField("task_version", task.Version)
+		if err := appState.ClusterService.CancelDistributedTask(
+			ctx, db.ReindexNamespace, task.ID, task.Version,
+		); err != nil {
+			logger.Warnf("failed to discard orphaned reindex task; it will be retried on the next restart: %v", err)
+			continue
+		}
+		logger.Warn("discarded a reindex task whose collection no longer exists. " +
+			"Task payloads identify collections by name only, so leaving it would let a collection later " +
+			"created with the same name adopt this task and run its migration against unrelated data.")
+	}
+}
+
+// detectorProvidersFor returns `providers` plus the reindex namespace,
+// which must be present even when RUNTIME_REINDEX_ENABLED left it out of
+// the scheduler's provider map.
+//
+// The detectors built from this map are refusals, not work: they answer
+// "is a reindex task live on this collection?" from the DTM task list,
+// which is cluster state and exists whether or not this node executes
+// reindex work. An empty registry means "allow everything" in
+// [distributedtask.Manager.dispatchSchemaMutation], so dropping the
+// reindex entry does not disable a check — it silently passes one.
+// DeleteClass mid-migration would then be accepted, orphaning a live
+// task that resurrects against a same-name collection once the flag goes
+// back on.
+func detectorProvidersFor(
+	providers map[string]distributedtask.Provider,
+	reindexProvider distributedtask.Provider,
+) map[string]distributedtask.Provider {
+	out := make(map[string]distributedtask.Provider, len(providers)+1)
+	for ns, p := range providers {
+		out[ns] = p
+	}
+	if reindexProvider != nil {
+		out[db.ReindexNamespace] = reindexProvider
+	}
+	return out
 }
 
 // logPausedReindexes names the migrations found on disk that this node is

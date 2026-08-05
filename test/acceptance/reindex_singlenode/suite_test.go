@@ -147,6 +147,11 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testCancelReindex(t, restURI)
 	})
 
+	// --- Subtest 9b: DeleteClass guard + the operator's exit path ---
+	t.Run("DeleteClassBlockedByLiveReindex", func(t *testing.T) {
+		testDeleteClassBlockedByLiveReindex(t, restURI)
+	})
+
 	// --- Subtest 10: Rangeable rebuild ---
 	t.Run("RepairRangeable", func(t *testing.T) {
 		testRepairRangeable(t, restURI)
