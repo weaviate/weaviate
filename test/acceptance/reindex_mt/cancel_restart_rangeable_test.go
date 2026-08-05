@@ -209,11 +209,15 @@ const (
 	// Enough tenants that a partially completed migration is guaranteed to
 	// leave some shards never-started and some in-flight — the two groups
 	// 464 measured — while staying inside the CI wall-clock budget.
-	rangeableFixtureTenants = 16
+	// Progress is reported per unit, so the tenant count is also the
+	// resolution of the dose: at 16 tenants it moved in 6.25% steps and a
+	// 70% dose could be skipped entirely between two polls. 32 keeps the
+	// same total corpus at twice the resolution.
+	rangeableFixtureTenants = 32
 	// Large enough that the migration outlives the poll-then-cancel round
 	// trip. At 150/tenant it finished inside 2s on the pre-fix build and
 	// the cancel came back "task is no longer running".
-	rangeableFixtureObjects = 500
+	rangeableFixtureObjects = 250
 )
 
 // seedRangeableFixture creates an MT collection whose `score` property is
@@ -257,7 +261,7 @@ func seedRangeableFixture(t *testing.T, className string) *rangeableFixture {
 	f := &rangeableFixture{
 		className: className,
 		tenants:   tenants,
-		// score in [0, rangeableFixtureObjects); the band keeps the top 400.
+		// score in [0, rangeableFixtureObjects); the band keeps the top 150.
 		inBand: rangeableFixtureObjects - 100,
 	}
 	f.requireAllTenantsCorrect(t, "baseline, before any migration")
@@ -417,7 +421,7 @@ func awaitReindexProgress(t *testing.T, restURI, className, propName, taskID str
 			}
 		}
 		return false
-	}, 4*time.Minute, 200*time.Millisecond,
+	}, 4*time.Minute, 100*time.Millisecond,
 		"enable-rangeable should reach %.0f%% progress", want*100)
 }
 
