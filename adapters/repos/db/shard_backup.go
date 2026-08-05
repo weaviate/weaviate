@@ -481,7 +481,7 @@ func (s *Shard) resumeOwnerLocked(ctx context.Context, owner string) error {
 			// later attempt would report success on a shard whose maintenance never
 			// restarted. Blast radius of the state being repaired is "one queue or
 			// vector index stays in backup mode", not "compaction stays off":
-			// store.ResumeCompaction cannot fail and the errgroup runs every leg
+			// store.ResumeCompaction cannot fail and the error group runs every leg
 			// regardless of the first error.
 			//
 			// The retry handle has to be this physical flag, not a retained owner
