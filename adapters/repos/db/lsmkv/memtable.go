@@ -75,6 +75,7 @@ type memtable interface {
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
+	newSealedRoaringSetCursor() roaringset.InnerCursor
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	newMapCursor() innerCursorMap
 

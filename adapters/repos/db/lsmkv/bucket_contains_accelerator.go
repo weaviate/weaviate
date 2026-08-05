@@ -131,7 +131,9 @@ func (b *Bucket) absorbFlushIntoAccelerator(flushing memtable) error {
 	if flushing == nil || flushing.Size() == 0 {
 		return nil // nothing was flushed; the swap discards this memtable
 	}
-	if err := acc.resolver.AbsorbFlush(flushing.newRoaringSetCursor()); err != nil {
+	// sealed: the memtable is durable, out of active use and its writers have
+	// drained, so the accelerator reads it without paying for a copy it cannot use
+	if err := acc.resolver.AbsorbFlush(flushing.newSealedRoaringSetCursor()); err != nil {
 		b.containsAcc.Store(nil)
 		return err
 	}
