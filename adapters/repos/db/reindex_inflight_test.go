@@ -672,8 +672,14 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 		shardCount, perShard)
 	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
 	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
-	require.LessOrEqualf(t, len(sample), reindexRefusalShardSample,
-		"the shard list must be capped, or the growth just moves into a log field; got %d", len(sample))
+	// A literal, not the constant the code caps with: asserting the bound
+	// against itself cannot fail, so raising the constant to 100000 would keep
+	// this green while 60 names went into the field. The number is deliberately
+	// duplicated — that duplication is what makes the assertion able to fail.
+	const wantSampleCap = 10
+	require.LessOrEqualf(t, len(sample), wantSampleCap,
+		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
+		wantSampleCap, len(sample))
 }
 
 // The single-shard callers are where naming the shard IS the report, so moving
