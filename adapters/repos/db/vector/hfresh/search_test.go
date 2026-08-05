@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func TestSearchTreatsPartiallyInitializedDimensionsAsEmptyIndex(t *testing.T) {
@@ -206,4 +208,108 @@ func TestSearchCosineDistanceRescore(t *testing.T) {
 			"result %d (id=%d): returned distance %f != expected cosine distance %f",
 			i, id, dists[i], expected)
 	}
+}
+
+// searchMarker tags contexts issued by the tests below so the instrumented
+// VectorForIDThunk only counts fetches belonging to our search calls, not
+// fetches from background split/reassign workers.
+type searchMarker struct{}
+
+func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	dims := 32
+	n := 300
+	vectors, queries := testinghelpers.RandomVecs(n, 1, dims)
+
+	var cur, maxSeen atomic.Int64
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
+			if ctx.Value(searchMarker{}) != nil {
+				c := cur.Add(1)
+				for {
+					m := maxSeen.Load()
+					if c <= m || maxSeen.CompareAndSwap(m, c) {
+						break
+					}
+				}
+				time.Sleep(500 * time.Microsecond) // force worker overlap
+				cur.Add(-1)
+			}
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[id], nil
+		})
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
+	}
+
+	searchCtx := context.WithValue(t.Context(), searchMarker{}, true)
+	query := queries[0]
+
+	// no budget in ctx: fan-out up to 2*GOMAXPROCS allowed
+	cur.Store(0)
+	maxSeen.Store(0)
+	idsFree, distsFree, err := index.SearchByVector(searchCtx, query, 10, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, idsFree)
+	t.Logf("no budget: max concurrent rescore fetches = %d", maxSeen.Load())
+	require.Greater(t, maxSeen.Load(), int64(1),
+		"rescore fetches must overlap when no budget caps them")
+
+	// budget = 1: rescore must be serial
+	cur.Store(0)
+	maxSeen.Store(0)
+	budgetCtx := concurrency.CtxWithBudget(searchCtx, 1)
+	idsBudget, distsBudget, err := index.SearchByVector(budgetCtx, query, 10, nil)
+	require.NoError(t, err)
+	t.Logf("budget=1: max concurrent rescore fetches = %d", maxSeen.Load())
+	require.Equal(t, int64(1), maxSeen.Load(),
+		"a budget of 1 must serialize the rescore")
+
+	// identical inputs must produce identical results either way
+	require.Equal(t, idsFree, idsBudget)
+	require.Equal(t, distsFree, distsBudget)
+}
+
+func TestRescoreSkipsCandidatesDeletedMidQuery(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	dims := 32
+	n := 100
+	vectors, _ := testinghelpers.RandomVecs(n, 1, dims)
+	const deletedID = uint64(5)
+
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
+			// simulate a deletion the index has not processed yet: the full
+			// vector is gone from the object store, but only for our search
+			// (background workers still see it, keeping the index intact)
+			if id == deletedID && ctx.Value(searchMarker{}) != nil {
+				return nil, storobj.NewErrNotFoundf(id, "deleted mid-query")
+			}
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[id], nil
+		})
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
+	}
+
+	// querying with the deleted vector itself guarantees it is a rescore
+	// candidate; the search must skip it without failing
+	searchCtx := context.WithValue(t.Context(), searchMarker{}, true)
+	ids, _, err := index.SearchByVector(searchCtx, vectors[deletedID], 10, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ids)
+	require.NotContains(t, ids, deletedID,
+		"a candidate whose vector vanished mid-query must be dropped, not returned")
 }
