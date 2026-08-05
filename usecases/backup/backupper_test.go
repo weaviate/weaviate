@@ -912,10 +912,9 @@ func TestResolveBaseBackupChain(t *testing.T) {
 	}
 }
 
-// runParticipantBackup wires the participant mocks a reindex-refusal test
-// needs, drives one backup to completion and returns the stored meta. The
-// request duration is an hour so the pre-commit window never expires under a
-// loaded CI machine.
+// runParticipantBackup wires the participant mocks, drives a backup to
+// completion, and returns the stored meta. Duration is an hour so the
+// pre-commit window can't expire under CI load.
 func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
 	classes []string, sourcePath string, descs ...backup.ClassDescriptor,
 ) (backup.Status, string) {
