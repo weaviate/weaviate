@@ -925,6 +925,105 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 	}
 }
 
+// deferringEpochTask is epochTask that also recorded shards the round did not
+// cover — what a round leaves behind when a tenant was inactive at enqueue.
+func deferringEpochTask(t *testing.T, collection, id, epoch string, version uint64,
+	status distributedtask.TaskStatus, unitShards, deferred []string,
+) *distributedtask.Task {
+	t.Helper()
+	task := epochTask(t, collection, id, epoch, version, status, unitShards, nil)
+	var p db.DropVectorIndexTaskPayload
+	require.NoError(t, json.Unmarshal(task.Payload, &p))
+	p.DeferredShards = deferred
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	task.Payload = b
+	return task
+}
+
+// TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean
+// pins the tenant-deletion path: round one cleaned the hot tenants and
+// recorded owing the cold one; deleting that tenant leaves the recorded
+// coverage spanning every shard that still exists, so the drop finalizes on it
+// instead of minting a fresh epoch and re-stripping shards already clean.
+func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+		db.DropVectorIndexNamespace: {
+			deferringEpochTask(t, "C", "t1", "E1", 1,
+				distributedtask.TaskStatusFinished, []string{"s1", "s2"}, []string{"s3"}),
+		},
+	}}
+	// s3 deleted since round one.
+	state := &fakeShardingState{
+		state:     shardingState(true, map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")}),
+		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+	}
+	finalizer := &fakeEnqueuerFinalizer{}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.Empty(t, cluster.gotTaskID,
+		"no cleanup round may be enqueued: every remaining shard is already clean")
+	require.Equal(t, [][]string{{"v1"}}, finalizer.calls,
+		"the marker must be removed on the recorded coverage")
+}
+
+// TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead is the
+// safety twin: the same complete-coverage shape, but the chain owed nothing.
+// That is indistinguishable from a finalized drop's residue beside a
+// re-created name's marker, so it must re-clean rather than finalize.
+func TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+		db.DropVectorIndexNamespace: {
+			epochTask(t, "C", "t1", "E1", 1,
+				distributedtask.TaskStatusFinished, []string{"s1", "s2"}, nil),
+		},
+	}}
+	state := &fakeShardingState{
+		state:     shardingState(true, map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")}),
+		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+	}
+	finalizer := &fakeEnqueuerFinalizer{}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.Empty(t, finalizer.calls, "a chain that owed nothing must never finalize a standing marker")
+	p := decodeEnqueuedPayload(t, cluster)
+	require.NotEqual(t, "E1", p.DropEpochID, "closed-epoch residue starts a fresh epoch")
+	require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2"}, p.UnitToShard)
+}
+
+// TestEnqueueDropVectorIndex_RecordsDeferredShards pins that a round writes
+// down what it did not cover; without it a later round cannot tell a deleted
+// tenant's vanished work from a chain that owed nothing.
+func TestEnqueueDropVectorIndex_RecordsDeferredShards(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cold := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusCOLD, BelongsToNodes: nodes}
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{}}
+	state := &fakeShardingState{
+		state: shardingState(true, map[string]sharding.Physical{
+			"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1"), "s4": cold("n1"),
+		}),
+		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+	}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	p := decodeEnqueuedPayload(t, cluster)
+	require.Equal(t, []string{"s3", "s4"}, p.DeferredShards,
+		"the cold tenants are the work this round still owes")
+}
+
 // TestEnqueueDropVectorIndex_BatchesLargeCollections pins the round cap: a
 // collection above maxShardsPerDropRound gets units only for the first
 // (sorted) batch; the rest chains through follow-up rounds via CleanedShards

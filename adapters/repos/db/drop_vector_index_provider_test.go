@@ -1613,6 +1613,74 @@ func finishedDropTaskCovering(id, collection string, shards []string, targets ..
 	}
 }
 
+// deferringDropTaskCovering is finishedDropTaskCovering that also recorded
+// shards the round did not cover — the shape a round leaves behind when a
+// tenant was inactive at enqueue.
+func deferringDropTaskCovering(id, collection string, shards, deferred []string,
+	targets ...string,
+) *distributedtask.Task {
+	task := finishedDropTaskCovering(id, collection, shards, targets...)
+	payload, err := DecodeDropVectorIndexTaskPayload(task.Payload)
+	if err != nil {
+		panic(err)
+	}
+	payload.DeferredShards = deferred
+	enc, err := payload.encode()
+	if err != nil {
+		panic(err)
+	}
+	task.Payload = enc
+	return task
+}
+
+// TestCheckVectorConfigRemoval_DeletionResolvedVoucher pins the one case where
+// a terminal record may remove a marker: it covers every shard that still
+// exists AND it recorded owing a shard that has since been deleted, so the
+// outstanding cleanup has nowhere left to happen. The neighbouring rows keep
+// the stale-record protection honest — full coverage alone never vouches,
+// because a finalized drop's residue also has full coverage.
+func TestCheckVectorConfigRemoval_DeletionResolvedVoucher(t *testing.T) {
+	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+
+	t.Run("deferred tenant deleted: the recorded coverage vouches", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+			[]*distributedtask.Task{
+				deferringDropTaskCovering("t1", "C", []string{"s1", "s2"}, []string{"s3"}, "v1"),
+			})
+		require.NoError(t, err)
+	})
+
+	t.Run("owed nothing: closed-epoch residue is still refused", func(t *testing.T) {
+		// The dangerous shape: a previous drop finalized (so it owed nothing)
+		// and its record outlived the re-created name's new marker.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+			[]*distributedtask.Task{
+				deferringDropTaskCovering("t1", "C", []string{"s1", "s2"}, nil, "v1"),
+			})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "only the completing cleanup task")
+	})
+
+	t.Run("owed shard still exists: refused", func(t *testing.T) {
+		// s3 is uncleaned and still there — the marker is legitimately held.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
+			[]*distributedtask.Task{
+				deferringDropTaskCovering("t1", "C", []string{"s1", "s2"}, []string{"s3"}, "v1"),
+			})
+		require.Error(t, err)
+	})
+
+	t.Run("deleted owed shard but coverage incomplete: refused", func(t *testing.T) {
+		// s4 was never covered and still exists, so the drop is not done even
+		// though s3 went away.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s4"},
+			[]*distributedtask.Task{
+				deferringDropTaskCovering("t1", "C", []string{"s1"}, []string{"s3"}, "v1"),
+			})
+		require.Error(t, err)
+	})
+}
+
 func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 

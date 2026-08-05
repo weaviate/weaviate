@@ -196,7 +196,25 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		return nil
 	}
 
-	epoch, cleaned := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
+	epoch, cleaned, finalizeNow := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
+	if finalizeNow {
+		// The chain covers every shard that still exists, and what it owed went
+		// away with a deleted tenant. Re-cleaning here would rewrite every
+		// segment of shards that are already stripped, so remove the entries on
+		// the recorded coverage instead. The FSM removal gate accepts the same
+		// proof (ResolvedByShardDeletion), so this cannot propose a removal the
+		// apply would refuse.
+		if e.finalizer == nil {
+			return fmt.Errorf("drop-vector enqueue: collection %q has a complete cleanup chain but no finalizer is wired; cannot remove the dropped vector entries", collection)
+		}
+		if err := e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets); err != nil {
+			return fmt.Errorf("drop-vector enqueue: finalize collection %q on recorded coverage: %w", collection, err)
+		}
+		e.logInfo(collection, fmt.Sprintf(
+			"drop-vector enqueue: every remaining shard is covered and the uncleaned ones were deleted; "+
+				"removed dropped vector entries %v without re-cleaning", targets))
+		return nil
+	}
 	shardOwnership = withoutCleanedShards(shardOwnership, cleaned)
 	shardOwnership, deferredShards := capShardOwnership(shardOwnership, maxShardsPerDropRound)
 	if deferredShards > 0 {
@@ -233,11 +251,12 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		// (HasPendingSnapshot) and load-time recovery preserves progress. A
 		// fresh epoch (new drop of a re-created name, expired records) means
 		// a fresh op and a full clean.
-		OpID:          epoch,
-		UnitToNode:    unitToNode,
-		UnitToShard:   unitToShard,
-		DropEpochID:   epoch,
-		CleanedShards: cleaned,
+		OpID:           epoch,
+		UnitToNode:     unitToNode,
+		UnitToShard:    unitToShard,
+		DropEpochID:    epoch,
+		CleanedShards:  cleaned,
+		DeferredShards: deferredShardNames(state, unitToShard, cleaned),
 	}
 
 	// Fresh task ID per submission so a re-trigger after a FAILED run is a new
@@ -299,6 +318,30 @@ func capShardOwnership(ownership map[string][]string, max int) (map[string][]str
 		}
 	}
 	return capped, len(names) - max
+}
+
+// deferredShardNames lists the shards that existed at this enqueue and that this
+// round does not cover — inactive tenants, and anything past the round cap.
+// Recorded so a later round can tell "the drop still owed this shard, and the
+// shard is gone now" from "the chain owed nothing", which decides whether a
+// complete chain may finalize or must re-clean (see
+// DropVectorIndexTaskPayload.ResolvedByShardDeletion).
+func deferredShardNames(state *sharding.State, unitToShard map[string]string, cleaned []string) []string {
+	covered := make(map[string]struct{}, len(unitToShard)+len(cleaned))
+	for _, shard := range unitToShard {
+		covered[shard] = struct{}{}
+	}
+	for _, shard := range cleaned {
+		covered[shard] = struct{}{}
+	}
+	deferred := make([]string, 0, len(state.Physical))
+	for shard := range state.Physical {
+		if _, ok := covered[shard]; !ok {
+			deferred = append(deferred, shard)
+		}
+	}
+	sort.Strings(deferred) // deterministic payload
+	return deferred
 }
 
 // withoutCleanedShards strips already-cleaned shards from the ownership map,
