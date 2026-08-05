@@ -1377,9 +1377,19 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	if !known || len(indexTypesToClean) == 0 {
 		indexTypesToClean = []string{indexType}
 	}
+	// Detached from the request, like the rollback and for a stronger reason:
+	// this is the only writer that removes the sidecars, and the gate released
+	// below reports the shard clean. A client disconnecting mid-sweep used to
+	// abort it with buckets deregistered and started.mig still on disk, and the
+	// gate then said clean anyway — a backup admitted right after would capture
+	// exactly the half-removed state the gate exists to prevent.
+	cleanupCtx, cancelCleanup := context.WithTimeout(
+		context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
+	defer cancelCleanup()
+
 	var cleanupErrs []error
 	for _, it := range indexTypesToClean {
-		if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
+		if err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, it); err != nil {
 			cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
 		}
 	}
@@ -1392,6 +1402,11 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	}
 	return releaseGate
 }
+
+// reindexCancelCleanupTimeout bounds the on-disk sweep once it is detached from
+// the request. Generous: it is bucket teardown across every strategy the
+// migration touched, and abandoning it half-done is the failure being fixed.
+const reindexCancelCleanupTimeout = 2 * time.Minute
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
 // cancel handler emits when there is nothing to cancel. Lets scripts
