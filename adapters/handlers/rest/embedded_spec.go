@@ -6590,12 +6590,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
@@ -16879,12 +16881,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
