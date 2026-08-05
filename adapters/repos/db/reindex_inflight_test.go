@@ -467,6 +467,80 @@ func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
 	assert.Contains(t, live, "cancel it via")
 }
 
+// unknownReindexHold stands in for a hold kind added to the enum after this
+// build shipped. Derived from the last named constant so it stays out of range
+// as the enum grows.
+const unknownReindexHold = ReindexHoldSubmit + 1
+
+// The node-local hold lookup decides admission, so its unknown arm must fail
+// closed: a hold this build cannot classify still means something is holding
+// the shard.
+func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
+	tests := []struct {
+		name       string
+		hold       ReindexHold
+		wantReason reindexBlockReason
+		wantRefuse bool
+	}{
+		{name: "no hold admits", hold: ReindexHoldNone, wantReason: reindexNotBlocked},
+		{name: "cleanup refuses", hold: ReindexHoldCleanup, wantReason: reindexBlockedByCleanup, wantRefuse: true},
+		{name: "submit refuses", hold: ReindexHoldSubmit, wantReason: reindexBlockedBySubmit, wantRefuse: true},
+		{name: "unknown hold refuses", hold: unknownReindexHold, wantReason: reindexBlockedByUnknownHold, wantRefuse: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			db := &DB{logger: logger}
+			db.SetShardReindexActivityLookup(makeActivityBuilder(nil))
+			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+				return func(string, string) ReindexHold { return test.hold }
+			})
+
+			assert.Equal(t, test.wantReason, db.reindexBlockReason("MyClass", "shard1"))
+
+			idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName("MyClass")}}
+			err := idx.refuseIfReindexInFlight("shard1")
+			if !test.wantRefuse {
+				require.NoError(t, err, "backup must be admitted")
+				return
+			}
+			require.Error(t, err, "backup must be refused")
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+		})
+	}
+}
+
+// An unknown hold is neither a cancelled migration nor a submission, so it must
+// not borrow either one's advice.
+func TestReindexInFlightError_UnknownHold(t *testing.T) {
+	body := reindexInFlightError("MyClass", reindexBlockedByUnknownHold).Error()
+
+	assert.Contains(t, body, "MyClass")
+	assert.Contains(t, body, "does not recognize")
+	assert.NotContains(t, body, "cancelled migration")
+	assert.NotContains(t, body, "reindex submission")
+	assert.NotContains(t, body, "cancel it via")
+}
+
+// The unknown-hold WARN names the offending value and is rate limited: the gate
+// runs per shard, and the condition persists until someone ships a fix.
+func TestWarnUnknownReindexHold_RateLimited(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	sampler := logrusext.NewSampler(logger, 1, time.Hour)
+
+	for range 5 {
+		warnUnknownReindexHold(sampler, logger, unknownReindexHold)
+	}
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1, "the unknown-hold WARN must be rate limited, not repeated per shard checked")
+	assert.Equal(t, logrus.WarnLevel, entries[0].Level)
+	assert.Equal(t, "backup_reindex_gate", entries[0].Data["action"])
+	assert.Equal(t, int(unknownReindexHold), entries[0].Data["hold"], "the WARN must name the unrecognised value")
+	assert.Contains(t, entries[0].Message, "unrecognised ReindexHold value")
+}
+
 // The gate composes its refusal to name no node and no shard, and that property
 // is what the coordinator trusts when it republishes the text into a 422 body.
 // Joining it with an error that DOES name a node keeps the sentinel reachable,

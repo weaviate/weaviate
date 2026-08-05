@@ -47,6 +47,27 @@ func warnUnwiredReindexGate(sampler *logrusext.Sampler, logger logrus.FieldLogge
 	})
 }
 
+// unknownHoldWarnSampler rate-limits the WARN for a [ReindexHold] value this
+// build does not recognise. See [unwiredGateWarnSampler] for why the line
+// repeats hourly rather than firing once: the condition is a code defect that
+// persists until someone ships a fix, and it must not repeat per shard checked.
+var unknownHoldWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
+
+// warnUnknownReindexHold reports a hold kind the gate cannot classify. Takes
+// the sampler as an argument for the same reason [warnUnwiredReindexGate] does.
+func warnUnknownReindexHold(sampler *logrusext.Sampler, logger logrus.FieldLogger, hold ReindexHold) {
+	sampler.WithSampling(func(l logrus.FieldLogger) {
+		if logger != nil {
+			l = logger
+		}
+		l.WithField("action", "backup_reindex_gate").
+			WithField("hold", int(hold)).
+			Warn("backup-reindex gate: refusing — unrecognised ReindexHold value. " +
+				"A hold kind was added to the enum without teaching the backup gate about it; " +
+				"add the missing case in reindexBlockReasonIn.")
+	})
+}
+
 // reindexBlockReason says which gate refused, so the refusal can give advice
 // that matches: a cancelled task mid-teardown must not be described as one the
 // operator can still cancel.
@@ -58,6 +79,9 @@ const (
 	reindexBlockedByCleanup
 	reindexBlockedBySubmit
 	reindexBlockedPreWire
+	// reindexBlockedByUnknownHold is the fail-closed answer for a
+	// [ReindexHold] the gate cannot classify; see [reindexBlockReasonIn].
+	reindexBlockedByUnknownHold
 )
 
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
@@ -146,7 +170,9 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 	if snap.cleanup == nil {
 		return reindexNotBlocked
 	}
-	switch snap.cleanup(collection, shardName) {
+	switch hold := snap.cleanup(collection, shardName); hold {
+	case ReindexHoldNone:
+		return reindexNotBlocked
 	case ReindexHoldCleanup:
 		if db.logger != nil {
 			db.logger.WithField("action", "backup_reindex_gate").
@@ -165,9 +191,15 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 				Debug("backup-reindex gate: refusing — a reindex submission is sweeping stale sidecars on this shard")
 		}
 		return reindexBlockedBySubmit
-	case ReindexHoldNone:
+	default:
+		// Fail closed. Every arm above answers a hold this build knows how to
+		// classify; anything else means the enum grew a kind the gate was never
+		// taught, and guessing "not held" would admit a backup over a shard some
+		// other operation is actively holding. Same direction as
+		// [IsLiveReindexTaskStatus] on an unrecognised DTM status.
+		warnUnknownReindexHold(unknownHoldWarnSampler, db.logger, hold)
+		return reindexBlockedByUnknownHold
 	}
-	return reindexNotBlocked
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
@@ -246,6 +278,15 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 		// does not exist.
 		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
 			"%s: collection %q: a reindex submission is preparing this collection; retry in a moment",
+			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
+		)}
+	case reindexBlockedByUnknownHold:
+		// The gate knows the shard is held but not by what, so the text promises
+		// nothing it cannot back: no cancelled migration, no submission, and no
+		// duration estimate. The diagnosis is a server-side defect, which is what
+		// the log line in [reindexBlockReasonIn] carries.
+		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+			"%s: collection %q is held by a reindex operation this server build does not recognize; retry, and report this to Weaviate if it persists",
 			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
 		)}
 	case reindexBlockedByCleanup:
