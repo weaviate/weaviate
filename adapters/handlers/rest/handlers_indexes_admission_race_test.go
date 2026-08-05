@@ -125,12 +125,17 @@ func (p togglingProber) NodeActivity(context.Context, string) (backup.NodeActivi
 	return backup.NodeActivity{}, nil
 }
 
-func raceHandlers(t *testing.T, tasks reindexTaskService, prober nodeActivityProber) *indexesHandlers {
+// fixtureNode is the single node submissionHandlers puts in the cluster.
+const fixtureNode = "node1"
+
+// submissionHandlers builds the handler the submission path runs against: one
+// collection with one filterable text property, owned by one node.
+func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActivityProber) *indexesHandlers {
 	t.Helper()
 	const (
 		collection = "Movies"
 		property   = "title"
-		node       = "node1"
+		node       = fixtureNode
 	)
 
 	logger := logrus.New()
@@ -211,7 +216,7 @@ func TestUpdateIndexAdmissionRaceAgainstBackup(t *testing.T) {
 				svc.onCommitted = func() { busy.Store(true) }
 			}
 
-			h := raceHandlers(t, svc, togglingProber{busy: &busy})
+			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
 			responder := submitReindex(h)
 
 			if tc.claimAt == "never" {
@@ -250,7 +255,7 @@ func TestUpdateIndexRefusedByRaceIsRetryable(t *testing.T) {
 	svc := &raceTaskService{}
 	svc.onCommitted = func() { busy.Store(true) }
 
-	h := raceHandlers(t, svc, togglingProber{busy: &busy})
+	h := submissionHandlers(t, svc, togglingProber{busy: &busy})
 
 	first := submitReindex(h)
 	_, refused := first.(*schema.SchemaObjectsIndexesUpdateConflict)
