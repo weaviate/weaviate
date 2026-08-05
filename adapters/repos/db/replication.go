@@ -56,6 +56,30 @@ var (
 	_ replicaPreparer = (*LazyLoadShard)(nil)
 )
 
+// shardChangeLogger is the replica-movement change-capture surface of a shard,
+// kept off ShardLike so general shard users and the mock do not carry it.
+type shardChangeLogger interface {
+	// ActivateChangeLog registers a change-capture log under opID and returns
+	// it for in-process callers.
+	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
+	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
+	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
+	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
+	// seals the log and returns the final LSN. Tailers drain to finalLSN
+	// and EOF.
+	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
+	// StopChangeCapture unregisters and deactivates the log without sealing.
+	StopChangeCapture(ctx context.Context, opID string) error
+	// GetChangeLog returns the active log for opID, or (nil, false) if none.
+	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
+}
+
+// Makes a dropped change-log method a build failure rather than a runtime miss in withShardForChangeLog.
+var (
+	_ shardChangeLogger = (*Shard)(nil)
+	_ shardChangeLogger = (*LazyLoadShard)(nil)
+)
+
 func (db *DB) ReplicateObject(ctx context.Context, class,
 	shard, requestID string, object *storobj.Object,
 	schemaVersion uint64,
@@ -529,7 +553,14 @@ func (i *Index) withShardForChangeLog(ctx context.Context, shardName string, for
 	if shard == nil { // only without forceInit
 		return false, nil
 	}
-	return true, f(shard)
+
+	// Always succeeds in production per the assertions above; MockShardLike
+	// does not implement it, so tests driving capture through a mock land here.
+	cl, ok := shard.(shardChangeLogger)
+	if !ok {
+		return false, fmt.Errorf("shard %q does not implement shardChangeLogger", shardName)
+	}
+	return true, f(cl)
 }
 
 // errShardNotLoaded reports a change-log request for a shard this node does not
