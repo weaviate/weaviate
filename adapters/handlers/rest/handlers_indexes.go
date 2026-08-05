@@ -1129,9 +1129,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
 		releaseGate, drainErr := h.appState.ReindexProvider.DrainWithCleanupGate(
 			drainCtx, &targetPayload, target.TaskDescriptor)
-		defer releaseGate()
 		drainCancel()
 		if drainErr != nil {
+			// The gate outlives this request rather than the deferred release
+			// dropping it over a still-writing worker; see
+			// [db.ReindexProvider.ReleaseCleanupGateOnWorkerExit].
+			h.appState.ReindexProvider.ReleaseCleanupGateOnWorkerExit(
+				target.TaskDescriptor, releaseGate, h.appState.Logger)
 			h.appState.Logger.WithFields(logrus.Fields{
 				"taskID":     target.ID,
 				"collection": collection,
@@ -1139,6 +1143,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"index_type": indexType,
 			}).Errorf("cancel: timed out waiting for local reindex goroutine to drain (%v); skipping inline cleanup — next submit will retry", drainErr)
 		} else {
+			defer releaseGate()
 			h.appState.Logger.WithFields(logrus.Fields{
 				"taskID":     target.ID,
 				"collection": collection,
