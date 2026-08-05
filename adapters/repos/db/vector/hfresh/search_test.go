@@ -313,3 +313,49 @@ func TestRescoreSkipsCandidatesDeletedMidQuery(t *testing.T) {
 	require.NotContains(t, ids, deletedID,
 		"a candidate whose vector vanished mid-query must be dropped, not returned")
 }
+
+func TestRescoreTieBreakingIsDeterministic(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	// 30 exact duplicates of the query vector (ids 0-29) followed by 70
+	// distinct vectors: the top-k boundary falls inside a 30-way distance
+	// tie, so which ids are returned depends entirely on tie handling.
+	dims := 32
+	n := 100
+	const dupes = 30
+	vectors, _ := testinghelpers.RandomVecs(n, 1, dims)
+	for i := 1; i < dupes; i++ {
+		vectors[i] = vectors[0]
+	}
+
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[id], nil
+		})
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
+	}
+
+	// tie handling must not depend on worker scheduling or the budget:
+	// every run over the same index must return the same ids
+	ctx := t.Context()
+	first, _, err := index.SearchByVector(ctx, vectors[0], 10, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, first)
+
+	for range 5 {
+		again, _, err := index.SearchByVector(ctx, vectors[0], 10, nil)
+		require.NoError(t, err)
+		require.Equal(t, first, again, "rescore tie-breaking drifted between runs")
+	}
+
+	serial, _, err := index.SearchByVector(concurrency.CtxWithBudget(ctx, 1), vectors[0], 10, nil)
+	require.NoError(t, err)
+	require.Equal(t, first, serial, "budget must not change tie handling")
+}
