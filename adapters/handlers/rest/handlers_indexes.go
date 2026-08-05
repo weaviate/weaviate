@@ -851,9 +851,19 @@ func (h *indexesHandlers) awaitOneOwnerCleanupGate(ctx context.Context, node, co
 // holding a goroutine.
 const reindexRollbackTimeout = 10 * time.Second
 
+// reindexRollbackAttempts bounds the rollback retry. A cancel that fails three
+// times in a row is failing for a reason a fourth will not fix.
+const reindexRollbackAttempts = 3
+
 // rollbackRacedReindexTask cancels a task committed into a backup that
-// claimed the same slot. Failures are only logged: the caller's 409 already
-// stands, and the backup's own commit-time check is the backstop.
+// claimed the same slot.
+//
+// The caller has already been told 409, so a rollback that never lands leaves a
+// migration running that its submitter believes was refused. It is retried, and
+// a final failure is logged at Error under its own audit event so the state is
+// findable. Escalating further is not available: the response is long gone, and
+// leaving the task is safer than any blind second cancel — the backup side's
+// commit-time overlap check still refuses to publish a backup that spans it.
 //
 // The rollback deliberately does not run on the request context. A client
 // disconnect is itself one of the inputs that makes the second probe report
@@ -870,25 +880,43 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reindexRollbackTimeout)
 	defer cancel()
 
+	var lastErr error
+	for attempt := 1; attempt <= reindexRollbackAttempts; attempt++ {
+		done, err := h.tryRollbackRacedReindexTask(ctx, taskID, fields)
+		if done {
+			return
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	h.appState.Logger.WithFields(fields).WithField("audit_event", "reindex_task_rollback_failed").Errorf(
+		"rollback: could not cancel the task in %d attempts: %v; it is still running while its submitter was told the "+
+			"submission was refused — cancel it by hand", reindexRollbackAttempts, lastErr)
+}
+
+// tryRollbackRacedReindexTask makes one rollback attempt. done is true when
+// there is nothing left to do, whether it cancelled the task or found it gone.
+func (h *indexesHandlers) tryRollbackRacedReindexTask(
+	ctx context.Context, taskID string, fields logrus.Fields,
+) (bool, error) {
 	tasks, err := h.tasks.ListDistributedTasks(ctx)
 	if err != nil {
-		h.appState.Logger.WithFields(fields).Errorf(
-			"rollback: cannot list tasks to find the one to cancel: %v; it may still run against a live backup", err)
-		return
+		return false, fmt.Errorf("listing tasks: %w", err)
 	}
 	for _, task := range tasks[db.ReindexNamespace] {
 		if task.ID != taskID {
 			continue
 		}
 		if err := h.tasks.CancelDistributedTask(ctx, task.Namespace, task.ID, task.Version); err != nil {
-			h.appState.Logger.WithFields(fields).Errorf(
-				"rollback: cancelling the task failed: %v; it may still run against a live backup", err)
-			return
+			return false, fmt.Errorf("cancelling: %w", err)
 		}
 		h.appState.Logger.WithFields(fields).Info("rollback: cancelled a reindex task that raced a backup claim")
-		return
+		return true, nil
 	}
 	h.appState.Logger.WithFields(fields).Warn("rollback: the task was already gone")
+	return true, nil
 }
 
 // backupActivityScanTimeout bounds the cluster fan-out so one hung node cannot hang the PUT.
