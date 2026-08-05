@@ -22,6 +22,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -66,6 +67,20 @@ type Manager struct {
 
 	// Per-namespace cancel-apply observers; see [CancelObserver].
 	cancelObservers map[string]CancelObserver
+	// cancelDispatch carries cancelled tasks from the apply path to the single
+	// drainer goroutine that calls the observers. See
+	// [Manager.dispatchCancelWithLock] for why they do not run inline.
+	cancelDispatch chan *Task
+	// cancelDispatchDone is closed by [Manager.Close] to stop the drainer.
+	cancelDispatchDone chan struct{}
+	// cancelDispatchCtx is the second stop signal, so a server shutdown that
+	// never reaches Close still takes the drainer down.
+	cancelDispatchCtx context.Context
+	// cancelDrainerRunning keeps the drainer to exactly one goroutine across
+	// repeated registrations. Guarded by mu.
+	cancelDrainerRunning bool
+	// cancelDispatchClosed makes Close idempotent. Guarded by mu.
+	cancelDispatchClosed bool
 
 	completedTaskTTL time.Duration
 
@@ -212,17 +227,27 @@ type ManagerParameters struct {
 	CompletedTaskTTL time.Duration
 
 	Logger logrus.FieldLogger
+
+	// Ctx bounds the cancel-observer drainer. Defaults to context.Background(),
+	// in which case only [Manager.Close] stops it.
+	Ctx context.Context
 }
 
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
 	}
+	if params.Ctx == nil {
+		params.Ctx = context.Background()
+	}
 
 	return &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
 		cancelObservers:      make(map[string]CancelObserver),
+		cancelDispatch:       make(chan *Task, cancelDispatchQueueDepth),
+		cancelDispatchDone:   make(chan struct{}),
+		cancelDispatchCtx:    params.Ctx,
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -244,7 +269,8 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 }
 
 // RegisterCancelObserver installs the namespace's [CancelObserver]. Last write
-// wins per namespace; nil / empty arguments are silently dropped.
+// wins per namespace; nil / empty arguments are silently dropped. Starts the
+// drainer that runs the observers, so registering is what opens the queue.
 func (m *Manager) RegisterCancelObserver(namespace string, observer CancelObserver) {
 	if namespace == "" || observer == nil {
 		return
@@ -252,6 +278,128 @@ func (m *Manager) RegisterCancelObserver(namespace string, observer CancelObserv
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cancelObservers[namespace] = observer
+	m.startCancelDrainerWithLock()
+}
+
+// Close stops the cancel-observer drainer. Idempotent. Anything still queued is
+// dropped: the signal observers raise is only ever read by another node in the
+// same cluster, and on the way down there is no longer anyone to read it.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cancelDispatchClosed {
+		return
+	}
+	m.cancelDispatchClosed = true
+	close(m.cancelDispatchDone)
+}
+
+// cancelDispatchQueueDepth is how many cancel events the apply path may hand to
+// the drainer before it has to fan one out on its own goroutine. Cancels are
+// operator-driven and the drainer only forwards, so a queue this deep can only
+// fill if an observer has wedged.
+const cancelDispatchQueueDepth = 256
+
+// cancelObserverStaleAfter is how old a cancel may be and still be worth
+// telling an observer about.
+//
+// Observers exist to make a JUST-applied cancel observable to a request that is
+// waiting on it, and both signals the reindex observer raises expire on their
+// own inside a minute. A node catching up on the RAFT log applies cancels that
+// finished long ago; without this bound each one would raise a gate that
+// nothing can release except its timeout, so a restart costs a stretch of
+// refused backups and an error line per replayed cancel.
+//
+// Measured against the FinishedAt the proposing node stamped, which is the same
+// cross-node clock comparison [Manager.CleanUpTask] already makes. A clock more
+// than this far out of step skips the observer, and the request-scoped
+// confirmation it feeds is already unusable at that skew.
+const cancelObserverStaleAfter = time.Minute
+
+// startCancelDrainerWithLock brings up the single goroutine that runs cancel
+// observers. Caller holds m.mu.
+func (m *Manager) startCancelDrainerWithLock() {
+	if m.cancelDrainerRunning {
+		return
+	}
+	m.cancelDrainerRunning = true
+
+	queue, done, ctx := m.cancelDispatch, m.cancelDispatchDone, m.cancelDispatchCtx
+	enterrors.GoWrapper(func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case task := <-queue:
+				m.runCancelObserver(task)
+			}
+		}
+	}, m.dispatchLogger())
+}
+
+// dispatchLogger keeps the drainer usable from fixtures that build a Manager
+// without one.
+func (m *Manager) dispatchLogger() logrus.FieldLogger {
+	if m.logger == nil {
+		return logrus.New()
+	}
+	return m.logger
+}
+
+// runCancelObserver looks the observer up fresh so a registration that lands
+// after the event was queued still sees it.
+func (m *Manager) runCancelObserver(task *Task) {
+	m.mu.RLock()
+	observer := m.cancelObservers[task.Namespace]
+	m.mu.RUnlock()
+	if observer == nil {
+		return
+	}
+	observer(task)
+}
+
+// dispatchCancelWithLock hands a cancelled task to the drainer. Caller holds
+// m.mu.
+//
+// Observers run off the apply path, never inline: they take their own locks,
+// which the admission path and HTTP handlers also take, and a RAFT apply that
+// waits on any of those stalls every FSM behind it. Moving them off also
+// removes the temptation to read the apply as happening first — a follower's
+// scheduler learns the task is cancelled through a leader-forwarded query and
+// routinely acts on it before the local apply lands, which was a real bug.
+//
+// The task is cloned because it stays in m.tasks and later applies mutate it.
+func (m *Manager) dispatchCancelWithLock(task *Task) {
+	observer := m.cancelObservers[task.Namespace]
+	if observer == nil {
+		return
+	}
+	if age := m.clock.Since(task.FinishedAt); age > cancelObserverStaleAfter {
+		m.dispatchLogger().WithFields(logrus.Fields{
+			"namespace": task.Namespace,
+			"task_id":   task.ID,
+			"age":       age,
+		}).Debug("distributedtask: skipping the cancel observer for a cancel that is already older than anything it could signal")
+		return
+	}
+
+	clone := task.Clone()
+	select {
+	case m.cancelDispatch <- clone:
+	default:
+		// Not dropped: a missing event makes this node answer "no cleanup
+		// here", which the node handling the cancel reads as confirmation that
+		// there is nothing left to wait for. Fanning out keeps the apply path
+		// non-blocking at the cost of ordering, which only matters between two
+		// cancels of the same task and which the observers already tolerate.
+		m.dispatchLogger().WithFields(logrus.Fields{
+			"namespace": task.Namespace,
+			"task_id":   task.ID,
+		}).Error("distributedtask: cancel-observer queue is full, the observer is not keeping up; dispatching this one separately")
+		enterrors.GoWrapper(func() { observer(clone) }, m.dispatchLogger())
+	}
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
@@ -834,9 +982,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	task.Status = TaskStatusCancelled
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
-	if observer := m.cancelObservers[task.Namespace]; observer != nil {
-		observer(task)
-	}
+	m.dispatchCancelWithLock(task)
 	m.notifySchedulerWithLock()
 	return nil
 }

@@ -41,18 +41,22 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// CancelObserver is called on every node as a CANCEL applies, before the
-// scheduler has looked at the task. Register via
+// CancelObserver is called on every node shortly after a CANCEL applies,
+// usually before the scheduler has looked at the task. Register via
 // [Manager.RegisterCancelObserver].
 //
 // It exists so a namespace can make "this node has seen the cancel" observable
 // to peers without waiting for the scheduler tick; the reindex namespace's
 // OnCancelApplied documents what that buys.
 //
-// Runs under the Manager lock on the RAFT-apply path: it must not block, must
-// not re-enter the Manager, and must not mutate RAFT-replicated state. It also
-// fires during log replay on restart, so it must be safe to run for a cancel
-// that applied long ago.
+// Runs on the Manager's drainer goroutine, not on the RAFT-apply path, so it
+// may take locks and do work. It gets a clone of the task and must not mutate
+// RAFT-replicated state. Two guarantees it does NOT have: it may run after the
+// scheduler has already acted on the cancel, and under queue overflow two
+// events may run concurrently — see [Manager.dispatchCancelWithLock].
+//
+// Cancels older than [cancelObserverStaleAfter] when they apply are skipped, so
+// a node replaying the RAFT log does not pay for cancels nobody is waiting on.
 type CancelObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
