@@ -181,15 +181,15 @@ func TestCleanupInProgress_LookupBuilder(t *testing.T) {
 
 	lookup := builder()
 	require.NotNil(t, lookup, "builder() must return a non-nil lookup")
-	require.False(t, lookup("C", "shard1"),
+	require.Equal(t, ReindexHoldNone, lookup("C", "shard1"),
 		"lookup on a fresh registry must report false")
 
 	p.registerCleanup("C", "shard1")
-	require.True(t, lookup("C", "shard1"),
+	require.Equal(t, ReindexHoldCleanup, lookup("C", "shard1"),
 		"lookup must observe a registration that happened AFTER the closure was built")
 
 	p.unregisterCleanup("C", "shard1")
-	require.False(t, lookup("C", "shard1"),
+	require.Equal(t, ReindexHoldNone, lookup("C", "shard1"),
 		"lookup must observe an unregistration that happened AFTER the closure was built")
 }
 
