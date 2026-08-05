@@ -48,6 +48,10 @@ const (
 	tmpExt        = ".tmp"
 )
 
+// reindexRefusalShardSample caps the shard names carried in one refusal log
+// line. The count beside it is exact; this only bounds the sample.
+const reindexRefusalShardSample = 10
+
 // Backupable returns whether all given class can be backed up.
 // Refuses if any shard has an in-flight runtime-reindex; this runs in
 // the coordinator's canCommit phase so no staging dir is created on
@@ -64,10 +68,6 @@ const (
 //
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.
-// reindexRefusalShardSample caps the shard names carried in one refusal log
-// line. The count beside it is exact; this only bounds the sample.
-const reindexRefusalShardSample = 10
-
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
