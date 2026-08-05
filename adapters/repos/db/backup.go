@@ -136,7 +136,10 @@ func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) 
 // blockedShards maps a collection to the shards the gate held; errs are the
 // other precheck errors, which are withheld from the response.
 func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]string, errs []error) {
-	if db.logger != nil {
+	if db.logger == nil {
+		return
+	}
+	{
 		// One line per collection, not per shard, and the shard list is
 		// capped: this pass can cover five-figure shard counts, so an
 		// uncapped field just moves the O(shards) growth out of the body
@@ -163,7 +166,7 @@ func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]str
 					"blocked_shards lists the first %d", len(shardNames), c, len(sample))
 		}
 	}
-	if len(errs) > 0 && db.logger != nil {
+	if len(errs) > 0 {
 		// Withheld from the response, not from the operator.
 		db.logger.WithField("action", "backup_reindex_gate").
 			Warnf("backup precheck refused by the reindex gate; also hit %d other error(s), "+
