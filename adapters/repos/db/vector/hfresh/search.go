@@ -14,10 +14,14 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -146,18 +150,51 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		}
 	}
 
-	rescored := NewResultSet(k)
+	candidates := make([]uint64, 0, q.Len())
 	for id := range q.Iter() {
-		vec, err := h.vectorForId(ctx, id)
-		if err != nil {
-			return nil, nil, err
-		}
-		vec = h.normalizeVec(vec)
-		dist, err := h.distancer.distancer.SingleDist(vector, vec)
-		if err != nil {
-			return nil, nil, err
-		}
-		rescored.Insert(id, dist)
+		candidates = append(candidates, id)
+	}
+
+	rescored := NewResultSet(k)
+	var rescoredMu sync.Mutex
+
+	// Budget-aware fan-out: the context budget caps the worker count under
+	// concurrent load; without one we default to 2*GOMAXPROCS (IO-bound).
+	workers := concurrency.NumWorkers(ctx, len(candidates), concurrency.GOMAXPROCSx2)
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := range workers {
+		workerID := workerID
+		eg.Go(func() error {
+			for pos := workerID; pos < len(candidates); pos += workers {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				id := candidates[pos]
+				vec, err := h.vectorForId(ctx, id)
+				if err != nil {
+					// The object may have been deleted between the posting scan
+					// and the rescore step (race condition). Skip stale entries
+					// gracefully.
+					var notFound storobj.ErrNotFound
+					if errors.As(err, &notFound) {
+						continue
+					}
+					return err
+				}
+				vec = h.normalizeVec(vec)
+				dist, err := h.distancer.distancer.SingleDist(vector, vec)
+				if err != nil {
+					return err
+				}
+				rescoredMu.Lock()
+				rescored.Insert(id, dist)
+				rescoredMu.Unlock()
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
 	}
 
 	ids := make([]uint64, rescored.Len())
