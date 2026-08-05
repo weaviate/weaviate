@@ -19,19 +19,22 @@
 // merge-scan (dense queries) or binary-search sweep (sparse queries), emitting
 // docIDs into a slice and building exactly one bitmap at the end.
 //
-// The index requires a one-to-one mapping between keys and documents, in BOTH
-// directions:
+// The index requires one document per key: each key's docID column entry is a
+// single fixed-width slot, so BuildFromBucket and AbsorbFlush decline a key that
+// holds several documents, and the caller falls back to the standard fold. In
+// practice this means the property's values must be near-unique — a value shared
+// by many documents is what the accelerator cannot represent, whatever the
+// property's datatype.
 //
-//   - one document per key, so each key's docID column entry is scalar. Enforced
-//     here: BuildFromBucket and AbsorbFlush decline a key holding several docIDs.
-//   - one key per document, because a flushed memtable's deletions are applied to
-//     the whole result rather than per key. Enforced by the caller, which attaches
-//     the accelerator only to properties whose every document contributes exactly
-//     one key — a document spread over several keys would vanish from all of them
-//     the moment it lost any one.
+// The reverse does not hold: a document may sit under as many keys as it likes.
+// An array-valued property puts one document under one key per element, and a
+// tokenized text property under one key per term; both are fine, because every
+// tier is applied per key. A deletion reaches only the key it was issued under,
+// so a document losing one of its values keeps matching the rest.
 //
-// See the package design notes for how per-key postings would lift the second
-// requirement and allow array-valued properties.
+// Lifting the remaining requirement would mean per-key posting lists — a docID
+// list per key instead of a scalar — which is a different layout, not a tweak to
+// this one.
 package columnar
 
 import (

@@ -15,12 +15,8 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv.BucketOption) []lsmkv.BucketOption {
@@ -94,50 +90,15 @@ func (s *Shard) containsAcceleratorFactory() lsmkv.ContainsAcceleratorFactory {
 
 // detachContainsAccelerator drops the columnar ContainsAny accelerator from
 // propName's filterable bucket, if it carries one. Called when the property's
-// tokenization is changing: the accelerator was attached because the property
-// produced one key per document, and a retokenization can end that without
-// producing any error the accelerator itself would notice.
+// tokenization is changing: the accelerator's base was built by reading the
+// bucket's keys, and a retokenization rewrites what those keys are, which it has
+// no way to notice on its own.
 func (s *Shard) detachContainsAccelerator(propName string) {
 	if propName == "" || s.store == nil {
 		return
 	}
 	if bkt := s.store.Bucket(helpers.BucketFromPropNameLSM(propName)); bkt != nil {
 		bkt.DetachContainsAccelerator()
-	}
-}
-
-// columnarContainsEligible reports whether a property's filterable bucket takes
-// exactly one key per document, which is what the columnar accelerator's
-// deletion handling requires: it applies a flushed memtable's deletions to the
-// whole result, sound only while a docID belongs to a single key. A property
-// that spreads one document across several keys — an array, a reference, or a
-// text property tokenized into more than one term — would lose that document
-// from every one of its keys as soon as it lost any one of them.
-//
-// Tokenization is read through the same resolver the query path uses, so a
-// property mid-retokenization is judged by the tokenization its bucket actually
-// holds. That value can still change afterwards, which is why
-// SetTokenizationOverlay detaches the accelerator rather than relying on this
-// decision holding for the bucket's lifetime.
-func (s *Shard) columnarContainsEligible(prop *models.Property) bool {
-	if !entcfg.ColumnarContainsEnabled() {
-		return false
-	}
-	if len(prop.DataType) != 1 || schema.IsArrayDataType(prop.DataType) ||
-		schema.IsRefDataType(prop.DataType) {
-		return false
-	}
-
-	switch schema.DataType(prop.DataType[0]) {
-	case schema.DataTypeText:
-		return inverted.ResolveTokenization(s.TokenizationFor, prop.Name, prop.Tokenization) ==
-			models.PropertyTokenizationField
-	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-		return true
-	default:
-		// geo, blob, and anything added later opt in deliberately: a datatype
-		// must be shown to produce one key per document before it qualifies.
-		return false
 	}
 }
 
