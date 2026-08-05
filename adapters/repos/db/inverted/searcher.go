@@ -87,7 +87,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
@@ -228,14 +228,14 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
 }
 
 func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
@@ -322,7 +322,7 @@ func (s *Searcher) extractPropValuePair(
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		return s.extractReferenceFilter(property, filter, class)
+		return s.extractReferenceFilter(ctx, property, filter, class)
 	}
 
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
@@ -406,10 +406,16 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	return children, nil
 }
 
-func (s *Searcher) extractReferenceFilter(prop *models.Property,
+// extractReferenceFilter runs the nested cross-reference search for a ref
+// filter. It threads the caller's ctx through the nested search so that (1) an
+// admission grant already held on this node is inherited by the nested search
+// (re-entrancy) instead of the nested search re-entering admission as a fresh
+// acquirer, and (2) the per-query merge budget and any deadline/cancellation
+// propagate. Passing a fresh context here previously caused a permanent
+// admission wedge under a saturated node budget.
+func (s *Searcher) extractReferenceFilter(ctx context.Context, prop *models.Property,
 	filter *filters.Clause, class *models.Class,
 ) (*propValuePair, error) {
-	ctx := context.TODO()
 	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit).
 		Do(ctx)
 }

@@ -28,6 +28,20 @@ type retryClient struct {
 	*retryer
 }
 
+// statusCodeError preserves the HTTP status of a failed remote request past
+// the retryer, so callers can distinguish e.g. a 429 admission shed from
+// other failures.
+type statusCodeError struct {
+	code int
+	body string
+}
+
+func (e *statusCodeError) Error() string {
+	return fmt.Sprintf("status code: %v, error: %s", e.code, e.body)
+}
+
+func (e *statusCodeError) StatusCode() int { return e.code }
+
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
 ) (err error) {
@@ -50,7 +64,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 
 		if code := res.StatusCode; !success(code) {
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, respBody)
+			return shouldRetry(code), &statusCodeError{code: code, body: string(respBody)}
 		}
 
 		if err := decode(respBody); err != nil {

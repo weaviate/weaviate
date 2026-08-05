@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -397,6 +398,18 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}()
 
 	s.activityTrackerRead.Add(1)
+
+	// Admit filter/BM25 fan-out through the node budget; pure-vector search is
+	// not gated. The grant is held for the whole method.
+	if filters != nil || keywordRanking != nil {
+		admittedCtx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+		if err != nil {
+			return nil, nil, err
+		}
+		defer release()
+		ctx = admittedCtx
+	}
+
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -508,7 +521,16 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	var allowList helpers.AllowList
 	if filters != nil {
 		beforeFilter := time.Now()
-		list, err := s.buildAllowList(ctx, filters, additional)
+		// Admit only the filter phase; the closure releases the grant
+		// (panic-safe) before the vector phase, which must not hold budget.
+		list, err := func() (helpers.AllowList, error) {
+			admittedCtx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+			return s.buildAllowList(admittedCtx, filters, additional)
+		}()
 		if err != nil {
 			return nil, nil, err
 		}

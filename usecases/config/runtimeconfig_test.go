@@ -80,6 +80,32 @@ maximum_allowed_collections_count: 13
 	})
 }
 
+func TestRuntimeConfigQueryAdmissionControlDisabled(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	// Default (server flag) is enabled, i.e. not disabled.
+	source := &WeaviateRuntimeConfig{
+		QueryAdmissionControlDisabled: runtime.NewDynamicValue(false),
+	}
+	require.False(t, source.QueryAdmissionControlDisabled.Get())
+
+	// A runtime override flips the kill switch on live.
+	parsed, err := ParseRuntimeConfig([]byte("query_admission_control_disabled: true"))
+	require.NoError(t, err)
+	require.NotNil(t, parsed.QueryAdmissionControlDisabled)
+	require.True(t, parsed.QueryAdmissionControlDisabled.Get())
+
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+	require.True(t, source.QueryAdmissionControlDisabled.Get())
+
+	// Removing the override reverts to the default (enabled).
+	parsed, err = ParseRuntimeConfig([]byte(""))
+	require.NoError(t, err)
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+	require.False(t, source.QueryAdmissionControlDisabled.Get())
+}
+
 func TestUpdateRuntimeConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
