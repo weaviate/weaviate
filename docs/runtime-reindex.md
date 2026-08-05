@@ -93,9 +93,10 @@ Query parameters:
 - `?tenants=t1,t2` — scope to named tenants on a multi-tenant class.
   Required only when the operator wants a subset. Rejected on
   single-tenant classes. Rejected on every semantic migration
-  (`change-tokenization*`, `enable-*`, `repair-rangeable`) because the
-  cluster-wide schema flip cannot be sub-scoped — all tenants must
-  migrate together.
+  (`change-tokenization*`, `enable-*`) because the cluster-wide schema
+  flip cannot be sub-scoped — all tenants must migrate together. The
+  format-only migrations, `repair-*` included, accept a subset: they flip
+  nothing, so there is nothing that has to move for everyone at once.
 
 Response shapes:
 
@@ -274,7 +275,7 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
     `enable-searchable`, `enable-filterable`, `enable-rangeable`,
-    `repair-rangeable`, `change-algorithm`):
+    `change-algorithm`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
     `PREPARING` and `SWAPPING` are both reached only after every
     unit across the cluster is at terminal status. The FSM gates
@@ -739,7 +740,7 @@ Seven strategy implementations, one file each:
 |---|---|---|---|---|
 | `MapToBlockmaxStrategy` | `repair-searchable` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
-| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | No-op; cluster-wide `IndexRangeFilters=true` flips from `OnTaskCompleted`. |
+| `FilterableToRangeableStrategy` | `enable-rangeable` (semantic) / `repair-rangeable` (format-only) | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | No-op. For enable, the cluster-wide `IndexRangeFilters=true` flip happens in `OnTaskCompleted`; repair flips nothing. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
 | `EnableSearchableStrategy` | `enable-searchable` | objects → builds Blockmax | `searchable` (Blockmax) | No-op; cluster-wide flip from `OnTaskCompleted`. |
 | `SearchableRetokenizeStrategy` | `change-tokenization` (searchable half) | `searchable` | `searchable` (new tokenization) | No-op; `Tokenization` flip from `OnTaskCompleted`. |
@@ -770,11 +771,19 @@ a new strategy.
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
 `enable-filterable`, `enable-searchable`, `change-algorithm`,
-`enable-rangeable` and `repair-rangeable` are semantic — every shard
-must reindex before any shard swaps (Journey 3 barrier), and the
-schema flip happens cluster-wide from `OnTaskCompleted`. The rest are
-format-only — each shard runs the full lifecycle independently
-(Journey 2), with no cluster-wide schema dependency.
+and `enable-rangeable` are semantic — every shard must reindex before any
+shard swaps (Journey 3 barrier), and the schema flip happens cluster-wide
+from `OnTaskCompleted`. The rest are format-only — each shard runs the
+full lifecycle independently (Journey 2), with no cluster-wide schema
+dependency.
+
+**The rule is the schema flip, not the index type.** A migration is
+semantic if and only if it requires a global schema flip. That is why
+`enable-rangeable` and `repair-rangeable` are classified differently
+despite sharing a strategy: enable flips `IndexRangeFilters`, repair
+rebuilds an already-enabled index and writes no schema at all. The
+practical consequence is per-tenant targeting — `repair-rangeable`
+accepts a `tenants` subset, `enable-rangeable` does not.
 
 **Rangeable joined the semantic family in
 [weaviate/0-weaviate-issues#465](https://github.com/weaviate/0-weaviate-issues/issues/465).**
@@ -784,17 +793,30 @@ survive a restart, so cancelling a migration and restarting left the
 schema claiming an index most shards did not have
 ([weaviate/0-weaviate-issues#464](https://github.com/weaviate/0-weaviate-issues/issues/464)).
 Under the barrier the flag flips once, at task completion, and a
-cancelled task never flips it. `repair-rangeable` converted with it: its
-flag is already true at submit, so its completion flip is a no-op, but
-it gains the barrier's all-or-nothing swap.
+cancelled task never flips it. `repair-rangeable` did NOT convert: it
+writes no schema, so it has nothing to coordinate and keeps both its
+inline execution shape and its per-tenant targeting.
+
+**Startup audit for already-damaged clusters.** The conversion stops new
+clusters reaching 464's state; it does not repair the ones already in it,
+where `indexRangeFilters` is true while shards that never finished
+migrating hold an empty bucket. `warnOnUnexplainedEmptyRangeableIndex`
+(adapters/repos/db/shard_init_rangeable_audit.go) logs one WARN per
+affected property at shard init, naming collection, shard and property,
+with the `repair-rangeable` command to fix it. Detection only, nothing is
+mutated. It fires only when all three hold — the schema claims the index,
+the shard has objects while the rangeable bucket has none, and no
+migration tracker explains the absence — so a migration in flight, or one
+whose swap is waiting for that same startup, stays quiet.
 
 **Open constraint — the post-swap write window.** Between a shard's own
 swap and the task's completion flip, `IndexRangeFilters` is still false.
 The double-write callbacks are gone by then and the normal write path
 reads the flag, so writes arriving on that shard in that window do not
 reach the range index. They are present in the objects bucket and in the
-filterable index, and `repair-rangeable` recovers them, but a range
-filter does not see them until it runs.
+filterable index, and `repair-rangeable` recovers them — per tenant, if
+that is all that is affected — but a range filter does not see them
+until it runs.
 
 This window does not exist for `enable-filterable` / `enable-searchable`
 in practice only because their acceptance coverage does not probe it; it
@@ -849,16 +871,16 @@ change-tokenization-filterable   ✓                ✓ (tokenization)
 enable-filterable                ✓                ✓ (ForceFilterable)
 enable-searchable                ✓                ✓ (ForceSearchable + tokenization)
 enable-rangeable                 ✓                ✓ (ForceRangeable)
-repair-rangeable                 ✓                ✓ (ForceRangeable)
+repair-rangeable                                  ✓ (ForceRangeable)
 repair-filterable                                 
 repair-searchable                                 
 ```
 
 The semantic migrations need both the cluster-wide barrier and the
 per-shard analyzer overlay; the format-only ones need neither.
-`repair-rangeable` keeps its overlay for the same reason
-`enable-rangeable` does: the flag is not what the backfill analyzer
-should read while the ingest bucket is being built.
+`repair-rangeable` is format-only but still carries the overlay it
+inherits from the shared strategy; with its flag already true the
+overlay is a harmless no-op.
 
 ## 6. Crash safety
 
