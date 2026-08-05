@@ -170,9 +170,14 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 			Authorizer:         &authorization.DummyAuthorizer{},
 			ReindexSubmitLocks: state.NewReindexSubmitLocks(),
 			Logger:             logger,
-			ServerConfig:       &config.WeaviateConfig{Config: config.Config{}},
-			SchemaManager:      &schemaUC.Manager{SchemaReader: reader},
-			DB:                 theDB,
+			// These tests exercise the gate machinery, which only runs when the
+			// feature is on; with RUNTIME_REINDEX_ENABLED off every submit is a
+			// 400 before any gate is consulted.
+			ServerConfig: &config.WeaviateConfig{Config: config.Config{
+				RuntimeReindexEnabled: true,
+			}},
+			SchemaManager: &schemaUC.Manager{SchemaReader: reader},
+			DB:            theDB,
 		},
 		cluster:        fixedMembership{node},
 		backupActivity: prober,
