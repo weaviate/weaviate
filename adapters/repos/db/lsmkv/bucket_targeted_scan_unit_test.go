@@ -103,7 +103,6 @@ func TestCheckNodeValueLen(t *testing.T) {
 	require.Error(t, checkNodeValueLen(^uint64(0), n))
 }
 
-// probeErrSegment reports an index failure from the newest-wins probe.
 type probeErrSegment struct {
 	*fakeSegment
 	err error
@@ -111,7 +110,6 @@ type probeErrSegment struct {
 
 func (s *probeErrSegment) existsKey(key []byte) (bool, error) { return false, s.err }
 
-// oneNodeSegment yields a single node from its index walk.
 type oneNodeSegment struct {
 	*fakeSegment
 	node segmentNodeRange

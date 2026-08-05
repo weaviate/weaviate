@@ -84,11 +84,10 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	inMem, segments, release := b.targetedScanSnapshot()
 	defer release()
 
-	// inMem[0] is the active memtable (newest); a flushing memtable follows
+	// inMem runs newest first, so each memtable's keys hide the ones after it and
+	// every segment. Nothing reads the oldest one's back when there are no segments.
 	var hideSets []map[string]struct{}
 	for i, c := range inMem {
-		// a memtable's keys hide older memtables and every segment; the oldest one
-		// has no older memtable, so with no segments nothing would read them back
 		var collect map[string]struct{}
 		if i < len(inMem)-1 || len(segments) > 0 {
 			collect = map[string]struct{}{}
@@ -148,10 +147,9 @@ type targetedScanTask struct {
 	newer []Segment
 }
 
-// buildTargetedScanTasks splits each segment's index into byte ranges so the total
-// task count reaches the requested parallelism even when few segments exist. Ranges
-// are sized by each segment's share of the total index bytes, so a segment with a
-// large index gets proportionally more tasks than a small one.
+// buildTargetedScanTasks splits each segment's index into byte ranges, sized by
+// that segment's share of the total index bytes so one large segment does not end
+// up walked by a single worker.
 func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask {
 	if len(segments) == 0 {
 		return nil
@@ -178,7 +176,6 @@ func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask
 			}
 		}
 
-		// an empty index yields no ranges, so such a segment contributes no task
 		for _, r := range seg.indexNodeSplits(parts) {
 			tasks = append(tasks, targetedScanTask{seg: seg, from: r[0], to: r[1], newer: newer})
 		}
@@ -284,8 +281,7 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 		}
 
 		// one read covers the 9-byte node header (tombstone + value length) plus
-		// the value prefix; peekSize converts to uint64 before the addition so an
-		// oversized int cannot overflow it
+		// the value prefix
 		headEnd := n.Start + 9 + uint64(peekSize)
 		if headEnd > n.End {
 			headEnd = n.End
@@ -349,8 +345,6 @@ func (s *segment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error
 	})
 }
 
-// indexNodeSplits returns node-aligned byte ranges over the primary index, for
-// use with scanIndexNodes; see segmentindex.DiskTree.SplitNodeRanges.
 func (s *segment) indexNodeSplits(parts int) [][2]int {
 	return s.index.SplitNodeRanges(parts)
 }

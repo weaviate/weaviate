@@ -309,12 +309,12 @@ func (t *DiskTree) ForEachKey(fn func(key []byte)) {
 }
 
 // ForEachNodeInRange walks the serialized nodes packed in data[from:to) — the
-// tree's on-disk order, not key order — yielding each node's key and value
-// range without allocating. The key passed to fn is a subslice of the
-// underlying data, valid only for the duration of fn; it must not be retained
-// or modified. A node that does not parse (truncated tail, oversized keyLen)
-// yields an error, and an fn error aborts the walk and is returned as-is.
-// Range bounds must come node-aligned, e.g. from SplitNodeRanges.
+// tree's on-disk order, not key order — without allocating. The key passed to fn
+// is a subslice of the underlying data, valid only for the duration of fn.
+//
+// Bounds must be node-aligned, e.g. from SplitNodeRanges. Unlike AllKeys and
+// KeyCount, which stop at a tail too short to hold a node, this reports one: a
+// caller walking every byte of a range needs the difference surfaced.
 func (t *DiskTree) ForEachNodeInRange(from, to int, fn func(key []byte, start, end uint64) error) error {
 	if from < 0 || to > len(t.data) || from > to {
 		return fmt.Errorf("node range [%d,%d) outside index bounds [0,%d]", from, to, len(t.data))
@@ -344,10 +344,9 @@ func (t *DiskTree) ForEachNodeInRange(from, to int, fn func(key []byte, start, e
 
 // SplitNodeRanges returns node-aligned [from,to) byte ranges that partition the
 // serialized index into at most parts pieces of roughly equal byte size, for use
-// with ForEachNodeInRange. An empty tree yields nil; parts <= 1 or a tree too
-// small to split yields fewer ranges. Boundary placement uses the same cheap
-// skip-walk as KeyCount; a node that does not parse stops further splitting and
-// leaves the tail in the last range, where the walker surfaces the corruption.
+// with ForEachNodeInRange. An empty tree yields nil. A node that does not parse
+// stops further splitting and leaves the rest in the last range, so the walker
+// reports the corruption rather than this silently trimming the scan.
 func (t *DiskTree) SplitNodeRanges(parts int) [][2]int {
 	n := len(t.data)
 	if n == 0 {

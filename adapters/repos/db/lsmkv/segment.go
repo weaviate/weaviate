@@ -328,10 +328,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
 
-	// a V1 segment ends in a checksum trailer, and with no secondary index to bound
-	// it the trailer lands inside the primary index blob. Its presence is the
-	// writer's choice, recorded in the header version — not the reader's validation
-	// setting, which may differ from the one the segment was written under.
+	// a V1 segment ends in a checksum trailer, which lands inside the primary index
+	// when no secondary index bounds it. Gate on the header version alone: the
+	// trailer is the writer's choice, and this node may read with a different
+	// enableChecksumValidation than the one that wrote.
 	// See below for the same logic if there are secondary indices
 	if header.Version >= segmentindex.SegmentV1 && header.SecondaryIndices == 0 {
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]

@@ -254,10 +254,8 @@ func FuzzDiskTreeRead(f *testing.F) {
 		assert.Equal(t, len(allKeys), keyCount, "KeyCount disagrees with AllKeys")
 		assert.Equal(t, allKeys, eachKeys, "ForEachKey disagrees with AllKeys")
 
-		// The range walk is stricter than the sequential ones: they stop at a
-		// sub-node tail, it reports one. So it must succeed exactly when the nodes
-		// account for every byte, and then visit the same nodes — a stray checksum
-		// trailer left on the index blob is what makes the two diverge.
+		// the range walk reports a sub-node tail where the sequential ones stop at
+		// it, so it must succeed exactly when the nodes account for every byte
 		consumed := 0
 		for _, k := range allKeys {
 			consumed += len(k) + TREE_KEY_STORE_OVERHEAD

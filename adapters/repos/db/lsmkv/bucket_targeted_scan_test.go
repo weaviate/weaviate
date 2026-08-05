@@ -51,8 +51,7 @@ func targetedPutEmpty(t *testing.T, b *Bucket, id uint64) {
 	require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), []byte{}))
 }
 
-// collectMergedCursor is the reference visibility ScanTargetedReplace must match:
-// value -> occurrence count over Bucket.Cursor's merged view.
+// collectMergedCursor is the reference visibility ScanTargetedReplace must match.
 func collectMergedCursor(t *testing.T, b *Bucket) map[string]int {
 	t.Helper()
 	expected := map[string]int{}
@@ -64,8 +63,6 @@ func collectMergedCursor(t *testing.T, b *Bucket) map[string]int {
 	return expected
 }
 
-// scanCollect runs a full scan, reading each entry's whole value, in the same
-// value -> count shape as collectMergedCursor.
 func scanCollect(t *testing.T, b *Bucket, peekSize, parallel int) map[string]int {
 	t.Helper()
 	var mu sync.Mutex
@@ -106,7 +103,6 @@ func TestScanTargetedReplace(t *testing.T) {
 
 			put := func(id uint64, fillerLen int) { targetedPut(t, b, id, fillerLen) }
 			putEmpty := func(id uint64) { targetedPutEmpty(t, b, id) }
-			// segment 1: ids 0..39, plus empties at 100..102
 			for i := uint64(0); i < 40; i++ {
 				put(i, int(i)*7%300)
 			}
@@ -114,8 +110,8 @@ func TestScanTargetedReplace(t *testing.T) {
 				putEmpty(i)
 			}
 			require.NoError(t, b.FlushAndSwitch())
-			// segment 2: updates 5..14, delete 20, new ids 40..59; an empty is
-			// superseded by a value and a value by an empty, across segments
+			// second segment: an empty is superseded by a value and a value by an
+			// empty, across segments
 			for i := uint64(5); i < 15; i++ {
 				put(i, 500+int(i))
 			}
@@ -126,8 +122,7 @@ func TestScanTargetedReplace(t *testing.T) {
 			put(100, 64)
 			putEmpty(30)
 			require.NoError(t, b.FlushAndSwitch())
-			// memtable: update a segment-2 winner, delete another, new ids 60..69,
-			// one empty overriding a segment value and one fresh empty
+			// left in the memtable: updates and deletes over segment winners
 			put(7, 900)
 			require.NoError(t, b.Delete([]byte("key-010")))
 			for i := uint64(60); i < 70; i++ {
@@ -225,14 +220,12 @@ func TestScanTargetedReplaceFlushingMemtable(t *testing.T) {
 	put := func(id uint64, fillerLen int) { targetedPut(t, b, id, fillerLen) }
 	putEmpty := func(id uint64) { targetedPutEmpty(t, b, id) }
 
-	// segment: ids 0..19
 	for i := uint64(0); i < 20; i++ {
 		put(i, 40)
 	}
 	require.NoError(t, b.FlushAndSwitch())
 
-	// this generation is parked below as the flushing memtable: updates 0..4, a
-	// tombstone and an empty over segment rows, new ids 100..104
+	// this generation is parked below as the flushing memtable
 	for i := uint64(0); i < 5; i++ {
 		put(i, 200)
 	}
@@ -313,10 +306,6 @@ func TestScanTargetedReplaceLazySegments(t *testing.T) {
 
 // BenchmarkScanTargetedReplace scans one flushed ~200k-row segment, peek 16,
 // parallel 4.
-//
-// Run with:
-//
-//	go test -tags integrationTest -run x -bench BenchmarkScanTargetedReplace ./adapters/repos/db/lsmkv/
 func BenchmarkScanTargetedReplace(b *testing.B) {
 	ctx := context.Background()
 	dir := b.TempDir()
