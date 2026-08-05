@@ -489,3 +489,224 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 	})
 }
+
+// TestFetchContainsBatch_EmptyKeySet pins that a batch with no keys is rejected
+// rather than answered. Extraction never produces one — it batches only at two
+// or more values, and every path errors rather than dropping a value — so an
+// empty batch is a caller bug, and inventing a result for it would mean picking
+// semantics per operator with nothing to validate them against.
+func TestFetchContainsBatch_EmptyKeySet(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := context.Background()
+
+	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+		t.Run(op.Name(), func(t *testing.T) {
+			pv := &propValuePair{
+				prop:               "prop-int",
+				operator:           op,
+				containsValues:     [][]byte{},
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.ErrorContains(t, err, "carries no keys")
+			require.ErrorContains(t, err, `"prop-int"`, "the error must name the property")
+			require.Nil(t, dbm)
+		})
+	}
+}
+
+// TestFetchContainsBatch_BucketErrors pins the two failure paths that precede
+// any read: a property with no bucket at all, and one whose bucket is not a
+// roaringset (so no batch reader can be opened for it).
+func TestFetchContainsBatch_BucketErrors(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		prop    string
+		wantErr string
+	}{
+		{"no bucket", "prop-no-bucket", "not found"},
+		{"non-roaringset bucket", "prop-nonroaringset", "expected, got"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &propValuePair{
+				prop:               tc.prop,
+				operator:           filters.ContainsAny,
+				containsValues:     [][]byte{[]byte("a")},
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.ErrorContains(t, err, tc.wantErr)
+			require.Nil(t, dbm)
+		})
+	}
+}
+
+// writeContainsRows writes rows into propName's roaringset bucket and flushes
+// them to a segment, so the batch reader below reads real disk layers.
+func writeContainsRows(t *testing.T, f *containsBatchGateFixture, propName string, rows map[string][]uint64) {
+	t.Helper()
+	b := f.searcher.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+	require.NotNil(t, b)
+	for key, docIDs := range rows {
+		require.NoError(t, b.RoaringSetAddList([]byte(key), docIDs))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+}
+
+// TestFetchContainsBatch_ReadsRows pins the wiring between key extraction and
+// the fold: the bucket getBucketName resolves, the reader opened on it, and the
+// folded result handed back. Fold semantics — which keys are read, absent keys,
+// intersection versus union, multi-segment layouts — are pinned at the fold
+// level, where the spy can observe the reads, so this covers only what the two
+// layers exchange.
+func TestFetchContainsBatch_ReadsRows(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := context.Background()
+	writeContainsRows(t, f, "prop-int", map[string][]uint64{
+		"a": {1, 2, 3},
+		"b": {3, 4},
+	})
+
+	tests := []struct {
+		name         string
+		operator     filters.Operator
+		keys         [][]byte
+		wantDocIDs   []uint64
+		wantDenyList bool
+	}{
+		{"ContainsAny reaches the rows", filters.ContainsAny, [][]byte{[]byte("a"), []byte("b")}, []uint64{1, 2, 3, 4}, false},
+		// ContainsNone additionally proves the fold's deny flag reaches the caller
+		{"ContainsNone denies", filters.ContainsNone, [][]byte{[]byte("a"), []byte("b")}, []uint64{1, 2, 3, 4}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &propValuePair{
+				prop:               "prop-int",
+				operator:           tc.operator,
+				containsValues:     tc.keys,
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.NoError(t, err)
+			defer dbm.release()
+
+			require.Equal(t, tc.wantDocIDs, dbm.docIDs.ToArray())
+			require.Equal(t, tc.wantDenyList, dbm.IsDenyList())
+		})
+	}
+}
+
+// TestFetchContainsBatch_AnnotatesSlowQueryLog pins the slow-query annotation
+// for a batched read — that it fires and carries the fields an operator reads —
+// and that an empty key set, which does no work, logs nothing. Where the timing
+// window starts is not observable from here, and neither is the view's release;
+// the refcount assertion for that lives in TestRoaringSetBatchReader_ReleaseGuard
+// (getRefs is unexported in lsmkv).
+func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	writeContainsRows(t, f, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
+
+	newPV := func(keys [][]byte) *propValuePair {
+		return &propValuePair{
+			prop:               "prop-int",
+			operator:           filters.ContainsAny,
+			containsValues:     keys,
+			hasFilterableIndex: true,
+			Class:              f.class,
+		}
+	}
+
+	t.Run("a batched read is annotated", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		dbm, err := newPV([][]byte{[]byte("a"), []byte("b")}).fetchContainsBatch(ctx, f.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok, "batched contains must annotate the slow query log")
+		require.Len(t, entries, 1)
+
+		require.Equal(t, "prop-int", entries[0]["prop"])
+		require.Equal(t, filters.ContainsAny.Name(), entries[0]["operator"])
+		require.Equal(t, 3, entries[0]["count"])
+		require.Equal(t, false, entries[0]["failed"])
+		require.Equal(t, 2, entries[0]["batched_values"])
+		require.Contains(t, entries[0], "took")
+		require.Contains(t, entries[0], "took_string")
+	})
+
+	t.Run("a bucket rejected at open is still annotated", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv := &propValuePair{
+			prop:               "prop-nonroaringset",
+			operator:           filters.ContainsAny,
+			containsValues:     [][]byte{[]byte("a"), []byte("b")},
+			hasFilterableIndex: true,
+			Class:              f.class,
+		}
+
+		_, err := pv.fetchContainsBatch(ctx, f.searcher)
+		require.Error(t, err)
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok, "a filter rejected while opening the reader must still be timed")
+		require.Len(t, entries, 1)
+		require.Equal(t, "prop-nonroaringset", entries[0]["prop"])
+		require.Equal(t, 0, entries[0]["count"])
+		require.Equal(t, true, entries[0]["failed"],
+			"a zero count means nothing without this: an empty result looks identical")
+	})
+
+	t.Run("a fold that fails after the reader opened is still annotated", func(t *testing.T) {
+		// distinct from the case above: there the strategy check rejects the
+		// bucket before a view is ever taken, so nothing has been timed yet
+		ctx, cancel := context.WithCancel(helpers.InitSlowQueryDetails(context.Background()))
+		cancel()
+
+		_, err := newPV([][]byte{[]byte("a"), []byte("b")}).fetchContainsBatch(ctx, f.searcher)
+		require.ErrorIs(t, err, context.Canceled)
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok, "a filter that opens the reader and then fails must still be timed")
+		require.Len(t, entries, 1)
+		require.Equal(t, "prop-int", entries[0]["prop"])
+		require.Equal(t, 0, entries[0]["count"])
+		require.Equal(t, true, entries[0]["failed"])
+	})
+
+	// Both returns that precede the timer: nothing has been done, so there is no
+	// duration worth logging.
+	for _, tc := range []struct {
+		name string
+		prop string
+		keys [][]byte
+	}{
+		{name: "an empty key set is not annotated", prop: "prop-int", keys: nil},
+		{name: "a missing bucket is not annotated", prop: "prop-no-bucket", keys: [][]byte{[]byte("a")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := helpers.InitSlowQueryDetails(context.Background())
+			pv := &propValuePair{
+				prop:               tc.prop,
+				operator:           filters.ContainsAny,
+				containsValues:     tc.keys,
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			_, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.Error(t, err)
+			require.NotContains(t, helpers.ExtractSlowQueryDetails(ctx), "build_allow_list_doc_bitmap")
+		})
+	}
+}
