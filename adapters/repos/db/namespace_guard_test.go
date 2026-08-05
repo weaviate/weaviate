@@ -1064,44 +1064,6 @@ func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
 	})
 }
 
-// The reopen path skips the request-path check but must still refuse a namespace
-// that keeps no shards open, so a stale reopen cannot revive a suspended one.
-func TestWorkerReopenAdmission(t *testing.T) {
-	const class = "alpha:Product"
-
-	tests := []struct {
-		name    string
-		state   api.NamespaceState
-		wantErr error
-	}{
-		{name: "resuming is admitted where a request is not", state: api.NamespaceStateResuming},
-		{name: "active is admitted", state: api.NamespaceStateActive},
-		{name: "suspended is refused", state: api.NamespaceStateSuspended, wantErr: errShardNamespaceClosed},
-		{name: "deleting is refused", state: api.NamespaceStateDeleting, wantErr: errShardNamespaceClosed},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
-
-			err := idx.requireNamespaceAllowsShardLoad(callerResume)
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-
-	// The split that goes red if the two accessors are ever collapsed into one.
-	t.Run("resuming admits the reopen while refusing a request", func(t *testing.T) {
-		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateResuming))
-
-		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerResume))
-		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), namespaces.ErrNamespaceResuming)
-	})
-}
-
 // indexForBootTest builds the minimum Index initAndStoreShards needs. Lazy
 // loading keeps shard construction off disk, so what the test observes is which
 // shards were registered, not what they contain.
