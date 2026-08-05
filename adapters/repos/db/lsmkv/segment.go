@@ -328,10 +328,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
 
-	// if there are no secondary indices and checksum validation is enabled,
-	// we need to remove the checksum bytes from the primary index
+	// a V1 segment ends in a checksum trailer, and with no secondary index to bound
+	// it the trailer lands inside the primary index blob. Its presence is the
+	// writer's choice, recorded in the header version — not the reader's validation
+	// setting, which may differ from the one the segment was written under.
 	// See below for the same logic if there are secondary indices
-	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && header.SecondaryIndices == 0 {
+	if header.Version >= segmentindex.SegmentV1 && header.SecondaryIndices == 0 {
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
 
@@ -405,9 +407,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			if err != nil {
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
-			// if we are on the last secondary index and checksum validation is enabled,
-			// we need to remove the checksum bytes from the secondary index
-			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
+			// the trailer falls inside the last secondary index; see the primary above
+			if header.Version >= segmentindex.SegmentV1 && i == int(seg.secondaryIndexCount-1) {
 				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
 			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)

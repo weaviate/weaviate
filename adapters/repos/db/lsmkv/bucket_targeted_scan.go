@@ -56,11 +56,18 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 		"TargetedScanRange", &e.buf)
 }
 
+// maxScanParallelism bounds both the worker goroutines and the per-segment task
+// fan-out, so an oversized caller value cannot turn into a task per index node.
+const maxScanParallelism = 256
+
 // ScanTargetedReplace visits every live entry with merged-cursor visibility but
 // no merge: segments are scanned independently in parallel, and a row is served
 // only when no newer segment or memtable holds its key — probed from in-memory
 // bloom filters and indexes before any value bytes are read. fn must be safe for
 // concurrent use; a non-nil error aborts the scan.
+//
+// parallel applies to segments only: memtable rows are served serially, before
+// any segment task starts.
 func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int,
 	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger,
 ) error {
@@ -69,9 +76,7 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	if peekSize < 1 {
 		return fmt.Errorf("targeted scan: peek size must be positive, got %d", peekSize)
 	}
-	if parallel < 1 {
-		parallel = 1
-	}
+	parallel = min(max(parallel, 1), maxScanParallelism)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -81,12 +86,19 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 
 	// inMem[0] is the active memtable (newest); a flushing memtable follows
 	var hideSets []map[string]struct{}
-	for _, c := range inMem {
-		collect := map[string]struct{}{}
+	for i, c := range inMem {
+		// a memtable's keys hide older memtables and every segment; the oldest one
+		// has no older memtable, so with no segments nothing would read them back
+		var collect map[string]struct{}
+		if i < len(inMem)-1 || len(segments) > 0 {
+			collect = map[string]struct{}{}
+		}
 		if err := scanTargetedMemtable(ctx, c, peekSize, hideSets, collect, fn); err != nil {
 			return err
 		}
-		hideSets = append(hideSets, collect)
+		if collect != nil {
+			hideSets = append(hideSets, collect)
+		}
 	}
 
 	tasks := buildTargetedScanTasks(segments, parallel)
@@ -117,8 +129,9 @@ func (b *Bucket) targetedScanSnapshot() ([]innerCursorReplace, []Segment, func()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	// memtable cursors flatten node pointers at init; concurrent same-key updates
-	// reassign value slices afterwards — the same exposure Bucket.Cursor has
+	// memtable cursors flatten shallow node copies under the memtable's read lock,
+	// so a concurrent same-key update reassigns the original node's fields, not the
+	// cursor's — the entries stay a point-in-time snapshot
 	inMem := []innerCursorReplace{b.active.newCursor()}
 	if b.flushing != nil {
 		inMem = append(inMem, b.flushing.newCursor())
@@ -173,8 +186,9 @@ func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask
 	return tasks
 }
 
-// collect receives every key the memtable holds — tombstones included, they hide
-// older versions; hideSets suppresses rows superseded by newer memtables.
+// collect, when non-nil, receives every key the memtable holds — tombstones
+// included, they hide older versions; hideSets suppresses rows superseded by
+// newer memtables.
 func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize int,
 	hideSets []map[string]struct{}, collect map[string]struct{},
 	fn func(e *TargetedScanEntry) error,
@@ -208,10 +222,10 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 			serve = true
 		}
 
-		if collect != nil && k != nil {
+		if collect != nil {
 			collect[string(k)] = struct{}{}
 		}
-		if serve && k != nil && hidden(k) {
+		if serve && hidden(k) {
 			serve = false
 		}
 		if serve {

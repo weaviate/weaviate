@@ -317,7 +317,7 @@ func (t *DiskTree) ForEachKey(fn func(key []byte)) {
 // Range bounds must come node-aligned, e.g. from SplitNodeRanges.
 func (t *DiskTree) ForEachNodeInRange(from, to int, fn func(key []byte, start, end uint64) error) error {
 	if from < 0 || to > len(t.data) || from > to {
-		return fmt.Errorf("node range [%d,%d) outside index bounds [0,%d)", from, to, len(t.data))
+		return fmt.Errorf("node range [%d,%d) outside index bounds [0,%d]", from, to, len(t.data))
 	}
 	pos := from
 	for pos < to {
@@ -327,7 +327,7 @@ func (t *DiskTree) ForEachNodeInRange(from, to int, fn func(key []byte, start, e
 				pos, remaining, TREE_KEY_STORE_OVERHEAD)
 		}
 		keyLen := int(binary.LittleEndian.Uint32(t.data[pos:]))
-		if keyLen < 0 || keyLen > remaining-TREE_KEY_STORE_OVERHEAD {
+		if keyLen > remaining-TREE_KEY_STORE_OVERHEAD {
 			return fmt.Errorf("node at %d: key len %d exceeds remaining %d bytes",
 				pos, uint32(keyLen), remaining-TREE_KEY_STORE_OVERHEAD)
 		}
@@ -356,14 +356,15 @@ func (t *DiskTree) SplitNodeRanges(parts int) [][2]int {
 	if parts <= 1 {
 		return [][2]int{{0, n}}
 	}
-	ranges := make([][2]int, 0, parts)
+	// no more ranges than nodes, so an oversized parts cannot size the allocation
+	ranges := make([][2]int, 0, min(parts, n/TREE_KEY_STORE_OVERHEAD+1))
 	start, pos := 0, 0
 	for next := 1; next < parts && pos < n; {
 		if n-pos < TREE_KEY_STORE_OVERHEAD {
 			break
 		}
 		keyLen := int(binary.LittleEndian.Uint32(t.data[pos:]))
-		if keyLen < 0 || keyLen > n-pos-TREE_KEY_STORE_OVERHEAD {
+		if keyLen > n-pos-TREE_KEY_STORE_OVERHEAD {
 			break
 		}
 		pos += keyLen + TREE_KEY_STORE_OVERHEAD

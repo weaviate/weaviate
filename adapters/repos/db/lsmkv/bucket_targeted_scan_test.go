@@ -350,6 +350,42 @@ func BenchmarkScanTargetedReplace(b *testing.B) {
 	}
 }
 
+// TestScanTargetedReplaceChecksumTail pins that the checksum trailer is stripped
+// from the index blob on the writer's terms, not the reader's: a segment written
+// with checksums must scan when reopened with validation off (the default), where
+// the trailer would otherwise sit in the primary index as a partial node.
+func TestScanTargetedReplaceChecksumTail(t *testing.T) {
+	ctx := context.Background()
+
+	// no secondary index, so nothing bounds the primary index before EOF
+	for _, writeChecksums := range []bool{true, false} {
+		t.Run(fmt.Sprintf("written_with_checksums=%v", writeChecksums), func(t *testing.T) {
+			dir := t.TempDir()
+			newB := func(opts ...BucketOption) *Bucket {
+				o := append([]BucketOption{WithStrategy(StrategyReplace)}, opts...)
+				b, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), o...)
+				require.NoError(t, err)
+				b.SetMemtableThreshold(1e9)
+				return b
+			}
+
+			b := newB(WithSegmentsChecksumValidationEnabled(writeChecksums))
+			for i := uint64(0); i < 20; i++ {
+				targetedPut(t, b, i, 40)
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			expected := collectMergedCursor(t, b)
+			require.NoError(t, b.Shutdown(ctx))
+
+			// reopen with validation off, as a differently-configured node would
+			b = newB()
+			defer b.Shutdown(ctx)
+			require.Equal(t, expected, scanCollect(t, b, 16, 4))
+		})
+	}
+}
+
 // TestScanTargetedReplaceCorruptValueLength corrupts a node's stored value
 // length on disk: the scan must report it rather than size a read from it.
 func TestScanTargetedReplaceCorruptValueLength(t *testing.T) {
