@@ -2481,8 +2481,8 @@ const reindexCancelConfirmWindow = 15 * time.Second
 // means a gate was leaking, so it is logged at Error.
 const reindexCancelApplyGateCap = time.Minute
 
-// OnCancelApplied runs on every node as a CANCEL applies. It raises two separate
-// signals, and the separation is the point.
+// OnCancelApplied runs on every node shortly after a CANCEL applies, off the
+// apply path. It raises two separate signals, and the separation is the point.
 //
 // The cleanup gate is closed to cover the gap between the task going terminal in
 // DTM and the teardown starting: in that gap the task no longer reads live, but
@@ -2500,25 +2500,51 @@ const reindexCancelApplyGateCap = time.Minute
 // blocks nothing. Making the blocking gate carry the confirmation window instead
 // would refuse every backup for that whole window.
 //
-// The apply and the teardown arrive in either order, so neither may assume it
-// runs first. This node parks the gate from its OWN raft apply, while the
-// scheduler that drives the teardown reads task state through a leader-forwarded
-// query: on a follower whose local apply lags the leader's, the teardown sees
-// CANCELLED and runs before the apply parks anything. Whichever side is second
-// releases, via the settled set below; the cap only covers a teardown that never
-// runs here at all.
+// This and the teardown arrive in either order, so neither may assume it runs
+// first. This side parks the gate from the local raft apply, while the scheduler
+// that drives the teardown reads task state through a leader-forwarded query: on
+// a follower whose local apply lags the leader's, the teardown sees CANCELLED
+// and runs before anything is parked. Whichever side is second releases, via the
+// settled set below; the cap only covers a teardown that never runs here at all.
 //
 // Registered via [distributedtask.Manager.RegisterCancelObserver], whose
 // [distributedtask.CancelObserver] godoc carries the apply-path contract.
 func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
 	payload, err := p.loadPayload(task)
+
+	// Confirmation is raised from a probe that reads the collection alone, so a
+	// payload this node cannot fully decode still gets a latch. Without it the
+	// node answers "no cleanup here", and awaitOwnerCleanupGates reads that as
+	// the owner having finished — a fail-open on the one signal the cancel path
+	// waits for. The blocking gate below genuinely needs the whole payload.
+	collection := cancelledTaskCollection(task.Payload)
+	if err == nil && payload.Collection != "" {
+		collection = payload.Collection
+	}
+	if collection != "" {
+		p.holdCancelSeen(collection)
+	}
+
 	if err != nil {
 		// Nothing identifies the shards to gate. The teardown path logs the
 		// same unparseable payload; do not duplicate it on the apply path.
 		return
 	}
-	p.holdCancelSeen(payload.Collection)
 	p.holdCleanupGateUntilTeardown(task.TaskDescriptor, payload)
+}
+
+// cancelledTaskCollection reads just the collection out of a task payload,
+// tolerating a payload the full [ReindexTaskPayload] decoder rejects — a field
+// added or retyped by a newer node during a rolling upgrade fails that decoder
+// but leaves the collection perfectly readable. Empty when even that fails.
+func cancelledTaskCollection(raw []byte) string {
+	var probe struct {
+		Collection string `json:"collection"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return ""
+	}
+	return probe.Collection
 }
 
 // holdCancelSeen makes this node answer the cluster cleanup probe for
