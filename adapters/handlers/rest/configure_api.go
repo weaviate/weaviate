@@ -1135,7 +1135,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 		// Same race, restore side: the cluster lookup above sees only DTM,
 		// which has already forgotten the task by the time sidecars come down.
-		repo.SetAnyCleanupInProgressLookup(appState.ReindexProvider.AnyCleanupInProgress)
+		repo.SetAnyCleanupInProgressLookup(func(collections []string) bool {
+			// Blind only when the caller has no class list yet; otherwise a
+			// teardown stuck on one collection must not refuse restores of the
+			// rest. See [db.AnyCleanupInProgressLookup].
+			if len(collections) == 0 {
+				return appState.ReindexProvider.AnyCleanupInProgress()
+			}
+			for _, c := range collections {
+				if appState.ReindexProvider.AnyCleanupInProgressForCollection(c) {
+					return true
+				}
+			}
+			return false
+		})
 	}, appState.Logger)
 
 	return appState

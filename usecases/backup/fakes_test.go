@@ -66,7 +66,7 @@ func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error
 	return args.Error(0)
 }
 
-func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context) error {
+func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context, []string) error {
 	return s.reindexInFlightErr
 }
 

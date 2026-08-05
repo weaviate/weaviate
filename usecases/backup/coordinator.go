@@ -77,7 +77,7 @@ type Selector interface {
 
 	// RefuseIfAnyReindexInFlight refuses when any runtime-reindex task is live in
 	// the cluster. Used for restore admission: Backupable can't answer for a class absent from this node.
-	RefuseIfAnyReindexInFlight(ctx context.Context) error
+	RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error
 }
 
 // UserLister resolves includeUsers selectors. ListAllUsers returns qualified

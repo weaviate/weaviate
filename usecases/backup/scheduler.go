@@ -220,7 +220,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
 			return nil, err
 		}
-		if err := s.refuseRestoreDuringReindex(ctx); err != nil {
+		if err := s.refuseRestoreDuringReindex(ctx, includeCopy); err != nil {
 			return nil, err
 		}
 	}
@@ -242,7 +242,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			if authErr := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...); authErr != nil {
 				return nil, authErr
 			}
-			if gateErr := s.refuseRestoreDuringReindex(ctx); gateErr != nil {
+			if gateErr := s.refuseRestoreDuringReindex(ctx, nil); gateErr != nil {
 				return nil, gateErr
 			}
 			return nil, backup.NewErrNotFound(err)
@@ -258,7 +258,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		meta.Include(allowed)
 		// Deferred to here on this path: the class list only exists once the meta
 		// is read, so this is the first point at which the caller is authorized.
-		if err := s.refuseRestoreDuringReindex(ctx); err != nil {
+		if err := s.refuseRestoreDuringReindex(ctx, meta.Classes()); err != nil {
 			return nil, err
 		}
 	}
@@ -335,8 +335,11 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 // Every caller must authorize first. Both the refusal text and the time this
 // takes disclose cluster-wide reindex state, so a principal without a backup
 // grant must never reach it.
-func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context) error {
-	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx); err != nil {
+// collections narrows the node-local half of the check; nil asks about every
+// collection, which the meta-not-found arm has to do because it has no class
+// list yet.
+func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
+	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx, collections); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("restore blocked: %w", err))
 	}
 	return nil
