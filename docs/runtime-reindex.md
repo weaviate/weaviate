@@ -1220,8 +1220,9 @@ refuses the restore on the same failure. The reindex gate answers 503
 for a node that does not respond to the probe. An `Index` built without
 a back-reference to `DB` refuses the backup outright.
 
-**Where each gate fails open.** Two windows are deliberately left open,
-and both are logged:
+**Where each gate fails open.** Three windows are deliberately left
+open. Two are logged; the third is silent by design and is the default
+configuration:
 
 - *Lookup not yet installed.* The lookups are wired from a
   post-bootstrap goroutine in `configure_api.go`. Until it runs, the
@@ -1242,6 +1243,16 @@ and both are logged:
   invisible to the reindex gate. The commit-time overlap check is the
   backstop on the backup side: a backup whose capture window overlapped
   a reindex fails at commit rather than being stored as good.
+- *`RUNTIME_REINDEX_ENABLED=false`, the default.* Every gate returns
+  before it looks at anything, so no gate refuses and none of them logs:
+  this window is silent by design, and it is the shipped default. It is
+  wider than "no reindex can start" implies — a task already running when
+  the flag went off keeps running, a node that BOOTS with the flag off
+  resumes a `STARTED` task from DTM, and cancel stays allowed so a
+  teardown can still be in flight. With the gates off a backup can span
+  any of the three, and no commit-time backstop catches it either, since
+  that check is off too. This is the escape hatch for the whole feature,
+  so it cannot itself fail backups.
 
 Refusals are retryable, never terminal:
 
