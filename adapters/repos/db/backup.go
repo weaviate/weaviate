@@ -74,6 +74,8 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	// a gate refusal to every caller that classifies it — and carries the node
 	// name into the body behind that classification.
 	var errs, gateErrs []error
+	gateSeen := map[string]struct{}{}
+	blockedShards := map[string][]string{}
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
@@ -92,13 +94,35 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 		}
 		for _, shardName := range shards {
 			// No node prefix: the backup caller has no grant on node names.
-			// refuseIfReindexInFlight logs node and shard for the operator.
-			if err := idx.refuseIfReindexInFlightIn(gate, shardName); err != nil {
+			err := idx.refuseIfReindexInFlightIn(gate, shardName)
+			if err == nil {
+				continue
+			}
+			// One line per distinct refusal, not per shard. Redaction made the
+			// per-shard text identical, so a wide collection returned thousands
+			// of byte-identical sentences — the same O(shards) growth that made
+			// the original per-shard log line a merge blocker, minus the shard
+			// name that justified repeating it.
+			if _, dup := gateSeen[err.Error()]; !dup {
+				gateSeen[err.Error()] = struct{}{}
 				gateErrs = append(gateErrs, err)
 			}
+			blockedShards[c] = append(blockedShards[c], shardName)
 		}
 	}
 	if len(gateErrs) > 0 {
+		if db.logger != nil {
+			// The body names no shard by design, so this is the only place an
+			// operator can learn WHICH shards refused. It was previously debug
+			// only, which left the shard recoverable from nowhere.
+			for c, shardNames := range blockedShards {
+				db.logger.WithField("action", "backup_reindex_gate").
+					WithField("collection", c).
+					WithField("node", nodeName).
+					WithField("blocked_shards", shardNames).
+					Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate", len(shardNames), c)
+			}
+		}
 		if len(errs) > 0 && db.logger != nil {
 			// Withheld from the response, not from the operator.
 			db.logger.WithField("action", "backup_reindex_gate").
