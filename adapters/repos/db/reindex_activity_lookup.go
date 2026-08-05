@@ -21,7 +21,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 // ShardReindexActivityLookup reports whether any LIVE reindex task in
@@ -95,11 +94,6 @@ func (e redactedCauseErr) Unwrap() []error {
 	return []error{entitiesbackup.ErrReindexInFlight, e.cause}
 }
 
-// unwiredRestoreGateWarnSampler rate-limits the "lookup not installed" WARN,
-// matching [unwiredGateWarnSampler] on the backup side; see that variable for
-// why the line has to keep reappearing rather than fire once per process.
-var unwiredRestoreGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
-
 // RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart of
 // the per-shard backup gate: a restoring class has no local index yet, so a
 // per-class lookup could never see a live task. Fails closed on a live task
@@ -141,7 +135,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	}
 
 	if lookup == nil {
-		unwiredRestoreGateWarnSampler.WithSampling(func(logrus.FieldLogger) {
+		db.gateSamplers().unwiredRestoreGate.WithSampling(func(logrus.FieldLogger) {
 			logger := db.logger
 			if logger == nil {
 				logger = logrus.New()
@@ -344,9 +338,6 @@ func reindexTaskTouchedShards(task *distributedtask.Task) bool {
 	return false
 }
 
-// See [unwiredGateWarnSampler] for the rate-limiting rationale.
-var unwiredOverlapWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
-
 // RefuseIfReindexOverlapped is the backup's commit-time backstop; see
 // [ReindexOverlapLookup] for why the question is overlap and not liveness.
 //
@@ -383,7 +374,7 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []strin
 	db.reindexAuditMu.RUnlock()
 
 	if lookup == nil {
-		unwiredOverlapWarnSampler.WithSampling(func(logrus.FieldLogger) {
+		db.gateSamplers().unwiredOverlap.WithSampling(func(logrus.FieldLogger) {
 			logger := db.logger
 			if logger == nil {
 				logger = logrus.New()

@@ -44,7 +44,7 @@ func TestRefuseIfAnyReindexInFlight_Unwired(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, warnings,
-		"the unwired WARN must fire once per process, not once per restore")
+		"the unwired WARN is budgeted once per hour per node, not once per restore")
 }
 
 func TestRefuseIfAnyReindexInFlight(t *testing.T) {
@@ -530,7 +530,7 @@ func TestRefuseIfReindexOverlapped_Unwired(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, warnings,
-		"the unwired WARN must fire once per process, not once per backup")
+		"the unwired WARN is budgeted once per hour per node, not once per backup")
 }
 
 // The commit-time question is asked per backup, and a backup covers anywhere
