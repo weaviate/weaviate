@@ -2042,7 +2042,12 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
 
-	setup := func(fs *fakeScheduler, req *BackupRequest) {
+	// setup returns the roles carried on the per-node request. The global descriptor is
+	// written by a different line than the one that fans out to the nodes, so asserting
+	// the descriptor alone leaves that fan-out unpinned: a node would take a full RBAC
+	// snapshot while the descriptor still advertised the caller's subset.
+	setup := func(fs *fakeScheduler, req *BackupRequest) *[]string {
+		nodeRoles := new([]string)
 		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
@@ -2050,12 +2055,15 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
-		fs.client.On("CanCommit", any, node, any).Return(cresp, nil)
+		fs.client.On("CanCommit", any, node, any).Return(cresp, nil).Run(func(a mock.Arguments) {
+			*nodeRoles = a.Get(2).(*Request).Roles
+		})
 		fs.client.On("Commit", any, node, sReq).Return(nil)
 		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
 		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
+		return nodeRoles
 	}
 
 	t.Run("includeRoles are resolved and recorded on the global descriptor", func(t *testing.T) {
@@ -2067,11 +2075,12 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		}
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.roleLister.roles = []string{"ns1:reader", "ns1:writer", "ns2:auditor", authorization.Admin}
-		setup(fs, &req)
+		nodeRoles := setup(fs, &req)
 
 		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"ns1:reader", "ns1:writer"}, fs.backend.glMeta.Roles)
+		assert.ElementsMatch(t, []string{"ns1:reader", "ns1:writer"}, *nodeRoles)
 	})
 
 	t.Run("ordinary backup records no roles", func(t *testing.T) {
@@ -2082,11 +2091,12 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		}
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.roleLister.roles = []string{"ns1:reader"}
-		setup(fs, &req)
+		nodeRoles := setup(fs, &req)
 
 		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
 		require.NoError(t, err)
 		assert.Nil(t, fs.backend.glMeta.Roles)
+		assert.Empty(t, *nodeRoles)
 	})
 }
 
