@@ -14,7 +14,6 @@ package hfresh
 import (
 	"context"
 	"iter"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -163,28 +162,30 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		candidates = append(candidates, id)
 	}
 
-	rescored := NewResultSet(k)
-	var rescoredMu sync.Mutex
-
 	// Budget-aware fan-out: the context budget caps the worker count under
 	// concurrent load; without one we default to 2*GOMAXPROCS (IO-bound).
 	workers := concurrency.NumWorkers(ctx, len(candidates), concurrency.GOMAXPROCSx2)
+
+	// Workers compute distances in parallel; results are inserted after,
+	// in candidate order, so ties resolve the same way on every run.
+	candidateDists := make([]float32, len(candidates))
+	skipped := make([]bool, len(candidates))
+
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for workerID := range workers {
-		workerID := workerID
 		eg.Go(func() error {
 			for pos := workerID; pos < len(candidates); pos += workers {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				id := candidates[pos]
-				vec, err := h.vectorForId(ctx, id)
+				vec, err := h.vectorForId(ctx, candidates[pos])
 				if err != nil {
 					// The object may have been deleted between the posting scan
 					// and the rescore step (race condition). Skip stale entries
 					// gracefully.
 					var notFound storobj.ErrNotFound
 					if errors.As(err, &notFound) {
+						skipped[pos] = true
 						continue
 					}
 					return err
@@ -194,9 +195,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				if err != nil {
 					return err
 				}
-				rescoredMu.Lock()
-				rescored.Insert(id, dist)
-				rescoredMu.Unlock()
+				candidateDists[pos] = dist
 			}
 			return nil
 		})
@@ -205,6 +204,14 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	helpers.AnnotateSlowQueryLog(ctx, "hfresh_rescore_took", time.Since(beforeRescore))
 	if err != nil {
 		return nil, nil, err
+	}
+
+	rescored := NewResultSet(k)
+	for pos, id := range candidates {
+		if skipped[pos] {
+			continue
+		}
+		rescored.Insert(id, candidateDists[pos])
 	}
 
 	ids := make([]uint64, rescored.Len())
