@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/file"
 )
 
@@ -28,6 +29,13 @@ import (
 // shard-relative so the wire protocol doesn't carry the redundant <class>/<shard>/
 // prefix and resolution on the source can be naturally shard-scoped.
 func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (files []string, err error) {
+	// Before the halt, not after: HaltForTransfer pauses the compaction cycle
+	// that drives the edit-ops drain, so refusing from inside it would pause
+	// the very work this is waiting for — and pay a memtable flush for a
+	// read-only check each attempt.
+	if err := s.refuseIfEditOpsPending(); err != nil {
+		return nil, err
+	}
 	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
 		return nil, fmt.Errorf("halt for replica snapshot: %w", err)
 	}
@@ -44,6 +52,44 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 	return files, nil
 }
 
+// refuseIfEditOpsPending refuses a replica snapshot while an in-place edit
+// (a drop-vector strip) is mid-flight on this shard's objects bucket. The
+// edit-ops sidecar is deliberately excluded from the copied file list — it is
+// a live, mutating bolt file — so moving a shard with pending rows would land
+// the unstripped bytes on the target with nothing recording that they still
+// need stripping, while the shard's NAME already counts as covered. Nothing
+// would ever re-arm it.
+//
+// The error MUST carry [enterrors.ErrShardBusyStructuralOp]. That sentinel is
+// the plumbed "not now, try later" contract: the file-replication service maps
+// it to codes.FailedPrecondition, and the replication consumer recognizes that
+// and re-dispatches WITHOUT registering an error. Any other error registers
+// against the op's MaxErrors budget on every attempt, and the FSM cancels the
+// movement outright once that runs out — a deferral would become a
+// cancellation.
+//
+// Scoped to replica movement on purpose: backups exclude the sidecar too, but
+// a restore replays the drop from the schema marker, so a backup taken
+// mid-strip is sound and must not be refused.
+func (s *Shard) refuseIfEditOpsPending() error {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil
+	}
+	hasRows, err := bucket.EditOpsHaveRows()
+	if err != nil {
+		// Unknown answer defers too — deferral is the reversible direction.
+		return fmt.Errorf("%w: shard %q: inspect edit-ops before replica snapshot: %w",
+			enterrors.ErrShardBusyStructuralOp, s.name, err)
+	}
+	if hasRows {
+		return fmt.Errorf("%w: shard %q has an in-flight drop-vector strip (edit-op rows pending); "+
+			"the snapshot is deferred until the cleanup drains it",
+			enterrors.ErrShardBusyStructuralOp, s.name)
+	}
+	return nil
+}
+
 // ListReplicaSnapshotFiles copies mutable bookkeeping files into stagingRoot and
 // returns the shard-relative file list. It does NOT hardlink segments.
 //
@@ -54,30 +100,19 @@ func (s *Shard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string
 }
 
 func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot string, hardlinkSegments bool) ([]string, error) {
-	// Replica movement must not outrun an in-flight drop-vector strip: the
-	// edit-ops sidecar is excluded from the copied file list (a live,
-	// mutating bolt file), so pending rows recording unstripped segments
-	// would be silently lost — the target lands with the bytes but no cover,
-	// the shard's NAME is already counted as covered, and nothing ever
-	// re-arms it (resurrection on a same-name re-create, with no log).
-	// Mirror the finalize-time drained veto instead: defer the snapshot until
-	// the cleanup drains the rows. A read error defers too — deferral is the
-	// reversible direction.
+	// Backstop for the pre-halt refusal (see refuseIfEditOpsPending): it closes
+	// the window where an op arms between that check and this one, and covers
+	// the fallback path, which is already halted by the Index before it gets
+	// here.
 	//
 	// The wait can be long. Draining shares one goroutine with compaction,
 	// which takes precedence, so on a write-active shard the rows can sit
 	// until the segment group's force-cleanup interval gives cleanup a turn.
-	// The replication engine retries, so the move still completes on its own;
-	// a move that keeps deferring means a drop is still stripping this shard,
-	// not a stuck transfer.
-	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
-		hasRows, err := bucket.EditOpsHaveRows()
-		if err != nil {
-			return nil, fmt.Errorf("inspect edit-ops before replica snapshot of shard %q: %w", s.name, err)
-		}
-		if hasRows {
-			return nil, fmt.Errorf("shard %q has an in-flight drop-vector strip (edit-op rows pending); deferring the replica snapshot until it drains", s.name)
-		}
+	// The movement is deferred, not failed, for as long as that takes — a move
+	// that keeps deferring means a drop is still stripping this shard, not a
+	// stuck transfer.
+	if err := s.refuseIfEditOpsPending(); err != nil {
+		return nil, err
 	}
 
 	sd := backup.ShardDescriptor{Name: s.name}

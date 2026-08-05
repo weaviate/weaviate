@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const editOpsSnapshotOpID = "00000000-0000-0000-0000-0000000000e0"
@@ -87,6 +88,12 @@ func TestReplicaSnapshotDefersWhileEditOpsPending(t *testing.T) {
 			_, err = index.IncomingCreateReplicaSnapshot(ctx, "shard1", editOpsSnapshotOpID+"-armed")
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "in-flight drop-vector strip")
+			// Without the sentinel the refusal is codes.Internal, the consumer's
+			// isShardBusyError misses it, and every attempt registers against
+			// MaxErrors until the FSM CANCELS the movement. The contract is what
+			// makes this a deferral rather than a kill.
+			require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp,
+				"the refusal must defer the movement, not burn its error budget")
 
 			shard.haltForTransferMux.Lock()
 			halted := shard.haltForTransferCount
@@ -133,6 +140,8 @@ func TestReplicaSnapshotDefersOnEditOpsReadError(t *testing.T) {
 
 	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", editOpsSnapshotOpID+"-snap3")
 	require.Error(t, err, "an unreadable sidecar must defer, not proceed")
+	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp,
+		"an unknown answer must defer the movement, not cancel it")
 	require.Contains(t, err.Error(), "inspect edit-ops",
 		"the deferral must come from the edit-ops probe itself, not some unrelated failure")
 }
