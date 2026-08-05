@@ -673,6 +673,68 @@ func TestSegmentEditOps_RequeueQuarantined(t *testing.T) {
 	require.Len(t, pending, 1)
 }
 
+// TestSegmentEditOps_RepairCompactionRows pins the fallback for a compaction
+// whose bookkeeping could not be committed after the segments were already
+// swapped. The left input's file is gone, so its row can never be drained on a
+// running node — the cleanup pass skips it rather than mark it done, and the
+// pruning Reconcile only runs at shard load. Left un-repaired it blocks the
+// drop's finalize and the shard's replica movement until a reload.
+func TestSegmentEditOps_RepairCompactionRows(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("owes-left", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("owes-left", []string{"100", "200"}))
+	// 200 was already stripped, so only the left input is still owed. This is
+	// the shape that makes the transfer observable: the merged output takes the
+	// right input's ID, and it now carries 100's unstripped bytes.
+	require.NoError(t, s.MarkSegmentDone("owes-left", "200"))
+
+	require.NoError(t, s.RegisterOp("owes-nothing", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 2}))
+	require.NoError(t, s.SnapshotSegments("owes-nothing", []string{"900"}))
+
+	// Compaction merged 100 into 200 and the bookkeeping tx failed.
+	require.NoError(t, s.RepairCompactionRows("100", "200"))
+
+	pending, err := s.Pending("owes-left")
+	require.NoError(t, err)
+	require.Equal(t, []string{"200"}, pending,
+		"the vanished input's row is retired and the merged output carries its coverage")
+
+	pending, err = s.Pending("owes-nothing")
+	require.NoError(t, err)
+	require.Equal(t, []string{"900"}, pending, "an op that never owed the input is untouched")
+
+	// Idempotent: a repeated repair must not resurrect the retired row.
+	require.NoError(t, s.RepairCompactionRows("100", "200"))
+	pending, err = s.Pending("owes-left")
+	require.NoError(t, err)
+	require.Equal(t, []string{"200"}, pending)
+}
+
+// TestSegmentEditOps_RepairCompactionRows_HonorsQuarantine pins that the
+// repair cannot revive a segment the retry budget already gave up on: the
+// merged output stays quarantined, and the vanished input's row still goes.
+func TestSegmentEditOps_RepairCompactionRows_HonorsQuarantine(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200"}))
+	require.NoError(t, s.Quarantine("op1", "200"))
+
+	require.NoError(t, s.RepairCompactionRows("100", "200"))
+
+	pending, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "a quarantined merged output must not be re-pended by the repair")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Len(t, q, 1)
+	require.Equal(t, "200", q[0].SegmentID, "the verdict stands")
+}
+
 // TestSegmentEditOps_RequeueQuarantined_BoundedPerSegment pins the limit on
 // second chances. Requeueing exists for transient failures, but each new round
 // hands the segment a full retry budget, and a segment that can never be

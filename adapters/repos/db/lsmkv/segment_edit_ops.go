@@ -384,6 +384,47 @@ func chainTransformers(transformers []valueTransformer) valueTransformer {
 // the rows are untouched — the left row goes ENOENT (pruned at load) and the
 // right row keeps naming the merged output, so the data stays covered; see
 // SegmentEditOps.Recover.
+// RepairCompactionRows is the minimal, load-bearing half of RecordCompaction,
+// for when the full bookkeeping tx could not be committed after the segments
+// were already swapped. For every op it retires the vanished left input's row
+// and pends the merged output in its place, so no op is left owing a file that
+// no longer exists.
+//
+// Deliberately smaller than RecordCompaction — no ops-table load, no quarantine
+// migration, fewer writes — because its whole purpose is to get through a
+// transient failure that took the bigger transaction down. It does not mark the
+// right input done, so an op that had already stripped it pays one redundant
+// rewrite; the transform is idempotent, and a wasted rewrite is a far better
+// outcome than a row nothing can drain.
+func (s *SegmentEditOps) RepairCompactionRows(leftID, rightID string) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+		pending := tx.Bucket(editOpsBucketPending)
+		var opIDs []string
+		if err := pending.ForEachBucket(func(opID []byte) error {
+			opIDs = append(opIDs, string(opID))
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, opID := range opIDs {
+			sub := pending.Bucket([]byte(opID))
+			if sub.Get([]byte(leftID)) == nil {
+				continue // this op never owed the vanished input
+			}
+			if err := sub.Delete([]byte(leftID)); err != nil {
+				return err
+			}
+			// addPendingTx honors a standing quarantine verdict on the merged
+			// output, so a repair cannot silently revive a segment the retry
+			// budget already gave up on.
+			if err := s.addPendingTx(tx, opID, rightID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	built := make(map[string]struct{}, len(builtOps))
 	for _, op := range builtOps {
