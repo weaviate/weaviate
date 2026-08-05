@@ -146,13 +146,6 @@ type ShardLike interface {
 	isReadOnly() error
 	pathLSM() string
 
-	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
-	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
-	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
-	prepareDeleteObject(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse
-	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
-	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
-
 	commitReplication(context.Context, string) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
