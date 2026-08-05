@@ -68,6 +68,22 @@ func (c *SegmentCursorMmap) Next() (uint8, roaringset.BitmapLayer, bool) {
 
 // ================================================================================
 
+// segmentCursorPreadMaxBufferSize caps the read buffer of a single pread cursor.
+// A range query builds one cursor per disk segment and a compaction one per
+// input segment, so this size is paid once per segment every time. Raising the
+// cap does not save reads either: nodes at least this large are read straight
+// into the node buffer, so a bigger buffer only adds a copy.
+const segmentCursorPreadMaxBufferSize = 256 * 1024
+
+// preadBufferSize keeps the read buffer from outgrowing the payload it pages
+// through. A payloadSize of 0 or less means the size is unknown.
+func preadBufferSize(payloadSize int64) int {
+	if payloadSize > 0 && payloadSize < segmentCursorPreadMaxBufferSize {
+		return int(payloadSize)
+	}
+	return segmentCursorPreadMaxBufferSize
+}
+
 // A SegmentCursor iterates over all key-value pairs in a single disk segment.
 // You can start at the beginning using [*SegmentCursorPread.First] and move forward
 // using [*SegmentCursorPread.Next]
@@ -86,16 +102,20 @@ type SegmentCursorPread struct {
 // Similarly, the reader may only read payload, as the EOF
 // is used to determine if more keys can be found.
 //
+// payloadSize is the length of that payload. It only sizes the read buffer, so
+// pass 0 if it is not known; a value that is too small costs extra reads, never
+// correctness.
+//
 // bufferCount tells how many exclusive payload buffers should be used to return
 // expected data. Set multiple buffers if data returned by First/Next will not be used
 // before following call will be made, not to overwrite previously fetched values.
 // (e.g. count 3 means, 3 buffers will be used internally and following calls to First/Next
 // will return data in buffers: 1, 2, 3, 1, 2, 3, ...)
-func NewSegmentCursorPread(readSeeker io.ReadSeeker, bufferCount int) *SegmentCursorPread {
+func NewSegmentCursorPread(readSeeker io.ReadSeeker, payloadSize int64, bufferCount int) *SegmentCursorPread {
 	readSeeker.Seek(0, io.SeekStart)
 	return &SegmentCursorPread{
 		readSeeker:     readSeeker,
-		reader:         bufio.NewReaderSize(readSeeker, 10*1024*1024),
+		reader:         bufio.NewReaderSize(readSeeker, preadBufferSize(payloadSize)),
 		lenBuf:         make([]byte, 8),
 		nodeBufs:       make([][]byte, bufferCount),
 		nodeBufPos:     0,
