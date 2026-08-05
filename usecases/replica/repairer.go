@@ -400,12 +400,14 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	for i, vote := range votes {
 		if i != contentIdx {
 			for j, x := range vote.DigestData {
+				// Deleted must describe the winning version: OR-ing it across
+				// replies would make it depend on digest RPC completion order.
 				if curTime := lastTimes[j].T; x.UpdateTime > curTime {
 					// input object is not up to date
-					lastTimes[j] = iTuple{S: i, O: j, T: x.UpdateTime}
+					lastTimes[j] = iTuple{S: i, O: j, T: x.UpdateTime, Deleted: x.Deleted}
+				} else if x.UpdateTime == curTime {
+					lastTimes[j].Deleted = lastTimes[j].Deleted || x.Deleted
 				}
-
-				lastTimes[j].Deleted = lastTimes[j].Deleted || x.Deleted
 
 				if x.Deleted && x.UpdateTime > lastDeletionTimes[j] {
 					lastDeletionTimes[j] = x.UpdateTime
@@ -417,10 +419,15 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	}
 
 	// An object needs content only if some replica disagrees with the winner and
-	// will therefore be written to. Same condition the repair loop below applies.
+	// will therefore be written to (same condition as the repair loop below).
+	// This also skips a replica whose tombstone won't be overruled: it always
+	// disagrees, so counting it would fetch content no write ever consumes.
 	needsContent := make([]bool, len(ids))
 	for _, vote := range votes {
 		for j := range ids {
+			if vote.DeletedAt(j) && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+				continue
+			}
 			if vote.UpdateTimeAt(j) != lastTimes[j].T {
 				needsContent[j] = true
 			}
@@ -537,9 +544,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			deleted := x.Deleted && lastDeletionTimes[j] == x.T
 
 			if x.Deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
-				alreadyDeleted := vote.DigestData[j].Deleted
-
-				if alreadyDeleted && lastDeletionTimes[j] == vote.UpdateTimeAt(j) {
+				if vote.DeletedAt(j) && lastDeletionTimes[j] == vote.UpdateTimeAt(j) {
 					continue
 				}
 
@@ -560,6 +565,15 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				continue
 			}
 
+			// Overwriting is refused with "conflict" here, so skip only this replica:
+			// the merely stale ones stay repairable and the round converges instead of
+			// repeating on every read. The vote is withdrawn because that refusal used
+			// to be what kept the object from counting as consistent.
+			if vote.DeletedAt(j) && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+				votes[rid].Count[j]--
+				continue
+			}
+
 			if !deleted && result[j] == nil {
 				// only a write carrying content needs the winning object, and it
 				// could not be fetched
@@ -568,7 +582,13 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 			cTime := vote.UpdateTimeAt(j)
 
-			if x.T != cTime && vote.Count[j] == nVotes {
+			// Matching update times are not enough when the tie was broken in
+			// favour of the tombstone: a replica still holding the live version
+			// differs from the winner, and no later round can tell, because the
+			// times keep matching.
+			outdated := x.T != cTime || (deleted && !vote.DeletedAt(j))
+
+			if outdated && vote.Count[j] == nVotes {
 				var latestObject *models.Object
 				var vector []float32
 				var vectors map[string][]float32
