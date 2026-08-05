@@ -76,8 +76,6 @@ func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
 	db.anyReindexActivityLookup = lookup
 }
 
-// unwiredRestoreGateWarnOnce keeps the "lookup not installed" WARN to one
-// line per process, matching [unwiredGateWarnOnce] on the backup side.
 // redactedCauseErr keeps a cause reachable via errors.Is without printing it;
 // the cause may name nodes that must not reach an API response body.
 type redactedCauseErr struct {
@@ -91,6 +89,8 @@ func (e redactedCauseErr) Unwrap() []error {
 	return []error{entitiesbackup.ErrReindexInFlight, e.cause}
 }
 
+// unwiredRestoreGateWarnOnce keeps the "lookup not installed" WARN to one
+// line per process, matching [unwiredGateWarnOnce] on the backup side.
 var unwiredRestoreGateWarnOnce sync.Once
 
 // RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart of

@@ -89,8 +89,9 @@ const (
 	CanCommitErrInFlightReindex CanCommitErrorKind = "in_flight_reindex"
 
 	// CanCommitErrReindexInFlight indicates the participant refused a restore
-	// because a runtime-reindex is live in the cluster. Distinct from
-	// [CanCommitErrInFlightReindex], whose sentinel names a shard.
+	// because a runtime-reindex is live anywhere in the cluster. Distinct from
+	// [CanCommitErrInFlightReindex], which is the backup side's per-shard answer;
+	// a restoring class has no shard to ask about yet.
 	CanCommitErrReindexInFlight CanCommitErrorKind = "reindex_in_flight"
 
 	// CanCommitErrCannotCommit is the generic fallback used when the

@@ -1121,17 +1121,17 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			return false, nil
 		})
+		// Commit-time overlap check; see db.ReindexOverlapLookup.
+		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
+			appState.ClusterService.ListDistributedTasks,
+			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
 		// tens of seconds. The cleanup-in-progress lookup keeps the gate
 		// closed for that window so a backup landing in the gap doesn't
 		// snapshot half-removed sidecars.
-		// Commit-time overlap check; see db.ReindexOverlapLookup.
-		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
-			appState.ClusterService.ListDistributedTasks,
-			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
-		))
 		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 		// Same race, restore side: the cluster lookup above sees only DTM,
 		// which has already forgotten the task by the time sidecars come down.
