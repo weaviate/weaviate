@@ -111,15 +111,23 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	cleanupLookup := db.anyCleanupInProgressLookup
 	db.reindexAuditMu.RUnlock()
 
-	// A cancelled task leaves DTM immediately but keeps deleting sidecar dirs
-	// for tens of seconds after — exactly the window the error text's retry advice lands in.
+	// The lookup answers yes for two different node-local holds, and cannot say
+	// which: a cancelled task still deleting sidecar dirs (tens of seconds), or
+	// a submission sweep clearing the way for a migration that is about to
+	// start. The text has to fit both, so it promises neither a short wait nor
+	// a finished migration. The per-shard backup gate can name the case
+	// (reindexBlockedBySubmit vs reindexBlockedByCleanup) because its lookup
+	// returns a [ReindexHold]; this one returns a bool.
 	if cleanupLookup != nil && cleanupLookup(collections) {
 		if db.logger != nil {
 			db.logger.WithField("action", "restore_reindex_gate").
-				Debug("restore-reindex gate: refusing — a cancelled task is still removing reindex sidecars on this node")
+				Debug("restore-reindex gate: refusing — a teardown or a submission sweep is holding reindex sidecars on this node")
 		}
 		return fmt.Errorf(
-			"%w: a cancelled migration is still removing its temporary index files; retry in a few seconds",
+			"%w: a migration is holding temporary index files on this node: either a cancelled one still removing them, "+
+				"or a newly submitted one preparing to run. Retry in a few seconds; if a new migration has started, "+
+				"wait for it to finish (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") "+
+				"or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
 			entitiesbackup.ErrReindexInFlight,
 		)
 	}
@@ -210,7 +218,13 @@ func (e redactedOverlapErr) Error() string { return e.msg }
 // Unwrap yields the sentinel as well as the cause. Without it every caller
 // classifying this refusal with errors.Is sees a plain error and treats a
 // fail-closed overlap refusal as an unrelated failure. Matches redactedCauseErr.
+//
+// A nil cause is allowed: the retention-window refusal has no underlying error
+// to hide, only a message that must not be prefixed with the sentinel's text.
 func (e redactedOverlapErr) Unwrap() []error {
+	if e.cause == nil {
+		return []error{entitiesbackup.ErrBackupSpannedReindex}
+	}
 	return []error{entitiesbackup.ErrBackupSpannedReindex, e.cause}
 }
 
@@ -228,9 +242,14 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
-			return fmt.Errorf(
-				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
-				completedTaskTTL)
+			// Carries the sentinel like the two refusals below it: a caller that
+			// cannot match it treats a fail-closed overlap refusal as an
+			// unrelated failure.
+			return redactedOverlapErr{
+				msg: fmt.Sprintf(
+					"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
+					completedTaskTTL),
+			}
 		}
 		tasksByNamespace, err := list(ctx)
 		if err != nil {
@@ -301,6 +320,21 @@ var unwiredOverlapWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1,
 // module tests construct a DB without the post-bootstrap install path, and
 // production gates external traffic on bootstrap completion.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []string, since time.Time) error {
+	if db.config.RuntimeReindexDisabled {
+		// Same contract as the other two gates: RUNTIME_REINDEX_ENABLED=false
+		// means no reindex check anywhere. Returning here also skips the lookup
+		// itself, which is a leader-forwarded RAFT query — with the feature off
+		// it could fail a backup for reasons that need no reindex to exist (an
+		// unreachable leader, or a backup outliving the completed-task
+		// retention window).
+		//
+		// Residual: a task that was already running when the flag was turned
+		// off keeps running, and this check is what would otherwise catch a
+		// backup spanning it. That window is accepted; the flag is the escape
+		// hatch for the whole feature, so it cannot itself fail backups.
+		return nil
+	}
+
 	db.reindexAuditMu.RLock()
 	lookup := db.reindexOverlapLookup
 	db.reindexAuditMu.RUnlock()

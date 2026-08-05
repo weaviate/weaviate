@@ -119,6 +119,24 @@ type reindexGateSnapshot struct {
 // that check more than one shard must build it once and reuse it; see
 // [reindexGateSnapshot].
 func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
+	var snap reindexGateSnapshot
+	if db.config.RuntimeReindexDisabled {
+		// No new task can start, so this gate checks nothing. Returning before
+		// the builders run is the point: the activity builder issues a
+		// leader-forwarded RAFT query, and the kill switch has to cost nothing.
+		// Every gate consumer builds its snapshot here, so this covers the
+		// capture path as well as admission. A zero snapshot reads as "not
+		// blocked" downstream, without the unwired warning below.
+		//
+		// This is one of three places the flag is honoured; the other two are
+		// [DB.RefuseIfAnyReindexInFlight] and [DB.RefuseIfReindexOverlapped].
+		// Together they make the flag-off behavior "no reindex check anywhere",
+		// with one accepted residual: a task already running when the flag went
+		// off is not covered, so a backup can span it. See
+		// [DB.RefuseIfReindexOverlapped].
+		return snap
+	}
+
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr

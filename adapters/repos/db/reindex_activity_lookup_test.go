@@ -56,6 +56,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		cleanup      AnyCleanupInProgressLookup
 		wantRefusal  bool
 		wantContains string
+		wantAbsent   []string
 		wantCause    error
 	}{
 		{
@@ -68,11 +69,14 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			cleanup: func([]string) bool { return false },
 		},
 		{
-			name:         "sidecar cleanup after a cancel refuses the restore",
+			// The lookup cannot say whether the hold is a teardown or a
+			// submission sweep, so the text must not claim either one.
+			name:         "a node-local reindex hold refuses the restore",
 			lookup:       func(context.Context) (bool, error) { return false, nil },
 			cleanup:      func([]string) bool { return true },
 			wantRefusal:  true,
-			wantContains: "still removing its temporary index files",
+			wantContains: "holding temporary index files on this node",
+			wantAbsent:   []string{"a cancelled migration is still removing"},
 		},
 		{
 			name:         "live task refuses the restore",
@@ -108,6 +112,10 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight,
 				"the refusal must carry the cluster-wide sentinel")
 			assert.ErrorContains(t, err, tc.wantContains)
+			for _, absent := range tc.wantAbsent {
+				assert.NotContainsf(t, err.Error(), absent,
+					"the refusal must not claim %q, which the lookup cannot tell apart", absent)
+			}
 			if tc.wantCause != nil {
 				assert.ErrorIs(t, err, tc.wantCause, "the underlying cause must stay reachable")
 			}
@@ -295,6 +303,11 @@ func TestReindexOverlapLookup(t *testing.T) {
 			if tc.wantMsg != "" {
 				assert.ErrorContains(t, err, tc.wantMsg)
 			}
+			// Every refusal this lookup produces, including the
+			// retention-window one, has to be classifiable: a caller that
+			// cannot match the sentinel treats it as an unrelated failure.
+			assert.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+				"the refusal must carry the overlap sentinel")
 			assert.NotContains(t, err.Error(), "in flight",
 				"the migration has usually finished by now; do not send the operator after a live task")
 		})
