@@ -114,7 +114,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
-	s.mayStopAsyncReplication(true)
+	capturedHT := s.mayStopAsyncReplication(true)
 
 	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
@@ -162,6 +162,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return nil
 	})
 
+	storeDurable := false
 	if s.store != nil {
 		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
@@ -169,6 +170,15 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
 		ec.AddWrapf(err, "stop lsmkv store")
+		storeDurable = err == nil
+	}
+
+	// The .ht is trusted verbatim on load, so publish it only once the store
+	// flushed the digested writes: a crash before that must not leave a
+	// snapshot that over-represents the store (lost WAL tail would mask
+	// divergence as convergence).
+	if capturedHT != nil && storeDurable {
+		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
 	}
 
 	if s.dynamicVectorIndexDB != nil {

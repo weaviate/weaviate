@@ -140,7 +140,7 @@ func TestResumeAfterAbortedOffload_NotHalted(t *testing.T) {
 	awaitHashtreeInitialized(t, s)
 
 	// snapshot + disable without halting
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "pre-condition: a snapshot exists")
 	require.Equal(t, 0, s.haltForTransferCount, "pre-condition: maintenance not halted")
 

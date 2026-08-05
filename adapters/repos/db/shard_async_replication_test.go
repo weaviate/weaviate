@@ -518,6 +518,27 @@ func enableAndAwaitAsync(t *testing.T, ctx context.Context, s *Shard) {
 	awaitHashtreeInitialized(t, s)
 }
 
+// stopAsyncAndDump mirrors performShutdown's stop-then-persist sequence.
+func stopAsyncAndDump(t *testing.T, s *Shard) {
+	t.Helper()
+	ht := s.mayStopAsyncReplication(true)
+	require.NotNil(t, ht, "capture must return the fully-initialized tree")
+	s.dumpHashTreeWithTimeout(ht, hashtreeDumpTimeout)
+}
+
+// newSeededAsyncShard builds a shard with three flushed objects and async
+// replication fully initialized.
+func newSeededAsyncShard(t *testing.T, ctx context.Context, class string) (ShardLike, *Shard) {
+	t.Helper()
+	sl, s := newAsyncTestShard(t, ctx, class)
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+	flushShard(t, ctx, sl)
+	enableAndAwaitAsync(t, ctx, s)
+	return sl, s
+}
+
 // TestAsyncReplicationEnableDisableCycle verifies the shard can be cycled
 // through enable → disable → re-enable without panicking or deadlocking, and
 // that hashtree state is correctly managed across transitions.
@@ -1174,26 +1195,11 @@ func htFilesInDir(t *testing.T, dir string) []os.DirEntry {
 // mayStopAsyncReplication writes a .ht file that can be loaded on the next startup.
 func TestMayStopAsyncReplicationDumpsHashtreeOnSuccess(t *testing.T) {
 	ctx := context.Background()
-	const class = "DumpHashtreeOnSuccessTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	// Put objects and flush to disk so the hashtree has non-zero state after
-	// the init scan.
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-	}
-	flushShard(t, ctx, sl)
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	_, s := newSeededAsyncShard(t, ctx, "DumpHashtreeOnSuccessTest")
 
 	htPath := s.pathHashTree()
 
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 
 	htFiles := htFilesInDir(t, htPath)
 	require.Len(t, htFiles, 1,
@@ -1253,7 +1259,7 @@ func TestEnableAsyncReplication_LoadsHashtreeFromDisk(t *testing.T) {
 
 	// mayStopAsyncReplication is the legitimate .ht producer (shutdown path);
 	// disableAsyncReplication is the runtime path and does not dump.
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 	require.Len(t, htFilesInDir(t, htPath), 1,
 		"pre-condition: mayStopAsyncReplication must have written a .ht file")
 
@@ -1372,7 +1378,7 @@ func TestShardLoadDiscardsStaleHashtreeWhenAsyncDisabled(t *testing.T) {
 	// in-memory tree to disk.
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
 		"pre-condition: mayStopAsyncReplication must have produced a .ht")
 
@@ -1467,7 +1473,7 @@ func TestEnableAsyncReplication_DiskIONotBlockedByRLock(t *testing.T) {
 
 	// mayStopAsyncReplication is the legitimate .ht producer; disable is the
 	// runtime path and does not dump.
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 	require.Len(t, htFilesInDir(t, htPath), 1,
 		"pre-condition: one .ht file must exist before the RLock test")
 
@@ -1766,7 +1772,7 @@ func TestDisableRacingInitLeavesNoRegistration(t *testing.T) {
 	// TOCTOU race against the longer full-scan path. Both are worth covering.
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 	s.asyncRepWg.Wait()
 
 	// awaitWg blocks until asyncRepWg reaches zero or the deadline fires. It
@@ -1894,7 +1900,7 @@ func TestLoadHashtreeReclaimsTmpFile(t *testing.T) {
 
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 
 	htPath := s.pathHashTree()
 
@@ -1918,20 +1924,7 @@ func TestLoadHashtreeReclaimsTmpFile(t *testing.T) {
 // TestMayStopAsyncReplicationSkipsDumpWhenNotPersisting: persistHashtree=false writes no .ht.
 func TestMayStopAsyncReplicationSkipsDumpWhenNotPersisting(t *testing.T) {
 	ctx := context.Background()
-	const class = "MayStopSkipsDumpTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-	}
-	flushShard(t, ctx, sl)
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	_, s := newSeededAsyncShard(t, ctx, "MayStopSkipsDumpTest")
 
 	s.mayStopAsyncReplication(false)
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
@@ -1941,20 +1934,7 @@ func TestMayStopAsyncReplicationSkipsDumpWhenNotPersisting(t *testing.T) {
 // TestHaltForTransferOffloadDoesNotPersistHashtree: offload halt of a live shard writes no .ht.
 func TestHaltForTransferOffloadDoesNotPersistHashtree(t *testing.T) {
 	ctx := context.Background()
-	const class = "HaltOffloadNoHashtreeTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-	}
-	flushShard(t, ctx, sl)
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	_, s := newSeededAsyncShard(t, ctx, "HaltOffloadNoHashtreeTest")
 
 	require.NoError(t, s.HaltForTransfer(ctx, true, 0))
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
@@ -1962,8 +1942,7 @@ func TestHaltForTransferOffloadDoesNotPersistHashtree(t *testing.T) {
 
 	require.NoError(t, s.resumeMaintenanceCycles(ctx))
 
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	enableAndAwaitAsync(t, ctx, s)
 	s.asyncReplicationRWMux.RLock()
 	root := s.hashtree.Root()
 	s.asyncReplicationRWMux.RUnlock()
@@ -2053,20 +2032,7 @@ func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 	t.Skip("pinned: drain-window conflict-delete stales the shutdown .ht — fix (drain-before-capture) tracked as follow-up")
 
 	ctx := context.Background()
-	const class = "DrainWindowDeleteDumpTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-	}
-	flushShard(t, ctx, sl)
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	_, s := newSeededAsyncShard(t, ctx, "DrainWindowDeleteDumpTest")
 
 	gate := make(chan struct{})
 	workerDone := make(chan struct{})
@@ -2081,7 +2047,9 @@ func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 
 	stopDone := make(chan struct{})
 	go func() {
-		s.mayStopAsyncReplication(true)
+		if ht := s.mayStopAsyncReplication(true); ht != nil {
+			s.dumpHashTreeWithTimeout(ht, hashtreeDumpTimeout)
+		}
 		close(stopDone)
 	}()
 
@@ -2105,8 +2073,7 @@ func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 	require.NoError(t, deserErr)
 
 	require.NoError(t, s.removePersistedHashtree())
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
+	enableAndAwaitAsync(t, ctx, s)
 	s.asyncReplicationRWMux.RLock()
 	storeRoot := s.hashtree.Root()
 	s.asyncReplicationRWMux.RUnlock()
@@ -2135,7 +2102,7 @@ func TestUnfreezeMustNotTrustDownloadedHashtree(t *testing.T) {
 	cfg := minAsyncReplicationConfig()
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
-	s.mayStopAsyncReplication(true)
+	stopAsyncAndDump(t, s)
 	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
 		"pre-condition: a .ht snapshot of {low,mid} exists, as in a pre-fix offload artifact")
 
@@ -2247,6 +2214,7 @@ func (b blockingSerializeHashTree) Serialize(io.Writer) (int64, error) {
 func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "DumpTimeoutNoLatePublishTest")
+	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
 
 	release := make(chan struct{})
 	start := time.Now()
@@ -2333,9 +2301,9 @@ func TestRebuildHashtreeRetriesAfterFailure(t *testing.T) {
 		t.Skip("requires non-root to make the hashtree directory read-only")
 	}
 
-	prevBackoff := asyncRepRebuildBaseBackoff
-	asyncRepRebuildBaseBackoff = 5 * time.Millisecond
-	t.Cleanup(func() { asyncRepRebuildBaseBackoff = prevBackoff })
+	prevBackoff := asyncRepRebuildBaseBackoff.Load()
+	asyncRepRebuildBaseBackoff.Store(int64(5 * time.Millisecond))
+	t.Cleanup(func() { asyncRepRebuildBaseBackoff.Store(prevBackoff) })
 
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "RebuildRetriesTest")
@@ -2364,6 +2332,83 @@ func TestRebuildHashtreeRetriesAfterFailure(t *testing.T) {
 	}
 	awaitHashtreeInitialized(t, s)
 	require.Empty(t, htFilesInDir(t, dir), "the recovered rebuild must have scrubbed the stale snapshot")
+}
+
+// TestPerformShutdownPersistsHashtreeAfterStoreFlush: the full shutdown path still produces a snapshot.
+func TestPerformShutdownPersistsHashtreeAfterStoreFlush(t *testing.T) {
+	ctx := context.Background()
+	sl, s := newAsyncTestShard(t, ctx, "ShutdownPersistsAfterFlushTest")
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime("ShutdownPersistsAfterFlushTest", id, tsFarPast)))
+	}
+	enableAndAwaitAsync(t, ctx, s)
+
+	require.NoError(t, sl.Shutdown(ctx))
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
+		"a clean shutdown must publish the snapshot after the store flush")
+}
+
+// TestPerformShutdownSkipsDumpWhenStoreShutdownFails: a snapshot must never outlive writes the store failed to flush.
+func TestPerformShutdownSkipsDumpWhenStoreShutdownFails(t *testing.T) {
+	ctx := context.Background()
+	sl, s := newAsyncTestShard(t, ctx, "ShutdownSkipsDumpOnStoreFailTest")
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime("ShutdownSkipsDumpOnStoreFailTest", id, tsFarPast)))
+	}
+	enableAndAwaitAsync(t, ctx, s)
+
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	require.Error(t, s.performShutdown(cancelledCtx))
+	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
+		"no snapshot may be published when the store flush did not complete")
+}
+
+// TestRebuildFromScratchSkipsShutShard: a shut shard's snapshot survives and no tree is installed.
+func TestRebuildFromScratchSkipsShutShard(t *testing.T) {
+	ctx := context.Background()
+	sl, s := newSeededAsyncShard(t, ctx, "RebuildFromScratchShutShardTest")
+
+	require.NoError(t, sl.Shutdown(ctx))
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "pre-condition: shutdown published a snapshot")
+
+	require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, true, minAsyncReplicationConfig()))
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree, "no tree may be installed on a shut shard")
+	s.asyncReplicationRWMux.RUnlock()
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "the shutdown snapshot must survive")
+}
+
+// TestDisableAsyncReplicationSkipsShutShard: a config apply racing shutdown must not scrub the fresh snapshot.
+func TestDisableAsyncReplicationSkipsShutShard(t *testing.T) {
+	ctx := context.Background()
+	sl, s := newSeededAsyncShard(t, ctx, "DisableSkipsShutShardTest")
+
+	require.NoError(t, sl.Shutdown(ctx))
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "pre-condition: shutdown published a snapshot")
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "the shutdown snapshot must survive a late disable")
+}
+
+// TestEnableAsyncReplicationShutObservedUnderLock: shut set while enable waits on the write lock must still be observed.
+func TestEnableAsyncReplicationShutObservedUnderLock(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "EnableShutUnderLockTest")
+
+	s.asyncReplicationRWMux.Lock()
+	enableDone := make(chan error, 1)
+	go func() { enableDone <- s.enableAsyncReplication(ctx, minAsyncReplicationConfig()) }()
+
+	time.Sleep(100 * time.Millisecond)
+	s.shut.Store(true)
+	t.Cleanup(func() { s.shut.Store(false) })
+	s.asyncReplicationRWMux.Unlock()
+
+	require.NoError(t, <-enableDone)
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree, "enable must not install a tree once shut is observed under the lock")
+	s.asyncReplicationRWMux.RUnlock()
 }
 
 // TestResolveObjectConflictTimeBasedNoClobber pins that a TimeBased repair keeps a live local object at least as new as the remote deletion, even when the stale pre-RPC snapshot said it was older.

@@ -462,13 +462,15 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		return nil
 	}
 
+	// Cleared before the assignment: an error path must never leave
+	// {hashtree == nil, hashtreeFullyInitialized == true}.
+	s.hashtreeFullyInitialized = false
+
 	var err error
 	s.hashtree, err = hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
 	if err != nil {
 		return err
 	}
-
-	s.hashtreeFullyInitialized = false
 	s.minimalHashtreeInitializationCh = make(chan struct{})
 	// The init goroutine closes the channel it owns, not the shard field, which a
 	// concurrent enable may have swapped out under flapping. See closeInitCh.
@@ -628,8 +630,14 @@ func (s *Shard) removePersistedHashtree() error {
 		removedAny = removedAny || removed
 	}
 	if removedAny {
+		// Removals succeeded; a crash-resurrected entry is re-swept on the next
+		// load, so a failed dir fsync must not escalate (e.g. fail a config apply).
 		if err := diskio.Fsync(dir); err != nil {
-			return fmt.Errorf("fsync hashtree directory %q: %w", dir, err)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("fsync hashtree directory %q after scrub: %v", dir, err)
 		}
 	}
 	return nil
@@ -905,25 +913,23 @@ func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error 
 }
 
 // mayStopAsyncReplication cancels async replication, deregisters the shard, and
-// waits (bounded) for in-flight cycles to drain. persistHashtree only on the
-// shutdown path: a .ht is trusted verbatim on load, so only a shard serving no
-// further writes may write one.
-func (s *Shard) mayStopAsyncReplication(persistHashtree bool) {
+// waits (bounded) for in-flight cycles to drain. With capture it returns the
+// fully-initialized tree for the caller to persist — only AFTER the store made
+// the digested writes durable: a .ht is trusted verbatim on load, so a crash
+// must never leave one that over-represents the store (lost WAL tail).
+func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTree {
 	s.asyncReplicationRWMux.Lock()
 
 	if s.hashtree == nil {
 		s.asyncReplicationRWMux.Unlock()
-		return
+		return nil
 	}
 
 	s.asyncReplicationCancelFunc()
 
-	// Capture the hashtree pointer and dump eligibility before clearing state
-	// so that dumpHashTreeOf can be called outside the write lock. Holding the
-	// write lock during I/O would block all concurrent reads (e.g. hashbeat)
-	// for the duration of the serialization.
+	// Capture before clearing state; the caller persists outside any lock.
 	var capturedHT hashtree.AggregatedHashTree
-	if s.hashtreeFullyInitialized {
+	if capture && s.hashtreeFullyInitialized {
 		capturedHT = s.hashtree
 	}
 
@@ -975,11 +981,7 @@ func (s *Shard) mayStopAsyncReplication(persistHashtree bool) {
 			Warn("async replication worker did not stop within deadline; proceeding with forced shutdown")
 	}
 
-	if persistHashtree && capturedHT != nil {
-		// Bounded and best-effort: a rebuildable cache must not stall shutdown,
-		// and the gate keeps a timed-out writer from publishing late.
-		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
-	}
+	return capturedHT
 }
 
 // enableAsyncReplication starts async replication for the shard, registering
@@ -1047,6 +1049,7 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		return nil
 	}
 	if s.shut.Load() {
+		// cached (already consumed) is dropped; the shard is shut, so next boot rescans.
 		return nil
 	}
 	return s.initAsyncReplication(config, cached)
@@ -1070,6 +1073,12 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 // asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
 // Wait) when a happens-before with in-flight cycles is required.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
+	// A shut shard is already torn down and its .ht is legitimate — a config
+	// apply racing the shutdown window must not scrub the fresh snapshot.
+	if s.shut.Load() {
+		return nil
+	}
+
 	stopped := func() bool {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
@@ -1114,6 +1123,13 @@ func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled 
 	err := func() error {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
+
+		// A shut shard's .ht is legitimate and must survive; nothing may be
+		// scrubbed or installed here (same in-lock ordering argument as
+		// enableAsyncReplication's shut checks).
+		if s.shut.Load() {
+			return nil
+		}
 
 		if s.hashtree != nil { // drop any tree a racing enable may have installed
 			s.asyncReplicationCancelFunc()
@@ -1296,6 +1312,8 @@ func (g *dumpPublishGate) publish(fn func() error) error {
 }
 
 // cancel reports whether it won: nothing was published and nothing will be.
+// It deliberately waits for an in-flight rename — returning early would let a
+// wedged rename publish long after, e.g. past a reactivation's load.
 func (g *dumpPublishGate) cancel() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1574,7 +1592,7 @@ func (s *Shard) HashTreeRoot() (root hashtree.Digest, ok bool) {
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 
-	if !s.hashtreeFullyInitialized {
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
 		return hashtree.Digest{}, false
 	}
 	return s.hashtree.Root(), true

@@ -46,9 +46,14 @@ const (
 	asyncRepRebuildMaxBackoff = 30 * time.Minute
 )
 
-// asyncRepRebuildBaseBackoff is the wait after the first consecutive rebuild
-// failure, doubled per failure up to asyncRepRebuildMaxBackoff. var for tests.
-var asyncRepRebuildBaseBackoff = 30 * time.Second
+// asyncRepRebuildBaseBackoff is the wait (ns) after the first consecutive
+// rebuild failure, doubled per failure up to asyncRepRebuildMaxBackoff.
+// Atomic so tests can shrink it while scheduler goroutines read it.
+var asyncRepRebuildBaseBackoff atomic.Int64
+
+func init() {
+	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
+}
 
 // ErrSchedulerClosed is returned by Register / Deregister when called after Close.
 var ErrSchedulerClosed = errors.New("AsyncReplicationScheduler is closed")
@@ -64,7 +69,7 @@ func asyncRepRebuildBackoffDuration(consecutiveFailures uint32) time.Duration {
 	if exp > 10 { // 30s<<10 = ~8.5h >> maxBackoff; cap the shift to avoid overflow
 		exp = 10
 	}
-	d := asyncRepRebuildBaseBackoff << exp
+	d := time.Duration(asyncRepRebuildBaseBackoff.Load()) << exp
 	if d > asyncRepRebuildMaxBackoff {
 		d = asyncRepRebuildMaxBackoff
 	}
@@ -194,6 +199,9 @@ type asyncReplicationSchedulerMetrics struct {
 	// A non-zero rate means a cluster may be stuck partially reconciled until
 	// the next flag toggle or schema update.
 	reconcileFailures prometheus.Counter
+	// rebuildFailures counts failed hashtree rebuild attempts. While a shard
+	// retries with backoff it is out of the repair mesh in both directions.
+	rebuildFailures prometheus.Counter
 	// rootPrefilterSkips counts shard cycles short-circuited as in-sync by the pre-filter.
 	rootPrefilterSkips prometheus.Counter
 	// rootPrefilterBatchSize observes the number of shards per pre-filter batch.
@@ -275,6 +283,18 @@ func newAsyncReplicationSchedulerMetrics(prom *monitoring.PrometheusMetrics) (as
 			Namespace: "weaviate",
 			Name:      "async_replication_reconcile_failures_total",
 			Help:      "Number of indices that failed to reconcile async replication with the global AsyncReplicationDisabled flag.",
+		}),
+	)
+	if err != nil {
+		return m, err
+	}
+
+	m.rebuildFailures, _, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_rebuild_failures_total",
+			Help:      "Number of failed hashtree rebuild attempts; a growing rate means shards are out of the repair mesh while retrying.",
 		}),
 	)
 	if err != nil {
@@ -372,6 +392,12 @@ func (m *asyncReplicationSchedulerMetrics) incWorkersLive() {
 func (m *asyncReplicationSchedulerMetrics) decWorkersLive() {
 	if m.monitoring {
 		m.workersLive.Dec()
+	}
+}
+
+func (m *asyncReplicationSchedulerMetrics) incRebuildFailures() {
+	if m.monitoring {
+		m.rebuildFailures.Inc()
 	}
 }
 
@@ -1543,11 +1569,12 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 		if !sched.tryRebuildHashtree(s) {
 			return
 		}
-		backoff := asyncRepRebuildBackoffDuration(s.asyncRepRebuildFailures.Load())
+		timer := time.NewTimer(asyncRepRebuildBackoffDuration(s.asyncRepRebuildFailures.Load()))
 		select {
 		case <-sched.ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(backoff):
+		case <-timer.C:
 		}
 	}
 }
@@ -1574,6 +1601,7 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 		}
 		failures := s.asyncRepRebuildFailures.Add(1)
 		s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(asyncRepRebuildBackoffDuration(failures)).UnixNano())
+		sched.metrics.incRebuildFailures()
 	}
 
 	// disableAsyncReplication does not persist; its .ht scrub costs one ReadDir

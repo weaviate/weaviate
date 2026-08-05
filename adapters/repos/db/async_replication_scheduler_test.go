@@ -651,9 +651,9 @@ func TestAdjustWorkersCapWarnsWithLogger(t *testing.T) {
 
 // TestRebuildHashtreeEnableFailureRetriesUntilShutdown: a failed enable is retried with backoff; the loop exits once the shard shuts down.
 func TestRebuildHashtreeEnableFailureRetriesUntilShutdown(t *testing.T) {
-	prevBackoff := asyncRepRebuildBaseBackoff
-	asyncRepRebuildBaseBackoff = time.Millisecond
-	t.Cleanup(func() { asyncRepRebuildBaseBackoff = prevBackoff })
+	prevBackoff := asyncRepRebuildBaseBackoff.Load()
+	asyncRepRebuildBaseBackoff.Store(int64(time.Millisecond))
+	t.Cleanup(func() { asyncRepRebuildBaseBackoff.Store(prevBackoff) })
 
 	sched := newSchedulerForUnitTest(t)
 
