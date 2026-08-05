@@ -15,6 +15,7 @@ import (
 	"context"
 	"iter"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -60,7 +61,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		nAllowList = h.wrapAllowList(ctx, allowList)
 		defer nAllowList.Close()
 	}
+	beforeCentroids := time.Now()
 	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -91,7 +94,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	// read all the selected postings
+	beforeRead := time.Now()
 	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -101,6 +106,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	var decompressBuf []uint64
 
+	beforeScan := time.Now()
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -149,7 +155,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 		}
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_scan_took", time.Since(beforeScan))
 
+	beforeRescore := time.Now()
 	candidates := make([]uint64, 0, q.Len())
 	for id := range q.Iter() {
 		candidates = append(candidates, id)
@@ -193,7 +201,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			return nil
 		})
 	}
-	if err := eg.Wait(); err != nil {
+	err = eg.Wait()
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_rescore_took", time.Since(beforeRescore))
+	if err != nil {
 		return nil, nil, err
 	}
 
