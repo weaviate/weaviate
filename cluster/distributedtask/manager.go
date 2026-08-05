@@ -64,6 +64,9 @@ type Manager struct {
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
 
+	// Per-namespace cancel-apply observers; see [CancelObserver].
+	cancelObservers map[string]CancelObserver
+
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
@@ -219,6 +222,7 @@ func NewManager(params ManagerParameters) *Manager {
 	return &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
+		cancelObservers:      make(map[string]CancelObserver),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -237,6 +241,17 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+}
+
+// RegisterCancelObserver installs the namespace's [CancelObserver]. Last write
+// wins per namespace; nil / empty arguments are silently dropped.
+func (m *Manager) RegisterCancelObserver(namespace string, observer CancelObserver) {
+	if namespace == "" || observer == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cancelObservers[namespace] = observer
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
@@ -824,6 +839,9 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	task.Status = TaskStatusCancelled
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
+	if observer := m.cancelObservers[task.Namespace]; observer != nil {
+		observer(task)
+	}
 	m.notifySchedulerWithLock()
 	return nil
 }

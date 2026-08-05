@@ -104,6 +104,12 @@ func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extr
 	s.store.RegisterDistributedTaskCollectionExtractor(namespace, extractor)
 }
 
+// RegisterDistributedTaskCancelObserver installs a namespace's
+// [distributedtask.CancelObserver]; see that type for the apply-path contract.
+func (s *Raft) RegisterDistributedTaskCancelObserver(namespace string, observer distributedtask.CancelObserver) {
+	s.store.RegisterDistributedTaskCancelObserver(namespace, observer)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }

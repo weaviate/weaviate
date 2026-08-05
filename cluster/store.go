@@ -450,6 +450,12 @@ func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, ex
 	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
 }
 
+// RegisterDistributedTaskCancelObserver installs a namespace's
+// [distributedtask.CancelObserver]; see that type for the apply-path contract.
+func (st *Store) RegisterDistributedTaskCancelObserver(namespace string, observer distributedtask.CancelObserver) {
+	st.distributedTasksManager.RegisterCancelObserver(namespace, observer)
+}
+
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
 // this method work as a protection from applying anything was applied to the db
