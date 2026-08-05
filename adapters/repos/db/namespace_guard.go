@@ -84,36 +84,6 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 	return ns.State, nil
 }
 
-// shardsShouldBeOpen reports whether this class's shards may be held open on
-// this node. Any error answers false.
-func shardsShouldBeOpen(e namespaces.Exister, namespace, class string, logger logrus.FieldLogger) bool {
-	state, err := stateForShardDecision(e, namespace, class, logger)
-	if err != nil {
-		return false
-	}
-	return namespaces.ShardsShouldBeOpen(state)
-}
-
-// requireShardLoadable returns nil when a request may load one of the class's
-// shards.
-func requireShardLoadable(e namespaces.Exister, namespace, class string, logger logrus.FieldLogger) error {
-	state, err := stateForShardDecision(e, namespace, class, logger)
-	if err != nil {
-		return err
-	}
-	return namespaces.RequireShardLoadable(state)
-}
-
-// admitReplicationTarget returns nil when a replica movement may load one of the
-// class's shards.
-func admitReplicationTarget(e namespaces.Exister, namespace, class string, logger logrus.FieldLogger) error {
-	state, err := stateForShardDecision(e, namespace, class, logger)
-	if err != nil {
-		return err
-	}
-	return namespaces.AdmitReplicationTarget(state)
-}
-
 // desiredOpen reports whether a shard should be open, given its namespace's
 // state and, for a multi-tenant class, its tenant's activity status. Only
 // tenants carry an activity status, so a single-tenant shard is decided by the
@@ -186,31 +156,38 @@ func (db *DB) ReopenShard(ctx context.Context, className, shardName string) erro
 	return index.initLocalShardWithForcedLoading(ctx, index.getClass(), shardName, true, false, callerResume)
 }
 
+// namespaceState binds this index's own namespace to the shared state lookup.
+func (i *Index) namespaceState() (api.NamespaceState, error) {
+	return stateForShardDecision(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
+}
+
+// shardsShouldBeOpen reports whether this class's shards may be held open on
+// this node. Any error answers false.
 func (i *Index) shardsShouldBeOpen() bool {
-	return shardsShouldBeOpen(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
-}
-
-func (i *Index) requireShardLoadable() error {
-	return requireShardLoadable(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
-}
-
-func (i *Index) admitReplicationTarget() error {
-	return admitReplicationTarget(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
+	state, err := i.namespaceState()
+	if err != nil {
+		return false
+	}
+	return namespaces.ShardsShouldBeOpen(state)
 }
 
 // requireNamespaceAllowsShardLoad returns nil when the namespace's state lets
 // this caller load a shard. A caller with no case below is refused.
 func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
+	state, err := i.namespaceState()
+	if err != nil {
+		return err
+	}
 	switch caller {
 	case callerUserRequest:
-		return i.requireShardLoadable()
+		return namespaces.RequireShardLoadable(state)
 	case callerResume:
-		if !i.shardsShouldBeOpen() {
+		if !namespaces.ShardsShouldBeOpen(state) {
 			return errShardNamespaceClosed
 		}
 		return nil
 	case callerReplication:
-		return i.admitReplicationTarget()
+		return namespaces.AdmitReplicationTarget(state)
 	}
 	return errShardNamespaceClosed
 }

@@ -123,9 +123,9 @@ func TestNamespaceGuard(t *testing.T) {
 
 				assert.Equal(t, tc.shouldBeOpen, idx.shardsShouldBeOpen())
 				if tc.loadableErr != nil {
-					require.ErrorIs(t, idx.requireShardLoadable(), tc.loadableErr)
+					require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), tc.loadableErr)
 				} else {
-					require.NoError(t, idx.requireShardLoadable())
+					require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
 				}
 			})
 		}
@@ -137,7 +137,7 @@ func TestNamespaceGuard(t *testing.T) {
 	t.Run("a namespaced class refuses on a missing lookup and on a missing namespace", func(t *testing.T) {
 		noLookup, noLookupHook := indexForNamespace(t, "alpha:Product", nil)
 		assert.False(t, noLookup.shardsShouldBeOpen())
-		require.ErrorIs(t, noLookup.requireShardLoadable(), errNamespaceLookupMissing)
+		require.ErrorIs(t, noLookup.requireNamespaceAllowsShardLoad(callerUserRequest), errNamespaceLookupMissing)
 		require.NotNil(t, noLookupHook.LastEntry(), "a missing lookup must be logged")
 
 		e := namespaces.NewMockExister(t)
@@ -145,8 +145,8 @@ func TestNamespaceGuard(t *testing.T) {
 		miss, _ := indexForNamespace(t, "alpha:Product", e)
 
 		assert.False(t, miss.shardsShouldBeOpen())
-		require.ErrorIs(t, miss.requireShardLoadable(), errNamespaceRowMissing)
-		require.NotErrorIs(t, miss.requireShardLoadable(), errNamespaceLookupMissing)
+		require.ErrorIs(t, miss.requireNamespaceAllowsShardLoad(callerUserRequest), errNamespaceRowMissing)
+		require.NotErrorIs(t, miss.requireNamespaceAllowsShardLoad(callerUserRequest), errNamespaceLookupMissing)
 	})
 
 	// An unqualified class name is the only un-namespaced case, so it is the only
@@ -156,7 +156,7 @@ func TestNamespaceGuard(t *testing.T) {
 
 		require.Empty(t, idx.namespace)
 		assert.True(t, idx.shardsShouldBeOpen())
-		require.NoError(t, idx.requireShardLoadable())
+		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
 	})
 
 	// NewMockExister fails the test on an unexpected call, so registering no
@@ -165,7 +165,7 @@ func TestNamespaceGuard(t *testing.T) {
 		idx, _ := indexForNamespace(t, "Product", namespaces.NewMockExister(t))
 
 		assert.True(t, idx.shardsShouldBeOpen())
-		require.NoError(t, idx.requireShardLoadable())
+		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
 	})
 
 	t.Run("a lookup miss is logged at Error with class and namespace", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestNamespaceGuard(t *testing.T) {
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
 		idx, hook := indexForNamespace(t, "alpha:Product", e)
 
-		require.ErrorIs(t, idx.requireShardLoadable(), errNamespaceRowMissing)
+		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), errNamespaceRowMissing)
 
 		entry := hook.LastEntry()
 		require.NotNil(t, entry, "a lookup miss must be logged")
@@ -1355,6 +1355,19 @@ func TestReopenShard(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+
+	// A broken lookup and a namespace that keeps no shards open are both refusals,
+	// but only one of them is an operator's cue to look at the namespace map.
+	t.Run("a missing namespace row is named as such, not as a closed namespace", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false).Maybe()
+		db, idx := dbForReopen(t, class, e)
+		idx.shards.Store("t1", NewMockShardLike(t))
+
+		err := db.ReopenShard(ctx, class, "t1")
+		require.ErrorIs(t, err, errNamespaceRowMissing)
+		require.NotErrorIs(t, err, errShardNamespaceClosed)
+	})
 
 	// The split that goes red if the two accessors are ever collapsed into one.
 	t.Run("resuming reopens while the request path is refused", func(t *testing.T) {
