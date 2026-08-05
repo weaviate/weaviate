@@ -60,7 +60,7 @@ func indexForNamespace(t *testing.T, className string, e namespaces.Exister) (*I
 
 // newIndexForNamespaceTest drives the real NewIndex, so the fields the guard
 // adapters read come from the constructor rather than from a literal.
-func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exister) *Index {
+func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exister) (*Index, error) {
 	t.Helper()
 
 	logger, _ := logrustest.NewNullLogger()
@@ -94,22 +94,23 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 		resolver.NewShardResolver(className, false, sg),
 		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 	t.Cleanup(func() { _ = idx.Shutdown(context.Background()) })
-	return idx
+	return idx, nil
 }
 
 func TestNamespaceGuard(t *testing.T) {
-	t.Run("the owning namespace's state reaches both accessors", func(t *testing.T) {
+	t.Run("the owning namespace's state reaches the load check", func(t *testing.T) {
 		tests := []struct {
-			name         string
-			state        api.NamespaceState
-			shouldBeOpen bool
-			loadableErr  error
+			name        string
+			state       api.NamespaceState
+			loadableErr error
 		}{
-			{name: "active", state: api.NamespaceStateActive, shouldBeOpen: true},
+			{name: "active", state: api.NamespaceStateActive},
 			{name: "suspended", state: api.NamespaceStateSuspended, loadableErr: namespaces.ErrNamespaceSuspended},
-			{name: "resuming", state: api.NamespaceStateResuming, shouldBeOpen: true, loadableErr: namespaces.ErrNamespaceResuming},
+			{name: "resuming", state: api.NamespaceStateResuming, loadableErr: namespaces.ErrNamespaceResuming},
 			{name: "deleting", state: api.NamespaceStateDeleting, loadableErr: namespaces.ErrNamespaceDeleting},
 		}
 
@@ -121,7 +122,6 @@ func TestNamespaceGuard(t *testing.T) {
 
 				idx, _ := indexForNamespace(t, "alpha:Product", e)
 
-				assert.Equal(t, tc.shouldBeOpen, idx.shardsShouldBeOpen())
 				if tc.loadableErr != nil {
 					require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), tc.loadableErr)
 				} else {
@@ -136,7 +136,6 @@ func TestNamespaceGuard(t *testing.T) {
 	// is a lost wiring line, the second a broken invariant.
 	t.Run("a namespaced class refuses on a missing lookup and on a missing namespace", func(t *testing.T) {
 		noLookup, noLookupHook := indexForNamespace(t, "alpha:Product", nil)
-		assert.False(t, noLookup.shardsShouldBeOpen())
 		require.ErrorIs(t, noLookup.requireNamespaceAllowsShardLoad(callerUserRequest), errNamespaceLookupMissing)
 		require.NotNil(t, noLookupHook.LastEntry(), "a missing lookup must be logged")
 
@@ -144,7 +143,6 @@ func TestNamespaceGuard(t *testing.T) {
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
 		miss, _ := indexForNamespace(t, "alpha:Product", e)
 
-		assert.False(t, miss.shardsShouldBeOpen())
 		require.ErrorIs(t, miss.requireNamespaceAllowsShardLoad(callerUserRequest), errNamespaceRowMissing)
 		require.NotErrorIs(t, miss.requireNamespaceAllowsShardLoad(callerUserRequest), errNamespaceLookupMissing)
 	})
@@ -155,7 +153,6 @@ func TestNamespaceGuard(t *testing.T) {
 		idx, _ := indexForNamespace(t, "Product", nil)
 
 		require.Empty(t, idx.namespace)
-		assert.True(t, idx.shardsShouldBeOpen())
 		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
 	})
 
@@ -164,7 +161,6 @@ func TestNamespaceGuard(t *testing.T) {
 	t.Run("an unqualified class name does not consult the lookup it has", func(t *testing.T) {
 		idx, _ := indexForNamespace(t, "Product", namespaces.NewMockExister(t))
 
-		assert.True(t, idx.shardsShouldBeOpen())
 		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
 	})
 
@@ -205,7 +201,8 @@ func TestNewIndexCarriesNamespaceLookup(t *testing.T) {
 			e := namespaces.NewMockExister(t)
 			e.EXPECT().GetNamespace("alpha").
 				Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true).Maybe()
-			idx := newIndexForNamespaceTest(t, tc.className, e)
+			idx, err := newIndexForNamespaceTest(t, tc.className, e)
+			require.NoError(t, err)
 
 			require.Equal(t, tc.wantNamespace, idx.namespace,
 				"NewIndex must parse the owning namespace out of the class name")
@@ -213,6 +210,17 @@ func TestNewIndexCarriesNamespaceLookup(t *testing.T) {
 				"NewIndex must carry the exister from its config")
 		})
 	}
+
+	// The refusal has to reach the constructor's caller: an index that could not
+	// decide whether to open its shards must not come back as a usable one.
+	t.Run("a lookup miss fails the constructor", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+
+		idx, err := newIndexForNamespaceTest(t, "alpha:Product", e)
+		require.ErrorIs(t, err, errNamespaceRowMissing)
+		assert.Nil(t, idx)
+	})
 }
 
 // A shard with no status counts as HOT, so a single-tenant shard, which never
@@ -1143,19 +1151,45 @@ func TestGuardBoot(t *testing.T) {
 		})
 	}
 
-	t.Run("a lookup miss registers nothing and logs", func(t *testing.T) {
-		e := namespaces.NewMockExister(t)
-		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-		idx, hook := indexForBootTest(t, class, e, readerForShards(t, class, mixed))
+	// A state that cannot be read is not a namespace keeping its shards closed:
+	// the class may hold data on disk, so boot must refuse rather than register
+	// nothing and report the class ready.
+	refusals := []struct {
+		name    string
+		exister func(*testing.T) namespaces.Exister
+		wantErr error
+	}{
+		{
+			name:    "a missing lookup",
+			exister: func(*testing.T) namespaces.Exister { return nil },
+			wantErr: errNamespaceLookupMissing,
+		},
+		{
+			name: "a lookup miss",
+			exister: func(t *testing.T) namespaces.Exister {
+				e := namespaces.NewMockExister(t)
+				e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+				return e
+			},
+			wantErr: errNamespaceRowMissing,
+		},
+	}
 
-		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
-		assert.Empty(t, registeredShards(t, idx))
-		assert.True(t, idx.allShardsReady.Load())
+	for _, tc := range refusals {
+		t.Run(tc.name+" returns an error instead of reporting the class ready", func(t *testing.T) {
+			idx, hook := indexForBootTest(t, class, tc.exister(t), readerForShards(t, class, mixed))
 
-		entry := hook.LastEntry()
-		require.NotNil(t, entry, "a lookup miss must be logged")
-		assert.Equal(t, logrus.ErrorLevel, entry.Level)
-	})
+			err := idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil)
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Empty(t, registeredShards(t, idx))
+			assert.False(t, idx.allShardsReady.Load(),
+				"a class whose shards were never enumerated must not report ready")
+
+			entry := hook.LastEntry()
+			require.NotNil(t, entry, "a refusal must be logged")
+			assert.Equal(t, logrus.ErrorLevel, entry.Level)
+		})
+	}
 
 	// Registering no Read expectation asserts the sharding state is never read:
 	// when nothing may be open, boot must not walk every tenant to learn that.

@@ -155,16 +155,6 @@ func (i *Index) namespaceState() (api.NamespaceState, error) {
 	return stateForShardDecision(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
 }
 
-// shardsShouldBeOpen reports whether this class's shards may be held open on
-// this node. Any error answers false.
-func (i *Index) shardsShouldBeOpen() bool {
-	state, err := i.namespaceState()
-	if err != nil {
-		return false
-	}
-	return namespaces.ShardsShouldBeOpen(state)
-}
-
 // requireNamespaceAllowsShardLoad returns nil when the namespace's state lets
 // this caller load a shard. A caller with no case below is refused.
 func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
