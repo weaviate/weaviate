@@ -192,7 +192,7 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 				WithField("collection", collection).
 				WithField("shard", shardName).
 				WithField("reason", "cleanup_in_progress").
-				Debug("backup-reindex gate: refusing — autoCleanupAfterTerminal still draining sidecars on this shard")
+				Debug("backup-reindex gate: refusing — a cancelled task holds this shard, either tearing its sidecars down or waiting to start")
 		}
 		return reindexBlockedByCleanup
 	case ReindexHoldSubmit:
