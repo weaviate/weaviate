@@ -50,6 +50,7 @@ func TestConcurrentReindex(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviate().
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
