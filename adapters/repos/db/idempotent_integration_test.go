@@ -18,17 +18,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -325,6 +325,12 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("run update index", func(t *testing.T) {
+			// Cold shards materialize added properties by re-reading the class
+			// at load, so the schema must already carry them before the
+			// migrator runs (as production does via the schema store).
+			localMigrator.db.schemaGetter.(*fakeSchemaGetter).schema = schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{remoteClass}},
+			}
 			// UpdateIndex should be able to run an arbitrary number
 			// of times without any changes to the internal DB state
 			for i := 0; i < iterations; i++ {
@@ -413,6 +419,12 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("run update index", func(t *testing.T) {
+			// Cold shards materialize added properties by re-reading the class
+			// at load, so the schema must already carry them before the
+			// migrator runs (as production does via the schema store).
+			localMigrator.db.schemaGetter.(*fakeSchemaGetter).schema = schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{remoteClass}},
+			}
 			// UpdateIndex should be able to run an arbitrary number
 			// of times without any changes to the internal DB state
 			for i := 0; i < iterations; i++ {
@@ -519,6 +531,12 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).RunAndReturn(func(className string) (int, error) {
+		return len(shardState.AllPhysicalShards()), nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
+		return shardState.AllPhysicalShards(), nil
+	}).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
 			if className == class.Class {
@@ -540,7 +558,8 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{},
+		EnableLazyLoadShards:      boolPtr(true),
+	}, &FakeRemoteClient{}, mockNodeSelector,
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)

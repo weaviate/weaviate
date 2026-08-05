@@ -63,6 +63,35 @@ func TestIncludeClasses(t *testing.T) {
 	}
 }
 
+// GetClassDescriptor drives per-class incremental dedup: a class found in the
+// base is deduplicated against it, a class absent from the base (added since)
+// returns nil and is uploaded in full.
+func TestGetClassDescriptor(t *testing.T) {
+	base := BackupDescriptor{Classes: []ClassDescriptor{{Name: "A"}, {Name: "B"}}}
+	tests := []struct {
+		name      string
+		in        BackupDescriptor
+		query     string
+		wantClass string // "" means expect nil (full upload)
+	}{
+		{name: "ExistingClassDedups", in: base, query: "A", wantClass: "A"},
+		{name: "OtherExistingClassDedups", in: base, query: "B", wantClass: "B"},
+		{name: "NewClassNotInBase", in: base, query: "C", wantClass: ""},
+		{name: "EmptyBase", in: BackupDescriptor{}, query: "A", wantClass: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.in.GetClassDescriptor(tc.query)
+			if tc.wantClass == "" {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantClass, got.Name)
+		})
+	}
+}
+
 func TestAllExist(t *testing.T) {
 	x := BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}
 	if y := x.AllExist(nil); y != "" {
@@ -80,9 +109,8 @@ func TestValidateBackup(t *testing.T) {
 	timept := time.Now().UTC()
 	bytes := []byte("hello")
 	tests := []struct {
-		desc      BackupDescriptor
-		successV1 bool
-		successV2 bool
+		desc    BackupDescriptor
+		success bool
 	}{
 		// first level check
 		{desc: BackupDescriptor{}},
@@ -90,8 +118,8 @@ func TestValidateBackup(t *testing.T) {
 		{desc: BackupDescriptor{ID: "1", Version: "1"}},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
 		{
-			desc:      BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept},
-			successV1: true, successV2: true,
+			desc:    BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept},
+			success: true,
 		},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
 		{desc: BackupDescriptor{
@@ -109,7 +137,7 @@ func TestValidateBackup(t *testing.T) {
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{Name: "n", Schema: bytes, ShardingState: bytes}},
-		}, successV1: true, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -130,7 +158,7 @@ func TestValidateBackup(t *testing.T) {
 				Name: "n", Schema: bytes, ShardingState: bytes,
 				Shards: []*ShardDescriptor{{Name: "n", Node: "n"}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -140,7 +168,7 @@ func TestValidateBackup(t *testing.T) {
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 				}},
 			}},
-		}, successV1: true, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -151,7 +179,7 @@ func TestValidateBackup(t *testing.T) {
 					Files: []string{"file"},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -162,7 +190,7 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Files: []string{"file"},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -173,7 +201,7 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{""},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -184,53 +212,10 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{"file"},
 				}},
 			}},
-		}, successV1: true, successV2: true},
-	}
-	for i, tc := range tests {
-		err := tc.desc.Validate(false)
-		if got := err == nil; got != tc.successV1 {
-			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
-		}
-		err = tc.desc.Validate(true)
-		if got := err == nil; got != tc.successV2 {
-			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
-		}
-	}
-}
-
-func TestBackwardCompatibility(t *testing.T) {
-	timept := time.Now().UTC()
-	tests := []struct {
-		desc    BackupDescriptor
-		success bool
-	}{
-		// first level check
-		{desc: BackupDescriptor{}},
-		{desc: BackupDescriptor{ID: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
-		{desc: BackupDescriptor{
-			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
-			Classes: []ClassDescriptor{{
-				Name:   "n",
-				Shards: []*ShardDescriptor{{Name: "n", Node: ""}},
-			}},
-		}},
-		{desc: BackupDescriptor{
-			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
-			Classes: []ClassDescriptor{{
-				Name: "n",
-				Shards: []*ShardDescriptor{{
-					Name: "n", Node: "n",
-				}},
-			}},
 		}, success: true},
 	}
 	for i, tc := range tests {
-		desc := tc.desc.ToDistributed()
-		err := desc.Validate()
+		err := tc.desc.Validate()
 		if got := err == nil; got != tc.success {
 			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.success, got, err)
 		}

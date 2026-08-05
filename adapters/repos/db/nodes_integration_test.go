@@ -73,7 +73,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -248,23 +248,26 @@ func TestLazyLoadedShards(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(ctx, IndexConfig{
-		RootPath:              dirName,
-		ClassName:             schema.ClassName(className),
-		ReplicationFactor:     1,
-		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		DisableLazyLoadShards: false, // we have to make sure lazyload shard disabled to load directly
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(className),
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		EnableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
 
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	// make sure that getting the node status does not trigger loading of lazy shards
 	status := &[]*models.NodeShardStatus{}
-	index.getShardsNodeStatus(ctx, status, "")
+	_, _, err = index.getShardsNodeStatus(ctx, status, "")
+	require.NoError(t, err)
 	status2 := &[]*models.NodeShardStatus{}
-	index.getShardsNodeStatus(ctx, status2, "")
+	_, _, err = index.getShardsNodeStatus(ctx, status2, "")
+	require.NoError(t, err)
 	require.Equal(t, status, status2)
 	require.Len(t, *status, 1)
 	require.False(t, (*status)[0].Loaded)

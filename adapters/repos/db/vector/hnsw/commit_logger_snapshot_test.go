@@ -15,19 +15,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 func createTestCommitLoggerForSnapshotsWithOpts(t *testing.T, rootDir, id string, opts ...CommitlogOption) *hnswCommitLogger {
@@ -934,14 +938,14 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      7,
 			Compressed: true,
 			Nodes:      make([]*vertex, 150),
-			CompressionPQData: &compressionhelpers.PQData{
+			CompressionPQData: &compression.PQData{
 				Dimensions:          128,
 				Ks:                  256,
 				M:                   8,
-				EncoderType:         compressionhelpers.UseTileEncoder,
+				EncoderType:         compression.UseTileEncoder,
 				EncoderDistribution: 1,
 				UseBitsEncoding:     true,
-				Encoders:            make([]compressionhelpers.PQEncoder, 8),
+				Encoders:            make([]compression.PQSegmentEncoder, 8),
 			},
 		}
 
@@ -985,7 +989,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      12,
 			Compressed: true,
 			Nodes:      make([]*vertex, 300),
-			CompressionSQData: &compressionhelpers.SQData{
+			CompressionSQData: &compression.SQData{
 				Dimensions: 64,
 				A:          1.5,
 				B:          2.7,
@@ -1023,13 +1027,13 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      5,
 			Compressed: true,
 			Nodes:      make([]*vertex, 250),
-			CompressionRQData: &compressionhelpers.RQData{
+			CompressionRQData: &compression.RQData{
 				InputDim: 8,
 				Bits:     8,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: 8,
 					Rounds:    1,
-					Swaps: [][]compressionhelpers.Swap{
+					Swaps: [][]compression.Swap{
 						{
 							{I: 0, J: 1},
 							{I: 2, J: 3},
@@ -1146,12 +1150,12 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      5,
 			Compressed: true,
 			Nodes:      make([]*vertex, 250),
-			CompressionBRQData: &compressionhelpers.BRQData{
+			CompressionBRQData: &compression.BRQData{
 				InputDim: 8,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: 8,
 					Rounds:    1,
-					Swaps: [][]compressionhelpers.Swap{
+					Swaps: [][]compression.Swap{
 						{
 							{I: 0, J: 1},
 							{I: 2, J: 3},
@@ -1206,7 +1210,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Compressed:    true,
 			MuveraEnabled: true,
 			Nodes:         make([]*vertex, 180),
-			CompressionSQData: &compressionhelpers.SQData{
+			CompressionSQData: &compression.SQData{
 				Dimensions: 64,
 				A:          1.5,
 				B:          2.7,
@@ -1402,8 +1406,303 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		restoredState, err := cl.readSnapshot(snapshotPath)
 		require.NoError(t, err)
 
-		require.NotEqual(t, state.Nodes, restoredState.Nodes)
+		// A multi-block snapshot must round-trip every slot faithfully. (This
+		// previously asserted NotEqual, which only held because the writer
+		// silently dropped a node at each block boundary.)
+		require.Equal(t, state.Nodes, restoredState.Nodes)
 	})
+}
+
+// TestSnapshotMultiBlockNodeLossRepro proves, directly against main's classic
+// writer/reader, that writeStateTo silently drops one node at every body-block
+// boundary (it labels the new block as starting at i+1 and never writes node i).
+// The existing "v3 - multi block" test masks this because it round-trips through
+// the same consistently-mislabeled reader and only asserts NotEqual. Here we
+// assert node-by-node survival, which fails at each block boundary.
+func TestSnapshotMultiBlockNodeLossRepro(t *testing.T) {
+	const size = 2000
+
+	// every slot is a live node — no nil slots, no tombstones — so the ONLY
+	// way a node can go missing on round-trip is the block-boundary bug.
+	state := snapshotStateWithNodes(t, size, 0)
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id) // snapshotBlockSize = 4096
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	require.NoError(t, cl.writeSnapshot(state, snapshotPath))
+
+	restoredState, err := cl.readSnapshot(snapshotPath)
+	require.NoError(t, err)
+
+	var missing []int
+	for i := 0; i < size; i++ {
+		if restoredState.Nodes[i] == nil {
+			missing = append(missing, i)
+		}
+	}
+	require.Emptyf(t, missing, "nodes silently dropped on snapshot round-trip "+
+		"(one per 4KB block boundary): %v", missing)
+}
+
+// TestSnapshotOversizedNodeReturnsError ensures a single node entry that cannot
+// fit in one block fails loudly instead of panicking (negative pad math) or
+// being silently dropped. Uses a tiny block size to make one node oversized.
+func TestSnapshotOversizedNodeReturnsError(t *testing.T) {
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 0,
+		Level:      0,
+		Nodes:      []*vertex{{id: 0, level: 0, connections: c}},
+		Tombstones: make(map[uint64]struct{}),
+	}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+	cl.snapshotBlockSize = 64 // force the single node to exceed one block
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	err = cl.writeSnapshot(state, snapshotPath)
+	require.Error(t, err, "a node larger than a block must be rejected, not dropped/panic")
+}
+
+// TestSnapshotCleanedTombstoneKeepsSlotAlignment covers the sibling drop: a node
+// that was deleted with its tombstone already cleaned up must be persisted as a
+// nil slot. The buggy code wrote a nil byte to the scratch buffer then
+// `continue`d, never appending it to the block, so every later node in the same
+// block was read back one id too low.
+func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
+	const size = 10
+	const cleaned = 5
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint:        0,
+		Level:             6,
+		Nodes:             make([]*vertex, size),
+		Tombstones:        make(map[uint64]struct{}),
+		TombstonesDeleted: make(map[uint64]struct{}),
+	}
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{id: uint64(i), level: i, connections: c}
+	}
+	// node `cleaned` was deleted and its tombstone already cleaned up
+	state.Tombstones[cleaned] = struct{}{}
+	state.TombstonesDeleted[cleaned] = struct{}{}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	require.NoError(t, cl.writeSnapshot(state, snapshotPath))
+
+	restored, err := cl.readSnapshot(snapshotPath)
+	require.NoError(t, err)
+
+	require.Nil(t, restored.Nodes[cleaned], "cleaned-tombstone node should be a nil slot")
+	for i := 0; i < size; i++ {
+		if i == cleaned {
+			continue
+		}
+		require.NotNilf(t, restored.Nodes[i], "node %d must survive", i)
+		require.Equalf(t, i, restored.Nodes[i].level, "node %d shifted id/level", i)
+	}
+}
+
+func snapshotStateWithNodes(t *testing.T, size, levelOffset int) *DeserializationResult {
+	t.Helper()
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.NoError(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 1,
+		Level:      6,
+		Nodes:      make([]*vertex, size),
+		Tombstones: make(map[uint64]struct{}),
+	}
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{id: uint64(i), level: (i + levelOffset) % 6, connections: c}
+	}
+	return state
+}
+
+// TestReadSnapshotBufferAllocation pins both halves of how a snapshot read gets
+// its block buffers: one per block actually read rather than one per reader
+// goroutine, and taken from the pool once it holds any.
+func TestReadSnapshotBufferAllocation(t *testing.T) {
+	const size = 10
+
+	tests := []struct {
+		name string
+		// reads above 1 leave the pool filled from the read before, so the
+		// cheapest of them is the one that reuses a buffer
+		reads        int
+		maxAllocated uint64
+	}{
+		{
+			// one block, so one buffer; the bound is two because TotalAlloc also
+			// counts whatever else the process allocates
+			name:         "empty pool allocates per block, not per reader goroutine",
+			reads:        1,
+			maxAllocated: 2 * blockSize,
+		},
+		{
+			name:         "filled pool hands the buffer back",
+			reads:        5,
+			maxAllocated: blockSize / 2,
+		},
+	}
+
+	// a GC empties the pool, so hold it off to keep reuse observable
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			id := "test"
+			cl := createTestCommitLoggerForSnapshots(t, dir, id)
+			cl.snapshotBlockSize = blockSize // production size, so this small state is one block
+
+			snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+			require.NoError(t, cl.writeSnapshot(snapshotStateWithNodes(t, size, 0), snapshotPath))
+
+			// TotalAlloc counts the whole process, and that noise only ever adds,
+			// so the cheapest read is the honest measurement
+			var lowest uint64
+			var restored *DeserializationResult
+			for i := 0; i < test.reads; i++ {
+				var before, after runtime.MemStats
+				var err error
+
+				runtime.ReadMemStats(&before)
+				restored, err = cl.readStateFrom(snapshotPath)
+				runtime.ReadMemStats(&after)
+				require.NoError(t, err)
+
+				if allocated := after.TotalAlloc - before.TotalAlloc; i == 0 || allocated < lowest {
+					lowest = allocated
+				}
+			}
+
+			for i := 0; i < size; i++ {
+				require.NotNilf(t, restored.Nodes[i], "node %d must survive the round-trip", i)
+			}
+
+			require.Lessf(t, lowest, test.maxAllocated,
+				"reading a single-block snapshot allocated %d bytes; one buffer per reader goroutine would be %d",
+				lowest, snapshotConcurrency*blockSize)
+		})
+	}
+}
+
+// TestReadSnapshotConcurrent pins that snapshots read at the same time keep
+// their own content, since the readers share their block buffers.
+func TestReadSnapshotConcurrent(t *testing.T) {
+	const shards = 4
+	const readsPerShard = 5
+
+	dir := t.TempDir()
+
+	paths := make([]string, shards)
+	loggers := make([]*hnswCommitLogger, shards)
+	sizes := make([]int, shards)
+
+	for s := 0; s < shards; s++ {
+		id := fmt.Sprintf("shard-%d", s)
+		sizes[s] = 100 * (s + 1)
+		loggers[s] = createTestCommitLoggerForSnapshots(t, dir, id)
+		paths[s] = filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		require.NoError(t, loggers[s].writeSnapshot(snapshotStateWithNodes(t, sizes[s], s), paths[s]))
+	}
+
+	var wg sync.WaitGroup
+	for s := 0; s < shards; s++ {
+		for range readsPerShard {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				// assert rather than require: require stops the calling goroutine,
+				// which here is not the one running the test
+				restored, err := loggers[s].readStateFrom(paths[s])
+				if !assert.NoError(t, err) || !assert.Len(t, restored.Nodes, sizes[s]) {
+					return
+				}
+
+				for i := 0; i < sizes[s]; i++ {
+					node := restored.Nodes[i]
+					if !assert.NotNilf(t, node, "shard %d node %d missing", s, i) {
+						return
+					}
+					if !assert.Equalf(t, (i+s)%6, node.level, "shard %d node %d holds another shard's data", s, i) {
+						return
+					}
+				}
+			}()
+		}
+	}
+	wg.Wait()
+}
+
+// TestReadSnapshotRejectsTruncatedBody pins that a truncated body fails instead
+// of reporting success with the nodes that happened to survive.
+func TestReadSnapshotRejectsTruncatedBody(t *testing.T) {
+	const size = 200
+
+	tests := []struct {
+		name string
+		// truncateTo returns the size the snapshot file is truncated to
+		truncateTo func(fileSize, blockSize int64) int64
+		wantErr    string
+	}{
+		{
+			name:       "last block cut in half",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize - blockSize/2 },
+			wantErr:    "is not a whole number of",
+		},
+		{
+			// the body is a whole number of blocks, so the remainder is the metadata
+			name:       "body missing entirely",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize % blockSize },
+			wantErr:    "is not a whole number of",
+		},
+		{
+			// whole blocks still pass their own checksum, so only the node count
+			// recorded in the metadata catches this
+			name:       "last block removed",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize - blockSize },
+			wantErr:    "metadata declares",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			id := "test"
+			cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+			snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+			require.NoError(t, cl.writeSnapshot(snapshotStateWithNodes(t, size, 0), snapshotPath))
+
+			info, err := os.Stat(snapshotPath)
+			require.NoError(t, err)
+			require.NoError(t, os.Truncate(snapshotPath, test.truncateTo(info.Size(), cl.snapshotBlockSize)))
+
+			_, err = cl.readStateFrom(snapshotPath)
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
 }
 
 var connsSlice1 = []uint64{

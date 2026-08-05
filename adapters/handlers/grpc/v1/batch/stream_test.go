@@ -15,15 +15,19 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -36,6 +40,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -56,7 +61,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -66,6 +71,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -86,7 +92,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -96,17 +102,23 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
+		collection := "TestClass"
 		obj := &pb.BatchObject{
-			Collection: "TestClass",
+			Collection: collection,
 		}
 		mockBatcher.EXPECT().
 			BatchObjects(mock.Anything, &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{obj}}).
 			Return(&pb.BatchObjectsReply{Errors: []*pb.BatchObjectsReply_BatchError{{Error: "batcher error"}}}, nil).
+			Once()
+		mockSchemaManager.EXPECT().
+			GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 			Once()
 
 		recvCount := 0
@@ -133,7 +145,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -142,14 +154,21 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
+		collection := "TestClass"
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().
+			GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
+			Once()
+
 		mockStream := newMockStream(t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 		obj := &pb.BatchObject{
-			Collection: "TestClass",
+			Collection: collection,
 		}
 		mockBatcher.EXPECT().
 			BatchObjects(mock.Anything, &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{obj}}).
@@ -180,7 +199,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -192,6 +211,7 @@ func TestStreamHandler(t *testing.T) {
 		logger := logrus.New()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -209,10 +229,15 @@ func TestStreamHandler(t *testing.T) {
 				Errors: nil,
 			}, nil
 		}).Maybe()
+		collection := "TestClass"
+		mockSchemaManager.EXPECT().
+			GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
+			Maybe()
 
 		objs := make([]*pb.BatchObject, 0, numObjs)
 		for i := 0; i < numObjs; i++ {
-			objs = append(objs, &pb.BatchObject{Collection: "TestClass"})
+			objs = append(objs, &pb.BatchObject{Collection: collection})
 		}
 
 		recvCount := 0
@@ -239,10 +264,150 @@ func TestStreamHandler(t *testing.T) {
 		})).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when handling stream")
 		require.Len(t, objsCh, numObjs, "Expected all objects to be processed into mock channel")
+	})
+
+	t.Run("receiver and sender Send calls are mutually exclusive", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockStream := newMockStream(t)
+		mockStream.EXPECT().Context().Return(ctx).Maybe()
+		mockAuthenticator := mocks.NewMockauthenticator(t)
+		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
+
+		const numBatches = 100
+		collection := "TestClass"
+
+		var inFlight atomic.Int32
+		var maxObserved atomic.Int32
+		mockStream.EXPECT().Send(mock.Anything).RunAndReturn(func(msg *pb.BatchStreamReply) error {
+			n := inFlight.Add(1)
+			for {
+				prev := maxObserved.Load()
+				if n <= prev || maxObserved.CompareAndSwap(prev, n) {
+					break
+				}
+			}
+			if n > 1 {
+				t.Errorf("concurrent Send detected: %d goroutines in flight", n)
+			}
+			time.Sleep(time.Microsecond) // widen the race window
+			inFlight.Add(-1)
+			return nil
+		}).Maybe()
+
+		recvCount := 0
+		mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+			recvCount++
+			switch {
+			case recvCount == 1:
+				return newBatchStreamStartRequest(), nil
+			case recvCount <= numBatches+1:
+				return newBatchStreamObjsRequest([]*pb.BatchObject{
+					{Collection: collection, Uuid: uuid.New().String()},
+				}), nil
+			default:
+				return nil, io.EOF
+			}
+		}).Times(numBatches + 2)
+
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			return &pb.BatchObjectsReply{Took: 1}, nil
+		}).Maybe()
+		mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
+
+		// numWorkers > 1 so worker Results overlap with receiver Acks in time.
+		numWorkers := 4
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		err := handler.Handle(mockStream)
+		require.NoError(t, err)
+
+		require.Equal(t, int32(0), inFlight.Load())
+		require.LessOrEqual(t, maxObserved.Load(), int32(1), "stream.Send must never have more than one goroutine in flight")
+	})
+
+	t.Run("results not lost when stream Send is slow", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockStream := newMockStream(t)
+		mockStream.EXPECT().Context().Return(ctx).Maybe()
+		mockAuthenticator := mocks.NewMockauthenticator(t)
+		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
+
+		const numBatches = 20
+		collection := "TestClass"
+
+		expected := make([]string, 0, numBatches)
+		for range numBatches {
+			expected = append(expected, uuid.New().String())
+		}
+
+		var slowdownsRemaining atomic.Int32
+		slowdownsRemaining.Store(3)
+
+		// Mutex-guarded so the test holds even if the concurrent-Send guard regresses.
+		var seenMu sync.Mutex
+		seen := make(map[string]struct{}, numBatches)
+
+		mockStream.EXPECT().Send(mock.Anything).RunAndReturn(func(msg *pb.BatchStreamReply) error {
+			if results := msg.GetResults(); results != nil {
+				if slowdownsRemaining.Add(-1) >= 0 {
+					time.Sleep(1200 * time.Millisecond)
+				}
+				seenMu.Lock()
+				for _, s := range results.GetSuccesses() {
+					if u := s.GetUuid(); u != "" {
+						seen[u] = struct{}{}
+					}
+				}
+				seenMu.Unlock()
+			}
+			return nil
+		}).Maybe()
+
+		recvCount := 0
+		mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+			recvCount++
+			switch {
+			case recvCount == 1:
+				return newBatchStreamStartRequest(), nil
+			case recvCount <= numBatches+1:
+				return newBatchStreamObjsRequest([]*pb.BatchObject{
+					{Collection: collection, Uuid: expected[recvCount-2]},
+				}), nil
+			default:
+				return nil, io.EOF
+			}
+		}).Times(numBatches + 2)
+
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			return &pb.BatchObjectsReply{Took: 1}, nil
+		}).Maybe()
+		mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
+
+		numWorkers := 4
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		err := handler.Handle(mockStream)
+		require.NoError(t, err)
+
+		seenMu.Lock()
+		got := make([]string, 0, len(seen))
+		for u := range seen {
+			got = append(got, u)
+		}
+		seenMu.Unlock()
+		require.ElementsMatch(t, expected, got)
 	})
 }
 

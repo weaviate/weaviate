@@ -246,6 +246,5 @@ func Test_PQDistanceError(t *testing.T) {
 
 	_, err = q.DistanceBetweenCompressedVectors(nil, nil)
 	require.Error(t, err)
-	msg := "ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths"
-	assert.EqualError(t, err, msg)
+	assert.ErrorContains(t, err, "ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths")
 }

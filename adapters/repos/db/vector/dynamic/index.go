@@ -17,7 +17,6 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -45,6 +45,7 @@ import (
 const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
+	StateDBFileName     = "index.db"
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -66,8 +67,10 @@ type VectorIndex interface {
 	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	SwitchCommitLogs(ctx context.Context) error
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
+	SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
@@ -302,6 +305,18 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		return false, errors.Wrap(err, "get dynamic state")
 	}
 
+	// If not yet upgraded, remove any stale HNSW commit log left by an
+	// upgrade that was aborted or crashed before completing. hnsw.New()
+	// replays every file in the commit log directory, so without this
+	// cleanup the next upgrade attempt inherits partial state from the
+	// prior one, corrupting the rebuilt index.
+	if !upgraded {
+		commitLogDir := hnswCommitLogDirectory(cfg.RootPath, cfg.ID)
+		if err := os.RemoveAll(commitLogDir); err != nil {
+			return false, errors.Wrap(err, "clean up stale hnsw commit log")
+		}
+	}
+
 	return upgraded, nil
 }
 
@@ -357,17 +372,16 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
+	// doUpgrade swaps dynamic.index and flips upgraded under the exclusive lock;
+	// hold it across the check and the use so an upgrade can't land in between
+	// and route the wrong sub-config into the swapped index.
+	dynamic.Lock()
+	defer dynamic.Unlock()
 	if dynamic.upgraded.Load() {
-		dynamic.RLock()
-		defer dynamic.RUnlock()
-		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
-	} else {
-		dynamic.uc = parsed
-		dynamic.RLock()
-		defer dynamic.RUnlock()
-		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
+		return dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	}
-	return nil
+	dynamic.uc = parsed
+	return dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 }
 
 func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
@@ -386,7 +400,7 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 		return err
 	}
 	if !keepFiles {
-		os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
+		os.Remove(filepath.Join(dynamic.rootPath, StateDBFileName))
 	}
 
 	return dynamic.index.Drop(ctx, keepFiles)
@@ -414,16 +428,62 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	return dynamic.index.Shutdown(ctx)
 }
 
-func (dynamic *dynamic) SwitchCommitLogs(ctx context.Context) error {
+func (dynamic *dynamic) PrepareForBackup(ctx context.Context) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SwitchCommitLogs(ctx)
+	return dynamic.index.PrepareForBackup(ctx)
+}
+
+func (dynamic *dynamic) ResumeAfterBackup(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ResumeAfterBackup(ctx)
 }
 
 func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.ListFiles(ctx, basePath)
+}
+
+// SnapshotMutableFiles delegates to the underlying index. The shared, shard-level
+// StateDBFileName (index.db) is NOT snapshotted here — it is snapshotted once per
+// shard via SnapshotSharedStateDB rather than through this per-index method, which
+// the shard's ForEachVectorIndex would otherwise invoke once per named vector and
+// thus duplicate the copy and its sd.Files entry.
+func (dynamic *dynamic) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SnapshotMutableFiles(ctx, basePath, stagingDir)
+}
+
+// SnapshotSharedStateDB writes a consistent point-in-time copy of the shard-level
+// dynamic-index state DB (StateDBFileName) into stagingDir and returns its
+// backup-relative path. The state DB is shard-owned and shared by every target-vector
+// dynamic index, so Shard.CreateBackupSnapshot calls this ONCE per shard — NOT via the
+// per-index SnapshotMutableFiles, which ForEachVectorIndex would invoke once per named
+// vector and thus duplicate the snapshot.
+//
+// rootPath is the directory holding the live state DB (the shard path); basePath is the
+// backup root the returned relpath is relative to. The copy is taken inside a bbolt read
+// transaction (tx.CopyFile) so an in-place write during the long upload window cannot tear
+// the staged copy.
+func SnapshotSharedStateDB(db *bbolt.DB, rootPath, basePath, stagingDir string) (string, error) {
+	src := filepath.Join(rootPath, StateDBFileName)
+	relPath, err := filepath.Rel(basePath, src)
+	if err != nil {
+		return "", fmt.Errorf("index.db relative path: %w", err)
+	}
+	dst := filepath.Join(stagingDir, relPath)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", fmt.Errorf("create staging subdir for %s: %w", relPath, err)
+	}
+	if err := db.View(func(tx *bbolt.Tx) error {
+		return tx.CopyFile(dst, 0o600)
+	}); err != nil {
+		return "", fmt.Errorf("snapshot index.db to staging: %w", err)
+	}
+	return relPath, nil
 }
 
 func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
@@ -478,9 +538,7 @@ func (dynamic *dynamic) Upgraded() bool {
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 
@@ -550,6 +608,7 @@ func (dynamic *dynamic) doUpgrade() error {
 	err = dynamic.copyToVectorIndex(index)
 	if err != nil {
 		dynamic.RUnlock()
+		dynamic.cleanupAbortedUpgrade(index)
 		return err
 	}
 
@@ -568,6 +627,7 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	if err := dynamic.ctx.Err(); err != nil {
 		// already closed
+		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
@@ -576,6 +636,9 @@ func (dynamic *dynamic) doUpgrade() error {
 		return b.Put(dynamic.dbKey(), []byte{1})
 	})
 	if err != nil {
+		// the new index is never installed, so tear it down like any other
+		// aborted upgrade
+		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "update dynamic")
 	}
 
@@ -618,6 +681,25 @@ func (dynamic *dynamic) doUpgrade() error {
 	}
 
 	return nil
+}
+
+// cleanupAbortedUpgrade tears down a partially-built HNSW index after an
+// aborted flat->HNSW upgrade. The commit log written so far must not stay on
+// disk: the next hnsw.New() (upgrade retry or shard restart) replays every
+// file in the commit log directory, so leftover partial state would corrupt
+// the rebuilt index. Uses a fresh context because the abort is typically
+// caused by dynamic.ctx being canceled.
+func (dynamic *dynamic) cleanupAbortedUpgrade(index VectorIndex) {
+	if err := index.Drop(context.Background(), false); err != nil {
+		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+			Error(errors.Wrap(err, "drop partially-built hnsw index"))
+	}
+	// Drop removes the commit log directory, but remove it explicitly in case
+	// Drop failed partway through.
+	if err := os.RemoveAll(hnswCommitLogDirectory(dynamic.rootPath, dynamic.id)); err != nil {
+		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+			Error(errors.Wrap(err, "remove partial hnsw commit log"))
+	}
 }
 
 // Loop over the store and add each vector to the HNSW.
@@ -664,9 +746,8 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 
 		cursor.Close()
 
-		err := index.AddBatch(dynamic.ctx, ids, vectors)
-		if err != nil {
-			dynamic.logger.WithError(err).Error("failed to add vectors")
+		if err := index.AddBatch(dynamic.ctx, ids, vectors); err != nil {
+			return errors.Wrap(err, "add vectors to upgraded index")
 		}
 
 		if k == nil {
@@ -678,6 +759,8 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 }
 
 func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
 	dynamic.index.Iterate(fn)
 }
 

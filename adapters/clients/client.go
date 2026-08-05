@@ -87,7 +87,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		return false, nil
 	}
-	return code, c.retry(ctx, 9, try)
+	return code, c.retry(ctx, MAX_RETRIES, try)
 }
 
 type retryer struct {

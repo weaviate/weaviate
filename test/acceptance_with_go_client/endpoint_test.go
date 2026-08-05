@@ -23,11 +23,13 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestUpdatingPropertiesWithNil(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := "RandomPinkFlower"
@@ -102,7 +104,7 @@ func TestUpdatingPropertiesWithNil(t *testing.T) {
 
 func TestUpdateWithVectorVectorizer(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := "TestUpdateWithVectorWithVec"
@@ -135,7 +137,7 @@ func TestUpdateWithVectorVectorizer(t *testing.T) {
 
 func TestUpdateWithVectorVectorizerNone(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := "TestUpdateWithVectorNoVec"

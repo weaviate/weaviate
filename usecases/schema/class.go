@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -42,8 +45,10 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
@@ -115,6 +120,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	if cls.ObjectTTLConfig != nil && cls.ObjectTTLConfig.Enabled {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(cls.Class)...); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	for _, prop := range cls.Properties {
 		if err := schema.ValidateReservedPropertyNameSuffix(prop.Name); err != nil {
 			return nil, 0, err
@@ -149,12 +160,27 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		return nil, 0, fmt.Errorf(
-			"cannot create collection: maximum number of collections (%d) reached - "+
-				"please consider switching to multi-tenancy or increasing the collection count limit - "+
-				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
-				"when working with multiple collections and tenants",
-			limit)
+		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+		// in the usage-limits work; see docs/usage_limits.md for the wire
+		// contract.
+		return nil, 0, usagelimits.NewLimitExceededError(
+			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+	}
+
+	// Per-collection shard cap. Config-time check only — shard count comes
+	// straight from the create request, no live state to consult.
+	// Multi-tenant collections set DesiredCount=0 (shards are created
+	// per-tenant on demand) so the cap is naturally satisfied for those;
+	// the check meaningfully constrains single-tenant configurations only.
+	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
+		shardCap := dv.Get()
+		if shardCap >= 0 {
+			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
+			if requested > shardCap {
+				return nil, 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
+			}
+		}
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -322,6 +348,20 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// Require DELETE permission on data when any TTL setting is being changed,
+	// but not when the user is updating other collection settings without
+	// touching TTL configuration.
+	initial := h.schemaReader.ReadOnlyClass(className)
+	var initialTTLConfig *models.ObjectTTLConfig
+	if initial != nil {
+		initialTTLConfig = initial.ObjectTTLConfig
+	}
+	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
+			return err
+		}
+	}
+
 	return UpdateClassInternal(h, ctx, className, updated)
 }
 
@@ -334,7 +374,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true); err != nil {
+	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		updated.ObjectTTLConfig = ttlConfig
@@ -356,11 +396,13 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return fmt.Errorf("parse vector config: %w", err)
 	}
 
-	if err := h.validateVectorSettings(updated); err != nil {
+	// Initial class is read up-front for the grandfather-on-tighten skip
+	// in validateVectorSettingsAgainst.
+	initial := h.schemaReader.ReadOnlyClass(className)
+
+	if err := h.validateVectorSettingsAgainst(updated, initial); err != nil {
 		return err
 	}
-
-	initial := h.schemaReader.ReadOnlyClass(className)
 
 	if initial != nil {
 		_, err := validateUpdatingMT(initial, updated)
@@ -443,7 +485,11 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 		}
 
 		if class.VectorIndexType == "" {
-			class.VectorIndexType = vectorindex.DefaultVectorIndexType
+			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+				class.VectorIndexType = v
+			} else {
+				class.VectorIndexType = vectorindex.DefaultVectorIndexType
+			}
 		}
 
 		if h.config.DefaultVectorDistanceMetric != "" {
@@ -452,6 +498,18 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 			} else if vIdxCfgMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vIdxCfgMap["distance"] == nil {
 				class.VectorIndexConfig.(map[string]interface{})["distance"] = h.config.DefaultVectorDistanceMetric
 			}
+		}
+	}
+
+	// apply default vector index type to named vectors
+	for name, vectorConfig := range class.VectorConfig {
+		if vectorConfig.VectorIndexType == "" {
+			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+				vectorConfig.VectorIndexType = v
+			} else {
+				vectorConfig.VectorIndexType = vectorindex.DefaultVectorIndexType
+			}
+			class.VectorConfig[name] = vectorConfig
 		}
 	}
 
@@ -467,6 +525,11 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
 		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
 			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
+	if globalCfg.MaximumFactor > 0 && class.ReplicationConfig.Factor > int64(globalCfg.MaximumFactor) {
+		return fmt.Errorf("invalid replication factor: setup caps replication at %d: got %d",
+			globalCfg.MaximumFactor, class.ReplicationConfig.Factor)
 	}
 
 	if class.ReplicationConfig.Factor < 1 {
@@ -580,7 +643,7 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 	if property.IndexFilterable == nil {
 		property.IndexFilterable = &vTrue
 
-		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+		if isPrimitive && (primitiveDataType == schema.DataTypeBlob || primitiveDataType == schema.DataTypeBlobHash) {
 			property.IndexFilterable = &vFalse
 		}
 	}
@@ -690,8 +753,13 @@ func (h *Handler) validateProperty(
 			return fmt.Errorf("property '%s': invalid dataType: %v: %w", property.Name, property.DataType, err)
 		}
 
+		var userPresets map[string][]string
+		if class.InvertedIndexConfig != nil {
+			userPresets = class.InvertedIndexConfig.StopwordPresets
+		}
+
 		if propertyDataType.IsNested() {
-			if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			if err := validateNestedProperties(property.NestedProperties, property.Name, userPresets); err != nil {
 				return err
 			}
 		} else {
@@ -702,6 +770,10 @@ func (h *Handler) validateProperty(
 		}
 
 		if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+			return err
+		}
+
+		if err := validatePropertyProcessing(property, propertyDataType, userPresets); err != nil {
 			return err
 		}
 
@@ -749,6 +821,16 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 		return fmt.Errorf("creating a class with both a class level vector index and named vectors is forbidden")
 	}
 
+	// Reject any vector config entry with the "none" sentinel on a brand-new
+	// class. The "none" type is an internal marker set only by the
+	// DeleteClassVectorIndex API for previously-existing indexes.
+	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			return fmt.Errorf("vector %q: cannot create a new class with vectorIndexType %q; "+
+				"this is an internal sentinel for dropped indexes", name, cfg.VectorIndexType)
+		}
+	}
+
 	return h.validateClassInvariants(ctx, class, classGetterWithAuth, relaxCrossRefValidation)
 }
 
@@ -784,7 +866,7 @@ func (h *Handler) validateClassInvariants(
 		return err
 	}
 
-	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false); err != nil {
+	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		class.ObjectTTLConfig = ttlConfig
@@ -902,28 +984,176 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	return nil
 }
 
-func (h *Handler) validateVectorSettings(class *models.Class) error {
-	if modelsext.ClassHasLegacyVectorIndex(class) {
-		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
+func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType, userPresets map[string][]string) error {
+	// Treat an empty config as absent — some client generators emit
+	// "textAnalyzer": {} by default and this should not block creation.
+	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 && prop.TextAnalyzer.StopwordPreset == "" {
+		prop.TextAnalyzer = nil
+	}
+	if prop.TextAnalyzer == nil {
+		return nil
+	}
+
+	// processing only makes sense for text/text[] with searchable index
+	if !propertyDataType.IsPrimitive() {
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types", prop.Name)
+	}
+
+	dt := propertyDataType.AsPrimitive()
+	switch dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// allowed
+	default:
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types, got '%s'", prop.Name, dt)
+	}
+
+	if (prop.IndexSearchable == nil || !*prop.IndexSearchable) && (prop.IndexFilterable == nil || !*prop.IndexFilterable) {
+		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%s and IndexFilterable=%s",
+			prop.Name, fmtBoolPtr(prop.IndexSearchable), fmtBoolPtr(prop.IndexFilterable))
+	}
+
+	if !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("property '%s': asciiFoldIgnore requires asciiFold to be enabled", prop.Name)
+	}
+
+	for _, entry := range prop.TextAnalyzer.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",
+				prop.Name, entry)
+		}
+	}
+
+	// explicitly check for support for tokenizers:
+	if prop.Tokenization != "" {
+		switch prop.Tokenization {
+		case models.PropertyTokenizationLowercase,
+			models.PropertyTokenizationTrigram,
+			models.PropertyTokenizationWord,
+			models.PropertyTokenizationWhitespace,
+			models.PropertyTokenizationField: // supported tokenizers, do nothing
+		default:
+			return fmt.Errorf("property '%s': unsupported tokenization '%s'", prop.Name, prop.Tokenization)
+		}
+	}
+
+	if prop.TextAnalyzer.StopwordPreset != "" {
+		if prop.Tokenization != models.PropertyTokenizationWord {
+			return fmt.Errorf("property '%s': stopwordPreset is only supported with tokenization %q, got %q",
+				prop.Name, models.PropertyTokenizationWord, prop.Tokenization)
+		}
+		_, builtIn := stopwords.Presets[prop.TextAnalyzer.StopwordPreset]
+		_, userDefined := userPresets[prop.TextAnalyzer.StopwordPreset]
+		if !builtIn && !userDefined {
+			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
+				prop.Name, prop.TextAnalyzer.StopwordPreset)
+		}
+	}
+
+	return nil
+}
+
+// validateStopwordPresetsStillReferenced rejects an inverted-index-config
+// update that would remove a user-defined stopwordPreset still referenced by
+// any (top-level or nested) property's textAnalyzer.stopwordPreset. Without
+// this check, the property would silently fall back to no stopwords at query
+// time once the preset disappears from the collection config.
+func validateStopwordPresetsStillReferenced(properties []*models.Property,
+	updatedPresets map[string][]string,
+) error {
+	check := func(propName, presetName string) error {
+		if presetName == "" {
+			return nil
+		}
+		if _, builtIn := stopwords.Presets[presetName]; builtIn {
+			return nil
+		}
+		if _, ok := updatedPresets[presetName]; ok {
+			return nil
+		}
+		return fmt.Errorf("invertedIndexConfig.stopwordPresets: cannot remove preset %q because it is still used by property %q",
+			presetName, propName)
+	}
+
+	var walkNested func(parentName string, nested []*models.NestedProperty) error
+	walkNested = func(parentName string, nested []*models.NestedProperty) error {
+		for _, np := range nested {
+			if np == nil {
+				continue
+			}
+			fullName := parentName + "." + np.Name
+			if np.TextAnalyzer != nil {
+				if err := check(fullName, np.TextAnalyzer.StopwordPreset); err != nil {
+					return err
+				}
+			}
+			if err := walkNested(fullName, np.NestedProperties); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, prop := range properties {
+		if prop == nil {
+			continue
+		}
+		if prop.TextAnalyzer != nil {
+			if err := check(prop.Name, prop.TextAnalyzer.StopwordPreset); err != nil {
+				return err
+			}
+		}
+		if err := walkNested(prop.Name, prop.NestedProperties); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (h *Handler) validateVectorSettings(class *models.Class) error {
+	return h.validateVectorSettingsAgainst(class, nil)
+}
+
+// validateVectorSettingsAgainst is the AddClass / UpdateClass entry
+// point (initial == nil on add). When initial is non-nil, allow-list
+// checks for unchanged fields are skipped — operators who tighten
+// policy after classes exist can still PUT-update those classes for
+// unrelated edits. Per-type correctness (async-indexing for dynamic,
+// vectorizer compatibility, etc.) always runs.
+func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) error {
+	if modelsext.ClassHasLegacyVectorIndex(class) {
+		typeUnchanged := initial != nil && initial.VectorIndexType == class.VectorIndexType
+		if err := h.validateVectorIndexTypeBasic(class.VectorIndexType); err != nil {
+			return err
+		}
+		if !typeUnchanged {
+			if err := h.validateVectorIndexTypeAllowList(class.VectorIndexType, false); err != nil {
+				return err
+			}
 		}
 
 		if err := h.validateVectorizer(class.Vectorizer); err != nil {
 			return err
 		}
 
-		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
-			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultQuantization)
-			if err != nil {
-				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
-			}
-			if parsed.IsMultiVector() {
-				return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+		parsed, err := h.parseLegacyVectorIndexConfig(class)
+		if err != nil {
+			return err
+		}
+		if parsed != nil && parsed.IsMultiVector() {
+			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+		}
+		// Grandfather: same compression set ⇒ skip the policy check.
+		if parsed != nil && !legacyCompressionUnchanged(parsed, initial, h) {
+			if err := h.validateAllowedCompression(class.VectorIndexType, parsed); err != nil {
+				return err
 			}
 		}
 	}
 
 	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
 		// check only if vectorizer correctly configured (map with single key being vectorizer name)
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
@@ -933,11 +1163,216 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 				}
 			}
 		}
-		if err := h.validateVectorIndexType(cfg.VectorIndexType); err != nil {
+		typeUnchanged := false
+		if initial != nil {
+			if initCfg, ok := initial.VectorConfig[name]; ok && initCfg.VectorIndexType == cfg.VectorIndexType {
+				typeUnchanged = true
+			}
+		}
+		if err := h.validateVectorIndexTypeBasic(cfg.VectorIndexType); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
+		if !typeUnchanged {
+			if err := h.validateVectorIndexTypeAllowList(cfg.VectorIndexType, true); err != nil {
+				return fmt.Errorf("target vector %q: %w", name, err)
+			}
+		}
+
+		parsed, err := h.parseNamedVectorIndexConfig(name, cfg)
+		if err != nil {
+			return err
+		}
+		if parsed == nil {
+			continue
+		}
+		// Grandfather: same VectorIndexType + same compressions on this
+		// named-vector entry ⇒ skip the policy check.
+		if namedCompressionUnchanged(parsed, name, initial, h) {
+			continue
+		}
+		if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// parseLegacyVectorIndexConfig returns the typed VectorIndexConfig for
+// the legacy single-vector class, parsing the raw map form on demand.
+// Returns nil (without error) when the class carries no legacy config.
+func (h *Handler) parseLegacyVectorIndexConfig(class *models.Class) (schemaConfig.VectorIndexConfig, error) {
+	if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
+		parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultQuantization)
+		if err != nil {
+			return nil, fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
+		}
+		return parsed, nil
+	}
+	if typed, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+		return typed, nil
+	}
+	return nil, nil
+}
+
+// parseNamedVectorIndexConfig parses cfg.VectorIndexConfig on demand —
+// UpdateClass arrives already-typed, AddClass arrives as raw maps.
+func (h *Handler) parseNamedVectorIndexConfig(name string, cfg models.VectorConfig) (schemaConfig.VectorIndexConfig, error) {
+	switch v := cfg.VectorIndexConfig.(type) {
+	case schemaConfig.VectorIndexConfig:
+		return v, nil
+	case map[string]interface{}:
+		isMultiVector := false
+		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+			for vectorizer := range vm {
+				isMultiVector = h.parser.modules.IsMultiVector(vectorizer)
+			}
+		}
+		p, err := h.parser.parseGivenVectorIndexConfig(cfg.VectorIndexType, v, isMultiVector, h.config.DefaultQuantization)
+		if err != nil {
+			return nil, fmt.Errorf("target vector %q: parse vector index config: %w", name, err)
+		}
+		return p, nil
+	}
+	return nil, nil
+}
+
+// legacyCompressionUnchanged reports whether the updated class has the
+// same compression set as `initial`'s legacy vector index.
+func legacyCompressionUnchanged(updated schemaConfig.VectorIndexConfig, initial *models.Class, h *Handler) bool {
+	if initial == nil {
+		return false
+	}
+	initialParsed, err := h.parseLegacyVectorIndexConfig(initial)
+	if err != nil || initialParsed == nil {
+		return false
+	}
+	return slices.Equal(
+		compressionsFromIndexConfig(updated),
+		compressionsFromIndexConfig(initialParsed),
+	)
+}
+
+// namedCompressionUnchanged is the named-vector analogue of
+// legacyCompressionUnchanged. Requires matching VectorIndexType too.
+func namedCompressionUnchanged(updated schemaConfig.VectorIndexConfig, name string, initial *models.Class, h *Handler) bool {
+	if initial == nil {
+		return false
+	}
+	initCfg, ok := initial.VectorConfig[name]
+	if !ok {
+		return false
+	}
+	if initCfg.VectorIndexType != updated.IndexType() {
+		return false
+	}
+	initialParsed, err := h.parseNamedVectorIndexConfig(name, initCfg)
+	if err != nil || initialParsed == nil {
+		return false
+	}
+	return slices.Equal(
+		compressionsFromIndexConfig(updated),
+		compressionsFromIndexConfig(initialParsed),
+	)
+}
+
+// validateAllowedCompression rejects a class whose explicit compression
+// is outside ALLOWED_COMPRESSION_TYPES. hfresh is skipped (no compression
+// knobs); the DEFAULT_QUANTIZATION applied later in AddClass is itself
+// allow-list-validated at startup.
+func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaConfig.VectorIndexConfig) error {
+	allow := h.allowedCompressionTypes()
+	if allow == nil {
+		return nil
+	}
+	if vectorIndexType == vectorindex.VectorIndexTypeHFresh {
+		return nil
+	}
+	// Dynamic configures HnswUC + FlatUC independently — both must match.
+	for _, compression := range compressionsFromIndexConfig(cfg) {
+		if !slices.Contains(allow, compression) {
+			return restrictions.NewViolationError(
+				h.restrictionsErrorMessageTemplate(),
+				restrictions.RestrictionCompression,
+				compression,
+				allow,
+			)
+		}
+	}
+	return nil
+}
+
+// compressionsFromIndexConfig lists every user-selected compression in
+// cfg. HNSW/Flat: 0 or 1 entry. Dynamic: up to 2 (HnswUC + FlatUC).
+// "none" appears only when SkipDefaultQuantization is set on a branch —
+// that's the explicit opt-out signal.
+func compressionsFromIndexConfig(cfg schemaConfig.VectorIndexConfig) []string {
+	switch c := cfg.(type) {
+	case hnsw.UserConfig:
+		if v := compressionFromHnsw(c); v != "" {
+			return []string{v}
+		}
+		return nil
+	case flat.UserConfig:
+		if v := compressionFromFlat(c); v != "" {
+			return []string{v}
+		}
+		return nil
+	case dynamic.UserConfig:
+		var out []string
+		if v := compressionFromHnsw(c.HnswUC); v != "" {
+			out = append(out, v)
+		}
+		if v := compressionFromFlat(c.FlatUC); v != "" {
+			out = append(out, v)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func compressionFromHnsw(c hnsw.UserConfig) string {
+	if c.PQ.Enabled {
+		return "pq"
+	}
+	if c.SQ.Enabled {
+		return "sq"
+	}
+	if c.RQ.Enabled {
+		if c.RQ.Bits == 1 {
+			return "rq-1"
+		}
+		return "rq-8"
+	}
+	if c.BQ.Enabled {
+		return "bq"
+	}
+	if c.SkipDefaultQuantization {
+		return "none"
+	}
+	return ""
+}
+
+func compressionFromFlat(c flat.UserConfig) string {
+	if c.PQ.Enabled {
+		return "pq"
+	}
+	if c.SQ.Enabled {
+		return "sq"
+	}
+	if c.RQ.Enabled {
+		if c.RQ.Bits == 1 {
+			return "rq-1"
+		}
+		return "rq-8"
+	}
+	if c.BQ.Enabled {
+		return "bq"
+	}
+	if c.SkipDefaultQuantization {
+		return "none"
+	}
+	return ""
 }
 
 func (h *Handler) validateVectorizer(vectorizer string) error {
@@ -952,7 +1387,10 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 	return nil
 }
 
-func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
+// validateVectorIndexTypeBasic is the per-type correctness gate
+// (async-indexing for dynamic, experimental flag for hfresh, known name).
+// Runs unconditionally — these are invariants, not policy.
+func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 	switch vectorIndexType {
 	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT:
 		return nil
@@ -970,6 +1408,35 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			vectorIndexType)
 	}
+}
+
+// validateVectorIndexTypeAllowList enforces ALLOWED_VECTOR_INDEX_TYPES.
+// Split from the basic check because the grandfather skip applies here.
+//
+// On a named-vector hnsw rejection the message gets an out-of-date-client
+// hint: older clients send vectorIndexType="hnsw" implicitly even when
+// the user didn't pick it, so a hfresh-only allow-list rejects requests
+// the user never thought they made.
+func (h *Handler) validateVectorIndexTypeAllowList(vectorIndexType string, forNamedVector bool) error {
+	allow := h.allowedVectorIndexTypes()
+	if allow == nil {
+		return nil
+	}
+	for _, t := range allow {
+		if t == vectorIndexType {
+			return nil
+		}
+	}
+	v := restrictions.NewViolationError(
+		h.restrictionsErrorMessageTemplate(),
+		restrictions.RestrictionVectorIndexType,
+		vectorIndexType,
+		allow,
+	)
+	if forNamedVector && vectorIndexType == vectorindex.VectorIndexTypeHNSW {
+		v.RenderedMessage += " If you have not explicitly set vectorIndexType=hnsw, your client version is out of date — please update to the latest."
+	}
+	return v
 }
 
 func validateMT(class *models.Class) error {
@@ -1015,6 +1482,10 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 	for k, v := range updated.VectorConfig {
 		if _, ok := initial.VectorConfig[k]; !ok {
+			continue
+		}
+		initialVecCfg := initial.VectorConfig[k]
+		if modelsext.IsVectorIndexDropped(v) || modelsext.IsVectorIndexDropped(initialVecCfg) {
 			continue
 		}
 
@@ -1089,6 +1560,16 @@ func structToMap(obj any) (objMap map[string]any) {
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &objMap) // Convert to a map
 	return objMap
+}
+
+func fmtBoolPtr(b *bool) string {
+	if b == nil {
+		return "<nil>"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 type immutableText struct {

@@ -35,6 +35,8 @@ func TestGrpcBatchReferences(t *testing.T) {
 	grpcClient, _ := newClient(t)
 
 	clsA := articles.ArticlesClass()
+	trueVal := true
+	clsA.Properties[1].DisableDuplicatedReferences = &trueVal
 	clsP := articles.ParagraphsClass()
 
 	helper.DeleteClass(t, clsP.Class)
@@ -72,6 +74,13 @@ func TestGrpcBatchReferences(t *testing.T) {
 				FromUuid:       UUID0,
 				ToUuid:         UUID2,
 			}, // Test without ToCollection
+			{
+				Name:           "hasParagraphs",
+				FromCollection: clsA.Class,
+				ToCollection:   &clsP.Class,
+				FromUuid:       UUID0,
+				ToUuid:         UUID1,
+			}, // Test duplicate reference
 		},
 	})
 	require.NoError(t, err, "BatchReferences should not return an error")

@@ -18,6 +18,22 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
+// BackendUseCase distinguishes callers so a module can return
+// a differently-configured backend for backup vs export.
+type BackendUseCase int
+
+const (
+	BackendUseCaseBackup BackendUseCase = iota
+	BackendUseCaseExport
+)
+
+// ExportBackendProvider is optionally implemented by backup modules
+// that provide a separate BackupBackend for export operations
+// (e.g., with different STS credentials for cross-account access).
+type ExportBackendProvider interface {
+	ExportBackend() BackupBackend
+}
+
 type BackupBackend interface {
 	// IsExternal returns whether the storage is an external storage (e.g. gcs, s3)
 	IsExternal() bool

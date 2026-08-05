@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func TestWorkerDo_RetryOnTransient(t *testing.T) {
@@ -111,41 +112,59 @@ func (m *mockWorkerTask) Op() uint8 {
 }
 
 func TestWorker_TransientErrorRetryIndefinitely(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	w := &Worker{
-		logger: logger,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Task that fails 3 times with transient error, then succeeds
-	failCount := int32(3) // Changed from 5
-	task := &mockWorkerTask{
-		executeFunc: func(ctx context.Context) error {
-			if atomic.LoadInt32(&failCount) > 0 {
-				atomic.AddInt32(&failCount, -1)
-				return enterrors.NewNotEnoughMemory("simulated OOM")
-			}
-			return nil
+	tests := []struct {
+		name    string
+		errFunc func() error
+	}{
+		{
+			name:    "OOM",
+			errFunc: func() error { return enterrors.NewNotEnoughMemory("simulated OOM") },
+		},
+		{
+			name:    "ReadOnly",
+			errFunc: func() error { return storagestate.ErrStatusReadOnly },
 		},
 	}
 
-	batch := &Batch{
-		Ctx:   ctx,
-		Tasks: []Task{task},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			w := &Worker{
+				logger: logger,
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Task that fails 3 times with transient error, then succeeds
+			failCount := int32(3)
+			task := &mockWorkerTask{
+				executeFunc: func(ctx context.Context) error {
+					if atomic.LoadInt32(&failCount) > 0 {
+						atomic.AddInt32(&failCount, -1)
+						return tt.errFunc()
+					}
+					return nil
+				},
+			}
+
+			batch := &Batch{
+				Ctx:   ctx,
+				Tasks: []Task{task},
+			}
+
+			start := time.Now()
+			err := w.do(batch)
+			duration := time.Since(start)
+
+			require.NoError(t, err, "batch should succeed after retries")
+			assert.Equal(t, int32(0), atomic.LoadInt32(&failCount), "all failures should be retried")
+
+			// With 3 failures: 1s + 2s + 4s = 7s total backoff
+			expectedMin := 7 * time.Second
+			assert.GreaterOrEqual(t, duration, expectedMin, "should have exponential backoff")
+		})
 	}
-
-	start := time.Now()
-	err := w.do(batch)
-	duration := time.Since(start)
-
-	require.NoError(t, err, "batch should succeed after retries")
-	assert.Equal(t, int32(0), atomic.LoadInt32(&failCount), "all failures should be retried")
-
-	// With 3 failures: 1s + 2s + 4s = 7s total backoff
-	expectedMin := 7 * time.Second // Changed from 1500ms
-	assert.GreaterOrEqual(t, duration, expectedMin, "should have exponential backoff")
 }
 
 func TestWorker_PermanentErrorFailImmediately(t *testing.T) {
@@ -256,6 +275,115 @@ func TestWorker_ExponentialBackoff(t *testing.T) {
 			actual := w.calculateBackoff(tc.attempts)
 			assert.Equal(t, tc.expected, actual, "backoff duration mismatch")
 		})
+	}
+}
+
+// context.DeadlineExceeded is deliberately excluded from both the permanent
+// and the transient classification. It must still take the backoff path:
+// falling through both used to re-execute the failed tasks immediately, in a
+// tight loop with no sleep and no exit, pegging the worker at 100% CPU.
+func TestWorker_DeadlineExceededBacksOff(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	w := &Worker{
+		logger: logger,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// task that always fails with a deadline error, e.g. from an internal
+	// timeout
+	execCount := int32(0)
+	task := &mockWorkerTask{
+		executeFunc: func(ctx context.Context) error {
+			atomic.AddInt32(&execCount, 1)
+			return fmt.Errorf("internal timeout: %w", context.DeadlineExceeded)
+		},
+	}
+
+	batch := &Batch{
+		Ctx:   ctx,
+		Tasks: []Task{task},
+	}
+
+	// cancel the batch context after 500ms: the retry loop must exit
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- w.do(batch)
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "should return context error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker is stuck retrying deadline errors in a tight loop")
+	}
+
+	// with a backoff after the first attempt, the task must not have been
+	// re-executed before the context was canceled
+	require.LessOrEqual(t, atomic.LoadInt32(&execCount), int32(2), "deadline errors must be retried with backoff, not in a tight loop")
+}
+
+// A panicking task must not kill the worker goroutine: it is never restarted,
+// and the batch would never be marked done or canceled, leaving the queue's
+// active tasks gauge stuck so the queue is never scheduled again.
+func TestWorker_RecoversFromPanickingTask(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	worker, ch := NewWorker(logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	enterrors.GoWrapper(func() { worker.Run(ctx) }, logger)
+
+	canceled := make(chan struct{})
+	panicking := &Batch{
+		Ctx: ctx,
+		Tasks: []Task{&mockWorkerTask{
+			executeFunc: func(ctx context.Context) error {
+				panic("simulated task panic")
+			},
+		}},
+		OnCanceled: func() { close(canceled) },
+	}
+
+	select {
+	case ch <- panicking:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not accept the batch")
+	}
+
+	// the batch must be marked canceled so the scheduler's gauges are released
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("panicking batch was not marked canceled")
+	}
+
+	// the worker must survive and process subsequent batches
+	done := make(chan struct{})
+	healthy := &Batch{
+		Ctx:    ctx,
+		Tasks:  []Task{&mockWorkerTask{}},
+		OnDone: func() { close(done) },
+	}
+
+	select {
+	case ch <- healthy:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker died after a panicking task")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not process the batch after a panic")
 	}
 }
 

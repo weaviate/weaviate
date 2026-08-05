@@ -15,10 +15,17 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
+
+const (
+	counterMask   = 0x7F // 0111 1111, masks out the lower 7 bits
+	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
+)
+
+var ErrVersionIncrementFailed = errors.New("version increment failed")
 
 // A VectorVersion is a 1-byte value structured as follows:
 // - 7 bits for the version number
@@ -35,107 +42,156 @@ func (ve VectorVersion) Deleted() bool {
 	return (uint8(ve) & tombstoneMask) != 0
 }
 
+func (ve VectorVersion) Increment() VectorVersion {
+	delBit := uint8(ve) & tombstoneMask // 0x00 or 0x80
+	counter := uint8(ve) & counterMask  // 0-127
+
+	if counter < 127 {
+		counter++
+	} else {
+		counter = 0 // wraparound behavior
+	}
+
+	return VectorVersion(delBit | counter)
+}
+
+var v1 = VectorVersion(0).Increment()
+
 // VersionMap keeps track of the version of each vector.
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
+//
+// Locking is two-tier so that readers never wait on disk:
+//   - locks guards the in-memory pages only; every hold is nanoseconds.
+//     Search scans take it read-side for every candidate, so no LSM
+//     operation is ever performed while holding it.
+//   - persistLocks serializes store writes per vector among writers. Each
+//     persist re-reads the current memory value under the read lock, so the
+//     last persist among racing writers always lands the newest value and
+//     memory and store converge.
 type VersionMap struct {
-	cache *otter.Cache[uint64, VectorVersion]
-	store *VersionStore
+	data         *common.GroupedPagedArray[VectorVersion]
+	locks        *common.ShardedRWLocks
+	persistLocks *common.ShardedLocks
+	store        *VersionStore
 }
 
-func NewVersionMap(bucket *lsmkv.Bucket) (*VersionMap, error) {
-	cache, err := otter.New(&otter.Options[uint64, VectorVersion]{
-		MaximumSize: 1_000_000,
-	})
-	if err != nil {
-		return nil, err
-	}
-
+func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
 	return &VersionMap{
-		cache: cache,
-		store: NewVersionStore(bucket),
-	}, nil
+		data:         common.NewGroupedPagedArray[VectorVersion](16*1024, 64*1024), // 1 billion entries with 64k per page
+		locks:        common.NewShardedRWLocks(512),
+		persistLocks: common.NewShardedLocks(512),
+		store:        NewVersionStore(bucket),
+	}
 }
 
-// Get returns the size of the vector with the given ID.
+// Get returns the version of the vector with the given ID.
 func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	version, err := v.cache.Get(ctx, vectorID, otter.LoaderFunc[uint64, VectorVersion](func(ctx context.Context, key uint64) (VectorVersion, error) {
-		version, err := v.store.Get(ctx, vectorID)
-		if err != nil {
-			if errors.Is(err, ErrVectorNotFound) {
-				return 0, otter.ErrNotFound
-			}
-
-			return 0, err
+	page, slot := v.data.GetPageFor(vectorID)
+	if page != nil {
+		v.locks.RLock(vectorID)
+		version := page[slot]
+		v.locks.RUnlock(vectorID)
+		if version != 0 {
+			return version, nil
 		}
-
-		return version, nil
-	}))
-	if errors.Is(err, otter.ErrNotFound) {
-		return 0, ErrVectorNotFound
 	}
 
-	return version, err
+	return v.loadInto(ctx, vectorID)
 }
 
-// Incr increments the version of the vector and returns the new version.
+// loadInto fetches the version from the store — without holding any lock, so
+// concurrent readers never queue behind an LSM read — and installs it into
+// memory only if no writer beat us to it. The memory value always wins: it is
+// at least as new as anything the store returned before we took the lock.
+func (v *VersionMap) loadInto(ctx context.Context, vectorID uint64) (VectorVersion, error) {
+	loaded, err := v.store.Get(ctx, vectorID)
+	if err != nil && !errors.Is(err, ErrVectorNotFound) {
+		return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
+	}
+	if errors.Is(err, ErrVectorNotFound) {
+		loaded = v1
+	}
+
+	page, slot := v.data.EnsurePageFor(vectorID)
+	v.locks.Lock(vectorID)
+	if page[slot] == 0 {
+		page[slot] = loaded
+	}
+	version := page[slot]
+	v.locks.Unlock(vectorID)
+
+	return version, nil
+}
+
+// persist writes the current in-memory version of the vector to the store.
+// Persists are serialized per vector, and each re-reads memory after
+// acquiring the persist lock, so the last persist among racing writers lands
+// the newest value. The memory lock is never held across the LSM write.
+func (v *VersionMap) persist(ctx context.Context, vectorID uint64, page []VectorVersion, slot int) error {
+	v.persistLocks.Lock(vectorID)
+	defer v.persistLocks.Unlock(vectorID)
+
+	v.locks.RLock(vectorID)
+	cur := page[slot]
+	v.locks.RUnlock(vectorID)
+
+	return v.store.Set(ctx, vectorID, cur)
+}
+
+// Increment increments the version of the vector and returns the new version.
+// It fails with ErrVersionIncrementFailed if the current version does not
+// match previousVersion or the vector is deleted. On a persist error the
+// memory update has already happened; a retry (Get + Increment) re-persists
+// and heals the store.
 func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, error) {
-	var err error
-	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
-		if !found {
-			err = v.store.Set(ctx, vectorID, VectorVersion(1))
-			if err != nil {
-				return 0, otter.CancelOp
-			}
-		}
-		if oldVersion.Deleted() || oldVersion != previousVersion {
-			return oldVersion, otter.CancelOp
-		}
+	// ensure the entry is loaded so the CAS below never touches the store
+	if _, err := v.Get(ctx, vectorID); err != nil {
+		return 0, err
+	}
 
-		delBit := uint8(oldVersion) & tombstoneMask // 0x00 or 0x80
-		counter := uint8(oldVersion) & counterMask  // 0-127
+	page, slot := v.data.GetPageFor(vectorID)
+	v.locks.Lock(vectorID)
+	old := page[slot]
+	if old.Deleted() || old != previousVersion {
+		v.locks.Unlock(vectorID)
+		return old, ErrVersionIncrementFailed
+	}
+	newVersion := old.Increment()
+	page[slot] = newVersion
+	v.locks.Unlock(vectorID)
 
-		if counter < 127 {
-			counter++
-		} else {
-			counter = 0 // wraparound behavior
-		}
-
-		newVersion := VectorVersion(delBit | counter)
-		err = v.store.Set(ctx, vectorID, newVersion)
-		if err != nil {
-			return oldVersion, otter.CancelOp
-		}
-
-		return newVersion, otter.WriteOp
-	})
-	return version, err
+	if err := v.persist(ctx, vectorID, page, slot); err != nil {
+		return newVersion, err
+	}
+	return newVersion, nil
 }
 
+// MarkDeleted sets the tombstone bit for the vector. It always persists, even
+// when the vector is already deleted in memory, so a retry after a failed
+// persist heals a store that missed the tombstone.
 func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	var err error
-	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
-		if !found {
-			oldVersion, err = v.store.Get(ctx, vectorID)
-			if err != nil {
-				return 0, otter.CancelOp
-			}
-		}
+	// ensure the entry is loaded so the update below never touches the store
+	if _, err := v.Get(ctx, vectorID); err != nil {
+		return 0, err
+	}
 
-		if oldVersion.Deleted() {
-			return oldVersion, otter.CancelOp
-		}
+	page, slot := v.data.GetPageFor(vectorID)
+	v.locks.Lock(vectorID)
+	old := page[slot]
+	newVersion := old
+	if !old.Deleted() {
+		counter := uint8(old) & counterMask // 0-127
+		newVersion = VectorVersion(tombstoneMask | counter)
+		page[slot] = newVersion
+	}
+	v.locks.Unlock(vectorID)
 
-		counter := uint8(oldVersion) & counterMask // 0-127
-		newVersion := VectorVersion(tombstoneMask | counter)
-		err = v.store.Set(ctx, vectorID, newVersion)
-		if err != nil {
-			return oldVersion, otter.CancelOp
-		}
+	if err := v.persist(ctx, vectorID, page, slot); err != nil {
+		return newVersion, err
+	}
 
-		return VectorVersion(newVersion), otter.WriteOp
-	})
-	return version, err
+	return newVersion, nil
 }
 
 func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, error) {
@@ -158,10 +214,10 @@ func NewVersionStore(bucket *lsmkv.Bucket) *VersionStore {
 	}
 }
 
-func (v *VersionStore) key(vectorID uint64) [9]byte {
-	var buf [9]byte
-	buf[0] = versionMapBucketPrefix
-	binary.LittleEndian.PutUint64(buf[1:], vectorID)
+func (v *VersionStore) key(vectorID uint64) []byte {
+	buf := make([]byte, len(versionMapBucketPrefix)+8)
+	copy(buf, versionMapBucketPrefix)
+	binary.LittleEndian.PutUint64(buf[len(versionMapBucketPrefix):], vectorID)
 	return buf
 }
 

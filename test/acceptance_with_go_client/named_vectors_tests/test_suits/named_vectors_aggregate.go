@@ -99,7 +99,7 @@ func testAggregate(host string) func(t *testing.T) {
 			assert.NotNil(ct, agg)
 			assert.Nil(ct, agg.Errors)
 			assert.NotNil(ct, agg.Data)
-			assert.Equal(ct, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["number"].(map[string]interface{})["maximum"], float64(1))
+			assert.Equal(ct, float64(1), agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["number"].(map[string]interface{})["maximum"])
 
 			// aggregate without needed a target vector
 			agg, err = client.GraphQL().Aggregate().WithClassName(classAggregate).WithFields(graphql.Field{Name: "meta", Fields: []graphql.Field{{Name: "count"}}}).Do(ctx)
@@ -107,7 +107,7 @@ func testAggregate(host string) func(t *testing.T) {
 			assert.NotNil(ct, agg)
 			assert.Nil(ct, agg.Errors)
 			assert.NotNil(ct, agg.Data)
-			assert.Equal(ct, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], float64(2))
+			assert.Equal(ct, float64(2), agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"])
 		}, 15*time.Second, 500*time.Millisecond)
 	}
 }

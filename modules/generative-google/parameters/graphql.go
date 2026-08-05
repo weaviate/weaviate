@@ -14,7 +14,7 @@ package parameters
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 func input(prefix string) *graphql.InputObjectFieldConfig {
@@ -37,6 +37,10 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 				},
 				"region": &graphql.InputObjectFieldConfig{
 					Description: "region",
+					Type:        graphql.String,
+				},
+				"location": &graphql.InputObjectFieldConfig{
+					Description: "location",
 					Type:        graphql.String,
 				},
 				"model": &graphql.InputObjectFieldConfig{

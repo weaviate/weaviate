@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -37,38 +38,41 @@ import (
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type DB struct {
-	logger                         logrus.FieldLogger
-	localNodeName                  string
-	schemaGetter                   schemaUC.SchemaGetter
-	config                         Config
-	indices                        map[string]*Index
-	remoteIndex                    sharding.RemoteIndexClient
-	replicaClient                  replica.Client
-	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
-	nodeResolver                   nodeResolver
-	remoteNode                     *sharding.RemoteNode
-	promMetrics                    *monitoring.PrometheusMetrics
-	indexCheckpoints               *indexcheckpoint.Checkpoints
-	shutdown                       chan struct{}
-	startupComplete                atomic.Bool
-	resourceScanState              *resourceScanState
-	memMonitor                     *memwatch.Monitor
+	logger                    logrus.FieldLogger
+	localNodeName             string
+	schemaGetter              schemaUC.SchemaGetter
+	config                    Config
+	indices                   map[string]*Index
+	remoteIndex               sharding.RemoteIndexClient
+	asyncReplicationScheduler *AsyncReplicationScheduler
+	replicaClient             replica.Client
+	nodeResolver              cluster.NodeResolver
+	remoteNode                *sharding.RemoteNode
+	promMetrics               *monitoring.PrometheusMetrics
+	indexCheckpoints          *indexcheckpoint.Checkpoints
+	shutdown                  chan struct{}
+	startupComplete           atomic.Bool
+	startupProgress           atomic.Pointer[StartupProgressSnapshot]
+	resourceScanState         *resourceScanState
+	memMonitor                *memwatch.Monitor
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -116,6 +120,20 @@ type DB struct {
 	bitmapBufPoolClose func()
 
 	AsyncIndexingEnabled bool
+
+	tenantsManager schemaUC.TenantsActivityManager
+
+	// usageLimits is propagated to each Index when it is created, so
+	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
+	// nil disables the check. See docs/usage_limits.md.
+	usageLimits *usagelimits.Manager
+}
+
+// SetUsageLimits installs the usage-limits Manager on the DB. Must be
+// called before WaitForStartup so that indices created during startup
+// inherit the manager. See docs/usage_limits.md.
+func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
+	db.usageLimits = m
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -143,6 +161,9 @@ func (db *DB) GetScheduler() *queue.Scheduler {
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
+	stop := db.trackStartupProgress(ctx)
+	defer stop()
+
 	err := db.init(ctx)
 	if err != nil {
 		return err
@@ -155,6 +176,118 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+const startupProgressUpdateInterval = 5 * time.Second
+
+// StartupProgressSnapshot is a consistent reading of eager shard-loading progress
+type StartupProgressSnapshot struct {
+	Loaded int64
+	Total  int64
+}
+
+// StartupLoadingProgress reports the most recently computed eager shard-loading
+// progress: how many eagerly-loaded local shards have finished loading (loaded)
+// against how many are expected to load eagerly (total).
+func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
+	return db.startupProgress.Load()
+}
+
+// trackStartupProgress recomputes eager shard-loading progress on a ticker and
+// caches it. It returns a stop function that halts the ticker and pins the
+// final value; callers should defer it. The goroutine also exits if ctx is done.
+func (db *DB) trackStartupProgress(ctx context.Context) func() {
+	classNames := db.startupClassNames()
+
+	// Publish immediately so a value is available before the first log tick.
+	db.updateStartupProgress(classNames)
+
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		ticker := time.NewTicker(startupProgressUpdateInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				db.updateStartupProgress(classNames)
+			}
+		}
+	}, db.logger)
+
+	return func() {
+		close(done)
+		// Pin the final value now that loading has finished.
+		db.updateStartupProgress(classNames)
+	}
+}
+
+// startupClassNames snapshots the current class names for the startup progress scan
+func (db *DB) startupClassNames() []string {
+	s := db.schemaGetter.GetSchemaSkipAuth()
+	if s.Objects == nil {
+		return nil
+	}
+	names := make([]string, 0, len(s.Objects.Classes))
+	for _, class := range s.Objects.Classes {
+		names = append(names, class.Class)
+	}
+	return names
+}
+
+// updateStartupProgress recomputes progress once and publishes it to the cached
+// snapshot and the Prometheus gauges.
+func (db *DB) updateStartupProgress(classNames []string) {
+	loaded, total := db.scanStartupProgress(classNames)
+	db.startupProgress.Store(&StartupProgressSnapshot{Loaded: loaded, Total: total})
+	db.promMetrics.SetStartupShardProgress(loaded, total)
+}
+
+// scanStartupProgress computes eager shard-loading progress from scratch for the
+// given classes.
+//
+// total starts from every HOT local shard known to the schema (eager and lazy);
+// lazy shards are then discounted as they are encountered in the index maps,
+// leaving the eager total. Safe to call while the DB is still loading.
+func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
+	for _, className := range classNames {
+		total += db.localShardsToLoad(className)
+	}
+
+	for _, idx := range db.copyIndices() {
+		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
+			if _, ok := shard.(*LazyLoadShard); ok {
+				total--
+				return nil
+			}
+			loaded++
+			return nil
+		})
+	}
+
+	return loaded, total
+}
+
+// localShardsToLoad returns the number of local shards that count toward eager
+// startup loading for the given class: local physical shards whose activity
+// status is HOT (empty status counts as HOT)
+func (db *DB) localShardsToLoad(className string) int64 {
+	var count int64
+	_ = db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		for name, physical := range state.Physical {
+			if state.IsLocalShard(name) && physical.ActivityStatus() == models.TenantActivityStatusHOT {
+				count++
+			}
+		}
+		return nil
+	})
+	return count
+}
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
 // This allows for better testability by using interfaces instead of concrete types
@@ -171,7 +304,7 @@ type IndexLike interface {
 }
 
 func New(logger logrus.FieldLogger, localNodeName string, config Config,
-	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteIndex sharding.RemoteIndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
@@ -219,39 +352,52 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// resume any .deleteme cleanup that didn't finish before the last shutdown
 	scanAndAsyncDeletePending(config.RootPath, logger)
 
-	asyncReplicationWorkersLimiter := dynsemaphore.NewDynamicWeighted(func() int64 {
-		return int64(config.Replication.AsyncReplicationClusterMaxWorkers.Get())
-	})
+	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
+		context.Background(),
+		config.Replication,
+		promMetrics,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create async replication scheduler: %w", err)
+	}
 
 	db := &DB{
-		logger:                         logger,
-		localNodeName:                  localNodeName,
-		config:                         config,
-		indices:                        map[string]*Index{},
-		remoteIndex:                    remoteIndex,
-		nodeResolver:                   nodeResolver,
-		remoteNode:                     sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:                  replicaClient,
-		asyncReplicationWorkersLimiter: asyncReplicationWorkersLimiter,
-		promMetrics:                    promMetrics,
-		shutdown:                       make(chan struct{}),
-		maxNumberGoroutines:            int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:              newResourceScanState(),
-		memMonitor:                     memMonitor,
-		shardLoadLimiter:               loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
-		bucketLoadLimiter:              loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:                      NewShardReindexerV3Noop(),
-		nodeSelector:                   nodeSelector,
-		schemaReader:                   schemaReader,
-		replicationFSM:                 replicationFSM,
-		bitmapBufPool:                  roaringset.NewBitmapBufPoolNoop(),
-		bitmapBufPoolClose:             func() {},
-		AsyncIndexingEnabled:           config.AsyncIndexingEnabled,
+		logger:                    logger,
+		localNodeName:             localNodeName,
+		config:                    config,
+		indices:                   map[string]*Index{},
+		remoteIndex:               remoteIndex,
+		nodeResolver:              nodeResolver,
+		remoteNode:                sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:             replicaClient,
+		asyncReplicationScheduler: asyncReplicationScheduler,
+		promMetrics:               promMetrics,
+		shutdown:                  make(chan struct{}),
+		maxNumberGoroutines:       int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:         newResourceScanState(),
+		memMonitor:                memMonitor,
+		shardLoadLimiter:          loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
+		bucketLoadLimiter:         loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
+		reindexer:                 NewShardReindexerV3Noop(),
+		nodeSelector:              nodeSelector,
+		schemaReader:              schemaReader,
+		replicationFSM:            replicationFSM,
+		bitmapBufPool:             roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:        func() {},
+		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,
 	}
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
+
+	schedulerOK := false
+	defer func() {
+		if !schedulerOK {
+			db.asyncReplicationScheduler.Close()
+		}
+	}()
 
 	// scheduler used by async indexing and hfresh background queues
 	db.shutDownWg.Add(1)
@@ -271,45 +417,55 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	schedulerOK = true
 	return db, nil
 }
 
 type Config struct {
-	RootPath                            string
-	QueryLimit                          int64
-	QueryMaximumResults                 int64
-	QueryHybridMaximumResults           int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	MaxImportGoroutinesFactor           float64
-	LazySegmentsDisabled                bool
-	SegmentInfoIntoFileNameEnabled      bool
-	WriteMetadataFilesEnabled           bool
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	MaxSegmentSize                      int64
-	TrackVectorDimensions               bool
-	TrackVectorDimensionsInterval       time.Duration
-	UsageEnabled                        bool
-	ServerVersion                       string
-	GitHash                             string
-	AvoidMMap                           bool
-	DisableLazyLoadShards               bool
+	RootPath                       string
+	QueryLimit                     int64
+	QueryMaximumResults            int64
+	QueryHybridMaximumResults      int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	MaxImportGoroutinesFactor      float64
+	LazySegmentsDisabled           bool
+	SegmentInfoIntoFileNameEnabled bool
+	WriteMetadataFilesEnabled      bool
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	MinMMapSize                    int64
+	MaxReuseWalSize                int64
+	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
+	MaxSegmentSize                 int64
+	TrackVectorDimensions          bool
+	TrackVectorDimensionsInterval  time.Duration
+	UsageEnabled                   bool
+	ServerVersion                  string
+	GitHash                        string
+	AvoidMMap                      bool
+	// EnableLazyLoadShards controls lazy shard loading.
+	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
+	EnableLazyLoadShards                *bool
+	LazyLoadShardCountThreshold         int
+	LazyLoadShardSizeThresholdGB        float64
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
+	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
 	MaximumConcurrentBucketLoads        int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
+	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -322,12 +478,14 @@ type Config struct {
 	HNSWAcornFilterRatio                         float64
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
+	BM25FilterTombMergeGateRatio                 *configRuntime.DynamicValue[float64]
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	LazyPropertyLengthsEnabled  *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
@@ -360,6 +518,39 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// copyIndices returns a copy of the index map so long-running scans can iterate it
+// without holding indexLock. A writer waiting on indexLock blocks every index
+// lookup on the node, including the ones the schema apply loop needs.
+func (db *DB) copyIndices() map[string]*Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	indices := make(map[string]*Index, len(db.indices))
+	maps.Copy(indices, db.indices)
+	return indices
+}
+
+// GetLocalShardNames returns the names of all shards local to this node for
+// the given collection. Returns an error if the collection is not found or has
+// no local shards.
+func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+	index := db.GetIndex(schema.ClassName(collection))
+	if index == nil {
+		return nil, fmt.Errorf("collection %q not found", collection)
+	}
+	var names []string
+	if err := index.ForEachShard(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	}
+	return names, nil
+}
+
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil
@@ -381,24 +572,15 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 	return index
 }
 
-// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
-}
-
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil
 	}
+
+	// a reader holding dropIndex would block the drop below while db.indexLock is held
+	index.signalCloseRequested(errIndexDropped)
 
 	// drop index
 	db.indexLock.Lock()
@@ -431,11 +613,11 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	// keep going on failure: a failing step must not skip the cleanup below
+	ec := errorcompounder.New()
+
 	// shut down the async workers
-	err := db.scheduler.Close(ctx)
-	if err != nil {
-		return errors.Wrap(err, "close scheduler")
-	}
+	ec.AddWrapf(db.scheduler.Close(ctx), "close scheduler")
 
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
@@ -443,9 +625,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
+	defer db.asyncReplicationScheduler.Close()
 	for id, index := range db.indices {
-		if err := index.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shutdown index %q", id)
+		if err := index.Shutdown(ctx); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			ec.AddWrapf(err, "shutdown index %q", id)
 		}
 	}
 
@@ -455,7 +638,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.indexCheckpoints.Close()
 	}
 
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 type job struct {
@@ -489,9 +672,8 @@ func (db *DB) batchWorker(first bool) {
 	}
 }
 
-func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
+func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
 	db.reindexer = reindexer
-	return db
 }
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
@@ -506,8 +688,11 @@ func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicat
 	db.replicationFSM = replicationFsm
 }
 
-func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
+func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 	db.bitmapBufPool = bufPool
 	db.bitmapBufPoolClose = close
-	return db
+}
+
+func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
+	db.tenantsManager = tenantsManager
 }

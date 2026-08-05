@@ -942,7 +942,32 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
-
+		{
+			name: "hybrid with alpha_param set",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{Query: "query", AlphaParam: ptr(float32(0.25)), UseAlphaParam: true},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, Alpha: 0.25},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param unset",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{Query: "query", UseAlphaParam: true},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, Alpha: common_filters.DefaultAlpha},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
 		{
 			name: "bm25",
 			req: &pb.SearchRequest{
@@ -2738,6 +2763,22 @@ func TestGRPCSearchRequest(t *testing.T) {
 				},
 			},
 			error: false,
+		},
+		{
+			name: "MMR selection with multi-vector target should error",
+			req: &pb.SearchRequest{
+				Collection: multiVecClassWithColBERT,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
+					},
+					TargetVectors: []string{"custom_colbert"},
+					Selection:     &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{}}},
+				},
+			},
+			error: true,
 		},
 	}
 

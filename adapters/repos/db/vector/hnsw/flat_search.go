@@ -51,6 +51,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	// needed for the workers
 	candidates := make([]uint64, 0, allowList.Len())
 	it := allowList.Iterator()
+	defer it.Stop()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
 		candidates = append(candidates, candidate)
 	}
@@ -163,12 +164,7 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, lim
 				dist, err := h.computeScore(queryVector, candidate)
 
 				if errors.As(err, &e) {
-					h.RLock()
-					vecIDs := h.docIDVectors[candidate]
-					h.RUnlock()
-					for _, vecID := range vecIDs {
-						h.handleDeletedNode(vecID, "flatSearch")
-					}
+					h.handleDeletedDocID(candidate, "flatSearch")
 					continue
 				}
 				if err != nil {

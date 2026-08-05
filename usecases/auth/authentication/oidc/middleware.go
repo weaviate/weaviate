@@ -70,13 +70,12 @@ func (c *Client) Init() error {
 	c.logger.WithField("action", "oidc_init").Info("validated OIDC configuration")
 
 	ctx := context.Background()
-	if c.Config.Certificate.Get() != "" {
-		client, err := c.useCertificate()
+	if c.Config.Certificate.Get() != "" || c.Config.SkipTLSVerify.Get() {
+		client, err := c.buildHTTPClient()
 		if err != nil {
-			return fmt.Errorf("could not setup client with custom certificate: %w", err)
+			return fmt.Errorf("could not setup OIDC HTTP client: %w", err)
 		}
 		ctx = oidc.ClientContext(ctx, client)
-		c.logger.WithField("action", "oidc_init").Info("configured OIDC client with custom certificate")
 	}
 
 	if c.Config.JWKSUrl.Get() != "" {
@@ -121,6 +120,11 @@ func (c *Client) validateConfig() error {
 	if !c.Config.SkipClientIDCheck.Get() && c.Config.ClientID.Get() == "" {
 		msgs = append(msgs, "missing required field 'client_id': "+
 			"either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
+	}
+
+	if c.Config.Certificate.Get() != "" && c.Config.SkipTLSVerify.Get() {
+		msgs = append(msgs, "custom OIDC certificate and insecure_skip_tls_verify are mutually exclusive: "+
+			"remove the certificate or disable insecure_skip_tls_verify")
 	}
 
 	if len(msgs) == 0 {
@@ -212,7 +216,38 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 	return groups
 }
 
-func (c *Client) useCertificate() (*http.Client, error) {
+// buildHTTPClient creates an HTTP client with custom TLS settings derived from
+// the OIDC config. It loads a custom certificate pool when a certificate is
+// configured, and disables TLS verification when SkipTLSVerify is set.
+func (c *Client) buildHTTPClient() (*http.Client, error) {
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+
+	if c.Config.Certificate.Get() != "" {
+		certPool, err := c.loadCertPool()
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.RootCAs = certPool
+		c.logger.WithField("action", "oidc_init").Info("configured OIDC client with custom certificate")
+	}
+
+	if c.Config.SkipTLSVerify.Get() {
+		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- opt-in via AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY
+		c.logger.WithField("action", "oidc_init").Warn("TLS verification disabled for OIDC connections — do not use in production")
+	}
+
+	return &http.Client{
+		Transport: &http.Transport{TLSClientConfig: tlsCfg},
+	}, nil
+}
+
+// loadCertPool fetches the certificate from the configured source (HTTP URL,
+// S3 URI, or inline PEM string) and returns a certificate pool containing it.
+// Note: HTTP URL fetches use the default http.Client, so the certificate URL
+// must be reachable without custom TLS settings. Certificate and SkipTLSVerify
+// are mutually exclusive, so this function is only called when SkipTLSVerify
+// is false.
+func (c *Client) loadCertPool() (*x509.CertPool, error) {
 	var certificate, certificateSource string
 	if strings.HasPrefix(c.Config.Certificate.Get(), "http") {
 		resp, err := http.Get(c.Config.Certificate.Get())
@@ -283,16 +318,5 @@ func (c *Client) useCertificate() (*http.Client, error) {
 
 	certPool := x509.NewCertPool()
 	certPool.AddCert(cert)
-
-	// Create an HTTP client with self signed certificate
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:    certPool,
-				MinVersion: tls.VersionTLS12,
-			},
-		},
-	}
-
-	return client, nil
+	return certPool, nil
 }

@@ -42,14 +42,14 @@ type (
 	}
 
 	ObjTuple  tuple[Replica]
-	ObjResult = _Result[*storobj.Object]
+	ObjResult = Result[*storobj.Object]
 )
 
 // readOne reads one replicated object
 func (f *finderStream) readOne(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
-	ch <-chan _Result[findOneReply],
+	ch <-chan Result[findOneReply],
 	level int,
 ) <-chan ObjResult {
 	// counters tracks the number of votes for each participant
@@ -122,16 +122,12 @@ func (f *finderStream) readOne(ctx context.Context,
 	return resultCh
 }
 
-type (
-	batchResult _Result[[]*storobj.Object]
-
-	// Vote represents objects received from a specific replica and the number of votes per object.
-	Vote struct {
-		BatchReply       // reply from a replica
-		Count      []int // number of votes per object
-		Err        error
-	}
-)
+// Vote represents objects received from a specific replica and the number of votes per object.
+type Vote struct {
+	BatchReply       // reply from a replica
+	Count      []int // number of votes per object
+	Err        error
+}
 
 type BoolTuple tuple[types.RepairResponse]
 
@@ -139,10 +135,10 @@ type BoolTuple tuple[types.RepairResponse]
 func (f *finderStream) readExistence(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
-	ch <-chan _Result[existReply],
+	ch <-chan Result[existReply],
 	level int,
-) <-chan _Result[bool] {
-	resultCh := make(chan _Result[bool], 1)
+) <-chan Result[bool] {
+	resultCh := make(chan Result[bool], 1)
 	g := func() {
 		defer close(resultCh)
 		votes := make([]BoolTuple, 0, level) // number of votes per replica
@@ -153,7 +149,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- _Result[bool]{false, ErrRead}
+				resultCh <- Result[bool]{false, ErrRead}
 				return
 			}
 
@@ -173,17 +169,17 @@ func (f *finderStream) readExistence(ctx context.Context,
 				}
 
 				exists := !votes[i].O.Deleted && votes[i].O.UpdateTime != 0
-				resultCh <- _Result[bool]{exists, nil}
+				resultCh <- Result[bool]{exists, nil}
 				return
 			}
 		}
 
 		obj, err := f.repairExist(ctx, shard, id, votes)
 		if err == nil {
-			resultCh <- _Result[bool]{obj, nil}
+			resultCh <- Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- _Result[bool]{false, errors.Wrap(err, ErrRepair.Error())}
+		resultCh <- Result[bool]{false, errors.Wrap(err, ErrRepair.Error())}
 
 		var sb strings.Builder
 		for i, c := range votes {
@@ -205,10 +201,10 @@ func (f *finderStream) readExistence(ctx context.Context,
 func (f *finderStream) readBatchPart(ctx context.Context,
 	batch ShardPart,
 	ids []strfmt.UUID,
-	ch <-chan _Result[BatchReply],
+	ch <-chan Result[BatchReply],
 	level int,
-) <-chan batchResult {
-	resultCh := make(chan batchResult, 1)
+) <-chan error {
+	resultCh := make(chan error, 1)
 
 	g := func() {
 		defer close(resultCh)
@@ -216,7 +212,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			N = len(ids) // number of requested objects
 			// votes counts number of votes per object for each node
 			votes      = make([]Vote, 0, level)
-			contentIdx = -1 // index of full read reply
+			contentIdx = -1 // index of the reply describing the caller's copy
 		)
 
 		for r := range ch { // len(ch) == level
@@ -224,10 +220,10 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
 					WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
-				resultCh <- batchResult{nil, ErrRead}
+				resultCh <- ErrRead
 				return
 			}
-			if !resp.IsDigest {
+			if resp.IsLocal {
 				contentIdx = len(votes)
 			}
 
@@ -256,16 +252,16 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 				for _, idx := range batch.Index {
 					batch.Data[idx].IsConsistent = true
 				}
-				resultCh <- batchResult{fromReplicas(votes[contentIdx].FullData), nil}
+				resultCh <- nil
 				return
 			}
 		}
-		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
+		resolved, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
-			resultCh <- batchResult{nil, ErrRepair}
+			// Returning this cancels the error group context shared with the
+			// request's other shards, aborting their repairs mid-flight.
 			f.log.WithField("op", "repair_batch").WithField("class", f.class).
 				WithField("shard", batch.Shard).WithField("uuids", ids).Error(err)
-			return
 		}
 		// count total number of votes
 		maxCount := len(votes) * len(votes)
@@ -275,49 +271,35 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 				sum[i] += n
 			}
 		}
-		// set consistency flag
+		// The caller's object is never replaced with the repaired version: the
+		// newer object may not satisfy the filter criteria used to retrieve it.
+		// Read repair has already propagated it to stale replicas.
 		for i, n := range sum {
-			if n == maxCount { // if consistent
-				x := res[i]
-
-				if x == nil {
-					// object was fetched but deleted during repair phase
-					batch.Data[batch.Index[i]].IsConsistent = false
-					continue
-				}
-
-				// Do not replace the original object with the repaired version:
-				// the newer object may not satisfy the filter criteria used
-				// to retrieve the original objects. Read-repair has already
-				// propagated the latest version to stale replicas above.
+			if n == maxCount && resolved[i] {
 				batch.Data[batch.Index[i]].IsConsistent = true
 			}
 		}
 
-		resultCh <- batchResult{res, nil}
+		resultCh <- nil
 	}
 	enterrors.GoWrapper(g, f.logger)
 
 	return resultCh
 }
 
-// BatchReply is a container of the batch received from a replica
-// The returned data may result from a full or digest read request
+// BatchReply carries only digests, never object content: repair always
+// fetches content fresh from the winning replica, so a projected search
+// result can never become a repair payload.
 type BatchReply struct {
 	// Sender hostname of the Sender
 	Sender string
-	// IsDigest is this reply from a digest read?
-	IsDigest bool
-	// FullData returned from a full read request
-	FullData []Replica
-	// DigestData returned from a digest read request
+	// IsLocal marks the reply for the copy the caller already holds (exactly one per batch).
+	IsLocal bool
+	// DigestData holds one digest per requested object, in request order
 	DigestData []types.RepairResponse
 }
 
 // UpdateTimeAt gets update time from reply
 func (r BatchReply) UpdateTimeAt(idx int) int64 {
-	if len(r.DigestData) != 0 {
-		return r.DigestData[idx].UpdateTime
-	}
-	return r.FullData[idx].UpdateTime()
+	return r.DigestData[idx].UpdateTime
 }

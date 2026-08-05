@@ -31,6 +31,10 @@ type AddPropertyRequest struct {
 	Properties []*models.Property
 }
 
+type UpdatePropertyRequest struct {
+	Property *models.Property
+}
+
 type DeleteClassRequest struct {
 	Name string
 }

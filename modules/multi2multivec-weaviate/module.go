@@ -38,6 +38,7 @@ func New() *Module {
 
 type Module struct {
 	vectorizer              batchclip.Vectorizer[[][]float32]
+	batchSimple             *batch.BatchSimple[[][]float32]
 	nearTextGraphqlProvider modulecapabilities.GraphQLArguments
 	nearTextSearcher        modulecapabilities.Searcher[[][]float32]
 	nearTextTransformer     modulecapabilities.TextTransform
@@ -91,6 +92,7 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration) erro
 	client := clients.New(timeout)
 
 	m.vectorizer = batchclip.New(Name, client)
+	m.batchSimple = batch.NewBatchSimple[[][]float32](m.logger, 0)
 	m.metaClient = client
 
 	return nil
@@ -103,7 +105,7 @@ func (m *Module) VectorizeObject(ctx context.Context,
 }
 
 func (m *Module) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Objects, BatchSize)
+	return m.batchSimple.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.vectorizer.Objects, BatchSize)
 }
 
 func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {

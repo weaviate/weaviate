@@ -54,7 +54,7 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		for _, prop := range c.Properties {
 			dt := schema.DataType(prop.DataType[0])
 			// some datatypes are not added to the inverted index, so we can skip them here
-			if dt == schema.DataTypeGeoCoordinates || dt == schema.DataTypePhoneNumber || dt == schema.DataTypeBlob {
+			if dt == schema.DataTypeGeoCoordinates || dt == schema.DataTypePhoneNumber || dt == schema.DataTypeBlob || dt == schema.DataTypeBlobHash {
 				continue
 			}
 

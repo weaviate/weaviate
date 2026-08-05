@@ -34,7 +34,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 
 	tests := []test{
 		{
-			name: "everything disabled - pass to oidc provider (backward compat)",
+			name: "everything disabled - returns generic error",
 			config: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled: false,
@@ -48,29 +48,33 @@ func Test_TokenAuthComposer(t *testing.T) {
 				panic("i should never be called")
 			},
 			oidc: func(t string, s []string) (*models.Principal, error) {
-				return nil, nil
-			},
-			expectErr: false,
-		},
-		{
-			name: "everything disabled - pass to oidc provider fail",
-			config: config.Authentication{
-				OIDC: config.OIDC{
-					Enabled: false,
-				},
-				APIKey: config.StaticAPIKey{
-					Enabled: false,
-				},
-			},
-			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+				// We panic here to verify that the OIDC validator isnot called
 				panic("i should never be called")
-			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
-				return nil, fmt.Errorf("oidc says nope!")
 			},
 			expectErr:    true,
-			expectErrMsg: "oidc says nope!",
+			expectErrMsg: "no authentication scheme is configured",
+		},
+		{
+			// This explicitly tests the scenario requested by the maintainer
+			// "when no auth is enabled but token is provided"
+			name: "everything disabled - generic error on invalid token",
+			config: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled: false,
+				},
+				APIKey: config.StaticAPIKey{
+					Enabled: false,
+				},
+			},
+			token: "some-token",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			expectErr:    true,
+			expectErrMsg: "no authentication scheme is configured",
 		},
 		{
 			name: "only oidc enabled, returns success",

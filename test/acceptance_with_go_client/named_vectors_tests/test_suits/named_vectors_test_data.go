@@ -356,6 +356,11 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 		resp, err = get.Do(context.Background())
 		require.NoError(ct, err)
 		require.NotNil(ct, resp)
+		// Transient errors (e.g. a replica whose local index isn't ready yet
+		// during async indexing) surface here; retry instead of aborting on t.
+		if !assert.Empty(ct, resp.Errors) {
+			return
+		}
 		if len(resp.Data) == 0 {
 			return
 		}

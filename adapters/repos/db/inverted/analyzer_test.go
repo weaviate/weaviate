@@ -118,7 +118,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.Text(tc.tokenization, tc.input)
+				countable := a.Text(tc.tokenization, tc.input, "test", nil)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -206,7 +206,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.TextArray(tc.tokenization, tc.input)
+				countable := a.TextArray(tc.tokenization, tc.input, "test", nil)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -465,7 +465,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.Text(tc.tokenization, tc.input)
+			countable := a.Text(tc.tokenization, tc.input, "test", nil)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -524,7 +524,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.TextArray(tc.tokenization, tc.input)
+			countable := a.TextArray(tc.tokenization, tc.input, "test", nil)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -595,4 +595,144 @@ func TestDedupItems(t *testing.T) {
 
 	dedupProps := DedupItems(props)
 	assert.Equal(t, expectedProps, dedupProps)
+}
+
+func TestAnalyzerASCIIFold(t *testing.T) {
+	a := NewAnalyzer(nil, "")
+
+	t.Run("Text with accent folding", func(t *testing.T) {
+		config := &models.TextAnalyzerConfig{
+			ASCIIFold: true,
+		}
+
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", "test", config)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		assert.Contains(t, terms, "l")
+		assert.Contains(t, terms, "ecole")
+		assert.Contains(t, terms, "est")
+		assert.Contains(t, terms, "fermee")
+		assert.NotContains(t, terms, "école")
+		assert.NotContains(t, terms, "fermée")
+	})
+
+	t.Run("Text without accent folding preserves diacritics", func(t *testing.T) {
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", "test", nil)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		assert.Contains(t, terms, "école")
+		assert.Contains(t, terms, "fermée")
+		assert.NotContains(t, terms, "ecole")
+	})
+
+	t.Run("TextArray with accent folding merges duplicates", func(t *testing.T) {
+		config := &models.TextAnalyzerConfig{
+			ASCIIFold: true,
+		}
+		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, "test", config)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		assert.Contains(t, terms, "cafe")
+		assert.NotContains(t, terms, "café")
+		assert.Equal(t, float32(2), terms["cafe"])
+	})
+
+	t.Run("Text with accent folding and ignore list", func(t *testing.T) {
+		config := &models.TextAnalyzerConfig{
+			ASCIIFold:       true,
+			ASCIIFoldIgnore: []string{"é"},
+		}
+
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", "test", config)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		// 'é' is ignored so école and fermée keep their é
+		assert.Contains(t, terms, "école")
+		assert.Contains(t, terms, "fermée")
+		assert.NotContains(t, terms, "ecole")
+		assert.NotContains(t, terms, "fermee")
+		assert.Contains(t, terms, "l")
+		assert.Contains(t, terms, "est")
+	})
+
+	t.Run("TextArray with accent folding and ignore preserves ignored chars", func(t *testing.T) {
+		config := &models.TextAnalyzerConfig{
+			ASCIIFold:       true,
+			ASCIIFoldIgnore: []string{"é"},
+		}
+		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, "test", config)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		// café keeps its é, cafe stays as cafe — they don't merge
+		assert.Contains(t, terms, "café")
+		assert.Contains(t, terms, "cafe")
+		assert.Equal(t, float32(1), terms["café"])
+		assert.Equal(t, float32(1), terms["cafe"])
+	})
+}
+
+func BenchmarkAnalyzerTextASCIIFold(b *testing.B) {
+	config := &models.TextAnalyzerConfig{
+		ASCIIFold:       true,
+		ASCIIFoldIgnore: []string{"é"},
+	}
+	input := "L'école est fermée, São Paulo café résumé naïve"
+
+	b.Run("first_call", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			a := NewAnalyzer(nil, "BenchClass")
+			a.Text(models.PropertyTokenizationWord, input, "title", config)
+		}
+	})
+
+	b.Run("subsequent_calls", func(b *testing.B) {
+		a := NewAnalyzer(nil, "BenchClass")
+		a.Text(models.PropertyTokenizationWord, input, "title", config)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			a.Text(models.PropertyTokenizationWord, input, "title", config)
+		}
+	})
+}
+
+func BenchmarkAnalyzerTextArrayASCIIFold(b *testing.B) {
+	config := &models.TextAnalyzerConfig{
+		ASCIIFold:       true,
+		ASCIIFoldIgnore: []string{"é", "ü", "ñ", "ø"},
+	}
+	input := make([]string, 100)
+	for i := range input {
+		input[i] = "L'école est fermée, São Paulo café résumé naïve über Ørsted"
+	}
+
+	b.Run("first_call", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			a := NewAnalyzer(nil, "BenchClass")
+			a.TextArray(models.PropertyTokenizationWord, input, "body", config)
+		}
+	})
+
+	b.Run("subsequent_calls", func(b *testing.B) {
+		a := NewAnalyzer(nil, "BenchClass")
+		a.TextArray(models.PropertyTokenizationWord, input, "body", config)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			a.TextArray(models.PropertyTokenizationWord, input, "body", config)
+		}
+	})
 }

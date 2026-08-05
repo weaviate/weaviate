@@ -32,7 +32,7 @@ func TestSuccessRotate(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user"}}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{"user": {Id: "user"}}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 	dynUser.On("RotateKey", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -55,11 +55,11 @@ func TestRotateInternalServerError(t *testing.T) {
 	tests := []struct {
 		name               string
 		GetUserReturnErr   error
-		GetUserReturnValue map[string]*apikey.User
+		GetUserReturnValue map[string]apikey.UserView
 		RotateKeyError     error
 	}{
 		{name: "get user error", GetUserReturnErr: errors.New("some error"), GetUserReturnValue: nil},
-		{name: "rotate key error", GetUserReturnErr: nil, GetUserReturnValue: map[string]*apikey.User{"user": {Id: "user", InternalIdentifier: "abc"}}, RotateKeyError: errors.New("some error")},
+		{name: "rotate key error", GetUserReturnErr: nil, GetUserReturnValue: map[string]apikey.UserView{"user": {Id: "user", InternalIdentifier: "abc"}}, RotateKeyError: errors.New("some error")},
 	}
 
 	for _, tt := range tests {
@@ -90,7 +90,7 @@ func TestRotateNotFound(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -125,7 +125,7 @@ func TestRotateUnprocessableEntity(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,

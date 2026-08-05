@@ -166,6 +166,24 @@ func (s *Shard) addJobToQueue(job job) {
 	s.centralJobQueue <- job
 }
 
+// ForEachGeoQueue iterates through each geo index queue initialized in the shard.
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	for propName, q := range s.geoQueues {
+		if q == nil {
+			continue
+		}
+
+		if err := f(propName, q); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Shard) hasGeoIndex() bool {
 	s.propertyIndicesLock.RLock()
 	defer s.propertyIndicesLock.RUnlock()

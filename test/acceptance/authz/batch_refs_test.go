@@ -26,11 +26,10 @@ import (
 )
 
 func TestAuthZBatchRefAuthZCalls(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	containers := compose.Containers()
@@ -92,14 +91,13 @@ func TestAuthZBatchRefAuthZCalls(t *testing.T) {
 }
 
 func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
 	customKey := "custom-key"
 	customAuth := helper.CreateAuth(customKey)
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	containers := compose.Containers()

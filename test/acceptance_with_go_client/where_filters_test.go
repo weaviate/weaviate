@@ -24,10 +24,12 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestCorrectErrorForIsNullFilter(t *testing.T) {
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	ctx := context.Background()
 
 	className := "RandomClass45357"

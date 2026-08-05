@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,6 +61,12 @@ const (
 var DefaultUsingBlockMaxWAND = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || entcfg.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE"))
 
 const (
+	// Lazy load shard auto-detection thresholds
+	DefaultLazyLoadShardCountThreshold  = 1000
+	DefaultLazyLoadShardSizeThresholdGB = 100.0 // 100GB
+)
+
+const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
 
 	DefaultDiskUseWarningPercentage  = uint64(80)
@@ -69,6 +76,19 @@ const (
 	//       the measurement is reliable. once
 	//       confirmed, we can set this to 90
 	DefaultMemUseReadonlyPercentage = uint64(0)
+)
+
+const (
+	DefaultObjectsTTLDeleteSchedule      = "" // disabled
+	DefaultObjectsTTLBatchSize           = 10_000
+	DefaultObjectsTTLConcurrencyFactor   = 1
+	DefaultObjectsTTLPauseEveryNoBatches = 10
+	DefaultObjectsTTLPauseDuration       = time.Minute
+
+	// DefaultExportParallelism is the number of concurrent scan workers per
+	// export. Defaults to 0 which means GOMAXPROCS at runtime. The value is
+	// dynamically configurable via runtime overrides.
+	DefaultExportParallelism = 0
 )
 
 // Flags are input options
@@ -96,6 +116,42 @@ type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
+// RestrictionsConfig gates *what kind* of class operators allow to be
+// created (vs UsageLimitsConfig which caps how much). nil or empty list
+// = no restriction; see validateRestrictions for cross-field rules.
+type RestrictionsConfig struct {
+	AllowedVectorIndexTypes *runtime.DynamicValue[[]string] `json:"allowed_vector_index_types" yaml:"allowed_vector_index_types"`
+	AllowedCompressionTypes *runtime.DynamicValue[[]string] `json:"allowed_compression_types" yaml:"allowed_compression_types"`
+	// ErrorMessage is the operator-overridable template rendered into
+	// the CONFIG_NOT_ALLOWED response `message`. Placeholders:
+	// {restriction}, {value}, {allowed}.
+	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
+}
+
+// UsageLimitsConfig holds the env-var and runtime-overrideable usage-limit
+// knobs introduced by the Free-Tier guardrails RFC. The collection-count
+// limit lives separately on SchemaHandlerConfig for backward compatibility
+// with the pre-existing MAXIMUM_ALLOWED_COLLECTIONS_COUNT env var.
+//
+// All fields are *runtime.DynamicValue[*]; nil means "unset" (treated as
+// unlimited / default). Operators set values via env vars at startup and
+// can also override at runtime via the YAML runtime-overrides file.
+type UsageLimitsConfig struct {
+	// ErrorMessage is the operator-overridable template used to render the
+	// `message` field of the structured limit-exceeded response. Recognized
+	// placeholders are {limit} and {value}; see usagelimits.RenderTemplate.
+	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
+	// MaxObjectsCount caps the total live object count. Negative (incl.
+	// the default -1) means unlimited.
+	MaxObjectsCount *runtime.DynamicValue[int] `json:"max_objects_count" yaml:"max_objects_count"`
+	// MaxTenantsPerCollection caps the number of tenants on a multi-tenant
+	// class. Checked at tenant create time only.
+	MaxTenantsPerCollection *runtime.DynamicValue[int] `json:"max_tenants_per_collection" yaml:"max_tenants_per_collection"`
+	// MaxShardsPerCollection caps the requested shard count of a class
+	// create request. Config-time only.
+	MaxShardsPerCollection *runtime.DynamicValue[int] `json:"max_shards_per_collection" yaml:"max_shards_per_collection"`
+}
+
 type RuntimeOverrides struct {
 	Enabled      bool          `json:"enabled"`
 	Path         string        `json:"path" yaml:"path"`
@@ -104,66 +160,78 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
-	Backup                              Backup                   `json:"backup" yaml:"backup"`
-	Name                                string                   `json:"name" yaml:"name"`
-	Debug                               bool                     `json:"debug" yaml:"debug"`
-	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
-	QueryHybridMaximumResults           int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
-	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
-	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
-	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
-	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
-	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
-	Origin                              string                   `json:"origin" yaml:"origin"`
-	Persistence                         Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
-	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
-	EnableApiBasedModules               bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
-	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
-	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
-	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
-	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
-	Monitoring                          monitoring.Config        `json:"monitoring" yaml:"monitoring"`
-	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
-	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
-	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
-	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
-	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
-	MaximumConcurrentBucketLoads        int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
-	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
-	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
-	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
-	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
-	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
-	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
-	ReindexerGoroutinesFactor           float64                  `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
-	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
-	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig     `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
-	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
-	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
-	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
-	CORS                                CORS                     `json:"cors" yaml:"cors"`
-	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
-	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
-	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
-	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
-	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
-	HNSWGeoIndexEF                      int                      `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
-	AsyncIndexingEnabled                bool                     `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
-	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
-	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
-	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
-	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
-	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	HFreshEnabled                       bool                     `json:"hfresh_enabled" yaml:"hfresh_enabled"`
-	ReplicationEngineFileCopyChunkSize  int                      `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
+	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	Name                             string                   `json:"name" yaml:"name"`
+	Debug                            bool                     `json:"debug" yaml:"debug"`
+	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults              int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults        int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
+	QueryNestedCrossReferenceLimit   int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	QueryCrossReferenceDepthLimit    int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
+	Contextionary                    Contextionary            `json:"contextionary" yaml:"contextionary"`
+	Authentication                   Authentication           `json:"authentication" yaml:"authentication"`
+	Authorization                    Authorization            `json:"authorization" yaml:"authorization"`
+	Origin                           string                   `json:"origin" yaml:"origin"`
+	Persistence                      Persistence              `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule          string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric      string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+	EnableModules                    string                   `json:"enable_modules" yaml:"enable_modules"`
+	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
+	ModulesPath                      string                   `json:"modules_path" yaml:"modules_path"`
+	ModuleHttpClientTimeout          time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
+	AutoSchema                       AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                          cluster.Config           `json:"cluster" yaml:"cluster"`
+	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`
+	Monitoring                       monitoring.Config        `json:"monitoring" yaml:"monitoring"`
+	GRPC                             GRPC                     `json:"grpc" yaml:"grpc"`
+	MCP                              MCP                      `json:"mcp" yaml:"mcp"`
+	Profiling                        Profiling                `json:"profiling" yaml:"profiling"`
+	ResourceUsage                    ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
+	MaxImportGoroutinesFactor        float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests     int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
+	MaximumConcurrentShardLoads      int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
+	MaximumConcurrentBucketLoads     int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
+	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
+	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// EnableLazyLoadShards controls lazy shard loading.
+	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
+	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.
+	EnableLazyLoadShards                *bool                          `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold         int                            `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB        float64                        `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	ForceFullReplicasSearch             bool                           `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
+	TransferInactivityTimeout           time.Duration                  `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
+	HaltForTransferTimeout              time.Duration                  `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
+	RecountPropertiesAtStartup          bool                           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
+	ReindexSetToRoaringsetAtStartup     bool                           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	ReindexerGoroutinesFactor           float64                        `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
+	ReindexMapToBlockmaxAtStartup       bool                           `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
+	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig           `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
+	IndexMissingTextFilterableAtStartup bool                           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
+	DisableGraphQL                      bool                           `json:"disable_graphql" yaml:"disable_graphql"`
+	AvoidMmap                           bool                           `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                           `json:"cors" yaml:"cors"`
+	DisableTelemetry                    bool                           `json:"disable_telemetry" yaml:"disable_telemetry"`
+	TelemetryURL                        string                         `json:"telemetry_url" yaml:"telemetry_url"`
+	TelemetryPushInterval               time.Duration                  `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
+	HNSWStartupWaitForVectorCache       bool                           `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	HNSWVisitedListPoolMaxSize          int                            `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
+	HNSWFlatSearchConcurrency           int                            `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
+	HNSWAcornFilterRatio                float64                        `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
+	BM25FilterTombMergeGateRatio        *runtime.DynamicValue[float64] `json:"bm25_filter_tombstone_merge_gate_ratio" yaml:"bm25_filter_tombstone_merge_gate_ratio"`
+	HNSWGeoIndexEF                      int                            `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
+	AsyncIndexingEnabled                bool                           `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
+	Sentry                              *entsentry.ConfigOpts          `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer                 `json:"metadata_server" yaml:"metadata_server"`
+	SchemaHandlerConfig                 SchemaHandlerConfig            `json:"schema" yaml:"schema"`
+	UsageLimits                         UsageLimitsConfig              `json:"usage_limits" yaml:"usage_limits"`
+	Restrictions                        RestrictionsConfig             `json:"restrictions" yaml:"restrictions"`
+	DistributedTasks                    DistributedTasksConfig         `json:"distributed_tasks" yaml:"distributed_tasks"`
+	ReplicationEngineMaxWorkers         int                            `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
+	ReplicationEngineFileCopyWorkers    int                            `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
+	HFreshEnabled                       bool                           `json:"hfresh_enabled" yaml:"hfresh_enabled"`
+	ReplicationEngineFileCopyChunkSize  int                            `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -210,6 +278,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this vector index type instead of HNSW.
+	// Valid values: "hnsw", "flat", "dynamic", "hfresh".
+	DefaultVectorIndexType *runtime.DynamicValue[string] `json:"default_vector_index" yaml:"default_vector_index"`
+
 	// New classes will be created with this shard count instead of the cluster node count.
 	// A value of 0 means use the cluster node count (default behavior).
 	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
@@ -230,6 +302,14 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
+	// length map until first use and frees it after a compaction drops the
+	// segment, trading a one-time load on the first cold BM25 query for memory.
+	LazyPropertyLengthsEnabled *runtime.DynamicValue[bool] `json:"lazy_property_lengths_enabled" yaml:"lazy_property_lengths_enabled"`
+
+	// Export configures the data export feature and its storage destination.
+	Export Export `json:"export" yaml:"export"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -238,9 +318,16 @@ type Config struct {
 
 	// Time expired objects should be deleted at by background routine
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
-	ObjectsTTLDeleteSchedule string `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
+	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
+	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
-	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
+	// ExportParallelism controls the number of concurrent scan workers per
+	// export. 0 (default) means GOMAXPROCS at runtime.
+	ExportParallelism *runtime.DynamicValue[int] `json:"export_parallelism" yaml:"export_parallelism"`
+
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 
@@ -297,7 +384,331 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateUsageLimitsReplicationLinkage(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.validateReplicationFactorBounds(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.validateRestrictions(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
+}
+
+// validateUsageLimitsReplicationLinkage enforces RF=1 when any object/
+// tenant/shard cap is set. The collection cap predates the linkage and
+// is intentionally excluded to avoid a breaking change for operators.
+func (c *Config) validateUsageLimitsReplicationLinkage() error {
+	hasLimit := dynamicIntSet(c.UsageLimits.MaxObjectsCount) ||
+		dynamicIntSet(c.UsageLimits.MaxTenantsPerCollection) ||
+		dynamicIntSet(c.UsageLimits.MaxShardsPerCollection)
+	if !hasLimit {
+		return nil
+	}
+	if c.Replication.MaximumFactor != 1 {
+		return fmt.Errorf("usage limits require REPLICATION_MAXIMUM_FACTOR=1; got %d", c.Replication.MaximumFactor)
+	}
+	return nil
+}
+
+// dynamicIntSet reports whether dv carries a configured (>=0) value.
+func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
+	return dv != nil && dv.Get() >= 0
+}
+
+// validateReplicationFactorBounds rejects configurations where the floor
+// exceeds the ceiling, which would make every class creation unsatisfiable.
+// A MaximumFactor <= 0 means "no cap" by convention (see GlobalConfig), so
+// the comparison is skipped in that case. MinimumFactor < 1 is also rejected
+// since a factor of zero is meaningless and the in-code default is 1.
+func (c *Config) validateReplicationFactorBounds() error {
+	if c.Replication.MinimumFactor < 1 {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR must be >= 1; got %d",
+			c.Replication.MinimumFactor,
+		)
+	}
+	if c.Replication.MaximumFactor > 0 &&
+		c.Replication.MinimumFactor > c.Replication.MaximumFactor {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR (%d) cannot exceed REPLICATION_MAXIMUM_FACTOR (%d)",
+			c.Replication.MinimumFactor, c.Replication.MaximumFactor,
+		)
+	}
+	return nil
+}
+
+// Mirrors entities/vectorindex/config.go; duplicated as plain strings to
+// avoid an import cycle. VectorIndexTypeNone is an internal sentinel.
+var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh"}
+
+// Matches DEFAULT_QUANTIZATION values so operators can copy them across.
+// "none" means "uncompressed"; omitting it from the allow-list makes
+// every non-hfresh class require a compression.
+var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
+
+func IsValidRestrictionVectorIndexType(v string) bool {
+	return slices.Contains(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
+}
+
+func IsValidRestrictionCompressionType(v string) bool {
+	return slices.Contains(validRestrictionCompressionTypes, strings.ToLower(strings.TrimSpace(v)))
+}
+
+// makeRestrictionListValidator rejects unknown entries at SetValue time.
+// Cross-field rules (default-matching, hfresh+compression) stay in
+// validateRestrictions/ValidateRestrictionsRuntime — SetValue sees one
+// field at a time.
+func makeRestrictionListValidator(valid []string, envName string) func([]string) error {
+	return func(val []string) error {
+		for _, entry := range val {
+			entry = strings.ToLower(strings.TrimSpace(entry))
+			if entry == "" {
+				continue
+			}
+			if !slices.Contains(valid, entry) {
+				return fmt.Errorf("%s contains invalid entry %q; valid values are: %s",
+					envName, entry, strings.Join(valid, ", "))
+			}
+		}
+		return nil
+	}
+}
+
+func NewRestrictionVectorIndexTypeListValidator() func([]string) error {
+	return makeRestrictionListValidator(validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+}
+
+func NewRestrictionCompressionTypeListValidator() func([]string) error {
+	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+}
+
+// NewDefaultVectorIndexValidator returns the per-value validator attached to
+// DefaultVectorIndexType. Empty means "unset", which the defaults path falls
+// back from. The "none" sentinel is reserved for indexes dropped via
+// DeleteClassVectorIndex and must never appear as a class-creation default —
+// both env-time and runtime-override paths share this rule.
+//
+// The check is strict (exact match, no lowercase/trim) because
+// DynamicValue.SetValue stores the value verbatim and downstream parsers
+// (e.g. usecases/schema/parser.parseGivenVectorIndexConfig) compare
+// case-sensitively. Callers that need to accept mixed-case input — like the
+// env path — normalize before calling SetValue.
+func NewDefaultVectorIndexValidator() func(string) error {
+	return func(val string) error {
+		if val == "" {
+			return nil
+		}
+		if !slices.Contains(validRestrictionVectorIndexTypes, val) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v",
+				val, validRestrictionVectorIndexTypes)
+		}
+		return nil
+	}
+}
+
+// ValidateRestrictionsRuntime is the cross-field layer of validation
+// (per-value runs at SetValue time). On failure it logs and clears both
+// allow-lists — reverting to the prior value would need a snapshot
+// outside the DynamicValue, which buys little over fail-safe-and-warn.
+func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
+	allowVector, vErr := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+	allowCompression, cErr := normalizeRestrictionList(c.Restrictions.AllowedCompressionTypes, validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+
+	var problems []string
+	if vErr != nil {
+		problems = append(problems, vErr.Error())
+	}
+	if cErr != nil {
+		problems = append(problems, cErr.Error())
+	}
+	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
+		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	}
+
+	problems = append(problems, runtimeMismatchProblems(
+		allowVector, c.DefaultVectorIndexType,
+		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
+	)...)
+	problems = append(problems, runtimeMismatchProblems(
+		allowCompression, c.DefaultQuantization,
+		"ALLOWED_COMPRESSION_TYPES", "DEFAULT_QUANTIZATION",
+	)...)
+
+	if len(problems) == 0 {
+		return nil
+	}
+
+	log.WithFields(logrus.Fields{
+		"action":   "runtime_overrides_restrictions_invalid",
+		"problems": problems,
+	}).Errorf("runtime override violates restriction invariants — resetting allow-lists to empty (no restriction) until fixed: %s", strings.Join(problems, "; "))
+
+	// Fail-safe: drop both allow-lists.
+	if c.Restrictions.AllowedVectorIndexTypes != nil {
+		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(nil)
+	}
+	if c.Restrictions.AllowedCompressionTypes != nil {
+		_ = c.Restrictions.AllowedCompressionTypes.SetValue(nil)
+	}
+	return nil
+}
+
+// validateRestrictions enforces the boot-time cross-field rules between
+// the allow-lists and DEFAULT_VECTOR_INDEX / DEFAULT_QUANTIZATION. May
+// seed the matching default when a single-entry allow-list leaves it
+// unset, so downstream readers don't need to special-case.
+func (c *Config) validateRestrictions() error {
+	allowVector, err := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+	if err != nil {
+		return err
+	}
+	allowCompression, err := normalizeRestrictionList(c.Restrictions.AllowedCompressionTypes, validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+	if err != nil {
+		return err
+	}
+
+	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
+		return fmt.Errorf("ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	}
+
+	if err := reconcileAllowListWithDefault(
+		allowVector, c.DefaultVectorIndexType,
+		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
+	); err != nil {
+		return err
+	}
+	if err := reconcileAllowListWithDefault(
+		allowCompression, c.DefaultQuantization,
+		"ALLOWED_COMPRESSION_TYPES", "DEFAULT_QUANTIZATION",
+	); err != nil {
+		return err
+	}
+
+	// Persist normalized form: a whitespace-only input ("X=,") collapses
+	// to an empty list — leaving the original would force the schema
+	// layer to enforce an allow-list of blank strings.
+	if c.Restrictions.AllowedVectorIndexTypes != nil {
+		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(allowVector)
+	}
+	if c.Restrictions.AllowedCompressionTypes != nil {
+		_ = c.Restrictions.AllowedCompressionTypes.SetValue(allowCompression)
+	}
+
+	return nil
+}
+
+// normalizeRestrictionList trims/lowercases/dedupes entries and rejects
+// unknowns. Returns nil for the "no restriction" case (nil or empty dv).
+func normalizeRestrictionList(dv *runtime.DynamicValue[[]string], valid []string, envName string) ([]string, error) {
+	if dv == nil {
+		return nil, nil
+	}
+	raw := dv.Get()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, v := range raw {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		validEntry := false
+		for _, w := range valid {
+			if v == w {
+				validEntry = true
+				break
+			}
+		}
+		if !validEntry {
+			return nil, fmt.Errorf("%s contains invalid entry %q; valid values are: %s",
+				envName, v, strings.Join(valid, ", "))
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// reconcileAllowListWithDefault enforces "default must be in the list",
+// seeding the default in the single-entry / unset-default case.
+func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) error {
+	if len(allowList) == 0 {
+		return nil
+	}
+	currentDefault := ""
+	if defaultDV != nil {
+		currentDefault = strings.ToLower(strings.TrimSpace(defaultDV.Get()))
+	}
+	if len(allowList) > 1 {
+		if currentDefault == "" {
+			return fmt.Errorf("%s lists multiple values (%s); %s must also be set to one of them",
+				allowEnv, strings.Join(allowList, ", "), defaultEnv)
+		}
+		if !slices.Contains(allowList, currentDefault) {
+			return fmt.Errorf("%s=%q is not in %s (%s)",
+				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", "))
+		}
+		if defaultDV != nil && defaultDV.Get() != currentDefault {
+			_ = defaultDV.SetValue(currentDefault)
+		}
+		return nil
+	}
+	only := allowList[0]
+	if currentDefault == "" {
+		if defaultDV != nil {
+			_ = defaultDV.SetValue(only)
+		}
+		return nil
+	}
+	if currentDefault != only {
+		return fmt.Errorf("%s=%q does not match the only entry in %s (%q)",
+			defaultEnv, currentDefault, allowEnv, only)
+	}
+	if defaultDV != nil && defaultDV.Get() != currentDefault {
+		_ = defaultDV.SetValue(currentDefault)
+	}
+	return nil
+}
+
+// runtimeMismatchProblems is the runtime-hook equivalent of
+// reconcileAllowListWithDefault: collect every mismatch (one log line
+// per operator change) and never seed defaults at runtime — the boot
+// path is the only place we may rewrite an unset default.
+func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) []string {
+	if len(allowList) == 0 {
+		return nil
+	}
+	currentDefault := ""
+	if defaultDV != nil {
+		currentDefault = strings.ToLower(strings.TrimSpace(defaultDV.Get()))
+	}
+	var out []string
+	if len(allowList) > 1 {
+		if currentDefault == "" {
+			out = append(out, fmt.Sprintf("%s lists multiple values (%s); %s must also be set to one of them",
+				allowEnv, strings.Join(allowList, ", "), defaultEnv))
+		} else if !slices.Contains(allowList, currentDefault) {
+			out = append(out, fmt.Sprintf("%s=%q is not in %s (%s)",
+				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", ")))
+		}
+		return out
+	}
+	// Single-entry: unset default is tolerated (seeding is boot-only).
+	if currentDefault != "" && currentDefault != allowList[0] {
+		out = append(out, fmt.Sprintf("%s=%q does not match the only entry in %s (%q)",
+			defaultEnv, currentDefault, allowEnv, allowList[0]))
+	}
+	return out
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own
@@ -374,11 +785,28 @@ const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
 // DefaultBackupSplitFileSize is the default size for splitting large files during backup
 const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
 
+// DefaultBackupMaxIndividualFiles is the default number of files per shard targeted to get their own chunk
+const DefaultBackupMaxIndividualFiles = 100
+
 // Backup contains backup-related configuration
 type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
+
+	// MaxIndividualFiles is how many of a shard's biggest files are targeted to get their own
+	// chunk. Only those can be reused by a later incremental backup, so raising it improves
+	// deduplication at the cost of more chunks. It is a target, not a cap: files of equal size
+	// at the resulting threshold all qualify. An incremental backup counts the files it reuses
+	// from its base against the number, so it applies across a backup chain.
+	// Env: BACKUP_MAX_INDIVIDUAL_FILES, runtime config: backup_max_individual_files.
+	MaxIndividualFiles *runtime.DynamicValue[int] `json:"max_individual_files" yaml:"max_individual_files"`
+
+	// SkipAccessCheck disables the write+delete probe the backup client runs on
+	// initialize, deferring write/permission errors to backup time. Use it for
+	// least-privilege credentials that can write but lack DeleteObject.
+	// Env: BACKUP_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
@@ -401,11 +829,23 @@ type GRPC struct {
 	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
 }
 
+type MCP struct {
+	Enabled            bool   `json:"enabled" yaml:"enabled"`
+	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
+	ConfigPath         string `json:"configPath" yaml:"configPath"`
+}
+
 type Profiling struct {
 	BlockProfileRate     int  `json:"blockProfileRate" yaml:"blockProfileRate"`
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
 	Port                 int  `json:"port" yaml:"port"`
+	// DebugEndpointsEnabled gates the debug HTTP listener (pprof, fgprof,
+	// /debug/*). The listener always binds: while this is false the port is
+	// open but every request returns 404, checked per-request so runtime
+	// flips need no restart. GO_PROFILING_DISABLE (Disabled) is a separate
+	// switch that stops the listener binding at all.
+	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debugEndpointsEnabled" yaml:"debugEndpointsEnabled"`
 }
 
 type DistributedTasksConfig struct {
@@ -460,7 +900,7 @@ const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward
 const (
 	// minimal interval for new hnws snapshot to be created after last one
 	DefaultHNSWSnapshotIntervalSeconds                  = 6 * 3600 // 6h
-	DefaultHNSWSnapshotDisabled                         = true
+	DefaultHNSWSnapshotDisabled                         = false
 	DefaultHNSWSnapshotOnStartup                        = true
 	DefaultHNSWSnapshotMinDeltaCommitlogsNumber         = 1
 	DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage = 5 // 5%
@@ -550,10 +990,37 @@ type CORS struct {
 	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
 }
 
+// Export holds operator-level configuration for data exports.
+// Both fields support runtime overrides via the runtime config YAML
+// (using flat keys export_enabled / export_default_bucket).
+type Export struct {
+	// Enabled controls whether the export API is available. Defaults to false.
+	// Env: EXPORT_ENABLED, runtime config: export_enabled.
+	Enabled *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+
+	// DefaultBucket is the storage bucket used for exports (e.g. S3 bucket name).
+	// Not required for backends that do not use buckets (e.g. filesystem).
+	// Env: EXPORT_DEFAULT_BUCKET, runtime config: export_default_bucket.
+	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
+
+	// DefaultPath is the default path prefix within the bucket or filesystem for exports.
+	// Defaults to empty string (no prefix). Each backup module provides a separate
+	// export backend that does not inherit the backup path (e.g. BACKUP_S3_PATH),
+	// so this value is used directly.
+	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
+	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+
+	// SkipAccessCheck disables the write+delete probe the export client runs on
+	// initialize, deferring write/permission errors to export time. Use it for
+	// least-privilege credentials that can write but lack DeleteObject.
+	// Env: EXPORT_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
+}
+
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -697,8 +1164,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	// Load config from config file if present
 	if len(file) > 0 {
-		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
-			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
 			return configErr(err)

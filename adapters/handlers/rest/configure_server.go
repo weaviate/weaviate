@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/cron"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
@@ -89,17 +90,21 @@ func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldL
 func configureOIDC(appState *state.State) *oidc.Client {
 	c, err := oidc.New(appState.ServerConfig.Config, appState.Logger)
 	if err != nil {
-		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
+		appState.Logger.WithField("action", "oidc_init").Fatalf("oidc client could not start up: %v", err)
 		os.Exit(1)
 	}
 
 	return c
 }
 
+func configureCrons(appState *state.State, serverShutdownCtx context.Context) *cron.Crons {
+	return cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+}
+
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
 	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger)
 	if err != nil {
-		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
+		appState.Logger.WithField("action", "api_keys_init").Fatalf("apikey client could not start up: %v", err)
 		os.Exit(1)
 	}
 

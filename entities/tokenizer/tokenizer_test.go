@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func TestTokeniseParallel(t *testing.T) {
+func TestTokenizeParallel(t *testing.T) {
 	t.Setenv("USE_GSE", "true")
 	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
 	// Kagome tokenizer for Korean
@@ -33,13 +33,13 @@ func TestTokeniseParallel(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			SingleTokenise(t)
+			SingleTokenize(t)
 		}()
 	}
 	wg.Wait()
 }
 
-func SingleTokenise(t *testing.T) {
+func SingleTokenize(t *testing.T) {
 	tokens := Tokenize(models.PropertyTokenizationTrigram, "Thequickbrownfoxjumpsoverthelazydog")
 	assert.Equal(t, []string{"the", "heq", "equ", "qui", "uic", "ick", "ckb", "kbr", "bro", "row", "own", "wnf", "nfo", "fox", "oxj", "xju", "jum", "ump", "mps", "pso", "sov", "ove", "ver", "ert", "rth", "the", "hel", "ela", "laz", "azy", "zyd", "ydo", "dog"}, tokens)
 

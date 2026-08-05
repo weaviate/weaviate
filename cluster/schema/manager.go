@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var (
@@ -48,6 +49,11 @@ type SchemaManager struct {
 	parser         Parser
 	log            *logrus.Logger
 	replicationFSM replicationFSM
+	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
+	// nil = unenforced); read pre-commit, never in the FSM apply path.
+	tenantLimit func() int
+	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
+	tenantLimitErrTemplate func() string
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -57,6 +63,19 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 		parser: parser,
 		log:    log,
 	}
+}
+
+// SetTenantLimit installs the tenant-cap resolvers used by PreApplyFilter
+// (negative = unlimited; nil = unenforced). Call once during FSM bootstrap.
+func (s *SchemaManager) SetTenantLimit(limit func() int, errTemplate func() string) {
+	s.tenantLimit = limit
+	s.tenantLimitErrTemplate = errTemplate
+}
+
+// TenantLimitEnforced reports whether a tenant cap is in effect; callers skip
+// the AddTenants serialization when it is not.
+func (s *SchemaManager) TenantLimitEnforced() bool {
+	return s.tenantLimit != nil && s.tenantLimit() >= 0
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -137,6 +156,31 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 			return fmt.Errorf("%s name %s already exists", item, req.Class)
 		} else if other != "" {
 			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
+		}
+	}
+
+	// Per-collection tenant cap, enforced pre-commit. store.Execute serializes
+	// AddTenants per class so this count read can't race the apply increment.
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT && s.tenantLimit != nil {
+		if maxTenants := s.tenantLimit(); maxTenants >= 0 {
+			atr := &command.AddTenantsRequest{}
+			if err := gproto.Unmarshal(req.SubCommand, atr); err != nil {
+				return fmt.Errorf("%w: %w", ErrBadRequest, err)
+			}
+			incoming := make([]string, 0, len(atr.Tenants))
+			for _, t := range atr.Tenants {
+				if t != nil {
+					incoming = append(incoming, t.Name)
+				}
+			}
+			if current, additions, ok := s.schema.tenantCapUsage(req.Class, incoming); ok &&
+				current+additions > maxTenants {
+				tmpl := ""
+				if s.tenantLimitErrTemplate != nil {
+					tmpl = s.tenantLimitErrTemplate()
+				}
+				return usagelimits.NewLimitExceededError(tmpl, usagelimits.LimitTenants, int64(maxTenants))
+			}
 		}
 	}
 
@@ -383,6 +427,26 @@ func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, 
 			op:                   cmd.GetType().String(),
 			updateSchema:         func() error { return s.schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
 			updateStore:          func() error { return s.db.AddProperty(cmd.Class, req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
+		},
+	)
+}
+
+func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
+	req := command.UpdatePropertyRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if req.Property == nil {
+		return fmt.Errorf("%w: empty property", ErrBadRequest)
+	}
+
+	return s.apply(
+		applyOp{
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.updateProperty(cmd.Class, cmd.Version, req.Property) },
+			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},

@@ -69,6 +69,16 @@ func StartNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompos
 	<-time.After(1 * time.Second)
 }
 
+// WaitForNodeReadyForClass blocks until the node serves a CL=ALL read of probeID;
+// /ready can be up while the shard is still StatusLoading. probeID must exist on all replicas.
+func WaitForNodeReadyForClass(t *testing.T, hostURI, class string, probeID strfmt.UUID) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		_, err := GetObjectCL(t, hostURI, class, probeID, types.ConsistencyLevelAll)
+		require.NoError(ct, err)
+	}, 120*time.Second, 500*time.Millisecond)
+}
+
 func GetClass(t *testing.T, host, class string) *models.Class {
 	t.Helper()
 	helper.SetupClient(host)
@@ -178,6 +188,13 @@ func AddReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	t.Helper()
 	helper.SetupClient(host)
 	resp, err := helper.AddReferences(t, refs)
+	helper.CheckReferencesBatchResponse(t, resp, err)
+}
+
+func AddReferencesCL(t *testing.T, host string, refs []*models.BatchReference, cl types.ConsistencyLevel) {
+	t.Helper()
+	helper.SetupClient(host)
+	resp, err := helper.AddReferencesCL(t, refs, cl)
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 

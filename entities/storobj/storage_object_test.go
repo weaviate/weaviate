@@ -70,7 +70,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -98,6 +98,125 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		require.True(t, ok)
 		require.Empty(t, prop)
 	})
+}
+
+// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts the jsonparser
+// path with every property listed yields the same object as json.Unmarshal —
+// the equivalence the MultiObjectByID fast path relies on.
+func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
+	const className = "MyFavoriteClass"
+
+	cases := []struct {
+		name  string
+		props map[string]interface{}
+	}{
+		{
+			name: "primitives",
+			props: map[string]interface{}{
+				"name":   "MyName",
+				"count":  float64(17),
+				"active": true,
+			},
+		},
+		{
+			name: "arrays",
+			props: map[string]interface{}{
+				"tags":    []interface{}{"a", "b", "c"},
+				"numbers": []interface{}{float64(1), float64(2), float64(3)},
+			},
+		},
+		{
+			name: "cross_ref_beacons",
+			props: map[string]interface{}{
+				"hasRef": []interface{}{
+					map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f2eb5f-5abf-447a-81ca-74b1dd168247"},
+					map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/a1b2c3d4-5abf-447a-81ca-74b1dd168247"},
+				},
+			},
+		},
+		{
+			name: "nested_object",
+			props: map[string]interface{}{
+				"address": map[string]interface{}{
+					"city": "Amsterdam",
+					"zip":  float64(1011),
+				},
+			},
+		},
+		{
+			name:  "empty",
+			props: map[string]interface{}{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := FromObject(
+				&models.Object{
+					Class:              className,
+					CreationTimeUnix:   123456,
+					LastUpdateTimeUnix: 56789,
+					ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+					Properties:         tc.props,
+				},
+				[]float32{1, 2, 0.7},
+				map[string][]float32{"vector1": {1, 2, 3}},
+				nil,
+			)
+			before.DocID = 7
+
+			asBinary, err := before.MarshalBinary()
+			require.NoError(t, err)
+
+			viaJSON, err := FromBinaryDisk(asBinary, className)
+			require.NoError(t, err)
+
+			pe := NewPropExtraction()
+			for name := range tc.props {
+				pe.Add(name)
+			}
+			viaJSONParser, err := FromBinaryDiskWithProps(asBinary, className, pe)
+			require.NoError(t, err)
+
+			assert.Equal(t, viaJSON, viaJSONParser)
+		})
+	}
+}
+
+func TestAllPropertiesExtraction(t *testing.T) {
+	cases := []struct {
+		name  string
+		class *models.Class
+		want  *PropertyExtraction
+	}{
+		{
+			name:  "nil class",
+			class: nil,
+			want:  nil,
+		},
+		{
+			name:  "no properties",
+			class: &models.Class{Class: "Empty"},
+			want:  nil,
+		},
+		{
+			name: "lists every property as a single-element path",
+			class: &models.Class{Class: "Doc", Properties: []*models.Property{
+				{Name: "name"},
+				{Name: "count"},
+				{Name: "hasRef"},
+			}},
+			want: &PropertyExtraction{PropertyPaths: [][]string{
+				{"name"}, {"count"}, {"hasRef"},
+			}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, AllPropertiesExtraction(tc.class))
+		})
+	}
 }
 
 func TestStorageObjectMarshallingMultiVector(t *testing.T) {
@@ -142,7 +261,7 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -216,7 +335,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -243,13 +362,13 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 
 		t.Run("check multi vectors optional", func(t *testing.T) {
 			t.Run("FromBinaryOptional: empty additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+				afterMultiVectorsOptional, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, nil)
 				require.Nil(t, err)
 				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
 			})
 
 			t.Run("FromBinaryOptional: multi vector in additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+				afterMultiVectorsOptional, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{
 					Vectors: []string{"vector4"},
 				}, nil)
 				require.Nil(t, err)
@@ -259,7 +378,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			})
 
 			t.Run("FromBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+				afterMultiVectorsOptional, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{
 					Vectors: []string{"vector2", "vector4"},
 				}, nil)
 				require.Nil(t, err)
@@ -317,7 +436,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("check vector", func(t *testing.T) {
@@ -378,7 +497,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("check vector", func(t *testing.T) {
@@ -462,7 +581,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("without any optional", func(t *testing.T) {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+		after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, nil)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -632,7 +751,7 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -792,7 +911,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -877,7 +996,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				asBinary, err := before.MarshalBinary()
 				require.Nil(t, err)
 
-				after, err := FromBinary(asBinary)
+				after, err := FromBinaryNetwork(asBinary)
 				require.Nil(t, err)
 
 				t.Run("compare", func(t *testing.T) {
@@ -914,7 +1033,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				require.Nil(t, err)
 
 				t.Run("get without additional properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -930,7 +1049,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("get with additional property vector", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true}, nil)
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{Vector: true}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -948,7 +1067,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("with explicit properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{},
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{},
 						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
 					)
 					require.Nil(t, err)
@@ -959,7 +1078,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("test no props and moduleparams", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{
 						NoProps:      true,
 						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
 					},
@@ -1183,7 +1302,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Equal(t, 3*4, len(fullBytes)-len(optionalBytes)) // 3 floats * 4 bytes
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, Vectors: []string{"vector1", "vector2", "multiVec1", "multiVec2"}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: false, Vectors: []string{"vector1", "vector2", "multiVec1", "multiVec2"}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1202,7 +1321,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		require.Nil(t, err)
 
 		// Verify it can be deserialized with vector
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: true}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.Vector, after.Vector)
 	})
@@ -1221,7 +1340,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Less(t, len(optionalBytes), len(fullBytes))
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1243,7 +1362,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Less(t, len(optionalBytes), len(fullBytes))
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, Vectors: []string{}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: false, Vectors: []string{}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		// Target vectors should be nil since they weren't serialized
@@ -1259,7 +1378,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		require.Nil(t, err)
 
 		// Verify it can still be deserialized with the specific vectors
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: true, Vectors: []string{"vector1", "multiVec1"}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: true, Vectors: []string{"vector1", "multiVec1"}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.Vector, after.Vector)
@@ -1296,7 +1415,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 			float64(len(fullBytes)-len(optionalBytes))/float64(len(fullBytes))*100)
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, NoProps: true, Vectors: []string{}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: false, NoProps: true, Vectors: []string{}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1319,7 +1438,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Less(t, len(optionalBytes), len(fullBytes))
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1515,7 +1634,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{}, props)
+		after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, props)
 		require.Nil(b, err)
 		require.NotNil(b, after)
 	}
@@ -1586,6 +1705,81 @@ func TestObjectsByDocID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestObjectsByDocIDSharedView(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name     string
+		inputIDs []uint64
+	}{
+		{name: "1 object - sequential code path", inputIDs: []uint64{0}},
+		{name: "2 objects - concurrent code path", inputIDs: []uint64{0, 1}},
+		{name: "100 objects - concurrent code path", inputIDs: pickRandomIDsBetween(0, 1000, 100)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket := genFakeBucket(t, 1000)
+
+			res, err := ObjectsByDocID(bucket, tt.inputIDs, additional.Properties{}, nil, logger)
+			require.NoError(t, err)
+			require.Len(t, res, len(tt.inputIDs))
+
+			// a single consistent view is acquired and released for the whole
+			// batch, regardless of the number of objects or parallel chunks
+			assert.Equal(t, 1, bucket.views)
+			assert.Equal(t, 1, bucket.released)
+
+			for i, obj := range res {
+				expectedDocID := tt.inputIDs[i]
+				assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
+			}
+		})
+	}
+}
+
+func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	for _, name := range []string{"sequential code path", "concurrent code path"} {
+		t.Run(name, func(t *testing.T) {
+			ids := []uint64{0}
+			if name == "concurrent code path" {
+				ids = pickRandomIDsBetween(0, 1000, 100)
+			}
+
+			bucket := genFakeBucket(t, 1000)
+			bucket.lookupErr = fmt.Errorf("boom")
+
+			_, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+			require.Error(t, err)
+
+			// the view is still released exactly once when a lookup fails mid-batch
+			assert.Equal(t, 1, bucket.views)
+			assert.Equal(t, 1, bucket.released)
+		})
+	}
+}
+
+func TestObjectsByDocIDEmptyBatch(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bucket := genFakeBucket(t, 1000)
+
+	res, err := ObjectsByDocID(bucket, nil, additional.Properties{}, nil, logger)
+	require.NoError(t, err)
+	require.Empty(t, res)
+
+	// an empty batch acquires no consistent view
+	assert.Equal(t, 0, bucket.views)
+	assert.Equal(t, 0, bucket.released)
+}
+
+func TestObjectsByDocIDNilBucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	_, err := ObjectsByDocID(nil, []uint64{0}, additional.Properties{}, nil, logger)
+	require.Error(t, err)
 }
 
 func TestSkipMissingObjects(t *testing.T) {
@@ -1778,13 +1972,29 @@ func FuzzObjectGet(f *testing.F) {
 
 type fakeBucket struct {
 	objects map[uint64][]byte
+	// views and released count how often a consistent view is acquired and
+	// released for a batch.
+	views    int
+	released int
+	// lookupErr, when set, makes every lookup fail, simulating an error
+	// mid-batch.
+	lookupErr error
 }
 
-func (f *fakeBucket) GetBySecondary(_ context.Context, _ int, _ []byte) ([]byte, error) {
-	panic("not implemented")
+func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
+	f.views++
+	return f.GetBySecondaryWithBuffer, func() { f.released++ }
+}
+
+func (f *fakeBucket) GetBySecondary(ctx context.Context, indexID int, docIDBytes []byte) ([]byte, error) {
+	res, _, err := f.GetBySecondaryWithBuffer(ctx, indexID, docIDBytes, []byte{})
+	return res, err
 }
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
+	if f.lookupErr != nil {
+		return nil, nil, f.lookupErr
+	}
 	docID := binary.LittleEndian.Uint64(docIDBytes)
 	objBytes, ok := f.objects[docID]
 	if !ok {
@@ -1796,6 +2006,10 @@ func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, 
 
 	copy(lsmBuf, objBytes)
 	return lsmBuf[:len(objBytes)], lsmBuf, nil
+}
+
+func (f *fakeBucket) ClassName() (string, error) {
+	return "MyClass", nil
 }
 
 func genFakeBucket(t testing.TB, maxSize uint64) *fakeBucket {
@@ -1837,6 +2051,53 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 		_, _, err := DocIDAndTimeFromBinary(input)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported binary marshaller version 0")
+	})
+}
+
+func TestPatchDocID(t *testing.T) {
+	obj := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties:         map[string]interface{}{"name": "MyName"},
+		},
+		[]float32{1, 2, 0.7},
+		map[string][]float32{"vector1": {1, 2, 3}},
+		nil,
+	)
+	obj.DocID = 7
+
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	require.NoError(t, PatchDocID(asBinary, 42))
+
+	gotID, err := DocIDFromBinary(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), gotID)
+
+	obj.DocID = 42
+	expected, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	assert.Equal(t, expected, asBinary)
+
+	decoded, err := FromBinaryNetwork(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), decoded.DocID)
+	assert.Equal(t, obj.ID(), decoded.ID())
+}
+
+func TestPatchDocID_Errors(t *testing.T) {
+	t.Run("too short", func(t *testing.T) {
+		require.Error(t, PatchDocID(make([]byte, 8), 1))
+	})
+
+	t.Run("unsupported version", func(t *testing.T) {
+		buf := make([]byte, 9)
+		buf[0] = 2
+		require.Error(t, PatchDocID(buf, 1))
 	})
 }
 

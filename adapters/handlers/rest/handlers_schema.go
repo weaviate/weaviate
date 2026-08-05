@@ -25,7 +25,9 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type schemaHandlers struct {
@@ -41,13 +43,21 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	_, _, err := s.manager.AddClass(ctx, principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return schema.NewSchemaObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsCreateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
@@ -66,6 +76,10 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 		if errors.Is(err, schemaUC.ErrNotFound) {
 			return schema.NewSchemaObjectsUpdateNotFound()
 		}
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
@@ -73,7 +87,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
@@ -131,18 +145,70 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	_, _, err := s.manager.AddClassProperty(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(params.Body)
+}
+
+func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPropertiesDeleteParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, params.PropertyName, params.IndexName)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewSchemaObjectsPropertiesDeleteOK()
+}
+
+func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVectorsDeleteParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err := s.manager.DeleteClassVectorIndex(ctx, principal, params.ClassName, params.VectorIndexName)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return schema.NewSchemaObjectsVectorsDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrNotFound):
+			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewSchemaObjectsVectorsDeleteOK()
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
@@ -154,7 +220,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaDumpInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
@@ -182,8 +248,11 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
+		case errors.Is(err, schemaUC.ErrNotFound):
 			return schema.NewSchemaObjectsShardsGetNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsShardsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -199,15 +268,19 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.UpdateShardStatus(
-		ctx, principal, params.ClassName, params.ShardName, params.Body.Status)
+		ctx, principal, params.ClassName, params.ShardName, params.Body.Status,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsGetForbidden().
+			return schema.NewSchemaObjectsShardsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrNotFound):
+			return schema.NewSchemaObjectsShardsUpdateNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -223,9 +296,14 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.AddTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return schema.NewTenantsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsCreateForbidden().
@@ -245,7 +323,8 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	updatedTenants, err := s.manager.UpdateTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -267,7 +346,8 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	err := s.manager.DeleteTenants(
-		ctx, principal, params.ClassName, params.Tenants)
+		ctx, principal, params.ClassName, params.Tenants,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -367,6 +447,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaObjectsDeleteHandlerFunc(h.deleteClass)
 	api.SchemaSchemaObjectsPropertiesAddHandler = schema.
 		SchemaObjectsPropertiesAddHandlerFunc(h.addClassProperty)
+	api.SchemaSchemaObjectsPropertiesDeleteHandler = schema.
+		SchemaObjectsPropertiesDeleteHandlerFunc(h.deleteClassPropertyIndex)
+	api.SchemaSchemaObjectsVectorsDeleteHandler = schema.
+		SchemaObjectsVectorsDeleteHandlerFunc(h.deleteClassVectorIndex)
 
 	api.SchemaSchemaObjectsUpdateHandler = schema.
 		SchemaObjectsUpdateHandlerFunc(h.updateClass)

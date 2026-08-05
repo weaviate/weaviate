@@ -27,7 +27,10 @@ func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetRangeAdd(key, values...)
@@ -38,7 +41,10 @@ func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetRangeRemove(key, values...)

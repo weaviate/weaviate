@@ -15,6 +15,8 @@ import (
 	"sort"
 
 	"github.com/go-openapi/strfmt"
+
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -37,7 +39,7 @@ func createBatch(xs []*storobj.Object) IndexedBatch {
 }
 
 // cluster data object by shard
-func cluster(bi IndexedBatch) []ShardPart {
+func clusterObjectByShard(bi IndexedBatch) []ShardPart {
 	index := bi.Index
 	data := bi.Data
 	sort.Slice(index, func(i, j int) bool {
@@ -85,14 +87,17 @@ func (b *ShardPart) ObjectIDs() []strfmt.UUID {
 	return xs
 }
 
-func (b *ShardPart) Extract() ([]Replica, []strfmt.UUID) {
-	xs := make([]Replica, len(b.Index))
+// Digests returns update times and ids for the caller's own copies, in Index
+// order. These are search results that may lack projected-away properties or
+// a requested vector, so they can never serve as repair content.
+func (b *ShardPart) Digests() ([]types.RepairResponse, []strfmt.UUID) {
+	xs := make([]types.RepairResponse, len(b.Index))
 	ys := make([]strfmt.UUID, len(b.Index))
 
 	for i, idx := range b.Index {
 		p := b.Data[idx]
-		xs[i] = Replica{ID: p.ID(), Deleted: false, Object: p}
 		ys[i] = p.ID()
+		xs[i] = types.RepairResponse{ID: ys[i].String(), UpdateTime: p.LastUpdateTimeUnix()}
 	}
 	return xs, ys
 }

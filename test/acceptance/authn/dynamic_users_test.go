@@ -26,28 +26,23 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func TestCreateUser(t *testing.T) {
-	adminKey := "admin-key"
-	adminUser := "admin-user"
-
-	otherUser := "custom-user"
-	otherKey := "custom-key"
-
-	otherUser2 := "custom-user2"
-	otherKey2 := "custom-key2"
-
-	otherUser3 := "custom-user3"
-	otherKey3 := "custom-key3"
-
-	otherUser4 := "custom-user4"
-	otherKey4 := "custom-key4"
-
-	otherUser5 := "custom-user5"
-	otherKey5 := "custom-key5"
+// TestDynamicUsers boots a single Weaviate container shared across the dynamic
+// user suites. The RBAC config is a superset: the admin key is a root user so
+// the non-RBAC suites' admin operations still work. Each suite uses a disjoint
+// set of user names so they don't clobber each other on the shared instance.
+func TestDynamicUsers(t *testing.T) {
+	adminUser, adminKey := "admin-user", "admin-key"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).WithUserApiKey(otherUser3, otherKey3).WithUserApiKey(otherUser4, otherKey4).WithUserApiKey(otherUser5, otherKey5).
+		WithApiKey().
+		WithUserApiKey(adminUser, adminKey).
+		WithUserApiKey("custom-user", "custom-key").
+		WithUserApiKey("custom-user2", "custom-key2").
+		WithUserApiKey("custom-user3", "custom-key3").
+		WithUserApiKey("custom-user4", "custom-key4").
+		WithUserApiKey("custom-user5", "custom-key5").
+		WithUserApiKey("static-user", "static-key").
 		WithDbUsers().
 		WithRBAC().WithRbacRoots(adminUser).
 		Start(ctx)
@@ -58,6 +53,29 @@ func TestCreateUser(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 		cancel()
 	}()
+
+	t.Run("create_user", testCreateUser)
+	t.Run("with_static_user", testWithStaticUser)
+	t.Run("suspend_and_activate", testSuspendAndActivate)
+}
+
+func testCreateUser(t *testing.T) {
+	adminKey := "admin-key"
+
+	otherUser := "custom-user"
+	otherKey := "custom-key"
+
+	otherUser2 := "custom-user2"
+
+	otherUser3 := "custom-user3"
+	otherKey3 := "custom-key3"
+
+	otherUser4 := "custom-user4"
+	otherKey4 := "custom-key4"
+
+	otherUser5 := "custom-user5"
+	otherKey5 := "custom-key5"
+
 	userName := "CreateUserTestUser"
 
 	t.Run("create and delete user", func(t *testing.T) {
@@ -221,26 +239,12 @@ func TestCreateUser(t *testing.T) {
 	})
 }
 
-func TestWithStaticUser(t *testing.T) {
+func testWithStaticUser(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
-
-	otherKey := "custom-key"
-	otherUser := "custom-user"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithDbUsers().Start(ctx)
-	require.Nil(t, err)
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
+	staticUser := "static-user"
 
 	t.Run("create with existing static user name", func(t *testing.T) {
-		resp, err := helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		resp, err := helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(staticUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
 		var parsed *users.CreateUserConflict
@@ -248,7 +252,7 @@ func TestWithStaticUser(t *testing.T) {
 	})
 
 	t.Run("delete existing static user name", func(t *testing.T) {
-		resp, err := helper.Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		resp, err := helper.Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(staticUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
 		var parsed *users.DeleteUserUnprocessableEntity
@@ -256,7 +260,7 @@ func TestWithStaticUser(t *testing.T) {
 	})
 
 	t.Run("rotate existing static user name", func(t *testing.T) {
-		resp, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		resp, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(staticUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
 		var parsed *users.RotateUserAPIKeyUnprocessableEntity
@@ -264,21 +268,8 @@ func TestWithStaticUser(t *testing.T) {
 	})
 }
 
-func TestSuspendAndActivate(t *testing.T) {
+func testSuspendAndActivate(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().Start(ctx)
-	require.Nil(t, err)
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
 
 	dynamicUser := "dynamic-user"
 

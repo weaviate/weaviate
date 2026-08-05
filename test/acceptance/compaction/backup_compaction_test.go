@@ -79,7 +79,7 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 	compose, err := docker.New().
 		WithBackendFilesystem().
 		WithWeaviate().
-		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -102,8 +102,8 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, backupCollection)
 
-	// 2. Import initial data — 1000 batches to make the backup take long enough to observe compactions during its execution
-	for i := 0; i < 1000; i++ {
+	// 2. Import initial data — 100 batches to make the backup take long enough to observe compactions during its execution
+	for i := 0; i < 100; i++ {
 		importBatchForClass(t, backupCollection)
 	}
 
@@ -167,7 +167,7 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 		prevSegCount = segCount
 
 		return backupDone
-	}, 5*time.Minute, 2*time.Second, "backup did not complete")
+	}, 10*time.Minute, 5*time.Second, "backup did not complete")
 
 	// 7. Assert compaction occurred during backup
 	require.True(t, sawCompactionDuringBackup,

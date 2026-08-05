@@ -25,21 +25,30 @@ import (
 )
 
 func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+	_, err := s.deleteObject(ctx, id, deletionTime, false)
+	return err
+}
+
+// deleteObject tombstones the object (reporting whether it did); with skipIfLocalNewer it keeps a live copy at least as new as deletionTime, since lsmkv does not timestamp-arbitrate and an older repair tombstone would otherwise clobber a newer write.
+func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time,
+	skipIfLocalNewer bool,
+) (bool, error) {
 	if err := s.isReadOnly(); err != nil {
-		return err
+		return false, err
+	}
+
+	// Wait for hashtree initialization before acquiring the RLock.
+	// See shard_write_put.go for the deadlock explanation.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
+		return false, err
 	}
 
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
-		return err
-	}
-
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -52,19 +61,23 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 
 	existing, err := bucket.Get([]byte(idBytes))
 	if err != nil {
-		return fmt.Errorf("unexpected error on previous lookup: %w", err)
+		return false, fmt.Errorf("unexpected error on previous lookup: %w", err)
 	}
 
 	if existing == nil {
 		// nothing to do
-		return nil
+		return false, nil
 	}
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
 	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
-		return fmt.Errorf("get existing doc id from object binary: %w", err)
+		return false, fmt.Errorf("get existing doc id from object binary: %w", err)
+	}
+
+	if skipIfLocalNewer && !deletionTime.IsZero() && updateTime >= deletionTime.UnixMilli() {
+		return false, nil // live local object is newer; keep it (TimeBased)
 	}
 
 	docIDBytes := make([]byte, 8)
@@ -76,20 +89,20 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		err = bucket.DeleteWith(idBytes, deletionTime, withSecondary)
 	}
 	if err != nil {
-		return fmt.Errorf("delete object from bucket: %w", err)
+		return false, fmt.Errorf("delete object from bucket: %w", err)
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return fmt.Errorf("object deletion in hashtree: %w", err)
+		return false, fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
 	if err != nil {
-		return fmt.Errorf("delete object from bucket: %w", err)
+		return false, fmt.Errorf("delete object from bucket: %w", err)
 	}
 
 	if err = s.store.WriteWALs(); err != nil {
-		return fmt.Errorf("flush all buffered WALs: %w", err)
+		return false, fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
@@ -99,7 +112,17 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return nil
 	})
 	if err != nil {
-		return err
+		return false, err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from geo index queue of prop %q: %w", propName, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
@@ -109,14 +132,28 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return nil
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush geo index queue WALs of prop %q: %w", propName, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	previousObject, err := storobj.FromBinary(previous)
+	className, err := s.store.Bucket(helpers.ObjectsBucketLSM).ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
+	previousObject, err := storobj.FromBinaryDisk(previous, className)
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
@@ -181,9 +218,8 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	copy(objectDigest[:], uuidBytes)
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
 
-	// object deletion is treated as non-existent,
-	// that because deletion time or tombstone may not be available
-
+	// object deletion is treated as non-existent because the deletion time or
+	// tombstone may not be available
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil

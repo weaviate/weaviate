@@ -12,14 +12,15 @@
 package v1
 
 import (
+	"context"
 	"encoding/binary"
 	"math"
-	"math/big"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -62,8 +63,8 @@ func byteVectorMulti(mat [][]float32) []byte {
 }
 
 func idByte(id string) []byte {
-	hexInteger, _ := new(big.Int).SetString(strings.ReplaceAll(id, "-", ""), 16)
-	return hexInteger.Bytes()
+	parsed := uuid.MustParse(id)
+	return parsed[:]
 }
 
 func TestGRPCReply(t *testing.T) {
@@ -1329,7 +1330,8 @@ func TestGRPCReply(t *testing.T) {
 	for _, tt := range tests {
 		replier := NewReplier(false, fakeGenerativeParams{}, nil)
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
+			out, err := replier.Search(context.Background(), tt.res, time.Now(), tt.searchParams, newSchemaResolver(getClass))
 			if tt.hasError {
 				require.NotNil(t, err)
 			} else {
@@ -1347,6 +1349,84 @@ func TestGRPCReply(t *testing.T) {
 				}
 				require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 			}
+		})
+	}
+}
+
+func TestGRPCReplyQueryProfile(t *testing.T) {
+	className := "className"
+	scheme := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:      className,
+					Properties: []*models.Property{{Name: "word", DataType: schema.DataTypeText.PropString()}},
+				},
+			},
+		},
+	}
+
+	profiledCtx := func() context.Context {
+		ctx := helpers.InitQueryProfileCollector(context.Background())
+		helpers.AddShardQueryProfile(ctx, "shard-1", "node-1", "vector", 10*time.Millisecond,
+			map[string]any{"vector_search_took": 5 * time.Millisecond})
+		return ctx
+	}
+	object := map[string]interface{}{"_additional": map[string]interface{}{"vector": []float32{1}}}
+
+	tests := []struct {
+		name           string
+		ctx            context.Context
+		res            []interface{}
+		groupBy        *searchparams.GroupBy
+		requestProfile bool
+		wantProfile    bool
+	}{
+		{
+			name: "no object matched", ctx: profiledCtx(), res: []interface{}{},
+			requestProfile: true, wantProfile: true,
+		},
+		{
+			name: "no group matched", ctx: profiledCtx(), res: []interface{}{},
+			groupBy:        &searchparams.GroupBy{Property: "word", Groups: 1, ObjectsPerGroup: 1},
+			requestProfile: true, wantProfile: true,
+		},
+		{
+			name: "objects matched", ctx: profiledCtx(), res: []interface{}{object},
+			requestProfile: true, wantProfile: true,
+		},
+		{
+			name: "profile not requested", ctx: profiledCtx(), res: []interface{}{},
+			requestProfile: false, wantProfile: false,
+		},
+		{
+			name: "nothing collected", ctx: context.Background(), res: []interface{}{},
+			requestProfile: true, wantProfile: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			searchParams := dto.GetParams{
+				ClassName:            className,
+				GroupBy:              tt.groupBy,
+				AdditionalProperties: additional.Properties{Vector: true, QueryProfile: tt.requestProfile},
+			}
+			getClass := func(name string) (*models.Class, error) { return scheme.GetClass(name), nil }
+			replier := NewReplier(false, fakeGenerativeParams{}, nil)
+
+			out, err := replier.Search(tt.ctx, tt.res, time.Now(), searchParams, newSchemaResolver(getClass))
+			require.Nil(t, err)
+
+			if !tt.wantProfile {
+				require.Nil(t, out.QueryProfile)
+				return
+			}
+			require.NotNil(t, out.QueryProfile)
+			require.Len(t, out.QueryProfile.Shards, 1)
+			require.Equal(t, "shard-1", out.QueryProfile.Shards[0].Name)
+			require.Equal(t, "node-1", out.QueryProfile.Shards[0].Node)
+			require.Equal(t, "5ms", out.QueryProfile.Shards[0].Searches["vector"].Details["vector_search_took"])
 		})
 	}
 }

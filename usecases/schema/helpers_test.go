@@ -131,6 +131,10 @@ func (f *fakeDB) AddProperty(prop string, cmd command.AddPropertyRequest) error 
 	return nil
 }
 
+func (f *fakeDB) UpdateProperty(class string, req command.UpdatePropertyRequest) error {
+	return nil
+}
+
 func (f *fakeDB) AddTenants(class string, cmd *command.AddTenantsRequest) error {
 	return nil
 }
@@ -303,6 +307,11 @@ func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop .
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, property *models.Property) error {
+	args := f.Called(ctx, className, property)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
@@ -316,10 +325,6 @@ func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string
 func (f *fakeMigrator) ShutdownShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
-}
-
-func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
-	return nil
 }
 
 func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error {
@@ -360,6 +365,14 @@ func (*fakeMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sc
 func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
+	return nil
+}
+
+func (*fakeMigrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
+	return nil
+}
+
+func (*fakeMigrator) GetVectorIndexNames(className string) []string {
 	return nil
 }
 

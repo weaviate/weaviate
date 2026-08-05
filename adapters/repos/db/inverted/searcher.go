@@ -48,7 +48,7 @@ type Searcher struct {
 	getClass               func(string) *models.Class
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	stopwords              stopwords.StopwordDetector
+	stopwordProvider       *stopwords.Provider
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
@@ -62,7 +62,7 @@ var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided.
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
+	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
@@ -72,7 +72,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		getClass:               getClass,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
-		stopwords:              stopwords,
+		stopwordProvider:       stopwordProvider,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
@@ -108,6 +108,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
 		it = allowList.Iterator()
+		defer it.Stop()
 	}
 
 	beforeObjects := time.Now()
@@ -132,8 +133,14 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
 	// Prevent unbounded iteration
@@ -147,6 +154,11 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 
 	out := make([]*storobj.Object, outlen)
 	docIDBytes := make([]byte, 8)
+
+	// Reused across iterations and grown to fit the largest object seen. Safe to
+	// reuse because FromBinary*Disk copies every value out of the returned bytes
+	// before the next lookup overwrites the buffer.
+	var objBuf []byte
 
 	propertyPaths := make([][]string, len(properties))
 	for j := range properties {
@@ -183,10 +195,11 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		loop++
 
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, err := bucket.GetBySecondary(ctx, 0, docIDBytes)
+		res, newBuf, err := bucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, objBuf)
 		if err != nil {
 			return nil, err
 		}
+		objBuf = newBuf
 
 		if res == nil {
 			handleDeletedId(docID)
@@ -195,9 +208,9 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 
 		var unmarshalled *storobj.Object
 		if additional.ReferenceQuery {
-			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
+			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
+			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
@@ -227,8 +240,15 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
+}
+
+func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
+	additional additional.Properties, className schema.ClassName, limit int,
+) (helpers.AllowList, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
@@ -250,7 +270,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	// invert once at the end if it's a deny list, to avoid multiple inversions in case of nested ORs
 	if dbm.isDenyList {
 		universe, universeRelease := s.bitmapFactory.GetBitmap()
-		universe.AndNotConc(dbm.docIDs, concurrency.SROAR_MERGE)
+		universe.AndNotConc(dbm.docIDs, concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE))
 		dbm.release()
 		return helpers.NewAllowListCloseableFromBitmap(universe, universeRelease), nil
 	}
@@ -635,21 +655,37 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
 	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	var terms []string
-
 	valueString, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 	}
 
+	var terms []string
 	switch propType {
 	case schema.DataTypeText:
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, valueString, class.Class)
+			// LIKE queries need special wildcard-preserving tokenization;
+			// fold manually then use the wildcard tokenizer.
+			text := valueString
+			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
+				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyzer.ASCIIFoldIgnore)
+				text = tokenizer.FoldASCII(text, ignore)
+			}
+			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, text, class.Class)
 		} else {
-			terms = tokenizer.TokenizeForClass(prop.Tokenization, valueString, class.Class)
+			var sw tokenizer.StopwordDetector
+			if prop.Tokenization == models.PropertyTokenizationWord {
+				d, err := s.stopwordProvider.Get(prop)
+				if err != nil {
+					return nil, err
+				}
+				sw = d
+			}
+			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
+			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)
+			terms = result.Query
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -665,9 +701,6 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) && prop.Tokenization == models.PropertyTokenizationWord {
-			continue
-		}
 		propValuePairs = append(propValuePairs, &propValuePair{
 			value:              []byte(term),
 			prop:               prop.Name,
@@ -958,6 +991,7 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 type docIDsIterator interface {
 	Next() (uint64, bool)
 	Len() int
+	Stop()
 }
 
 type sliceDocIDsIterator struct {
@@ -976,6 +1010,10 @@ func (it *sliceDocIDsIterator) Next() (uint64, bool) {
 	pos := it.pos
 	it.pos++
 	return it.docIDs[pos], true
+}
+
+func (it *sliceDocIDsIterator) Stop() {
+	// No-op for slice iterator as there's no cleanup needed
 }
 
 func (it *sliceDocIDsIterator) Len() int {

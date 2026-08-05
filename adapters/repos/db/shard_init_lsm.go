@@ -28,6 +28,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
@@ -91,12 +92,29 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
-	// Object bucket must be available, initAsyncReplication depends on it
 	if s.index.AsyncReplicationEnabled() {
-		s.asyncReplicationRWMux.Lock()
-		defer s.asyncReplicationRWMux.Unlock()
+		config := s.index.AsyncReplicationConfig()
 
-		err = s.initAsyncReplication(s.index.AsyncReplicationConfig())
+		// Compute the effective config (needed for hashtreeHeight) before taking
+		// the write lock so we can load the cached hashtree from disk outside it.
+		// tryLoadHashtreeFromDisk does synchronous I/O (ReadDir, OpenFile, Remove,
+		// Fsync); holding the write lock for its duration would block all concurrent
+		// RLock callers (hashbeat readers, object writes, commit handlers).
+		effectiveConfig := config
+		if s.index.globalreplicationConfig != nil {
+			effectiveConfig = config.Effective(*s.index.globalreplicationConfig)
+		}
+		var cached hashtree.AggregatedHashTree
+		cached, err = s.tryLoadHashtreeFromDisk(effectiveConfig.hashtreeHeight)
+		if err != nil {
+			return fmt.Errorf("load hashtree from disk on shard %q: %w", s.ID(), err)
+		}
+
+		func() {
+			s.asyncReplicationRWMux.Lock()
+			defer s.asyncReplicationRWMux.Unlock()
+			err = s.initAsyncReplication(config, cached)
+		}()
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
@@ -151,6 +169,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithKeepTombstones(true),
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
+		lsmkv.WithClassName(s.index.Config.ClassName.String()),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

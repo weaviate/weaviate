@@ -91,7 +91,8 @@ func TestGetAnswer(t *testing.T) {
 	t.Run("when X-Anyscale-BaseURL header is passed", func(t *testing.T) {
 		c := New("apiKey", 5*time.Second, nullLogger())
 		baseUrl := "https://api.endpoints.anyscale.com"
-		buildURL := c.getAnyscaleUrl(context.Background(), baseUrl)
+		buildURL, err := c.getAnyscaleUrl(context.Background(), baseUrl)
+		assert.NoError(t, err)
 		assert.Equal(t, "https://api.endpoints.anyscale.com/v1/chat/completions", buildURL)
 	})
 }

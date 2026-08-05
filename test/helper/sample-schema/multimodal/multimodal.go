@@ -36,6 +36,7 @@ const (
 	PropertyImageTitle       = "image_title"
 	PropertyImageDescription = "image_description"
 	PropertyImage            = "image"
+	PropertyImageHash        = "image_hash"
 	PropertyVideoTitle       = "video_title"
 	PropertyVideoDescription = "video_description"
 	PropertyVideo            = "video"
@@ -44,7 +45,7 @@ const (
 	PropertyAudio            = "audio"
 )
 
-func BaseClass(className string, withVideo, withAudio bool) *models.Class {
+func BaseClass(className string, withVideo, withAudio bool, opts ...func(*models.Class)) *models.Class {
 	properties := []*models.Property{
 		{
 			Name: PropertyImageTitle, DataType: []string{schema.DataTypeText.String()},
@@ -84,13 +85,24 @@ func BaseClass(className string, withVideo, withAudio bool) *models.Class {
 		}
 		properties = append(properties, audioProperties...)
 	}
-	return &models.Class{
+	class := &models.Class{
 		Class:      className,
 		Properties: properties,
 	}
+	for _, opt := range opts {
+		opt(class)
+	}
+	return class
 }
 
-func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo, withAudio bool) {
+// WithBlobHash adds a blobHash property for the image field.
+func WithBlobHash(class *models.Class) {
+	class.Properties = append(class.Properties, &models.Property{
+		Name: PropertyImageHash, DataType: []string{schema.DataTypeBlobHash.String()},
+	})
+}
+
+func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo, withAudio bool, opts ...func(int, map[string]any) error) {
 	f, err := GetCSV(dataFolderPath)
 	require.NoError(t, err)
 	defer f.Close()
@@ -131,6 +143,9 @@ func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo, wi
 				properties[PropertyAudioTitle] = audioTitle
 				properties[PropertyAudioDescription] = audioDescription
 				properties[PropertyAudio] = audioBlob
+			}
+			for _, opt := range opts {
+				require.NoError(t, opt(i, properties))
 			}
 
 			obj := &models.Object{
@@ -187,6 +202,20 @@ func CheckObjects(t *testing.T, dataFolderPath, className string, vectors, multi
 				require.True(t, len(obj.Vectors[multivec].([][]float32)) > 0)
 			}
 		})
+	}
+}
+
+// WithImageHash returns an insert option that copies the image blob into the
+// image_hash property so that both blob and blobHash fields receive the same
+// base64 data.
+func WithImageHash(dataFolderPath string) func(int, map[string]any) error {
+	return func(i int, properties map[string]any) error {
+		blob, err := GetImageBlob(dataFolderPath, i)
+		if err != nil {
+			return err
+		}
+		properties[PropertyImageHash] = blob
+		return nil
 	}
 }
 

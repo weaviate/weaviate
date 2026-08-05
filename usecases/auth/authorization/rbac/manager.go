@@ -195,14 +195,20 @@ func (m *Manager) RemovePermissions(roleName string, permissions []*authorizatio
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	changed := false
 	for _, permission := range permissions {
 		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
 			return fmt.Errorf("RemoveNamedPolicy: %w", err)
 		}
-		if !ok {
-			return nil // deletes are idempotent
+		// Removing an already-absent permission is a no-op; keep going so the
+		// rest of the batch is still removed.
+		if ok {
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return fmt.Errorf("SavePolicy: %w", err)
@@ -228,6 +234,7 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	changed := false
 	for _, roleName := range roles {
 		// remove role
 		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
@@ -240,9 +247,14 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
 		}
 
-		if !roleRemoved && !roleAssignmentsRemoved {
-			return nil // deletes are idempotent
+		// Deleting an already-absent role is a no-op; keep going so the rest of
+		// the batch is still removed.
+		if roleRemoved || roleAssignmentsRemoved {
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return fmt.Errorf("SavePolicy: %w", err)

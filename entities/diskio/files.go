@@ -94,6 +94,21 @@ func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	return fileSizes, dirs, nil
 }
 
+// GetDirSize calculates the total size of a directory recursively
+func GetDirSize(dirPath string) (uint64, error) {
+	var totalSize uint64
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			totalSize += uint64(info.Size())
+		}
+		return nil
+	})
+	return totalSize, err
+}
+
 // SanitizeFilePathJoin joins a root path and a relative file path, ensuring that the resulting path is within the root
 // path. It assumes that the relativeFilePath is attacker controlled.
 func SanitizeFilePathJoin(rootPath string, relativeFilePath string) (string, error) {

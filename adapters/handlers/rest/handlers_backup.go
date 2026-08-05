@@ -13,7 +13,6 @@ package rest
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -24,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -31,7 +31,18 @@ import (
 type backupHandlers struct {
 	manager             *ubak.Scheduler
 	metricRequestsTotal restApiRequestsTotal
+	rbacConfig          rbacconf.Config
 	logger              logrus.FieldLogger
+}
+
+// isRequestFromRootUser reports whether the principal is a configured root
+// user (or member of a root group). The base backup ID is only exposed to
+// root users.
+func (s *backupHandlers) isRequestFromRootUser(principal *models.Principal) bool {
+	if principal == nil {
+		return false
+	}
+	return s.rbacConfig.IsRootUser(principal.Username, principal.Groups)
 }
 
 // compressionFromBCfg transforms model backup config to a backup compression config
@@ -107,10 +118,6 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	if params.Body.IncrementalBaseBackupID != nil {
 		baseBackupID = *params.Body.IncrementalBaseBackupID
 	}
-	if params.Body.ID == baseBackupID {
-		return backups.NewBackupsCreateInternalServerError().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupID)))
-	}
 
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:           params.Body.ID,
@@ -181,6 +188,9 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
 		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
 		Size:        status.Size,
+	}
+	if s.isRequestFromRootUser(principal) {
+		payload.IncrementalBaseBackupID = status.BaseBackupID
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
@@ -258,16 +268,13 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return backups.NewBackupsRestoreForbidden().
+			return backups.NewBackupsRestoreStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &backup.ErrNotFound{}):
-			return backups.NewBackupsRestoreNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &backup.ErrUnprocessable{}):
-			return backups.NewBackupsRestoreUnprocessableEntity().
+			return backups.NewBackupsRestoreStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return backups.NewBackupsRestoreInternalServerError().
+			return backups.NewBackupsRestoreStatusInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -314,24 +321,55 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	return backups.NewBackupsCancelNoContent()
 }
 
+func (s *backupHandlers) cancelRestore(params backups.BackupsRestoreCancelParams,
+	principal *models.Principal,
+) middleware.Responder {
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	err := s.manager.CancelRestore(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+	if err != nil {
+		s.metricRequestsTotal.logError("", err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return backups.NewBackupsRestoreCancelForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &backup.ErrUnprocessable{}):
+			return backups.NewBackupsRestoreCancelUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return backups.NewBackupsRestoreCancelInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk("")
+	return backups.NewBackupsRestoreCancelNoContent()
+}
+
 func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	payload, err := s.manager.List(
 		params.HTTPRequest.Context(), principal, params.Backend, params.Order,
+		s.isRequestFromRootUser(principal),
 	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return backups.NewBackupsRestoreForbidden().
+			return backups.NewBackupsListForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-
 		case errors.As(err, &backup.ErrUnprocessable{}):
-			return backups.NewBackupsRestoreUnprocessableEntity().
+			return backups.NewBackupsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return backups.NewBackupsRestoreInternalServerError().
+			return backups.NewBackupsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -341,9 +379,10 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 }
 
 func setupBackupHandlers(api *operations.WeaviateAPI,
-	scheduler *ubak.Scheduler, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	scheduler *ubak.Scheduler, rbacConfig rbacconf.Config,
+	metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
-	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger), logger}
+	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger), rbacConfig, logger}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.
@@ -353,6 +392,7 @@ func setupBackupHandlers(api *operations.WeaviateAPI,
 	api.BackupsBackupsRestoreStatusHandler = backups.
 		BackupsRestoreStatusHandlerFunc(h.restoreBackupStatus)
 	api.BackupsBackupsCancelHandler = backups.BackupsCancelHandlerFunc(h.cancel)
+	api.BackupsBackupsRestoreCancelHandler = backups.BackupsRestoreCancelHandlerFunc(h.cancelRestore)
 	api.BackupsBackupsListHandler = backups.BackupsListHandlerFunc(h.list)
 }
 

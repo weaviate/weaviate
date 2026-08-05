@@ -74,14 +74,14 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	// If we are not running a local cluster we can immediately return, otherwise we need to lookup the port of the node
 	// as we can't use the default raft port locally.
 	if !a.IsLocalCluster {
-		return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
+		return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", a.RaftPort))), nil
 	}
 	port, exists := a.NodeNameToPortMap[string(id)]
 	if !exists {
 		// if does not exist, use the default raft port, self healing from bad config
 		port = a.RaftPort
 	}
-	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
+	return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", port))), nil
 }
 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes

@@ -120,11 +120,19 @@ func (i *Index) Shutdown(context.Context) error {
 	return nil
 }
 
-func (i *Index) SwitchCommitLogs(context.Context) error {
+func (i *Index) PrepareForBackup(context.Context) error {
+	return nil
+}
+
+func (i *Index) ResumeAfterBackup(context.Context) error {
 	return nil
 }
 
 func (i *Index) ListFiles(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (i *Index) SnapshotMutableFiles(context.Context, string, string) ([]string, error) {
 	return nil, nil
 }
 

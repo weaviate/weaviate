@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestGeoFilterAfterDeleteAndRecreate(t *testing.T) {
@@ -43,7 +45,7 @@ func TestGeoFilterAfterDeleteAndRecreate(t *testing.T) {
 
 	weaviateURI := func(c *docker.DockerCompose) string {
 		if c == nil {
-			return "localhost:8080"
+			return wvhost.REST()
 		}
 		return c.GetWeaviate().URI()
 	}

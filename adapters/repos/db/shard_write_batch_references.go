@@ -311,10 +311,16 @@ func (b *referencesBatcher) setErrorAtIndex(err error, i int) {
 }
 
 func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocument {
+	// Use the coordinator-assigned stamp so all replicas converge on the
+	// same LastUpdateTime; fall back when the field is unset.
+	updateTime := ref.UpdateTime
+	if updateTime == 0 {
+		updateTime = time.Now().UnixMilli()
+	}
 	return objects.MergeDocument{
 		Class:      ref.From.Class.String(),
 		ID:         ref.From.TargetID,
-		UpdateTime: time.Now().UnixMilli(),
+		UpdateTime: updateTime,
 		References: objects.BatchReferences{ref},
 	}
 }

@@ -74,9 +74,7 @@ func (sn *SegmentNodeList) Additions() []uint64 {
 	rw.MoveBufferToAbsolutePosition(8)
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
 	results := make([]uint64, len(bData)/8)
-	for i := 0; i < len(bData); i += 8 {
-		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
-	}
+	byteops.CopyBytesToSlice(results, bData)
 	return results
 }
 
@@ -91,9 +89,7 @@ func (sn *SegmentNodeList) AdditionsWithCopy() []uint64 {
 	rw.MoveBufferToAbsolutePosition(8)
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
 	results := make([]uint64, len(bData)/8)
-	for i := 0; i < len(bData); i += 8 {
-		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
-	}
+	byteops.CopyBytesToSlice(results, bData)
 	return results
 }
 
@@ -107,9 +103,7 @@ func (sn *SegmentNodeList) Deletions() []uint64 {
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
 	results := make([]uint64, len(bData)/8)
-	for i := 0; i < len(bData); i += 8 {
-		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
-	}
+	byteops.CopyBytesToSlice(results, bData)
 	return results
 }
 
@@ -125,9 +119,7 @@ func (sn *SegmentNodeList) DeletionsWithCopy() []uint64 {
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
 	results := make([]uint64, len(bData)/8)
-	for i := 0; i < len(bData); i += 8 {
-		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
-	}
+	byteops.CopyBytesToSlice(results, bData)
 	return results
 }
 
@@ -160,13 +152,11 @@ func NewSegmentNodeList(
 	// end
 	rw.MoveBufferPositionForward(8)
 	rw.WriteUint64(uint64(lenAdditions))
-	for _, v := range additions {
-		rw.WriteUint64(v)
-	}
+	byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(lenAdditions)], additions)
+	rw.MoveBufferPositionForward(uint64(lenAdditions))
 	rw.WriteUint64(uint64(lenDeletions))
-	for _, v := range deletions {
-		rw.WriteUint64(v)
-	}
+	byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(lenDeletions)], deletions)
+	rw.MoveBufferPositionForward(uint64(lenDeletions))
 
 	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
 		return nil, err

@@ -22,8 +22,8 @@ import (
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
-	tailorincgraphql "github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/gqlerrors"
+	tailorincgraphql "github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/gqlerrors"
 
 	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -102,7 +102,17 @@ func setupGraphQLHandlers(
 		// Only set variables if exists in request
 		var variables map[string]interface{}
 		if params.Body.Variables != nil {
-			variables = params.Body.Variables.(map[string]interface{})
+			vars, ok := params.Body.Variables.(map[string]interface{})
+			if !ok {
+				metricRequestsTotal.logUserError()
+				errorResponse.Error = []*models.ErrorResponseErrorItems0{
+					{
+						Message: fmt.Sprintf("variables must be a JSON object, got %T", params.Body.Variables),
+					},
+				}
+				return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			}
+			variables = vars
 		}
 
 		graphQL := gqlProvider.GetGraphQL()

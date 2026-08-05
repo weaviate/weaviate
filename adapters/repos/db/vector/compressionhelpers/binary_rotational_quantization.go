@@ -12,7 +12,6 @@
 package compressionhelpers
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/bits"
@@ -20,6 +19,8 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -28,15 +29,27 @@ const (
 )
 
 type BinaryRotationalQuantizer struct {
-	inputDim  uint32
-	rotation  *FastRotation
-	distancer distancer.Provider
-	rounding  []float32
-	l2        float32
-	cos       float32
+	inputDim    uint32
+	originalDim uint32
+	rotation    *compression.FastRotation
+	distancer   distancer.Provider
+	rounding    []float32
+	l2          float32
+	cos         float32
 }
 
-func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
+func (rq *BinaryRotationalQuantizer) Data() compression.RQData {
+	return compression.RQData{
+		InputDim: rq.originalDim,
+		Bits:     1,
+		Rotation: *rq.rotation,
+		Rounding: rq.rounding,
+	}
+}
+
+func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {
+	originalDim := inputDim
+
 	// Pad the input if it is low-dimensional.
 	if inputDim < minCodeBits {
 		inputDim = minCodeBits
@@ -48,7 +61,7 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	// Randomized rounding for the query quantization to make the estimator
 	// unbiased. It may produce better recall to not use randomized rounding
@@ -61,28 +74,36 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 	}
 
 	rq := &BinaryRotationalQuantizer{
-		inputDim:  uint32(inputDim),
-		rotation:  rotation,
-		distancer: distancer,
-		rounding:  rounding,
-		l2:        l2,
-		cos:       cos,
+		inputDim:    uint32(inputDim),
+		originalDim: uint32(originalDim),
+		rotation:    rotation,
+		distancer:   distancer,
+		rounding:    rounding,
+		l2:          l2,
+		cos:         cos,
 	}
-	return rq
+	return rq, nil
 }
 
-func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, rounding []float32, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {
+func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, rounding []float32, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	if err != nil {
 		return nil, err
 	}
+
+	originalDim := inputDim
+	if inputDim < minCodeBits {
+		inputDim = minCodeBits
+	}
+
 	rq := &BinaryRotationalQuantizer{
-		inputDim:  uint32(inputDim),
-		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
-		distancer: distancer,
-		rounding:  rounding,
-		cos:       cos,
-		l2:        l2,
+		inputDim:    uint32(inputDim),
+		originalDim: uint32(originalDim),
+		rotation:    RestoreFastRotation(outputDim, rounds, swaps, signs),
+		distancer:   distancer,
+		rounding:    rounding,
+		cos:         cos,
+		l2:          l2,
 	}
 	return rq, nil
 }
@@ -187,7 +208,9 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 }
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
-	panic("unimplemented")
+	restored := rq.Restore(compressed)
+	unrotated := rq.rotation.UnRotateInPlace(restored)
+	return unrotated[:rq.originalDim]
 }
 
 // Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting
@@ -407,9 +430,7 @@ func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []ui
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
 	slice := make([]byte, len(compressed)*8)
-	for i := range compressed {
-		binary.LittleEndian.PutUint64(slice[i*8:], compressed[i])
-	}
+	byteops.CopySliceToBytes(slice, compressed)
 	return slice
 }
 
@@ -419,11 +440,25 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytes(compressed []byte) []u
 		l++
 	}
 	slice := make([]uint64, l)
-
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
+}
+
+func (brq *BinaryRotationalQuantizer) FromCompressedBytesInto(compressed []byte, buffer []uint64) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+
+	if cap(buffer) < l {
+		buffer = make([]uint64, l)
+	} else {
+		buffer = buffer[:l]
+	}
+
+	byteops.CopyBytesToSlice(buffer, compressed)
+
+	return buffer
 }
 
 func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]uint64) []uint64 {
@@ -440,9 +475,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(comp
 	slice := (*buffer)[len(*buffer)-l:]
 	*buffer = (*buffer)[:len(*buffer)-l]
 
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 
@@ -475,14 +508,8 @@ func (brq *BinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quant
 func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {
 }
 
-type BRQData struct {
-	InputDim uint32
-	Rotation FastRotation
-	Rounding []float32
-}
-
 func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddBRQCompression(BRQData{
+	logger.AddBRQCompression(compression.BRQData{
 		InputDim: brq.inputDim,
 		Rotation: *brq.rotation,
 		Rounding: brq.rounding,

@@ -38,6 +38,7 @@ func New() *GPT4AllModule {
 
 type GPT4AllModule struct {
 	vectorizer                   text2vecbase.TextVectorizer[[]float32]
+	batchSimple                  *batch.BatchSimple[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -109,6 +110,7 @@ func (m *GPT4AllModule) initVectorizer(ctx context.Context, timeout time.Duratio
 	}
 
 	m.vectorizer = vectorizer.New(client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, 0)
 	m.metaProvider = client
 
 	return nil
@@ -126,7 +128,7 @@ func (m *GPT4AllModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *GPT4AllModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	return m.batchSimple.VectorizeBatch(ctx, objs, skipObject, cfg, m.vectorizer.Object)
 }
 
 func (m *GPT4AllModule) MetaInfo() (map[string]interface{}, error) {

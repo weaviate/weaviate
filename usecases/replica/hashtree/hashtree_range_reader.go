@@ -11,28 +11,34 @@
 
 package hashtree
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var ErrNoMoreRanges = errors.New("no more ranges")
 
 type HashTreeDiffReader struct {
 	discriminant *Bitset
-	firstLeafPos int
 	pos          int
 }
 
-func (ht *HashTree) NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader {
-	if discriminant == nil || discriminant.Size() != NodesCount(ht.Height()) {
-		panic("illegal discriminant")
+// NewRangeReader expects a leaf-level discriminant (Size() ==
+// LeavesCount(ht.Height())); bit i indicates leaf i differs.
+func (ht *HashTree) NewRangeReader(discriminant *Bitset) (AggregatedHashTreeRangeReader, error) {
+	if discriminant == nil {
+		return nil, fmt.Errorf("%w: nil discriminant provided", ErrIllegalArguments)
 	}
-
-	firstLeafPos := NodesCount(ht.Height() - 1)
+	expected := LeavesCount(ht.Height())
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("%w: discriminant size %d, expected %d (leaf-level)",
+			ErrIllegalArguments, discriminant.Size(), expected)
+	}
 
 	return &HashTreeDiffReader{
 		discriminant: discriminant,
-		firstLeafPos: firstLeafPos,
-		pos:          firstLeafPos,
-	}
+		pos:          0,
+	}, nil
 }
 
 func (r *HashTreeDiffReader) Next() (uint64, uint64, error) {
@@ -48,5 +54,5 @@ func (r *HashTreeDiffReader) Next() (uint64, uint64, error) {
 	for ; r.pos < r.discriminant.Size() && r.discriminant.IsSet(r.pos); r.pos++ {
 	}
 
-	return uint64(pos0 - r.firstLeafPos), uint64(r.pos - 1 - r.firstLeafPos), nil
+	return uint64(pos0), uint64(r.pos - 1), nil
 }

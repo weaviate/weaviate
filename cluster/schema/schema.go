@@ -466,6 +466,17 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 	return meta.AddProperty(v, props...)
 }
 
+func (s *schema) updateProperty(class string, v uint64, property *models.Property) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	meta := s.unsafeResolveClass(class)
+	if meta == nil {
+		return ErrClassNotFound
+	}
+	return meta.UpdateProperty(v, property)
+}
+
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -503,6 +514,25 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 	}
 
 	return nil
+}
+
+// tenantCapUsage returns the current physical-tenant count for class and how
+// many of the incoming names are not yet present. ok is false if class is
+// unknown.
+func (s *schema) tenantCapUsage(class string, incoming []string) (current, additions int, ok bool) {
+	meta := s.metaClass(class)
+	if meta == nil {
+		return 0, 0, false
+	}
+	meta.RLock()
+	defer meta.RUnlock()
+	current = len(meta.Sharding.Physical)
+	for _, name := range incoming {
+		if _, exists := meta.Sharding.Physical[name]; !exists {
+			additions++
+		}
+	}
+	return current, additions, true
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {

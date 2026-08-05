@@ -12,7 +12,7 @@
 package parameters
 
 import (
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/gqlparser"
 )
 
@@ -21,6 +21,7 @@ type Params struct {
 	ProjectID        string
 	EndpointID       string
 	Region           string
+	Location         string
 	Model            string
 	Temperature      *float64
 	MaxTokens        *int
@@ -47,6 +48,8 @@ func extract(field *ast.ObjectField) interface{} {
 				out.EndpointID = gqlparser.GetValueAsStringOrEmpty(f)
 			case "region":
 				out.Region = gqlparser.GetValueAsStringOrEmpty(f)
+			case "location":
+				out.Location = gqlparser.GetValueAsStringOrEmpty(f)
 			case "model":
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "temperature":

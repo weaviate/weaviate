@@ -1,0 +1,51 @@
+# Docker Compose for the shard readonly recovery acceptance test.
+#
+# This compose starts a Weaviate instance with a tmpfs-backed data path
+# (limited to 50MB) and a low DISK_USE_READONLY_PERCENTAGE threshold so
+# that the readonly trigger and automatic recovery can be exercised.
+#
+# The Raft directory is mounted on a separate (unconstrained) Docker volume
+# so that Raft can always write log entries – even when the tmpfs is full.
+# Without this, a full tmpfs would prevent even DELETE operations (which
+# need a Raft log entry), making recovery impossible.
+#
+# Usage:
+#   docker compose -f docker-compose-test.yml build             # build the image
+#   docker compose -f docker-compose-readonly-recovery-test.yml up -d
+#   pytest test/acceptance_with_python/test_readonly_recovery.py
+#   docker compose -f docker-compose-readonly-recovery-test.yml down -v
+
+services:
+  weaviate-readonly:
+    image: weaviate/test-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: weaviate
+    restart: on-failure:0
+    ports:
+      - "8180:8080"
+      - "50151:50051"
+    tmpfs:
+      - /tmp/weaviate-data:size=50m
+    volumes:
+      - weaviate-raft:/tmp/weaviate-data/raft
+    environment:
+      LOG_LEVEL: "debug"
+      PERSISTENCE_DATA_PATH: "/tmp/weaviate-data"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      CLUSTER_HOSTNAME: "weaviate-readonly-test"
+      CLUSTER_GOSSIP_BIND_PORT: "7100"
+      CLUSTER_DATA_BIND_PORT: "7101"
+      RAFT_JOIN: "weaviate-readonly-test"
+      RAFT_BOOTSTRAP_EXPECT: "1"
+      DISABLE_TELEMETRY: "true"
+
+      # Set a low disk readonly threshold so that writing ~35MB of data into the
+      # 50MB tmpfs triggers READONLY, and deleting that data triggers recovery.
+      DISK_USE_READONLY_PERCENTAGE: "70"
+      DISK_USE_WARNING_PERCENTAGE: "60"
+
+volumes:
+  weaviate-raft:

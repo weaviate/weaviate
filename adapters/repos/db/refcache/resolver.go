@@ -26,12 +26,12 @@ import (
 type Resolver struct {
 	cacher cacher
 	// for groupBy feature
-	withGroup    bool
-	groupByProps search.SelectProperties
+	withGroup  bool
+	groupByIdx search.SelectPropertiesIndex
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties, groupByProperties search.SelectProperties) error
+	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties, groupByIdx search.SelectPropertiesIndex) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -43,20 +43,15 @@ func NewResolverWithGroup(cacher cacher, groupByProps search.SelectProperties) *
 	return &Resolver{
 		cacher: cacher,
 		// for groupBy feature
-		withGroup:    true,
-		groupByProps: groupByProps,
+		withGroup:  true,
+		groupByIdx: groupByProps.Indexed(),
 	}
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 	properties search.SelectProperties, additional additional.Properties,
 ) ([]search.Result, error) {
-	cacherProps := properties
-	if !r.withGroup {
-		cacherProps = append(properties, r.groupByProps...)
-	}
-
-	if err := r.cacher.Build(ctx, objects, cacherProps, additional, r.groupByProps); err != nil {
+	if err := r.cacher.Build(ctx, objects, properties, additional, r.groupByIdx); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
 
@@ -66,8 +61,10 @@ func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 func (r *Resolver) parseObjects(objects []search.Result, properties search.SelectProperties,
 	additional additional.Properties,
 ) ([]search.Result, error) {
+	// same properties apply to every object; index once here
+	idx := properties.Indexed()
 	for i, obj := range objects {
-		parsed, err := r.parseObject(obj, properties, additional)
+		parsed, err := r.parseObject(obj, idx, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "parse at position %d", i)
 		}
@@ -78,7 +75,7 @@ func (r *Resolver) parseObjects(objects []search.Result, properties search.Selec
 	return objects, nil
 }
 
-func (r *Resolver) parseObject(object search.Result, properties search.SelectProperties,
+func (r *Resolver) parseObject(object search.Result, idx search.SelectPropertiesIndex,
 	additional additional.Properties,
 ) (search.Result, error) {
 	if object.Schema == nil {
@@ -90,7 +87,7 @@ func (r *Resolver) parseObject(object search.Result, properties search.SelectPro
 		return object, fmt.Errorf("schema is not a map: %T", object.Schema)
 	}
 
-	schema, err := r.parseSchema(schemaMap, properties)
+	schema, err := r.parseSchema(schemaMap, idx)
 	if err != nil {
 		return object, err
 	}
@@ -98,7 +95,7 @@ func (r *Resolver) parseObject(object search.Result, properties search.SelectPro
 	object.Schema = schema
 
 	if r.withGroup {
-		additionalProperties, err := r.parseAdditionalGroup(object.AdditionalProperties, properties)
+		additionalProperties, err := r.parseAdditionalGroup(object.AdditionalProperties)
 		if err != nil {
 			return object, err
 		}
@@ -109,12 +106,11 @@ func (r *Resolver) parseObject(object search.Result, properties search.SelectPro
 
 func (r *Resolver) parseAdditionalGroup(
 	additionalProperties models.AdditionalProperties,
-	properties search.SelectProperties,
 ) (models.AdditionalProperties, error) {
 	if additionalProperties != nil && additionalProperties["group"] != nil {
 		if group, ok := additionalProperties["group"].(*additional.Group); ok {
 			for j, hit := range group.Hits {
-				schema, err := r.parseSchema(hit, r.groupByProps)
+				schema, err := r.parseSchema(hit, r.groupByIdx)
 				if err != nil {
 					return additionalProperties, fmt.Errorf("resolve group hit: %w", err)
 				}
@@ -126,7 +122,7 @@ func (r *Resolver) parseAdditionalGroup(
 }
 
 func (r *Resolver) parseSchema(schema map[string]interface{},
-	properties search.SelectProperties,
+	idx search.SelectPropertiesIndex,
 ) (map[string]interface{}, error) {
 	for propName, value := range schema {
 		refs, ok := value.(models.MultipleRef)
@@ -135,7 +131,7 @@ func (r *Resolver) parseSchema(schema map[string]interface{},
 			continue
 		}
 
-		selectProp := properties.FindProperty(propName)
+		selectProp := idx.Find(propName)
 		if selectProp == nil {
 			// user is not interested in this prop
 			continue
@@ -159,9 +155,10 @@ func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
 ) ([]interface{}, error) {
 	var refs []interface{}
 	for _, selectPropRef := range selectProp.Refs {
-		innerProperties := selectPropRef.RefProperties
+		// built once, reused for every ref of this property
+		innerIdx := selectPropRef.RefProperties.Indexed()
 		additionalProperties := selectPropRef.AdditionalProperties
-		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerProperties, additionalProperties)
+		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerIdx, additionalProperties)
 		if err != nil {
 			return nil, errors.Wrap(err, "resolve ref")
 		}
@@ -172,12 +169,12 @@ func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
 }
 
 func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
-	innerProperties search.SelectProperties,
+	innerIdx search.SelectPropertiesIndex,
 	additionalProperties additional.Properties,
 ) ([]interface{}, error) {
 	var output []interface{}
 	for i, item := range input {
-		resolved, err := r.resolveRef(item, desiredClass, innerProperties, additionalProperties)
+		resolved, err := r.resolveRef(item, desiredClass, innerIdx, additionalProperties)
 		if err != nil {
 			return nil, errors.Wrapf(err, "at position %d", i)
 		}
@@ -193,7 +190,7 @@ func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
 }
 
 func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
-	innerProperties search.SelectProperties,
+	innerIdx search.SelectPropertiesIndex,
 	additionalProperties additional.Properties,
 ) (*search.LocalRef, error) {
 	var out search.LocalRef
@@ -224,7 +221,7 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 
 	out.Class = res.ClassName
 	schema := res.Schema.(map[string]interface{})
-	nested, err := r.parseSchema(schema, innerProperties)
+	nested, err := r.parseSchema(schema, innerIdx)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve nested ref")
 	}

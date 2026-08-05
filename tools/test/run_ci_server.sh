@@ -52,8 +52,12 @@ function echo_red() {
 }
 
 START_WEAVIATE_AUTH=${1:-""}
+START_WEAVIATE_MCP=${1:-""}
 if [ $# -eq 1 ] && [ "$1" == "--with-auth" ]; then
   START_WEAVIATE_AUTH="true"
+fi
+if [ $# -eq 1 ] && [ "$1" == "--with-mcp" ]; then
+  START_WEAVIATE_MCP="true"
 fi
 
 build docker-compose-test.yml weaviate
@@ -64,7 +68,15 @@ if [ "$START_WEAVIATE_AUTH" == "true" ]; then
   surpress_on_success docker compose -f docker-compose-auth-test.yml up --force-recreate -d weaviate-auth
 fi
 
+if [ "$START_WEAVIATE_MCP" == "true" ]; then
+  build docker-compose-mcp-test.yml weaviate-mcp
+  surpress_on_success docker compose -f docker-compose-mcp-test.yml up --force-recreate -d weaviate-mcp
+fi
+
 wait docker-compose-test.yml
 if [ "$START_WEAVIATE_AUTH" == "true" ]; then
   wait docker-compose-auth-test.yml
+fi
+if [ "$START_WEAVIATE_MCP" == "true" ]; then
+  wait docker-compose-mcp-test.yml
 fi

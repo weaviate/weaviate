@@ -24,12 +24,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -269,6 +271,20 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
+// discardSegmentFile closes f and removes path, for a new segment file that is
+// not going to be switched in. Failures are joined into err: a leftover .tmp
+// would be renamed onto a live segment name by a later init.
+func discardSegmentFile(f *os.File, path string, err error) error {
+	// f is already closed if the failure came after the write finished
+	if closeErr := f.Close(); closeErr != nil && !stderrors.Is(closeErr, os.ErrClosed) {
+		err = stderrors.Join(err, fmt.Errorf("close new segment file %q: %w", path, closeErr))
+	}
+	if removeErr := os.Remove(path); removeErr != nil && !stderrors.Is(removeErr, os.ErrNotExist) {
+		err = stderrors.Join(err, fmt.Errorf("remove new segment file %q: %w", path, removeErr))
+	}
+	return err
+}
+
 // compactOnce performs one compaction iteration. Cancelling ctx aborts
 // the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
 func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
@@ -325,6 +341,11 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		}
 	}
 
+	// only mark actual compaction work as active: candidate probing and OOM
+	// skips above are not real runs
+	backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessCompaction)
+	defer backgroundDone()
+
 	var left, right Segment
 	func() {
 		sg.maintenanceLock.RLock()
@@ -351,11 +372,21 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		return false, err
 	}
 
+	// Until switchOnDisk marks a source segment for deletion, both sources still
+	// hold everything this file has, so discarding it on every exit before the
+	// switch costs nothing and leaves no .tmp for a later init to adopt.
+	discardNewSegment := true
+	defer func() {
+		if discardNewSegment {
+			err = discardSegmentFile(f, path, err)
+		}
+	}()
+
 	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
-	// aborted=true tells the caller to close the partial .tmp and bail
+	// aborted=true tells the caller to bail without reporting an error
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
 			if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
@@ -364,14 +395,6 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		return false, nil
-	}
-
-	abortAndClose := func() error {
-		// orphan .tmp is cleaned by segment_group.init on next start
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close aborted compactor output: %w", err)
-		}
-		return nil
 	}
 
 	switch strategy {
@@ -388,7 +411,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -400,7 +423,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -412,7 +435,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
@@ -424,7 +447,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 
 	case segmentindex.StrategyRoaringSetRange:
@@ -436,7 +459,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
@@ -447,7 +470,20 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			k1 = sg.bm25config.K1
 		}
 
-		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
+		// open the (possibly lazy-loaded) segments via the cursors before reading
+		// isPropertyLengthsLoaded: an unloaded lazySegment reports false, which
+		// would wrongly free an eagerly-loaded map on an aborted compaction.
+		// After this, the flag is false only for a map this compaction will load.
+		leftCursor := left.newInvertedCursorReusable()
+		rightCursor := right.newInvertedCursorReusable()
+		if !left.isPropertyLengthsLoaded() {
+			defer left.freePropertyLengths()
+		}
+		if !right.isPropertyLengthsLoaded() {
+			defer right.freePropertyLengths()
+		}
+
+		c := newCompactorInverted(f, leftCursor, rightCursor,
 			level, secondaryIndices, cleanupTombstones,
 			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
 
@@ -456,7 +492,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
@@ -476,13 +512,19 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
-	oldLeft, oldRight, err := replacer.switchOnDisk()
+	oldLeft, oldRight, err := replacer.switchOnDisk(func() {
+		discardNewSegment = false
+	})
 	if err != nil {
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}
 
 	if err := replacer.switchInMemory(); err != nil {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	if strategy == segmentindex.StrategyInverted {
+		sg.reconcileAveragePropertyLength(oldLeft, oldRight, newSegment)
 	}
 
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
@@ -522,12 +564,14 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			calcCountNetAdditions:        sg.calcCountNetAdditions,
 			overwriteDerived:             true,
 			enableChecksumValidation:     sg.enableChecksumValidation,
+			sequentialAccess:             sg.sequentialAccess,
 			MinMMapSize:                  sg.MinMMapSize,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: &updatedCountNetAdditions,
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
 			writeMetadata:                sg.writeMetadata,
 			deleteMarkerCounter:          sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:          sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("initialize new segment: %w", err)
@@ -551,8 +595,8 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 	var lastWarn time.Time
 	t := time.NewTicker(tickerInterval)
 	for {
-		sg.segmentRefCounterLock.Lock()
-
+		// these segments are already swapped out of the active set, so their refs
+		// only decrease; an atomic read per segment is sufficient.
 		allZero := true
 		var pos, count int
 		for i, seg := range segments {
@@ -563,8 +607,6 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 				break
 			}
 		}
-
-		sg.segmentRefCounterLock.Unlock()
 
 		if allZero {
 			return
@@ -622,33 +664,30 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 	var maxWaitingSegment Segment
 	var maxWaitingRefs int
 
+	// segmentsAwaitingDrop is only touched by the (serial) compaction/cleanup
+	// cycle, and getRefs is an atomic read, so no lock is needed here.
 	toDrop := []Segment{}
-	func() {
-		sg.segmentRefCounterLock.Lock()
-		defer sg.segmentRefCounterLock.Unlock()
+	i := 0
+	for _, st := range sg.segmentsAwaitingDrop {
+		if refs := st.seg.getRefs(); refs == 0 {
+			toDrop = append(toDrop, st.seg)
+		} else {
+			sg.segmentsAwaitingDrop[i] = st
+			i++
 
-		i := 0
-		for _, st := range sg.segmentsAwaitingDrop {
-			if refs := st.seg.getRefs(); refs == 0 {
-				toDrop = append(toDrop, st.seg)
-			} else {
-				sg.segmentsAwaitingDrop[i] = st
-				i++
-
-				if !skipWarning {
-					if d := now.Sub(st.time); d >= warnThreshold {
-						waitingCount++
-						if d > maxWaitingDuration {
-							maxWaitingDuration = d
-							maxWaitingSegment = st.seg
-							maxWaitingRefs = refs
-						}
+			if !skipWarning {
+				if d := now.Sub(st.time); d >= warnThreshold {
+					waitingCount++
+					if d > maxWaitingDuration {
+						maxWaitingDuration = d
+						maxWaitingSegment = st.seg
+						maxWaitingRefs = refs
 					}
 				}
 			}
 		}
-		sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
-	}()
+	}
+	sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
 
 	if !skipWarning && maxWaitingDuration > 0 {
 		sg.segmentsAwaitingLastWarn = now
@@ -668,6 +707,8 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 
 	ec := errorcompounder.New()
 	for _, seg := range toDrop {
+		// refCount is 0 here, so no reader can still hold the property lengths map
+		seg.freePropertyLengths()
 		if err := seg.close(); err != nil {
 			ec.Add(fmt.Errorf("close segment: %w", err))
 			continue

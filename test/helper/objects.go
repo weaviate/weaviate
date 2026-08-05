@@ -215,6 +215,16 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 	return resp.Payload, nil
 }
 
+func CreateObjectWithResponseAuth(t *testing.T, object *models.Object, key string) (*models.Object, error) {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func CreateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)
@@ -425,6 +435,17 @@ func AddReferences(t *testing.T, refs []*models.BatchReference) ([]*models.Batch
 	return resp.Payload, nil
 }
 
+func AddReferencesCL(t *testing.T, refs []*models.BatchReference, cl types.ConsistencyLevel) ([]*models.BatchReferenceResponse, error) {
+	t.Helper()
+	cls := string(cl)
+	params := batch.NewBatchReferencesCreateParams().WithBody(refs).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func CheckReferencesBatchResponse(t *testing.T, resp []*models.BatchReferenceResponse, err error) {
 	t.Helper()
 	AssertRequestOk(t, resp, err, nil)
@@ -530,6 +551,28 @@ func UpdateTenantsWithAuthz(t *testing.T, class string, tenants []*models.Tenant
 	t.Helper()
 	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
 	resp, err := Client(t).Schema.TenantsUpdate(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func ActivateTenants(t *testing.T, class string, tenants []string) {
+	t.Helper()
+	ts := make([]*models.Tenant, len(tenants))
+	for i, tenant := range tenants {
+		ts[i] = &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusACTIVE}
+	}
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(ts)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeactivateTenants(t *testing.T, class string, tenants []string) {
+	t.Helper()
+	ts := make([]*models.Tenant, len(tenants))
+	for i, tenant := range tenants {
+		ts[i] = &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusINACTIVE}
+	}
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(ts)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 

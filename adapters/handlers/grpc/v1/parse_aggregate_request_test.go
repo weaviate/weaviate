@@ -148,6 +148,97 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			},
 			error: true,
 		},
+		{
+			name: "hybrid with alpha",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query: "hello",
+						Alpha: 0.5,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           0.5,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param SET",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query:         "hello",
+						AlphaParam:    ptr(float32(0.5)),
+						UseAlphaParam: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           0.5,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param UNSET",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query:         "hello",
+						UseAlphaParam: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           common_filters.DefaultAlpha,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with defaults",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query: "hello",
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
 	}
 
 	parser := NewAggregateParser(getClass)

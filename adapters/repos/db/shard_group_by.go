@@ -97,13 +97,23 @@ func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) 
 		PropertyPaths: propertyPaths,
 	}
 
+	className, err := g.objBucket.ClassName()
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	// Reused across iterations and grown to fit the largest object. Safe to reuse
+	// because ParseAndExtractProperty and FromBinaryOptionalDisk copy every value
+	// out before the next lookup overwrites the buffer.
+	var lsmBuf []byte
 DOCS_LOOP:
 	for i, docID := range g.ids {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := g.objBucket.GetBySecondary(ctx, 0, docIDBytes)
+		objData, newBuf, err := g.objBucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, lsmBuf)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
+		lsmBuf = newBuf
 		if objData == nil {
 			continue
 		}
@@ -136,7 +146,7 @@ DOCS_LOOP:
 
 			if _, ok := docIDObject[docID]; !ok {
 				// whole object, might be that we only need value and ID to be extracted
-				unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional, props)
+				unmarshalled, err := storobj.FromBinaryOptionalDisk(objData, className, g.additional, props)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%w: unmarshal data object at position %d", err, i)
 				}
@@ -209,6 +219,10 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		}
 	}
 	if containsDocID {
+		className, err := g.objBucket.ClassName()
+		if err != nil {
+			return nil, fmt.Errorf("getting bucket class name: %w", err)
+		}
 		// we have already added this object containing a group to the result array
 		// and we need to unmarshall it again so that a group won't get overridden
 		docIDBytes := make([]byte, 8)
@@ -217,7 +231,7 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		if err != nil {
 			return nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
-		unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional, nil)
+		unmarshalled, err := storobj.FromBinaryOptionalDisk(objData, className, g.additional, nil)
 		if err != nil {
 			return nil, fmt.Errorf("%w: unmarshal data object doc id %d", err, docID)
 		}

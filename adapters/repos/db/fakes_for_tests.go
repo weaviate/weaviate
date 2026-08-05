@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -352,9 +353,9 @@ func (f *FakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
+	properties []string, selection *searchparams.Selection,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	return nil, nil, nil, nil
 }
 
 func (f *FakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
@@ -370,7 +371,7 @@ func (f *FakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
 }
 
 func (f *FakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -447,19 +448,48 @@ func (f *FakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return nodeName, true
 }
 
-type FakeRemoteNodeClient struct{}
+func (f *FakeNodeResolver) AllOtherClusterMembers(raftPort int) map[string]string {
+	return nil
+}
+
+func (f *FakeNodeResolver) NodeAddress(id string) string {
+	return ""
+}
+
+func (f *FakeNodeResolver) NodeCount() int {
+	return 0
+}
+
+// FakeRemoteNodeClient answers with Status, or fails with Err when it is set.
+type FakeRemoteNodeClient struct {
+	Status *models.NodeStatus
+	Err    error
+}
 
 func (f *FakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	if f.Status != nil {
+		return f.Status, nil
+	}
 	return &models.NodeStatus{}, nil
 }
 
 func (f *FakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
 	return &models.Statistics{}, nil
 }
 
 type FakeReplicationClient struct{}
 
 var _ replica.Client = (*FakeReplicationClient)(nil)
+
+func (f *FakeReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	return 0, nil
+}
 
 func (f *FakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,
@@ -537,7 +567,7 @@ func (*FakeReplicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (*FakeReplicationClient) FindUUIDs(ctx context.Context,
-	hostName, indexName, shardName string, filters *filters.LocalFilter,
+	hostName, indexName, shardName string, filters *filters.LocalFilter, limit int,
 ) (result []strfmt.UUID, err error) {
 	return nil, nil
 }
@@ -551,5 +581,17 @@ func (c *FakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 func (c *FakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 	discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
+	return nil, nil
+}
+
+func (c *FakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *FakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
 	return nil, nil
 }

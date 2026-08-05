@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -21,6 +22,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -137,10 +139,10 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	// control before segment changes
 	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
-	v, _, err := sg.roaringSetGet([]byte("key1"), segments)
+	v, _, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected := []uint64{1}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "k==v on initial state")
+	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on initial state")
 
 	// append new segment
 	segment2Data := map[string]*sroar.Bitmap{
@@ -149,18 +151,18 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	sg.addInitializedSegment(newFakeRoaringSetSegment(segment2Data))
 
 	// prove that our consistent view still shows the old value
-	v, _, err = sg.roaringSetGet([]byte("key1"), segments)
+	v, _, err = sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected = []uint64{1}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "k==v after segment addition on old view")
+	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v after segment addition on old view")
 
 	// prove that new readers will see the most recent view
 	segments, release = sg.getConsistentViewOfSegments()
 	defer release()
-	v, _, err = sg.roaringSetGet([]byte("key1"), segments)
+	v, _, err = sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected = []uint64{1, 2}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "k==v on new view after segment addition")
+	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on new view after segment addition")
 }
 
 func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
@@ -185,15 +187,15 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 
 	// On the original view, key1 should be {1} (from segA), key2 should be {2} (from segB)
 	validateView := func(t *testing.T, segments []Segment) {
-		v, _, err := sg.roaringSetGet([]byte("key1"), segments)
+		v, _, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 		expected := []uint64{1}
-		require.Equal(t, expected, v.Flatten(true).ToArray(), "key1 on initial state")
+		require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key1 on initial state")
 
-		v, _, err = sg.roaringSetGet([]byte("key2"), segments)
+		v, _, err = sg.roaringSetGet([]byte("key2"), segments, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 		expected = []uint64{2}
-		require.Equal(t, expected, v.Flatten(true).ToArray(), "key2 on initial state")
+		require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key2 on initial state")
 	}
 	validateView(t, segments)
 
@@ -217,6 +219,64 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 
 	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "new segment should have received calls")
+}
+
+// TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError pins a
+// first-layer buffer leak on a later segment's merge error.
+func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
+	t.Parallel()
+
+	mergeErr := errors.New("simulated disk read error during merge")
+
+	t.Run("merge error frees first layer via defer, returns caller-safe noop", func(t *testing.T) {
+		// seg0 holds key1 and hands out a pooled buffer (its release must fire).
+		// seg1 fails mid-merge, which must not leak seg0's buffer.
+		seg0 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
+		})
+		seg1 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{4, 5, 6}),
+		})
+		seg1.roaringSetMergeErr = mergeErr
+
+		sg := &SegmentGroup{}
+		segments := []Segment{seg0, seg1}
+
+		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
+		require.ErrorIs(t, err, mergeErr)
+		require.Nil(t, out)
+		require.NotNil(t, release)
+
+		require.Equal(t, 1, seg0.roaringSetReleases,
+			"first layer's release must fire on merge error")
+
+		release()
+		require.Equal(t, 1, seg0.roaringSetReleases,
+			"returned release must be a noop; buffer already freed by defer")
+	})
+
+	t.Run("success path defers nothing, caller owns the release", func(t *testing.T) {
+		seg0 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
+		})
+		seg1 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{4, 5, 6}),
+		})
+
+		sg := &SegmentGroup{}
+		segments := []Segment{seg0, seg1}
+
+		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
+		require.NoError(t, err)
+		require.NotNil(t, out)
+
+		require.Equal(t, 0, seg0.roaringSetReleases,
+			"success path must not release before the caller does")
+
+		release()
+		require.Equal(t, 1, seg0.roaringSetReleases,
+			"caller's release must free the first layer exactly once")
+	})
 }
 
 func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentAddition(t *testing.T) {

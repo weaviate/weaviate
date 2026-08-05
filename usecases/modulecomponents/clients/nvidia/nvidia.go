@@ -107,7 +107,10 @@ func (c *Client) Vectorize(ctx context.Context,
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	url := c.getNvidiaUrl(ctx, settings.BaseURL)
+	url, err := c.getNvidiaUrl(ctx, settings.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
 	if err != nil {
@@ -166,12 +169,12 @@ func (c *Client) getEmbeddingRequest(inputs []string, settings Settings) embeddi
 	}
 }
 
-func (c *Client) getNvidiaUrl(ctx context.Context, baseURL string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Nvidia-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (c *Client) getNvidiaUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Nvidia-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("%s/v1/embeddings", passedBaseURL)
+	return fmt.Sprintf("%s/v1/embeddings", passedBaseURL), nil
 }
 
 func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {

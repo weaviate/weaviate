@@ -12,7 +12,7 @@
 package interval
 
 import (
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -50,9 +50,7 @@ func TestBackoffInterval(t *testing.T) {
 		)
 
 		copy(sorted, durations)
-		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i] < sorted[j]
-		})
+		slices.Sort(sorted)
 
 		boff := NewBackoffTimer(durations...)
 		assert.Equal(t, boff.backoffs, sorted)

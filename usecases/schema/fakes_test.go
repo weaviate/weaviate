@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -52,6 +53,11 @@ func (f *fakeSchemaManager) DeleteClass(_ context.Context, name string) (uint64,
 
 func (f *fakeSchemaManager) AddProperty(_ context.Context, class string, p ...*models.Property) (uint64, error) {
 	args := f.Called(class, p)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, property *models.Property) (uint64, error) {
+	args := f.Called(class, property)
 	return 0, args.Error(0)
 }
 
@@ -277,6 +283,11 @@ func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
 func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
 	args := f.Called(class)
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (f *fakeSchemaManager) LocalActiveShardsCount(class string) (int, error) {
+	args := f.Called(class)
+	return args.Get(0).(int), args.Error(1)
 }
 
 func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {

@@ -36,12 +36,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type SegmentGroup struct {
-	segments              []Segment
-	segmentRefCounterLock sync.Mutex
+	segments []Segment
 
 	// Holds compacted / cleaned up segments meant to be closed and removed from disk
 	// after their's refs counter drops to 0.
@@ -99,15 +99,24 @@ type SegmentGroup struct {
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
+	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
-	// Store the average property length for segments in this sg,
-	// to be used for BM25 scoring.
-	// This avoids recalculating the average property length for each segment during scoring.
-	averagePropSum   atomic.Uint64
-	averagePropCount atomic.Uint64
+	// averagePropLength caches the live-set property-length sum and count for BM25
+	// scoring, avoiding a per-segment recalculation on every query. Published as a
+	// single pointer so a reader never observes a torn sum/count pair while a flush
+	// or compaction updates the accounting.
+	averagePropLength atomic.Pointer[avgPropLengthStats]
+}
+
+// avgPropLengthStats is an immutable (sum, count) snapshot; updates swap in a new
+// value rather than mutating the fields.
+type avgPropLengthStats struct {
+	sum   uint64
+	count uint64
 }
 
 type sgConfig struct {
@@ -127,8 +136,10 @@ type sgConfig struct {
 	keepSegmentsInMemory         bool
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 }
 
@@ -161,6 +172,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
+		sequentialAccess:             cfg.sequentialAccess,
+		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
@@ -196,7 +209,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		potentialCompactedSegmentFileName := strings.TrimSuffix(entry, ".tmp")
 
 		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
-			// another kind of temporal file, ignore at this point but it may need to be deleted...
+			// A non-.db segment .tmp (e.g. a precomputed segment-X.bloom.tmp) is a
+			// leftover from a crash during a compaction/cleanup switch — no such
+			// work runs during init — so remove it. The derived files are
+			// recomputed on load.
+			if strings.HasPrefix(entry, "segment-") {
+				if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+					return nil, fmt.Errorf("delete leftover segment temp file %q: %w", entry, err)
+				}
+			}
 			continue
 		}
 
@@ -252,11 +273,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					sequentialAccess:         sg.sequentialAccess,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
 					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+					lazyPropertyLengths:      sg.lazyPropertyLengths,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -295,6 +318,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 			delete(files, rightSegmentFilename)
+			// the compacted segment is renamed to the same name below and would
+			// otherwise try to load the derived files that were just deleted
+			for _, path := range rightSegment.sidecarPaths() {
+				delete(files, filepath.Base(path))
+			}
 
 			err = diskio.Fsync(sg.dir)
 			if err != nil {
@@ -375,11 +403,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -479,11 +509,12 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		if len(sg.segments) == 0 {
 			break
 		}
+		var stats avgPropLengthStats
 		avg, count := sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsAvg, sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsCount
 
 		if count > 0 {
-			sg.averagePropSum.Store(uint64(avg * float64(count)))
-			sg.averagePropCount.Store(count)
+			stats.sum += uint64(avg * float64(count))
+			stats.count += count
 		}
 		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
@@ -499,10 +530,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			avg, count := sg.segments[i].getInvertedData().avgPropertyLengthsAvg, sg.segments[i].getInvertedData().avgPropertyLengthsCount
 
 			if count > 0 {
-				sg.averagePropSum.Add(uint64(avg * float64(count)))
-				sg.averagePropCount.Add(count)
+				stats.sum += uint64(avg * float64(count))
+				stats.count += count
 			}
 		}
+		sg.averagePropLength.Store(&stats)
 
 	case StrategyRoaringSetRange:
 		if cfg.keepSegmentsInMemory {
@@ -565,10 +597,12 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
@@ -578,6 +612,10 @@ func (sg *SegmentGroup) add(path string) error {
 	sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, segment.Size())
 
+	// this path adds a segment post-init (WAL recovery flushing a recovered
+	// memtable), so it owns the same accounting a flush does
+	sg.countSegmentAveragePropLength(segment)
+
 	return nil
 }
 
@@ -586,19 +624,18 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
-	sg.segmentRefCounterLock.Lock()
+	// incRef under the RLock so the refs are taken before any compaction (which
+	// holds the write lock) can swap these segments out. refCount is atomic, so no
+	// separate refcount lock is needed.
 	for _, seg := range segments {
 		seg.incRef()
 	}
-	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
 		}
-		sg.segmentRefCounterLock.Unlock()
 	}
 }
 
@@ -749,6 +786,30 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	return out, nil
 }
 
+func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]byte, error) {
+	var out [][]byte
+
+	// start with first and do not exit
+	for _, segment := range segments {
+		v, err := segment.getCollectionBytes(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
+	}
+
+	return out, nil
+}
+
 func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte, segments []Segment) ([][]value, []Segment, error) {
 	out := make([][]value, len(segments))
 	outSegments := make([]Segment, len(segments))
@@ -779,43 +840,47 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayers, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil
 	}
 
-	release = noopRelease
+	// acquired (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a mid-merge disk read error
+	// can't leak the first layer's pooled buffer.
+	acquired := noopRelease
 	// use bigger buffer for first layer, to make space for further merges
 	// with following layers
 	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
-		if err == nil {
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, bitmapBufPool)
+		if getErr == nil {
 			out = append(out, layer)
-			release = layerRelease
+			acquired = layerRelease
 			i++
 			break
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, noopRelease, err
+		if !errors.Is(getErr, lsmkv.NotFound) {
+			return nil, noopRelease, getErr
 		}
 	}
 	defer func() {
 		if err != nil {
-			release()
+			acquired()
 		}
 	}()
 
 	for ; i < ln; i++ {
-		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); mergeErr != nil {
+			err = mergeErr
 			return nil, noopRelease, err
 		}
 	}
 
-	return out, release, nil
+	return out, acquired, nil
 }
 
 func (sg *SegmentGroup) count() int {
@@ -867,6 +932,15 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	defer sg.maintenanceLock.Unlock()
 
 	for _, seg := range sg.segments {
+		// For sequential-access buckets, drop page cache entries before
+		// closing to avoid polluting the cache with pages that won't be
+		// accessed again. Best-effort: fadvise is purely advisory.
+		if sg.sequentialAccess {
+			if cs, ok := seg.(*segment); ok && cs.contentFile != nil {
+				_ = fadviseDontNeed(cs.contentFile, cs.size)
+			}
+		}
+
 		if err := seg.close(); err != nil {
 			return err
 		}
@@ -1009,10 +1083,65 @@ func (sg *SegmentGroup) Len() int {
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
-	count := sg.averagePropCount.Load()
-	if count == 0 {
+	stats := sg.averagePropLength.Load()
+	if stats == nil || stats.count == 0 {
 		return 0, 0
 	}
-	sum := sg.averagePropSum.Load()
-	return float64(sum) / float64(count), count
+	return float64(stats.sum) / float64(stats.count), stats.count
+}
+
+// countSegmentAveragePropLength folds a segment that has just become live in
+// the group into the average-property-length accounting. Every path that makes a
+// segment live must call it — flush, add (WAL recovery) and prepend — because
+// reconcileAveragePropertyLength subtracts a retired segment's contribution at
+// compaction: a segment that is live but uncounted would have a contribution
+// subtracted that was never added, underflowing the running total.
+func (sg *SegmentGroup) countSegmentAveragePropLength(segment Segment) {
+	if sg.strategy != StrategyInverted {
+		return
+	}
+	inv := segment.getInvertedData()
+	if inv.avgPropertyLengthsCount == 0 {
+		return
+	}
+	sg.addAveragePropLength(uint64(inv.avgPropertyLengthsAvg*float64(inv.avgPropertyLengthsCount)),
+		inv.avgPropertyLengthsCount)
+}
+
+// addAveragePropLength applies a (sum, count) delta to the published snapshot.
+// Deltas may wrap for subtraction; the running total always covers what is being
+// removed, so the result never underflows.
+func (sg *SegmentGroup) addAveragePropLength(deltaSum, deltaCount uint64) {
+	for {
+		cur := sg.averagePropLength.Load()
+		next := avgPropLengthStats{}
+		if cur != nil {
+			next = *cur
+		}
+		next.sum += deltaSum
+		next.count += deltaCount
+		if sg.averagePropLength.CompareAndSwap(cur, &next) {
+			return
+		}
+	}
+}
+
+// reconcileAveragePropertyLength moves the average-property-length accounting
+// from the two retired segments to the merged one after an inverted compaction,
+// so the group's avgdl denominator tracks the live set. Reusing the flush and
+// init paths' uint64(avg*count) accumulation makes the running total cancel
+// exactly and match a restart's recompute-from-segments.
+func (sg *SegmentGroup) reconcileAveragePropertyLength(retiredLeft, retiredRight, merged Segment) {
+	contribution := func(inv *segmentInvertedData) (sum, count uint64) {
+		if inv.avgPropertyLengthsCount == 0 {
+			return 0, 0
+		}
+		return uint64(inv.avgPropertyLengthsAvg * float64(inv.avgPropertyLengthsCount)), inv.avgPropertyLengthsCount
+	}
+
+	oldSumL, oldCountL := contribution(retiredLeft.getInvertedData())
+	oldSumR, oldCountR := contribution(retiredRight.getInvertedData())
+	newSum, newCount := contribution(merged.getInvertedData())
+
+	sg.addAveragePropLength(newSum-oldSumL-oldSumR, newCount-oldCountL-oldCountR)
 }

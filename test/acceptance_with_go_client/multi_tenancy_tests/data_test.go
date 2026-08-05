@@ -24,10 +24,12 @@ import (
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestData_MultiTenancy(t *testing.T) {
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	cleanup := func() {

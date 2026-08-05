@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type objectHandlers struct {
@@ -91,6 +92,10 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return objects.NewObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -384,6 +389,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
 			return objects.NewObjectsClassPutForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &uco.ErrNotFound{}) {
+			return objects.NewObjectsClassPutNotFound()
 		} else {
 			return objects.NewObjectsClassPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -859,6 +866,11 @@ func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModul
 		}
 		if prop == "vector" {
 			out.Vector = true
+			// Named vectors too: the remote-shard result marshaling
+			// (storobj.MarshalBinaryOptional) strips target vectors unless this is
+			// set, so without it a cluster LIST returns nil Vectors for objects on
+			// remote shards while a single-node LIST returns them.
+			out.IncludeAllTargetVectors = true
 			continue
 		}
 		if includeModuleParams && modulesProvider != nil {

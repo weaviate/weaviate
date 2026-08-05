@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -60,7 +59,7 @@ type authZHandlers struct {
 
 type ControllerAndGetUsers interface {
 	authorization.Controller
-	GetUsers(userIds ...string) (map[string]*apikey.User, error)
+	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers, schemaReader schemaUC.SchemaGetter,
@@ -772,29 +771,29 @@ func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, pr
 		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	users, err := h.controller.GetUsersOrGroupForRole(params.ID, authentication.AuthTypeOIDC, true)
+	groups, err := h.controller.GetUsersOrGroupForRole(params.ID, authentication.AuthTypeOIDC, true)
 	if err != nil {
 		return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 	}
 
-	filteredUsers := make([]string, 0, len(users))
-	for _, userName := range users {
-		if userName == principal.Username {
-			// own username
-			filteredUsers = append(filteredUsers, userName)
+	filteredGroups := make([]string, 0, len(groups))
+	for _, groupName := range groups {
+		if slices.Contains(principal.Groups, groupName) {
+			// own group
+			filteredGroups = append(filteredGroups, groupName)
 			continue
 		}
-		if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(userName)...); err == nil {
-			filteredUsers = append(filteredUsers, userName)
+		if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Groups(authentication.AuthTypeOIDC, groupName)...); err == nil {
+			filteredGroups = append(filteredGroups, groupName)
 		}
 	}
-	slices.Sort(filteredUsers)
+	slices.Sort(filteredGroups)
 
 	// only OIDC groups so far
 	oidc := models.GroupTypeOidc
 	var response []*authz.GetGroupsForRoleOKBodyItems0
-	for _, userId := range filteredUsers {
-		response = append(response, &authz.GetGroupsForRoleOKBodyItems0{GroupID: userId, GroupType: &oidc})
+	for _, groupID := range filteredGroups {
+		response = append(response, &authz.GetGroupsForRoleOKBodyItems0{GroupID: groupID, GroupType: &oidc})
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -974,7 +973,7 @@ func (h *authZHandlers) getGroups(params authz.GetGroupsParams, principal *model
 
 	groups, err := h.controller.GetUsersOrGroupsWithRoles(true, groupType)
 	if err != nil {
-		return nil
+		return authz.NewGetGroupsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
 
 	// Filter roles based on authorization
@@ -1167,8 +1166,8 @@ func validateRoleName(name string) error {
 }
 
 func sortByName(roles []*models.Role) {
-	sort.Slice(roles, func(i, j int) bool {
-		return *roles[i].Name < *roles[j].Name
+	slices.SortFunc(roles, func(a, b *models.Role) int {
+		return strings.Compare(*a.Name, *b.Name)
 	})
 }
 

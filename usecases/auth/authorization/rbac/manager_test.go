@@ -305,6 +305,172 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 	assert.False(t, allowed, "enforce cache was not invalidated during Restore; stale cached result returned")
 }
 
+func TestRemovePermissions(t *testing.T) {
+	const role = "test-role"
+	p1 := &authorization.Policy{Resource: "collections/Foo", Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	p2 := &authorization.Policy{Resource: "collections/Bar", Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	absentA := &authorization.Policy{Resource: "collections/AbsentA", Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	absentB := &authorization.Policy{Resource: "collections/AbsentB", Verb: authorization.READ, Domain: authorization.SchemaDomain}
+
+	tests := []struct {
+		name        string
+		initial     []*authorization.Policy
+		remove      []*authorization.Policy
+		wantPresent []*authorization.Policy
+		wantAbsent  []*authorization.Policy
+	}{
+		{
+			// First permission absent must not abort the batch: P1 and P2 are
+			// still requested and must be removed.
+			name:       "first permission absent, rest present",
+			initial:    []*authorization.Policy{p1, p2},
+			remove:     []*authorization.Policy{absentA, p1, p2},
+			wantAbsent: []*authorization.Policy{p1, p2},
+		},
+		{
+			// A real removal followed by an absent permission must still be
+			// persisted (SavePolicy must not be skipped).
+			name:       "present then absent persists durably",
+			initial:    []*authorization.Policy{p1},
+			remove:     []*authorization.Policy{p1, absentA},
+			wantAbsent: []*authorization.Policy{p1},
+		},
+		{
+			name:        "all permissions absent is a no-op",
+			initial:     []*authorization.Policy{p1},
+			remove:      []*authorization.Policy{absentA, absentB},
+			wantPresent: []*authorization.Policy{p1},
+		},
+		{
+			name:       "all present happy path",
+			initial:    []*authorization.Policy{p1, p2},
+			remove:     []*authorization.Policy{p1, p2},
+			wantAbsent: []*authorization.Policy{p1, p2},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			initial := make([]authorization.Policy, len(tt.initial))
+			for i, p := range tt.initial {
+				initial[i] = *p
+			}
+			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{role: initial}))
+
+			require.NoError(t, m.RemovePermissions(role, tt.remove))
+
+			assertPermissions := func(t *testing.T) {
+				for _, p := range tt.wantAbsent {
+					has, err := m.HasPermission(role, p)
+					require.NoError(t, err)
+					assert.False(t, has, "permission %v should be removed", p)
+				}
+				for _, p := range tt.wantPresent {
+					has, err := m.HasPermission(role, p)
+					require.NoError(t, err)
+					assert.True(t, has, "permission %v should still be present", p)
+				}
+			}
+
+			// In-memory state.
+			assertPermissions(t)
+
+			// Durable state: reload from the policy file. A skipped SavePolicy
+			// would let removed permissions reappear here.
+			require.NoError(t, m.casbin.LoadPolicy())
+			assertPermissions(t)
+		})
+	}
+}
+
+func TestDeleteRoles(t *testing.T) {
+	const (
+		roleA   = "role-a"
+		roleB   = "role-b"
+		absentA = "absent-a"
+		absentB = "absent-b"
+	)
+	perm := authorization.Policy{Resource: authorization.CollectionsMetadata("Foo")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+
+	tests := []struct {
+		name        string
+		create      []string
+		delete      []string
+		wantAbsent  []string
+		wantPresent []string
+	}{
+		{
+			// An absent role early in the batch must not abort it: roleA and
+			// roleB are still requested and must be deleted.
+			name:       "absent role first, rest present",
+			create:     []string{roleA, roleB},
+			delete:     []string{absentA, roleA, roleB},
+			wantAbsent: []string{roleA, roleB},
+		},
+		{
+			// A real delete followed by an absent role must still be persisted
+			// (SavePolicy/InvalidateCache must not be skipped).
+			name:       "present then absent persists durably",
+			create:     []string{roleA},
+			delete:     []string{roleA, absentA},
+			wantAbsent: []string{roleA},
+		},
+		{
+			name:        "all roles absent is a no-op",
+			create:      []string{roleA},
+			delete:      []string{absentA, absentB},
+			wantPresent: []string{roleA},
+		},
+		{
+			name:       "all present happy path",
+			create:     []string{roleA, roleB},
+			delete:     []string{roleA, roleB},
+			wantAbsent: []string{roleA, roleB},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			roles := make(map[string][]authorization.Policy, len(tt.create))
+			for _, name := range tt.create {
+				roles[name] = []authorization.Policy{perm}
+			}
+			require.NoError(t, m.CreateRolesPermissions(roles))
+
+			require.NoError(t, m.DeleteRoles(tt.delete...))
+
+			assertRoles := func(t *testing.T) {
+				got, err := m.GetRoles(append(append([]string{}, tt.wantAbsent...), tt.wantPresent...)...)
+				require.NoError(t, err)
+				for _, name := range tt.wantAbsent {
+					_, ok := got[name]
+					assert.False(t, ok, "role %q should be deleted", name)
+				}
+				for _, name := range tt.wantPresent {
+					_, ok := got[name]
+					assert.True(t, ok, "role %q should still be present", name)
+				}
+			}
+
+			// In-memory state.
+			assertRoles(t)
+
+			// Durable state: reload from the policy file. A skipped SavePolicy
+			// would let deleted roles reappear here.
+			require.NoError(t, m.casbin.LoadPolicy())
+			assertRoles(t)
+		})
+	}
+}
+
 func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 	tests := []struct {
 		name              string

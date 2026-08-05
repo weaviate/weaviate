@@ -16,11 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,9 +32,17 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const NotLeaderRPCCode = codes.ResourceExhausted
+
+// LimitExceededRPCCode is the gRPC code the leader returns for a usage-limit
+// rejection. It is deliberately distinct from NotLeaderRPCCode so a forwarding
+// follower maps it straight back to the typed 429 by code alone, and it is kept
+// out of the Apply retry policy (serviceConfig) — the rejection is deterministic,
+// so retrying only wastes round-trips.
+const LimitExceededRPCCode = codes.OutOfRange
 
 type raftPeers interface {
 	Join(id string, addr string, voter bool) error
@@ -191,8 +201,22 @@ func toRPCError(err error) error {
 		return nil
 	}
 
+	le, isLimit := usagelimits.AsLimitExceeded(err)
+
 	var ec codes.Code
 	switch {
+	case isLimit:
+		// Dedicated non-retriable code for by-code dispatch on the follower; the
+		// ErrorInfo carries the structured limit/value the REST 429 payload needs
+		// (the message alone can't — it's operator-customizable).
+		st := status.New(LimitExceededRPCCode, le.Error())
+		if d, derr := st.WithDetails(&errdetails.ErrorInfo{
+			Reason:   usagelimits.ErrorCode,
+			Metadata: map[string]string{"limit": string(le.Limit), "value": strconv.FormatInt(le.Value, 10)},
+		}); derr == nil {
+			return d.Err()
+		}
+		return st.Err()
 	case errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
 		ec = NotLeaderRPCCode
 	case errors.Is(err, types.ErrNotOpen):

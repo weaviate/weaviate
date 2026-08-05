@@ -25,11 +25,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -135,11 +135,12 @@ func (l *hnswCommitLogger) InitMaintenance() {
 }
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
-	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
+	// plain concatenation avoids fmt.Sprintf churn on this hot maintenance path
+	return commitLogDirectory(rootPath, indexName) + "/" + fileName
 }
 
 func commitLogDirectory(rootPath, name string) string {
-	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
+	return rootPath + "/" + name + ".hnsw.commitlog.d"
 }
 
 func getLatestCommitFileOrCreate(rootPath, name string, fs common.FS) (common.File, error) {
@@ -227,9 +228,10 @@ func getCommitFiles(rootPath, id string, createdAfter int64, fs common.FS) ([]os
 }
 
 func commitLogFileNames(rootPath, id string, files []os.DirEntry) []string {
+	dir := commitLogDirectory(rootPath, id)
 	out := make([]string, len(files))
 	for i, file := range files {
-		out[i] = commitLogFileName(rootPath, id, file.Name())
+		out[i] = dir + "/" + file.Name()
 	}
 	return out
 }
@@ -457,21 +459,21 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
+func (l *hnswCommitLogger) AddPQCompression(data compression.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddPQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+func (l *hnswCommitLogger) AddSQCompression(data compression.SQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+func (l *hnswCommitLogger) AddRQCompression(data compression.RQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -485,7 +487,7 @@ func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return l.commitLogger.AddMuvera(data)
 }
 
-func (l *hnswCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (l *hnswCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -636,9 +638,14 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	return executedCombine || executedCondense || executedSnapshot
 }
 
-func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
+func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 	_, err := l.switchCommitLogs(force)
 	return err
+}
+
+func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
+	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	return nil
 }
 
 func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
@@ -788,14 +795,26 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "drop commitlog")
 	}
 
+	if keepFiles {
+		return nil
+	}
+
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := l.fs.Stat(dir); err == nil && !keepFiles {
-		err := l.fs.RemoveAll(dir)
-		if err != nil {
+	if _, err := l.fs.Stat(dir); err == nil {
+		if err := l.fs.RemoveAll(dir); err != nil {
 			return errors.Wrap(err, "delete commit files directory")
 		}
 	}
+
+	// remove snapshot directory if exists
+	sDir := snapshotDirectory(l.rootPath, l.id)
+	if _, err := l.fs.Stat(sDir); err == nil {
+		if err := l.fs.RemoveAll(sDir); err != nil {
+			return errors.Wrap(err, "delete snapshot directory")
+		}
+	}
+
 	return nil
 }
 

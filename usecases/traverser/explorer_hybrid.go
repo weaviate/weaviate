@@ -22,10 +22,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
@@ -192,6 +192,10 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	if params.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
+	}
+
 	var err error
 	var results [][]*search.Result
 	var weights []float64
@@ -224,7 +228,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: -1,
 	}
 
-	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, params.HybridSearch.TargetVectors)
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass, params.ClassName, params.HybridSearch.TargetVectors)
 	if err != nil {
 		return nil, err
 	}
@@ -267,8 +271,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
-				sch := e.schemaGetter.GetSchemaSkipAuth()
-				class := sch.FindClassByName(schema.ClassName(params.ClassName))
+				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
 				if class == nil {
 					return fmt.Errorf("class %q not found", params.ClassName)
 				}
@@ -430,6 +433,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 	if len(res) <= origParams.Pagination.Offset {
 		out = []search.Result{}
+	}
+
+	if origParams.AdditionalProperties.QueryProfile {
+		out = helpers.AttachQueryProfileToResults(ctx, out)
 	}
 
 	if origParams.GroupBy != nil {

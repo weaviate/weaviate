@@ -19,6 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 const (
@@ -27,7 +29,7 @@ const (
 )
 
 func TestBatchReferenceCreateNoObjects(t *testing.T) {
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	classNameFrom := "GreenTeddyFlowerFrom"
@@ -75,7 +77,7 @@ func TestBatchReferenceCreateNoObjects(t *testing.T) {
 }
 
 func TestBatchReferenceTargetIsMT(t *testing.T) {
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	classNameFrom := "RedTeddyFlowerFrom"

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -100,12 +101,12 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
-	svr := rpc.NewServer(&fsm, raft, fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
 		Raft:               raft,
 		replicationEngine:  replicationEngine,
-		raftAddr:           fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
+		raftAddr:           net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		config:             &cfg,
 		rpcClient:          client,
 		rpcServer:          svr,

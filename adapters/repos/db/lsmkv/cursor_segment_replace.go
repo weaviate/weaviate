@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"errors"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -277,14 +278,16 @@ func (s *segmentCursorReplace) parse(in []byte) error {
 }
 
 // segmentCursorReplaceReusable is a sequential cursor for the replace strategy
-// that reuses internal buffers across iterations to minimise per-key allocations
-// during compaction. It is the replace-strategy analogue of
-// segmentCursorCollectionReusable.
+// that reuses internal buffers across iterations to minimise per-key
+// allocations. Used by compaction (compactorReplace) and, via
+// reusableInnerCursorReplace, by the bucket-level reusable merge cursor. It is
+// the replace-strategy analogue of segmentCursorCollectionReusable.
 //
-// Ownership contract: the *segmentReplaceNode returned by first()/next() is
-// valid only until the next call on the same cursor. Callers must not retain
-// the pointer across iterations. This is safe in compactorReplace because c1
-// and c2 are independent cursors with separate reusableNode fields.
+// Ownership contract: the *segmentReplaceNode returned by first()/next()/seek()
+// is valid only until the next call on the same cursor; callers must not retain
+// the pointer across iterations. Each consumer (compaction's c1/c2, the merge
+// cursor's per-segment adapter) owns its own cursor, so the aliased node is
+// never shared across cursors.
 type segmentCursorReplaceReusable struct {
 	segment      *segment
 	currOffset   uint64
@@ -335,6 +338,17 @@ func (s *segmentCursorReplaceReusable) next() (*segmentReplaceNode, error) {
 	return s.parseInto()
 }
 
+// seek positions at the first node with key >= the given key; next() then
+// continues sequentially. Returns lsmkv.NotFound past the highest key.
+func (s *segmentCursorReplaceReusable) seek(key []byte) (*segmentReplaceNode, error) {
+	node, err := s.segment.index.Seek(key)
+	if err != nil {
+		return nil, err
+	}
+	s.currOffset = node.Start
+	return s.parseInto()
+}
+
 func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) {
 	if s.segment.readFromMemory {
 		buf := s.segment.contents[s.currOffset:]
@@ -357,4 +371,47 @@ func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) 
 		return &s.reusableNode, lsmkv.Deleted
 	}
 	return &s.reusableNode, nil
+}
+
+// reusableInnerCursorReplace adapts segmentCursorReplaceReusable to the
+// innerCursorReplace interface. Returned slices alias the reusable node and are
+// valid only until the next call; CursorReplace copies them out before advancing.
+type reusableInnerCursorReplace struct {
+	c *segmentCursorReplaceReusable
+}
+
+func nodeToKV(n *segmentReplaceNode, err error) ([]byte, []byte, error) {
+	if errors.Is(err, lsmkv.Deleted) {
+		// tombstone: key with nil value, so the merge can advance past it
+		return n.primaryKey, nil, err
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return n.primaryKey, n.value, nil
+}
+
+func (r *reusableInnerCursorReplace) first() ([]byte, []byte, error) {
+	return nodeToKV(r.c.first())
+}
+
+func (r *reusableInnerCursorReplace) next() ([]byte, []byte, error) {
+	return nodeToKV(r.c.next())
+}
+
+func (r *reusableInnerCursorReplace) seek(key []byte) ([]byte, []byte, error) {
+	return nodeToKV(r.c.seek(key))
+}
+
+// newReusableCursors mirrors newCursors but uses reusable per-segment cursors,
+// avoiding the per-node reader allocations of the default pread path.
+func (sg *SegmentGroup) newReusableCursors() ([]innerCursorReplace, func()) {
+	segments, release := sg.getConsistentViewOfSegments()
+
+	out := make([]innerCursorReplace, len(segments))
+	for i, segment := range segments {
+		out[i] = &reusableInnerCursorReplace{c: segment.newReplaceCursorReusable()}
+	}
+
+	return out, release
 }

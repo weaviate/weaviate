@@ -9,11 +9,14 @@ function main() {
   run_acceptance_only_fast_group_2=false
   run_acceptance_only_fast_group_3=false
   run_acceptance_only_fast_group_4=false
+  run_acceptance_distributed_tasks=false
   run_acceptance_only_authz=false
+  run_acceptance_only_mcp=false
   run_acceptance_only_python=false
   run_acceptance_go_client=false
   run_acceptance_go_client_only_fast_group_1=false
   run_acceptance_go_client_only_fast_group_2=false
+  run_acceptance_go_client_only_fast_group_3=false
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
   run_acceptance_replica_replication_fast_tests=false
@@ -26,6 +29,7 @@ function main() {
   only_module_value=false
   run_unit_and_integration_tests=false
   run_unit_tests=false
+  unit_shard=""
   run_integration_tests=false
   run_integration_tests_only_vector_package=false
   run_integration_tests_without_vector_package=false
@@ -45,6 +49,8 @@ function main() {
   while [[ "$#" -gt 0 ]]; do
       case $1 in
           --unit-only|-u) run_all_tests=false; run_unit_tests=true;;
+          --unit-only-adapters|-uad) run_all_tests=false; run_unit_tests=true; unit_shard="adapters";;
+          --unit-only-non-adapters|-una) run_all_tests=false; run_unit_tests=true; unit_shard="non-adapters";;
           --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
           --integration-vector-package-only|-ivpo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_vector_package=true;;
@@ -55,15 +61,18 @@ function main() {
           --acceptance-only-fast-group-2|-aof-g2) run_all_tests=false; run_acceptance_only_fast_group_2=true;;
           --acceptance-only-fast-group-3|-aof-g3) run_all_tests=false; run_acceptance_only_fast_group_3=true;;
           --acceptance-only-fast-group-4|-aof-g4) run_all_tests=false; run_acceptance_only_fast_group_4=true;;
+          --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
-          --acceptance-go-client-only-fast|-agof) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true; run_acceptance_go_client_only_fast_group_2=true;;
+          --acceptance-go-client-only-fast|-agof) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true; run_acceptance_go_client_only_fast_group_2=true; run_acceptance_go_client_only_fast_group_3=true;;
           --acceptance-go-client-only-fast-group-1|-agof-g1) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true;;
           --acceptance-go-client-only-fast-group-2|-agof-g2) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_2=true;;
+          --acceptance-go-client-only-fast-group-3|-agof-g3) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_3=true;;
           --acceptance-go-client-named-vectors-single-node|-agnvsn) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_named_vectors_single_node=true;;
           --acceptance-go-client-named-vectors-cluster|-agnvc) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_named_vectors_cluster=true;;
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-authz|-aoa) run_all_tests=false; run_acceptance_only_authz=true;;
+          --acceptance-only-mcp|-aom) run_all_tests=false; run_acceptance_only_mcp=true;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --acceptance-only-replica-replication-fast|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
           --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
@@ -85,6 +94,8 @@ function main() {
           --help|-h) printf '%s\n' \
               "Options:"\
               "--unit-only | -u"\
+              "--unit-only-adapters | -uad"\
+              "--unit-only-non-adapters | -una"\
               "--unit-and-integration-only | -ui"\
               "--integration-only | -i"\
               "--acceptance-only | -a"\
@@ -148,7 +159,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
+  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -160,6 +171,9 @@ function main() {
     then
       tools/test/run_ci_server.sh --with-auth
       build_mockoidc_docker_image_for_tests
+    elif $run_acceptance_only_mcp
+    then
+      tools/test/run_ci_server.sh --with-mcp
     else
       tools/test/run_ci_server.sh
     fi
@@ -176,7 +190,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
+    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -264,7 +278,17 @@ function run_unit_tests() {
     echo "Skipping unit test"
     return
   fi
-  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
+  local packages
+  packages=$(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules')
+  # The adapters/* tree is slow to compile but fast to run, so its shard has idle
+  # run-phase capacity. Co-locate the heaviest run-bound non-adapters package
+  # (usecases/replica) there to balance wall-clock across shards.
+  local adapters_extra='/usecases/replica'
+  case "$unit_shard" in
+    adapters)     packages=$(echo "$packages" | grep -E "/adapters/|$adapters_extra");;
+    non-adapters) packages=$(echo "$packages" | grep -vE "/adapters/|$adapters_extra");;
+  esac
+  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages | grep -v '\[no test files\]'
 }
 
 function run_integration_tests() {
@@ -316,9 +340,17 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
+  if $run_acceptance_distributed_tasks || $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance distributed_tasks"
+    run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
+  fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance authz"
     run_acceptance_only_authz "$@"
+  fi
+  if $run_acceptance_only_mcp || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance mcp"
+    run_acceptance_only_mcp "$@"
   fi
   if $run_acceptance_graphql_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance graphql"
@@ -352,6 +384,10 @@ function run_acceptance_tests() {
   echo "running acceptance go client only fast group 2"
     run_acceptance_go_client_only_fast_group 2
   fi
+  if $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance go client only fast group 3"
+    run_acceptance_go_client_only_fast_group 3
+  fi
   if $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance go client named vectors for single node"
     run_acceptance_go_client_named_vectors_single_node "$@"
@@ -367,7 +403,7 @@ function run_acceptance_tests() {
 }
 
 # get_fast_acceptance_packages returns a list of fast acceptance test packages.
-# It excludes slow test categories (replication, graphql, authz, etc.) but includes stress tests.
+# It excludes slow test categories (replication, graphql, authz, mcp, etc.) but includes stress tests.
 # The returned paths are normalized to "test/acceptance/..." format.
 function get_fast_acceptance_packages() {
   # fast acceptance tests minus slow acceptance tests
@@ -377,8 +413,10 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/graphql_resolvers' \
     | grep -v 'test/acceptance_lsmkv' \
     | grep -v 'test/acceptance/authz' \
+    | grep -v 'test/acceptance/mcp' \
     | grep -v 'test/acceptance/compaction' \
     | grep -v 'test/acceptance/recovery' \
+    | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -458,7 +496,7 @@ function get_other_packages() {
 # Groups 1-3 contain explicitly assigned packages for load balancing.
 # Group 4 automatically contains all other fast acceptance packages.
 function run_acceptance_only_fast_group() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   local GROUP="$1"
 
   local -a AOF_GROUP1=()
@@ -498,20 +536,14 @@ function run_acceptance_only_fast_group() {
   esac
 }
 
-function run_acceptance_compaction_recovery() {
-  echo_green "acceptance — compaction + recovery"
-  run_aof_group "compaction-recovery" \
-    test/acceptance/compaction \
-    test/acceptance/recovery
-}
-
-function run_acceptance_compaction() {
-  echo_green "acceptance — compaction"
-  run_aof_group "compaction" test/acceptance/compaction
-}
-
-function run_acceptance_recovery() {
-  echo_green "acceptance — recovery: building weaviate/test-server image..."
+# build_weaviate_test_image builds the weaviate/test-server Docker image with
+# race detector enabled. Sets TEST_WEAVIATE_IMAGE so testcontainers reuse it
+# instead of building from source on every test function.
+function build_weaviate_test_image() {
+  if [[ -n "${TEST_WEAVIATE_IMAGE:-}" ]]; then
+    return  # already built or provided externally
+  fi
+  echo_green "Building weaviate/test-server image..."
   GIT_REVISION=$(git rev-parse --short HEAD)
   GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
   docker compose -f docker-compose-test.yml build \
@@ -520,7 +552,22 @@ function run_acceptance_recovery() {
     --build-arg EXTRA_BUILD_ARGS="-race" \
     weaviate
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
-  echo_green "acceptance — recovery"
+}
+
+function run_acceptance_compaction_recovery() {
+  build_weaviate_test_image
+  run_aof_group "compaction-recovery" \
+    test/acceptance/compaction \
+    test/acceptance/recovery
+}
+
+function run_acceptance_compaction() {
+  build_weaviate_test_image
+  run_aof_group "compaction" test/acceptance/compaction
+}
+
+function run_acceptance_recovery() {
+  build_weaviate_test_image
   run_aof_group "recovery" test/acceptance/recovery
 }
 
@@ -534,28 +581,29 @@ function get_fast_go_client_packages() {
 }
 
 # get_go_client_group returns the package patterns for the specified group number.
-# Group 1 contains explicitly assigned packages for load balancing.
-# Group 2 will be handled as catch-all in the main function.
+# Groups 1 and 2 contain explicitly assigned packages for load balancing.
+# Group 3 will be handled as catch-all in the main function.
 function get_go_client_group() {
   case "$1" in
     1) echo "acceptance_tests_with_client/multi_tenancy_tests acceptance_tests_with_client/filters_tests" ;;
+    2) echo "acceptance_tests_with_client/usage" ;;
     *) echo "" ;;
   esac
 }
 
-# get_other_go_client_packages returns fast go client packages not included in group 1.
-# These packages form group 2 and include any newly added tests automatically.
-# Returns normalized package paths, one per line.
+# get_other_go_client_packages returns fast go client packages not included in
+# groups 1 and 2. These packages form group 3 and include any newly added tests
+# automatically. Returns normalized package paths, one per line.
 function get_other_go_client_packages() {
-  local -a GROUP1=()
-  read -ra GROUP1 <<< "$(get_go_client_group 1)"
+  local -a ASSIGNED=()
+  read -ra ASSIGNED <<< "$(get_go_client_group 1) $(get_go_client_group 2)"
 
-  # All fast go client test packages, excluding those in group 1
+  # All fast go client test packages, excluding those in groups 1 and 2
   local -a other_fast_packages=()
   while IFS= read -r pkg; do
     [[ -n $pkg ]] && other_fast_packages+=("$pkg")
   done < <(
-    get_fast_go_client_packages | grep -F -x -v -f <(printf '%s\n' "${GROUP1[@]}")
+    get_fast_go_client_packages | grep -F -x -v -f <(printf '%s\n' "${ASSIGNED[@]}")
   )
 
   printf '%s\n' "${other_fast_packages[@]}"
@@ -595,39 +643,44 @@ function run_go_client_group() {
 
 # run_acceptance_go_client_only_fast_group runs a specific group of go client tests.
 # Parameters:
-#   $1: GROUP - group number to run (1-2)
-# Group 1 contains explicitly assigned packages for load balancing.
-# Group 2 automatically contains all other fast go client packages.
+#   $1: GROUP - group number to run (1-3)
+# Groups 1 and 2 contain explicitly assigned packages for load balancing.
+# Group 3 automatically contains all other fast go client packages.
 function run_acceptance_go_client_only_fast_group() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   local GROUP="$1"
-
-  local -a GROUP1=()
-  read -ra GROUP1 <<< "$(get_go_client_group 1)"
 
   case "$GROUP" in
     1)
-      echo_green "acceptance-go-client-only-fast — group 1/2"
+      echo_green "acceptance-go-client-only-fast — group 1/3"
+      local -a GROUP1=()
+      read -ra GROUP1 <<< "$(get_go_client_group 1)"
       run_go_client_group "1" "${GROUP1[@]}"
       ;;
     2)
-      echo_green "acceptance-go-client-only-fast — group 2/2 (others from fast set)"
+      echo_green "acceptance-go-client-only-fast — group 2/3"
+      local -a GROUP2=()
+      read -ra GROUP2 <<< "$(get_go_client_group 2)"
+      run_go_client_group "2" "${GROUP2[@]}"
+      ;;
+    3)
+      echo_green "acceptance-go-client-only-fast — group 3/3 (others from fast set)"
 
       local -a other_fast_packages=()
       while IFS= read -r pkg; do
         [[ -n $pkg ]] && other_fast_packages+=("$pkg")
       done < <(get_other_go_client_packages)
 
-      [[ ${#other_fast_packages[@]} -eq 0 ]] && { echo "Nothing to run for group 2."; return 0; }
+      [[ ${#other_fast_packages[@]} -eq 0 ]] && { echo "Nothing to run for group 3."; return 0; }
 
-      run_go_client_group "2" "${other_fast_packages[@]}"
+      run_go_client_group "3" "${other_fast_packages[@]}"
       ;;
-    *) echo_red "Invalid group: $GROUP (must be 1 or 2)"; return 1 ;;
+    *) echo_red "Invalid group: $GROUP (must be 1, 2 or 3)"; return 1 ;;
   esac
 }
 
 function run_acceptance_go_client_named_vectors_single_node() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
@@ -640,7 +693,7 @@ function run_acceptance_go_client_named_vectors_single_node() {
 }
 
 function run_acceptance_go_client_named_vectors_cluster() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
@@ -653,7 +706,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 }
 
 function run_acceptance_graphql_tests() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
@@ -663,8 +716,18 @@ function run_acceptance_graphql_tests() {
 }
 
 function run_acceptance_only_authz() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
+    if ! go test -timeout=15m -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_acceptance_only_mcp() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  for pkg in $(go list ./.../ | grep 'test/acceptance/mcp'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
@@ -700,6 +763,10 @@ function run_acceptance_replication_tests() {
 }
 
 function run_acceptance_async_replication_tests() {
+  # Build once up front and reuse via TEST_WEAVIATE_IMAGE; otherwise each package
+  # below rebuilds the image through testcontainers and the second package can
+  # exceed the container-start deadline in CI.
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/async_replication'); do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2

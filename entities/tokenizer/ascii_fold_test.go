@@ -1,0 +1,325 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package tokenizer
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestFoldASCII(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "French accents",
+			input:    "école",
+			expected: "ecole",
+		},
+		{
+			name:     "naïve with diaeresis",
+			input:    "naïve",
+			expected: "naive",
+		},
+		{
+			name:     "Portuguese São Paulo",
+			input:    "São Paulo",
+			expected: "Sao Paulo",
+		},
+		{
+			name:     "German umlauts",
+			input:    "Ärger über Öl",
+			expected: "Arger uber Ol",
+		},
+		{
+			name:     "Spanish ñ",
+			input:    "señor",
+			expected: "senor",
+		},
+		{
+			name:     "mixed accents and plain ASCII",
+			input:    "café résumé hello world",
+			expected: "cafe resume hello world",
+		},
+		{
+			name:     "no accents passthrough",
+			input:    "hello world 123",
+			expected: "hello world 123",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "Vietnamese diacritics",
+			input:    "Hà Nội",
+			expected: "Ha Noi",
+		},
+		{
+			name:     "Czech háčky and čárky",
+			input:    "příliš žluťoučký kůň",
+			expected: "prilis zlutoucky kun",
+		},
+		// Stroked / barred letters
+		{
+			name:     "Polish ł and Ł",
+			input:    "Łódź złoty",
+			expected: "Lodz zloty",
+		},
+		{
+			name:     "Danish/Norwegian ø and Ø",
+			input:    "Ørsted rødgrød",
+			expected: "Orsted rodgrod",
+		},
+		{
+			name:     "Croatian đ",
+			input:    "Đurđevac",
+			expected: "Durdevac",
+		},
+		{
+			name:     "Maltese ħ",
+			input:    "Ħal Balzan",
+			expected: "Hal Balzan",
+		},
+		{
+			name:     "Sami ŧ",
+			input:    "ŧávvet",
+			expected: "tavvet",
+		},
+		{
+			name:     "stroked b, e, j, r, y, a",
+			input:    "ƀɇɉɍɏⱥ",
+			expected: "bejrya",
+		},
+		// Special letters
+		{
+			name:     "Icelandic eth ð",
+			input:    "Norðurland",
+			expected: "Nordurland",
+		},
+		{
+			name:     "Turkish dotless i",
+			input:    "dışarı",
+			expected: "disari",
+		},
+		{
+			name:     "long s",
+			input:    "ſincerely",
+			expected: "sincerely",
+		},
+		// Ligatures
+		{
+			name:     "ae ligature",
+			input:    "Æneas æsthetic",
+			expected: "AEneas aesthetic",
+		},
+		{
+			name:     "oe ligature",
+			input:    "Œuvre cœur",
+			expected: "OEuvre coeur",
+		},
+		{
+			name:     "Dutch ij ligature",
+			input:    "ĳsland Ĳsselmeer",
+			expected: "ijsland IJsselmeer",
+		},
+		{
+			name:     "German sharp s",
+			input:    "Straße groß",
+			expected: "Strasse gross",
+		},
+		{
+			name:     "capital sharp s",
+			input:    "STRAẞE",
+			expected: "STRASSE",
+		},
+		{
+			name:     "Icelandic thorn",
+			input:    "Þór þakka",
+			expected: "THor thakka",
+		},
+		{
+			name:     "typographic ligatures ff fi fl ffi ffl st",
+			input:    "ﬀ ﬁ ﬂ ﬃ ﬄ ﬅ ﬆ",
+			expected: "ff fi fl ffi ffl st st",
+		},
+		// Hooked / tailed letters
+		{
+			name:     "hooked letters",
+			input:    "ɓƈɗƒɠɦƙɱɲƥʠɽʂƭʋⱳƴʐ",
+			expected: "bcdfghkmnpqrstvwyz",
+		},
+		// Combined: NFD marks + table folding in same string
+		{
+			name:     "mixed NFD and table folding",
+			input:    "Ångström straße",
+			expected: "Angstrom strasse",
+		},
+		// Characters that NFD-decompose into foldTable characters + combining marks
+		{
+			name:     "ǿ (o-stroke with acute) NFC",
+			input:    "\u01FF", // ǿ — NFD decomposes to ø + combining acute
+			expected: "o",
+		},
+		{
+			name:     "ǽ (ae-ligature with acute) NFC",
+			input:    "\u01FD", // ǽ — NFD decomposes to æ + combining acute
+			expected: "ae",
+		},
+		{
+			name:     "ǿ in context",
+			input:    "f\u01FFr",
+			expected: "for",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FoldASCII(tt.input, nil)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFoldASCIISlice(t *testing.T) {
+	input := []string{"école", "café", "hello"}
+	result := FoldASCIISlice(input, nil)
+	require.Len(t, result, 3)
+	assert.Equal(t, "ecole", result[0])
+	assert.Equal(t, "cafe", result[1])
+	assert.Equal(t, "hello", result[2])
+}
+
+func TestFoldASCIIWithIgnore(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		ignore   []string
+		expected string
+	}{
+		{
+			name:     "ignore é preserves it",
+			input:    "école fermée",
+			ignore:   []string{"é"},
+			expected: "école fermée",
+		},
+		{
+			name:     "ignore é but fold other accents",
+			input:    "école São Paulo",
+			ignore:   []string{"é"},
+			expected: "école Sao Paulo",
+		},
+		{
+			name:     "ignore multiple characters",
+			input:    "école São café",
+			ignore:   []string{"é", "ã"},
+			expected: "école São café",
+		},
+		{
+			name:     "ignore ß preserves it",
+			input:    "Straße",
+			ignore:   []string{"ß"},
+			expected: "Straße",
+		},
+		{
+			name:     "ignore ø preserves both cases",
+			input:    "Ørsted rødgrød",
+			ignore:   []string{"ø"},
+			expected: "Ørsted rødgrød",
+		},
+		{
+			name:     "ignore Ø (uppercase) also preserves lowercase",
+			input:    "Ørsted rødgrød",
+			ignore:   []string{"Ø"},
+			expected: "Ørsted rødgrød",
+		},
+		{
+			name:     "empty ignore list folds everything",
+			input:    "école",
+			ignore:   []string{},
+			expected: "ecole",
+		},
+		{
+			name:     "ignore character not present in input",
+			input:    "école",
+			ignore:   []string{"ñ"},
+			expected: "ecole",
+		},
+		{
+			name:     "NFD ignore entry is normalized to NFC",
+			input:    "école fermée",
+			ignore:   []string{"e\u0301"}, // é in NFD form
+			expected: "école fermée",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ignore := BuildIgnoreSet(tt.ignore)
+			result := FoldASCII(tt.input, ignore)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFoldASCIISliceWithIgnore(t *testing.T) {
+	input := []string{"école", "café", "hello"}
+	ignore := BuildIgnoreSet([]string{"é"})
+	result := FoldASCIISlice(input, ignore)
+	require.Len(t, result, 3)
+	assert.Equal(t, "école", result[0])
+	assert.Equal(t, "café", result[1])
+	assert.Equal(t, "hello", result[2])
+}
+
+func TestFoldasciidempotent(t *testing.T) {
+	input := "ecole"
+	result := FoldASCII(input, nil)
+	assert.Equal(t, input, result, "folding already-ASCII text should be a no-op")
+}
+
+func TestFoldASCIIWithWordTokenization(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "French school phrase",
+			input:    "L'école est fermée",
+			expected: []string{"l", "ecole", "est", "fermee"},
+		},
+		{
+			name:     "Portuguese text",
+			input:    "Ação e reação",
+			expected: []string{"acao", "e", "reacao"},
+		},
+		{
+			name:     "accent folding merges equivalent tokens",
+			input:    "café cafe",
+			expected: []string{"cafe", "cafe"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokens := Tokenize("word", tt.input)
+			folded := FoldASCIISlice(tokens, nil)
+			assert.Equal(t, tt.expected, folded)
+		})
+	}
+}

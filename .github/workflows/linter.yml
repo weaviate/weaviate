@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: golangci-lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: psf/black@35ea67920b7f6ac8e09be1c47278752b1e827f76 # stable
+      - uses: psf/black@c6755bb741b6481d6b3d3bb563c83fa060db96c9 # stable
         with:
           version: "26.3.1"
   custom:

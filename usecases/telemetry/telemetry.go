@@ -13,6 +13,7 @@ package telemetry
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -27,55 +28,87 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 const (
-	defaultConsumer = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
+	DefaultTelemetryConsumerURL = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
 		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
-	defaultPushInterval = 24 * time.Hour
+	DefaultTelemetryPushInterval = 24 * time.Hour
 )
 
 type nodesStatusGetter interface {
-	LocalNodeStatus(ctx context.Context, className, shardName, output string) *models.NodeStatus
-}
-
-type schemaManager interface {
-	GetSchemaSkipAuth() schema.Schema
+	LocalNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error)
 }
 
 // Telemeter is responsible for managing the transmission of telemetry data
 type Telemeter struct {
 	machineID         strfmt.UUID
 	nodesStatusGetter nodesStatusGetter
-	schemaManager     schemaManager
+	schemaManager     schema.SchemaGetter
 	logger            logrus.FieldLogger
 	shutdown          chan struct{}
 	failedToStart     bool
 	consumer          string
 	pushInterval      time.Duration
+	clientTracker     *ClientTracker
 	cloudInfoHelper   *cloudInfoHelper
+
+	// nodeID is CLUSTER_HOSTNAME (the raft node name): a stable per-node identity.
+	nodeID string
+	// clusterID is the raft-committed cluster identity, read on every push.
+	clusterID            func() string
+	asyncIndexingEnabled bool
 }
 
-// New creates a new Telemeter instance
-func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
-	logger logrus.FieldLogger, telemetryEnabled bool,
-) *Telemeter {
+// Config holds the scalar settings for a Telemeter.
+type Config struct {
+	// ConsumerURL is base64-encoded. If empty, DefaultTelemetryConsumerURL is used.
+	ConsumerURL string
+	// PushInterval defaults to DefaultTelemetryPushInterval if zero.
+	PushInterval time.Duration
+	// Enabled gates whether usage trackers spin up and payloads are pushed.
+	Enabled bool
+	// NodeID is CLUSTER_HOSTNAME (the raft node name): a stable per-node identity.
+	NodeID string
+	// AsyncIndexingEnabled is wired from server config.
+	AsyncIndexingEnabled bool
+	// ClusterID returns the UUID committed once per cluster lifetime via raft. It is
+	// called on every push and MUST be non-nil (return "" until the id is committed).
+	ClusterID func() string
+}
+
+// New creates a new Telemeter instance.
+func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter, logger logrus.FieldLogger, cfg Config) *Telemeter {
+	consumerURL := cmp.Or(cfg.ConsumerURL, DefaultTelemetryConsumerURL)
+	pushInterval := cmp.Or(cfg.PushInterval, DefaultTelemetryPushInterval)
+
 	tel := &Telemeter{
-		machineID:         strfmt.UUID(uuid.NewString()),
-		nodesStatusGetter: nodesStatusGetter,
-		schemaManager:     schemaManager,
-		logger:            logger,
-		shutdown:          make(chan struct{}),
-		consumer:          defaultConsumer,
-		pushInterval:      defaultPushInterval,
-		cloudInfoHelper:   newCloudInfoHelper(logger, telemetryEnabled),
+		// machineID is a fresh UUID per process, distinct from nodeID.
+		machineID:            strfmt.UUID(uuid.NewString()),
+		nodesStatusGetter:    nodesStatusGetter,
+		schemaManager:        schemaManager,
+		logger:               logger,
+		shutdown:             make(chan struct{}),
+		consumer:             consumerURL,
+		pushInterval:         pushInterval,
+		clientTracker:        NewClientTracker(logger),
+		cloudInfoHelper:      newCloudInfoHelper(logger, cfg.Enabled),
+		nodeID:               cfg.NodeID,
+		asyncIndexingEnabled: cfg.AsyncIndexingEnabled,
+		clusterID:            cfg.ClusterID,
 	}
 	return tel
+}
+
+// GetClientTracker returns the client tracker instance for use in middleware
+func (tel *Telemeter) GetClientTracker() *ClientTracker {
+	return tel.clientTracker
 }
 
 // Start begins telemetry for the node
@@ -120,6 +153,14 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 
 // Stop shuts down the telemeter
 func (tel *Telemeter) Stop(ctx context.Context) error {
+	// Always stop the client tracker goroutine, even if telemetry failed to start.
+	// This prevents goroutine leaks.
+	defer func() {
+		if tel.clientTracker != nil {
+			tel.clientTracker.Stop()
+		}
+	}()
+
 	if tel.failedToStart {
 		return nil
 	}
@@ -140,6 +181,7 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 			WithField("action", "telemetry_push").
 			WithField("payload", fmt.Sprintf("%+v", payload)).
 			Info("telemetry terminated")
+
 		return nil
 	}
 }
@@ -195,20 +237,116 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		return nil, fmt.Errorf("get collections count: %w", err)
 	}
 
+	// Get client usage data and reset for the next period
+	// For Init payloads, we don't have client data yet, so skip it
+	var clientUsage map[ClientType]map[string]int64
+	if payloadType != PayloadType.Init && tel.clientTracker != nil {
+		clientUsage = tel.clientTracker.GetAndReset()
+		// Only include if there's actual data
+		if len(clientUsage) == 0 {
+			clientUsage = nil
+		}
+	}
+
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
+	cf := tel.curatedFields()
+	asyncIndexing := tel.asyncIndexingEnabled
+
 	return &Payload{
-		MachineID:        tel.machineID,
-		Type:             payloadType,
-		Version:          config.ServerVersion,
-		ObjectsCount:     objs,
-		OS:               runtime.GOOS,
-		Arch:             runtime.GOARCH,
-		UsedModules:      usedMods,
-		CollectionsCount: cols,
-		CloudProvider:    cloudProvider,
-		UniqueID:         uniqueID,
+		MachineID:                  tel.machineID,
+		Type:                       payloadType,
+		Version:                    config.ServerVersion,
+		ObjectsCount:               objs,
+		OS:                         runtime.GOOS,
+		Arch:                       runtime.GOARCH,
+		UsedModules:                usedMods,
+		CollectionsCount:           cols,
+		ClientUsage:                clientUsage,
+		CloudProvider:              cloudProvider,
+		UniqueID:                   uniqueID,
+		NodeID:                     tel.nodeID,
+		ClusterID:                  tel.clusterID(),
+		NodeCount:                  &cf.nodeCount,
+		MaxReplicationFactor:       &cf.maxReplicationFactor,
+		ReplicationEnabled:         &cf.replicationEnabled,
+		MTCollectionCount:          &cf.mtCollectionCount,
+		NamedVectorCollectionCount: &cf.namedVectorCount,
+		AsyncIndexingEnabled:       &asyncIndexing,
+		VectorIndexTypeCounts:      cf.vectorIndexTypeCounts,
 	}, nil
+}
+
+// curatedFields holds the schema-derived telemetry signal fields.
+type curatedFields struct {
+	nodeCount             int
+	maxReplicationFactor  int
+	replicationEnabled    bool
+	mtCollectionCount     int
+	namedVectorCount      int
+	vectorIndexTypeCounts map[string]int
+}
+
+// curatedFields extracts the schema-derived signal fields in a single schema pass.
+func (tel *Telemeter) curatedFields() curatedFields {
+	cf := curatedFields{nodeCount: len(tel.schemaManager.Nodes())}
+
+	sch := tel.schemaManager.GetSchemaSkipAuth()
+	if sch.Objects == nil {
+		return cf
+	}
+
+	counts := make(map[string]int)
+	for _, class := range sch.Objects.Classes {
+		if class == nil {
+			continue
+		}
+		if rf := replicationFactor(class); rf > cf.maxReplicationFactor {
+			cf.maxReplicationFactor = rf
+		}
+		if class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
+			cf.mtCollectionCount++
+		}
+		if countVectorIndexTypes(class, counts) {
+			cf.namedVectorCount++
+		}
+	}
+
+	cf.replicationEnabled = cf.maxReplicationFactor > 1
+	if len(counts) > 0 {
+		cf.vectorIndexTypeCounts = counts
+	}
+	return cf
+}
+
+// replicationFactor returns the class replication factor, or 0 if unset.
+func replicationFactor(class *models.Class) int {
+	if class.ReplicationConfig == nil {
+		return 0
+	}
+	return int(class.ReplicationConfig.Factor)
+}
+
+// countVectorIndexTypes records the vector index type(s) for one class into counts
+// (defaulting "" to "hnsw") and reports whether the class uses named vectors.
+func countVectorIndexTypes(class *models.Class, counts map[string]int) (named bool) {
+	if len(class.VectorConfig) > 0 {
+		for _, vc := range class.VectorConfig {
+			counts[orHNSW(vc.VectorIndexType)]++
+		}
+		return true
+	}
+	// legacy single-vector: read from class-level VectorIndexType
+	counts[orHNSW(class.VectorIndexType)]++
+	return false
+}
+
+// orHNSW maps an empty vector index type to the "hnsw" default.
+func orHNSW(vectorIndexType string) string {
+	if vectorIndexType == "" {
+		return "hnsw"
+	}
+	return vectorIndexType
 }
 
 func (tel *Telemeter) getUsedModules() ([]string, error) {
@@ -217,10 +355,17 @@ func (tel *Telemeter) getUsedModules() ([]string, error) {
 
 	if sch.Objects != nil {
 		for _, class := range sch.Objects.Classes {
+			if class == nil {
+				continue
+			}
 			if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
 				for name, cfg := range modCfg {
 					usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
 				}
+			} else if class.Vectorizer != "" && class.Vectorizer != "none" {
+				// Fallback for classes with nil ModuleConfig but a set class-level
+				// Vectorizer (pre-v1.14 schemas). "none" (BYOV) is excluded - not a module.
+				usedModulesMap[class.Vectorizer] = struct{}{}
 			}
 			for _, vectorConfig := range class.VectorConfig {
 				if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
@@ -255,7 +400,10 @@ func (tel *Telemeter) determineModule(name string, cfg interface{}) string {
 }
 
 func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
-	status := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", "", verbosity.OutputVerbose)
+	status, err := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", "", verbosity.OutputVerbose)
+	if err != nil {
+		return 0, err
+	}
 	if status == nil || status.Stats == nil {
 		return 0, fmt.Errorf("received nil node stats")
 	}

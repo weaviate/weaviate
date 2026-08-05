@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -27,9 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 func TestCondensor(t *testing.T) {
@@ -687,7 +690,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 
 	fs := common.NewOSFS()
 
-	encoders := []compressionhelpers.PQEncoder{
+	encoders := []compression.PQSegmentEncoder{
 		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
@@ -709,11 +712,11 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	}
 
 	t.Run("add pq info", func(t *testing.T) {
-		uncondensed.AddPQCompression(compressionhelpers.PQData{
+		uncondensed.AddPQCompression(compression.PQData{
 			Ks:                  4,
 			M:                   3,
 			Dimensions:          6,
-			EncoderType:         compressionhelpers.UseKMeansEncoder,
+			EncoderType:         compression.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
 			Encoders:            encoders,
 			UseBitsEncoding:     false,
@@ -747,11 +750,11 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		require.Nil(t, err)
 
 		assert.True(t, res.Compressed)
-		expected := compressionhelpers.PQData{
+		expected := compression.PQData{
 			Ks:                  4,
 			M:                   3,
 			Dimensions:          6,
-			EncoderType:         compressionhelpers.UseKMeansEncoder,
+			EncoderType:         compression.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
 			Encoders:            encoders,
 			UseBitsEncoding:     false,
@@ -858,13 +861,13 @@ func TestCondensorWithRQ8Information(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
-	rqData := compressionhelpers.RQData{
+	rqData := compression.RQData{
 		InputDim: 10,
 		Bits:     8,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: 4,
 			Rounds:    5,
-			Swaps: [][]compressionhelpers.Swap{
+			Swaps: [][]compression.Swap{
 				{
 					{I: 0, J: 2},
 					{I: 1, J: 3},
@@ -944,12 +947,12 @@ func TestCondensorWithRQ1Information(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
-	brqData := compressionhelpers.BRQData{
+	brqData := compression.BRQData{
 		InputDim: 10,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: 4,
 			Rounds:    5,
-			Swaps: [][]compressionhelpers.Swap{
+			Swaps: [][]compression.Swap{
 				{
 					{I: 0, J: 2},
 					{I: 1, J: 3},
@@ -1072,7 +1075,7 @@ func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) (*MemoryCon
 	cl.SetEntryPointWithMaxLayer(3, 3)
 	cl.AddTombstone(2)
 
-	var encoders []compressionhelpers.PQEncoder
+	var encoders []compression.PQSegmentEncoder
 	m := 32000
 	for i := 0; i < m; i++ {
 		encoders = append(encoders,
@@ -1085,11 +1088,11 @@ func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) (*MemoryCon
 		)
 	}
 
-	cl.AddPQCompression(compressionhelpers.PQData{
+	cl.AddPQCompression(compression.PQData{
 		Ks:                  4,
 		M:                   uint16(m),
 		Dimensions:          64000,
-		EncoderType:         compressionhelpers.UseKMeansEncoder,
+		EncoderType:         compression.UseKMeansEncoder,
 		EncoderDistribution: uint8(0),
 		Encoders:            encoders,
 		UseBitsEncoding:     false,
@@ -1191,6 +1194,144 @@ func TestCondensorCrashSafety(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, fsyncCalled)
 	})
+}
+
+func TestCondensorReleasesBuffersAfterDo(t *testing.T) {
+	// A condensor is created once per index and reused for every condense. Its
+	// 1MB write buffer must not survive a Do call, or every idle index would
+	// pin one buffer for its lifetime. The condensed file must be closed too, or
+	// a repeatedly failing condense leaks descriptors.
+	failWrite := func(b []byte) (int, error) {
+		return 0, errors.New("fake write error")
+	}
+
+	tests := []struct {
+		name     string
+		onWrite  func(b []byte) (int, error)
+		closeErr error
+		wantErr  bool
+	}{
+		{
+			name:    "successful condense",
+			wantErr: false,
+		},
+		{
+			name:    "condense fails mid-write",
+			onWrite: failWrite,
+			wantErr: true,
+		},
+		{
+			name:     "close fails",
+			closeErr: errors.New("fake close error"),
+			wantErr:  true,
+		},
+		{
+			name:     "condense fails mid-write and close fails",
+			onWrite:  failWrite,
+			closeErr: errors.New("fake close error"),
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+
+			var closes int
+			fs := common.NewTestFS()
+			fs.OnOpenFile = func(f common.File) common.File {
+				return &common.TestFile{
+					File:    f,
+					OnWrite: tt.onWrite,
+					OnClose: func() error {
+						closes++
+						if err := f.Close(); err != nil {
+							return err
+						}
+						return tt.closeErr
+					},
+				}
+			}
+
+			m, clFilename := newMemoryCondensor(t, rootPath, fs)
+
+			err := m.Do(clFilename)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Nil(t, m.newLog)
+			assert.Nil(t, m.newLogFile)
+			assert.Equal(t, 1, closes)
+		})
+	}
+}
+
+// BenchmarkCondensorRetainedMemory reports the heap a condensor keeps alive
+// after Do returns. Releasing the write buffer drops this from ~1MB per
+// condensor to near zero. To see the difference, run it against the pre-fix
+// code with a bounded count so that run does not retain b.N MB:
+//
+//	go test -tags integrationTest -run x -bench RetainedMemory -benchtime=200x
+func BenchmarkCondensorRetainedMemory(b *testing.B) {
+	rootPath := b.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	// Build one small uncondensed commit log and capture its bytes. Do consumes
+	// its input file, so each iteration condenses a fresh copy.
+	cl, err := NewCommitLogger(rootPath, "bench_src", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(b, err)
+	b.Cleanup(func() { cl.Shutdown(context.Background()) })
+
+	for id := 0; id < 4; id++ {
+		cl.AddNode(&vertex{id: uint64(id), level: 1})
+	}
+	cl.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3})
+	cl.SetEntryPointWithMaxLayer(0, 1)
+	require.NoError(b, cl.Flush())
+
+	srcName, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "bench_src"), common.NewOSFS())
+	require.NoError(b, err)
+	require.True(b, ok)
+	content, err := os.ReadFile(commitLogFileName(rootPath, "bench_src", srcName))
+	require.NoError(b, err)
+
+	files := make([]string, b.N)
+	for i := range files {
+		p := filepath.Join(rootPath, fmt.Sprintf("bench-%d.log", i))
+		require.NoError(b, os.WriteFile(p, content, 0o644))
+		files[i] = p
+	}
+
+	condensors := make([]*MemoryCondensor, 0, b.N)
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m := &MemoryCondensor{logger: logger, fs: common.NewOSFS(), bufferSize: 1024 * 1024}
+		require.NoError(b, m.Do(files[i]))
+		condensors = append(condensors, m)
+	}
+	b.StopTimer()
+
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	// Everything allocated before the baseline sample has to survive the second
+	// one as well, otherwise it counts towards before but not after and drags
+	// the reported delta below zero.
+	runtime.KeepAlive(content)
+	runtime.KeepAlive(files)
+	runtime.KeepAlive(condensors)
+
+	retained := (float64(after.HeapAlloc) - float64(before.HeapAlloc)) / float64(len(condensors))
+	b.ReportMetric(retained, "retained-B/condensor")
 }
 
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string, fileNames []string) {

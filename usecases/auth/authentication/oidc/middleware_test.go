@@ -13,6 +13,8 @@ package oidc
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -222,6 +224,127 @@ func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, cl
 	return token
 }
 
+func Test_Middleware_SkipTLSVerify_BuildsInsecureClient(t *testing.T) {
+	t.Run("InsecureSkipVerify is true when SkipTLSVerify is set", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		client := &Client{
+			Config: config.OIDC{
+				SkipTLSVerify: runtime.NewDynamicValue(true),
+			},
+			logger: logger.WithField("component", "oidc"),
+		}
+
+		httpClient, err := client.buildHTTPClient()
+		require.NoError(t, err)
+		require.NotNil(t, httpClient)
+
+		transport, ok := httpClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, transport.TLSClientConfig)
+		assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
+	})
+
+	t.Run("InsecureSkipVerify is false when SkipTLSVerify is not set", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		client := &Client{
+			Config: config.OIDC{
+				Certificate: runtime.NewDynamicValue(testingCertificate),
+			},
+			logger: logger.WithField("component", "oidc"),
+		}
+
+		httpClient, err := client.buildHTTPClient()
+		require.NoError(t, err)
+		require.NotNil(t, httpClient)
+
+		transport, ok := httpClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, transport.TLSClientConfig)
+		assert.False(t, transport.TLSClientConfig.InsecureSkipVerify)
+	})
+}
+
+func Test_Middleware_ValidateConfig(t *testing.T) {
+	t.Run("certificate and SkipTLSVerify set simultaneously returns error", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		client := &Client{
+			Config: config.OIDC{
+				Issuer:        runtime.NewDynamicValue("https://issuer.example.com"),
+				ClientID:      runtime.NewDynamicValue("my-client"),
+				UsernameClaim: runtime.NewDynamicValue("sub"),
+				Certificate:   runtime.NewDynamicValue(testingCertificate),
+				SkipTLSVerify: runtime.NewDynamicValue(true),
+			},
+			logger: logger.WithField("component", "oidc"),
+		}
+
+		err := client.validateConfig()
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "certificate and insecure_skip_tls_verify are mutually exclusive")
+	})
+}
+
+func Test_Middleware_SkipTLSVerify_WithTLSServer(t *testing.T) {
+	newTLSOIDCServer := func(t *testing.T) *httptest.Server {
+		t.Helper()
+		// We need to start with an empty handler so we can configure it once
+		// we know the URL (the issuer field must match).
+		s := httptest.NewUnstartedServer(nil)
+		s.StartTLS()
+		s.Config.Handler = oidcHandler(t, s.URL)
+		return s
+	}
+
+	t.Run("Init fails without SkipTLSVerify (self-signed cert rejected)", func(t *testing.T) {
+		server := newTLSOIDCServer(t)
+		defer server.Close()
+
+		cfg := config.Config{
+			Authentication: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					SkipTLSVerify:     runtime.NewDynamicValue(false),
+				},
+			},
+		}
+
+		logger, _ := logrustest.NewNullLogger()
+		_, err := New(cfg, logger)
+		require.Error(t, err, "expected TLS error connecting to OIDC server with self-signed cert")
+	})
+
+	t.Run("Init succeeds and token validates with SkipTLSVerify=true", func(t *testing.T) {
+		server := newTLSOIDCServer(t)
+		defer server.Close()
+
+		cfg := config.Config{
+			Authentication: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					SkipTLSVerify:     runtime.NewDynamicValue(true),
+				},
+			},
+		}
+
+		logger, _ := logrustest.NewNullLogger()
+		client, err := New(cfg, logger)
+		require.NoError(t, err)
+
+		tok := token(t, "best-user", server.URL, "best_client")
+		principal, err := client.ValidateAndExtract(tok, []string{})
+		require.NoError(t, err)
+		assert.Equal(t, "best-user", principal.Username)
+	})
+}
+
 func Test_Middleware_CertificateDownload(t *testing.T) {
 	newClientWithCertificate := func(certificate string) (*Client, *logrustest.Hook) {
 		logger, loggerHook := logrustest.NewNullLogger()
@@ -242,17 +365,21 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 	}
 
 	verifyLogs := func(t *testing.T, loggerHook *logrustest.Hook, certificateSource string) {
+		t.Helper()
 		for _, logEntry := range loggerHook.AllEntries() {
-			assert.Contains(t, logEntry.Message, "custom certificate is valid")
-			assert.Contains(t, logEntry.Data["source"], certificateSource)
-			assert.Contains(t, logEntry.Data["action"], "oidc_init")
-			assert.Contains(t, logEntry.Data["component"], "oidc")
+			if logEntry.Message == "custom certificate is valid" {
+				assert.Contains(t, logEntry.Data["source"], certificateSource)
+				assert.Contains(t, logEntry.Data["action"], "oidc_init")
+				assert.Contains(t, logEntry.Data["component"], "oidc")
+				return
+			}
 		}
+		t.Error("expected log entry 'custom certificate is valid' not found")
 	}
 
 	t.Run("certificate string", func(t *testing.T) {
 		client, loggerHook := newClientWithCertificate(testingCertificate)
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
 		verifyLogs(t, loggerHook, "environment variable")
@@ -263,7 +390,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		defer certificateServer.Close()
 		source := certificateURL(certificateServer)
 		client, loggerHook := newClientWithCertificate(source)
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
 		verifyLogs(t, loggerHook, source)
@@ -271,7 +398,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 
 	t.Run("unparseable string", func(t *testing.T) {
 		client, _ := newClientWithCertificate("unparseable")
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.Nil(t, clientWithCertificate)
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "failed to decode certificate")

@@ -79,13 +79,12 @@ func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	var err error
 
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminRole := "admin"
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("get all roles to check if i have perm.", func(t *testing.T) {
@@ -176,7 +175,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("get all roles before create", func(t *testing.T) {
@@ -304,12 +303,10 @@ func TestAuthzRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRoleName := "testRole"
 	testUser := "test-user"
-	testKey := "test-key"
 
 	testRole := &models.Role{
 		Name: &testRoleName,
@@ -321,7 +318,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 		}},
 	}
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{testUser: testKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("get all roles before create", func(t *testing.T) {
@@ -357,7 +354,6 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 }
 
 func TestAuthzRolesMultiNodeJourney(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRole := "testRole"
@@ -370,17 +366,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	compose, down := composeUpSharedCluster(t)
+	defer down()
 
 	t.Run("add role while 1 node is down", func(t *testing.T) {
 		t.Run("get all roles before create", func(t *testing.T) {
@@ -388,8 +375,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 			require.Equal(t, NumBuildInRoles, len(roles))
 		})
 
-		t.Run("StopNode-3", func(t *testing.T) {
-			require.Nil(t, compose.StopAt(ctx, 2, nil))
+		t.Run("StopNode-2", func(t *testing.T) {
+			require.Nil(t, compose.StopNode(ctx, 2, nil))
 		})
 
 		t.Run("create role", func(t *testing.T) {
@@ -402,8 +389,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 			})
 		})
 
-		t.Run("StartNode-3", func(t *testing.T) {
-			require.Nil(t, compose.StartAt(ctx, 2))
+		t.Run("StartNode-2", func(t *testing.T) {
+			require.Nil(t, compose.StartNode(ctx, 2))
 		})
 
 		helper.SetupClient(compose.GetWeaviateNode3().URI())
@@ -442,15 +429,13 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 }
 
 func TestAuthzRolesHasPermission(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	customUser := "custom-user"
 	customKey := "custom-key"
 
 	testRole := "testRole"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create role", func(t *testing.T) {
@@ -502,7 +487,6 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 }
 
 func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRole := "testRole"
@@ -510,20 +494,11 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
+	compose, down := composeUpSharedCluster(t)
+	defer down()
 
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
-
-	t.Run("StopNode-3", func(t *testing.T) {
-		require.Nil(t, compose.StopAt(ctx, 2, nil))
+	t.Run("StopNode-2", func(t *testing.T) {
+		require.Nil(t, compose.StopNode(ctx, 2, nil))
 	})
 
 	t.Run("create role", func(t *testing.T) {
@@ -561,8 +536,8 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 		require.True(t, res.Payload)
 	})
 
-	t.Run("StartNode-3", func(t *testing.T) {
-		require.Nil(t, compose.StartAt(ctx, 2))
+	t.Run("StartNode-2", func(t *testing.T) {
+		require.Nil(t, compose.StartNode(ctx, 2))
 	})
 
 	t.Run("permission in 3 without waiting", func(t *testing.T) {
@@ -581,11 +556,10 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 func TestAuthzEmptyRole(t *testing.T) {
 	var err error
 
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customEmptyRole := "customEmpty"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create empty role", func(t *testing.T) {
@@ -608,13 +582,12 @@ func TestAuthzEmptyRole(t *testing.T) {
 func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
 	var err error
 
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customRole := "customRole"
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create role", func(t *testing.T) {
@@ -680,7 +653,6 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 	var err error
 
 	// Setup users
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -694,11 +666,7 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 	broaderRole := "broader-role"
 
 	// Start environment with admin and limited user
-	_, down := composeUp(t,
-		map[string]string{adminUser: adminKey},     // admin users
-		map[string]string{limitedUser: limitedKey}, // regular users
-		nil,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	// Clean up any existing test roles
@@ -912,7 +880,6 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 }
 
 func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -926,11 +893,7 @@ func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
 	allowedTenant := "tenant1"
 	restrictedTenant := "tenant2"
 
-	_, down := composeUp(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{limitedUser: limitedKey},
-		nil,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("setup collection with tenants", func(t *testing.T) {
@@ -1061,19 +1024,9 @@ func TestRaceConcurrentRoleCreation(t *testing.T) {
 
 func TestRolesUserExistence(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
-		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
+	_, down := composeUpShared(t)
+	defer down()
 
 	roleName := "role1"
 	helper.DeleteRole(t, adminKey, roleName)
@@ -1132,21 +1085,11 @@ func TestRolesUserExistence(t *testing.T) {
 
 func TestGetRolesForUserPermission(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 
 	customUser := "custom-user"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "a").WithDbUsers().
-		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
+	_, down := composeUpShared(t)
+	defer down()
 
 	all := "*"
 

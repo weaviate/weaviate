@@ -23,6 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -266,7 +268,7 @@ func (h *hnsw) setDimensionsFromEntrypoint() {
 	}
 }
 
-func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
 	h.dims.Store(int32(data.InputDim))
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
@@ -314,8 +316,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 	return err
 }
 
-func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
-	// note we cannot restore h.dims directly from InputDim due to RQ1's min padding
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -449,6 +450,13 @@ func (h *hnsw) multiVectorForNodeID(ctx context.Context, nodeID uint64) ([]float
 	docID, relativeID := h.compressor.GetKeys(nodeID)
 	vecs, err := h.MultiVectorForIDThunk(ctx, docID)
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			// key not-found errors by the requested node id, not the internal
+			// docID fetch
+			return nil, storobj.NewErrNotFoundf(nodeID,
+				"multi-vector recovery (docID %d): %v", docID, err)
+		}
 		return nil, errors.Wrapf(err, "multi-vector recovery for nodeID %d (docID %d)", nodeID, docID)
 	}
 	if int(relativeID) >= len(vecs) {
@@ -467,29 +475,28 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 		// allocChecker is optional, we can only check if it was actually set
 
 		// It's hard to estimate how much memory we'd need to do a successful
-		// hnsw delete cleanup. The value below is probalby vastly overstated.
+		// hnsw delete cleanup. The value below is probably vastly overstated.
 		// However, without a doubt, delete cleanup could lead to temporary
 		// memory increases, either because it loads vectors into cache or
 		// because it rewrites connections in a way that they could need more
 		// memory than before. Either way, it's probably a good idea not to
 		// start a cleanup cycle if we are already this close to running out of
 		// memory.
-		memoryNeeded := int64(100 * 1024 * 1024)
+		memoryNeeded := int64(tombstoneCleanupMemoryNeeded)
 
 		if err := h.allocChecker.CheckAlloc(memoryNeeded); err != nil {
 			h.logger.WithFields(logrus.Fields{
 				"action": "hnsw_tombstone_cleanup",
 				"event":  "cleanup_skipped_oom",
 				"class":  h.className,
-			}).WithError(err).
-				Warnf("skipping hnsw cleanup due to memory pressure")
+			}).Warnf("skipping hnsw cleanup due to memory pressure: %v", err)
 			return false
 		}
 	}
 	executed, err := h.cleanUpTombstonedNodes(shouldAbort)
 	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
-			WithError(err).Error("tombstone cleanup errord")
+			Error(err)
 	}
 	return executed
 }
@@ -530,7 +537,13 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
+	ctx, cancelPrefill := context.WithCancel(ctx)
+	stopOnIndexShutdown := context.AfterFunc(h.shutdownCtx, cancelPrefill)
+
 	prefillCacheFunc := func() {
+		defer stopOnIndexShutdown()
+		defer cancelPrefill()
+
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
 			"duration": 60 * time.Minute,
@@ -543,8 +556,12 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
+		} else if h.useParallelPrefill() {
+			// Unbounded uncompressed cache: scan the objects bucket with a parallel
+			// cursor instead of looking up every vector by id (disk-seek bound).
+			err = h.prefillCacheParallel(ctx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}
 
 		if err != nil {
@@ -565,6 +582,10 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		enterrors.GoWrapper(prefillCacheFunc, h.logger)
+		h.prefillWg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer h.prefillWg.Done()
+			prefillCacheFunc()
+		}, h.logger)
 	}
 }

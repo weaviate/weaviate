@@ -28,14 +28,30 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
-	MachineID        strfmt.UUID `json:"machineId"`
-	Type             string      `json:"type"`
-	Version          string      `json:"version"`
-	ObjectsCount     int64       `json:"objs"`
-	OS               string      `json:"os"`
-	Arch             string      `json:"arch"`
-	UsedModules      []string    `json:"usedModules,omitempty"`
-	CollectionsCount int         `json:"collectionsCount"`
-	CloudProvider    *string     `json:"cloudProvider,omitempty"`
-	UniqueID         *string     `json:"uniqueID,omitempty"`
+	MachineID        strfmt.UUID                     `json:"machineId"`
+	Type             string                          `json:"type"`
+	Version          string                          `json:"version"`
+	ObjectsCount     int64                           `json:"objs"`
+	OS               string                          `json:"os"`
+	Arch             string                          `json:"arch"`
+	UsedModules      []string                        `json:"usedModules,omitempty"`
+	CollectionsCount int                             `json:"collectionsCount"`
+	ClientUsage      map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
+	CloudProvider    *string                         `json:"cloudProvider,omitempty"`
+	UniqueID         *string                         `json:"uniqueID,omitempty"`
+
+	// NodeID is CLUSTER_HOSTNAME (the raft node name): a stable per-node identity.
+	NodeID string `json:"nodeId,omitempty"`
+	// ClusterID is the UUID committed once per cluster lifetime via raft.
+	ClusterID string `json:"clusterId,omitempty"`
+
+	// Pointers so a measured zero/false serializes instead of being dropped by
+	// omitempty; nil means unmeasured.
+	NodeCount                  *int           `json:"nodeCount,omitempty"`
+	MaxReplicationFactor       *int           `json:"maxReplicationFactor,omitempty"`
+	ReplicationEnabled         *bool          `json:"replicationEnabled,omitempty"`
+	MTCollectionCount          *int           `json:"mtCollectionCount,omitempty"`
+	NamedVectorCollectionCount *int           `json:"namedVectorCollectionCount,omitempty"`
+	AsyncIndexingEnabled       *bool          `json:"asyncIndexingEnabled,omitempty"`
+	VectorIndexTypeCounts      map[string]int `json:"vectorIndexTypeCounts,omitempty"`
 }

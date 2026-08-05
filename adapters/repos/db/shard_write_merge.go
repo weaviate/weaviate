@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -125,19 +126,20 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
+	// Wait outside the RLock; see shard_write_put.go (calling it under RLock is a recursive read-lock deadlock).
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
+		return nil, objectInsertStatus{}, err
+	}
+
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
 
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
-
 		lock.Lock()
 		defer lock.Unlock()
 
+		var err error
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
@@ -214,13 +216,13 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
+	// Wait outside the RLock; see shard_write_put.go (calling it under RLock is a recursive read-lock deadlock).
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return out, err
 	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
@@ -290,11 +292,12 @@ func (s *Shard) mergeObjectData(prevObj *storobj.Object,
 		prevObj.SetID(merge.ID)
 	}
 
-	return mergeProps(prevObj, merge), prevObj, nil
+	return mergeProps(prevObj, merge, s.class), prevObj, nil
 }
 
 func mergeProps(previous *storobj.Object,
 	merge objects.MergeDocument,
+	cls *models.Class,
 ) *storobj.Object {
 	next := previous.DeepCopyDangerous()
 	properties, ok := next.Properties().(map[string]interface{})
@@ -320,7 +323,14 @@ func mergeProps(previous *storobj.Object,
 			propParsed = models.MultipleRef{}
 		}
 		propParsed = append(propParsed, ref.To.SingleRef())
+		if prop, err := schema.GetPropertyByName(cls, ref.From.Property.String()); err == nil {
+			if prop.DisableDuplicatedReferences != nil && *prop.DisableDuplicatedReferences {
+				properties[propName] = dedupRefs(propParsed)
+				continue
+			}
+		}
 		properties[propName] = propParsed
+
 	}
 
 	if merge.Vector == nil {
@@ -341,6 +351,19 @@ func mergeProps(previous *storobj.Object,
 	next.SetProperties(properties)
 
 	return next
+}
+
+func dedupRefs(refs models.MultipleRef) models.MultipleRef {
+	seen := make(map[string]struct{})
+	var deduped models.MultipleRef
+	for _, ref := range refs {
+		key := fmt.Sprintf("%s|%s", ref.Beacon, ref.Class)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			deduped = append(deduped, ref)
+		}
+	}
+	return deduped
 }
 
 func vectorsAsMap(in models.Vectors) map[string][]float32 {

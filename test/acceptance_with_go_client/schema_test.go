@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 type testCase struct {
@@ -31,7 +33,7 @@ type testCase struct {
 
 func TestSchemaCasingClass(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className1 := "RandomGreenCar"

@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBackend_StoreBackup(t *testing.T) {
@@ -51,4 +52,49 @@ func TestBackend_StoreBackup(t *testing.T) {
 		_, err = os.Stat(backupAbsolutePath)
 		assert.Nil(t, err)
 	})
+}
+
+func TestResolvePath(t *testing.T) {
+	tests := []struct {
+		name         string
+		backupsPath  string
+		overridePath string
+		wantPath     string
+		wantErr      string
+	}{
+		{
+			name:        "uses config path when no override",
+			backupsPath: "/var/backups",
+			wantPath:    "/var/backups",
+		},
+		{
+			name:         "override replaces config path",
+			backupsPath:  "/var/backups",
+			overridePath: "/tmp/exports",
+			wantPath:     "/tmp/exports",
+		},
+		{
+			name:    "empty config path without override returns error",
+			wantErr: "backup path must not be empty",
+		},
+		{
+			name:         "empty config path with override succeeds",
+			overridePath: "/tmp/exports",
+			wantPath:     "/tmp/exports",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Module{backupsPath: tt.backupsPath}
+			p, err := m.resolvePath(tt.overridePath)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantPath, p)
+			}
+		})
+	}
 }

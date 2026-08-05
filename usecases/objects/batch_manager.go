@@ -52,7 +52,7 @@ type batchRepoNew interface {
 		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchReferences, error)
 }
 
-// NewBatchManager creates a new manager
+// NewBatchManager creates a new manager.
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
