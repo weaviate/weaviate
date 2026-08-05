@@ -260,37 +260,63 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 				cause: err,
 			}
 		}
-		wanted := make(map[string]struct{}, len(collections))
-		for _, c := range collections {
-			wanted[strings.ToLower(c)] = struct{}{}
-		}
+		wanted := lowercasedSet(collections)
 		for _, task := range tasksByNamespace[ReindexNamespace] {
-			var payload ReindexTaskPayload
-			if err := json.Unmarshal(task.Payload, &payload); err != nil {
-				return redactedOverlapErr{
-					msg:   "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
-					cause: err,
-				}
+			collection, overlaps, err := reindexTaskOverlaps(task, wanted, since)
+			if err != nil {
+				return err
 			}
-			if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
-				continue
+			if overlaps {
+				return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+					entitiesbackup.ErrBackupSpannedReindex, collection)
 			}
-			if !IsLiveReindexTaskStatus(task.Status) {
-				if task.Status == distributedtask.TaskStatusCancelled && !reindexTaskTouchedShards(task) {
-					// A cancelled task that never claimed a unit wrote nothing,
-					// so it cannot have spanned this backup. One is produced on
-					// purpose by the submit path's post-commit rollback.
-					continue
-				}
-				if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
-					continue
-				}
-			}
-			return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-				entitiesbackup.ErrBackupSpannedReindex, payload.Collection)
 		}
 		return nil
 	}
+}
+
+// lowercasedSet indexes the collection names for the case-insensitive match
+// against task payloads.
+func lowercasedSet(collections []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(collections))
+	for _, c := range collections {
+		set[strings.ToLower(c)] = struct{}{}
+	}
+	return set
+}
+
+// reindexTaskOverlaps applies the overlap rules to a single task: it overlaps
+// when it targets one of the wanted collections and is either still running or
+// reached a terminal status at or after since, equal timestamps counting as
+// overlap. The returned collection name is the payload's, for the refusal
+// message; it is only meaningful when overlaps is true.
+//
+// A non-nil error means the task payload could not be read, so overlap can no
+// longer be ruled out; the caller fails closed on it.
+func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
+	var payload ReindexTaskPayload
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		return "", false, redactedOverlapErr{
+			msg:   "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
+			cause: err,
+		}
+	}
+	if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
+		return "", false, nil
+	}
+	if IsLiveReindexTaskStatus(task.Status) {
+		return payload.Collection, true, nil
+	}
+	if task.Status == distributedtask.TaskStatusCancelled && !reindexTaskTouchedShards(task) {
+		// A cancelled task that never claimed a unit wrote nothing, so it
+		// cannot have spanned this backup. One is produced on purpose by the
+		// submit path's post-commit rollback.
+		return "", false, nil
+	}
+	if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
+		return "", false, nil
+	}
+	return payload.Collection, true, nil
 }
 
 // reindexTaskTouchedShards reports whether any unit of the task ever left
