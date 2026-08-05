@@ -1350,8 +1350,8 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 
-	if !s.hashtreeFullyInitialized {
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
 	}
 
 	if height := s.hashtree.Height(); level > height {

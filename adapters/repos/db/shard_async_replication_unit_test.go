@@ -226,22 +226,27 @@ func TestShardHashTreeLevel(t *testing.T) {
 
 	t.Run("rejections", func(t *testing.T) {
 		testCases := []struct {
-			name  string
-			shard *Shard
-			level int
-			disc  *hashtree.Bitset
+			name      string
+			shard     *Shard
+			level     int
+			disc      *hashtree.Bitset
+			wantErrIs error
 		}{
-			{"negative level", s, -1, hashtree.NewBitset(1).Set(0)},
-			{"level above maximum height", s, maxHashtreeHeight + 1, hashtree.NewBitset(1).Set(0)},
-			{"level above tree height", s, height + 1, hashtree.NewBitset(1).Set(0)},
-			{"nil discriminant", s, 0, nil},
-			{"wrong discriminant size", s, 2, hashtree.NewBitset(1).Set(0)},
-			{"hashtree not initialized", &Shard{index: &Index{}}, 0, hashtree.NewBitset(1).Set(0)},
+			{"negative level", s, -1, hashtree.NewBitset(1).Set(0), nil},
+			{"level above maximum height", s, maxHashtreeHeight + 1, hashtree.NewBitset(1).Set(0), nil},
+			{"level above tree height", s, height + 1, hashtree.NewBitset(1).Set(0), nil},
+			{"nil discriminant", s, 0, nil, nil},
+			{"wrong discriminant size", s, 2, hashtree.NewBitset(1).Set(0), nil},
+			{"nil hashtree", &Shard{index: &Index{}}, 0, hashtree.NewBitset(1).Set(0), errAsyncReplicationNotActive},
+			{"hashtree not fully initialized", &Shard{index: &Index{}, hashtree: ht}, 0, hashtree.NewBitset(1).Set(0), errAsyncReplicationNotActive},
 		}
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				_, err := tc.shard.HashTreeLevel(ctx, tc.level, tc.disc)
 				require.Error(t, err)
+				if tc.wantErrIs != nil {
+					require.ErrorIs(t, err, tc.wantErrIs)
+				}
 			})
 		}
 	})
