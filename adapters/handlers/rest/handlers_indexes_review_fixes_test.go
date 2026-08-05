@@ -292,7 +292,7 @@ func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 		gateAtCommit.Store(provider.AnyCleanupInProgressForCollection(collection))
 	}
 
-	h := raceHandlers(t, svc, prober)
+	h := submissionHandlers(t, svc, prober)
 	h.appState.ReindexProvider = provider
 
 	require.False(t, provider.AnyCleanupInProgressForCollection(collection))

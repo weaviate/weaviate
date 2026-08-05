@@ -184,54 +184,12 @@ func TestScanBackupActivityDeterministic(t *testing.T) {
 	}
 }
 
+// Each case checks two things about the refusal: it carries the right message,
+// and it withholds privileged detail. Node names, backup IDs, and peer
+// addresses must never leak into a response requiring only update_collections,
+// so the scans below use realistic values and every one of them is asserted
+// absent from the message.
 func TestBackupActivityResponder(t *testing.T) {
-	principal := &models.Principal{Username: "alice"}
-
-	t.Run("clear", func(t *testing.T) {
-		assert.Nil(t, backupActivityResponder(principal, backupActivityScan{}))
-	})
-
-	t.Run("busy", func(t *testing.T) {
-		responder := backupActivityResponder(principal, backupActivityScan{
-			BusyNode: "node2",
-			Activity: backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindRestore, ID: "restore-9"},
-		})
-
-		conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
-		require.True(t, ok, "expected a 409 responder, got %T", responder)
-		msg := errorMessage(t, conflict.Payload)
-		assert.Equal(t, "reindex blocked: a restore is running in the cluster; retry after it finishes", msg)
-	})
-
-	t.Run("unreachable", func(t *testing.T) {
-		responder := backupActivityResponder(principal, backupActivityScan{
-			UnreachableNode: "node3",
-			UnreachableErr:  assert.AnError,
-		})
-
-		unavailable, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
-		require.True(t, ok, "expected a 503 responder, got %T", responder)
-		msg := errorMessage(t, unavailable.Payload)
-		assert.Equal(t, "reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers", msg)
-	})
-
-	t.Run("busy outranks unreachable", func(t *testing.T) {
-		responder := backupActivityResponder(principal, backupActivityScan{
-			BusyNode:        "node2",
-			Activity:        backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1"},
-			UnreachableNode: "node3",
-			UnreachableErr:  assert.AnError,
-		})
-
-		conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
-		require.True(t, ok, "expected a 409 responder, got %T", responder)
-		assert.Contains(t, errorMessage(t, conflict.Payload), "a backup is running in the cluster")
-	})
-}
-
-// TestBackupActivityResponderWithholdsPrivilegedDetail pins that node names, backup
-// IDs, and peer addresses never leak into a response requiring only update_collections.
-func TestBackupActivityResponderWithholdsPrivilegedDetail(t *testing.T) {
 	principal := &models.Principal{Username: "alice"}
 	probeErr := &url.Error{
 		Op:  "Get",
@@ -239,48 +197,60 @@ func TestBackupActivityResponderWithholdsPrivilegedDetail(t *testing.T) {
 		Err: errors.New("dial tcp 10.42.7.13:7947: connect: connection refused"),
 	}
 
+	t.Run("clear", func(t *testing.T) {
+		assert.Nil(t, backupActivityResponder(principal, backupActivityScan{}))
+	})
+
 	tests := []struct {
-		name string
-		scan backupActivityScan
+		name         string
+		scan         backupActivityScan
+		wantConflict bool
+		wantMsg      string
 	}{
 		{
-			name: "busy node",
+			name: "busy",
 			scan: backupActivityScan{
 				BusyNode: "weaviate-2",
-				Activity: backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindBackup, ID: "nightly-2026-08-04"},
+				Activity: backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindRestore, ID: "nightly-2026-08-04"},
 			},
+			wantConflict: true,
+			wantMsg:      "reindex blocked: a restore is running in the cluster; retry after it finishes",
 		},
 		{
-			name: "unreachable node",
-			scan: backupActivityScan{UnreachableNode: "weaviate-2", UnreachableErr: probeErr},
+			name:    "unreachable",
+			scan:    backupActivityScan{UnreachableNode: "weaviate-2", UnreachableErr: probeErr},
+			wantMsg: "reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers",
 		},
 		{
-			name: "busy and unreachable",
+			name: "busy outranks unreachable",
 			scan: backupActivityScan{
 				BusyNode:        "weaviate-2",
-				Activity:        backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindRestore, ID: "nightly-2026-08-04"},
+				Activity:        backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindBackup, ID: "nightly-2026-08-04"},
 				UnreachableNode: "weaviate-3",
 				UnreachableErr:  probeErr,
 			},
+			wantConflict: true,
+			wantMsg:      "reindex blocked: a backup is running in the cluster; retry after it finishes",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			responder := backupActivityResponder(principal, tt.scan)
-			require.NotNil(t, responder)
 
 			var payload *models.ErrorResponse
-			switch r := responder.(type) {
-			case *schema.SchemaObjectsIndexesUpdateConflict:
-				payload = r.Payload
-			case *schema.SchemaObjectsIndexesUpdateServiceUnavailable:
-				payload = r.Payload
-			default:
-				t.Fatalf("unexpected responder %T", responder)
+			if tt.wantConflict {
+				conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
+				require.Truef(t, ok, "expected a 409 responder, got %T", responder)
+				payload = conflict.Payload
+			} else {
+				unavailable, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
+				require.Truef(t, ok, "expected a 503 responder, got %T", responder)
+				payload = unavailable.Payload
 			}
 
 			msg := errorMessage(t, payload)
+			assert.Equal(t, tt.wantMsg, msg)
 			for _, secret := range []string{"weaviate-2", "weaviate-3", "nightly-2026-08-04", "10.42.7.13", "7947"} {
 				assert.NotContains(t, msg, secret)
 			}
