@@ -694,10 +694,15 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
 		// Detached from the request on the same posture as the cancel handler's
-		// sweep: a disconnect part-way through leaves the sidecar buckets
-		// deregistered with started.mig still on disk. This sweep is itself the
-		// retry for state an earlier run left behind, so failing it for a
-		// reason we control just defers the work to the run after this one.
+		// sweep: this sweep is the retry for state an earlier run left behind,
+		// so failing it for a reason we control just defers the work again.
+		//
+		// Narrower than the cancel-path detach, and worth knowing which case it
+		// covers: the sweep consults its context only inside ShutdownBucket, so
+		// it can be cancelled only while sidecar buckets are still loaded — the
+		// shape a crash leaves. Once they are deregistered, the steps that
+		// remove started.mig never look at the context, and detaching it buys
+		// nothing. See [Shard.CleanStalePartialReindexState].
 		cleanupCtx, cancelCleanup := context.WithTimeout(
 			context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 		defer cancelCleanup()
