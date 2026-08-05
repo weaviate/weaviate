@@ -16,9 +16,8 @@ import (
 )
 
 // The three functions below decide what may happen to a namespace's shards in a
-// given state. None has a default: arm, so adding a state without deciding it
-// here fails the exhaustive linter. The return after each switch is the closed
-// answer, for a state this binary doesn't know.
+// given state. No switch has a default: arm, so a new state fails the exhaustive
+// linter; the return after each switch answers a state this binary doesn't know.
 
 // ShardsShouldBeOpen reports whether this namespace's state allows a node to
 // hold its shards open. A resuming namespace allows it: the shards have to
@@ -41,17 +40,7 @@ func ShardsShouldBeOpen(state cmd.NamespaceState) bool {
 // namespace's shards. Resuming is refused even though its shards stay open: the
 // namespace is not serving requests yet, so only the resume path may load them.
 func RequireShardLoadable(state cmd.NamespaceState) error {
-	switch state {
-	case cmd.NamespaceStateActive:
-		return nil
-	case cmd.NamespaceStateSuspended:
-		return ErrNamespaceSuspended
-	case cmd.NamespaceStateResuming:
-		return ErrNamespaceResuming
-	case cmd.NamespaceStateDeleting:
-		return ErrNamespaceDeleting
-	}
-	return ErrInvalidState
+	return stateError(state)
 }
 
 // AdmitReplicationTarget returns nil in every state but deleting, so suspending

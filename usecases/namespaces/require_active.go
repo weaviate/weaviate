@@ -26,7 +26,14 @@ func RequireActive(e Exister, name string) error {
 	if !ok {
 		return ErrNamespaceGone
 	}
-	switch ns.State {
+	return stateError(ns.State)
+}
+
+// stateError returns nil for the active state and the sentinel for every other.
+// No default: arm, so a new state fails the exhaustive linter until decided
+// here; the trailing return answers a state this binary doesn't know.
+func stateError(state cmd.NamespaceState) error {
+	switch state {
 	case cmd.NamespaceStateActive:
 		return nil
 	case cmd.NamespaceStateSuspended:
@@ -35,7 +42,6 @@ func RequireActive(e Exister, name string) error {
 		return ErrNamespaceResuming
 	case cmd.NamespaceStateDeleting:
 		return ErrNamespaceDeleting
-	default:
-		return ErrInvalidState
 	}
+	return ErrInvalidState
 }
