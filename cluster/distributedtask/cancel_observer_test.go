@@ -12,11 +12,13 @@
 package distributedtask
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -397,7 +399,13 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 // re-registering does not help. One namespace's bug then silences cancels for
 // every namespace until the process restarts.
 func TestCancelDrainerSurvivesAPanickingObserver(t *testing.T) {
-	h := newTestHarness(t).init(t)
+	h := newTestHarness(t)
+	// The recovered panic is the only evidence an operator gets that an
+	// observer is broken: the drainer swallows it and carries on, so without
+	// the log line the namespace looks healthy while its cancels vanish.
+	logger, hook := logrustest.NewNullLogger()
+	h.logger = logger
+	h.init(t)
 	defer h.manager.Close()
 
 	var rec observerRecorder
@@ -441,4 +449,25 @@ func TestCancelDrainerSurvivesAPanickingObserver(t *testing.T) {
 	require.Eventually(t, func() bool { return rec.count() == 1 },
 		10*time.Second, 10*time.Millisecond,
 		"the drainer died with the panicking observer, so no later cancel is ever observed again")
+
+	var panicEntry *logrus.Entry
+	require.Eventuallyf(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "cancel observer panicked") {
+				panicEntry = e
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond,
+		"a swallowed observer panic must be logged; entries seen: %v", hook.AllEntries())
+
+	require.Equal(t, logrus.ErrorLevel, panicEntry.Level,
+		"below Error the only signal that an observer is broken does not reach an operator")
+	require.Equal(t, observerNamespace, panicEntry.Data["namespace"],
+		"the log must name the namespace whose observer panicked; every other one still works")
+	require.Equal(t, observerTaskID, panicEntry.Data["task_id"],
+		"the log must name the task whose cancel was dropped")
+	require.Contains(t, panicEntry.Message, "observer blew up",
+		"the panic value is what identifies the bug; a message without it is not actionable")
 }
