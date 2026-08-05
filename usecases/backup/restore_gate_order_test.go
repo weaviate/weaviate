@@ -15,10 +15,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
@@ -68,5 +70,75 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 		require.Error(t, err)
 		assert.IsType(t, backup.ErrNotFound{}, err,
 			"the gate must not turn a genuinely unknown id into anything else")
+	})
+}
+
+// A restore that names no classes takes its own path through Restore: the class
+// list only exists once the meta is read, so the gate sits after the meta read
+// instead of before it. It still has to refuse, and refuse before any of the
+// backup's schema is pulled.
+func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
+	ctx := context.Background()
+	const (
+		backupID    = "1"
+		backendName = "s3"
+		homePath    = "bucket/backups/1"
+		node        = "Node-A"
+		class       = "Movies"
+	)
+
+	newFixture := func() *fakeScheduler {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		meta := backup.DistributedBackupDescriptor{
+			ID:            backupID,
+			StartedAt:     time.Now().UTC(),
+			Version:       Version,
+			ServerVersion: "1.23",
+			Status:        backup.Success,
+			Nodes:         map[string]*backup.NodeDescriptor{node: {Classes: []string{class}}},
+		}
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(homePath)
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).
+			Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).
+			Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID+"/"+node, BackupFile).
+			Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID, BackupFile).
+			Return(nil, backup.ErrNotFound{})
+		return fs
+	}
+
+	t.Run("a live reindex refuses the restore", func(t *testing.T) {
+		fs := newFixture()
+		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      backupID,
+		}, false)
+
+		require.Error(t, err)
+		assert.IsTypef(t, backup.ErrUnprocessable{}, err,
+			"a blocked restore is retryable, so 422; got %v", err)
+		assert.Contains(t, err.Error(), "restore blocked")
+		fs.backend.AssertNotCalled(t, "GetObject", ctx, backupID+"/"+node, BackupFile)
+	})
+
+	t.Run("without a live reindex the restore proceeds past the gate", func(t *testing.T) {
+		fs := newFixture()
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      backupID,
+		}, false)
+		// It fails further along on the missing per-node meta; what matters is
+		// that the gate is not what stopped it, and that the schema was read.
+		if err != nil {
+			assert.NotContains(t, err.Error(), "restore blocked",
+				"an idle cluster must not be refused by the reindex gate")
+		}
+		fs.backend.AssertCalled(t, "GetObject", ctx, backupID+"/"+node, BackupFile)
 	})
 }

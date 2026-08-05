@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type stubCleanupProber struct {
@@ -121,6 +122,60 @@ func TestInternalReindexCleanupActivityRejectsNonGET(t *testing.T) {
 
 			assert.Equal(t, http.StatusMethodNotAllowed, res.StatusCode,
 				"a read-only probe must not answer writes")
+		})
+	}
+}
+
+// The route reports cluster-internal state, so it must sit behind the same
+// basic auth as every other internal route: an unauthenticated caller is
+// refused before the prober is ever asked.
+func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
+	const (
+		user = "alice"
+		pass = "s3cret"
+	)
+	auth := clusterapi.NewBasicAuthHandler(cluster.AuthConfig{
+		BasicAuth: cluster.BasicAuth{Username: user, Password: pass},
+	})
+
+	tests := []struct {
+		name       string
+		setAuth    bool
+		user, pass string
+		wantStatus int
+		wantAsked  string
+	}{
+		{name: "no credentials", wantStatus: http.StatusUnauthorized},
+		{name: "wrong user", setAuth: true, user: "mallory", pass: pass, wantStatus: http.StatusUnauthorized},
+		{name: "wrong password", setAuth: true, user: user, pass: "guess", wantStatus: http.StatusUnauthorized},
+		{
+			name: "correct credentials", setAuth: true, user: user, pass: pass,
+			wantStatus: http.StatusOK, wantAsked: "Movies",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prober := &stubCleanupProber{}
+			handler := clusterapi.NewReindexCleanup(
+				func() clusterapi.ReindexCleanupProber { return prober }, auth, nil)
+			server := httptest.NewServer(handler.Activity())
+			defer server.Close()
+
+			req, err := http.NewRequest(http.MethodGet,
+				server.URL+"/reindex/cleanup-activity?collection=Movies", nil)
+			require.NoError(t, err)
+			if tt.setAuth {
+				req.SetBasicAuth(tt.user, tt.pass)
+			}
+
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			require.Equal(t, tt.wantStatus, res.StatusCode)
+			assert.Equal(t, tt.wantAsked, prober.asked,
+				"a refused caller must not reach the prober")
 		})
 	}
 }
