@@ -1227,9 +1227,11 @@ and both are logged:
   post-bootstrap goroutine in `configure_api.go`. Until it runs, the
   backup gate, the restore gate, the commit-time overlap check
   (`DB.RefuseIfReindexOverlapped`) and the reindex gate each allow the
-  operation and emit a one-time WARN. Production does not serve HTTP
-  until bootstrap completes, so no external request can land in this
-  window; a WARN in a production log means the wiring itself is broken.
+  operation and emit a WARN, rate-limited to one line per hour so a
+  persistent misconfiguration stays visible to whoever reads the log
+  next. Production does not serve HTTP until bootstrap completes, so no
+  external request can land in this window; a WARN in a production log
+  means the wiring itself is broken.
   The cleanup half of the backup gate is skipped without a WARN when
   only the activity lookup is installed, which is the shape module-test
   fixtures use.
