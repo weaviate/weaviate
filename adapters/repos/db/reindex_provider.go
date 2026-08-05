@@ -136,6 +136,10 @@ type ReindexProvider struct {
 	// workerExitGateCap overrides [reindexWorkerExitGateCap]; zero means the
 	// default. Shortening it is how the bound is reached without waiting it out.
 	workerExitGateCap time.Duration
+	// cancelConfirmWindow overrides [reindexCancelConfirmWindow]; zero means the
+	// default. Same purpose as workerExitGateCap: the window expiring is what a
+	// test has to observe, and waiting it out costs the default every run.
+	cancelConfirmWindow time.Duration
 	// terminalCleanupDrainTimeout overrides
 	// [reindexTerminalCleanupDrainTimeout]; zero means the default. Same
 	// purpose as workerExitGateCap: the timed-out drain is the branch that
@@ -259,6 +263,36 @@ func (p *ReindexProvider) shutdownCtx() context.Context {
 		return context.Background()
 	}
 	return p.serverCtx
+}
+
+// goroutineLogger is the logger the cancel-apply goroutines use. Same reason as
+// [ReindexProvider.shutdownCtx]: a provider built by a fixture rather than
+// [NewReindexProvider] carries a nil logger, and a nil deref on a goroutine
+// takes the whole process down instead of failing one operation.
+func (p *ReindexProvider) goroutineLogger() logrus.FieldLogger {
+	if p.logger == nil {
+		return logrus.New()
+	}
+	return p.logger
+}
+
+// ensureCancelMaps builds any of the [ReindexProvider.cancelAppliedMu] registries
+// a fixture-built provider left nil. Caller must hold cancelAppliedMu for writing.
+//
+// Same fixture-tolerance as [ReindexProvider.shutdownCtx], and it matters for the
+// same reason: every writer here runs on the cancel-apply path, which reaches
+// these maps from a goroutine, so a write into a nil map is a process kill rather
+// than a failed request.
+func (p *ReindexProvider) ensureCancelMaps() {
+	if p.cancelSeen == nil {
+		p.cancelSeen = make(map[string]int, 1)
+	}
+	if p.cancelApplyGates == nil {
+		p.cancelApplyGates = make(map[distributedtask.TaskDescriptor]func(), 1)
+	}
+	if p.cancelTeardownSettled == nil {
+		p.cancelTeardownSettled = make(map[distributedtask.TaskDescriptor]time.Time, 1)
+	}
 }
 
 func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCompletionRecorder) {
@@ -1956,9 +1990,8 @@ func (p *ReindexProvider) MarkSubmitInProgress(collection string) func() {
 
 	p.cleanupInProgressMu.Lock()
 	if p.submitInProgress == nil {
-		// Fixtures build the provider by literal; production goes through
-		// [NewReindexProvider]. Same nil tolerance the readers already have,
-		// which a write into a nil map would otherwise turn into a panic.
+		// Fixture tolerance, for the reason given on [ReindexProvider.ensureCancelMaps];
+		// this registry lives under a different mutex, so it is built here.
 		p.submitInProgress = make(map[reindexCleanupKey]int, 1)
 	}
 	p.submitInProgress[key]++
@@ -1983,10 +2016,9 @@ func (p *ReindexProvider) HoldForShard(collection, shard string) ReindexHold {
 	}
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
+	// The sweep is collection-wide by construction, so this is the only key
+	// [ReindexProvider.MarkSubmitInProgress] ever writes; shard is unused here.
 	if p.submitInProgress[newReindexCleanupKey(collection, cleanupWholeCollection)] > 0 {
-		return ReindexHoldSubmit
-	}
-	if p.submitInProgress[newReindexCleanupKey(collection, shard)] > 0 {
 		return ReindexHoldSubmit
 	}
 	return ReindexHoldNone
@@ -2600,13 +2632,19 @@ func cancelledTaskCollection(raw []byte) string {
 func (p *ReindexProvider) holdCancelSeen(collection string) {
 	folded := strings.ToLower(collection)
 
+	window := p.cancelConfirmWindow
+	if window <= 0 {
+		window = reindexCancelConfirmWindow
+	}
+
 	p.cancelAppliedMu.Lock()
+	p.ensureCancelMaps()
 	p.cancelSeen[folded]++
 	p.cancelAppliedMu.Unlock()
 
 	enterrors.GoWrapper(func() {
 		select {
-		case <-time.After(reindexCancelConfirmWindow):
+		case <-time.After(window):
 		case <-p.shutdownCtx().Done():
 		}
 		p.cancelAppliedMu.Lock()
@@ -2616,7 +2654,7 @@ func (p *ReindexProvider) holdCancelSeen(collection string) {
 			return
 		}
 		p.cancelSeen[folded]--
-	}, p.logger)
+	}, p.goroutineLogger())
 }
 
 // holdCleanupGateUntilTeardown closes the cleanup gate now and parks its release
@@ -2628,6 +2666,7 @@ func (p *ReindexProvider) holdCleanupGateUntilTeardown(
 	release := p.MarkCleanupInProgress(payload)
 
 	p.cancelAppliedMu.Lock()
+	p.ensureCancelMaps()
 	_, alreadyParked := p.cancelApplyGates[desc]
 	_, teardownRan := p.cancelTeardownSettled[desc]
 	if !alreadyParked && !teardownRan {
@@ -2647,18 +2686,30 @@ func (p *ReindexProvider) holdCleanupGateUntilTeardown(
 // [ReindexProvider.adoptCancelApplyGate] and the settled set, so reaching this
 // means a gate was about to leak.
 func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescriptor) {
+	logger := p.goroutineLogger()
 	enterrors.GoWrapper(func() {
+		shuttingDown := false
 		select {
 		case <-time.After(reindexCancelApplyGateCap):
 		case <-p.shutdownCtx().Done():
+			shuttingDown = true
 		}
-		if adopted := p.adoptCancelApplyGate(desc); adopted != nil {
-			p.logger.WithField("taskID", desc.ID).Errorf(
+		adopted := p.adoptCancelApplyGate(desc)
+		if adopted == nil {
+			return
+		}
+		if shuttingDown {
+			// The gate is a node-local hold and the node is going down, so
+			// nothing is left for the teardown to claim it from.
+			logger.WithField("taskID", desc.ID).Debug(
+				"reindex provider: releasing the cancel-apply cleanup gate on shutdown")
+		} else {
+			logger.WithField("taskID", desc.ID).Errorf(
 				"reindex provider: no teardown claimed the cancel-apply cleanup gate within %s; releasing it",
 				reindexCancelApplyGateCap)
-			adopted()
 		}
-	}, p.logger)
+		adopted()
+	}, logger)
 }
 
 // adoptCancelApplyGate takes ownership of the gate parked by
@@ -2668,12 +2719,9 @@ func (p *ReindexProvider) adoptCancelApplyGate(desc distributedtask.TaskDescript
 	p.cancelAppliedMu.Lock()
 	defer p.cancelAppliedMu.Unlock()
 
+	p.ensureCancelMaps()
+
 	now := time.Now()
-	if p.cancelTeardownSettled == nil {
-		// Fixtures build the provider by literal; production goes through
-		// [NewReindexProvider]. Same nil tolerance as the cleanup registry.
-		p.cancelTeardownSettled = make(map[distributedtask.TaskDescriptor]time.Time, 1)
-	}
 	p.cancelTeardownSettled[desc] = now
 	for other, at := range p.cancelTeardownSettled {
 		if now.Sub(at) > reindexCancelApplyGateCap {
@@ -2720,6 +2768,15 @@ func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
 		ctx, cancel := context.WithTimeout(p.shutdownCtx(), gateCap)
 		defer cancel()
 		if err := p.WaitForLocalTaskDrain(ctx, desc); err != nil {
+			if p.shutdownCtx().Err() != nil {
+				// The wait ended because the node is going down, not at the cap.
+				// No backup can start here afterwards, so the warning below would
+				// be false, and it would print on every graceful shutdown that
+				// caught a worker mid-flight.
+				logger.Debugf("reindex provider: releasing the cleanup gate on shutdown "+
+					"without having observed the worker exit: %v", err)
+				return
+			}
 			logger.Errorf("reindex provider: releasing the cleanup gate without having observed the worker exit; "+
 				"a backup starting now could catch a half-removed sidecar: %v", err)
 		}

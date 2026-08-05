@@ -94,10 +94,11 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 			"with no shard names the gate has to cover every shard of the collection")
 	})
 
-	// The node handling the cancel reads "no cleanup here" as this owner having
-	// finished. A payload a newer node wrote that this one cannot fully decode
-	// must therefore still latch the confirmation, or the cancel path is told
-	// the opposite of the truth.
+	// The node handling the cancel polls each owner until it answers "gate
+	// closed", and gives up with a degraded warning when the budget runs out.
+	// A payload a newer node wrote that this one cannot fully decode must
+	// therefore still latch the confirmation, or every cancel of such a task
+	// burns the full per-owner budget and answers unconfirmed.
 	t.Run("a payload the full decoder rejects still confirms the cancel", func(t *testing.T) {
 		serverCtx, cancelServer := context.WithCancel(context.Background())
 		defer cancelServer()
