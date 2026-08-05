@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -215,31 +217,73 @@ func TestSearchCosineDistanceRescore(t *testing.T) {
 // fetches from background split/reassign workers.
 type searchMarker struct{}
 
+// createObjectsBucket creates an (empty) objects bucket in the test store so
+// that objectsBucketView can hand out views and searches take the pooled read
+// path, like in production. The fake with-view thunks never read from it.
+func createObjectsBucket(t *testing.T, store *lsmkv.Store) {
+	t.Helper()
+	require.NoError(t, store.CreateOrLoadBucket(t.Context(), helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+}
+
 // newSearchTestIndex builds an HFresh index serving the given vectors through
-// VectorForIDThunk. A non-nil intercept runs first on every fetch; a non-nil
-// error from it fails that fetch.
+// both the plain and the pooled (with-view) read paths, so searches exercise
+// the same code shape as production. A non-nil intercept runs first on every
+// fetch; a non-nil error from it fails that fetch.
 func newSearchTestIndex(t *testing.T, vectors [][]float32, intercept func(ctx context.Context, id uint64) error) *HFresh {
 	t.Helper()
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc := makeHFreshConfig(t)
+
+	serve := func(ctx context.Context, id uint64) ([]float32, error) {
+		if intercept != nil {
+			if err := intercept(ctx, id); err != nil {
+				return nil, err
+			}
+		}
+		if int(id) >= len(vectors) {
+			return nil, storobj.NewErrNotFoundf(id, "out of range")
+		}
+		return vectors[id], nil
+	}
+
 	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
 		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
-			if intercept != nil {
-				if err := intercept(ctx, id); err != nil {
-					return nil, err
-				}
-			}
-			if int(id) >= len(vectors) {
-				return nil, storobj.NewErrNotFoundf(id, "out of range")
-			}
-			return vectors[id], nil
+			return serve(ctx, id)
 		})
+	cfg.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		vec, err := serve(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		// copy into the pooled buffer like the production thunk does: the
+		// caller may normalize the returned slice in place, and the shared
+		// fixture vectors must never be mutated
+		if cap(container.Slice) < len(vec) {
+			container.Slice = make([]float32, len(vec))
+		}
+		container.Slice = container.Slice[:len(vec)]
+		copy(container.Slice, vec)
+		return container.Slice, nil
+	}
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 	for i, vec := range vectors {
 		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
 	}
 	return index
+}
+
+// TestConfigRequiresTempVectorThunk pins that the pooled read thunk is
+// mandatory: a silent fallback to per-vector reads would massively degrade
+// search throughput, so a missing thunk must fail at construction.
+func TestConfigRequiresTempVectorThunk(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+	cfg.TempVectorForIDWithViewThunk = nil
+
+	_, err := New(cfg, uc, store)
+	require.ErrorContains(t, err, "tempVectorForIDWithViewThunk")
 }
 
 func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
@@ -342,4 +386,46 @@ func TestRescoreTieBreakingIsDeterministic(t *testing.T) {
 	serial, _, err := index.SearchByVector(concurrency.CtxWithBudget(ctx, 1), vectors[0], 10, nil)
 	require.NoError(t, err)
 	require.Equal(t, first, serial, "budget must not change tie handling")
+}
+
+// TestSearchUsesPooledReadsWhenConfigured pins path selection: with an
+// objects bucket present and the with-view thunk configured, rescore reads
+// must go through the pooled thunk, not the per-call fallback.
+func TestSearchUsesPooledReadsWhenConfigured(t *testing.T) {
+	vectors, queries := testinghelpers.RandomVecs(100, 1, 32)
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	var pooledCalls atomic.Int64
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[id], nil
+		})
+	cfg.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		pooledCalls.Add(1)
+		if int(id) >= len(vectors) {
+			return nil, storobj.NewErrNotFoundf(id, "out of range")
+		}
+		vec := vectors[id]
+		if cap(container.Slice) < len(vec) {
+			container.Slice = make([]float32, len(vec))
+		}
+		container.Slice = container.Slice[:len(vec)]
+		copy(container.Slice, vec)
+		return container.Slice, nil
+	}
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
+	}
+
+	ids, _, err := index.SearchByVector(t.Context(), queries[0], 10, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ids)
+	require.Greater(t, pooledCalls.Load(), int64(0),
+		"rescore must read through the pooled with-view thunk when available")
 }
