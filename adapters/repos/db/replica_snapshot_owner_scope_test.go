@@ -237,6 +237,38 @@ func TestOffloadAbortResumesOwnHaltUnderCanceledCtx(t *testing.T) {
 		"compaction must be resumed after an aborted offload under a canceled ctx")
 }
 
+// The abort's recovery must reach the shard with a ctx that is not the operation
+// ctx. No resume leg honours cancellation today, so the halt-count tests above
+// cannot see the difference; this one observes the ctx itself at the shard
+// boundary, where an inherited cancellation is visible before any leg acts on it.
+func TestOffloadAbortDetachesResumeFromOpCtx(t *testing.T) {
+	index, _ := newSharedHaltTestShard(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recorder := &offloadCtxRecorderShard{}
+	index.shards.Store("shard2", recorder)
+	defer func() { index.shards.LoadAndDelete("shard2") }()
+
+	m := &Migrator{
+		cloud:   &fakeAbortOffloadCloud{uploadErr: context.Canceled, onUpload: cancel},
+		cluster: fakeTenantProcessor{},
+		nodeId:  "node1",
+		logger:  logrus.New(),
+	}
+
+	ec := errorcompounder.New()
+	m.freeze(ctx, index, "TestClass", []string{"shard2"}, ec)
+
+	require.Error(t, ctx.Err(), "the fixture must cancel the operation ctx during the upload")
+	require.Equal(t, 1, recorder.resumeCalls, "the abort must run the recovery exactly once")
+	require.NoError(t, recorder.resumeCtxErr,
+		"resumeMaintenanceCycles must not inherit the canceled operation ctx")
+	require.Equal(t, 1, recorder.rebuildCalls, "the abort must rebuild async replication")
+	require.NoError(t, recorder.rebuildCtxErr,
+		"rebuildAsyncReplicationFromScratch must not inherit the canceled operation ctx")
+}
+
 // Owner keys are namespaced per subsystem, so a backup whose user-supplied ID
 // equals a shard name cannot collide with that shard's offload key: the backup's
 // halt+self-resume+release must net zero on its own key and leave offload intact.
@@ -516,6 +548,46 @@ func (f *fakeAbortOffloadCloud) Upload(context.Context, string, string, string) 
 func (f *fakeAbortOffloadCloud) Download(context.Context, string, string, string) error { return nil }
 
 func (f *fakeAbortOffloadCloud) Delete(context.Context, string, string, string) error { return nil }
+
+// offloadCtxRecorderShard records the ctx that the offload abort's recovery
+// carries to the shard boundary. Only the methods the freeze abort path calls
+// are implemented; any other call panics on the nil embedded interface. Reads
+// are safe after freeze returns: it waits for its own error group.
+type offloadCtxRecorderShard struct {
+	ShardLike
+	resumeCalls   int
+	resumeCtxErr  error
+	rebuildCalls  int
+	rebuildCtxErr error
+}
+
+func (s *offloadCtxRecorderShard) preventShutdown() (func(), error) { return func() {}, nil }
+
+func (s *offloadCtxRecorderShard) HaltForTransfer(context.Context, string, bool, time.Duration) error {
+	return nil
+}
+
+func (s *offloadCtxRecorderShard) resumeMaintenanceCycles(ctx context.Context, owner string) error {
+	s.resumeCalls++
+	s.resumeCtxErr = ctx.Err()
+	return nil
+}
+
+func (s *offloadCtxRecorderShard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
+	s.rebuildCalls++
+	s.rebuildCtxErr = ctx.Err()
+	return nil
+}
+
+func (s *offloadCtxRecorderShard) enableAsyncReplication(context.Context, AsyncReplicationConfig) error {
+	return nil
+}
+
+func (s *offloadCtxRecorderShard) disableAsyncReplication(context.Context) error { return nil }
+
+func (s *offloadCtxRecorderShard) hasActiveAsyncReplicationTargetOverrides() bool { return false }
+
+func (s *offloadCtxRecorderShard) removePersistedHashtree() error { return nil }
 
 type fakeTenantProcessor struct{}
 

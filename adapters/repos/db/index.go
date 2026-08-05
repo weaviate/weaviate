@@ -1682,6 +1682,8 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 }
 
 // resumeAfterAbortedOffload reverses an aborted offloading HaltForTransfer: resume maintenance and rebuild async replication from a full scan so the shard cannot silently diverge. No-op when not loaded.
+// ctx must outlive the aborted operation: callers on the abort path pass a
+// detached ctx, because the operation ctx is often already canceled there.
 func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {

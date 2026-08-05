@@ -128,7 +128,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				if shard == nil {
 					return // COLD/inactive: no local shard was halted
 				}
-				if err := idx.resumeAfterAbortedOffload(ctx, name); err != nil {
+				if err := idx.resumeAfterAbortedOffload(context.Background(), name); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "resume_after_aborted_offload",
 						"name":   class,
