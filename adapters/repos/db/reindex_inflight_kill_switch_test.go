@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -154,4 +155,30 @@ func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
 				"the backup commit path must make no reindex lookup while the feature is off")
 		})
 	}
+}
+
+// The flag check has to sit ABOVE the node-local cleanup lookup, not just
+// somewhere in the function. Below it, a node holding a cleanup or submit hold
+// refuses restores with the feature off — the gate is then only half disabled,
+// and "off means the behavior operators had" stops being true.
+//
+// Round-3 N-3 named this and it was never actually pinned: moving the check
+// below the cleanup block left the package green until this test existed.
+func TestRefuseIfAnyReindexInFlight_DisabledIgnoresACleanupHold(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{logger: logger, config: Config{RuntimeReindexDisabled: true}}
+
+	var cleanupAsked atomic.Int64
+	db.SetAnyCleanupInProgressLookup(func([]string) bool {
+		cleanupAsked.Add(1)
+		return true // a teardown IS holding this node
+	})
+	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) {
+		return true, nil
+	})
+
+	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"C"}),
+		"with the feature off the restore gate must not refuse, even while a cleanup holds the node")
+	require.Zero(t, cleanupAsked.Load(),
+		"the flag check must precede the cleanup lookup, or the gate is only half disabled")
 }
