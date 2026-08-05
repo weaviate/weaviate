@@ -27,13 +27,14 @@ import (
 func cancelGateProvider(serverCtx context.Context) *ReindexProvider {
 	logger, _ := logrustest.NewNullLogger()
 	return &ReindexProvider{
-		logger:            logger,
-		serverCtx:         serverCtx,
-		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
-		cleanupInProgress: make(map[reindexCleanupKey]int),
-		submitInProgress:  make(map[reindexCleanupKey]int),
-		cancelSeen:        make(map[string]int),
-		cancelApplyGates:  make(map[distributedtask.TaskDescriptor]func()),
+		logger:                logger,
+		serverCtx:             serverCtx,
+		payloads:              make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		cleanupInProgress:     make(map[reindexCleanupKey]int),
+		submitInProgress:      make(map[reindexCleanupKey]int),
+		cancelSeen:            make(map[string]int),
+		cancelApplyGates:      make(map[distributedtask.TaskDescriptor]func()),
+		cancelTeardownSettled: make(map[distributedtask.TaskDescriptor]time.Time),
 	}
 }
 

@@ -31,13 +31,14 @@ func lifecycleProvider(t *testing.T, serverCtx context.Context) *ReindexProvider
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
 	return &ReindexProvider{
-		cleanupInProgress: make(map[reindexCleanupKey]int),
-		submitInProgress:  make(map[reindexCleanupKey]int),
-		cancelSeen:        make(map[string]int),
-		cancelApplyGates:  make(map[distributedtask.TaskDescriptor]func()),
-		runningHandles:    map[distributedtask.TaskDescriptor]*reindexTaskHandle{},
-		serverCtx:         serverCtx,
-		logger:            logger,
+		cleanupInProgress:     make(map[reindexCleanupKey]int),
+		submitInProgress:      make(map[reindexCleanupKey]int),
+		cancelSeen:            make(map[string]int),
+		cancelApplyGates:      make(map[distributedtask.TaskDescriptor]func()),
+		cancelTeardownSettled: make(map[distributedtask.TaskDescriptor]time.Time),
+		runningHandles:        map[distributedtask.TaskDescriptor]*reindexTaskHandle{},
+		serverCtx:             serverCtx,
+		logger:                logger,
 		// No local index, so the teardown sweeps nothing and the test is about
 		// the gate lifecycle around it rather than the sweep itself.
 		db: &DB{},
@@ -181,4 +182,25 @@ func TestGateRefcountsBalanceOverManyCycles(t *testing.T) {
 		return len(p.cancelSeen) == 0
 	}, reindexCancelConfirmWindow+5*time.Second, 50*time.Millisecond,
 		"the confirmation window must expire rather than accumulate")
+}
+
+// The apply and the teardown race, and the teardown can win: the scheduler reads
+// task state from the leader while the apply is local, so on a follower the
+// teardown runs first and finds nothing parked. The gate must still reopen at
+// once — waiting for the cap means a minute of refused backups cluster-wide.
+func TestCancelApplyGateReleasesWhenTheTeardownRanFirst(t *testing.T) {
+	serverCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := lifecycleProvider(t, serverCtx)
+	task, payload := lifecycleTask(t, "task-teardown-first")
+	logger, _ := logrustest.NewNullLogger()
+
+	// Teardown first, apply second — the follower ordering.
+	p.autoCleanupAfterTerminal(task, payload, logger)
+	p.OnCancelApplied(task)
+
+	require.False(t, p.IsCleanupInProgress("Movies", "shard1"),
+		"an apply that lost the race to its own teardown has no gap left to cover, "+
+			"so it must not hold the gate until the cap")
+	require.True(t, gatesIdle(p), "no gate may be left parked or held")
 }
