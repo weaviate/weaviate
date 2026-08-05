@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -63,6 +64,10 @@ const (
 //
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.
+// reindexRefusalShardSample caps the shard names carried in one refusal log
+// line. The count beside it is exact; this only bounds the sample.
+const reindexRefusalShardSample = 10
+
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
@@ -112,15 +117,30 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	}
 	if len(gateErrs) > 0 {
 		if db.logger != nil {
-			// The body names no shard by design, so this is the only place an
-			// operator can learn WHICH shards refused. It was previously debug
-			// only, which left the shard recoverable from nowhere.
-			for c, shardNames := range blockedShards {
+			// One line per collection, not per shard, and the shard list is
+			// capped: this pass can cover five-figure shard counts, so an
+			// uncapped field just moves the O(shards) growth out of the body
+			// and into a log line. The count is exact; the names are a sample.
+			// Sorted so repeated refusals diff cleanly.
+			collections := make([]string, 0, len(blockedShards))
+			for c := range blockedShards {
+				collections = append(collections, c)
+			}
+			sort.Strings(collections)
+			for _, c := range collections {
+				shardNames := blockedShards[c]
+				sort.Strings(shardNames)
+				sample := shardNames
+				if len(sample) > reindexRefusalShardSample {
+					sample = sample[:reindexRefusalShardSample]
+				}
 				db.logger.WithField("action", "backup_reindex_gate").
 					WithField("collection", c).
 					WithField("node", nodeName).
-					WithField("blocked_shards", shardNames).
-					Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate", len(shardNames), c)
+					WithField("blocked_shards", sample).
+					WithField("blocked_shard_count", len(shardNames)).
+					Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
+						"blocked_shards lists the first %d", len(shardNames), c, len(sample))
 			}
 		}
 		if len(errs) > 0 && db.logger != nil {
