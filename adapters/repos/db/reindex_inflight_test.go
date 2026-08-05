@@ -637,7 +637,12 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	}
 
 	logger, hook := logrustest.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel) // debug on, so nothing hides behind the level
+	// Debug on, so nothing hides behind the level. The per-shard Debug lines in
+	// reindexBlockReasonIn are O(shards) and stay that way on purpose: they are the
+	// only per-shard visibility into which side of the gate fired, Debug is off in
+	// production, and the bound that matters is on what an operator actually sees.
+	// That is what the warn-and-above count below pins.
+	logger.SetLevel(logrus.DebugLevel)
 	db := backupableFixture(t, collection, node, shards...)
 	db.logger = logger
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
@@ -649,12 +654,18 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 
 	require.Error(t, db.Backupable(context.Background(), []string{collection}))
 
-	var perShard, aggregate int
+	// Counted by LEVEL, not by message. The per-shard risk is that some future
+	// edit promotes one of the per-shard Debug lines in refuseIfReindexInFlightIn
+	// to Warn — a 60-shard refusal is then 61 operator-facing entries for a
+	// 1-line body. Matching a message string cannot catch that: the only string
+	// naming a single shard at Warn comes from logReindexRefusal, which this
+	// path never calls, so such an assertion is 0 no matter what the code does.
+	var warnAndAbove, aggregate int
 	var sample []string
 	var reportedCount int
 	for _, e := range hook.AllEntries() {
-		if strings.Contains(e.Message, "refused a backup; a runtime-reindex is live on this shard") {
-			perShard++
+		if e.Level <= logrus.WarnLevel {
+			warnAndAbove++
 		}
 		if strings.Contains(e.Message, "are held by the reindex gate") {
 			aggregate++
@@ -667,9 +678,10 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 		}
 	}
 
-	require.Zerof(t, perShard,
-		"the multi-shard pass must not log once per shard; %d shards produced %d per-shard lines",
-		shardCount, perShard)
+	require.Equalf(t, 1, warnAndAbove,
+		"a refusal of one collection is one operator-facing entry regardless of width; "+
+			"%d shards produced %d warn-or-above entries, so the per-shard growth is back",
+		shardCount, warnAndAbove)
 	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
 	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
 	// A literal, not the constant the code caps with: asserting the bound
