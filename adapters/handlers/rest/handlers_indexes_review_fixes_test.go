@@ -254,9 +254,7 @@ func (p *gateWatchProber) NodeActivity(context.Context, string) (backup.NodeActi
 	return backup.NodeActivity{}, nil
 }
 
-// holds mirrors calls, but records WHICH hold covered the shard: a submission
-// reported as a cancelled migration sends the operator hunting for a task that
-// does not exist.
+// holds mirrors calls, but records which hold covered the shard.
 func (p *gateWatchProber) holds() []db.ReindexHold {
 	p.mu.Lock()
 	defer p.mu.Unlock()

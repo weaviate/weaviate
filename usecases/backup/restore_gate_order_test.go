@@ -22,12 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// A restore that cannot run right now must say so before it says the id is
-// unknown, the way authorization answers before either. Sending a caller to fix
-// an id that was never the problem costs them a debugging round trip.
-//
-// Ordering under test, in full: authorization, then the reindex gate, then
-// existence. The authorization half is pinned in auth_test.go.
+// Pins the order Scheduler.Restore documents: authorization, then the reindex
+// gate, then existence. The authorization half is pinned in auth_test.go.
 func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	ctx := context.Background()
 	const (
