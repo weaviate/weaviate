@@ -91,6 +91,9 @@ type HFresh struct {
 
 	vectorForId common.VectorForID[float32]
 
+	tempVectorForIDThunk common.TempVectorForIDWithView[float32]
+	tempVectors          *common.TempVectorsPool
+
 	rootPath string
 }
 
@@ -116,19 +119,21 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
-		id:            cfg.ID,
-		logger:        logger,
-		config:        cfg,
-		scheduler:     cfg.Scheduler,
-		store:         store,
-		metrics:       metrics,
-		PostingStore:  postingStore,
-		vectorForId:   cfg.VectorForIDThunk,
-		VersionMap:    NewVersionMap(bucket),
-		PostingMap:    NewPostingMap(bucket),
-		PostingSizes:  NewPostingSizes(bucket, metrics),
-		IndexMetadata: NewIndexMetadataStore(bucket),
-		postingLocks:  common.NewDefaultShardedRWLocks(),
+		id:                   cfg.ID,
+		logger:               logger,
+		config:               cfg,
+		scheduler:            cfg.Scheduler,
+		store:                store,
+		metrics:              metrics,
+		PostingStore:         postingStore,
+		vectorForId:          cfg.VectorForIDThunk,
+		tempVectorForIDThunk: cfg.TempVectorForIDWithViewThunk,
+		tempVectors:          common.NewTempVectorsPool(),
+		VersionMap:           NewVersionMap(bucket),
+		PostingMap:           NewPostingMap(bucket),
+		PostingSizes:         NewPostingSizes(bucket, metrics),
+		IndexMetadata:        NewIndexMetadataStore(bucket),
+		postingLocks:         common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:      visited.NewPool(512),
