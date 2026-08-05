@@ -68,11 +68,13 @@ type keyColumn interface {
 
 	len() int
 	// prepareQueries maps sorted full-width query keys to the form compare/
-	// searchGE expect, returning the in-range sub-window. For blob/fixed it is
-	// the identity; for prefix it drops keys whose shared-prefix does not match
-	// (guaranteed absent) so compare can skip the per-call prefix check. The
-	// input is sorted, so the in-range keys are a contiguous sub-slice (no copy).
-	prepareQueries(sorted [][]byte) [][]byte
+	// searchGE expect, returning the in-range sub-window and where it starts in
+	// the input. For blob/fixed it is the identity; for prefix it drops keys
+	// whose shared-prefix does not match (guaranteed absent) so compare can skip
+	// the per-call prefix check. The input is sorted, so the in-range keys are a
+	// contiguous sub-slice (no copy) and the offset relocates a window position
+	// back to the caller's query position.
+	prepareQueries(sorted [][]byte) (window [][]byte, offset int)
 	// compare returns the sign of the key at position i versus q, where q is a
 	// key returned by prepareQueries.
 	compare(i int, q []byte) int
@@ -126,7 +128,7 @@ func (c *blobKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
 }
 
-func (c *blobKeyColumn) prepareQueries(sorted [][]byte) [][]byte { return sorted }
+func (c *blobKeyColumn) prepareQueries(sorted [][]byte) ([][]byte, int) { return sorted, 0 }
 
 func (c *blobKeyColumn) info() keyColumnInfo {
 	return keyColumnInfo{width: -1, sizeBytes: cap(c.blob) + cap(c.offsets)*4}
@@ -154,7 +156,7 @@ func (c *fixedKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
 }
 
-func (c *fixedKeyColumn) prepareQueries(sorted [][]byte) [][]byte { return sorted }
+func (c *fixedKeyColumn) prepareQueries(sorted [][]byte) ([][]byte, int) { return sorted, 0 }
 
 func (c *fixedKeyColumn) info() keyColumnInfo {
 	return keyColumnInfo{width: c.w, sizeBytes: cap(c.data)}
@@ -194,14 +196,14 @@ func (c *prefixKeyColumn) searchGE(q []byte) int {
 // leading bytes equal the shared prefix. Keys outside it cannot match (their
 // prefix differs, so they fall outside [min,max]); dropping them lets compare
 // skip the prefix check on every comparison. Two binary searches, no copy.
-func (c *prefixKeyColumn) prepareQueries(sorted [][]byte) [][]byte {
+func (c *prefixKeyColumn) prepareQueries(sorted [][]byte) ([][]byte, int) {
 	lo := sort.Search(len(sorted), func(i int) bool {
 		return comparePrefix(sorted[i], c.prefix) >= 0
 	})
 	hi := lo + sort.Search(len(sorted)-lo, func(i int) bool {
 		return comparePrefix(sorted[lo+i], c.prefix) > 0
 	})
-	return sorted[lo:hi]
+	return sorted[lo:hi], lo
 }
 
 // comparePrefix orders a query key against a column's shared prefix by the key's
@@ -516,55 +518,70 @@ func (idx *ColumnarIndex) Info() Info {
 	}
 }
 
-// ResolveContainsAny returns the docIDs whose key is in sortedKeys. sortedKeys
+// ResolvePerKey resolves each query key independently across the index's tiers,
+// returning a docID and a liveness flag per position in sortedKeys. sortedKeys
 // must be the encoded query values, sorted ascending (bytes.Compare order).
 //
-// It dispatches by query density: a merge-scan streams the whole key column
-// once (cost ~ corpus size), a binary-search sweep costs ~ numKeys·log(corpus).
-// The cheaper is picked at the measured crossover. Matched docIDs are collected
-// into a slice and materialized once via FromSortedList — no bitmap union or
-// container op happens mid-flight, which is the whole point of the columnar
-// layout.
-func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap {
+// Deletions are applied to the key they were issued under rather than to the
+// result as a whole: a key's tiers are replayed oldest to newest, so a flush
+// that retired a docID only affects the key it retired it from, and a flush
+// retiring a docID some later flush already replaced does nothing. The caller
+// gets the per-key state rather than a bitmap so it can layer unflushed
+// memtables on the same terms before materializing once.
+func (idx *ColumnarIndex) ResolvePerKey(sortedKeys [][]byte) (docs []uint64, live []bool) {
 	state := idx.state.Load()
-	base, runs := state.base, state.runs
 
-	out := base.resolveMatches(sortedKeys, make([]uint64, 0, len(sortedKeys)))
-	slices.Sort(out)
-	result := sroar.FromSortedList(out)
+	docs = make([]uint64, len(sortedKeys))
+	live = make([]bool, len(sortedKeys))
 
-	// Fold runs oldest→newest over the base. Per run: remove the docIDs it
-	// deleted (whole-result AndNot — see the package doc on why a document must
-	// own exactly one key), then union the docIDs
-	// of its added keys that match the query. A newer run's add re-adds a docID
-	// an older run/base deleted, so newest-wins holds.
-	for _, r := range runs {
-		if r.delDocs != nil && !r.delDocs.IsEmpty() {
-			result.AndNot(r.delDocs)
-		}
-		addOut := r.adds.resolveMatches(sortedKeys, make([]uint64, 0, len(sortedKeys)))
-		if len(addOut) == 0 {
-			continue
-		}
-		slices.Sort(addOut)
-		runBM := sroar.FromSortedList(addOut)
-		if result.IsEmpty() {
-			result = runBM // adopt rather than Or into an empty result (double build)
-		} else {
-			result.Or(runBM)
-		}
+	state.base.applyHits(sortedKeys, docs, live, true)
+	for _, r := range state.runs {
+		r.dels.applyHits(sortedKeys, docs, live, false)
+		r.adds.applyHits(sortedKeys, docs, live, true)
 	}
-	return result
+	return docs, live
 }
 
-// resolveMatches appends, unsorted, the docIDs of this segment whose key is in
-// sortedKeys. Adaptive merge-scan vs binary-search; no bitmap ops. Shared by the
-// base and every run's adds segment.
-func (seg *columnarSegment) resolveMatches(sortedKeys [][]byte, out []uint64) []uint64 {
+// ResolveContainsAny returns the docIDs whose key is in sortedKeys, over the
+// base and every absorbed flush. Unflushed memtables are layered by the caller.
+func (idx *ColumnarIndex) ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap {
+	return MaterializeLive(idx.ResolvePerKey(sortedKeys))
+}
+
+// MaterializeLive collects the live docIDs of a per-key resolution into one
+// bitmap. Built from a sorted slice in a single step — no union or container op
+// happens mid-flight, which is the whole point of the columnar layout.
+func MaterializeLive(docs []uint64, live []bool) *sroar.Bitmap {
+	out := make([]uint64, 0, len(docs))
+	for i, ok := range live {
+		if ok {
+			out = append(out, docs[i])
+		}
+	}
+	slices.Sort(out)
+	return sroar.FromSortedList(out)
+}
+
+// applyHits folds this segment's matches for sortedKeys into a per-query-key
+// working set, indexed by position in sortedKeys.
+//
+// With adds set, a match records its docID as what that key now holds. Without
+// it, a match retires the key's docID if that is exactly the docID being
+// deleted — so a deletion reaches only the key it was issued under, and a flush
+// retiring a docID that a later flush already replaced does nothing.
+//
+// Adaptive merge-scan vs binary-search, no bitmap ops, and no per-hit
+// bookkeeping: matches are applied where they are found. Shared by the base and
+// by each run's adds and dels segments.
+func (seg *columnarSegment) applyHits(sortedKeys [][]byte, docs []uint64, live []bool, adds bool) {
 	n := seg.keys.len()
+	if n == 0 {
+		return
+	}
 	// Adapt the query keys to the backing once (identity for blob/fixed; drops
-	// prefix-mismatched keys for prefix), so per-comparison stays a single compare.
-	keys := seg.keys.prepareQueries(sortedKeys)
+	// prefix-mismatched keys for prefix), so per-comparison stays a single
+	// compare. offset relocates a window position back to the caller's.
+	keys, offset := seg.keys.prepareQueries(sortedKeys)
 
 	if mergeScanCheaper(len(keys), n) {
 		si, qi := 0, 0
@@ -574,21 +591,29 @@ func (seg *columnarSegment) resolveMatches(sortedKeys [][]byte, out []uint64) []
 				si++
 			case cmp > 0: // query key absent from the corpus — advance the query
 				qi++
-			default: // match
-				out = append(out, seg.docs.at(si))
+			default: // match; only the scan advances, so repeated corpus keys all apply
+				p, doc := qi+offset, seg.docs.at(si)
+				if adds {
+					docs[p], live[p] = doc, true
+				} else if live[p] && docs[p] == doc {
+					live[p] = false
+				}
 				si++
-				qi++
 			}
 		}
-	} else {
-		for _, q := range keys {
-			i := seg.keys.searchGE(q)
-			if i < n && seg.keys.compare(i, q) == 0 {
-				out = append(out, seg.docs.at(i))
+		return
+	}
+
+	for qi, q := range keys {
+		for i := seg.keys.searchGE(q); i < n && seg.keys.compare(i, q) == 0; i++ {
+			p, doc := qi+offset, seg.docs.at(i)
+			if adds {
+				docs[p], live[p] = doc, true
+			} else if live[p] && docs[p] == doc {
+				live[p] = false
 			}
 		}
 	}
-	return out
 }
 
 // AbsorbFlush copies a flushed memtable — iterated via its roaringset cursor —

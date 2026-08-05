@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -345,14 +346,19 @@ func (s *Searcher) resolveContainsColumnar(b containsBatchBucket,
 		return docBitmap{}, false // no accelerator: flag off, non-roaringset, or declined
 	}
 
-	// base + absorbed flushes, then layer the live active/flushing memtables so
-	// unflushed writes are reflected.
-	result := resolver.ResolveContainsAny(pv.containsValues)
-	result, err := bkt.LayerMemtablesOverBase(view, pv.containsValues, result)
-	if err != nil {
+	// Resolve the flushed tiers per key, layer the live flushing/active memtables
+	// on the same per-key terms, then materialize once. Layering declines when a
+	// memtable holds several docIDs under one key, which the accelerator's scalar
+	// column cannot represent — the caller then falls back to the fold.
+	docs, live := resolver.ResolvePerKey(pv.containsValues)
+	if err := bkt.LayerMemtablesOverBase(view, pv.containsValues, docs, live); err != nil {
 		return docBitmap{}, false
 	}
-	return docBitmap{docIDs: result, release: noopRelease, isDenyList: false}, true
+	return docBitmap{
+		docIDs:     columnar.MaterializeLive(docs, live),
+		release:    noopRelease,
+		isDenyList: false,
+	}, true
 }
 
 // foldContainsAnyAccumulator unions the rows of all keys through a

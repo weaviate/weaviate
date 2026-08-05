@@ -61,7 +61,6 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 			idx := newTestIndex(segFromPairs(baseKeys, baseDocs))
 
 			nextDoc := uint64(universe + 1)
-			staleDoc := uint64(1_000_000) // never assigned to any key
 			for r := 0; r < numRuns; r++ {
 				cursor := newMockCursor()
 				// walk the universe in order so the cursor's keys stay sorted
@@ -74,12 +73,11 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 						if cur, ok := model[k]; ok {
 							dels = []uint64{cur}
 						}
-					case 1: // stale delete: a docID no key owns. A delete naming a docID
-						// that belongs to some OTHER key cannot occur — deletions are
-						// issued under the key the document sits in, and the index is
-						// only attached where a document owns exactly one key.
-						dels = []uint64{staleDoc}
-						staleDoc++
+					case 1: // stale delete: a docID this key does not hold, sometimes one
+						// another key does. Both resolution and the fold apply a
+						// deletion only to the key it was issued under, so neither is
+						// allowed to disturb the owning key.
+						dels = []uint64{uint64(rnd.Intn(universe) + 1)}
 					case 2: // replace: retire the current docID and add a fresh one
 						if cur, ok := model[k]; ok {
 							dels = []uint64{cur}

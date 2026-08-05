@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"errors"
 
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -30,9 +29,12 @@ import (
 // plus every memtable flushed since, fed in via AbsorbFlush. Live active/flushing
 // memtables are layered separately by LayerMemtablesOverBase at read time.
 type ContainsAnyResolver interface {
-	// ResolveContainsAny returns the docIDs whose key is in sortedKeys (encoded,
-	// ascending), over the base plus all absorbed flushes. Caller owns the result.
-	ResolveContainsAny(sortedKeys [][]byte) *sroar.Bitmap
+	// ResolvePerKey resolves each key of sortedKeys (encoded, ascending)
+	// independently over the base plus all absorbed flushes, returning a docID
+	// and a liveness flag per query position. Per key rather than as one set so
+	// the caller can layer unflushed memtables on the same terms — a deletion
+	// belongs to the key it was issued under, not to the result as a whole.
+	ResolvePerKey(sortedKeys [][]byte) (docs []uint64, live []bool)
 	// AbsorbFlush copies a just-flushed memtable (iterated via its roaringset
 	// cursor) into the index so its data stays served without re-reading disk.
 	// It returns once the flushed data is queryable; any consolidation it
@@ -104,39 +106,59 @@ func (b *Bucket) absorbFlushIntoAccelerator(flushing memtable) error {
 	return nil
 }
 
-// LayerMemtablesOverBase applies the active + flushing memtables (oldest→newest)
-// over a base ContainsAny result for the given query keys, returning the net
-// result. The base covers flushed data only; this adds the unflushed writes.
+// errAcceleratorNotApplicable reports that the accelerator cannot represent what
+// the memtables hold, and the caller should fall back to the standard fold.
+var errAcceleratorNotApplicable = errors.New("columnar accelerator cannot represent this key's docIDs")
+
+// LayerMemtablesOverBase applies the flushing then active memtables over a
+// per-key resolution of the flushed tiers, returning the net docIDs.
 //
-// Under 1-doc-per-key, per tier: base = (base AndNot tier.dels) Or tier.adds. The
-// order (flushing then active) matters — a docID added in flushing and deleted in
-// active must not survive. base is mutated in place and returned.
+// Each key is carried independently: for that key, a tier first retires the
+// docID the key currently holds if the tier deleted it, then takes the tier's
+// addition. Deletions therefore reach only the key they were issued under, which
+// is what stops a document that also sits under another key from vanishing from
+// both. The order (flushing before active) matters — a docID added while
+// flushing and deleted in the active memtable must not survive.
+//
+// docs and live come from ContainsAnyResolver.ResolvePerKey and are mutated in
+// place. A key whose memtable additions hold more than one docID cannot be
+// represented by the accelerator's scalar column, so the whole query declines
+// and falls back to the fold.
 func (b *Bucket) LayerMemtablesOverBase(view BucketConsistentView, keys [][]byte,
-	base *sroar.Bitmap,
-) (*sroar.Bitmap, error) {
+	docs []uint64, live []bool,
+) error {
 	for _, mt := range []memtable{view.Flushing, view.Active} {
 		if mt == nil || mt.Size() == 0 {
 			continue // no unflushed writes in this tier — nothing to layer
 		}
-		adds := sroar.NewBitmap()
-		dels := sroar.NewBitmap()
-		for _, key := range keys {
+		for i, key := range keys {
 			layer, err := mt.roaringSetGet(key)
 			if err != nil {
 				if errors.Is(err, entlsmkv.NotFound) {
 					continue
 				}
-				return nil, err
+				return err
 			}
-			if layer.Additions != nil {
-				adds.Or(layer.Additions)
+			if layer.Deletions != nil && live[i] && layer.Deletions.Contains(docs[i]) {
+				live[i] = false
 			}
-			if layer.Deletions != nil {
-				dels.Or(layer.Deletions)
+			if layer.Additions == nil || layer.Additions.IsEmpty() {
+				continue
 			}
+			id := layer.Additions.Minimum()
+			if layer.Additions.Maximum() != id {
+				return errAcceleratorNotApplicable
+			}
+			// An addition adds a docID to the key's set; it does not replace what
+			// the key already holds. A different docID still living under this key
+			// means the key now has two, which the scalar column cannot represent —
+			// and the memtable alone cannot show that, since the other docID may
+			// have come from the flushed tiers.
+			if live[i] && docs[i] != id {
+				return errAcceleratorNotApplicable
+			}
+			docs[i], live[i] = id, true
 		}
-		base.AndNot(dels)
-		base.Or(adds)
 	}
-	return base, nil
+	return nil
 }

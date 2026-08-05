@@ -344,6 +344,99 @@ func TestColumnarWiring_DocIDsMatchesFold(t *testing.T) {
 		"columnar accelerator must be attached and serving")
 }
 
+// TestColumnarWiring_MultiKeyDocDeletion covers a document that sits under more
+// than one key losing one of them. roaringset records that as a deletion under
+// that key alone, and the document must keep matching the keys it still holds.
+//
+// The eligibility gate keeps such properties off the accelerator in production,
+// so this exercises the resolution algorithm directly through the test factory:
+// correctness here does not depend on the gate being right.
+func TestColumnarWiring_MultiKeyDocDeletion(t *testing.T) {
+	tests := []struct {
+		name    string
+		flush   bool // flush the removal, so it is absorbed as a run rather than left in the memtable
+		queried []string
+	}{
+		{name: "flushed removal, kept key queried", flush: true, queried: []string{"kept"}},
+		{name: "flushed removal, both keys queried", flush: true, queried: []string{"dropped", "kept"}},
+		{name: "unflushed removal, kept key queried", flush: false, queried: []string{"kept"}},
+		{name: "unflushed removal, both keys queried", flush: false, queried: []string{"dropped", "kept"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const numDocs = 5_000
+			searcher, store := newUniqueTextSearcher(t, numDocs)
+			ctx := context.Background()
+			bucket := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+
+			// doc 5 gains a second value, so it sits under two keys
+			require.NoError(t, bucket.RoaringSetAddList([]byte("extra_value"), []uint64{5}))
+			require.NoError(t, bucket.FlushAndSwitch())
+
+			// the object drops that second value but keeps its original one
+			require.NoError(t, bucket.RoaringSetRemoveOne([]byte("extra_value"), 5))
+			if tt.flush {
+				require.NoError(t, bucket.FlushAndSwitch())
+			}
+
+			values := make([]string, 0, len(tt.queried)+1)
+			for _, q := range tt.queried {
+				if q == "dropped" {
+					values = append(values, "extra_value")
+				} else {
+					values = append(values, benchValue(5))
+				}
+			}
+			values = append(values, benchValue(6))
+
+			run := func(flag string) []uint64 {
+				t.Setenv(entcfg.EnvEnableColumnarContains, flag)
+				al, err := searcher.DocIDs(ctx, containsFilter(filters.ContainsAny, values),
+					additional.Properties{}, className)
+				require.NoError(t, err)
+				defer al.Close()
+				return sortedDocIDs(al)
+			}
+
+			fold := run("")
+			require.Equal(t, []uint64{5, 6}, fold, "sanity: doc 5 still holds its original value")
+			require.Equal(t, fold, run("true"),
+				"dropping one of a doc's keys must not remove it from the others")
+		})
+	}
+}
+
+// TestColumnarWiring_UnflushedNonUniqueKey covers an unflushed memtable holding
+// two documents under one key. The accelerator's docID column is scalar and
+// cannot represent that, so the query must decline and fall back to the fold
+// rather than report one of the two.
+func TestColumnarWiring_UnflushedNonUniqueKey(t *testing.T) {
+	const numDocs = 2_000
+	searcher, store := newUniqueTextSearcher(t, numDocs)
+	ctx := context.Background()
+	bucket := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+
+	// a second document takes a value another document already holds, and stays
+	// unflushed — the build-time uniqueness check never sees it
+	require.NoError(t, bucket.RoaringSetAddList([]byte(benchValue(7)), []uint64{uint64(numDocs + 1)}))
+
+	values := []string{benchValue(7), benchValue(8)}
+	run := func(flag string) []uint64 {
+		t.Setenv(entcfg.EnvEnableColumnarContains, flag)
+		al, err := searcher.DocIDs(ctx, containsFilter(filters.ContainsAny, values),
+			additional.Properties{}, className)
+		require.NoError(t, err)
+		defer al.Close()
+		return sortedDocIDs(al)
+	}
+
+	fold := run("")
+	require.Equal(t, []uint64{7, 8, numDocs + 1}, fold, "sanity: both documents hold value 7")
+	require.Equal(t, fold, run("true"),
+		"a key with two documents must fall back rather than drop one")
+}
+
 // TestColumnarWiring_UnflushedWrites pins that the accelerator serves correctly
 // when there are unflushed writes in the active memtable — new keys and a delete
 // — via the memtable overlay, matching the fold, without falling back.

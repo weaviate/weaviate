@@ -112,7 +112,18 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.merge, mergeScanCheaper(len(tt.keys), corpusSize),
 				"test case must exercise the branch it claims")
-			require.Equal(t, tt.want, seg.resolveMatches(tt.keys, nil))
+
+			docs := make([]uint64, len(tt.keys))
+			live := make([]bool, len(tt.keys))
+			seg.applyHits(tt.keys, docs, live, true)
+
+			var got []uint64
+			for i, ok := range live {
+				if ok {
+					got = append(got, docs[i])
+				}
+			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
