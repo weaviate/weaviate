@@ -250,10 +250,13 @@ type Config struct {
 	// neither the backup nor the restore path performs any reindex check,
 	// including the backup's commit-time overlap check.
 	//
-	// One case is not covered: a task that was already running when the flag
-	// was turned off keeps running, and with the checks off a backup can span
-	// it. Turning the flag off does not stop live work, it only stops new
-	// submissions and the gates.
+	// Off stops new submissions and the gates; it does not stop live work, so
+	// "no new task can start" is not "no task is running". A reindex is still
+	// live with the flag off if it was running when the flag was turned off,
+	// if the node BOOTED with the flag off and resumed a STARTED task from DTM
+	// (the flag gates submission, not recovery), or while a cancel tears down —
+	// cancel stays allowed so a running task can be stopped. With the checks
+	// off a backup can span any of the three.
 	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
