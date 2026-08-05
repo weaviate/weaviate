@@ -693,8 +693,16 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
+		// Detached from the request on the same posture as the cancel handler's
+		// sweep: this removes the sidecars while the submit gate reports the
+		// shard clean, so a disconnect part-way through leaves buckets
+		// deregistered with started.mig still on disk — the exact half-removed
+		// state the next task would then resume against.
+		cleanupCtx, cancelCleanup := context.WithTimeout(
+			context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
+		defer cancelCleanup()
 		for _, indexTypeForCleanup := range indexTypesForCleanup {
-			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup); err != nil {
+			if err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, indexTypeForCleanup); err != nil {
 				h.appState.Logger.WithFields(logrus.Fields{
 					"collection":     collection,
 					"property":       propertyName,
