@@ -336,10 +336,19 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []strin
 		// unreachable leader, or a backup outliving the completed-task
 		// retention window).
 		//
-		// Residual: a task that was already running when the flag was turned
-		// off keeps running, and this check is what would otherwise catch a
-		// backup spanning it. That window is accepted; the flag is the escape
-		// hatch for the whole feature, so it cannot itself fail backups.
+		// Residual, at its true width: "no new task can start" is not "no task
+		// is running". Three ways a reindex is live with the flag off, and with
+		// this check off a backup can span any of them.
+		//
+		//  1. A task already running when the flag was turned off keeps running.
+		//  2. A node that BOOTS with the flag off still resumes a STARTED task
+		//     from DTM — the flag gates submission, not recovery.
+		//  3. Cancel stays deliberately allowed with the flag off, so the whole
+		//     teardown runs, and with the gates off it runs unguarded.
+		//
+		// Accepted: the flag is the escape hatch for the whole feature, so it
+		// cannot itself fail backups. Stated in full because the narrow version
+		// ("turned off mid-flight") reads as the only case and is not.
 		return nil
 	}
 
