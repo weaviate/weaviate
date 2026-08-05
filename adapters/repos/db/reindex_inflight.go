@@ -152,7 +152,7 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 	if snap.cleanup == nil {
 		return reindexNotBlocked
 	}
-	if snap.cleanup(collection, shardName) {
+	if snap.cleanup(collection, shardName) != ReindexHoldNone {
 		if db.logger != nil {
 			db.logger.WithField("action", "backup_reindex_gate").
 				WithField("collection", collection).

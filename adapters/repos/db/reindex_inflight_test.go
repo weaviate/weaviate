@@ -395,7 +395,7 @@ func TestBackupable_BuildsGateSnapshotOncePerCall(t *testing.T) {
 			})
 			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 				cleanupBuilds++
-				return func(string, string) bool { return false }
+				return func(string, string) ReindexHold { return ReindexHoldNone }
 			})
 
 			err := db.Backupable(context.Background(), []string{collection})
