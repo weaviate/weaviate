@@ -720,8 +720,11 @@ func (idx *ColumnarIndex) foldRunsIntoBase() {
 	consumed := len(runs)
 	for {
 		cur := idx.state.Load()
-		remaining := make([]*run, len(cur.runs)-consumed)
-		copy(remaining, cur.runs[consumed:])
+		var remaining []*run
+		if n := len(cur.runs) - consumed; n > 0 {
+			remaining = make([]*run, n)
+			copy(remaining, cur.runs[consumed:])
+		}
 		if idx.state.CompareAndSwap(cur, &indexState{base: newBase, runs: remaining}) {
 			return
 		}
