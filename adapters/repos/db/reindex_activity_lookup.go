@@ -251,7 +251,10 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 				continue
 			}
 			if !IsLiveReindexTaskStatus(task.Status) {
-				if task.Status == distributedtask.TaskStatusCancelled {
+				if task.Status == distributedtask.TaskStatusCancelled && !reindexTaskTouchedShards(task) {
+					// A cancelled task that never claimed a unit wrote nothing,
+					// so it cannot have spanned this backup. One is produced on
+					// purpose by the submit path's post-commit rollback.
 					continue
 				}
 				if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
@@ -263,6 +266,23 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 		}
 		return nil
 	}
+}
+
+// reindexTaskTouchedShards reports whether any unit of the task ever left
+// PENDING, i.e. whether a worker could have written to a shard.
+//
+// A CANCELLED task is not automatically harmless to a backup: cancel only
+// applies to a STARTED task, and the workers may already have been rebuilding
+// buckets when it landed. Skipping every cancelled task let the submit path's
+// own rollback manufacture the one state this backstop ignores. Unit state is
+// what separates the two: no unit out of PENDING means no worker claimed one.
+func reindexTaskTouchedShards(task *distributedtask.Task) bool {
+	for _, unit := range task.Units {
+		if unit != nil && unit.Status != distributedtask.UnitStatusPending {
+			return true
+		}
+	}
+	return false
 }
 
 // See [unwiredGateWarnSampler] for the rate-limiting rationale.

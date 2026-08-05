@@ -385,22 +385,63 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 	}
 }
 
-// Pins the gap ReindexOverlapLookup documents.
-func TestReindexOverlapLookupResidual(t *testing.T) {
+// Cancel only applies to a STARTED task, so a cancelled one may already have
+// rebuilt buckets. Whether it did is what decides the backup, and unit state is
+// the evidence: skipping every cancelled task let the submit path's own
+// post-commit rollback manufacture the one state this backstop ignores.
+func TestReindexOverlapLookupCountsCancelledTasksThatRan(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
 
-	partlyRan := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
-		backupStart.Add(time.Minute),
-		map[string]*distributedtask.Unit{
-			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress, Progress: 0.4},
+	tests := []struct {
+		name       string
+		units      map[string]*distributedtask.Unit
+		wantRefuse bool
+		why        string
+	}{
+		{
+			name: "a unit was claimed, so a worker may have written",
+			units: map[string]*distributedtask.Unit{
+				"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress, Progress: 0.4},
+			},
+			wantRefuse: true,
+			why:        "a partly-run cancelled migration spans the backup and must fail it",
+		},
+		{
+			name: "a unit finished before the cancel landed",
+			units: map[string]*distributedtask.Unit{
+				"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted, Progress: 1},
+			},
+			wantRefuse: true,
+			why:        "a completed unit is the strongest evidence the buckets moved",
+		},
+		{
+			name: "no unit ever left PENDING",
+			units: map[string]*distributedtask.Unit{
+				"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+			},
+			wantRefuse: false,
+			why:        "the post-commit rollback cancels before any worker claims a unit; failing backups on that would make the rollback worse than the race it repairs",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			task := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
+				backupStart.Add(time.Minute), tc.units)
+
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {task}}, nil
+			}, time.Hour)
+
+			err := lookup(context.Background(), []string{"Movies"}, backupStart)
+			if tc.wantRefuse {
+				require.Error(t, err, tc.why)
+				require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex, tc.why)
+				return
+			}
+			require.NoError(t, err, tc.why)
 		})
-
-	lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
-		return map[string][]*distributedtask.Task{ReindexNamespace: {partlyRan}}, nil
-	}, time.Hour)
-
-	require.NoError(t, lookup(context.Background(), []string{"Movies"}, backupStart),
-		"documented residual: a partly-run cancelled migration is not counted")
+	}
 }
 
 // The overlap refusal is stored in the backup's failure meta and served from
@@ -537,4 +578,33 @@ func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
 			assert.Contains(t, err.Error(), "Actors")
 		})
 	}
+}
+
+// The two halves compose into a forbidden outcome, so pin the composition and
+// not just the halves.
+//
+// A client disconnect makes every post-commit probe fail. If that verdict is
+// allowed to roll a committed migration back, and the backstop then skips every
+// cancelled task, a backup captured across a migration that had already started
+// rebuilding buckets is published as SUCCESS. Each half is defensible alone;
+// together they publish a corrupt backup as a good one. The submit side no
+// longer rolls back without a positive "busy" (see probeBackupActivity), and
+// this side no longer ignores a cancelled task that ran.
+func TestOverlapBackstopCatchesARolledBackMigrationThatRan(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+
+	rolledBackAfterWriting := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
+		backupStart.Add(30*time.Second),
+		map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress, Progress: 0.6},
+		})
+
+	lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+		return map[string][]*distributedtask.Task{ReindexNamespace: {rolledBackAfterWriting}}, nil
+	}, time.Hour)
+
+	err := lookup(context.Background(), []string{"Movies"}, backupStart)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+		"a backup spanning a migration that ran must never be published as SUCCESS, "+
+			"however that migration ended")
 }
