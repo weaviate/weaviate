@@ -1677,6 +1677,29 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 	return ctrl.disableAsyncReplication(ctx)
 }
 
+// resumeAfterAbortedOffload reverses an aborted offloading HaltForTransfer: resume maintenance and rebuild async replication from a full scan so the shard cannot silently diverge. No-op when not loaded.
+func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
+	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
+	}
+
+	i.replicationConfigLock.Lock()
+	defer i.replicationConfigLock.Unlock()
+
+	return ctrl.rebuildAsyncReplicationFromScratch(ctx, i.asyncReplicationEnabledForShard(shardName), i.Config.AsyncReplicationConfig)
+}
+
 // parseDateFieldsInProps checks the schema for the current class for which
 // fields are date fields, then - if they are set - parses them accordingly.
 // Works for both date and date[].
@@ -3004,6 +3027,40 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
 	return i.getOptInitLocalShard(ctx, shardName, true)
+}
+
+// getLoadedShard returns the shard only if it is already loaded, never
+// materializing one, plus a release that drops the shutdown refcount. A nil
+// shard and a nil error mean the shard is not loaded here.
+//
+// The refcount rather than shardCreateLocks keeps the shard alive, because
+// shardCreateLocks is on the shard's own read and write path and callers can
+// run long. Same reasoning as backupShardWithHardlinks.
+func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(), err error) {
+	// Every shard teardown holds one of these two: Index.Shutdown takes closeLock
+	// for write, the unload paths take shardCreateLocks for write.
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
+	}
+
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard = i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+	// Both locks span the map read and the refcount: a lazy shard's
+	// preventShutdown loads, so a teardown landing in between would have it
+	// rebuild the shard outside i.shards, where nothing can ever shut it down.
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("shard %q, no shutdown: %w", shardName, err)
+	}
+	return shard, release, nil
 }
 
 // getOptInitLocalShard returns the local shard with the given name.

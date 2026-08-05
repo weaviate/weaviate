@@ -106,6 +106,14 @@ var unwiredRestoreGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger()
 // or a lookup error; an unwired lookup allows the restore with a rate-limited
 // WARN, matching [DB.AnyLiveReindexForShard].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error {
+	if db.config.RuntimeReindexDisabled {
+		// Same contract the backup half honours: with RUNTIME_REINDEX_ENABLED
+		// off there is no reindex check at all, and no restore gate existed
+		// before this branch — so off means the behavior operators had. Returns
+		// before the lookup, which is a leader-forwarded RAFT query.
+		return nil
+	}
+
 	db.reindexAuditMu.RLock()
 	lookup := db.anyReindexActivityLookup
 	cleanupLookup := db.anyCleanupInProgressLookup

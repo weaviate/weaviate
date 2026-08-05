@@ -99,6 +99,8 @@ const (
 // install path; production HTTP gates on bootstrap completion so the
 // unwired window is unreachable by external traffic.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
+	// RUNTIME_REINDEX_ENABLED=false short-circuits inside newReindexGateSnapshot,
+	// which every gate consumer builds through.
 	return db.reindexBlockReason(collection, shardName) != reindexNotBlocked
 }
 
@@ -119,12 +121,23 @@ type reindexGateSnapshot struct {
 // that check more than one shard must build it once and reuse it; see
 // [reindexGateSnapshot].
 func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
+	var snap reindexGateSnapshot
+	if db.config.RuntimeReindexDisabled {
+		// No new task can start, so the backup path makes no reindex check at
+		// all — the pre-gate behavior RUNTIME_REINDEX_ENABLED=false restores.
+		// Returning before the builders run is the point: the activity builder
+		// issues a leader-forwarded RAFT query, and the kill switch has to cost
+		// nothing. Every gate consumer builds its snapshot here, so this covers
+		// the capture path as well as admission. A zero snapshot reads as "not
+		// blocked" downstream, without the unwired warning below.
+		return snap
+	}
+
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
 	db.reindexAuditMu.RUnlock()
 
-	var snap reindexGateSnapshot
 	if activityBuilder == nil {
 		warnUnwiredReindexGate(unwiredGateWarnSampler, db.logger)
 		return snap

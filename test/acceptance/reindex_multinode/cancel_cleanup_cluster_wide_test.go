@@ -41,6 +41,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	// wide enough to reproduce reliably on fast hardware.
 	const backupBucket = "cancel-clears-bucket"
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		With3NodeCluster().
 		WithBackendS3(backupBucket, "us-east-1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").

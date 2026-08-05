@@ -508,66 +508,92 @@ func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID 
 	return nil
 }
 
+// errShardNotLoaded reports a change-log request for a shard this node does not
+// hold loaded. The message must not contain changelog.ErrMsgNoActiveLog or
+// changelog.ErrMsgNoActiveChangeCaptureLog: isCCLAlreadyGone in
+// cluster/replication matches both and marks the movement complete, but an
+// unloaded shard means writes since the unload were never captured.
+func errShardNotLoaded(action, shardName string) error {
+	return fmt.Errorf("%s: shard %q is not loaded", action, shardName)
+}
+
 // IncomingGetChangeLog returns a tailer over the shard's active log. Caller
-// owns Close; the tailer has its own file handle and outlives the shard pin.
+// owns Close; the tailer has its own file handle and outlives this call.
 // untilLSN is the inclusive upper bound on emitted LSNs.
 func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming get change log"
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
-		return nil, fmt.Errorf("incoming get change log: get shard %q: %w", shardName, err)
+		return nil, fmt.Errorf("%s: %w", action, err)
 	}
 	defer release()
 	if shard == nil {
-		return nil, fmt.Errorf("incoming get change log: shard %q not found", shardName)
+		return nil, errShardNotLoaded(action, shardName)
 	}
 	log, ok := shard.GetChangeLog(ctx, opID)
 	if !ok {
-		return nil, fmt.Errorf("incoming get change log: %s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
+		return nil, fmt.Errorf("%s: %s %q on shard %q", action, changelog.ErrMsgNoActiveLog, opID, shardName)
 	}
 	return log.NewTailerWithCap(0, untilLSN)
 }
 
 // IncomingSnapshotChangeLogLSN returns the current LSN without sealing the log.
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming snapshot change-log LSN"
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
-		return 0, fmt.Errorf("incoming snapshot change-log LSN: get shard %q: %w", shardName, err)
+		return 0, fmt.Errorf("%s: %w", action, err)
 	}
 	defer release()
 	if shard == nil {
-		return 0, fmt.Errorf("incoming snapshot change-log LSN: shard %q not found", shardName)
+		return 0, errShardNotLoaded(action, shardName)
 	}
 	lsn, err := shard.SnapshotChangeLogLSN(ctx, opID)
 	if err != nil {
-		return 0, fmt.Errorf("incoming snapshot change-log LSN: op %q: %w", opID, err)
+		return 0, fmt.Errorf("%s: op %q: %w", action, opID, err)
 	}
 	return lsn, nil
 }
 
+// IncomingFinalizeChangeLog seals the log and returns the final LSN. The wait
+// for in-flight writes to drain can run for as long as the caller's context
+// allows, so it holds only the shutdown refcount — an unload attempted mid-seal
+// fails rather than tearing the shard down under it.
 func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming finalize change log"
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
-		return 0, fmt.Errorf("incoming finalize change log: get shard %q: %w", shardName, err)
+		return 0, fmt.Errorf("%s: %w", action, err)
 	}
 	defer release()
 	if shard == nil {
-		return 0, fmt.Errorf("incoming finalize change log: shard %q not found", shardName)
+		return 0, errShardNotLoaded(action, shardName)
 	}
 	finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
 	if err != nil {
-		return 0, fmt.Errorf("incoming finalize change log: op %q: %w", opID, err)
+		return 0, fmt.Errorf("%s: op %q: %w", action, opID, err)
 	}
 	return finalLSN, nil
 }
 
+// IncomingStopChangeCapture deactivates the log and removes its file. An
+// unloaded shard collects nothing, so stopping is already done — loading it to
+// serve a teardown would materialize a shard the caller never asked for. Its
+// log file is removed when the shard next loads.
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
-		return fmt.Errorf("incoming stop change capture: get shard %q: %w", shardName, err)
+		return fmt.Errorf("incoming stop change capture: %w", err)
 	}
 	defer release()
 	if shard == nil {
-		return fmt.Errorf("incoming stop change capture: shard %q not found", shardName)
+		i.logger.WithFields(logrus.Fields{
+			"action":   "change_capture_log",
+			"op_id":    opID,
+			"shard":    shardName,
+			"resident": i.shards.Load(shardName) != nil,
+		}).Debug("no loaded shard to stop change capture on")
+		return nil
 	}
 	if err := shard.StopChangeCapture(ctx, opID); err != nil {
 		return fmt.Errorf("incoming stop change capture: op %q: %w", opID, err)
