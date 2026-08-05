@@ -28,12 +28,18 @@ import (
 // initiator's timestamp (convergence tie-breaker). Returns nil for shards
 // not hosted on this node so a class-wide broadcast can no-op safely.
 func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cutoffMs int64, createdAt time.Time) error {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load a shard from async replication.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %q: %w", shardName, err)
 	}
 	if shard == nil {
-		return nil
+		// Fan-out creates post the same shard list to every node: not hosted
+		// here is benign, hosted-but-unloaded is a visible 412.
+		if i.shards.Load(shardName) == nil {
+			return nil
+		}
+		return fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 	defer release()
 	return shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
@@ -95,9 +101,10 @@ func (i *Index) deleteAsyncCheckpointShards(ctx context.Context, shardNames []st
 	return errors.Join(errs...)
 }
 
-// deleteAsyncCheckpoint is idempotent; returns nil when the shard isn't loaded.
+// deleteAsyncCheckpoint is idempotent; checkpoints are not persisted, so an
+// unloaded shard has nothing to delete and is never loaded for it.
 func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) error {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %q: %w", shardName, err)
 	}
@@ -108,11 +115,10 @@ func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) err
 	return shard.DeleteAsyncCheckpoint(ctx)
 }
 
-// getAsyncCheckpointShardStatus omits shards not loaded here (including
-// unloaded LazyLoadShards) so the aggregator can distinguish "not on this
-// node" from "loaded but inactive" (CutoffMs == 0). Per-shard GetShard
-// failures are logged and dropped so one bad shard can't deny status for
-// the rest.
+// getAsyncCheckpointShardStatus omits shards not loaded here — without loading
+// them — so the aggregator can distinguish "not on this node" from "loaded but
+// inactive" (CutoffMs == 0). Per-shard failures are logged and dropped so one
+// bad shard can't deny status for the rest.
 func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
 	var mu sync.Mutex
@@ -125,14 +131,14 @@ func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			shard, release, err := i.GetShard(ctx, shardName)
+			shard, release, err := i.getLoadedShard(shardName)
 			if err != nil {
 				i.logger.WithFields(logrus.Fields{
 					"action": "async_checkpoint_local",
 					"op":     "status",
 					"class":  i.Config.ClassName,
 					"shard":  shardName,
-				}).WithError(err).Debug("get shard failed; skipping")
+				}).Debugf("get shard failed; skipping: %v", err)
 				return nil
 			}
 			if shard == nil {

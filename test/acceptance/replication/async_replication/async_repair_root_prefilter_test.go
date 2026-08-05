@@ -32,6 +32,8 @@ import (
 
 // TestAsyncRepairRootPrefilterManyTenants exercises the batched hashtree-root
 // pre-filter end-to-end: a node restarts and every MT tenant reconciles via it.
+// Async replication never loads shards, so the restarted node's lazy tenants
+// are touched first — repair reaches a tenant once it is loaded.
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants() {
 	t := suite.T()
 	mainCtx := context.Background()
@@ -123,6 +125,13 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 		}, 30*time.Second, 500*time.Millisecond)
 	})
 
+	t.Run("touch every tenant so the restarted node's lazy shards load", func(t *testing.T) {
+		for _, tenant := range tenantNames {
+			common.GQLTenantGet(t, compose.GetWeaviateNode(node).URI(),
+				paragraphClass.Class, types.ConsistencyLevelOne, tenant)
+		}
+	})
+
 	t.Run("every tenant reconciles on the restarted node via the batched pre-filter", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, tenant := range tenantNames {
@@ -130,6 +139,6 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 					paragraphClass.Class, types.ConsistencyLevelOne, tenant)
 				require.Len(ct, resp, objectsPerTenant, "tenant %s not fully reconciled", tenant)
 			}
-		}, 180*time.Second, 5*time.Second, "not all tenants were asynchronously reconciled")
+		}, 240*time.Second, 5*time.Second, "not all tenants were asynchronously reconciled")
 	})
 }

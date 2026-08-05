@@ -163,11 +163,9 @@ func TestIndex_CreateAsyncCheckpoint_DelegatesToShard(t *testing.T) {
 	require.NoError(t, idx.createAsyncCheckpoint(context.Background(), "s1", 123, now))
 }
 
-func TestIndex_CreateAsyncCheckpoint_ShardNotLoadedReturnsNil(t *testing.T) {
-	// GetShard returns (nil, _, nil) when the shard isn't in the map. A
-	// fan-out create posts the same shard list to every node, so a shard
-	// not hosted here is a benign no-op — not a failure. This matches
-	// Index.deleteAsyncCheckpoint.
+func TestIndex_CreateAsyncCheckpoint_ShardNotHostedReturnsNil(t *testing.T) {
+	// A fan-out create posts the same shard list to every node, so a shard
+	// not hosted here is a benign no-op — not a failure.
 	idx := indexForCheckpointTest(t)
 	require.NoError(t, idx.createAsyncCheckpoint(context.Background(), "missing", 123, time.Now()))
 }
