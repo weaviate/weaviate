@@ -215,27 +215,19 @@ func TestSearchCosineDistanceRescore(t *testing.T) {
 // fetches from background split/reassign workers.
 type searchMarker struct{}
 
-func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
+// newSearchTestIndex builds an HFresh index serving the given vectors through
+// VectorForIDThunk. A non-nil intercept runs first on every fetch; a non-nil
+// error from it fails that fetch.
+func newSearchTestIndex(t *testing.T, vectors [][]float32, intercept func(ctx context.Context, id uint64) error) *HFresh {
+	t.Helper()
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc := makeHFreshConfig(t)
-
-	dims := 32
-	n := 300
-	vectors, queries := testinghelpers.RandomVecs(n, 1, dims)
-
-	var cur, maxSeen atomic.Int64
 	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
 		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
-			if ctx.Value(searchMarker{}) != nil {
-				c := cur.Add(1)
-				for {
-					m := maxSeen.Load()
-					if c <= m || maxSeen.CompareAndSwap(m, c) {
-						break
-					}
+			if intercept != nil {
+				if err := intercept(ctx, id); err != nil {
+					return nil, err
 				}
-				time.Sleep(500 * time.Microsecond) // force worker overlap
-				cur.Add(-1)
 			}
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -247,6 +239,28 @@ func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
 	for i, vec := range vectors {
 		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
 	}
+	return index
+}
+
+func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
+	vectors, queries := testinghelpers.RandomVecs(300, 1, 32)
+
+	var cur, maxSeen atomic.Int64
+	index := newSearchTestIndex(t, vectors, func(ctx context.Context, id uint64) error {
+		if ctx.Value(searchMarker{}) == nil {
+			return nil
+		}
+		c := cur.Add(1)
+		for {
+			m := maxSeen.Load()
+			if c <= m || maxSeen.CompareAndSwap(m, c) {
+				break
+			}
+		}
+		time.Sleep(500 * time.Microsecond) // force worker overlap
+		cur.Add(-1)
+		return nil
+	})
 
 	searchCtx := context.WithValue(t.Context(), searchMarker{}, true)
 	query := queries[0]
@@ -277,32 +291,18 @@ func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
 }
 
 func TestRescoreSkipsCandidatesDeletedMidQuery(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc := makeHFreshConfig(t)
-
-	dims := 32
-	n := 100
-	vectors, _ := testinghelpers.RandomVecs(n, 1, dims)
+	vectors, _ := testinghelpers.RandomVecs(100, 1, 32)
 	const deletedID = uint64(5)
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
-		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
-			// simulate a deletion the index has not processed yet: the full
-			// vector is gone from the object store, but only for our search
-			// (background workers still see it, keeping the index intact)
-			if id == deletedID && ctx.Value(searchMarker{}) != nil {
-				return nil, storobj.NewErrNotFoundf(id, "deleted mid-query")
-			}
-			if int(id) >= len(vectors) {
-				return nil, storobj.NewErrNotFoundf(id, "out of range")
-			}
-			return vectors[id], nil
-		})
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	for i, vec := range vectors {
-		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
-	}
+	// simulate a deletion the index has not processed yet: the full vector
+	// is gone from the object store, but only for our search (background
+	// workers still see it, keeping the index intact)
+	index := newSearchTestIndex(t, vectors, func(ctx context.Context, id uint64) error {
+		if id == deletedID && ctx.Value(searchMarker{}) != nil {
+			return storobj.NewErrNotFoundf(id, "deleted mid-query")
+		}
+		return nil
+	})
 
 	// querying with the deleted vector itself guarantees it is a rescore
 	// candidate; the search must skip it without failing
@@ -315,32 +315,16 @@ func TestRescoreSkipsCandidatesDeletedMidQuery(t *testing.T) {
 }
 
 func TestRescoreTieBreakingIsDeterministic(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc := makeHFreshConfig(t)
-
 	// 30 exact duplicates of the query vector (ids 0-29) followed by 70
 	// distinct vectors: the top-k boundary falls inside a 30-way distance
 	// tie, so which ids are returned depends entirely on tie handling.
-	dims := 32
-	n := 100
 	const dupes = 30
-	vectors, _ := testinghelpers.RandomVecs(n, 1, dims)
+	vectors, _ := testinghelpers.RandomVecs(100, 1, 32)
 	for i := 1; i < dupes; i++ {
 		vectors[i] = vectors[0]
 	}
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
-		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
-			if int(id) >= len(vectors) {
-				return nil, storobj.NewErrNotFoundf(id, "out of range")
-			}
-			return vectors[id], nil
-		})
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	for i, vec := range vectors {
-		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
-	}
+	index := newSearchTestIndex(t, vectors, nil)
 
 	// tie handling must not depend on worker scheduling or the budget:
 	// every run over the same index must return the same ids

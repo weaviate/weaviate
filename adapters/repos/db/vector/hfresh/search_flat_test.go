@@ -18,35 +18,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func TestFlatSearchSkipsCandidatesDeletedMidQuery(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc := makeHFreshConfig(t)
-
-	dims := 32
 	n := 100
-	vectors, _ := testinghelpers.RandomVecs(n, 1, dims)
+	vectors, _ := testinghelpers.RandomVecs(n, 1, 32)
 	const deletedID = uint64(5)
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
-		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
-			if id == deletedID && ctx.Value(searchMarker{}) != nil {
-				return nil, storobj.NewErrNotFoundf(id, "deleted mid-query")
-			}
-			if int(id) >= len(vectors) {
-				return nil, storobj.NewErrNotFoundf(id, "out of range")
-			}
-			return vectors[id], nil
-		})
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	for i, vec := range vectors {
-		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
-	}
+	index := newSearchTestIndex(t, vectors, func(ctx context.Context, id uint64) error {
+		if id == deletedID && ctx.Value(searchMarker{}) != nil {
+			return storobj.NewErrNotFoundf(id, "deleted mid-query")
+		}
+		return nil
+	})
 
 	// a small allowList (< flatSearchCutoff) routes the search through
 	// flatSearch; it must skip the deleted candidate, not fail the query
