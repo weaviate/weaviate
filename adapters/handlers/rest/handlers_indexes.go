@@ -50,9 +50,15 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	if appState.ClusterService != nil {
 		h.tasks = appState.ClusterService
 	}
-	if appState.ClusterHttpClient != nil && appState.Cluster != nil {
-		h.backupActivity = clients.NewClusterBackupActivity(appState.ClusterHttpClient, appState.Cluster)
-		h.reindexCleanup = clients.NewClusterReindexCleanup(appState.ClusterHttpClient, appState.Cluster)
+	if appState.ClusterHttpClient != nil && appState.Cluster != nil && appState.ServerConfig != nil {
+		// Not the shared cluster client: these two probes must reach the peer
+		// itself. See [reindexGateProbeHttpClient].
+		probeClient := reindexGateProbeHttpClient(
+			appState.ServerConfig.Config.Cluster.AuthConfig,
+			appState.ServerConfig.Config.MinimumInternalTimeout,
+		)
+		h.backupActivity = clients.NewClusterBackupActivity(probeClient, appState.Cluster)
+		h.reindexCleanup = clients.NewClusterReindexCleanup(probeClient, appState.Cluster)
 	}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)

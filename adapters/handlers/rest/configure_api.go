@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -2551,8 +2552,43 @@ func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
-	t := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+	return clusterHttpClient(authConfig, minimumInternalTimeout, http.ProxyFromEnvironment)
+}
+
+// reindexGateProbeHttpClient serves the backup-vs-reindex gate's two probes and
+// nothing else. It is identical to [reasonableHttpClient] except that it never
+// consults HTTP_PROXY/HTTPS_PROXY.
+//
+// The probes ask a named peer a question only that peer can answer, and read a
+// 404 as "this build predates the route". An egress proxy standing in for the
+// peer answers 404 to everything, which would report every node as free of
+// backups and fail the gate open cluster-wide. Scoped to these probes on
+// purpose: whether cluster-internal traffic in general should honour a proxy is
+// a separate, deployment-visible question this PR does not settle.
+func reindexGateProbeHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
+	return clusterHttpClient(authConfig, minimumInternalTimeout, nil)
+}
+
+func clusterHttpClient(
+	authConfig cluster.AuthConfig,
+	minimumInternalTimeout time.Duration,
+	proxy func(*http.Request) (*url.URL, error),
+) *http.Client {
+	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
+	transport := monitoring.NewTracingTransport(clusterHttpTransport(minimumInternalTimeout, proxy))
+
+	if authConfig.BasicAuth.Enabled() {
+		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
+	}
+	return &http.Client{Transport: transport}
+}
+
+func clusterHttpTransport(
+	minimumInternalTimeout time.Duration,
+	proxy func(*http.Request) (*url.URL, error),
+) *http.Transport {
+	return &http.Transport{
+		Proxy: proxy,
 		DialContext: (&net.Dialer{
 			Timeout:   minimumInternalTimeout,
 			KeepAlive: 120 * time.Second,
@@ -2563,14 +2599,6 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-
-	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
-	transport := monitoring.NewTracingTransport(t)
-
-	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
-	}
-	return &http.Client{Transport: transport}
 }
 
 func setupGoProfiling(appState *state.State) {
