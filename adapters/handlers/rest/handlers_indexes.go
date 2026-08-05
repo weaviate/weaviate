@@ -1337,6 +1337,10 @@ type reindexCleanupGateProvider interface {
 // into an open-ended hang; a cancel that times out still answers 202 and the
 // next submit's cleanup picks the work up.
 //
+// Both halves run detached from the request and bounded by their own timeouts,
+// so a client that disconnects after sending the cancel still gets the shard
+// left in the state the gate reports.
+//
 // It returns the gate release for the caller to defer, or nil when the drain
 // timed out: the worker is then still writing, which is the case the gate
 // exists for, so it is handed to
@@ -1357,7 +1361,12 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	}
 	h.appState.Logger.WithFields(fields).Info("cancel: starting drain+cleanup for cancelled reindex task")
 
-	drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
+	// Detached from the request for the same reason as the sweep below: a
+	// disconnect here aborts the drain, and the handler then either skips the
+	// sweep entirely or runs it while the worker is still writing. Its own
+	// timeout still bounds it, so a stuck worker cannot hold the goroutine open.
+	drainCtx, drainCancel := context.WithTimeout(
+		context.WithoutCancel(ctx), reindexCancelDrainTimeout)
 	releaseGate, drainErr := provider.DrainWithCleanupGate(drainCtx, payload, target.TaskDescriptor)
 	drainCancel()
 	if drainErr != nil {
