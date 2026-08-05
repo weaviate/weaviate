@@ -312,7 +312,7 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 
 	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
 		"retry after the migration finishes", resp.Err)
-	assert.Equal(t, CanCommitErrReindexInFlight, resp.ErrKind,
+	assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind,
 		"the per-shard in-flight-reindex kind would re-materialize the message "+
 			"under the backup sentinel; this kind carries the cluster-wide one")
 	assert.Equal(t, time.Duration(0), resp.Timeout)

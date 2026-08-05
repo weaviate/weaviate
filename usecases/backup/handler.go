@@ -305,7 +305,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			// Its own kind, not classifyCanCommitErr, so the coordinator can
 			// answer 422: a migration in progress is not a server fault.
 			ret.Err = fmt.Sprintf("restore blocked: %v", err)
-			ret.ErrKind = CanCommitErrReindexInFlight
+			ret.ErrKind = CanCommitErrRestoreBlockedByReindex
 			return ret
 		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
