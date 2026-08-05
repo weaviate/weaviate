@@ -125,6 +125,9 @@ type scriptedRollbackService struct {
 	cancelErr   error
 	listCalls   int
 	cancelCalls int
+	// failFirstN makes the first N cancels fail, so the retry can be observed
+	// succeeding rather than only exhausting itself.
+	failFirstN int
 }
 
 func (s *scriptedRollbackService) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
@@ -141,6 +144,9 @@ func (s *scriptedRollbackService) CancelDistributedTask(context.Context, string,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cancelCalls++
+	if s.cancelCalls <= s.failFirstN {
+		return errors.New("raft: leader election in progress")
+	}
 	return s.cancelErr
 }
 
@@ -425,4 +431,40 @@ func TestUpdateIndexKeepsTheTaskWhenThePostCommitProbeCannotConfirm(t *testing.T
 	require.Equal(t, 1, svc.adds, "the task must have been committed, or the post-commit probe is untested")
 	require.Empty(t, svc.cancelled,
 		"an unreachable verdict is not proof of a backup; the committed migration must not be rolled back")
+}
+
+// The retry exists for the transient case, so the transient case is what has to
+// be pinned: a cancel that fails once and then lands must leave the task
+// cancelled and report success, not the give-up line.
+func TestRollbackRacedReindexTaskSucceedsOnRetry(t *testing.T) {
+	const (
+		taskID     = "Movies:change-tokenization:title:ab12"
+		collection = "Movies"
+		property   = "title"
+	)
+
+	svc := &scriptedRollbackService{
+		tasks: []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: taskID, Version: 3},
+			Namespace:      db.ReindexNamespace,
+			Status:         distributedtask.TaskStatusStarted,
+		}},
+		failFirstN: 1,
+	}
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	h := &indexesHandlers{appState: &state.State{Logger: logger}, tasks: svc}
+
+	h.rollbackRacedReindexTask(context.Background(), taskID, collection, property)
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	require.Equal(t, 2, svc.cancelCalls, "the first cancel failed, so a second must have been made")
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1, "one outcome, one audit line")
+	require.Contains(t, entries[0].Message, "rollback: cancelled a reindex task that raced a backup claim")
+	require.Equal(t, logrus.InfoLevel, entries[0].Level,
+		"a rollback that succeeded on retry is not an operator problem")
 }
