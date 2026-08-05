@@ -56,17 +56,25 @@ func (d *DB) scanResourceUsage() {
 			case <-t.C:
 				updateMappings := i%(memwatch.MappingDelayInS*2) == 0
 				du := d.getDiskUse(d.config.RootPath)
-				if d.resourceScanState.isReadOnly {
-					d.resourceUseRecovery(d.memMonitor, du)
-				} else {
-					d.resourceUseWarn(d.memMonitor, du, updateMappings)
-					d.resourceUseReadonly(d.memMonitor, du)
-				}
+				d.scanResourceUsageOnce(d.memMonitor, du, updateMappings)
 				i += 1
 			}
 		}
 	}
 	enterrors.GoWrapper(f, d.logger)
+}
+
+// scanResourceUsageOnce runs a single scan pass. The monitor is refreshed here
+// because both branches read from it: without it, shards held read-only by
+// memory pressure would never see the usage drop back below the threshold.
+func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
+	mon.Refresh(updateMappings)
+	if db.resourceScanState.isReadOnly {
+		db.resourceUseRecovery(mon, du)
+	} else {
+		db.resourceUseWarn(mon, du)
+		db.resourceUseReadonly(mon, du)
+	}
 }
 
 type resourceScanState struct {
@@ -83,8 +91,7 @@ func newResourceScanState() *resourceScanState {
 }
 
 // logs a warning if user-set threshold is surpassed
-func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
-	mon.Refresh(updateMappings)
+func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse) {
 	db.diskUseWarn(du)
 	db.memUseWarn(mon)
 }
