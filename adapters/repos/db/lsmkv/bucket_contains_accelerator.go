@@ -115,14 +115,19 @@ func (b *Bucket) DetachContainsAccelerator() {
 	b.containsAcc.Store(nil)
 }
 
-// absorbFlushIntoAccelerator feeds a just-flushed memtable to the accelerator.
-// Called from the flush path once the memtable is durable but before the segment
-// swap, so the copy stays off flushLock. The memtable is immutable by then
-// (writers have drained and it is no longer active), and it is still visible to
-// readers as `flushing`, so publishing its run early only ever double-applies —
-// never hides — its writes. If the accelerator declines (e.g. the flush revealed
-// a non-unique key), it is detached: the index may now be missing docIDs, so
-// ContainsAny falls back to the fold from here on.
+// absorbFlushIntoAccelerator feeds a just-flushed memtable to the accelerator,
+// from the segment swap that removes it — so the flush becomes visible as a
+// segment and as accelerator state in one critical section, and no query falls
+// between the two.
+//
+// This is worth doing under flushLock, which gates every read and write on the
+// bucket, only because the memtable is sealed here: writers have drained and it
+// is no longer active, so it is read without the copy [Memtable.newRoaringSetCursor]
+// makes for readers of a live one. That copy dominated the read, and skipping it
+// leaves work of the same order as this switch's other arms.
+//
+// If the accelerator declines the flush, it is detached: the index would now be
+// missing documents, so ContainsAny falls back to the standard fold from here on.
 func (b *Bucket) absorbFlushIntoAccelerator(flushing memtable) error {
 	acc := b.containsAcc.Load()
 	if acc == nil || acc.resolver == nil {
