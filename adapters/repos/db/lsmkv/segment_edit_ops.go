@@ -116,7 +116,21 @@ type PendingSegment struct {
 	Attempts      int    `json:"attempts"`
 	LastError     string `json:"lastError,omitempty"`
 	LastAttemptAt int64  `json:"lastAttemptAt,omitempty"`
+	// Requeues counts how many times a new round has handed this segment a
+	// fresh retry budget after quarantine. Attempts resets on each requeue —
+	// this does not, so a segment that fails every round is distinguishable
+	// from one hitting an unlucky patch. See maxQuarantineRequeues.
+	Requeues int `json:"requeues,omitempty"`
 }
+
+// maxQuarantineRequeues bounds how often a segment may be handed a fresh retry
+// budget. Requeueing exists so a TRANSIENT failure (a full disk, a momentary
+// I/O error) doesn't wedge a drop forever; a segment that fails its whole
+// budget this many rounds running is not transient, and requeueing it again
+// only buys another round of full segment rewrites. Past the bound the
+// verdict sticks: the drop stops making progress and says so through the
+// quarantine row, instead of rewriting the same segment indefinitely.
+const maxQuarantineRequeues = 5
 
 // valueTransformer rewrites a stored value in place during a segment rewrite.
 // It must be a pure, idempotent function of the value bytes.
@@ -752,6 +766,11 @@ func (s *SegmentEditOps) QuarantinedFor(opID string) ([]string, error) {
 // FAILED round as the resume point, and the pending snapshot short-circuits the
 // re-arm, so nothing else can ever retry the segment. Within a round the
 // verdict stands (addPendingRowsTx skips quarantined segments).
+//
+// Bounded by maxQuarantineRequeues per segment: without a bound, a segment
+// that can never be rewritten turns each FAILED round's nudge into another
+// full budget of segment rewrites, forever. Past the bound its row stays
+// quarantined and the drop stalls visibly rather than looping.
 func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) error {
 	live := make(map[string]struct{}, len(liveSegIDs))
 	for _, id := range liveSegIDs {
@@ -762,17 +781,23 @@ func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) er
 		if sub == nil {
 			return nil
 		}
-		var segIDs []string
-		if err := sub.ForEach(func(segID, _ []byte) error {
-			segIDs = append(segIDs, string(segID))
+		rows := map[string]PendingSegment{}
+		if err := sub.ForEach(func(segID, raw []byte) error {
+			meta, err := decodePending(opID, string(segID), raw)
+			if err != nil {
+				// An unreadable row cannot prove it has budget left; leave it
+				// quarantined rather than granting an unbounded retry.
+				return nil
+			}
+			rows[string(segID)] = meta
 			return nil
 		}); err != nil {
 			return err
 		}
-		if len(segIDs) == 0 {
-			return nil
-		}
-		for _, segID := range segIDs {
+		for segID, meta := range rows {
+			if meta.Requeues >= maxQuarantineRequeues {
+				continue // budget spent: the verdict is now permanent
+			}
 			if err := sub.Delete([]byte(segID)); err != nil {
 				return err
 			}
@@ -780,13 +805,32 @@ func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) er
 				continue
 			}
 			// The quarantine row is gone (above), so addPendingRowsTx's
-			// quarantine-skip cannot undo the requeue.
-			if err := s.addPendingTx(tx, opID, segID); err != nil {
+			// quarantine-skip cannot undo the requeue. Attempts resets — the
+			// point of a new round — while Requeues carries forward.
+			if err := s.addPendingWithMetaTx(tx, opID, segID, PendingSegment{
+				Requeues: meta.Requeues + 1,
+			}); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// addPendingWithMetaTx writes a pending row carrying meta, overwriting any
+// existing one. Unlike addPendingRowsTx it does not skip quarantined segments:
+// the requeue path has already removed the quarantine row and needs the new
+// bookkeeping to land.
+func (s *SegmentEditOps) addPendingWithMetaTx(tx *bolt.Tx, opID, segID string, meta PendingSegment) error {
+	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+	if err != nil {
+		return err
+	}
+	enc, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return sub.Put([]byte(segID), enc)
 }
 
 // Quarantined returns the quarantined segments across all operations.

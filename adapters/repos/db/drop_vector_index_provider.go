@@ -467,11 +467,15 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 //     left, a reactivated tenant sweeps its own resume point and the strip
 //     restarts from scratch.
 //
-// OLDER zero-unit records feed nothing and are released — that bound is what
-// keeps a fast-failing round loop (one FAILED record minted per nudge) from
-// accumulating RAFT-replicated, snapshot-resident records without limit:
-// every new round's record frees its predecessor. The marker check is
-// memoized per drop and fails toward retaining; see retainVerdictForDrop.
+// OLDER zero-unit records feed nothing, so this refuses to retain them. That
+// is only a release from the TTL sweep's perspective, NOT an early deletion:
+// the scheduler skips any record still inside completedTaskTTL before it ever
+// consults a retainer, so a retainer can extend retention and never shorten
+// it. A fast-failing round loop (one FAILED record per nudge) therefore
+// accumulates records for the whole TTL window; what bounds the pile is the
+// requeue cap that stops such a loop (see lsmkv.maxQuarantineRequeues), not
+// this. The marker check is memoized per drop and fails toward retaining; see
+// retainVerdictForDrop.
 func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {

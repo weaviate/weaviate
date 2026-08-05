@@ -673,6 +673,54 @@ func TestSegmentEditOps_RequeueQuarantined(t *testing.T) {
 	require.Len(t, pending, 1)
 }
 
+// TestSegmentEditOps_RequeueQuarantined_BoundedPerSegment pins the limit on
+// second chances. Requeueing exists for transient failures, but each new round
+// hands the segment a full retry budget, and a segment that can never be
+// rewritten would turn every FAILED round's nudge into another round of full
+// segment rewrites — forever. After maxQuarantineRequeues the verdict sticks
+// and the drop stalls visibly instead.
+func TestSegmentEditOps_RequeueQuarantined_BoundedPerSegment(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100"}))
+	live := []string{"100"}
+
+	for round := 1; round <= maxQuarantineRequeues; round++ {
+		// The round burns the whole per-round budget, then quarantines.
+		require.NoError(t, s.BumpAttempt("op1", "100", errors.New("cannot rewrite")))
+		require.NoError(t, s.Quarantine("op1", "100"))
+		require.NoError(t, s.RequeueQuarantined("op1", live))
+
+		pending, err := s.AllPending()
+		require.NoError(t, err)
+		require.Len(t, pending, 1, "round %d still has budget, so the segment retries", round)
+		require.Zero(t, pending[0].Attempts, "a new round starts with a fresh per-round budget")
+		require.Equal(t, round, pending[0].Requeues, "the second-chance count carries across rounds")
+	}
+
+	// One more failure: the segment has now failed every round it was given.
+	require.NoError(t, s.BumpAttempt("op1", "100", errors.New("cannot rewrite")))
+	require.NoError(t, s.Quarantine("op1", "100"))
+	require.NoError(t, s.RequeueQuarantined("op1", live))
+
+	pending, err := s.AllPending()
+	require.NoError(t, err)
+	require.Empty(t, pending, "past the bound the segment must not be handed another budget")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Len(t, q, 1, "the verdict stays, so the stall is visible instead of silent")
+	require.Equal(t, "100", q[0].SegmentID)
+
+	// Idempotent once spent: further rounds must not resurrect it.
+	require.NoError(t, s.RequeueQuarantined("op1", live))
+	pending, err = s.AllPending()
+	require.NoError(t, err)
+	require.Empty(t, pending)
+}
+
 // TestSegmentEditOps_FreshOpSnapshotsSegmentQuarantinedByAnother pins the
 // escape for a shard no later round of its epoch arms. Coverage inheritance
 // stops arming a shard once a round completes it, so the re-arm — and with it
