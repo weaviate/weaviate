@@ -159,8 +159,10 @@ func TestHasUntidiedTracker(t *testing.T) {
 }
 
 // TestIsSemanticMigration pins the semantic/format-only classification
-// (weaviate/0-weaviate-issues#254 promoted change-algorithm to semantic,
-// weaviate/0-weaviate-issues#465 the two rangeable types).
+// The rule: semantic iff the migration requires a global schema flip.
+// weaviate/0-weaviate-issues#254 promoted change-algorithm; #465 promoted
+// enable-rangeable. repair-rangeable stays format-only — it rebuilds an
+// already-enabled index and changes no schema.
 func TestIsSemanticMigration(t *testing.T) {
 	semantic := []ReindexMigrationType{
 		ReindexTypeChangeTokenization,
@@ -169,11 +171,11 @@ func TestIsSemanticMigration(t *testing.T) {
 		ReindexTypeEnableSearchable,
 		ReindexTypeChangeAlgorithm,
 		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable,
 	}
 	formatOnly := []ReindexMigrationType{
 		ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
+		ReindexTypeRepairRangeable,
 	}
 	for _, mt := range semantic {
 		t.Run(string(mt)+" → semantic", func(t *testing.T) {
@@ -233,9 +235,9 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			want: []string{"rangeable"},
 		},
 		{
-			name: "repair-rangeable → rangeable",
+			name: "repair-rangeable → empty (format-only, no schema flip)",
 			mt:   ReindexTypeRepairRangeable,
-			want: []string{"rangeable"},
+			want: nil,
 		},
 		{
 			name: "rebuild-searchable → empty (format-only)",

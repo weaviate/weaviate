@@ -34,9 +34,13 @@ import (
 // "FilterableToRangeable" name is historical; treat it as "build rangeable
 // from objects".
 //
-// Schema-flag gating. IndexRangeFilters stays false on the target property
-// for the whole run — the cluster-wide flip happens once, at task
-// completion, in ReindexProvider.flipSemanticMigrationSchema. Without
+// Schema-flag gating. The two migration types differ here. Under
+// enable-rangeable IndexRangeFilters stays false for the whole run: the
+// property is not yet enabled and the cluster-wide flip happens once, at
+// task completion, in ReindexProvider.flipSemanticMigrationSchema. Under
+// repair-rangeable the flag is already true at submit and never changes —
+// repair alters no schema at all. The overlay below is written for the
+// enable case and is a harmless no-op for repair. Without
 // an AnalyzerOverlay forcing the rangeable flag on, the analyzer would
 // either drop the property entirely (HasAnyInvertedIndex=false when the
 // property is also IndexFilterable=false) or emit it with
@@ -154,10 +158,11 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 // PreReindexHook creates empty rangeable buckets so the swap phase has a
 // "source" bucket to replace with the populated ingest bucket.
 //
-// The empty bucket is unreachable by queries while the migration runs:
-// IndexRangeFilters stays false until the task completes cluster-wide, so
-// the query planner takes the filterable walk. Repair keeps its existing
-// populated bucket (skip-if-exists below).
+// Under enable-rangeable the empty bucket is unreachable by queries while
+// the migration runs: IndexRangeFilters stays false until the task
+// completes cluster-wide, so the query planner takes the filterable walk.
+// Under repair-rangeable the skip-if-exists below leaves the existing
+// populated bucket in place, and it keeps serving until the atomic swap.
 func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
@@ -191,10 +196,11 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 	return out
 }
 
-// OnMigrationComplete is a no-op for this semantic migration. The schema
-// cutover (IndexRangeFilters=true flip via RAFT) happens once
-// cluster-wide from [ReindexProvider.OnTaskCompleted] after every node's
-// local swap has committed.
+// OnMigrationComplete is a no-op for both migration types this strategy
+// serves. enable-rangeable is semantic: its IndexRangeFilters=true flip
+// happens once cluster-wide from [ReindexProvider.OnTaskCompleted], after
+// every node's local swap has committed. repair-rangeable has no schema
+// change to make at all.
 //
 // Flipping per shard here was the first-shard-flips problem in its
 // sharpest form: the cluster-wide flag went true while most shards still
