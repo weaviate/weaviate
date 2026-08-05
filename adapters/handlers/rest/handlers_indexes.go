@@ -695,8 +695,25 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Second probe, now that the task is committed: a backup that claimed its
 	// slot before this point saw nothing to refuse. From here on, whichever
 	// side committed second sees the other. We roll back; the backup can't.
-	if responder := h.refuseIfBackupInFlight(ctx, principal); responder != nil {
-		h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName)
+	scan, responder := h.probeBackupActivity(ctx, principal)
+	if responder != nil {
+		// Only a node that positively reports a backup is evidence one claimed
+		// the slot. "Nobody answered" is not: a client disconnect cancels this
+		// context, which makes every probe fail, and rolling back on that would
+		// destroy a cleanly committed migration precisely when the caller is no
+		// longer there to resubmit it.
+		if scan.BusyNode != "" && ctx.Err() == nil {
+			h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName)
+			return responder
+		}
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_task_kept_after_unconfirmed_probe",
+			"taskID":      taskID,
+			"collection":  collection,
+			"property":    propertyName,
+		}).Error("submit: the post-commit probe could not confirm the cluster is free of backups, " +
+			"so the task was left running rather than rolled back on unreliable evidence; " +
+			"the backup side's commit-time overlap check is the remaining guard")
 		return responder
 	}
 
@@ -963,6 +980,14 @@ func backupActivityResponder(principal *models.Principal, scan backupActivitySca
 // refuseIfBackupInFlight blocks reindex submission while any node holds a
 // backup or restore slot, mirroring backups refusing to start under a running reindex.
 func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal *models.Principal) middleware.Responder {
+	_, responder := h.probeBackupActivity(ctx, principal)
+	return responder
+}
+
+// probeBackupActivity is [indexesHandlers.refuseIfBackupInFlight] with the
+// verdict kept, for the post-commit caller that must tell a definite "busy"
+// apart from "nobody answered".
+func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *models.Principal) (backupActivityScan, middleware.Responder) {
 	var nodes []string
 	if h.cluster != nil {
 		nodes = h.cluster.AllNames()
@@ -974,7 +999,7 @@ func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal 
 				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
 					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")
 		})
-		return nil
+		return backupActivityScan{}, nil
 	}
 
 	// A node that left the cluster isn't probed; its slots died with its process.
@@ -991,7 +1016,7 @@ func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal 
 			Warnf("refusing reindex submission: node did not answer the backup activity probe: %v", scan.UnreachableErr)
 	}
 
-	return backupActivityResponder(principal, scan)
+	return scan, backupActivityResponder(principal, scan)
 }
 
 // principalUsername extracts the user-facing identifier from a principal
