@@ -76,6 +76,11 @@ func LevelDiff(l, height int, discriminant *Bitset, digests1, digests2 []Digest)
 			continue
 		}
 
+		// bound reads even if the cached set count understates the bits
+		if n == len(digests1) || n == len(digests2) {
+			return nil, 0, fmt.Errorf("%w: discriminant set count understates its set bits", ErrIllegalArguments)
+		}
+
 		if digests1[n] == digests2[n] {
 			discriminant.Unset(j)
 			n++

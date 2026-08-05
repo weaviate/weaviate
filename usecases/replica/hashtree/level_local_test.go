@@ -367,6 +367,14 @@ func TestLevelRejectsUnderstatedSetCount(t *testing.T) {
 	require.ErrorIs(t, err, ErrIllegalArguments)
 }
 
+func TestLevelDiffRejectsUnderstatedSetCount(t *testing.T) {
+	disc := NewBitset(nodesAtLevel(2)).Set(0).Set(1).Set(2)
+	disc.setCount = 1
+
+	_, _, err := LevelDiff(2, 4, disc, make([]Digest, 1), make([]Digest, 1))
+	require.ErrorIs(t, err, ErrIllegalArguments)
+}
+
 func TestSizeDigests(t *testing.T) {
 	buf := SizeDigests(nil, 3)
 	require.Len(t, buf, 3)

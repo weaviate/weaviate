@@ -36,11 +36,15 @@ func (ht *HashTree) Diff(ht2 AggregatedHashTree) (*Bitset, error) {
 		digests1 = SizeDigests(digests1, need)
 		digests2 = SizeDigests(digests2, need)
 
-		if _, err := ht.Level(l, walk, digests1); err != nil {
+		if n, err := ht.Level(l, walk, digests1); err != nil {
 			return nil, err
+		} else if n != need {
+			return nil, fmt.Errorf("%w: level %d wrote %d digests, expected %d", ErrIllegalState, l, n, need)
 		}
-		if _, err := ht2.Level(l, walk, digests2); err != nil {
+		if n, err := ht2.Level(l, walk, digests2); err != nil {
 			return nil, err
+		} else if n != need {
+			return nil, fmt.Errorf("%w: level %d wrote %d digests, expected %d", ErrIllegalState, l, n, need)
 		}
 
 		nextWalk, levelDiffCount, err := LevelDiff(l, height, walk, digests1, digests2)

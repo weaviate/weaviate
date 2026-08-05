@@ -377,8 +377,14 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			need := discriminant.SetCount()
 			digests = hashtree.SizeDigests(digests, need)
 
-			if _, err := ht.Level(l, discriminant, digests); err != nil {
+			n, err := ht.Level(l, discriminant, digests)
+			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+			}
+			// a short local write would leave stale digests from a previous level or target
+			if n != need {
+				return nil, fmt.Errorf("%q: local hashtree level %d wrote %d digests, expected %d",
+					targetNodeAddress, l, n, need)
 			}
 
 			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, discriminant)
