@@ -54,6 +54,14 @@ together into one user-visible verb on `PUT
 
 ## 2. REST surface
 
+> **Runtime reindex is off by default.** Set
+> `RUNTIME_REINDEX_ENABLED=true` to enable it. While it is off, submitting
+> a migration returns `400 Bad Request` with
+> `runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true`.
+> The cancel verb and `GET .../indexes` keep working, so a task that was
+> already running stays observable and stoppable. Everything below
+> describes behavior with the flag on.
+
 ### `PUT /v1/schema/{class}/indexes/{property}`
 
 Submit a migration. Body shape selects which one:
