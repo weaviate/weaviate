@@ -1405,6 +1405,12 @@ func FromEnv(config *Config) error {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
+	// Assign only when set, so an absent env var does not overwrite a
+	// value loaded from the config file.
+	if v := os.Getenv("RUNTIME_REINDEX_ENABLED"); v != "" {
+		config.RuntimeReindexEnabled = entcfg.Enabled(v)
+	}
+
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")

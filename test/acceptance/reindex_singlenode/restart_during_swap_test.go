@@ -24,7 +24,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -71,14 +70,11 @@ import (
 func TestRestartDuringSwap(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		// 1s tick gives us up to ~1s after FINISHED is reported in RAFT
-		// before OnGroupCompleted fires — comfortably wider than the time
-		// needed to issue StopAt(... 0 timeout) and kill the container.
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		Start(ctx)
+	// The shared config's 1s scheduler tick gives us up to ~1s after
+	// FINISHED is reported in RAFT before OnGroupCompleted fires —
+	// comfortably wider than the time needed to issue StopAt(... 0
+	// timeout) and kill the container.
+	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
