@@ -200,7 +200,7 @@ func Test_Authorization(t *testing.T) {
 				// reindex state, so it must never run for a caller the
 				// authorizer has not yet cleared.
 				var authorized atomic.Bool
-				gate := selector.On("RefuseIfAnyReindexInFlight", mock.Anything).
+				gate := selector.On("RefuseIfAnyReindexInFlight", mock.Anything, mock.Anything).
 					Run(func(mock.Arguments) {
 						assert.True(t, authorized.Load(),
 							"the reindex gate ran before authorization: a principal without any backup grant can probe cluster-wide reindex state")

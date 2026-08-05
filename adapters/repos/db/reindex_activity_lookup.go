@@ -54,9 +54,15 @@ func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBu
 // the cluster. A non-nil error means the answer could not be determined.
 type AnyReindexActivityLookup func(ctx context.Context) (bool, error)
 
-// AnyCleanupInProgressLookup reports whether this node is still tearing
-// reindex sidecar dirs for a task that has already reached a terminal status.
-type AnyCleanupInProgressLookup func() bool
+// AnyCleanupInProgressLookup reports whether this node is still tearing reindex
+// sidecar dirs for a task that has already reached a terminal status on any of
+// the given collections. An empty list asks about every collection, which is
+// what the restore path has to do when it does not yet know its class list.
+//
+// It is scoped by collection because the answer can be stuck: a worker that
+// never exits holds its collection's gate until the cap, and a blind answer
+// would refuse restores of every OTHER collection for that whole time.
+type AnyCleanupInProgressLookup func(collections []string) bool
 
 // SetAnyCleanupInProgressLookup installs the node-local cleanup probe OR-ed
 // into [DB.RefuseIfAnyReindexInFlight]. Sibling of
@@ -99,7 +105,7 @@ var unwiredRestoreGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger()
 // per-class lookup could never see a live task. Fails closed on a live task
 // or a lookup error; an unwired lookup allows the restore with a rate-limited
 // WARN, matching [DB.AnyLiveReindexForShard].
-func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
+func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error {
 	db.reindexAuditMu.RLock()
 	lookup := db.anyReindexActivityLookup
 	cleanupLookup := db.anyCleanupInProgressLookup
@@ -107,7 +113,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context) error {
 
 	// A cancelled task leaves DTM immediately but keeps deleting sidecar dirs
 	// for tens of seconds after — exactly the window the error text's retry advice lands in.
-	if cleanupLookup != nil && cleanupLookup() {
+	if cleanupLookup != nil && cleanupLookup(collections) {
 		if db.logger != nil {
 			db.logger.WithField("action", "restore_reindex_gate").
 				Debug("restore-reindex gate: refusing — a cancelled task is still removing reindex sidecars on this node")

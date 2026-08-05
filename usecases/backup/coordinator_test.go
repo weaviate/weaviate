@@ -628,7 +628,7 @@ func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 	return args.Error(0)
 }
 
-func (s *fakeSelector) RefuseIfAnyReindexInFlight(context.Context) error {
+func (s *fakeSelector) RefuseIfAnyReindexInFlight(context.Context, []string) error {
 	return s.reindexInFlightErr
 }
 

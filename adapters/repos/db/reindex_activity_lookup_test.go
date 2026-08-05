@@ -33,8 +33,8 @@ func TestRefuseIfAnyReindexInFlight_Unwired(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
 
-	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background()))
-	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background()))
+	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), nil))
+	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), nil))
 
 	warnings := 0
 	for _, entry := range hook.AllEntries() {
@@ -65,12 +65,12 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		{
 			name:    "no live task and no cleanup admits the restore",
 			lookup:  func(context.Context) (bool, error) { return false, nil },
-			cleanup: func() bool { return false },
+			cleanup: func([]string) bool { return false },
 		},
 		{
 			name:         "sidecar cleanup after a cancel refuses the restore",
 			lookup:       func(context.Context) (bool, error) { return false, nil },
-			cleanup:      func() bool { return true },
+			cleanup:      func([]string) bool { return true },
 			wantRefusal:  true,
 			wantContains: "still removing its temporary index files",
 		},
@@ -98,7 +98,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 				db.SetAnyCleanupInProgressLookup(tc.cleanup)
 			}
 
-			err := db.RefuseIfAnyReindexInFlight(context.Background())
+			err := db.RefuseIfAnyReindexInFlight(context.Background(), nil)
 			if !tc.wantRefusal {
 				require.NoError(t, err)
 				return
@@ -126,7 +126,7 @@ func TestRefuseIfAnyReindexInFlight_Wording(t *testing.T) {
 	db := &DB{logger: logger}
 	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) { return true, nil })
 
-	err := db.RefuseIfAnyReindexInFlight(context.Background())
+	err := db.RefuseIfAnyReindexInFlight(context.Background(), nil)
 	require.Error(t, err)
 	assert.Equal(t,
 		`runtime-reindex in flight in the cluster: retry after the migration finishes `+
@@ -146,7 +146,7 @@ func TestRefuseIfAnyReindexInFlight_PropagatesContext(t *testing.T) {
 		return false, ctx.Err()
 	})
 
-	err := db.RefuseIfAnyReindexInFlight(ctx)
+	err := db.RefuseIfAnyReindexInFlight(ctx, nil)
 	require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -160,7 +160,7 @@ func TestRefuseIfAnyReindexInFlight_LookupFailureRedactsNodeNames(t *testing.T) 
 	db := &DB{logger: logger}
 	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) { return false, raftErr })
 
-	err := db.RefuseIfAnyReindexInFlight(context.Background())
+	err := db.RefuseIfAnyReindexInFlight(context.Background(), nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
 	require.ErrorIs(t, err, raftErr,
@@ -607,4 +607,28 @@ func TestOverlapBackstopCatchesARolledBackMigrationThatRan(t *testing.T) {
 	require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
 		"a backup spanning a migration that ran must never be published as SUCCESS, "+
 			"however that migration ended")
+}
+
+// A worker that will not exit holds its collection's cleanup gate until the cap.
+// If the restore gate asks that question blind, one stuck collection refuses
+// restores of every other collection for the whole hold.
+func TestRefuseIfAnyReindexInFlightScopesTheCleanupCheckByCollection(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{logger: logger}
+	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) { return false, nil })
+	db.SetAnyCleanupInProgressLookup(func(collections []string) bool {
+		for _, c := range collections {
+			if c == "Stuck" {
+				return true
+			}
+		}
+		return len(collections) == 0
+	})
+
+	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Stuck"}),
+		"the collection whose teardown is wedged must still be refused")
+	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Unrelated"}),
+		"an unrelated collection must not be refused by another collection's wedged teardown")
+	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), nil),
+		"with no class list yet the check has to stay blind, so it still refuses")
 }
