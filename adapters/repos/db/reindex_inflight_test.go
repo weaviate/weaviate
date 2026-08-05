@@ -619,3 +619,90 @@ func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 	require.Equal(t, reindexInFlightError(collection, reindexBlockedByLiveTask).Error(), err.Error(),
 		"deduping must not change the sentence itself")
 }
+
+// The response body was consolidated to one line per reason, but the logs were
+// not: a per-shard WARN fired for every refusing shard, so a 60-shard refusal
+// produced 121 entries for a 1-line body — the O(shards) growth moved rather
+// than removed. The shard list carried in the aggregate line has the same
+// problem if it is uncapped, since this pass can cover five-figure shard counts.
+func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
+	const (
+		collection = "WideClass"
+		node       = "weaviate-0"
+		shardCount = 60
+	)
+	shards := make([]string, 0, shardCount)
+	for i := range shardCount {
+		shards = append(shards, fmt.Sprintf("s%02d", i))
+	}
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel) // debug on, so nothing hides behind the level
+	db := backupableFixture(t, collection, node, shards...)
+	db.logger = logger
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return func(string, string) ReindexHold { return ReindexHoldNone }
+	})
+
+	require.Error(t, db.Backupable(context.Background(), []string{collection}))
+
+	var perShard, aggregate int
+	var sample []string
+	var reportedCount int
+	for _, e := range hook.AllEntries() {
+		if strings.Contains(e.Message, "refused a backup; a runtime-reindex is live on this shard") {
+			perShard++
+		}
+		if strings.Contains(e.Message, "are held by the reindex gate") {
+			aggregate++
+			if v, ok := e.Data["blocked_shards"].([]string); ok {
+				sample = v
+			}
+			if v, ok := e.Data["blocked_shard_count"].(int); ok {
+				reportedCount = v
+			}
+		}
+	}
+
+	require.Zerof(t, perShard,
+		"the multi-shard pass must not log once per shard; %d shards produced %d per-shard lines",
+		shardCount, perShard)
+	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
+	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
+	require.LessOrEqualf(t, len(sample), reindexRefusalShardSample,
+		"the shard list must be capped, or the growth just moves into a log field; got %d", len(sample))
+}
+
+// The single-shard callers are where naming the shard IS the report, so moving
+// the logging out of the shared helper must not silence them.
+func TestRefuseIfReindexInFlightStillNamesTheShard(t *testing.T) {
+	const (
+		collection = "OneShardClass"
+		node       = "weaviate-0"
+	)
+	// Its own fixture: the shared one registers schema expectations that only
+	// the Backupable path satisfies, and this test drives the single-shard
+	// wrapper directly.
+	logger, hook := logrustest.NewNullLogger()
+	db := &DB{logger: logger, localNodeName: node}
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return func(string, string) ReindexHold { return ReindexHoldNone }
+	})
+	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+
+	require.Error(t, idx.refuseIfReindexInFlight("s1"))
+
+	var named int
+	for _, e := range hook.AllEntries() {
+		if e.Data["shard"] == "s1" && strings.Contains(e.Message, "a runtime-reindex is live on this shard") {
+			named++
+		}
+	}
+	require.Equal(t, 1, named, "a single-shard refusal must still name its shard for the operator")
+}

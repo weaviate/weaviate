@@ -128,8 +128,11 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 		// capture path as well as admission. A zero snapshot reads as "not
 		// blocked" downstream, without the unwired warning below.
 		//
-		// This is one of three places the flag is honoured; the other two are
-		// [DB.RefuseIfAnyReindexInFlight] and [DB.RefuseIfReindexOverlapped].
+		// Every entry point honours the flag itself rather than sharing one
+		// check; grep RuntimeReindexDisabled and RuntimeReindexEnabled for the
+		// full set. The others are [DB.RefuseIfAnyReindexInFlight],
+		// [DB.RefuseIfReindexOverlapped], and the submission route in
+		// adapters/handlers/rest, which stays open for cancel on purpose.
 		// Together they make the flag-off behavior "no reindex check anywhere",
 		// with one accepted residual: a task already running when the flag went
 		// off is not covered, so a backup can span it. See
@@ -247,7 +250,11 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexInFlightError(i.Config.ClassName.String(), reindexBlockedPreWire)
 	}
-	return i.refuseIfReindexInFlightIn(i.db.newReindexGateSnapshot(), shardName)
+	err := i.refuseIfReindexInFlightIn(i.db.newReindexGateSnapshot(), shardName)
+	if err != nil {
+		i.logReindexRefusal(shardName)
+	}
+	return err
 }
 
 // refuseIfReindexInFlightIn is [Index.refuseIfReindexInFlight] against an
@@ -263,16 +270,26 @@ func (i *Index) refuseIfReindexInFlightIn(snap reindexGateSnapshot, shardName st
 	if reason == reindexNotBlocked {
 		return nil
 	}
-	// The shard is what an operator needs to act on, and it is the one thing
-	// the refusal body withholds, so it has to be findable here.
-	if i.db.logger != nil {
-		i.db.logger.WithField("action", "backup_reindex_gate").
-			WithField("collection", collection).
-			WithField("shard", shardName).
-			WithField("node", i.db.localNodeName).
-			Warn("backup-reindex gate: refused a backup; a runtime-reindex is live on this shard")
-	}
+	// Deliberately silent: a multi-shard pass calls this once per shard, so
+	// logging here is O(shards) per refusal. The shard is what an operator
+	// needs and the body withholds it, so each caller reports at its own
+	// granularity instead — one line per shard where that IS the operation
+	// ([Index.refuseIfReindexInFlight]), one bounded line per collection
+	// where it is not ([DB.Backupable]).
 	return reindexInFlightError(collection, reason)
+}
+
+// logReindexRefusal records the shard the body withholds. Callers that check a
+// single shard use this; a pass over many shards must summarise instead.
+func (i *Index) logReindexRefusal(shardName string) {
+	if i.db == nil || i.db.logger == nil {
+		return
+	}
+	i.db.logger.WithField("action", "backup_reindex_gate").
+		WithField("collection", i.Config.ClassName.String()).
+		WithField("shard", shardName).
+		WithField("node", i.db.localNodeName).
+		Warn("backup-reindex gate: refused a backup; a runtime-reindex is live on this shard")
 }
 
 // reindexInFlightError formats the operator-facing rejection. reason picks the
