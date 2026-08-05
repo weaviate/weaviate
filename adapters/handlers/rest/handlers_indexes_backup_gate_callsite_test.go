@@ -70,3 +70,19 @@ func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 	require.Equal(t, "cluster service unavailable; cannot submit reindex task",
 		errorMessage(t, unavailable.Payload))
 }
+
+// TestUpdateIndexWithoutClusterMembershipIsUnavailable drives the gate with a
+// nil cluster, which is a real state on a node that has not joined yet. Without
+// the nil check the gate dereferences it and the handler panics instead of
+// answering 503.
+func TestUpdateIndexWithoutClusterMembershipIsUnavailable(t *testing.T) {
+	h := submissionHandlers(t, nil, nil)
+	h.cluster = nil
+
+	responder := submitReindex(h)
+
+	unavailable, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
+	require.Truef(t, ok, "expected 503, got %T", responder)
+	require.Equal(t, "cluster service unavailable; cannot submit reindex task",
+		errorMessage(t, unavailable.Payload))
+}
