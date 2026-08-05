@@ -33,9 +33,9 @@ import (
 // The sweep deregisters each sidecar bucket BEFORE it removes anything from
 // disk, and it removes the tracker dir last. A context that is already
 // cancelled fails the very first ShutdownBucket, so the sweep returns with the
-// buckets unreachable and started.mig still on disk — the half-removed state
-// the backup gate would otherwise report as clean. Running it on the request
-// context is what used to produce that.
+// buckets unreachable and started.mig still on disk. Both handler sweeps are
+// therefore given a context that outlives their request, so a disconnect cannot
+// abandon one part-way.
 //
 // The cancellation only reaches the sweep through ShutdownBucket: steps 2 and 3
 // (removing the sidecar dirs and the tracker dir) never consult the context. So
@@ -116,8 +116,8 @@ func TestCleanStalePartialReindexState_CancelledContextLeavesItHalfDone(t *testi
 			_, statErr := os.Stat(startedMig)
 			assert.Equalf(t, tc.wantStartedMig, statErr == nil,
 				"started.mig at %s: want present=%v, got present=%v. A cancelled sweep "+
-					"leaves it behind while the gate reports the shard clean; a backup "+
-					"admitted then captures the half-removed state the gate exists to prevent",
+					"returns before removing it, so the shard still owns on-disk state "+
+					"the sweep was meant to clear",
 				startedMig, tc.wantStartedMig, statErr == nil)
 
 			assert.Equalf(t, tc.wantSidecarDir, dirExistsAt(t, lsm, sidecar),
