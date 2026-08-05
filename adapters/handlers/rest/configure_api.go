@@ -806,22 +806,24 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// starts), plus the existing started.mig / tidied.mig sentinels to
 	// decide which migrations are still in flight.
 	//
-	// With RUNTIME_REINDEX_ENABLED off the scan is skipped entirely, so a
-	// node that crashed mid-migration resumes nothing. The on-disk state
-	// is only read here, never written, so skipping leaves it intact for
-	// a later restart with the flag on.
-	var recoveredReindexes []db.RecoveredReindex
-	if appState.ServerConfig.Config.RuntimeReindexEnabled {
-		var recoveryErr error
-		recoveredReindexes, recoveryErr = db.DiscoverInFlightReindexTasks(
-			appState.ServerConfig.Config.Persistence.DataPath,
-			appState.Logger,
-			appState.SchemaManager,
-		)
-		if recoveryErr != nil {
-			appState.Logger.WithError(recoveryErr).
-				Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
-		}
+	// The scan itself only reads, so it still runs with
+	// RUNTIME_REINDEX_ENABLED off — that is what lets startup name the
+	// migrations it is leaving alone instead of going silent on a node
+	// that crashed mid-migration. Handing the result to
+	// configureReindexer is what would resume work, so with the flag off
+	// the result is logged and dropped.
+	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.Logger,
+		appState.SchemaManager,
+	)
+	if recoveryErr != nil {
+		appState.Logger.WithError(recoveryErr).
+			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
+	}
+	if !appState.ServerConfig.Config.RuntimeReindexEnabled {
+		logPausedReindexes(appState.Logger, recoveredReindexes)
+		recoveredReindexes = nil
 	}
 	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
 	repo.SetReindexer(reindexer)
@@ -1218,6 +1220,26 @@ func initReindexAndDistributedTasks(
 		}
 	}
 	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
+}
+
+// logPausedReindexes names the migrations found on disk that this node is
+// deliberately not resuming because runtime reindex is off.
+//
+// Without it the operator sees a frozen task, a refused submit, and a
+// silent startup, with nothing tying the three together. One line per
+// affected shard turns that into a diagnosable state.
+func logPausedReindexes(logger logrus.FieldLogger, recovered []db.RecoveredReindex) {
+	if len(recovered) == 0 {
+		return
+	}
+	for _, r := range recovered {
+		logger.WithField("action", "reindex_paused_flag_off").
+			WithField("collection", r.Collection).
+			WithField("shard", r.ShardName).
+			WithField("task_id", r.Descriptor.ID).
+			Warn("runtime reindex is disabled: this in-flight migration will NOT resume and its on-disk state is left untouched. " +
+				"Set RUNTIME_REINDEX_ENABLED=true to resume it, or cancel the task via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}.")
+	}
 }
 
 func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {

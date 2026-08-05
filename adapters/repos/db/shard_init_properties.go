@@ -156,6 +156,21 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	})
 }
 
+// finalizeCompletedMigrations promotes this shard's deferred migration
+// renames at load time.
+//
+// Skipped with runtime reindex off: for a merged-but-untidied generation
+// the finalize writes recovery sentinels and renames ingest dirs into
+// place, which is resuming a migration. The flag-off contract is that a
+// node that crashed mid-migration touches nothing until the flag is
+// turned back on.
+func (s *Shard) finalizeCompletedMigrations() {
+	if s.index.Config.RuntimeReindexDisabled {
+		return
+	}
+	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+}
+
 // cleanStaleMigrationDirs removes the per-property runtime-reindex
 // migration directories whose tidied sentinel would lie now that the
 // (propName, indexType) bucket has been removed. Without this, a

@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -72,12 +71,7 @@ import (
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
-		WithWeaviate().
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		Start(ctx)
+	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {

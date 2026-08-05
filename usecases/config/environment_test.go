@@ -1925,3 +1925,35 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+// TestEnvironmentRuntimeReindexEnabled pins the precedence contract for
+// the runtime-reindex kill switch: the env var wins when it is set, and an
+// absent env var leaves a config-file value alone. Getting the absent case
+// wrong silently forces every file-configured cluster back to off.
+func TestEnvironmentRuntimeReindexEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue []string
+		fromFile bool
+		expected bool
+	}{
+		{name: "absent env keeps file default off", expected: false},
+		{name: "absent env keeps file value on", fromFile: true, expected: true},
+		{name: "env true enables", envValue: []string{"true"}, expected: true},
+		{name: "env false disables", envValue: []string{"false"}, expected: false},
+		{name: "env false overrides file on", envValue: []string{"false"}, fromFile: true, expected: false},
+		{name: "env on enables", envValue: []string{"on"}, expected: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.envValue) == 1 {
+				t.Setenv("RUNTIME_REINDEX_ENABLED", tt.envValue[0])
+			}
+			conf := Config{RuntimeReindexEnabled: tt.fromFile}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expected, conf.RuntimeReindexEnabled)
+		})
+	}
+}

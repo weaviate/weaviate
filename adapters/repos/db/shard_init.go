@@ -159,7 +159,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
 	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	s.finalizeCompletedMigrations()
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.

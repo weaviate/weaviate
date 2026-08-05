@@ -66,29 +66,38 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
-// errRuntimeReindexDisabled is the message every reindex endpoint returns
-// while RUNTIME_REINDEX_ENABLED is off. It names the knob so an operator
-// hitting the endpoint knows exactly what to set.
+// errRuntimeReindexDisabled is the message a refused submit returns while
+// RUNTIME_REINDEX_ENABLED is off. It names the knob so an operator hitting
+// the endpoint knows exactly what to set.
 var errRuntimeReindexDisabled = errors.New(
 	"runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true")
 
-// runtimeReindexEnabled reports whether the reindex endpoints may serve.
-func (h *indexesHandlers) runtimeReindexEnabled() bool {
-	return h.appState.ServerConfig.Config.RuntimeReindexEnabled
+// refuseAsRuntimeReindexDisabled reports whether a PUT
+// /v1/schema/{class}/indexes/{prop} must be refused because runtime
+// reindex is off.
+//
+// Only submits are refused. Cancel stays available: a task left STARTED
+// in RAFT by an earlier flag-on run keeps blocking property mutations
+// through [schemaHandlers.checkReindexConflictForPropertyMutation] and
+// the apply-time MutationGuard, and cancelling it is the only way to
+// clear that. Refusing cancel would strand exactly the operators who
+// turn the flag off to escape a misbehaving migration.
+//
+// GET /v1/schema/{class}/indexes is not gated at all — it is read-only,
+// and an operator cannot decide what to cancel without seeing it.
+func (h *indexesHandlers) refuseAsRuntimeReindexDisabled(body *models.IndexUpdateRequest) bool {
+	if h.appState.ServerConfig.Config.RuntimeReindexEnabled {
+		return false
+	}
+	if body == nil {
+		return true
+	}
+	_, cancelling := requestedCancel(body)
+	return !cancelling
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
-	if !h.runtimeReindexEnabled() {
-		// The operation has no 400 in the spec, so the refusal rides on
-		// the 403 response, which is the only 4xx here that carries a
-		// message body. Status of a task submitted during an earlier
-		// flag-on run is refused too: reporting progress for work this
-		// node is no longer running would be misleading.
-		return schema.NewSchemaObjectsIndexesGetForbidden().
-			WithPayload(errPayloadFromSingleErr(principal, errRuntimeReindexDisabled))
-	}
-
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
 		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
@@ -220,14 +229,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 // repair-searchable blocks change-tokenization on any property since
 // repair-searchable touches all searchable buckets).
 func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
-	if !h.runtimeReindexEnabled() {
-		// Covers submit and cancel, which share this verb. Cancel is
-		// refused rather than served because cancelling deletes on-disk
-		// migration state, and with the flag off nothing may be deleted.
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().
-			WithPayload(errPayloadFromSingleErr(principal, errRuntimeReindexDisabled))
-	}
-
 	propertyName := params.PropertyName
 
 	// Qualify (no alias resolution, like DeleteClassPropertyIndex) before authz + lookup.
@@ -247,6 +248,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			return schema.NewSchemaObjectsIndexesUpdateForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
+	}
+
+	// Deliberately after authz: an unauthorized caller must get the same
+	// 401/403 it gets with the flag on, so feature state never leaks to
+	// someone who may not query it.
+	if h.refuseAsRuntimeReindexDisabled(params.Body) {
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().
+			WithPayload(errPayloadFromSingleErr(principal, errRuntimeReindexDisabled))
 	}
 
 	// Acquire the per-(collection, property) submit lock EARLY — before
