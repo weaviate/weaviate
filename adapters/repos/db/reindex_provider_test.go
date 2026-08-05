@@ -539,8 +539,9 @@ func TestAnyCleanupInProgressForCollection(t *testing.T) {
 	}
 }
 
-// Pins the ordering autoCleanupAfterTerminal documents: the gate is up for the
-// drain, not raised once it finishes.
+// Pins both halves of the ordering autoCleanupAfterTerminal documents: the gate
+// is up for the drain rather than raised once it finishes, and a drain that
+// times out hands the gate to the worker's exit instead of dropping it.
 func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-1", Version: 1}
 	payload := &ReindexTaskPayload{
@@ -550,14 +551,16 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 		UnitToShard:   map[string]string{"u1": "shard1"},
 	}
 
-	// A handle that never finishes keeps the drain blocked; the short serverCtx
-	// is what eventually releases it, standing in for the drain timeout.
-	serverCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	// A handle that never closes keeps the drain blocked until the drain
+	// timeout, which is shortened rather than reached through serverCtx: a
+	// cancelled serverCtx would also release the gate, and it is precisely
+	// whether the gate outlives the hook that this test is about.
+	doneCh := make(chan struct{})
 	p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-		desc: {doneCh: make(chan struct{})},
+		desc: {doneCh: doneCh},
 	})
-	p.serverCtx = serverCtx
+	p.serverCtx = context.Background()
+	p.terminalCleanupDrainTimeout = time.Second
 
 	logger, _ := logrustest.NewNullLogger()
 	done := make(chan struct{})
@@ -569,11 +572,22 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 	require.Eventually(t, func() bool { return p.AnyCleanupInProgressForCollection("Movies") },
 		500*time.Millisecond, 5*time.Millisecond,
 		"the gate must be up while the drain is still blocked, not after it returns")
+	select {
+	case <-done:
+		require.Fail(t, "the drain must still be running when the gate is already up")
+	default:
+	}
 
 	<-done
-	// The drain timed out here, so the gate outlives the hook and is handed to
-	// the worker's exit instead. The worker can only exit because serverCtx is
-	// already cancelled, so the reopen is prompt but not synchronous.
+	// The drain timed out, and the worker it lost is still writing. Releasing
+	// on return would open the gate over that writer, so the hook hands it to
+	// the worker's exit instead.
+	require.Never(t, func() bool {
+		return !p.AnyCleanupInProgressForCollection("Movies")
+	}, 300*time.Millisecond, 10*time.Millisecond,
+		"the gate must outlive the hook while the worker is still writing")
+
+	close(doneCh)
 	require.Eventually(t, func() bool {
 		return !p.AnyCleanupInProgressForCollection("Movies")
 	}, time.Second, 5*time.Millisecond,

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jonboulle/clockwork"
@@ -73,9 +74,11 @@ type Manager struct {
 	cancelDispatch chan *Task
 	// cancelDispatchDone is closed by [Manager.Close] to stop the drainer.
 	cancelDispatchDone chan struct{}
-	// cancelDispatchCtx is the second stop signal, so a server shutdown that
-	// never reaches Close still takes the drainer down.
-	cancelDispatchCtx context.Context
+	// cancelOverflowInFlight counts the goroutines the apply path spawned
+	// because the queue was full; bounded by [cancelDispatchOverflowLimit].
+	// Read and incremented under mu (every dispatcher holds it), decremented
+	// from the goroutine itself, hence atomic.
+	cancelOverflowInFlight atomic.Int64
 	// cancelDrainerRunning keeps the drainer to exactly one goroutine across
 	// repeated registrations. Guarded by mu.
 	cancelDrainerRunning bool
@@ -227,18 +230,11 @@ type ManagerParameters struct {
 	CompletedTaskTTL time.Duration
 
 	Logger logrus.FieldLogger
-
-	// Ctx bounds the cancel-observer drainer. Defaults to context.Background(),
-	// in which case only [Manager.Close] stops it.
-	Ctx context.Context
 }
 
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
-	}
-	if params.Ctx == nil {
-		params.Ctx = context.Background()
 	}
 
 	return &Manager{
@@ -247,7 +243,6 @@ func NewManager(params ManagerParameters) *Manager {
 		cancelObservers:      make(map[string]CancelObserver),
 		cancelDispatch:       make(chan *Task, cancelDispatchQueueDepth),
 		cancelDispatchDone:   make(chan struct{}),
-		cancelDispatchCtx:    params.Ctx,
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -300,6 +295,12 @@ func (m *Manager) Close() {
 // fill if an observer has wedged.
 const cancelDispatchQueueDepth = 256
 
+// cancelDispatchOverflowLimit bounds the goroutines spawned for events the
+// queue could not take. A queue this deep only fills when an observer has
+// wedged, and a wedged observer means every one of these goroutines parks
+// forever, so the fan-out has to stop somewhere.
+const cancelDispatchOverflowLimit = 32
+
 // cancelObserverStaleAfter is how old a cancel may be and still be worth
 // telling an observer about.
 //
@@ -324,15 +325,24 @@ func (m *Manager) startCancelDrainerWithLock() {
 	}
 	m.cancelDrainerRunning = true
 
-	queue, done, ctx := m.cancelDispatch, m.cancelDispatchDone, m.cancelDispatchCtx
+	queue, done := m.cancelDispatch, m.cancelDispatchDone
 	enterrors.GoWrapper(func() {
 		for {
 			select {
 			case <-done:
 				return
-			case <-ctx.Done():
-				return
 			case task := <-queue:
+				// A select with two ready cases picks between them at random,
+				// so with a closed done AND a queued event this loop would
+				// sometimes still deliver after Close — to observers whose
+				// dependencies the shutdown has already torn down. Close's
+				// "anything still queued is dropped" only holds if the drop is
+				// decided here.
+				select {
+				case <-done:
+					return
+				default:
+				}
 				m.runCancelObserver(task)
 			}
 		}
@@ -373,11 +383,10 @@ func (m *Manager) runCancelObserver(task *Task) {
 // The task is cloned because it stays in m.tasks and later applies mutate it.
 func (m *Manager) dispatchCancelWithLock(task *Task) {
 	if m.cancelDispatchClosed {
-		// The drainer has been told to exit. Enqueueing anyway is not merely
-		// wasted: its select sees a closed done channel and a non-empty queue as
-		// two ready cases and picks between them at random, so a cancel handed
-		// over after Close is sometimes still delivered — to observers whose
-		// dependencies the shutdown has already torn down.
+		// The drainer has been told to exit and drops whatever it still finds
+		// on the queue, so nothing handed over from here can be delivered.
+		// Applies keep arriving on the way down; without this they would fill a
+		// 256-deep queue that no one is left to empty.
 		return
 	}
 	observer := m.cancelObservers[task.Namespace]
@@ -397,16 +406,40 @@ func (m *Manager) dispatchCancelWithLock(task *Task) {
 	select {
 	case m.cancelDispatch <- clone:
 	default:
-		// Not dropped: a missing event makes this node answer "no cleanup
-		// here", which the node handling the cancel reads as confirmation that
-		// there is nothing left to wait for. Fanning out keeps the apply path
-		// non-blocking at the cost of ordering, which only matters between two
-		// cancels of the same task and which the observers already tolerate.
-		m.dispatchLogger().WithFields(logrus.Fields{
-			"namespace": task.Namespace,
-			"task_id":   task.ID,
-		}).Error("distributedtask: cancel-observer queue is full, the observer is not keeping up; dispatching this one separately")
-		enterrors.GoWrapper(func() { observer(clone) }, m.dispatchLogger())
+		// A missing event does not fail the cancel open: the node handling it
+		// keeps polling this node's gate and answers "unconfirmed" when its
+		// budget runs out. What it costs is that whole budget, on every owner
+		// that lost an event, so a few goroutines are worth spending to keep
+		// the events flowing. The price is ordering, which only matters between
+		// two cancels of the same task and which the observers already
+		// tolerate.
+		logger := m.dispatchLogger()
+		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
+		if m.cancelOverflowInFlight.Load() >= cancelDispatchOverflowLimit {
+			// Past the bound the observer is not merely behind, it is wedged,
+			// and every further goroutine parks on the same wedge for the
+			// lifetime of the process. A late cancel is worth less than the
+			// node staying up.
+			logger.WithFields(fields).Error("distributedtask: cancel-observer queue is full and the overflow bound is reached; dropping this cancel event")
+			return
+		}
+		logger.WithFields(fields).Error("distributedtask: cancel-observer queue is full, the observer is not keeping up; dispatching this one separately")
+		m.cancelOverflowInFlight.Add(1)
+		done := m.cancelDispatchDone
+		enterrors.GoWrapper(func() {
+			defer m.cancelOverflowInFlight.Add(-1)
+			// Not joined by Close: the observer may block for as long as it
+			// likes and Close runs under the same lock the observer takes to
+			// look itself up. Checking here is the whole stop signal, so a
+			// shutdown between the dispatch and the start skips the observer
+			// instead of calling into torn-down dependencies.
+			select {
+			case <-done:
+				return
+			default:
+			}
+			observer(clone)
+		}, logger)
 	}
 }
 

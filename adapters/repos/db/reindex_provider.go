@@ -136,6 +136,12 @@ type ReindexProvider struct {
 	// workerExitGateCap overrides [reindexWorkerExitGateCap]; zero means the
 	// default. Shortening it is how the bound is reached without waiting it out.
 	workerExitGateCap time.Duration
+	// terminalCleanupDrainTimeout overrides
+	// [reindexTerminalCleanupDrainTimeout]; zero means the default. Same
+	// purpose as workerExitGateCap: the timed-out drain is the branch that
+	// hands the gate to the worker's exit, and it cannot be reached by
+	// cancelling serverCtx, which would release the gate as well.
+	terminalCleanupDrainTimeout time.Duration
 
 	// cancelTeardownSettled records tasks whose teardown has already run here,
 	// so an apply that lands after it releases at once instead of waiting out
@@ -242,6 +248,17 @@ func NewReindexProvider(
 		cancelTeardownSettled: make(map[distributedtask.TaskDescriptor]time.Time),
 		submitInProgress:      make(map[reindexCleanupKey]int),
 	}
+}
+
+// shutdownCtx is the read side of [ReindexProvider.serverCtx]. Every consumer
+// goes through it because several of them run on a goroutine, where a provider
+// built by a fixture rather than [NewReindexProvider] would otherwise take the
+// whole process down instead of just failing the operation.
+func (p *ReindexProvider) shutdownCtx() context.Context {
+	if p.serverCtx == nil {
+		return context.Background()
+	}
+	return p.serverCtx
 }
 
 func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCompletionRecorder) {
@@ -1310,7 +1327,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	parallel bool,
 	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	var agg phaseResult
 	var aggMu sync.Mutex
 
@@ -1455,7 +1472,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// SWAPPING. The split bounds the cross-replica stagger window at
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	// PREP path runs heavy IO per shard (FlushAndSwitch, ShutdownBucket,
 	// PrependSegmentsFromBucket). Sequential to avoid compounding IO
 	// contention; query consistency is not at stake here because queries
@@ -1544,7 +1561,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	// SWAP path runs the in-memory pointer flip first (the user-observable
 	// event) and then per-shard post-flip work (Shutdown drain, dir
 	// rename, sentinel writes, trim). Parallel across this node's units
@@ -1646,7 +1663,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
 	// scheduler tick fires OnTaskCompleted).
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the
@@ -1716,15 +1733,19 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 
 	release := p.MarkCleanupInProgress(payload)
 
-	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
+	drainTimeout := p.terminalCleanupDrainTimeout
+	if drainTimeout <= 0 {
+		drainTimeout = reindexTerminalCleanupDrainTimeout
+	}
+	drainCtx, drainCancel := context.WithTimeout(p.shutdownCtx(), drainTimeout)
 	defer drainCancel()
 	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
-		logger.Errorf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
+		logger.Errorf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", drainTimeout, err)
 		p.ReleaseCleanupGateOnWorkerExit(task.TaskDescriptor, release, logger)
 		return
 	}
 	defer release()
-	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
+	cleanupCtx, cancel := context.WithTimeout(p.shutdownCtx(), reindexTerminalCleanupTimeout)
 	defer cancel()
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {
@@ -1795,8 +1816,9 @@ func (p *ReindexProvider) AnyCleanupInProgress() bool {
 // This is the confirmation signal, so it also answers yes for the window after
 // an apply during which no teardown is running; [ReindexProvider.OnCancelApplied]
 // explains why that window cannot come from the blocking gate. It gates nothing
-// itself: the backup and restore gates read [ReindexProvider.IsCleanupInProgress]
-// and [ReindexProvider.AnyCleanupInProgress] instead.
+// itself: the backup gate reads [ReindexProvider.IsCleanupInProgress] and the
+// restore gate [ReindexProvider.BlockingHoldForCollection], falling back to
+// [ReindexProvider.AnyCleanupInProgress] when it has no class list to ask about.
 func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) bool {
 	folded := strings.ToLower(collection)
 
@@ -1919,6 +1941,12 @@ func (p *ReindexProvider) MarkSubmitInProgress(collection string) func() {
 	key := newReindexCleanupKey(collection, cleanupWholeCollection)
 
 	p.cleanupInProgressMu.Lock()
+	if p.submitInProgress == nil {
+		// Fixtures build the provider by literal; production goes through
+		// [NewReindexProvider]. Same nil tolerance the readers already have,
+		// which a write into a nil map would otherwise turn into a panic.
+		p.submitInProgress = make(map[reindexCleanupKey]int, 1)
+	}
 	p.submitInProgress[key]++
 	p.cleanupInProgressMu.Unlock()
 
@@ -2512,10 +2540,11 @@ func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
 	payload, err := p.loadPayload(task)
 
 	// Confirmation is raised from a probe that reads the collection alone, so a
-	// payload this node cannot fully decode still gets a latch. Without it the
-	// node answers "no cleanup here", and awaitOwnerCleanupGates reads that as
-	// the owner having finished — a fail-open on the one signal the cancel path
-	// waits for. The blocking gate below genuinely needs the whole payload.
+	// payload this node cannot fully decode still gets a latch. Without it this
+	// node never reports the cancel at all, and the node handling it polls until
+	// its per-owner budget runs out before answering unconfirmed — it does not
+	// read a missing latch as the owner having finished. The blocking gate below
+	// genuinely needs the whole payload.
 	collection := cancelledTaskCollection(task.Payload)
 	if err == nil && payload.Collection != "" {
 		collection = payload.Collection
@@ -2559,7 +2588,7 @@ func (p *ReindexProvider) holdCancelSeen(collection string) {
 	enterrors.GoWrapper(func() {
 		select {
 		case <-time.After(reindexCancelConfirmWindow):
-		case <-p.serverCtx.Done():
+		case <-p.shutdownCtx().Done():
 		}
 		p.cancelAppliedMu.Lock()
 		defer p.cancelAppliedMu.Unlock()
@@ -2602,7 +2631,7 @@ func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescr
 	enterrors.GoWrapper(func() {
 		select {
 		case <-time.After(reindexCancelApplyGateCap):
-		case <-p.serverCtx.Done():
+		case <-p.shutdownCtx().Done():
 		}
 		if adopted := p.adoptCancelApplyGate(desc); adopted != nil {
 			p.logger.WithField("taskID", desc.ID).Errorf(
@@ -2669,11 +2698,7 @@ func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
 	}
 	enterrors.GoWrapper(func() {
 		defer release()
-		base := p.serverCtx
-		if base == nil {
-			base = context.Background()
-		}
-		ctx, cancel := context.WithTimeout(base, gateCap)
+		ctx, cancel := context.WithTimeout(p.shutdownCtx(), gateCap)
 		defer cancel()
 		if err := p.WaitForLocalTaskDrain(ctx, desc); err != nil {
 			logger.Errorf("reindex provider: releasing the cleanup gate without having observed the worker exit; "+
