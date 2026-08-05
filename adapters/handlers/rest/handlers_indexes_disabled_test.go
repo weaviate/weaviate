@@ -37,38 +37,46 @@ func disabledIndexesHandlers() *indexesHandlers {
 	}}
 }
 
-// recordResponse renders a responder so the test can assert on the status
-// code and body the client actually receives.
-func recordResponse(t *testing.T, resp middleware.Responder) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	resp.WriteResponse(rec, runtime.JSONProducer())
-	return rec
-}
+// TestReindexEndpoints_RuntimeReindexDisabled pins that every reindex
+// endpoint refuses with a 4xx naming the knob while the flag is off.
+func TestReindexEndpoints_RuntimeReindexDisabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		call     func(*indexesHandlers) middleware.Responder
+		wantCode int
+	}{
+		{
+			name: "submit and cancel",
+			call: func(h *indexesHandlers) middleware.Responder {
+				return h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
+					ClassName:    "Books",
+					PropertyName: "title",
+					Body:         &models.IndexUpdateRequest{},
+				}, nil)
+			},
+			wantCode: 400,
+		},
+		{
+			name: "status",
+			call: func(h *indexesHandlers) middleware.Responder {
+				return h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+					ClassName: "Books",
+				}, nil)
+			},
+			wantCode: 403,
+		},
+	}
 
-func TestUpdateIndex_RuntimeReindexDisabled(t *testing.T) {
-	h := disabledIndexesHandlers()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			tt.call(disabledIndexesHandlers()).WriteResponse(rec, runtime.JSONProducer())
 
-	resp := h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
-		ClassName:    "Books",
-		PropertyName: "title",
-		Body:         &models.IndexUpdateRequest{},
-	}, nil)
-
-	rec := recordResponse(t, resp)
-	require.Equal(t, 400, rec.Code, "submit must be refused while runtime reindex is off")
-	require.Contains(t, rec.Body.String(), "runtime reindex is disabled")
-	require.Contains(t, rec.Body.String(), "RUNTIME_REINDEX_ENABLED",
-		"the refusal must name the knob that turns the feature on")
-}
-
-func TestGetIndexes_RuntimeReindexDisabled(t *testing.T) {
-	h := disabledIndexesHandlers()
-
-	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{ClassName: "Books"}, nil)
-
-	rec := recordResponse(t, resp)
-	require.Equal(t, 403, rec.Code, "status must be refused while runtime reindex is off")
-	require.Contains(t, rec.Body.String(), "runtime reindex is disabled")
-	require.Contains(t, rec.Body.String(), "RUNTIME_REINDEX_ENABLED")
+			require.Equal(t, tt.wantCode, rec.Code,
+				"endpoint must be refused while runtime reindex is off")
+			require.Contains(t, rec.Body.String(), "runtime reindex is disabled")
+			require.Contains(t, rec.Body.String(), "RUNTIME_REINDEX_ENABLED",
+				"the refusal must name the knob that turns the feature on")
+		})
+	}
 }
