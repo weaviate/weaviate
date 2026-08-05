@@ -2207,7 +2207,9 @@ func TestValidateNamespaceStripping(t *testing.T) {
 		rbacRestoreOption string
 		staticAPIKeyUsers []string
 		nilUserLister     bool
+		nilRoleLister     bool
 		wantErr           []string // substrings; empty means no error
+		wantNotErr        []string // substrings the error must not contain
 	}{
 		{
 			name: "NamespacedTargetSkipsValidation",
@@ -2489,6 +2491,23 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			wantErr:   []string{"roles:", `"db:reporting"`},
 		},
 		{
+			// RBAC is off on the target, so no node applies the blob. Rejecting
+			// here would fail the class data over roles nothing would restore.
+			name:          "NilRoleListerSkipsRoleCheck",
+			rbacBlobs:     [][]byte{collidingRoles},
+			nilRoleLister: true,
+		},
+		{
+			// The two listers must not be nil-checked alike: a nil userLister
+			// still leaves a node that applies the user blob.
+			name:          "NilRoleListerLeavesUserCheckAlone",
+			userBlobs:     [][]byte{collidingUsers},
+			rbacBlobs:     [][]byte{collidingRoles},
+			nilRoleLister: true,
+			wantErr:       []string{"dynamic users:", `"alice"`},
+			wantNotErr:    []string{"roles:"},
+		},
+		{
 			// Users and roles collisions are reported together in one aggregate.
 			name:      "UserAndRoleCollisionsBothReported",
 			userBlobs: [][]byte{collidingUsers},
@@ -2509,6 +2528,9 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			if tc.nilUserLister {
 				s.userLister = nil
 			}
+			if tc.nilRoleLister {
+				s.roleLister = nil
+			}
 			var descriptors []backup.ClassDescriptor
 			if tc.descriptors != nil {
 				descriptors = tc.descriptors(t)
@@ -2523,6 +2545,9 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			require.Error(t, err)
 			for _, want := range tc.wantErr {
 				assert.Contains(t, err.Error(), want)
+			}
+			for _, unwanted := range tc.wantNotErr {
+				assert.NotContains(t, err.Error(), unwanted)
 			}
 		})
 	}

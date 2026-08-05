@@ -35,7 +35,8 @@ import (
 // named by some role in it, which holds because a resource is qualified with its
 // role's namespace when it is created. If a future path lets a resource carry a
 // namespace no role name mentions, those rows stay qualified and nothing reports
-// it.
+// it. A users resource is a partial exception. Its name segment is an identity,
+// so it borrows one half of the db subject rule below.
 //
 // A db subject is handled by a different rule, because it is one of exactly two
 // things. It is either a static API key user, whose name is taken verbatim from
@@ -46,6 +47,11 @@ import (
 // be consulted for the second case: a namespaced user whose only role is global
 // carries a namespace no role name mentions, and a cluster with namespaces
 // disabled refuses to start while any db grouping subject is still qualified.
+// A users resource names the same identity a db subject names, so a name the
+// cluster lists as a static API key user is kept whole there too. The rest of
+// that rule does not carry over. A users resource does not record whether the
+// identity is a db user or an OIDC subject, so every other users name follows
+// the namespace set rule above.
 //
 // staticAPIKeyUsers is the restoring cluster's own configured list. A static
 // user that exists on the source cluster but not on the target is therefore
@@ -170,7 +176,18 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 			row[0] = stripped
 		}
 		if len(row) > 1 {
+			// A users resource names an identity, so a static API key user name is
+			// kept whole here exactly as it is for that identity's db subject. The
+			// callback sees one segment and cannot tell which resource kind it came
+			// from, so the path is tested out here. Collection, alias and role
+			// segments name no identity and must keep stripping unconditionally.
+			isUserResource := strings.HasPrefix(row[1], namespacing.UsersPrefix)
 			resource, err := namespacing.RewriteNamespaceSegments(row[1], func(seg string) (string, error) {
+				if isUserResource {
+					if _, ok := staticUsers[seg]; ok {
+						return seg, nil
+					}
+				}
 				return stripSeg(seg), nil
 			})
 			if err != nil {
@@ -209,25 +226,25 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 			// The assignments move to the real built-in for viewer and admin, and
 			// are reset from configuration for root and read-only.
 			if hasNamespacedSource(sources, stripped) {
-				errs = append(errs, fmt.Sprintf("roles %v strip to built-in role %q", sortedKeys(sources), shortName))
+				errs = append(errs, fmt.Sprintf("roles %v strip to built-in role %q", slices.Sorted(maps.Keys(sources)), shortName))
 			}
 			continue
 		}
 		// Two different namespaced roles would become one, either merging their
 		// permissions or being deduped when the rows happen to be identical.
 		if len(sources) > 1 {
-			errs = append(errs, fmt.Sprintf("roles %v strip to the same name %q", sortedKeys(sources), shortName))
+			errs = append(errs, fmt.Sprintf("roles %v strip to the same name %q", slices.Sorted(maps.Keys(sources)), shortName))
 		}
 	}
 	// Two namespaced principals would become one, merging their role sets.
 	for stripped, sources := range subjectSources {
 		if len(sources) > 1 {
-			errs = append(errs, fmt.Sprintf("subjects %v strip to the same name %q", sortedKeys(sources), stripped))
+			errs = append(errs, fmt.Sprintf("subjects %v strip to the same name %q", slices.Sorted(maps.Keys(sources)), stripped))
 		}
 	}
 	// A namespaced principal would become an operator key the target already has.
 	for user, sources := range takenOverStaticUsers {
-		errs = append(errs, fmt.Sprintf("subjects %v strip to %q, which this cluster configures as a static API key user", sortedKeys(sources), user))
+		errs = append(errs, fmt.Sprintf("subjects %v strip to %q, which this cluster configures as a static API key user", slices.Sorted(maps.Keys(sources)), user))
 	}
 	if len(errs) > 0 {
 		slices.Sort(errs)
@@ -247,12 +264,6 @@ func hasNamespacedSource(sources map[string]struct{}, stripped string) bool {
 		}
 	}
 	return false
-}
-
-func sortedKeys(m map[string]struct{}) []string {
-	xs := slices.Collect(maps.Keys(m))
-	slices.Sort(xs)
-	return xs
 }
 
 // StaticAPIKeyUsers returns the static API key user names the namespace strip

@@ -1044,7 +1044,7 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 	// the RBAC blobs through the same strip-and-collide logic the nodes apply.
 	// This is the only check that runs before any node stages data. The same
 	// strip runs again per node at apply time and refuses the blob there too.
-	if rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+	if s.roleLister != nil && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
 		for _, blob := range rbacBlobs {
 			if err := rbac.ValidateNamespaceStrip(blob, s.staticAPIKeyUsers); err != nil {
 				errs = append(errs, fmt.Sprintf("roles: %v", err))

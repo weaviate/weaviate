@@ -398,6 +398,31 @@ func TestStripRBACSnapshot(t *testing.T) {
 			wantG:       [][]string{{"db:alice", "role:editor"}},
 		},
 		{
+			// A users resource names an identity, so the static user list decides it
+			// as it decides that identity's db subject. Stripping
+			// "users/customer1:alice" would move the permission to the unrelated user
+			// "alice", and the boot guard does not look at users resources, so
+			// nothing downstream would report it. The other two rows fix the scope.
+			// An ordinary namespaced users name still strips, and a "roles/" name is
+			// not an identity, so the same text strips there.
+			name: "a users resource naming a static user is kept whole",
+			in: snapshot{
+				Policy: [][]string{
+					{"role:customer1:editor", "users/customer1:alice", "R", "users"},
+					{"role:customer1:editor", "users/customer1:bob", "R", "users"},
+					{"role:customer1:editor", "roles/customer1:alice", "R", "roles"},
+				},
+				GroupingPolicy: [][]string{{"db:customer1:alice", "role:customer1:editor"}},
+			},
+			staticUsers: []string{"customer1:alice"},
+			wantP: [][]string{
+				{"role:editor", "users/customer1:alice", "R", "users"},
+				{"role:editor", "users/bob", "R", "users"},
+				{"role:editor", "roles/alice", "R", "roles"},
+			},
+			wantG: [][]string{{"db:customer1:alice", "role:editor"}},
+		},
+		{
 			// A whole-cluster blob carries real built-in rows. They have no
 			// namespace to lose, so they strip to themselves and must not be
 			// reported as a collision.
