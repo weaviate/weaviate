@@ -56,6 +56,7 @@ const (
 	reindexNotBlocked reindexBlockReason = iota
 	reindexBlockedByLiveTask
 	reindexBlockedByCleanup
+	reindexBlockedBySubmit
 	reindexBlockedPreWire
 )
 
@@ -152,7 +153,8 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 	if snap.cleanup == nil {
 		return reindexNotBlocked
 	}
-	if snap.cleanup(collection, shardName) != ReindexHoldNone {
+	switch snap.cleanup(collection, shardName) {
+	case ReindexHoldCleanup:
 		if db.logger != nil {
 			db.logger.WithField("action", "backup_reindex_gate").
 				WithField("collection", collection).
@@ -161,6 +163,16 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 				Debug("backup-reindex gate: refusing — autoCleanupAfterTerminal still draining sidecars on this shard")
 		}
 		return reindexBlockedByCleanup
+	case ReindexHoldSubmit:
+		if db.logger != nil {
+			db.logger.WithField("action", "backup_reindex_gate").
+				WithField("collection", collection).
+				WithField("shard", shardName).
+				WithField("reason", "submit_in_progress").
+				Debug("backup-reindex gate: refusing — a reindex submission is sweeping stale sidecars on this shard")
+		}
+		return reindexBlockedBySubmit
+	case ReindexHoldNone:
 	}
 	return reindexNotBlocked
 }
@@ -233,6 +245,14 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 	case reindexBlockedPreWire:
 		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
 			"%s: collection %q: backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
+			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
+		)}
+	case reindexBlockedBySubmit:
+		// Accurate wording matters: nothing was cancelled here, and the
+		// cleanup text would send the operator looking for a migration that
+		// does not exist.
+		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+			"%s: collection %q: a reindex submission is preparing this collection; retry in a moment",
 			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
 		)}
 	case reindexBlockedByCleanup:
