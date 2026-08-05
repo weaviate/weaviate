@@ -673,6 +673,9 @@ func (st *Store) Close(ctx context.Context) error {
 
 	st.open.Store(false)
 
+	// Stop the cancel-observer drainer once no further apply can enqueue.
+	st.distributedTasksManager.Close()
+
 	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
 	if err := st.logStore.Close(); err != nil {
