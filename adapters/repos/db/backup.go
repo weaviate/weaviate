@@ -68,10 +68,11 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
 	gate := db.newReindexGateSnapshot()
 	// Gate refusals are kept apart from everything else because only they are
-	// composed to name no node and no shard, and only that property makes them
-	// safe to republish; see [CanCommitResponse.ErrPublishable] in
-	// usecases/backup. Joining them with an error that does name a node would
-	// still classify as a gate refusal and carry the node name into the body.
+	// composed to name no node and no shard, which is what makes them safe to
+	// serve from an API response. Joining one with an error that does name a
+	// node still satisfies errors.Is for the gate sentinel, so the join reads as
+	// a gate refusal to every caller that classifies it — and carries the node
+	// name into the body behind that classification.
 	var errs, gateErrs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
