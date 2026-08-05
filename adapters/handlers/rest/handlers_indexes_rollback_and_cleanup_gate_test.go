@@ -468,3 +468,38 @@ func TestRollbackRacedReindexTaskSucceedsOnRetry(t *testing.T) {
 	require.Equal(t, logrus.InfoLevel, entries[0].Level,
 		"a rollback that succeeded on retry is not an operator problem")
 }
+
+// countingProber records whether the gate probed the cluster at all.
+type countingProber struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *countingProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	return backup.NodeActivity{}, nil
+}
+
+// With RUNTIME_REINDEX_ENABLED off there is no reindex to gate, so the
+// submission is refused before any of this branch's machinery runs. Pinned
+// because the flag and the gate landed from different directions onto the same
+// handler, and "off" must not mean "off except for the new cluster probes".
+func TestUpdateIndexWithRuntimeReindexDisabledSkipsTheGate(t *testing.T) {
+	svc := &raceTaskService{}
+	prober := &countingProber{}
+	h := submissionHandlers(t, svc, prober)
+	h.appState.ServerConfig.Config.RuntimeReindexEnabled = false
+
+	responder := submitReindex(h)
+
+	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateBadRequest)
+	require.Truef(t, ok, "a disabled feature must answer 400, got %T", responder)
+
+	prober.mu.Lock()
+	defer prober.mu.Unlock()
+	require.Zero(t, prober.calls,
+		"the cluster must not be probed for backups when no reindex can start")
+	require.Zero(t, svc.adds, "no task may be committed while the feature is off")
+}
