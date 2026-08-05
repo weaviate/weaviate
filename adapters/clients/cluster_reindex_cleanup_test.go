@@ -32,13 +32,13 @@ func TestClusterReindexCleanup(t *testing.T) {
 		wantErrMsg string
 	}{
 		{
-			name:       "gate is up",
+			name:       "gate is closed",
 			statusCode: http.StatusOK,
 			body:       `{"cleaningUp":true}`,
 			want:       true,
 		},
 		{
-			name:       "gate is down",
+			name:       "gate is open",
 			statusCode: http.StatusOK,
 			body:       `{"cleaningUp":false}`,
 		},

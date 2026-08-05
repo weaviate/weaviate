@@ -13,10 +13,7 @@ package clients
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 )
@@ -29,51 +26,23 @@ const pathReindexCleanupActivity = "/reindex/cleanup-activity"
 var ErrReindexCleanupUnsupported = errors.New("node does not serve the reindex cleanup-activity route")
 
 type ClusterReindexCleanup struct {
-	client   *http.Client
-	resolver nodeResolver
+	nodeProbe
 }
 
 func NewClusterReindexCleanup(client *http.Client, resolver nodeResolver) *ClusterReindexCleanup {
-	return &ClusterReindexCleanup{client: client, resolver: resolver}
+	return &ClusterReindexCleanup{nodeProbe{client: client, resolver: resolver}}
 }
 
 // CleanupInProgress asks one node whether it is still tearing down reindex
 // sidecars for the collection.
 func (c *ClusterReindexCleanup) CleanupInProgress(ctx context.Context, nodeName, collection string) (bool, error) {
-	host, found := c.resolver.NodeHostname(nodeName)
-	if !found {
-		return false, fmt.Errorf("unable to resolve hostname for %q", nodeName)
-	}
-	u := url.URL{
-		Scheme:   "http",
-		Host:     host,
-		Path:     pathReindexCleanupActivity,
-		RawQuery: url.Values{"collection": []string{collection}}.Encode(),
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return false, fmt.Errorf("new reindex cleanup request: %w", err)
-	}
-	res, err := c.client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("reindex cleanup request: %w", err)
-	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return false, fmt.Errorf("read reindex cleanup response: %w", err)
-	}
-	if res.StatusCode == http.StatusNotFound {
-		return false, ErrReindexCleanupUnsupported
-	}
-	if res.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("reindex cleanup: unexpected status code %d (%s)", res.StatusCode, body)
-	}
 	var activity struct {
 		CleaningUp bool `json:"cleaningUp"`
 	}
-	if err := json.Unmarshal(body, &activity); err != nil {
-		return false, fmt.Errorf("unmarshal reindex cleanup response: %w", err)
+	query := url.Values{"collection": []string{collection}}
+	if err := c.getJSON(ctx, nodeName, pathReindexCleanupActivity, query,
+		ErrReindexCleanupUnsupported, "reindex cleanup", &activity); err != nil {
+		return false, err
 	}
 	return activity.CleaningUp, nil
 }
