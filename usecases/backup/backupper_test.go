@@ -912,26 +912,55 @@ func TestResolveBaseBackupChain(t *testing.T) {
 	}
 }
 
+// runParticipantBackup wires the participant mocks a reindex-refusal test
+// needs, drives one backup to completion and returns the stored meta. The
+// request duration is an hour so the pre-commit window never expires under a
+// loaded CI machine.
+func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
+	classes []string, sourcePath string, descs ...backup.ClassDescriptor,
+) (backup.Status, string) {
+	t.Helper()
+	var (
+		ctx         = context.Background()
+		any         = mock.Anything
+		backendName = "gcs"
+		backupID    = "1"
+		nodeHome    = backupID + "/" + nodeName
+	)
+
+	// Admission passes; only the commit-time checks may object.
+	sourcer.On("Backupable", ctx, classes).Return(nil)
+	// The commit-time re-resolve runs on the uploader's own cancellable ctx.
+	sourcer.On("Backupable", any, any).Return(nil)
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor(descs...))
+	sourcer.On("ReleaseBackup", any, backupID, any).Return(nil)
+
+	backend.On("HomeDir", any, any, any).Return("bucket/backups/" + nodeHome)
+	backend.On("SourceDataPath").Return(sourcePath)
+	backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+	backend.On("Initialize", ctx, nodeHome).Return(nil)
+	backend.On("PutObject", any, nodeHome, BackupFile, any).Return(nil)
+	backend.On("Write", any, nodeHome, any, any).Return(any, nil)
+
+	m := createManager(sourcer, nil, backend, nil)
+	require.Equal(t, &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: _TimeoutShardCommit},
+		m.OnCanCommit(ctx, &Request{
+			Method: OpCreate, ID: backupID, Classes: classes,
+			Backend: backendName, Duration: time.Hour,
+		}))
+	require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
+	m.backupper.waitForCompletion(50, 100)
+
+	return backend.getMetaStatus()
+}
+
 // Pins: a reindex admitted after the pre-capture check still fails the
 // backup at commit time.
 func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 	t.Parallel()
-	var (
-		cls         = "Class-A"
-		cls2        = "Class-B"
-		backendName = "gcs"
-		backupID    = "1"
-		ctx         = context.Background()
-		nodeHome    = backupID + "/" + nodeName
-		path        = "bucket/backups/" + nodeHome
-		any         = mock.Anything
-		req         = Request{
-			Method:   OpCreate,
-			ID:       backupID,
-			Classes:  []string{cls, cls2},
-			Backend:  backendName,
-			Duration: time.Millisecond * 20,
-		}
+	const (
+		cls  = "Class-A"
+		cls2 = "Class-B"
 	)
 
 	tests := []struct {
@@ -958,35 +987,13 @@ func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 			t.Parallel()
 			sourcePath := t.TempDir()
 			sourcer := &fakeSourcer{}
-			backend := newFakeBackend()
-
-			// Admission passes; only the commit-time overlap query objects.
-			sourcer.On("Backupable", ctx, req.Classes).Return(nil)
-			sourcer.On("Backupable", any, any).Return(nil)
 			if tc.liveAtEnd {
 				sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
 					backup.ErrBackupSpannedReindex, cls)
 			}
-			ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(ch)
-			sourcer.On("ReleaseBackup", any, backupID, any).Return(nil)
 
-			backend.On("HomeDir", any, any, any).Return(path)
-			backend.On("SourceDataPath").Return(sourcePath)
-			backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
-			backend.On("Initialize", ctx, nodeHome).Return(nil)
-			backend.On("PutObject", any, nodeHome, BackupFile, any).Return(nil)
-			backend.On("Write", any, nodeHome, any, any).Return(any, nil)
-
-			m := createManager(sourcer, nil, backend, nil)
-			longReq := req
-			longReq.Duration = time.Hour
-			require.Equal(t, &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: _TimeoutShardCommit},
-				m.OnCanCommit(ctx, &longReq))
-			require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
-			m.backupper.waitForCompletion(50, 100)
-
-			status, errMsg := backend.getMetaStatus()
+			status, errMsg := runParticipantBackup(t, sourcer, newFakeBackend(),
+				[]string{cls, cls2}, sourcePath, genClassDescriptions(t, sourcePath, cls, cls2)...)
 			require.Equal(t, tc.wantStatus, status)
 			if tc.wantErrPart == "" {
 				require.Empty(t, errMsg)
@@ -1011,21 +1018,6 @@ func TestBackupFailureMetaOmitsTheShardThatRefused(t *testing.T) {
 		cls   = "R2Race"
 		shard = "henhWXAbABqk"
 	)
-	var (
-		backendName = "gcs"
-		backupID    = "1"
-		ctx         = context.Background()
-		nodeHome    = backupID + "/" + nodeName
-		path        = "bucket/backups/" + nodeHome
-		any         = mock.Anything
-		req         = Request{
-			Method:   OpCreate,
-			ID:       backupID,
-			Classes:  []string{cls},
-			Backend:  backendName,
-			Duration: time.Millisecond * 20,
-		}
-	)
 
 	// The shape the real chain produces: the gate's publishable refusal under
 	// the snapshot wrappers that name the shard.
@@ -1035,30 +1027,9 @@ func TestBackupFailureMetaOmitsTheShardThatRefused(t *testing.T) {
 	wrapped := fmt.Errorf("backup class %s descriptor: backup shards with hardlinks: snapshot shard %s: halt for snapshot: %w",
 		cls, shard, refusal)
 
-	sourcer := &fakeSourcer{}
-	sourcer.On("Backupable", ctx, req.Classes).Return(nil)
-	sourcer.On("Backupable", any, any).Return(nil)
-	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(
-		fakeBackupDescriptor(backup.ClassDescriptor{Name: cls, Error: wrapped}))
-	sourcer.On("ReleaseBackup", any, backupID, any).Return(nil)
+	_, errMsg := runParticipantBackup(t, &fakeSourcer{}, newFakeBackend(), []string{cls}, t.TempDir(),
+		backup.ClassDescriptor{Name: cls, Error: wrapped})
 
-	backend := newFakeBackend()
-	backend.On("HomeDir", any, any, any).Return(path)
-	backend.On("SourceDataPath").Return(t.TempDir())
-	backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
-	backend.On("Initialize", ctx, nodeHome).Return(nil)
-	backend.On("PutObject", any, nodeHome, BackupFile, any).Return(nil)
-	backend.On("Write", any, nodeHome, any, any).Return(any, nil)
-
-	m := createManager(sourcer, nil, backend, nil)
-	longReq := req
-	longReq.Duration = time.Hour
-	require.Equal(t, &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: _TimeoutShardCommit},
-		m.OnCanCommit(ctx, &longReq))
-	require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
-	m.backupper.waitForCompletion(50, 100)
-
-	_, errMsg := backend.getMetaStatus()
 	// OnStatus keys the participant's failure off meta.Error, not meta.Status:
 	// the per-shard path leaves Status at TRANSFERRING, unlike the commit-time
 	// backstop which sets FAILED.

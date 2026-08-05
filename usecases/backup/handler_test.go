@@ -288,27 +288,30 @@ func gateRefusal() error {
 	return fmt.Errorf("%w: retry after the migration finishes", backup.ErrReindexInFlight)
 }
 
-// TestOnCanCommitRestore_RefusesDuringInFlightReindex pins that OnCanCommit
-// refuses an OpRestore before restorer.validate reads the descriptor.
-func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
-	ctx := context.Background()
-
+// canCommitGatedRestore asks a participant whose cluster-wide gate is shut to
+// take on a restore.
+func canCommitGatedRestore(backend *fakeBackend) *CanCommitResponse {
 	sourcer := &fakeSourcer{}
 	sourcer.reindexInFlightErr = gateRefusal()
 
-	// Backend answers rather than rejecting, so a dropped gate fails the assertion, not a mock panic.
-	backend := newFakeBackend()
-	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
-	backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
-
-	bm := createManager(sourcer, nil, backend, nil)
-	resp := bm.OnCanCommit(ctx, &Request{
+	return createManager(sourcer, nil, backend, nil).OnCanCommit(context.Background(), &Request{
 		Method:   OpRestore,
 		ID:       "1",
 		Classes:  []string{"MyClass"},
 		Backend:  "s3",
 		Duration: time.Millisecond * 20,
 	})
+}
+
+// TestOnCanCommitRestore_RefusesDuringInFlightReindex pins that OnCanCommit
+// refuses an OpRestore before restorer.validate reads the descriptor.
+func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
+	// Backend answers rather than rejecting, so a dropped gate fails the assertion, not a mock panic.
+	backend := newFakeBackend()
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+	backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
+
+	resp := canCommitGatedRestore(backend)
 
 	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
 		"retry after the migration finishes", resp.Err)
@@ -322,21 +325,7 @@ func TestOnCanCommitRestore_RefusesDuringInFlightReindex(t *testing.T) {
 // TestOnCanCommitRestore_WordingSurvivesRoundTrip pins that a restore refusal
 // still reads as one after the coordinator rebuilds it from the RPC response.
 func TestOnCanCommitRestore_WordingSurvivesRoundTrip(t *testing.T) {
-	ctx := context.Background()
-
-	sourcer := &fakeSourcer{}
-	sourcer.reindexInFlightErr = gateRefusal()
-
-	bm := createManager(sourcer, nil, newFakeBackend(), nil)
-	resp := bm.OnCanCommit(ctx, &Request{
-		Method:   OpRestore,
-		ID:       "1",
-		Classes:  []string{"MyClass"},
-		Backend:  "s3",
-		Duration: time.Millisecond * 20,
-	})
-
-	err := canCommitErrFromResponse(resp)
+	err := canCommitErrFromResponse(canCommitGatedRestore(newFakeBackend()))
 	require.ErrorIs(t, err, backup.ErrReindexInFlight,
 		"the sentinel must survive the RPC, or the coordinator answers 500 instead of 422")
 

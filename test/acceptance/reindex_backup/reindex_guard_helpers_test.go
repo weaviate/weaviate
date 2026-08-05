@@ -46,6 +46,19 @@ func slowBackupConfig() *models.BackupConfig {
 	}
 }
 
+// createBodyClass creates an unvectorized class with a single word-tokenized
+// text property, the shape every single-node guard test migrates.
+func createBodyClass(t *testing.T, className, propName string) {
+	t.Helper()
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: propName, DataType: []string{"text"}, Tokenization: "word"},
+		},
+		Vectorizer: "none",
+	})
+}
+
 // backupTerminal reports whether a backup status can no longer change.
 func backupTerminal(status string) bool {
 	switch backup.Status(status) {

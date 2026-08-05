@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -77,13 +76,7 @@ func proveReindexBlockedDuringBackup(
 	helper.SetupClient(restURI)
 	t.Cleanup(helper.ResetClient)
 
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: propName, DataType: []string{"text"}, Tokenization: "word"},
-		},
-		Vectorizer: "none",
-	})
+	createBodyClass(t, className, propName)
 	importBodies(t, className, guardDataset)
 
 	_, err := helper.CreateBackup(t, slowBackupConfig(), className, backend, backupID)
