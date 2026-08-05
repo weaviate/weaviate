@@ -84,14 +84,6 @@ func TestDB_scanStartupProgress(t *testing.T) {
 		return s
 	}
 
-	// mtStateWith sets PartitioningEnabled because that, not the class's
-	// multi-tenancy config, is what makes desiredOpen filter by tenant status.
-	mtStateWith := func(physicals ...sharding.Physical) *sharding.State {
-		s := stateWith(physicals...)
-		s.PartitioningEnabled = true
-		return s
-	}
-
 	tests := []struct {
 		name string
 		// storeShards mimics what initAndStoreShards does for this class: it
@@ -131,7 +123,7 @@ func TestDB_scanStartupProgress(t *testing.T) {
 				{Class: "MT", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
 			},
 			states: map[string]*sharding.State{
-				"MT": mtStateWith(
+				"MT": stateWith(
 					sharding.Physical{Name: "hot", BelongsToNodes: []string{localNode}, Status: models.TenantActivityStatusHOT},
 					sharding.Physical{Name: "cold", BelongsToNodes: []string{localNode}, Status: models.TenantActivityStatusCOLD},
 					sharding.Physical{Name: "remote", BelongsToNodes: []string{"node2"}, Status: models.TenantActivityStatusHOT},

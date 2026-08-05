@@ -84,25 +84,20 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 	return ns.State, nil
 }
 
-// desiredOpen reports whether a shard should be open, given its namespace's
-// state and, for a multi-tenant class, its tenant's activity status. Only
-// tenants carry an activity status, so a single-tenant shard is decided by the
-// namespace alone, the way the single-tenant reload also applies no status
-// filter. An empty tenant status counts as HOT.
-func desiredOpen(state api.NamespaceState, partitioningEnabled bool, tenantStatus string) bool {
+// desiredOpen reports whether a shard should be open. The status filter is the
+// one initAndStoreShards applies at startup, so a shard reported open is one
+// startup also registers. An empty status counts as HOT.
+func desiredOpen(state api.NamespaceState, status string) bool {
 	if !namespaces.ShardsShouldBeOpen(state) {
 		return false
 	}
-	if !partitioningEnabled {
-		return true
-	}
-	return schema.ActivityStatus(tenantStatus) == models.TenantActivityStatusHOT
+	return schema.ActivityStatus(status) == models.TenantActivityStatusHOT
 }
 
-// DesiredOpenLocalShards returns the shards this node should hold open, among
-// those the sharding state lists it as a replica of: the HOT tenants of a
-// multi-tenant class, or every local shard of a single-tenant one. A class in no
-// namespace is decided as active.
+// DesiredOpenLocalShards returns the HOT shards this node should hold open,
+// among those the sharding state lists it as a replica of. A single-tenant shard
+// carries no status, which counts as HOT. A class in no namespace is decided as
+// active.
 //
 // Being left out is not permission to unload. A replica movement holds its target
 // shard on this node before it adds that shard to the sharding state, so the shard
@@ -128,8 +123,7 @@ func (db *DB) DesiredOpenLocalShards(className string) ([]string, error) {
 			return fmt.Errorf("no sharding state for class %q", className)
 		}
 		for name, physical := range shardingState.Physical {
-			if shardingState.IsLocalShard(name) &&
-				desiredOpen(state, shardingState.PartitioningEnabled, physical.Status) {
+			if shardingState.IsLocalShard(name) && desiredOpen(state, physical.Status) {
 				desired = append(desired, name)
 			}
 		}
