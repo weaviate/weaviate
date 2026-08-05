@@ -204,3 +204,26 @@ func TestCancelApplyGateReleasesWhenTheTeardownRanFirst(t *testing.T) {
 			"so it must not hold the gate until the cap")
 	require.True(t, gatesIdle(p), "no gate may be left parked or held")
 }
+
+// The restore gate must track the teardown, not the confirmation window laid on
+// top of it. Reading the latch instead refuses restores for its full fixed
+// duration — long after the files are gone — while telling the caller they are
+// still being removed.
+func TestBlockingHoldClearsWithTheTeardownNotTheConfirmationWindow(t *testing.T) {
+	serverCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := lifecycleProvider(t, serverCtx)
+	task, payload := lifecycleTask(t, "task-restore-gate")
+	logger, _ := logrustest.NewNullLogger()
+
+	p.OnCancelApplied(task)
+	require.True(t, p.BlockingHoldForCollection("Movies"),
+		"the teardown is pending, so a restore must be refused")
+
+	p.autoCleanupAfterTerminal(task, payload, logger)
+
+	require.False(t, p.BlockingHoldForCollection("Movies"),
+		"the teardown is done, so the restore gate must open with it and not wait out the confirmation window")
+	require.True(t, p.AnyCleanupInProgressForCollection("Movies"),
+		"the confirmation window is unaffected; it is what the cancel handler polls")
+}

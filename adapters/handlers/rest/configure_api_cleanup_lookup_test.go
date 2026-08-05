@@ -26,7 +26,7 @@ type stuckOnProber struct {
 
 func (p *stuckOnProber) AnyCleanupInProgress() bool { return p.stuck != "" }
 
-func (p *stuckOnProber) AnyCleanupInProgressForCollection(collection string) bool {
+func (p *stuckOnProber) BlockingHoldForCollection(collection string) bool {
 	p.asked = append(p.asked, collection)
 	return collection == p.stuck
 }

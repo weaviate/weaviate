@@ -2556,7 +2556,7 @@ func clusterHttpClient(
 // cleanupProber is the half of [db.ReindexProvider] the restore gate needs.
 type cleanupProber interface {
 	AnyCleanupInProgress() bool
-	AnyCleanupInProgressForCollection(collection string) bool
+	BlockingHoldForCollection(collection string) bool
 }
 
 // anyCleanupInProgressLookup answers the restore gate's node-local half.
@@ -2570,7 +2570,7 @@ func anyCleanupInProgressLookup(prober cleanupProber) db.AnyCleanupInProgressLoo
 			return prober.AnyCleanupInProgress()
 		}
 		for _, c := range collections {
-			if prober.AnyCleanupInProgressForCollection(c) {
+			if prober.BlockingHoldForCollection(c) {
 				return true
 			}
 		}
