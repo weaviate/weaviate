@@ -46,12 +46,8 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // [Manager.RegisterCancelObserver].
 //
 // It exists so a namespace can make "this node has seen the cancel" observable
-// to peers without depending on the scheduler tick: the tick is one minute by
-// default (DefaultDistributedTasksSchedulerTickInterval), which no caller
-// waiting on a cancel can budget for, and a teardown that completes between two
-// polls would never be observed at all. The apply is the earliest cluster-wide
-// point at which every node agrees the task is cancelled, so it is where a
-// durable signal belongs.
+// to peers without waiting for the scheduler tick; the reindex namespace's
+// OnCancelApplied documents what that buys.
 //
 // Runs under the Manager lock on the RAFT-apply path: it must not block, must
 // not re-enter the Manager, and must not mutate RAFT-replicated state. It also

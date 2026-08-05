@@ -27,13 +27,12 @@ type nodeProbe struct {
 	resolver nodeResolver
 }
 
-// getJSON GETs path on nodeName and decodes the response body into out.
+// getJSON GETs path on nodeName and decodes the body into out; what names the
+// route in errors, e.g. "node activity".
 //
-// A 404 returns notFound unwrapped, so a caller can tell "this build does not
-// serve the route" (rolling upgrade) apart from a transport failure. Every
-// probe's admission decision turns on that distinction.
-//
-// what names the route in each error, e.g. "node activity".
+// A 404 returns notFound unwrapped, so callers can tell a build that does not
+// serve the route (rolling upgrade) from a transport failure — every probe's
+// admission decision turns on that.
 func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	query url.Values, notFound error, what string, out any,
 ) error {

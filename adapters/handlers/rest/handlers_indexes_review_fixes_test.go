@@ -75,14 +75,8 @@ func (s *ctxAwareTaskService) AddDistributedTaskWithGroupsBarrier(context.Contex
 	return nil
 }
 
-// TestRollbackRacedReindexTaskSurvivesRequestCancellation pins that the
-// rollback does not run on the request context.
-//
-// The rollback fires exactly when the second backup probe says a backup already
-// claimed the slot, and a client disconnect is one of the inputs that produces
-// that verdict. Running the rollback on the caller's context would therefore
-// let the very condition that decides the rollback is needed also kill it,
-// leaving a STARTED reindex task pointed at a live backup.
+// A dead request context must still roll the task back; see
+// rollbackRacedReindexTask for why the two conditions coincide.
 func TestRollbackRacedReindexTaskSurvivesRequestCancellation(t *testing.T) {
 	const (
 		taskID     = "Movies:rebuild-filterable:title:ab3f"
@@ -157,13 +151,8 @@ func (s *scriptedRollbackService) AddDistributedTaskWithGroupsBarrier(context.Co
 	return nil
 }
 
-// TestRollbackRacedReindexTaskOutcomes pins every way the rollback can end.
-//
-// None of them fails the request: the caller already has its 409 and the
-// backup's own commit-time check is the backstop. What the operator gets
-// instead is one audit line per attempt, so each outcome has to produce exactly
-// one, at the right level, saying which of the two cluster calls got as far as
-// it did.
+// Every outcome must leave exactly one audit line, at the right level: it is
+// all the operator gets, since none of them fails the request.
 func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 	const (
 		taskID     = "Movies:rebuild-filterable:title:ab3f"
@@ -247,10 +236,8 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 	}
 }
 
-// gateWatchProber records, for every backup probe, whether the reindex cleanup
-// gate was closed at that instant. The probe is the point where a concurrent
-// backup would be admitted or refused, so it is where the gate has to be
-// visible.
+// gateWatchProber samples the cleanup gate at each backup probe — the point
+// where a concurrent backup would be admitted or refused.
 type gateWatchProber struct {
 	mu         sync.Mutex
 	provider   *db.ReindexProvider
@@ -286,19 +273,10 @@ func (p *gateWatchProber) calls() []bool {
 	return out
 }
 
-// TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup pins the gate around
-// the pre-submit stale-state deletion in updateIndex.
-//
-// That deletion runs before the RAFT commit, so the reindex is invisible to
-// every backup gate while it happens. A backup claiming its slot in that window
-// captures shards whose sidecar files the loop is removing, and the post-commit
-// rollback can cancel the task but cannot put the files back.
-//
-// The DB in this fixture holds no index, so the deletion loop itself has no
-// observable interior. What is asserted instead is the window that encloses it:
-// the gate is open at the first backup probe (before the cleanup), closed at
-// the RAFT commit and at the second backup probe (both after it, inside the
-// held window), and open again once the handler has returned.
+// The gate must enclose the pre-submit deletion; see updateIndex's call site.
+// The fixture's DB holds no index, so the window is asserted rather than the
+// loop: open at the first probe, closed at the commit and the second probe,
+// open again once the handler returns.
 func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 	const collection = "Movies"
 
@@ -346,11 +324,9 @@ func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 		"the gate must be released once the handler returns")
 }
 
-// starvationProber models two owners of a cancelled task: one that never
-// confirms and burns its whole budget, and one that would confirm the instant
-// it is asked. The fast owner only answers once the slow one has been reached,
-// which is what separates a concurrent fan-out from a sequential loop: probed
-// sequentially, one of the two is always asked on an already-dead context.
+// starvationProber models a slow owner that burns its whole budget and a fast
+// one that answers only after the slow owner has been reached — sequentially,
+// one of the two is always asked on an already-dead context.
 type starvationProber struct {
 	slow       string
 	slowProbed chan struct{}
@@ -374,14 +350,8 @@ func (p *starvationProber) CleanupInProgress(ctx context.Context, node, _ string
 	}
 }
 
-// TestAwaitOwnerCleanupGatesGivesEachOwnerItsOwnBudget pins that one owner that
-// cannot answer does not cost the others their answer.
-//
-// Every owner sharing a single deadline across a sequential loop means the
-// first slow owner spends it, and every owner after that gets one probe against
-// an expired context and is reported as unconfirmed. The operator then sees a
-// degraded warning naming healthy nodes, which is both wrong and, repeated on
-// every cancel, noise nobody reads.
+// One owner that cannot answer must not cost the others their answer, or the
+// degraded warning names healthy nodes on every cancel.
 func TestAwaitOwnerCleanupGatesGivesEachOwnerItsOwnBudget(t *testing.T) {
 	const (
 		local      = "node1"
