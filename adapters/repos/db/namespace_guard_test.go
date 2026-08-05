@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -582,9 +584,9 @@ func TestGuardLoadPath(t *testing.T) {
 // A movement reaches its target shard three times — to load it, to replay the
 // change log onto it, and once more from the apply that adds the replica to the
 // sharding state — and a suspend or resume must fail none of them, while a
-// deleting namespace refuses all three. What these rows do not say is that the
-// movement then finishes: its source shard is read through the request path,
-// which still refuses.
+// deleting namespace refuses all three. What these rows do not say is that a
+// movement can start while suspended: its first source-side call,
+// IncomingStartChangeCapture, goes through the request path, which refuses.
 //
 // Each row drives the entry point itself rather than the guard adapter, so
 // routing any of them back through the request path turns it red.
@@ -978,6 +980,87 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 		idx.shards.Store(shardName, shard)
 
 		require.ErrorContains(t, idx.IncomingStopChangeCapture(ctx, shardName, opID), "deactivate failed")
+	})
+}
+
+// The change-log drain reads the loaded shard directly, so a movement already
+// capturing changes finishes even while the namespace is suspended. Only opening
+// a capture takes the request-path check. Guarding any of the drain endpoints
+// would cancel an in-flight movement instead.
+func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
+	const (
+		class     = "alpha:Product"
+		shardName = "t1"
+		opID      = "op-1"
+	)
+	ctx := context.Background()
+
+	drains := []struct {
+		name string
+		call func(t *testing.T, idx *Index, shard *MockShardLike)
+	}{
+		{
+			name: "get change log",
+			call: func(t *testing.T, idx *Index, shard *MockShardLike) {
+				log, err := changelog.Open(filepath.Join(t.TempDir(), opID), idx.logger)
+				require.NoError(t, err)
+				shard.On("GetChangeLog", mock.Anything, opID).Return(log, true).Once()
+
+				tailer, err := idx.IncomingGetChangeLog(ctx, shardName, opID, 1)
+				require.NoError(t, err)
+				require.NoError(t, tailer.Close())
+			},
+		},
+		{
+			name: "snapshot change-log LSN",
+			call: func(t *testing.T, idx *Index, shard *MockShardLike) {
+				shard.On("SnapshotChangeLogLSN", mock.Anything, opID).Return(uint64(7), nil).Once()
+
+				lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shardName, opID)
+				require.NoError(t, err)
+				assert.Equal(t, uint64(7), lsn)
+			},
+		},
+		{
+			name: "finalize change log",
+			call: func(t *testing.T, idx *Index, shard *MockShardLike) {
+				shard.On("FinalizeChangeLog", mock.Anything, opID).Return(uint64(9), nil).Once()
+
+				lsn, err := idx.IncomingFinalizeChangeLog(ctx, shardName, opID)
+				require.NoError(t, err)
+				assert.Equal(t, uint64(9), lsn)
+			},
+		},
+	}
+
+	for _, tc := range drains {
+		// An exister with no expectations fails the test on any lookup.
+		t.Run(tc.name+" takes no namespace lookup", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+			shard := NewMockShardLike(t)
+			shard.On("preventShutdown").Return(func() {}, nil).Once()
+			idx.shards.Store(shardName, shard)
+
+			tc.call(t, idx, shard)
+		})
+
+		t.Run(tc.name+" is served while the namespace is suspended", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+			shard := NewMockShardLike(t)
+			shard.On("preventShutdown").Return(func() {}, nil).Once()
+			idx.shards.Store(shardName, shard)
+
+			tc.call(t, idx, shard)
+		})
+	}
+
+	// The boundary the rows above are read against.
+	t.Run("opening a capture is refused while suspended", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.shards.Store(shardName, NewMockShardLike(t))
+
+		err := idx.IncomingStartChangeCapture(ctx, shardName, opID)
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 	})
 }
 

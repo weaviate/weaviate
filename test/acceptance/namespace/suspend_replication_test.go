@@ -125,19 +125,17 @@ func movementState(t *testing.T, opID strfmt.UUID) (string, []string, error) {
 	return details.Payload.Status.State, messages, nil
 }
 
-// A replica movement is refused while its collection's namespace is suspended,
-// and finishes once the namespace is back.
+// A replica movement started while its collection's namespace is suspended is
+// refused, and finishes once the namespace is back.
 //
-// The refusal comes from the source node. Every entry point a movement uses to
-// read the source shard takes the request-path namespace check, so the movement
-// stops there — before the target has materialized anything.
+// The refusal comes from the source node: a movement opens change capture through
+// the request path, which a suspend refuses, so it stops there — before the target
+// has materialized anything. A movement already capturing changes when the suspend
+// lands is not refused; it drains the source through the shard map and finishes.
 //
-// What this does NOT cover: the target-side exemption itself. A movement only
-// loads its target shard in FINALIZING, which this movement never reaches while
-// suspended, and by the time the resume lets it through the namespace is active
-// again — where the exempt and non-exempt loads behave identically. Reaching
-// FINALIZING with the namespace suspended needs a suspend landing inside that
-// window, which no hook here makes deterministic.
+// What this does NOT cover: the target-side exemption itself. Reaching FINALIZING
+// with the namespace suspended needs a suspend landing inside that window, which
+// no hook here makes deterministic.
 func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	t.Parallel()
 

@@ -3124,8 +3124,9 @@ func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitSh
 // LoadLocalShardForReplication loads a shard on behalf of a replica movement.
 // Suspending or resuming the namespace mid-movement must not fail that load, so
 // it is exempt from the request-path namespace check. The exemption covers this
-// node's target shard, not the movement — the source node reads its own shard
-// through the request path, which a suspend still refuses.
+// node's target shard, not the movement: a movement starting while suspended is
+// refused at IncomingStartChangeCapture, while one already past it drains its
+// source through getLoadedShard and finishes.
 func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplication)
 }
