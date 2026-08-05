@@ -402,3 +402,55 @@ func TestReindexOverlapLookupResidual(t *testing.T) {
 	require.NoError(t, lookup(context.Background(), []string{"Movies"}, backupStart),
 		"documented residual: a partly-run cancelled migration is not counted")
 }
+
+// The overlap refusal is stored in the backup's failure meta and served from
+// GET /v1/backups/{backend}/{id}. Its causes are RAFT and decoding errors that
+// name nodes and task internals, which a backup caller is granted nothing on.
+func TestReindexOverlapLookupRedactsItsCauses(t *testing.T) {
+	raftErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
+
+	tests := []struct {
+		name    string
+		list    ReindexTaskLister
+		cause   error
+		leaked  []string
+		wantMsg string
+	}{
+		{
+			name:    "task manager unreachable",
+			list:    func(context.Context) (map[string][]*distributedtask.Task, error) { return nil, raftErr },
+			cause:   raftErr,
+			leaked:  []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
+			wantMsg: "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried",
+		},
+		{
+			name: "task payload unreadable",
+			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 1},
+					Namespace:      ReindexNamespace,
+					Status:         distributedtask.TaskStatusStarted,
+					Payload:        []byte("{not json"),
+				}}}, nil
+			},
+			leaked:  []string{"not json", "invalid character"},
+			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lookup := NewReindexOverlapLookup(tc.list, time.Hour)
+			err := lookup(context.Background(), []string{"Movies"}, time.Now().Add(-time.Minute))
+			require.Error(t, err)
+
+			assert.Equal(t, tc.wantMsg, err.Error())
+			for _, leaked := range tc.leaked {
+				assert.NotContainsf(t, err.Error(), leaked, "the refusal body leaked %q", leaked)
+			}
+			if tc.cause != nil {
+				assert.ErrorIs(t, err, tc.cause, "the cause must stay reachable for callers that classify it")
+			}
+		})
+	}
+}
