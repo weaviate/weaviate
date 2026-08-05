@@ -510,15 +510,6 @@ func (e remoteReindexInFlightErr) Error() string { return e.msg }
 
 func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFlight }
 
-// remoteBackupBlockedErr carries [backup.ErrBackupBlockedByInFlightReindex] for
-// errors.Is without restating it, for participants whose message already opens
-// with the sentinel.
-type remoteBackupBlockedErr struct{ msg string }
-
-func (e remoteBackupBlockedErr) Error() string { return e.msg }
-
-func (e remoteBackupBlockedErr) Unwrap() error { return backup.ErrBackupBlockedByInFlightReindex }
-
 // canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
 // typed error. When the response has [CanCommitErrInFlightReindex] kind, we
 // wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
@@ -535,10 +526,10 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()) {
 			// The participant's message already opens with the sentinel; %w
 			// would print the whole condition twice.
-			return remoteBackupBlockedErr{msg: resp.Err}
+			return backup.ReindexBlockedError{Msg: resp.Err}
 		}
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
-	case CanCommitErrReindexInFlight:
+	case CanCommitErrRestoreBlockedByReindex:
 		return remoteReindexInFlightErr{msg: resp.Err}
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)

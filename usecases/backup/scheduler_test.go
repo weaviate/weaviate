@@ -1162,7 +1162,7 @@ func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {
 		Method:  OpRestore,
 		ID:      backupID,
 		Err:     "restore blocked: runtime-reindex in flight in the cluster: retry after the migration finishes",
-		ErrKind: CanCommitErrReindexInFlight,
+		ErrKind: CanCommitErrRestoreBlockedByReindex,
 	}, nil)
 	fs.client.On("Abort", any, any, any).Return(nil)
 
