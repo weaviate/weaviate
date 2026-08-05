@@ -638,6 +638,10 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 }
 
 type BucketConsistentView struct {
+	// Active is nil for a bucket with no active memtable, and a holder may nil
+	// it to drop the layer from its own copy — RoaringSetBatchReader does when
+	// the memtable is empty. Most read paths here dereference it without
+	// checking, so nil it only in a copy you own.
 	Active   memtable
 	Flushing memtable
 	Disk     []Segment
