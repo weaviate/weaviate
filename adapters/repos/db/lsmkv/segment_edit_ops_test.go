@@ -672,3 +672,38 @@ func TestSegmentEditOps_RequeueQuarantined(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
 }
+
+// TestSegmentEditOps_FreshOpSnapshotsSegmentQuarantinedByAnother pins the
+// escape for a shard no later round of its epoch arms. Coverage inheritance
+// stops arming a shard once a round completes it, so the re-arm — and with it
+// RequeueQuarantined — is unreachable there and the verdict stands for the rest
+// of the epoch. The epoch closing is what breaks that: the next epoch registers
+// a NEW op, and because the quarantine skip is scoped to the op's own sub-bucket,
+// that op snapshots the segment again with a fresh budget. Were the skip global
+// instead, the segment would be excluded from every future op as well and its
+// dropped vectors could never be stripped by any epoch.
+func TestSegmentEditOps_FreshOpSnapshotsSegmentQuarantinedByAnother(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100"}))
+	require.NoError(t, s.Quarantine("op1", "100"))
+
+	pending, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "the exhausted budget stands within the op that hit it")
+
+	// The next drop epoch's op: a different identity on the same shard.
+	require.NoError(t, s.RegisterOp("op2", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 2}))
+	require.NoError(t, s.SnapshotSegments("op2", []string{"100"}))
+
+	pending, err = s.Pending("op2")
+	require.NoError(t, err)
+	require.Equal(t, []string{"100"}, pending,
+		"a fresh op must re-cover the segment an earlier op quarantined")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Len(t, q, 1, "op1's verdict is untouched; the sweep collects it with its terminal task")
+}

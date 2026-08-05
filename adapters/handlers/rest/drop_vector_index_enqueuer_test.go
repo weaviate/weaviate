@@ -603,6 +603,23 @@ func failedEpochTask(t *testing.T, collection, id, epoch string, version uint64,
 	return task
 }
 
+// failedEpochTaskInheriting is failedEpochTask carrying an inherited cleaned
+// set — the shape a later round leaves behind when its own finalize is vetoed
+// after its units completed.
+func failedEpochTaskInheriting(t *testing.T, collection, id, epoch string, version uint64,
+	completedShards, otherShards, cleaned []string,
+) *distributedtask.Task {
+	t.Helper()
+	task := failedEpochTask(t, collection, id, epoch, version, completedShards, otherShards)
+	var p db.DropVectorIndexTaskPayload
+	require.NoError(t, json.Unmarshal(task.Payload, &p))
+	p.CleanedShards = cleaned
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	task.Payload = b
+	return task
+}
+
 func corruptRecordTask(id string) *distributedtask.Task {
 	return &distributedtask.Task{
 		Namespace:      db.DropVectorIndexNamespace,
@@ -728,6 +745,27 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantEpoch:   "E1",
 			wantCleaned: []string{"s1"},
 			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
+		},
+		{
+			// A quarantine on an inherited-coverage shard (s1) is unreachable
+			// within its epoch: no later round arms s1, so nothing refreshes its
+			// retry budget, and s1's rows veto the finalize of the round that
+			// completes s2. That veto fails the round (bounded callback retries)
+			// rather than looping — and two FAILED rounds whose COMPLETED units
+			// together span every shard read as closed-epoch residue. So the epoch
+			// closes and s1 IS re-armed, under a fresh epoch whose new op takes a
+			// new snapshot with a new budget. Note t2 claims s1 as CleanedShards
+			// and still does not vouch it: a terminal round vouches only the work
+			// it finished, which is exactly what lets the chain read as complete
+			// here rather than inheriting forward.
+			name: "two FAILED rounds spanning every shard close the epoch and re-arm the cleaned shard",
+			tasks: []*distributedtask.Task{
+				failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1"}, []string{"s2"}),
+				failedEpochTaskInheriting(t, "C", "t2", "E1", 2, []string{"s2"}, nil, []string{"s1"}),
+			},
+			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch: "",
+			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
 		},
 		{
 			name: "a FAILED round's completed units do not cross epochs",
