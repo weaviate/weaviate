@@ -31,12 +31,11 @@ const guardDataset = 50_000
 // tokenization change has real work to do.
 func startGuardNode(ctx context.Context, t *testing.T) *docker.DockerCompose {
 	t.Helper()
-	compose, err := docker.New().
-		WithBackendFilesystem().
-		WithWeaviate().
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		Start(ctx)
+	compose, err := reindexhelpers.WithReindexEnv(
+		docker.New().
+			WithBackendFilesystem().
+			WithWeaviate(),
+	).Start(ctx)
 	require.NoError(t, err)
 	return compose
 }

@@ -55,13 +55,13 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 		region = "us-east-1"
 	)
 
-	compose, err := docker.New().
-		With3NodeCluster().
-		WithBackendS3(bucket, region).
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
+	compose, err := reindexhelpers.WithReindexEnv(
+		docker.New().
+			With3NodeCluster().
+			WithBackendS3(bucket, region),
+	).
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
 		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
