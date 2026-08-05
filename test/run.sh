@@ -41,6 +41,7 @@ function main() {
   run_module_except_backup_tests=false
   run_module_except_offload_tests=false
   run_cleanup=false
+  build_test_image_only=false
   run_acceptance_go_client_named_vectors_single_node=false
   run_acceptance_go_client_named_vectors_cluster=false
   run_acceptance_lsmkv=false
@@ -119,6 +120,7 @@ function main() {
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
+          --build-test-image|-bti) run_all_tests=false; build_test_image_only=true;;
           --help|-h) printf '%s\n' \
               "Options:"\
               "--unit-only | -u"\
@@ -165,6 +167,7 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
+              "--build-test-image | -bti"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -325,6 +328,18 @@ function main() {
   if $run_cleanup; then
     echo_green "Cleaning up all running docker containers..."
     docker rm -f $(docker ps -a -q)
+  fi
+
+  # --build-test-image builds the -race weaviate/test-server image once and
+  # exits without running any tests. CI uses this in a single upstream job and
+  # shares the resulting image with the reindex matrix shards via a
+  # docker save/load artifact + TEST_WEAVIATE_IMAGE, so each shard skips its
+  # own (~175s) duplicate build. build_weaviate_test_image early-returns when
+  # TEST_WEAVIATE_IMAGE is already set, so this must run WITHOUT that env set.
+  if $build_test_image_only; then
+    build_weaviate_test_image
+    echo_green "Built ${TEST_WEAVIATE_IMAGE}; skipping tests (--build-test-image)."
+    return 0
   fi
 
   if $run_acceptance_lsmkv || $run_acceptance_tests || $run_all_tests; then
