@@ -861,6 +861,6 @@ type MockShardReader struct {
 	err error
 }
 
-func (m MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+func (m MockShardReader) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
 }

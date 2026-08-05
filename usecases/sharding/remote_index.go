@@ -378,29 +378,23 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
-func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
-	if err != nil {
-		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
+// GetShardQueueSizeFromNode reads the summed vector-index queue size of the
+// shard replica held by the given node.
+func (ri *RemoteIndex) GetShardQueueSizeFromNode(ctx context.Context, nodeName, shardName string) (int64, error) {
+	host, ok := ri.nodeResolver.NodeHostname(nodeName)
 	if !ok {
-		return 0, fmt.Errorf("resolve node name %q to host", owner)
+		return 0, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
 
 	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
 }
 
-func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
-	if err != nil {
-		return "", fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
+// GetShardStatusFromNode reads the status of the shard replica held by the
+// given node.
+func (ri *RemoteIndex) GetShardStatusFromNode(ctx context.Context, nodeName, shardName string) (string, error) {
+	host, ok := ri.nodeResolver.NodeHostname(nodeName)
 	if !ok {
-		return "", fmt.Errorf("resolve node name %q to host", owner)
+		return "", fmt.Errorf("resolve node name %q to host", nodeName)
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)

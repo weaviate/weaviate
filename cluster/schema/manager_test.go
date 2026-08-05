@@ -267,7 +267,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
 
-	_, err = sc.GetShardsStatus("C", "")
+	_, err = sc.GetShardsStatus(context.Background(), "C", "")
 	assert.Nil(t, err)
 
 	// Add Multi Tenant Class (PartitioningEnabled: true)
@@ -472,7 +472,7 @@ type MockShardReader struct {
 	err error
 }
 
-func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+func (m *MockShardReader) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
 }
 

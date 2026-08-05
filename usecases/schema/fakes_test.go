@@ -299,7 +299,7 @@ func (f *fakeSchemaManager) LocalActiveShardsCount(class string) (int, error) {
 	return args.Get(0).(int), args.Error(1)
 }
 
-func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+func (f *fakeSchemaManager) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
