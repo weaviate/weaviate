@@ -2362,12 +2362,84 @@ func (p *ReindexProvider) WaitForLocalTaskDrain(
 	}
 }
 
+// reindexCancelApplyGateHold is how long the cleanup gate closed at cancel-apply
+// time stays closed. It has to comfortably exceed the per-owner confirmation
+// budget in the REST cancel handler (reindexOwnerGateTimeout) plus RAFT
+// replication lag, because that budget is the window in which the handler must
+// observe the gate.
+const reindexCancelApplyGateHold = 15 * time.Second
+
+// OnCancelApplied closes the cleanup gate on every node the moment a CANCEL
+// applies, and reopens it after [reindexCancelApplyGateHold].
+//
+// The node handling a cancel has to be able to tell its caller that no backup
+// can start into a half-torn-down shard. It can only learn that by asking the
+// owners, and the owners' teardown is driven by the scheduler tick — one minute
+// by default. Worse, teardown is a level, not an edge: a shard with nothing to
+// remove closes and reopens its gate in microseconds, so no polling budget,
+// however large, is guaranteed to see it.
+//
+// Closing the gate here fixes both. The apply is replicated, so every owner
+// closes within replication lag of the commit rather than within a tick, and the
+// fixed hold makes the signal wide enough that a poll cannot straddle it. The
+// teardown's own gate (see [ReindexProvider.autoCleanupAfterTerminal]) stacks on
+// top through the refcount, so the two never need to coordinate: whichever is
+// held longer decides when the shards read free again.
+//
+// Holding the gate longer than strictly necessary only ever refuses a backup
+// that could have run, which is the safe direction. Log replay on restart
+// re-closes it for a cancel that applied long ago; the hold expires on its own.
+//
+// Registered via [distributedtask.Manager.RegisterCancelObserver] — see
+// [distributedtask.CancelObserver] for the apply-path contract this obeys.
+func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
+	payload, err := p.loadPayload(task)
+	if err != nil {
+		// Nothing identifies the shards to gate. The teardown path logs the
+		// same unparseable payload; do not duplicate it on the apply path.
+		return
+	}
+	release := p.MarkCleanupInProgress(payload)
+	enterrors.GoWrapper(func() {
+		select {
+		case <-time.After(reindexCancelApplyGateHold):
+		case <-p.serverCtx.Done():
+		}
+		release()
+	}, p.logger)
+}
+
+// ReleaseCleanupGateOnWorkerExit keeps the cleanup gate closed past the caller's
+// return and drops it only once the local worker actually exits.
+//
+// A drain that times out is the case the gate exists for: the worker is still
+// writing to the sidecar buckets, and the commit-time overlap check skips
+// cancelled tasks, so releasing on return would open the backup gate over a
+// live writer with nothing behind it. The gate's lifetime therefore follows
+// the worker, not the request. Bounded by the server context, so shutdown
+// still ends the wait.
+func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
+	desc distributedtask.TaskDescriptor,
+	release func(),
+	logger logrus.FieldLogger,
+) {
+	enterrors.GoWrapper(func() {
+		defer release()
+		if err := p.WaitForLocalTaskDrain(p.serverCtx, desc); err != nil {
+			logger.Errorf("reindex provider: releasing the cleanup gate without having observed the worker exit; "+
+				"a backup starting now could catch a half-removed sidecar: %v", err)
+		}
+	}, logger)
+}
+
 // DrainWithCleanupGate waits for the local worker to exit with the backup and
-// restore gates already shut, and returns the release for the caller to defer.
+// restore gates already closed, and returns the release for the caller to defer.
 // The gate must be taken before the wait: the task leaves DTM the moment the
 // cancel applies, so a timed-out wait means the worker is still writing while
 // the gates already report the shard free. The release is always usable,
-// regardless of the returned error.
+// regardless of the returned error — but on a non-nil error the caller should
+// hand it to [ReindexProvider.ReleaseCleanupGateOnWorkerExit] rather than
+// defer it, for the reason documented there.
 func (p *ReindexProvider) DrainWithCleanupGate(
 	ctx context.Context,
 	payload *ReindexTaskPayload,
