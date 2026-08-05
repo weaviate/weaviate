@@ -67,7 +67,12 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
 	gate := db.newReindexGateSnapshot()
-	var errs []error
+	// Gate refusals are kept apart from everything else because only they are
+	// composed to name no node and no shard, and only that property makes them
+	// safe to republish; see [CanCommitResponse.ErrPublishable] in
+	// usecases/backup. Joining them with an error that does name a node would
+	// still classify as a gate refusal and carry the node name into the body.
+	var errs, gateErrs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
@@ -88,9 +93,18 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			// No node prefix: the backup caller has no grant on node names.
 			// refuseIfReindexInFlight logs node and shard for the operator.
 			if err := idx.refuseIfReindexInFlightIn(gate, shardName); err != nil {
-				errs = append(errs, err)
+				gateErrs = append(gateErrs, err)
 			}
 		}
+	}
+	if len(gateErrs) > 0 {
+		if len(errs) > 0 && db.logger != nil {
+			// Withheld from the response, not from the operator.
+			db.logger.WithField("action", "backup_reindex_gate").
+				Warnf("backup precheck refused by the reindex gate; also hit %d other error(s), "+
+					"reported here only: %v", len(errs), stderrors.Join(errs...))
+		}
+		return stderrors.Join(gateErrs...)
 	}
 	if len(errs) > 0 {
 		return stderrors.Join(errs...)

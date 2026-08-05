@@ -466,3 +466,46 @@ func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
 	live := reindexInFlightError("MyClass", reindexBlockedByLiveTask).Error()
 	assert.Contains(t, live, "cancel it via")
 }
+
+// The gate composes its refusal to name no node and no shard, and that property
+// is what the coordinator trusts when it republishes the text into a 422 body.
+// Joining it with an error that DOES name a node keeps the sentinel reachable,
+// so the join still classifies as a gate refusal — and the node name rides into
+// the body behind that classification.
+func TestBackupableNeverJoinsTheGateRefusalWithANodeNamingError(t *testing.T) {
+	const (
+		blocked = "BlockedClass"
+		broken  = "BrokenClass"
+		node    = "weaviate-0"
+	)
+
+	db := backupableFixture(t, blocked, node, "s1")
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return func(string, string) ReindexHold { return ReindexHoldNone }
+	})
+
+	// A second class whose shard enumeration fails, which is the error that
+	// carries the node name.
+	enumErr := errors.New("boom")
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.On("Read", broken, true, mock.Anything).Return(enumErr)
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.On("NodeName").Return(node).Maybe()
+	db.indices[indexID(schema.ClassName(broken))] = &Index{
+		db:           db,
+		Config:       IndexConfig{ClassName: schema.ClassName(broken)},
+		schemaReader: reader,
+		getSchema:    getter,
+	}
+
+	err := db.Backupable(context.Background(), []string{blocked, broken})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"the refusal must still classify as a gate refusal")
+	require.NotContainsf(t, err.Error(), node,
+		"a refusal the coordinator is allowed to republish must never carry a node name: %q", err.Error())
+}
