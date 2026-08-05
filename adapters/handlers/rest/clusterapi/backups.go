@@ -51,6 +51,11 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
+		if r.Method != http.MethodGet {
+			http.Error(w, "/backups/node-activity only serves GET", http.StatusMethodNotAllowed)
+			return
+		}
+
 		// Never silently report "not busy": reindex depends on this answer.
 		if b.activity == nil {
 			http.Error(w, "backup activity probe is not wired on this node", http.StatusServiceUnavailable)

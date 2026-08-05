@@ -45,7 +45,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 		wantAsked  string
 	}{
 		{
-			name:       "gate is up",
+			name:       "cancel seen or teardown running",
 			prober:     &stubCleanupProber{cleaningUp: true},
 			query:      "?collection=Movies",
 			wantStatus: http.StatusOK,
@@ -53,7 +53,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			wantAsked:  "Movies",
 		},
 		{
-			name:       "gate is down",
+			name:       "nothing to confirm",
 			prober:     &stubCleanupProber{},
 			query:      "?collection=Movies",
 			wantStatus: http.StatusOK,
@@ -99,6 +99,28 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.wantBody, string(body))
 			assert.Equal(t, tt.wantAsked, tt.prober.asked)
+		})
+	}
+}
+
+func TestInternalReindexCleanupActivityRejectsNonGET(t *testing.T) {
+	handler := clusterapi.NewReindexCleanup(
+		func() clusterapi.ReindexCleanupProber { return &stubCleanupProber{} },
+		clusterapi.NewNoopAuthHandler(), nil)
+	server := httptest.NewServer(handler.Activity())
+	defer server.Close()
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			req, err := http.NewRequest(method, server.URL+"/reindex/cleanup-activity?collection=Movies", nil)
+			require.NoError(t, err)
+
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			assert.Equal(t, http.StatusMethodNotAllowed, res.StatusCode,
+				"a read-only probe must not answer writes")
 		})
 	}
 }

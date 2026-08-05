@@ -37,6 +37,9 @@ func TestClusterBackupActivity(t *testing.T) {
 		name       string
 		statusCode int
 		body       string
+		// notFound answers the way a node's catch-all handler does, which is
+		// the only 404 the client reads as "older build".
+		notFound   bool
 		want       backup.NodeActivity
 		wantErr    error
 		wantErrMsg []string
@@ -54,10 +57,9 @@ func TestClusterBackupActivity(t *testing.T) {
 			want:       backup.NodeActivity{},
 		},
 		{
-			name:       "route not served",
-			statusCode: http.StatusNotFound,
-			body:       "404 page not found",
-			wantErr:    ErrNodeActivityUnsupported,
+			name:     "route not served",
+			notFound: true,
+			wantErr:  ErrNodeActivityUnsupported,
 		},
 		{
 			name:       "server error",
@@ -78,6 +80,10 @@ func TestClusterBackupActivity(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, pathBackupNodeActivity, r.URL.Path)
+				if tt.notFound {
+					http.NotFound(w, r)
+					return
+				}
 				w.WriteHeader(tt.statusCode)
 				w.Write([]byte(tt.body))
 			}))
