@@ -487,17 +487,26 @@ func WithEnv(
 	body()
 }
 
-// SingleNodeCompose is the single-node configuration the runtime-reindex
-// suites share: the feature flag on (the server default is off, so a suite
-// that bypasses this silently tests nothing), the legacy searchable path
-// off, and a 1s scheduler tick so task transitions land inside test
-// timeouts. Callers needing extra env keep chaining before Start.
-func SingleNodeCompose() *docker.Compose {
-	return docker.New().
-		WithWeaviate().
+// WithReindexEnv applies the env every runtime-reindex suite needs, whatever
+// topology or backend it builds on: the feature flag on (the server default is
+// off, so a suite that bypasses this silently tests nothing), the legacy
+// searchable path off, and a 1s scheduler tick so task transitions land inside
+// test timeouts.
+//
+// Take this rather than repeating the three lines. A suite that composes its own
+// cluster and pastes two of the three is how the flag went missing from the
+// backup-guard tests, which then passed locally and failed in CI once the flag
+// landed. Callers keep chaining their own env before Start.
+func WithReindexEnv(c *docker.Compose) *docker.Compose {
+	return c.
 		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
+}
+
+// SingleNodeCompose is [WithReindexEnv] on a single-node cluster.
+func SingleNodeCompose() *docker.Compose {
+	return WithReindexEnv(docker.New().WithWeaviate())
 }
 
 // StartSingleNode starts [SingleNodeCompose] with no further tuning.
