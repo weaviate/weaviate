@@ -1820,6 +1820,20 @@ func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) b
 	if seen {
 		return true
 	}
+	return p.BlockingHoldForCollection(collection)
+}
+
+// BlockingHoldForCollection reports whether a teardown or a submission sweep is
+// actually holding any shard of the collection. This is what a gate reads: it
+// tracks the work, so it clears when the work does.
+//
+// Distinct from [ReindexProvider.AnyCleanupInProgressForCollection], which adds
+// the fixed confirmation window on top and therefore stays true long after the
+// teardown has finished. Refusing on that window would hold a restore for the
+// whole of it, and tell the caller that files are still being removed when they
+// are not.
+func (p *ReindexProvider) BlockingHoldForCollection(collection string) bool {
+	folded := strings.ToLower(collection)
 
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
