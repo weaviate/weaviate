@@ -372,6 +372,14 @@ func (m *Manager) runCancelObserver(task *Task) {
 //
 // The task is cloned because it stays in m.tasks and later applies mutate it.
 func (m *Manager) dispatchCancelWithLock(task *Task) {
+	if m.cancelDispatchClosed {
+		// The drainer has been told to exit. Enqueueing anyway is not merely
+		// wasted: its select sees a closed done channel and a non-empty queue as
+		// two ready cases and picks between them at random, so a cancel handed
+		// over after Close is sometimes still delivered — to observers whose
+		// dependencies the shutdown has already torn down.
+		return
+	}
 	observer := m.cancelObservers[task.Namespace]
 	if observer == nil {
 		return
