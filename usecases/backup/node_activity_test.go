@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
 
 func TestNodeActivityProbe(t *testing.T) {
@@ -105,6 +107,93 @@ func TestNodeActivityProbe(t *testing.T) {
 			tt.claim(participant, scheduler)
 
 			assert.Equal(t, tt.want, probe.Activity())
+		})
+	}
+}
+
+// TestNodeActivityResponseRoundTrip pins the wire form against its own reader:
+// what [NewNodeActivityResponse] emits is exactly what [NodeActivityResponse.Activity]
+// reads back. Emission is otherwise only pinned in clusterapi and the marker check
+// only in adapters/clients, so a change to either side alone goes unnoticed here.
+func TestNodeActivityResponseRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		activity NodeActivity
+	}{
+		{name: "idle", activity: NodeActivity{}},
+		{
+			name:     "backup",
+			activity: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "backup-1"},
+		},
+		{
+			name:     "restore",
+			activity: NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: "restore-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var decoded NodeActivityResponse
+			encoded, err := json.Marshal(NewNodeActivityResponse(tt.activity))
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(encoded, &decoded))
+
+			got, err := decoded.Activity()
+			require.NoError(t, err)
+			assert.Equal(t, tt.activity, got)
+		})
+	}
+}
+
+// TestNodeActivityResponseRejects covers the answers that must not be read as a
+// verdict at all, so a probe that cannot be trusted refuses rather than reporting
+// the node free.
+func TestNodeActivityResponseRejects(t *testing.T) {
+	t.Parallel()
+
+	busy, idle := true, false
+	tests := []struct {
+		name string
+		resp NodeActivityResponse
+	}{
+		{
+			name: "no marker",
+			resp: NodeActivityResponse{Busy: &idle},
+		},
+		{
+			name: "wrong marker",
+			resp: NodeActivityResponse{Probe: "something-else", Busy: &idle},
+		},
+		{
+			name: "no busy field",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker},
+		},
+		{
+			name: "busy without a kind",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, ID: "1"},
+		},
+		{
+			name: "busy with an unknown kind",
+			resp: NodeActivityResponse{
+				Probe: clusterprobe.BackupNodeActivityMarker,
+				Busy:  &busy,
+				Kind:  "compaction",
+				ID:    "1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.resp.Activity()
+			require.Error(t, err)
+			assert.Equal(t, NodeActivity{}, got)
 		})
 	}
 }

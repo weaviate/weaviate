@@ -63,6 +63,12 @@ func (r NodeActivityResponse) Activity() (NodeActivity, error) {
 	if r.Busy == nil {
 		return NodeActivity{}, fmt.Errorf("answer has no %q field, so it cannot mean the node is free", "busy")
 	}
+	// A busy answer's kind is formatted verbatim into the 409 a caller sees, so
+	// only the kinds this package emits are accepted. An idle answer names none.
+	if *r.Busy && r.Kind != NodeActivityKindBackup && r.Kind != NodeActivityKindRestore {
+		return NodeActivity{}, fmt.Errorf("answer is busy with kind %q, want %q or %q",
+			r.Kind, NodeActivityKindBackup, NodeActivityKindRestore)
+	}
 	return NodeActivity{Busy: *r.Busy, Kind: r.Kind, ID: r.ID}, nil
 }
 

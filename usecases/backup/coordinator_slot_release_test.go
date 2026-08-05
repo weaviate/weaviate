@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -106,9 +107,11 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			}
 
 			if tc.steal {
+				// assert, not require: a failure here must not skip the close
+				// below, which is what unparks the restore goroutine.
 				c.lastOp.set(backup.Cancelled)
-				require.True(t, c.lastOp.resetIfCancelled(backupID))
-				require.Empty(t, c.lastOp.renew("live-restore", "path", "", ""))
+				assert.True(t, c.lastOp.resetIfCancelled(backupID))
+				assert.Empty(t, c.lastOp.renew("live-restore", "path", "", ""))
 			}
 			close(release)
 
@@ -189,12 +192,15 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 				fc.client.On("Status", anyArg, node, anyArg).Return(sresp, nil).
 					Run(func(mock.Arguments) {
 						// Runs on the backup goroutine, before its deferred release.
+						// assert, not require: require's Goexit would kill that
+						// goroutine mid-flight, surfacing as a hang or an unrelated
+						// downstream failure instead of this one.
 						if !tc.steal || !stolen.CompareAndSwap(false, true) {
 							return
 						}
 						c.lastOp.set(backup.Cancelled)
-						require.True(t, c.lastOp.resetIfCancelled(backupID))
-						require.Empty(t, c.lastOp.renew("live-backup", "path", "", ""))
+						assert.True(t, c.lastOp.resetIfCancelled(backupID))
+						assert.Empty(t, c.lastOp.renew("live-backup", "path", "", ""))
 					})
 			}
 
