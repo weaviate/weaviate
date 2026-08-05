@@ -62,7 +62,7 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 			return
 		}
 
-		data, err := json.Marshal(b.activity.Activity())
+		data, err := json.Marshal(backup.NewNodeActivityResponse(b.activity.Activity()))
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
 			return

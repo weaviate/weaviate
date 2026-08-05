@@ -11,7 +11,12 @@
 
 package backup
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+
+	"github.com/weaviate/weaviate/entities/clusterprobe"
+)
 
 // Kinds reported by [NodeActivity].
 const (
@@ -20,11 +25,45 @@ const (
 )
 
 // NodeActivity reports the backup or restore this node is currently part of.
-// It doubles as the JSON payload of the cluster-internal probe.
 type NodeActivity struct {
-	Busy bool   `json:"busy"`
-	Kind string `json:"kind,omitempty"`
-	ID   string `json:"id,omitempty"`
+	Busy bool
+	Kind string
+	ID   string
+}
+
+// NodeActivityResponse is the wire form of [NodeActivity], carried by the
+// cluster-internal probe. Busy is a pointer so a payload that never mentions
+// it is rejected rather than read as "not busy"; see
+// [clusterprobe.BackupNodeActivityMarker].
+type NodeActivityResponse struct {
+	Probe string `json:"probe"`
+	Busy  *bool  `json:"busy"`
+	Kind  string `json:"kind,omitempty"`
+	ID    string `json:"id,omitempty"`
+}
+
+// NewNodeActivityResponse renders activity for the wire.
+func NewNodeActivityResponse(activity NodeActivity) NodeActivityResponse {
+	return NodeActivityResponse{
+		Probe: clusterprobe.BackupNodeActivityMarker,
+		Busy:  &activity.Busy,
+		Kind:  activity.Kind,
+		ID:    activity.ID,
+	}
+}
+
+// Activity returns the activity a decoded response carries, or an error if the
+// payload does not identify itself as a node's own answer.
+func (r NodeActivityResponse) Activity() (NodeActivity, error) {
+	if r.Probe != clusterprobe.BackupNodeActivityMarker {
+		return NodeActivity{}, fmt.Errorf("answer is marked %q, want %q: this 200 did not come "+
+			"from a Weaviate node, so it cannot mean the node is free; check for an HTTP proxy "+
+			"on the cluster port", r.Probe, clusterprobe.BackupNodeActivityMarker)
+	}
+	if r.Busy == nil {
+		return NodeActivity{}, fmt.Errorf("answer has no %q field, so it cannot mean the node is free", "busy")
+	}
+	return NodeActivity{Busy: *r.Busy, Kind: r.Kind, ID: r.ID}, nil
 }
 
 // NodeActivityProbe answers whether this node is part of a backup or restore

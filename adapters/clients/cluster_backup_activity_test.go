@@ -47,13 +47,13 @@ func TestClusterBackupActivity(t *testing.T) {
 		{
 			name:       "busy",
 			statusCode: http.StatusOK,
-			body:       `{"busy":true,"kind":"restore","id":"restore-7"}`,
+			body:       `{"probe":"weaviate/backup-node-activity","busy":true,"kind":"restore","id":"restore-7"}`,
 			want:       backup.NodeActivity{Busy: true, Kind: "restore", ID: "restore-7"},
 		},
 		{
 			name:       "idle",
 			statusCode: http.StatusOK,
-			body:       `{"busy":false}`,
+			body:       `{"probe":"weaviate/backup-node-activity","busy":false}`,
 			want:       backup.NodeActivity{},
 		},
 		{

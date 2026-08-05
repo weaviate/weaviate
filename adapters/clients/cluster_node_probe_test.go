@@ -57,6 +57,18 @@ func TestNodeProbeOnly404sFromTheNodeMeanUnsupported(t *testing.T) {
 			},
 		},
 		{
+			// The common shape: an nginx with `add_header X-Content-Type-Options
+			// nosniff` at the http{} level, which makes the header alone say
+			// nothing about who wrote the 404.
+			name: "proxy that adds nosniff to every answer",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte("<html><body><center><h1>404 Not Found</h1></center></body></html>"))
+			},
+		},
+		{
 			name: "right body, but not written by the standard library",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
@@ -83,6 +95,75 @@ func TestNodeProbeOnly404sFromTheNodeMeanUnsupported(t *testing.T) {
 			assert.ErrorContains(t, err, "did not come from the node itself")
 		})
 	}
+}
+
+// A 200 saying "nothing running here" is the other answer that clears a node
+// without hearing from it, so it has to prove it came from a node. Absent a
+// marker, every JSON object an intermediary can return decodes to "free".
+func TestNodeProbeOnly200sFromTheNodeMeanFree(t *testing.T) {
+	notFromANode := []struct {
+		name string
+		body string
+	}{
+		{name: "empty object", body: `{}`},
+		{name: "json null", body: `null`},
+		{name: "an intermediary's error object", body: `{"error":"no route matched"}`},
+		{name: "the answer's fields without the marker", body: `{"busy":false,"cleaningUp":false}`},
+		{
+			name: "another route's marker",
+			body: `{"probe":"weaviate/something-else","busy":false,"cleaningUp":false}`,
+		},
+	}
+
+	for _, tt := range notFromANode {
+		t.Run("backup activity/"+tt.name, func(t *testing.T) {
+			server := jsonServer(t, tt.body)
+			c := NewClusterBackupActivity(server.Client(), resolverFor(t, "node1", server.URL))
+
+			_, err := c.NodeActivity(context.Background(), "node1")
+			require.Error(t, err, "a 200 that does not identify itself must not read as 'not busy'")
+			assert.ErrorContains(t, err, "did not come from a Weaviate node")
+			assert.NotErrorIs(t, err, ErrNodeActivityUnsupported)
+		})
+
+		t.Run("reindex cleanup/"+tt.name, func(t *testing.T) {
+			server := jsonServer(t, tt.body)
+			c := NewClusterReindexCleanup(server.Client(), resolverFor(t, "node1", server.URL))
+
+			_, err := c.CleanupInProgress(context.Background(), "node1", "Movies")
+			require.Error(t, err, "a 200 that does not identify itself must not read as 'no cleanup'")
+			assert.ErrorContains(t, err, "did not come from a Weaviate node")
+			assert.NotErrorIs(t, err, ErrReindexCleanupUnsupported)
+		})
+	}
+
+	// The marker alone is not enough: a node's answer also has to say what it
+	// is answering, or the missing field decodes to the permissive value.
+	t.Run("backup activity marked but silent about busy", func(t *testing.T) {
+		server := jsonServer(t, `{"probe":"weaviate/backup-node-activity"}`)
+		c := NewClusterBackupActivity(server.Client(), resolverFor(t, "node1", server.URL))
+
+		_, err := c.NodeActivity(context.Background(), "node1")
+		require.ErrorContains(t, err, `no "busy" field`)
+	})
+
+	t.Run("reindex cleanup marked but silent about cleaningUp", func(t *testing.T) {
+		server := jsonServer(t, `{"probe":"weaviate/reindex-cleanup-activity"}`)
+		c := NewClusterReindexCleanup(server.Client(), resolverFor(t, "node1", server.URL))
+
+		_, err := c.CleanupInProgress(context.Background(), "node1", "Movies")
+		require.ErrorContains(t, err, `no "cleaningUp" field`)
+	})
+}
+
+func jsonServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+	return server
 }
 
 func TestNodeProbeBoundsTheResponseBody(t *testing.T) {
