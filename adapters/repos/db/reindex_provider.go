@@ -1664,7 +1664,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
 //
-// The gate is raised before the drain, not after it: the task left DTM the
+// The gate is closed before the drain, not after it: the task left DTM the
 // moment it went terminal, so the drain is itself a stretch where the shards
 // read free while the worker is still writing, and a drain that times out
 // would leave it unguarded entirely. Applicability is decided first, so a task
@@ -1676,14 +1676,16 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		return
 	}
 
-	defer p.MarkCleanupInProgress(payload)()
+	release := p.MarkCleanupInProgress(payload)
 
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
 	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
-		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
+		logger.Errorf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
+		p.ReleaseCleanupGateOnWorkerExit(task.TaskDescriptor, release, logger)
 		return
 	}
+	defer release()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
 	for _, propName := range payload.Properties {
@@ -1720,7 +1722,7 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 	return out
 }
 
-// MarkCleanupInProgress holds the backup and restore gates shut on every shard
+// MarkCleanupInProgress holds the backup and restore gates closed on every shard
 // the task touched, and returns the release; caller must defer it. This is the
 // only thing stopping a backup from capturing half-removed __reindex/__ingest dirs.
 func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {

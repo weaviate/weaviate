@@ -581,8 +581,47 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 		"the gate must be up while the drain is still blocked, not after it returns")
 
 	<-done
-	require.False(t, p.AnyCleanupInProgressForCollection("Movies"),
-		"the gate must come back down once the hook returns")
+	// The drain timed out here, so the gate outlives the hook and is handed to
+	// the worker's exit instead. The worker can only exit because serverCtx is
+	// already cancelled, so the reopen is prompt but not synchronous.
+	require.Eventually(t, func() bool {
+		return !p.AnyCleanupInProgressForCollection("Movies")
+	}, time.Second, 5*time.Millisecond,
+		"the gate must reopen once the worker is gone")
+}
+
+// A drain that times out is the case the gate exists for, so the gate must
+// survive the hook's return and follow the worker instead.
+func TestReleaseCleanupGateOnWorkerExitHoldsUntilTheWorkerIsGone(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "task-3", Version: 1}
+	doneCh := make(chan struct{})
+	serverCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &ReindexProvider{
+		cleanupInProgress: make(map[reindexCleanupKey]int),
+		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+			desc: {doneCh: doneCh},
+		},
+		serverCtx: serverCtx,
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	release := p.MarkCleanupInProgress(&ReindexTaskPayload{
+		Collection:  "Movies",
+		UnitToShard: map[string]string{"u1": "shard1"},
+	})
+	p.ReleaseCleanupGateOnWorkerExit(desc, release, logger)
+
+	require.Never(t, func() bool {
+		return !p.AnyCleanupInProgressForCollection("Movies")
+	}, 200*time.Millisecond, 10*time.Millisecond,
+		"the gate must stay closed while the worker is still writing")
+
+	close(doneCh)
+	require.Eventually(t, func() bool {
+		return !p.AnyCleanupInProgressForCollection("Movies")
+	}, time.Second, 5*time.Millisecond,
+		"the gate must reopen once the worker exits")
 }
 
 // And the raise moved past the drain only, not past the applicability checks.
