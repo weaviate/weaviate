@@ -694,10 +694,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
 		// Detached from the request on the same posture as the cancel handler's
-		// sweep: this removes the sidecars while the submit gate reports the
-		// shard clean, so a disconnect part-way through leaves buckets
-		// deregistered with started.mig still on disk — the exact half-removed
-		// state the next task would then resume against.
+		// sweep: a disconnect part-way through leaves the sidecar buckets
+		// deregistered with started.mig still on disk. This sweep is itself the
+		// retry for state an earlier run left behind, so failing it for a
+		// reason we control just defers the work to the run after this one.
 		cleanupCtx, cancelCleanup := context.WithTimeout(
 			context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 		defer cancelCleanup()
@@ -1346,8 +1346,8 @@ type reindexCleanupGateProvider interface {
 // next submit's cleanup picks the work up.
 //
 // Both halves run detached from the request and bounded by their own timeouts,
-// so a client that disconnects after sending the cancel still gets the shard
-// left in the state the gate reports.
+// so a client that disconnects after sending the cancel does not decide how far
+// either half gets.
 //
 // It returns the gate release for the caller to defer, or nil when the drain
 // timed out: the worker is then still writing, which is the case the gate
@@ -1370,9 +1370,9 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	h.appState.Logger.WithFields(fields).Info("cancel: starting drain+cleanup for cancelled reindex task")
 
 	// Detached from the request for the same reason as the sweep below: a
-	// disconnect here aborts the drain, and the handler then either skips the
-	// sweep entirely or runs it while the worker is still writing. Its own
-	// timeout still bounds it, so a stuck worker cannot hold the goroutine open.
+	// disconnect here fails the drain, and a failed drain skips the sweep
+	// entirely and leaves the work to the next submit. Its own timeout still
+	// bounds it, so a stuck worker cannot hold the goroutine open.
 	drainCtx, drainCancel := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelDrainTimeout)
 	releaseGate, drainErr := provider.DrainWithCleanupGate(drainCtx, payload, target.TaskDescriptor)
@@ -1394,12 +1394,17 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	if !known || len(indexTypesToClean) == 0 {
 		indexTypesToClean = []string{indexType}
 	}
-	// Detached from the request, like the rollback and for a stronger reason:
-	// this is the only writer that removes the sidecars, and the gate released
-	// below reports the shard clean. A client disconnecting mid-sweep used to
-	// abort it with buckets deregistered and started.mig still on disk, and the
-	// gate then said clean anyway — a backup admitted right after would capture
-	// exactly the half-removed state the gate exists to prevent.
+	// Detached from the request, like the rollback: a disconnect part-way
+	// through leaves the sidecar buckets deregistered with started.mig still on
+	// disk, and this is the one trigger for that we control here.
+	//
+	// It does not make the gate released below mean "the disk is clean". That
+	// gate reports cleanup-in-progress, not a swept shard: a failed sweep is
+	// logged and the gate released anyway, here and in
+	// [db.ReindexProvider.autoCleanupAfterTerminal], which sweeps the same
+	// state on the provider's shutdown context. Recovery is the next submit's
+	// pre-cleanup and the restart audit. See
+	// weaviate/0-weaviate-issues#352 for the window that remains.
 	cleanupCtx, cancelCleanup := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 	defer cancelCleanup()
@@ -1422,7 +1427,7 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 
 // reindexCancelCleanupTimeout bounds the on-disk sweep once it is detached from
 // the request. Generous: it is bucket teardown across every strategy the
-// migration touched, and abandoning it half-done is the failure being fixed.
+// migration touched, and abandoning it half-done is what the detach avoids.
 const reindexCancelCleanupTimeout = 2 * time.Minute
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
