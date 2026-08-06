@@ -228,6 +228,16 @@ func TestReindexOverlapLookup(t *testing.T) {
 			since: backupStart,
 		},
 		{
+			// The comparison is exact: no allowance widens the cleared window
+			// to cover clock skew between the capturing node and the RAFT
+			// proposer. That window is accepted, so a task finishing ten
+			// seconds before the backup is as cleared as one finishing an hour
+			// before. See docs/runtime-reindex.md.
+			name:  "task finished shortly before the backup started",
+			tasks: []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(-10*time.Second))},
+			since: backupStart,
+		},
+		{
 			// Ran and finished entirely inside the window.
 			name:       "task finished after the backup started",
 			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
