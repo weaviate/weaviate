@@ -17,7 +17,9 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -145,6 +147,259 @@ func TestUpdateIndexTenants(t *testing.T) {
 
 			// Verify the shard status
 			require.Equal(t, tt.expectedStatus, shard.GetStatus())
+		})
+	}
+}
+
+// coldTenant is a local tenant the reconcile is meant to unload.
+func coldTenant(name string) sharding.Physical {
+	return sharding.Physical{
+		Name:           name,
+		BelongsToNodes: []string{"node1"},
+		Status:         models.TenantActivityStatusCOLD,
+	}
+}
+
+// hotTenant is a local tenant the reconcile is meant to load.
+func hotTenant(name string) sharding.Physical {
+	return sharding.Physical{
+		Name:           name,
+		BelongsToNodes: []string{"node1"},
+		Status:         models.TenantActivityStatusHOT,
+	}
+}
+
+// shardDirWithData writes the on-disk directory a tenant owns, so whether the
+// reconcile removed it is observable without a real shard.
+func shardDirWithData(t *testing.T, idx *Index, name string) string {
+	t.Helper()
+
+	dir := shardPath(idx.path(), name)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "objects.db"), []byte("data"), 0o644))
+	return dir
+}
+
+// droppableShard registers a shard whose drop removes its directory, standing in
+// for a tenant the incoming state no longer lists. dropErr, when set, fails the
+// drop and leaves the directory behind.
+func droppableShard(t *testing.T, idx *Index, name string, dropErr error) string {
+	t.Helper()
+
+	dir := shardDirWithData(t, idx, name)
+	shard := NewMockShardLike(t)
+	shard.EXPECT().drop(false).RunAndReturn(func(bool) error {
+		if dropErr != nil {
+			return dropErr
+		}
+		return os.RemoveAll(dir)
+	}).Maybe()
+	shard.EXPECT().ID().Return(name).Maybe()
+	idx.shards.Store(name, shard)
+	return dir
+}
+
+// A tenant that cannot be reconciled must not stop the reconcile: the delete
+// still has to run, or a tenant dropped from the schema keeps its data on disk,
+// and every other tenant still has to be attempted, or which ones were reached
+// depends on the order Physical happens to iterate in.
+//
+// A per-tenant failure is driven either by a shard whose shutdown fails, for the
+// unload branch, or by an index that refuses every load, for the load branch.
+func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
+	shutdownRefused := errors.New("shutdown refused")
+	dropRefused := errors.New("drop refused")
+
+	tests := []struct {
+		name string
+		// incoming is the sharding state the reconcile is handed.
+		incoming map[string]sharding.Physical
+		// failingUnload are loaded shards, listed in incoming, whose shutdown fails.
+		failingUnload []string
+		// refuseLoad fails the load of every tenant the incoming state lists as HOT.
+		refuseLoad bool
+		// resident are loaded shards absent from incoming, so the delete claims them.
+		resident []string
+		// residentDropErr fails every resident's drop, leaving its directory.
+		residentDropErr error
+		// closed shuts the index, which fails every tenant for the same reason.
+		closed bool
+		// cancelCtx hands the reconcile an already cancelled context.
+		cancelCtx bool
+		// wantErrFor is a substring of the returned error for every failure expected.
+		wantErrFor []string
+		// wantErrIs, when set, is an error the returned error must still unwrap to.
+		wantErrIs error
+		// wantOnce, when set, is a substring the error must contain exactly once.
+		wantOnce string
+	}{
+		{
+			name:          "a failing tenant still runs the tenant delete",
+			incoming:      map[string]sharding.Physical{"cold1": coldTenant("cold1")},
+			failingUnload: []string{"cold1"},
+			resident:      []string{"gone1"},
+			wantErrFor:    []string{"shutdown tenant shard cold1"},
+		},
+		{
+			name: "every failing tenant is reported, not just the first",
+			incoming: map[string]sharding.Physical{
+				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"), "cold3": coldTenant("cold3"),
+			},
+			failingUnload: []string{"cold1", "cold2", "cold3"},
+			resident:      []string{"gone1", "gone2"},
+			wantErrFor: []string{
+				"shutdown tenant shard cold1",
+				"shutdown tenant shard cold2",
+				"shutdown tenant shard cold3",
+			},
+		},
+		{
+			name:            "a failing delete is reported beside the failing tenant",
+			incoming:        map[string]sharding.Physical{"cold1": coldTenant("cold1")},
+			failingUnload:   []string{"cold1"},
+			resident:        []string{"gone1"},
+			residentDropErr: dropRefused,
+			wantErrFor: []string{
+				"shutdown tenant shard cold1",
+				"drop tenant shards",
+			},
+		},
+		{
+			name:       "a failing tenant load still runs the tenant delete",
+			incoming:   map[string]sharding.Physical{"hot1": hotTenant("hot1")},
+			refuseLoad: true,
+			resident:   []string{"gone1"},
+			wantErrFor: []string{"add missing tenant shard hot1"},
+		},
+		{
+			name: "every failing tenant load is reported, not just the first",
+			incoming: map[string]sharding.Physical{
+				"hot1": hotTenant("hot1"), "hot2": hotTenant("hot2"), "hot3": hotTenant("hot3"),
+			},
+			refuseLoad: true,
+			resident:   []string{"gone1"},
+			wantErrFor: []string{
+				"add missing tenant shard hot1",
+				"add missing tenant shard hot2",
+				"add missing tenant shard hot3",
+			},
+		},
+		{
+			// The compounding is per tenant, but a shut index fails all of them
+			// for one reason, so it is reported once rather than per tenant.
+			name: "a shut index stops after the first tenant",
+			incoming: map[string]sharding.Physical{
+				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"), "cold3": coldTenant("cold3"),
+			},
+			closed:     true,
+			wantErrFor: []string{"shutdown tenant shard"},
+			wantOnce:   "shutdown tenant shard",
+		},
+		{
+			// A tenant already in the wanted state reconciles without an error, so
+			// the cancellation is the only thing left to report the skipped ones by.
+			name: "a cancelled context is reported even when no tenant failed",
+			incoming: map[string]sharding.Physical{
+				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"), "cold3": coldTenant("cold3"),
+			},
+			cancelCtx:  true,
+			wantErrFor: []string{"reconcile tenants of index"},
+			wantErrIs:  context.Canceled,
+			wantOnce:   "reconcile tenants of index",
+		},
+		{
+			name: "a cancelled context is reported beside the tenant that failed",
+			incoming: map[string]sharding.Physical{
+				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"), "cold3": coldTenant("cold3"),
+			},
+			failingUnload: []string{"cold1", "cold2", "cold3"},
+			cancelCtx:     true,
+			wantErrFor:    []string{"shutdown tenant shard", "reconcile tenants of index"},
+			wantErrIs:     context.Canceled,
+			wantOnce:      "shutdown tenant shard",
+		},
+		{
+			name:     "no tenants leaves the delete to claim the residents",
+			incoming: map[string]sharding.Physical{},
+			resident: []string{"gone1"},
+		},
+		{
+			name: "a tenant on another node is not touched here",
+			incoming: map[string]sharding.Physical{
+				"other": {Name: "other", BelongsToNodes: []string{"node2"}},
+			},
+			resident: []string{"gone1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.cancelCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+
+			idx, _ := newDropTestIndex(t)
+			sg := schemaUC.NewMockSchemaGetter(t)
+			sg.EXPECT().NodeName().Return("node1").Maybe()
+			sg.EXPECT().ReadOnlyClass(mock.Anything).
+				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
+			idx.getSchema = sg
+			if tt.refuseLoad {
+				metrics, err := NewMetrics(idx.logger, nil, idx.Config.ClassName.String(), "")
+				require.NoError(t, err)
+				idx.metrics = metrics
+				idx.allocChecker = failingAllocChecker{}
+			}
+			m := &Migrator{db: &DB{schemaGetter: sg}, logger: idx.logger}
+
+			residentDirs := make(map[string]string, len(tt.resident))
+			for _, name := range tt.resident {
+				residentDirs[name] = droppableShard(t, idx, name, tt.residentDropErr)
+			}
+			for _, name := range tt.failingUnload {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Shutdown(mock.Anything).Return(shutdownRefused).Maybe()
+				idx.shards.Store(name, shard)
+			}
+			// A tenant incoming still lists must survive the delete, whatever the
+			// status update did with it.
+			keptDirs := make(map[string]string, len(tt.incoming))
+			for name := range tt.incoming {
+				keptDirs[name] = shardDirWithData(t, idx, name)
+			}
+			idx.closed = tt.closed
+
+			err := m.updateIndexTenants(ctx, idx, &sharding.State{Physical: tt.incoming})
+
+			if len(tt.wantErrFor) == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				for _, want := range tt.wantErrFor {
+					require.ErrorContains(t, err, want)
+				}
+			}
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, err, tt.wantErrIs)
+			}
+			if tt.wantOnce != "" {
+				require.Equal(t, 1, strings.Count(err.Error(), tt.wantOnce),
+					"a failure that fails every tenant must be reported once")
+			}
+
+			for name, dir := range keptDirs {
+				require.DirExists(t, dir, "tenant %q is still in the incoming state", name)
+			}
+			for name, dir := range residentDirs {
+				if tt.residentDropErr != nil || tt.closed {
+					require.DirExists(t, dir, "shard %q could not be dropped", name)
+					continue
+				}
+				require.NoDirExists(t, dir, "shard %q left the schema, so its data must be gone", name)
+			}
 		})
 	}
 }
