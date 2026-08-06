@@ -39,25 +39,17 @@ func NewClusterReindexCleanup(client *http.Client, resolver nodeResolver) *Clust
 // CleanupInProgress asks one node whether it has seen a cancel for the
 // collection or is still tearing down its reindex sidecars.
 func (c *ClusterReindexCleanup) CleanupInProgress(ctx context.Context, nodeName, collection string) (bool, error) {
-	// CleaningUp is a pointer so a payload that never mentions it is rejected
-	// rather than read as "no cleanup here"; see clusterprobe.ReindexCleanupMarker.
-	var activity struct {
-		Probe      string `json:"probe"`
-		CleaningUp *bool  `json:"cleaningUp"`
-	}
+	// The same type the handler marshals, so a tag change cannot land on one
+	// side only; see [clusterprobe.ReindexCleanupActivity].
+	var activity clusterprobe.ReindexCleanupActivity
 	query := url.Values{"collection": []string{collection}}
 	if err := c.getJSON(ctx, nodeName, pathReindexCleanupActivity, query,
 		ErrReindexCleanupUnsupported, "reindex cleanup", &activity); err != nil {
 		return false, err
 	}
-	if activity.Probe != clusterprobe.ReindexCleanupMarker {
-		return false, fmt.Errorf("reindex cleanup: answer is marked %q, want %q: this 200 did not "+
-			"come from a Weaviate node, so it cannot mean the node is free; check for an HTTP proxy "+
-			"on the cluster port", activity.Probe, clusterprobe.ReindexCleanupMarker)
+	cleaningUp, err := activity.InProgress()
+	if err != nil {
+		return false, fmt.Errorf("reindex cleanup: %w", err)
 	}
-	if activity.CleaningUp == nil {
-		return false, fmt.Errorf("reindex cleanup: answer has no %q field, so it cannot mean the "+
-			"node is free", "cleaningUp")
-	}
-	return *activity.CleaningUp, nil
+	return cleaningUp, nil
 }
