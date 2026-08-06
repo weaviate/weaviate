@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -188,6 +189,15 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		RQ: h.rqConfig,
 	}
 	if err := h.compress(uc); err != nil {
+		if errors.Is(err, context.Canceled) {
+			h.logger.WithFields(logrus.Fields{
+				"action":       "compress",
+				"shard":        h.shardName,
+				"collection":   h.className,
+				"targetVector": h.getTargetVector(),
+			}).Info("vector compression aborted: index dropped")
+			return
+		}
 		h.logger.WithFields(logrus.Fields{
 			"action":       "compress",
 			"shard":        h.shardName,

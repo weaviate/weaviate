@@ -135,6 +135,8 @@ func TestShutdownReleasesVectors(t *testing.T) {
 			compressor := &dropCompressor{err: test.compressorErr}
 			index := &hnsw{
 				shutdownCtxCancel:            func() {},
+				dropCtx:                      context.Background(),
+				dropCtxCancel:                func() {},
 				commitLog:                    &failingCommitLogger{shutdownErr: test.commitLogErr},
 				tombstoneCleanupCallbackCtrl: &unregisterCallbackCtrl{err: test.unregisterErr},
 				cache:                        cache,
