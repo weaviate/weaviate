@@ -665,6 +665,30 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
+	// Taken BEFORE the probe, not after it. The probe fans out over every node
+	// in the cluster, so a backup can claim its slot on a node that was already
+	// answered while the scan is still running: it sees no submission, gets
+	// admitted, and then has its sidecar dirs and .migrations tracker removed
+	// underneath it by the sweep below. Closing the gate first makes the probe
+	// and everything after it one window, so whichever side closes first is the
+	// one the other sees.
+	//
+	// The post-commit rollback cannot repair this. It manufactures a cancelled
+	// task no unit was ever claimed on, which the commit-time backstop waives
+	// on purpose — see [db.ReindexProvider] and reindexTaskOverlaps.
+	//
+	// Set when the gate is taken; the rollback path releases it early, so it
+	// cannot be a plain deferred call.
+	releaseSubmitGate := func() {}
+	defer func() { releaseSubmitGate() }()
+
+	indexTypesForCleanup, indexTypeKnown := indexTypesFromMigrationType(migrationType)
+	if indexTypeKnown {
+		if provider := h.appState.ReindexProvider.Load(); provider != nil {
+			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
+		}
+	}
+
 	// Runs after the free local checks; this one costs a cluster-wide round trip.
 	if _, responder := h.probeBackupActivity(ctx, principal); responder != nil {
 		return responder
@@ -686,20 +710,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	//
 	// Safe to call even when no stale state exists: missing buckets and
 	// missing directories are silently skipped by the per-shard helper.
-	// Set when the submit gate below is taken; the rollback path releases it
-	// early, so it cannot be a plain deferred call.
-	releaseSubmitGate := func() {}
-	defer func() { releaseSubmitGate() }()
-
-	indexTypesForCleanup, indexTypeKnown := indexTypesFromMigrationType(migrationType)
+	//
+	// The gate covering this deletion was taken above the probe; it is held
+	// until the handler returns so the deletion and the commit are one window.
 	if indexTypeKnown {
-		// The deletion below is not yet visible to any backup gate: the task
-		// is not committed. Close the gate over it, per
-		// [db.ReindexProvider.MarkSubmitInProgress], and hold it until the
-		// handler returns so the deletion and the commit are one window.
-		if provider := h.appState.ReindexProvider.Load(); provider != nil {
-			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
-		}
 		// Loop over every index type this migration touches. For
 		// single-index migrations the slice has one entry; for
 		// change-tokenization-both (which writes searchable AND filterable
