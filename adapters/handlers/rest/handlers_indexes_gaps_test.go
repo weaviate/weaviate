@@ -28,13 +28,17 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -1244,6 +1248,60 @@ func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
 		"error message must name the offending collection")
 	assert.Contains(t, body.Error[0].Message, "32",
 		"error message must surface the cap and inflight count for operator triage")
+}
+
+// -----------------------------------------------------------------------------
+// submitTaskErrorResponder — the DTM apply-time cap backstop
+// (ErrTaskCapExceeded, raised when a parallel submit burst defeats the
+// handler's pre-check) must surface as the same 429 the pre-check returns;
+// every other submit failure keeps the 500 mapping. Both wire paths are
+// pinned: in-process %w wrapping (single node) and the gRPC-rehydrated
+// sentinel (cross-node submission).
+// -----------------------------------------------------------------------------
+
+func TestSubmitTaskErrorResponder(t *testing.T) {
+	write := func(resp middleware.Responder) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		resp.WriteResponse(rec, runtime.JSONProducer())
+		return rec
+	}
+
+	t.Run("in-process sentinel wrapping maps to 429", func(t *testing.T) {
+		// Single-node path: the FSM error reaches the handler through plain
+		// %w wrapping (raft_distributed_tasks_apply_endpoints.go).
+		err := fmt.Errorf("executing command: %w", distributedtask.ErrTaskCapExceeded)
+
+		rec := write(submitTaskErrorResponder(nil, "MyCollection", err))
+		require.Equal(t, http.StatusTooManyRequests, rec.Code,
+			"apply-time cap rejection must surface as the same 429 as the pre-check")
+
+		var body models.ErrorResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body),
+			"429 body must be the standard ErrorResponse shape")
+		require.Len(t, body.Error, 1)
+		assert.Contains(t, body.Error[0].Message, `"MyCollection"`)
+	})
+
+	t.Run("gRPC-rehydrated sentinel maps to 429", func(t *testing.T) {
+		// Cross-node path: the leader's FSM error crosses gRPC as
+		// (FailedPrecondition, "[dtm-perm/task-cap-exceeded] ...") and is
+		// rehydrated on the node serving the HTTP request.
+		onWire := status.Error(distributedtask.PermanentRejectionRPCCode,
+			`[dtm-perm/task-cap-exceeded] collection "MyCollection" already has 32 active tasks (max 32)`)
+		rehydrated := distributedtask.RehydratePermanentRejection(onWire)
+		require.True(t, errors.Is(rehydrated, distributedtask.ErrTaskCapExceeded),
+			"precondition: the rehydrated error must carry the cap sentinel")
+
+		rec := write(submitTaskErrorResponder(nil, "MyCollection",
+			fmt.Errorf("executing command: %w", rehydrated)))
+		require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	})
+
+	t.Run("generic submit error stays 500", func(t *testing.T) {
+		rec := write(submitTaskErrorResponder(nil, "MyCollection", errors.New("raft applyTimeout")))
+		require.Equal(t, http.StatusInternalServerError, rec.Code,
+			"non-cap submit failures must keep the generic 500 mapping")
+	})
 }
 
 // -----------------------------------------------------------------------------
