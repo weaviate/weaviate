@@ -137,6 +137,80 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 			"nothing identifies the shards to gate, so nothing may be gated")
 	})
 
+	// The no-claimed-units waiver exists for one shape only: the cancel the
+	// submit path manufactures for itself when a backup wins the slot and the
+	// submit rolls back. Nothing wrote, so gating would fail the backup the
+	// rollback exists to let win.
+	//
+	// A FAILED task is not that shape. It reaches this observer too, and the
+	// units map it arrives with is not proof that nothing ran: a task can fail
+	// before the unit updates its shard wrote have landed in the copy this node
+	// sees. Waiving on unit state alone would leave those sidecars ungated for
+	// the whole window this gate exists to cover.
+	t.Run("a task with no claimed units is waived only when it was cancelled", func(t *testing.T) {
+		unclaimedTask := func(status distributedtask.TaskStatus, units map[string]*distributedtask.Unit) *distributedtask.Task {
+			raw, err := json.Marshal(&ReindexTaskPayload{
+				Collection:  collection,
+				UnitToShard: map[string]string{"u1": "shard1"},
+			})
+			require.NoError(t, err)
+			return &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-4", Version: 9},
+				Namespace:      ReindexNamespace,
+				Status:         status,
+				Payload:        raw,
+				Units:          units,
+			}
+		}
+		pending := map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+		}
+
+		tests := []struct {
+			name   string
+			status distributedtask.TaskStatus
+			units  map[string]*distributedtask.Unit
+			gated  bool
+			why    string
+		}{
+			{
+				name:   "cancelled with every unit still pending",
+				status: distributedtask.TaskStatusCancelled,
+				units:  pending,
+				gated:  false,
+				why:    "the submit rollback's own cancel must not gate the backup that beat it to the slot",
+			},
+			{
+				name:   "failed with every unit still pending",
+				status: distributedtask.TaskStatusFailed,
+				units:  pending,
+				gated:  true,
+				why:    "a failed task's shards may carry sidecars this node's unit view does not show yet",
+			},
+			{
+				name:   "failed with no units populated at all",
+				status: distributedtask.TaskStatusFailed,
+				units:  nil,
+				gated:  true,
+				why:    "an empty units map says nothing ran only if you assume it is complete",
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				serverCtx, cancelServer := context.WithCancel(context.Background())
+				defer cancelServer()
+				p := cancelGateProvider(serverCtx)
+
+				p.OnCancelApplied(unclaimedTask(tc.status, tc.units))
+
+				require.Equal(t, tc.gated, p.IsCleanupInProgress(collection, "shard1"), tc.why)
+				require.True(t, p.AnyCleanupInProgressForCollection(collection),
+					"the confirmation latch fires either way; only the blocking gate is waived")
+			})
+		}
+	})
+
 	t.Run("the hold is released on server shutdown", func(t *testing.T) {
 		// The hold is 15s of wall time, which no fast test can wait out. Server
 		// shutdown is the other exit from the same select, so it proves the
