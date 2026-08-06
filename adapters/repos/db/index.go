@@ -1683,6 +1683,9 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 // resumeAfterAbortedOffload reverses an aborted offloading HaltForTransfer: resume maintenance and rebuild async replication from a full scan so the shard cannot silently diverge. No-op when not loaded.
 // ctx must outlive the aborted operation: callers on the abort path pass a
 // detached ctx, because the operation ctx is often already canceled there.
+// Both steps always run and their errors are returned joined: the resume clears
+// the halt bookkeeping before its fallible physical part, so a rebuild skipped on
+// that error would have no later trigger.
 func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {
@@ -1692,13 +1695,14 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
 	// Scoped to the offload's own owner key: a co-resident backup or replica
 	// transfer holding this shard must keep its halt.
+	var resumeErr error
 	if err := shard.resumeMaintenanceCycles(ctx, offloadHaltOwner(shardName)); err != nil {
-		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
+		resumeErr = fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
 	}
 
 	// Unconditional: the not-halted case is a HaltForTransfer that failed after
 	// stopAsyncReplication and self-resumed, so async is off with no halt held.
-	return i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard)
+	return stderrors.Join(resumeErr, i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard))
 }
 
 // resumeOffloadHaltAfterAbortedFreeze lifts an offload halt this node placed for a
@@ -1706,6 +1710,10 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 // stopped. offloadHaltOwner is deterministic, so this caller can name a halt its own
 // instance never placed. No-op when the shard is not loaded or holds no offload
 // halt, so a routine tenant activation pays one mutex acquisition and no rescan.
+//
+// One held halt gets exactly one repair: resumeHaltOwner drops the owner before its
+// fallible physical resume, so every later call reports wasHeld=false. The rebuild
+// therefore runs even when that resume fails, and both errors are returned joined.
 func (i *Index) resumeOffloadHaltAfterAbortedFreeze(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {
@@ -1719,13 +1727,13 @@ func (i *Index) resumeOffloadHaltAfterAbortedFreeze(ctx context.Context, shardNa
 
 	wasHeld, err := resumer.resumeHaltOwner(ctx, offloadHaltOwner(shardName))
 	if err != nil {
-		return fmt.Errorf("resume offload halt on shard %q: %w", shardName, err)
+		err = fmt.Errorf("resume offload halt on shard %q: %w", shardName, err)
 	}
 	if !wasHeld {
-		return nil
+		return err
 	}
 
-	return i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard)
+	return stderrors.Join(err, i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard))
 }
 
 // rebuildAsyncReplicationAfterOffloadHalt restores shardName's async replication

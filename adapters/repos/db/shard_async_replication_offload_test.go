@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -330,4 +332,97 @@ func TestHotTransitionWithoutOffloadHaltDoesNotRescan(t *testing.T) {
 	after := s.hashtree
 	s.asyncReplicationRWMux.RUnlock()
 	require.Same(t, before, after, "an unhalted HOT transition must not rebuild the hashtree")
+}
+
+var errResumeLegFailed = errors.New("simulated failing resume leg")
+
+// failingActivateCtrl fails the vector-callback leg of the physical resume and
+// delegates every other call to the control it replaces. It stands in for the
+// Unregister trick the sibling halt tests use: this fixture registers the shard's
+// cycle callbacks in noop index groups, whose controls cannot fail.
+type failingActivateCtrl struct {
+	cyclemanager.CycleCallbackCtrl
+}
+
+func (failingActivateCtrl) Activate() error { return errResumeLegFailed }
+
+// failOffloadResumeLeg leaves s in the state a freeze abort finds when its
+// maintenance resume is about to fail: the offload halt is placed and one leg of
+// the physical resume is broken. haltForOffload asserts the pre-condition the
+// rebuild assertions rest on: no hashtree in memory and none on disk.
+func failOffloadResumeLeg(t *testing.T, ctx context.Context, s *Shard) {
+	t.Helper()
+	haltForOffload(t, ctx, s)
+	s.cycleCallbacks.vectorCombinedCallbacksCtrl = failingActivateCtrl{s.cycleCallbacks.vectorCombinedCallbacksCtrl}
+}
+
+// TestOffloadHealRebuildsDespiteFailedResume: the resume clears the offload halt
+// before the fallible part that restarts the cycles, so a heal that returns on that
+// error never rebuilds async replication — and no retry can, because every later
+// attempt finds no halt. The shard would serve writes with replica repair blind to
+// them until restart.
+func TestOffloadHealRebuildsDespiteFailedResume(t *testing.T) {
+	tests := []struct {
+		name  string
+		class string
+		heal  func(*Index, context.Context, string) error
+	}{
+		{
+			name:  "heal after an aborted freeze",
+			class: "OffloadHealFailedResumeFreeze",
+			heal:  (*Index).resumeOffloadHaltAfterAbortedFreeze,
+		},
+		{
+			name:  "heal after an aborted offload",
+			class: "OffloadHealFailedResumeOffload",
+			heal:  (*Index).resumeAfterAbortedOffload,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			_, idx, s := seedHealTestShard(t, ctx, tt.class)
+
+			failOffloadResumeLeg(t, ctx, s)
+
+			require.ErrorIs(t, tt.heal(idx, ctx, s.name), errResumeLegFailed,
+				"the failed resume leg must still be reported")
+
+			s.haltForTransferMux.Lock()
+			_, held := s.haltForTransferOwners[offloadHaltOwner(s.name)]
+			s.haltForTransferMux.Unlock()
+			require.False(t, held,
+				"the failed resume already dropped the halt owner, so nothing can trigger a later rebuild")
+
+			awaitHashtreeInitialized(t, s)
+		})
+	}
+}
+
+// TestAbortedFreezeHealIsOneShot: the heal is keyed on holding the offload halt, and
+// the first call consumes it. A second call must therefore be inert — no second full
+// object scan, no error — even though the first call's resume leg failed.
+func TestAbortedFreezeHealIsOneShot(t *testing.T) {
+	ctx := context.Background()
+	const class = "AbortedFreezeHealOneShot"
+
+	_, idx, s := seedHealTestShard(t, ctx, class)
+
+	failOffloadResumeLeg(t, ctx, s)
+	require.ErrorIs(t, idx.resumeOffloadHaltAfterAbortedFreeze(ctx, s.name), errResumeLegFailed)
+	awaitHashtreeInitialized(t, s)
+
+	s.asyncReplicationRWMux.RLock()
+	rebuilt := s.hashtree
+	s.asyncReplicationRWMux.RUnlock()
+	require.NotNil(t, rebuilt, "pre-condition: the first heal rebuilt the hashtree")
+
+	require.NoError(t, idx.resumeOffloadHaltAfterAbortedFreeze(ctx, s.name),
+		"a heal that finds no offload halt is a clean no-op")
+
+	s.asyncReplicationRWMux.RLock()
+	after := s.hashtree
+	s.asyncReplicationRWMux.RUnlock()
+	require.Same(t, rebuilt, after, "the second heal must not pay another full scan")
 }

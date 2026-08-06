@@ -281,12 +281,32 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					},
 					Op: command.TenantsProcess_OP_ABORT,
 				}
-				err := fmt.Errorf("can't detect the old node name")
-				ec.Add(err)
-				return err
+				ec.Add(fmt.Errorf("can't detect the old node name"))
+				// Reported via ec, like every other failure here, so the group's own
+				// error stays reserved for what nothing else reports: a panic.
+				return nil
 			}
 			name := split[0]
 			nodeID := split[1]
+
+			// A goroutine that dies before assigning its pre-sized slot leaves nil there.
+			// A nil slot arrives at the FSM as either a nil element or a message with a
+			// nil Tenant; the guard skips both, so the pre-recorded OP_START stands and
+			// the tenant stays UNFREEZING forever. Unfreezing places no halt, so the abort is all
+			// this slot has to carry. Its status stays empty like the other abort paths
+			// here: on ACTION_UNFREEZING the FSM fills it from the recorded process.
+			defer func() {
+				if cmd.TenantsProcesses[uidx] != nil {
+					return
+				}
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name: name,
+					},
+					Op: command.TenantsProcess_OP_ABORT,
+				}
+			}()
+
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
@@ -320,7 +340,9 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			return nil
 		})
 	}
-	eg.Wait()
+	// Nothing else reports a recovered panic: the wrapper turns it into the group's
+	// error and the workers above report their own failures through ec directly.
+	ec.Add(eg.Wait())
 
 	if len(cmd.TenantsProcesses) == 0 {
 		m.logger.WithFields(logrus.Fields{
