@@ -406,34 +406,46 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	if err := m.updateIndexTenantsStatus(ctx, idx, incomingSS); err != nil {
-		return err
-	}
-	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
+	// the delete runs even when the status update fails: the status update only
+	// touches tenants incomingSS lists and the delete only tenants it omits, and
+	// skipping the delete leaves a tenant dropped from the schema on disk
+	ec := errorcompounder.New()
+	ec.Add(m.updateIndexTenantsStatus(ctx, idx, incomingSS))
+	ec.Add(m.updateIndexDeleteTenants(ctx, idx, incomingSS))
+	return ec.ToError()
 }
 
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
 	nodeName := m.db.schemaGetter.NodeName()
+
+	// one tenant's failure must not skip the rest: Physical iterates in map
+	// order, so which tenants were reconciled would otherwise vary per run
+	ec := errorcompounder.New()
 	for shardName, phys := range incomingSS.Physical {
 		if !phys.IsLocalShard(nodeName) {
 			continue
 		}
 
+		var err error
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			if err := idx.LoadLocalShard(ctx, shardName, false); err != nil {
-				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
-			}
+			err = idx.LoadLocalShard(ctx, shardName, false)
+			ec.AddWrapf(err, "add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
-				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
-			}
+			err = idx.UnloadLocalShard(ctx, shardName)
+			ec.AddWrapf(err, "shutdown tenant shard %s during update index", shardName)
+		}
+
+		// a shut index or a dead context fails every tenant that is left, so
+		// carrying on only compounds the same error once per tenant
+		if errors.Is(err, errAlreadyShutdown) || ctx.Err() != nil {
+			break
 		}
 	}
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
