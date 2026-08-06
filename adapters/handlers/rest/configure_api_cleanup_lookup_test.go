@@ -109,6 +109,13 @@ func TestAnyCleanupInProgressLookupClearsWithTheTeardown(t *testing.T) {
 		Namespace:      db.ReindexNamespace,
 		Status:         distributedtask.TaskStatusCancelled,
 		Payload:        raw,
+		// A claimed unit: the cancel of a migration that had already started
+		// writing, which is the only shape with sidecars to tear down. A cancel
+		// whose units never left PENDING is the submit path's own rollback and
+		// holds no gate at all, so it would refuse nothing here.
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
+		},
 	}
 
 	lookup := anyCleanupInProgressLookup(provider)
