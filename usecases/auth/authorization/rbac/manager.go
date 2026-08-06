@@ -26,6 +26,7 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -39,16 +40,24 @@ const (
 	SnapshotVersionLatest
 )
 
+// NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
+// when it runs rather than at construction, so a snapshot taken later sees namespaces
+// created since boot.
+type NamespaceLister interface {
+	List() []cmd.Namespace
+}
+
 type Manager struct {
 	casbin            *casbin.SyncedCachedEnforcer
 	logger            logrus.FieldLogger
 	authNconf         config.Authentication
 	rbacConf          rbacconf.Config
 	namespacesEnabled bool
+	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
 }
 
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, logger logrus.FieldLogger) (*Manager, error) {
+func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
 	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err
@@ -60,6 +69,7 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 		authNconf:         authNconf,
 		rbacConf:          rbacConf,
 		namespacesEnabled: namespacesEnabled,
+		namespaces:        namespaces,
 	}, nil
 }
 
@@ -508,11 +518,76 @@ func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error)
 	return out, nil
 }
 
+// referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
+//
+// Only the prefixes the strip has to resolve are candidates: role names, resource paths,
+// and oidc subjects. A db subject is skipped because it strips unconditionally and never
+// reads this set, so including it would record a namespace the blob does not otherwise
+// mention. A candidate is kept only when the cluster confirms it is a real namespace,
+// which is what separates a namespace prefix from a colon inside a global id such as
+// "urn:foo".
+//
+// The result names only what these rows refer to, never every namespace on the cluster.
+// A backup of one namespace must not disclose the others.
+func (m *Manager) referencedNamespaces(policy, groupingPolicy [][]string) []string {
+	if m.namespaces == nil {
+		return nil
+	}
+
+	candidates := map[string]struct{}{}
+	add := func(name string) {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			candidates[ns] = struct{}{}
+		}
+	}
+	for _, p := range policy {
+		if len(p) > 0 {
+			add(conv.TrimRoleNamePrefix(p[0]))
+		}
+		if len(p) > 1 {
+			// Rewrite is the only segment walker the package exposes. Returning each
+			// segment unchanged makes it a read.
+			_, _ = namespacing.RewriteNamespaceSegments(p[1], func(seg string) (string, error) {
+				add(seg)
+				return seg, nil
+			})
+		}
+	}
+	for _, g := range groupingPolicy {
+		if len(g) > 1 {
+			add(conv.TrimRoleNamePrefix(g[1]))
+		}
+		if len(g) > 0 {
+			if user, prefix, err := conv.GetUserAndPrefix(g[0]); err == nil &&
+				prefix == string(authentication.AuthTypeOIDC) {
+				add(user)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	known := map[string]struct{}{}
+	for _, ns := range m.namespaces.List() {
+		known[ns.Name] = struct{}{}
+	}
+	var out []string
+	for ns := range candidates {
+		if _, ok := known[ns]; ok {
+			out = append(out, ns)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Snapshot is the RBAC state to be used for RAFT snapshots
 type snapshot struct {
 	Policy         [][]string `json:"roles_policies"`
 	GroupingPolicy [][]string `json:"grouping_policies"`
 	Version        int        `json:"version"`
+	Namespaces     []string   `json:"namespaces,omitempty"`
 }
 
 // Snapshot serialises the RBAC state for RAFT snapshots and backups. Called with
@@ -573,7 +648,12 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 
 	// Use a buffer to stream the JSON encoding
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy, Version: SnapshotVersionLatest}); err != nil {
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+		Namespaces:     m.referencedNamespaces(policy, groupingPolicy),
+	}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

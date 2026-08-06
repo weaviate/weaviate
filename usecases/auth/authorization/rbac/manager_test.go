@@ -369,6 +369,96 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 	})
 }
 
+// TestSnapshotRecordsNamespaces covers what a snapshot writes into its namespace list.
+// The list is what the strip trusts on the restoring cluster, and it is also part of the
+// artifact an operator may hand to one tenant.
+func TestSnapshotRecordsNamespaces(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	seed := func(t *testing.T, namespaces ...string) *Manager {
+		m, err := setupNSEnabledTestManager(t, logger, namespaces...)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns1:editor"), "data/collections/ns1:Movies/shards/*/objects/*", authorization.READ, authorization.DataDomain)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns2:editor"), "data/collections/ns2:Movies/shards/*/objects/*", authorization.READ, authorization.DataDomain)
+		require.NoError(t, err)
+		return m
+	}
+
+	recorded := func(t *testing.T, blob []byte) []string {
+		var s snapshot
+		require.NoError(t, json.Unmarshal(blob, &s))
+		return s.Namespaces
+	}
+
+	t.Run("a selection records only the namespaces it refers to", func(t *testing.T) {
+		m := seed(t, "ns1", "ns2", "ns3")
+		blob, err := m.Snapshot("ns1:editor")
+		require.NoError(t, err)
+		// Naming ns2 or ns3 here would tell ns1's owner who else is on the cluster.
+		assert.Equal(t, []string{"ns1"}, recorded(t, blob))
+	})
+
+	t.Run("a resource namespace is recorded even when no role name has it", func(t *testing.T) {
+		m := seed(t, "ns1", "customer1")
+		_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("analytics"), "users/customer1:alice", authorization.READ, authorization.UsersDomain)
+		require.NoError(t, err)
+
+		blob, err := m.Snapshot("analytics")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"customer1"}, recorded(t, blob))
+	})
+
+	t.Run("an oidc subject namespace is recorded", func(t *testing.T) {
+		m := seed(t, "ns1", "ns2")
+		_, err := m.casbin.AddRoleForUser(
+			conv.UserNameWithTypeFromId("ns2:dave", authentication.AuthTypeOIDC),
+			conv.PrefixRoleName("ns1:editor"))
+		require.NoError(t, err)
+
+		blob, err := m.Snapshot("ns1:editor")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"ns1", "ns2"}, recorded(t, blob))
+	})
+
+	t.Run("a prefix the cluster does not know is not recorded", func(t *testing.T) {
+		m := seed(t, "ns1")
+		_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("analytics"), "users/urn:foo", authorization.READ, authorization.UsersDomain)
+		require.NoError(t, err)
+
+		blob, err := m.Snapshot("analytics")
+		require.NoError(t, err)
+		// "urn" looks like a qualifier but names no namespace, so the strip must
+		// never treat it as one.
+		assert.Empty(t, recorded(t, blob))
+	})
+
+	t.Run("a db subject namespace is not recorded on its own", func(t *testing.T) {
+		m := seed(t, "ns1", "ns2")
+		_, err := m.casbin.AddRoleForUser(
+			conv.UserNameWithTypeFromId("ns2:bob", authentication.AuthTypeDb),
+			conv.PrefixRoleName("ns1:editor"))
+		require.NoError(t, err)
+
+		blob, err := m.Snapshot("ns1:editor")
+		require.NoError(t, err)
+		// A db subject strips unconditionally and never reads the set, so recording
+		// ns2 from it would widen the set for no reason.
+		assert.Equal(t, []string{"ns1"}, recorded(t, blob))
+	})
+
+	t.Run("no lister records nothing", func(t *testing.T) {
+		m, err := setupTestManager(t, logger)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("editor"), "collections/*", authorization.UPDATE, authorization.SchemaDomain)
+		require.NoError(t, err)
+
+		blob, err := m.Snapshot("editor")
+		require.NoError(t, err)
+		assert.Empty(t, recorded(t, blob))
+	})
+}
+
 func subjectsOf(rows [][]string) []string {
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -434,6 +524,68 @@ func TestStripRBACSnapshot(t *testing.T) {
 		wantG       [][]string
 		wantErr     []string // substrings; empty means the strip must succeed
 	}{
+		{
+			// No role name mentions customer1, so the fallback would miss it. The
+			// recorded list does not, and the resource loses the prefix the same way
+			// the matching db subject does.
+			name: "a recorded namespace strips a resource no role name mentions",
+			in: snapshot{
+				Namespaces: []string{"customer1"},
+				Policy: [][]string{
+					{"role:analytics", "users/customer1:alice", "R", "users"},
+				},
+				GroupingPolicy: [][]string{{"db:customer1:bob", "role:analytics"}},
+			},
+			wantP: [][]string{{"role:analytics", "users/alice", "R", "users"}},
+			wantG: [][]string{{"db:bob", "role:analytics"}},
+		},
+		{
+			// An OIDC subject reads the same set. Left qualified it would match
+			// nothing, because the graduated cluster authenticates the user as
+			// oidc:dave.
+			name: "a recorded namespace strips an oidc subject on a global role",
+			in: snapshot{
+				Namespaces: []string{"ns1"},
+				Policy:     [][]string{{"role:auditor", "data/collections/Movies/shards/*/objects/*", "R", "data"}},
+				GroupingPolicy: [][]string{
+					{"oidc:ns1:dave", "role:auditor"},
+					{"db:alice", "role:auditor"},
+				},
+			},
+			wantP: [][]string{{"role:auditor", "data/collections/Movies/shards/*/objects/*", "R", "data"}},
+			wantG: [][]string{
+				{"oidc:dave", "role:auditor"},
+				{"db:alice", "role:auditor"},
+			},
+		},
+		{
+			// "urn" is not a namespace on the source, so the colon belongs to the
+			// identity and both rows keep it.
+			name: "a colon that is not a namespace prefix is left alone",
+			in: snapshot{
+				Namespaces: []string{"ns1"},
+				Policy: [][]string{
+					{"role:ns1:editor", "users/urn:foo", "R", "users"},
+				},
+				GroupingPolicy: [][]string{{"oidc:urn:foo", "role:ns1:editor"}},
+			},
+			wantP: [][]string{{"role:editor", "users/urn:foo", "R", "users"}},
+			wantG: [][]string{{"oidc:urn:foo", "role:editor"}},
+		},
+		{
+			// An older snapshot carries no list, so the set comes from the role names
+			// and the resource keeps its prefix. This is the behaviour a re-taken
+			// backup fixes.
+			name: "without a recorded list the set still comes from role names",
+			in: snapshot{
+				Policy: [][]string{
+					{"role:analytics", "users/customer1:alice", "R", "users"},
+				},
+				GroupingPolicy: [][]string{{"db:customer1:bob", "role:analytics"}},
+			},
+			wantP: [][]string{{"role:analytics", "users/customer1:alice", "R", "users"}},
+			wantG: [][]string{{"db:bob", "role:analytics"}},
+		},
 		{
 			// The role, the resource, the subject and the role reference all lose
 			// the ns1 prefix. The db:wv_internal_empty placeholder has no namespace,

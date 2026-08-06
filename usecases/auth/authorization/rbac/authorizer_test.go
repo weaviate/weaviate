@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -941,7 +942,7 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 		Enabled: true,
 	}
 
-	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, false, logger)
+	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, false, nil, logger)
 }
 
 // setupTestManagerWithStaticUsers is setupTestManager with a caller-chosen
@@ -961,12 +962,25 @@ func setupTestManagerWithAPIKey(t *testing.T, logger *logrus.Logger, apiKey conf
 
 	return New(filepath.Join(rbacDir, "policy.csv"), rbacconf.Config{Enabled: true},
 		config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: apiKey},
-		false, logger)
+		false, nil, logger)
+}
+
+// fakeNamespaceLister reports a fixed namespace set, standing in for the cluster's
+// namespace controller.
+type fakeNamespaceLister []string
+
+func (f fakeNamespaceLister) List() []cmd.Namespace {
+	out := make([]cmd.Namespace, 0, len(f))
+	for _, name := range f {
+		out = append(out, cmd.Namespace{Name: name})
+	}
+	return out
 }
 
 // setupNSEnabledTestManager is setupTestManager with namespacesEnabled=true:
-// admin/viewer get the narrowed shape, root/read-only stay wildcard.
-func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
+// admin/viewer get the narrowed shape, root/read-only stay wildcard. The caller's
+// namespaces are the ones a snapshot may record.
+func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger, namespaces ...string) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-ns-*")
 	if err != nil {
 		return nil, err
@@ -981,7 +995,7 @@ func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger) (*Manager, e
 
 	return New(policyPath, rbacconf.Config{Enabled: true},
 		config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}},
-		true, logger)
+		true, fakeNamespaceLister(namespaces), logger)
 }
 
 // TestNarrowedViewerVsReadOnly_ClusterReadDenied asserts enforcement of

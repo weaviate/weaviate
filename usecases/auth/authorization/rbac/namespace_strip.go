@@ -55,29 +55,30 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 		staticUsers[user] = struct{}{}
 	}
 
-	// Collect the namespaces from role names only. Roles are qualified when they
-	// are created, so a role name's "<ns>:" prefix really is a namespace. Other
-	// names cannot be split that way: an OIDC subject or a resource can contain a
-	// ':' of its own.
-	//
-	// This set is complete only while every namespace in the snapshot is named by
-	// some role in it. A resource is qualified with its own role's namespace on
-	// create, which holds it today. A resource carrying a namespace no role name
-	// mentions would stay qualified after the strip and nothing would report it.
-	namespaces := map[string]struct{}{}
-	addNamespace := func(roleKey string) {
-		if ns := namespacing.NamespaceFromQualified(conv.TrimRoleNamePrefix(roleKey)); ns != "" {
-			namespaces[ns] = struct{}{}
-		}
+	// The snapshot's own list wins, because the source cluster knew which prefixes
+	// were namespaces. A snapshot carrying none falls back to role names, the only
+	// names whose ':' is reliably a qualifier. The fallback misses a namespace no
+	// role name mentions, leaving that resource or OIDC subject qualified with
+	// nothing reporting it. Re-taking the backup is the fix.
+	namespaces := make(map[string]struct{}, len(s.Namespaces))
+	for _, ns := range s.Namespaces {
+		namespaces[ns] = struct{}{}
 	}
-	for _, p := range s.Policy {
-		if len(p) > 0 {
-			addNamespace(p[0])
+	if len(namespaces) == 0 {
+		addNamespace := func(roleKey string) {
+			if ns := namespacing.NamespaceFromQualified(conv.TrimRoleNamePrefix(roleKey)); ns != "" {
+				namespaces[ns] = struct{}{}
+			}
 		}
-	}
-	for _, g := range s.GroupingPolicy {
-		if len(g) > 1 {
-			addNamespace(g[1])
+		for _, p := range s.Policy {
+			if len(p) > 0 {
+				addNamespace(p[0])
+			}
+		}
+		for _, g := range s.GroupingPolicy {
+			if len(g) > 1 {
+				addNamespace(g[1])
+			}
 		}
 	}
 

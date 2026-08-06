@@ -2126,7 +2126,7 @@ func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
-		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, logger)
+		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
 	require.NoError(t, err)
 	perms := make(map[string][]authorization.Policy, len(roleNames))
 	for _, r := range roleNames {
@@ -2149,7 +2149,7 @@ func makeRbacSnapshotWithSubjects(t *testing.T, role string, dbUserIDs ...string
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
-		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, logger)
+		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
 	require.NoError(t, err)
 	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
 		role: {{

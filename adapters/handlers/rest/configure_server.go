@@ -164,6 +164,7 @@ func configureAuthorizer(appState *state.State) error {
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
 			appState.ServerConfig.Config.Namespaces.Enabled,
+			appState.NamespacesController,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)
