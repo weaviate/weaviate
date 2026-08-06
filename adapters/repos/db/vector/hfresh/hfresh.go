@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
@@ -352,20 +353,20 @@ func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, err
 }
 
 func (h *HFresh) PostStartup(ctx context.Context) {
-	// Warm the version map with one sequential sweep: without it, the first
-	// searches after a restart fault versions in one LSM read per scanned
-	// vector.
+	// Warm the version map in the background
 	before := time.Now()
-	count, err := h.VersionMap.Warmup(ctx)
-	if err != nil {
-		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
-	} else {
+	enterrors.GoWrapper(func() {
+		count, err := h.VersionMap.Warmup(h.ctx)
+		if err != nil {
+			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+			return
+		}
 		h.logger.WithFields(logrus.Fields{
 			"action": "hfresh_version_map_warmup",
 			"count":  count,
 			"took":   time.Since(before).String(),
 		}).Info("version map warmed up")
-	}
+	}, h.logger)
 
 	h.Centroids.hnsw.PostStartup(ctx)
 }
