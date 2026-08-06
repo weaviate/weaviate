@@ -59,6 +59,9 @@ type fakeSourcer struct {
 	// Plain field so pre-existing restore tests pass without a mock.On call.
 	reindexInFlightErr error
 	reindexOverlapErr  error
+	// reindexOverlapFn lets a test act on the context the lookup is handed, so
+	// an abort landing while the lookup runs can be reproduced.
+	reindexOverlapFn func(ctx context.Context) error
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
@@ -72,7 +75,10 @@ func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context, []string) erro
 
 // reindexOverlapErr backs RefuseIfReindexOverlapped as a plain field so a test
 // can distinguish "live at commit" from "overlapped and already finished".
-func (s *fakeSourcer) RefuseIfReindexOverlapped(_ context.Context, _ []string, _ time.Time) error {
+func (s *fakeSourcer) RefuseIfReindexOverlapped(ctx context.Context, _ []string, _ time.Time) error {
+	if s.reindexOverlapFn != nil {
+		return s.reindexOverlapFn(ctx)
+	}
 	return s.reindexOverlapErr
 }
 
