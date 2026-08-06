@@ -36,18 +36,29 @@ type flippingTaskService struct {
 	// listErrAfterCancel fails every listing taken after the cancel, leaving
 	// the handler without the task's new status.
 	listErrAfterCancel error
-	cancelled          atomic.Bool
+	// dropAfterCancel removes the task from every listing taken after the
+	// cancel, the way DTM's clean-up does once a task is old enough.
+	dropAfterCancel bool
+	cancelled       atomic.Bool
 }
 
 func (s *flippingTaskService) CancelDistributedTask(
 	_ context.Context, _, taskID string, _ uint64,
 ) error {
 	s.mu.Lock()
+	kept := s.tasks[:0]
 	for _, t := range s.tasks {
-		if t.ID == taskID && s.flipTo != "" {
-			t.Status = s.flipTo
+		if t.ID == taskID {
+			if s.dropAfterCancel {
+				continue
+			}
+			if s.flipTo != "" {
+				t.Status = s.flipTo
+			}
 		}
+		kept = append(kept, t)
 	}
+	s.tasks = kept
 	s.mu.Unlock()
 	s.cancelled.Store(true)
 	return s.cancelErr
@@ -99,8 +110,13 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 		flipTo distributedtask.TaskStatus
 		// listErrAfterCancel fails the listing the error path takes.
 		listErrAfterCancel error
+		// dropAfterCancel takes the task out of that listing entirely.
+		dropAfterCancel bool
 		// wantConflict is true when the operator must get the refusal.
 		wantConflict bool
+		// wantNoOp is true when the operator must be told there was nothing
+		// left to cancel.
+		wantNoOp bool
 		// wantServerErrorContains is the substring the 500 must carry.
 		wantServerErrorContains string
 	}{
@@ -160,11 +176,47 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 			wantServerErrorContains: "permanent FSM rejection",
 		},
 		{
-			// The task settled instead of moving on. It is not live, so the
-			// refusal's instruction does not fit, and the cancel error stands.
-			name:                    "the task finishes before the cancel lands",
+			// The task settled instead of moving on. The caller asked for no
+			// reindex to be running on this property and none is, which is
+			// what the pre-cancel path answers NO_OP for.
+			name:      "the task finishes before the cancel lands",
+			cancelErr: notRunning,
+			flipTo:    distributedtask.TaskStatusFinished,
+			wantNoOp:  true,
+		},
+		{
+			// The task stopped on its own. Nothing is left to cancel, and the
+			// operator learns what happened from the status endpoint, not from
+			// a 500 on a request that asked for exactly this outcome.
+			name:      "the task fails before the cancel lands",
+			cancelErr: notRunning,
+			flipTo:    distributedtask.TaskStatusFailed,
+			wantNoOp:  true,
+		},
+		{
+			// Someone else cancelled it first. Two operators racing the same
+			// cancel must both be told it is cancelled.
+			name:      "the task is already cancelled when the cancel lands",
+			cancelErr: notRunning,
+			flipTo:    distributedtask.TaskStatusCancelled,
+			wantNoOp:  true,
+		},
+		{
+			// The listing still reports the task running, which contradicts
+			// the rejection. Nothing here says the task settled, so claiming
+			// there was nothing to cancel would be a guess.
+			name:                    "the listing still reports the task started",
 			cancelErr:               notRunning,
-			flipTo:                  distributedtask.TaskStatusFinished,
+			flipTo:                  distributedtask.TaskStatusStarted,
+			wantServerErrorContains: "is no longer running",
+		},
+		{
+			// Gone from the listing is not a status. DTM only cleans up tasks
+			// that are old enough, so a task that was STARTED moments ago
+			// vanishing means something else happened.
+			name:                    "the task is gone from the listing",
+			cancelErr:               notRunning,
+			dropAfterCancel:         true,
 			wantServerErrorContains: "is no longer running",
 		},
 		{
@@ -190,6 +242,7 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 				cancelErr:          tc.cancelErr,
 				flipTo:             tc.flipTo,
 				listErrAfterCancel: tc.listErrAfterCancel,
+				dropAfterCancel:    tc.dropAfterCancel,
 			}
 			var busy atomic.Bool
 			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
@@ -210,6 +263,19 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 						"whether the flip beat the listing, got %T", responder)
 				require.Equal(t, refusal, errorMessage(t, conflict.Payload),
 					"both refusals must read identically or the two paths drift")
+				return
+			}
+
+			if tc.wantNoOp {
+				accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+				require.Truef(t, ok,
+					"the task stopped on its own, which is exactly what the caller asked for — "+
+						"the same state the pre-cancel path answers NO_OP for. A 500 here makes the "+
+						"answer depend on whether the task settled before the listing, got %T", responder)
+				require.Equal(t, reindexCancelStatusNoOp, accepted.Payload.Status,
+					"both no-ops must report the same status or scripts have to special-case the race")
+				require.Empty(t, accepted.Payload.TaskID,
+					"the pre-cancel no-op names no task, and this one must not either")
 				return
 			}
 
