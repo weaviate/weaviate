@@ -302,18 +302,15 @@ const cancelDispatchQueueDepth = 256
 const cancelDispatchOverflowLimit = 32
 
 // cancelObserverStaleAfter is how old a cancel may be and still be worth
-// telling an observer about.
+// telling an observer about. Observers exist to make a JUST-applied cancel
+// observable to a request waiting on it. A node catching up on the RAFT log
+// applies cancels that finished long ago; without this bound each one would
+// raise a gate nothing can release except its timeout, so a restart costs a
+// stretch of refused backups and an error line per replayed cancel.
 //
-// Observers exist to make a JUST-applied cancel observable to a request that is
-// waiting on it, and both signals the reindex observer raises expire on their
-// own inside a minute. A node catching up on the RAFT log applies cancels that
-// finished long ago; without this bound each one would raise a gate that
-// nothing can release except its timeout, so a restart costs a stretch of
-// refused backups and an error line per replayed cancel.
-//
-// Measured against the FinishedAt the proposing node stamped, which is the same
-// cross-node clock comparison [Manager.CleanUpTask] already makes. A clock more
-// than this far out of step skips the observer, and the request-scoped
+// Measured against the FinishedAt the proposing node stamped, the same
+// cross-node clock comparison [Manager.CleanUpTask] already makes. A clock
+// further out of step than this skips the observer, and the request-scoped
 // confirmation it feeds is already unusable at that skew.
 const cancelObserverStaleAfter = time.Minute
 
@@ -350,14 +347,9 @@ func (m *Manager) startCancelDrainerWithLock() {
 }
 
 // runCancelObserverSafely keeps one namespace's panicking observer from taking
-// the drainer down for all of them.
-//
-// GoWrapper's recover sits outside the loop, so a panic there ends the
-// goroutine for good — and cancelDrainerRunning stays true, so nothing ever
-// restarts it and re-registering an observer does not help. Cancel observation
-// then stops for EVERY namespace until the process restarts, from one
-// namespace's bug. The overflow dispatch already recovers per event; this makes
-// the primary path match.
+// the drainer down for all of them. GoWrapper's recover sits outside the loop,
+// so a panic there ends the goroutine for good — and cancelDrainerRunning stays
+// true, so nothing restarts it and re-registering an observer does not help.
 func (m *Manager) runCancelObserverSafely(task *Task) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -429,18 +421,16 @@ func (m *Manager) dispatchCancelWithLock(task *Task) {
 	default:
 		// A missing event does not fail the cancel open: the node handling it
 		// keeps polling this node's gate and answers "unconfirmed" when its
-		// budget runs out. What it costs is that whole budget, on every owner
-		// that lost an event, so a few goroutines are worth spending to keep
-		// the events flowing. The price is ordering, which only matters between
-		// two cancels of the same task and which the observers already
-		// tolerate.
+		// budget runs out. That whole budget, on every owner that lost an
+		// event, is worth a few goroutines to avoid. The price is ordering,
+		// which only matters between two cancels of the same task and which
+		// the observers already tolerate.
 		logger := m.dispatchLogger()
 		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
 		if m.cancelOverflowInFlight.Load() >= cancelDispatchOverflowLimit {
-			// Past the bound the observer is not merely behind, it is wedged,
+			// Past the bound the observer is wedged rather than merely behind,
 			// and every further goroutine parks on the same wedge for the
-			// lifetime of the process. A late cancel is worth less than the
-			// node staying up.
+			// lifetime of the process.
 			logger.WithFields(fields).Error("distributedtask: cancel-observer queue is full and the overflow bound is reached; dropping this cancel event")
 			return
 		}

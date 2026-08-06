@@ -270,10 +270,12 @@ func NewReindexProvider(
 	}
 }
 
-// shutdownCtx is the read side of [ReindexProvider.serverCtx]. Every consumer
-// goes through it because several of them run on a goroutine, where a provider
-// built by a fixture rather than [NewReindexProvider] would otherwise take the
-// whole process down instead of just failing the operation.
+// shutdownCtx is the read side of [ReindexProvider.serverCtx].
+//
+// It and the two helpers below tolerate a provider built by a fixture rather
+// than [NewReindexProvider]. That matters because their consumers run on
+// goroutines, where a nil deref takes the whole process down instead of just
+// failing one operation.
 func (p *ReindexProvider) shutdownCtx() context.Context {
 	if p.serverCtx == nil {
 		return context.Background()
@@ -281,10 +283,7 @@ func (p *ReindexProvider) shutdownCtx() context.Context {
 	return p.serverCtx
 }
 
-// goroutineLogger is the logger the cancel-apply goroutines use. Same reason as
-// [ReindexProvider.shutdownCtx]: a provider built by a fixture rather than
-// [NewReindexProvider] carries a nil logger, and a nil deref on a goroutine
-// takes the whole process down instead of failing one operation.
+// goroutineLogger is the logger the cancel-apply goroutines use.
 func (p *ReindexProvider) goroutineLogger() logrus.FieldLogger {
 	if p.logger == nil {
 		return logrus.New()
@@ -294,11 +293,6 @@ func (p *ReindexProvider) goroutineLogger() logrus.FieldLogger {
 
 // ensureCancelMaps builds any of the [ReindexProvider.cancelAppliedMu] registries
 // a fixture-built provider left nil. Caller must hold cancelAppliedMu for writing.
-//
-// Same fixture-tolerance as [ReindexProvider.shutdownCtx], and it matters for the
-// same reason: every writer here runs on the cancel-apply path, which reaches
-// these maps from a goroutine, so a write into a nil map is a process kill rather
-// than a failed request.
 func (p *ReindexProvider) ensureCancelMaps() {
 	if p.cancelSeen == nil {
 		p.cancelSeen = make(map[string]int, 1)
@@ -1906,14 +1900,11 @@ func (p *ReindexProvider) BlockingHoldForCollection(collection string) bool {
 
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
-	for key, count := range p.cleanupInProgress {
-		if count > 0 && key.collection == folded {
-			return true
-		}
-	}
-	for key, count := range p.submitInProgress {
-		if count > 0 && key.collection == folded {
-			return true
+	for _, registry := range []map[reindexCleanupKey]int{p.cleanupInProgress, p.submitInProgress} {
+		for key, count := range registry {
+			if count > 0 && key.collection == folded {
+				return true
+			}
 		}
 	}
 	return false
@@ -2582,33 +2573,30 @@ const reindexCancelApplyGateCap = time.Minute
 // gap. It must NOT be held for a fixed window: teardown routinely finishes in
 // about a second, and callers back up immediately afterwards.
 //
-// Confirmation is the other half. A node handling a cancel must be able to tell
-// its caller that no backup can start into a half-torn-down shard, and it learns
-// that by polling the owners for a few seconds. Teardown is a level, not an edge:
-// a shard with nothing to remove closes and reopens its gate in microseconds, so
-// no polling budget is guaranteed to see it. That is why the probe answers from
-// [ReindexProvider.cancelSeen], which is held for a fixed, observable window and
-// blocks nothing. Making the blocking gate carry the confirmation window instead
-// would refuse every backup for that whole window.
+// Confirmation is the other half. A node handling a cancel learns that no backup
+// can start into a half-torn-down shard by polling the owners for a few seconds.
+// Teardown is a level, not an edge: a shard with nothing to remove closes and
+// reopens its gate in microseconds, so no polling budget is guaranteed to see it.
+// That is why the probe answers from [ReindexProvider.cancelSeen], held for a
+// fixed, observable window and blocking nothing. Making the blocking gate carry
+// that window instead would refuse every backup for the whole of it.
 //
 // This and the teardown arrive in either order, so neither may assume it runs
-// first. This side parks the gate from the local raft apply, while the scheduler
-// that drives the teardown reads task state through a leader-forwarded query: on
-// a follower whose local apply lags the leader's, the teardown sees CANCELLED
-// and runs before anything is parked. Whichever side is second releases, via the
-// settled set below; the cap only covers a teardown that never runs here at all.
+// first: this side parks the gate from the local raft apply, while the scheduler
+// driving the teardown reads task state through a leader-forwarded query, so on
+// a follower whose apply lags the leader's the teardown runs before anything is
+// parked. Whichever side is second releases, via the settled set below; the cap
+// only covers a teardown that never runs here at all.
 //
 // Registered via [distributedtask.Manager.RegisterCancelObserver], whose
 // [distributedtask.CancelObserver] godoc carries the apply-path contract.
 func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
 	payload, err := p.loadPayload(task)
 
-	// Confirmation is raised from a probe that reads the collection alone, so a
-	// payload this node cannot fully decode still gets a latch. Without it this
-	// node never reports the cancel at all, and the node handling it polls until
-	// its per-owner budget runs out before answering unconfirmed — it does not
-	// read a missing latch as the owner having finished. The blocking gate below
-	// genuinely needs the whole payload.
+	// Confirmation reads the collection alone, so a payload this node cannot
+	// fully decode still gets a latch; without one the node handling the cancel
+	// burns its whole per-owner budget before answering unconfirmed. The
+	// blocking gate below genuinely needs the whole payload.
 	collection := cancelledTaskCollection(task.Payload)
 	if err == nil && payload.Collection != "" {
 		collection = payload.Collection

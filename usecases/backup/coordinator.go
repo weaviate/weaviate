@@ -528,12 +528,10 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 //   - every other kind, including the empty one older nodes send, keeps the
 //     legacy [errCannotCommit] wrapping so existing callers and tests match.
 //
-// Known partial-rollout gap, deliberately open: a participant from before
-// the shard-name redaction sets the same [CanCommitErrInFlightReindex] kind
-// and names the shard in its message, which this promotion republishes.
-// Partial-rollout states are outside this feature's scope (a rollout note,
-// like the symmetric old-coordinator degradation), and closing the gap would
-// cost a wire field whose only job is telling peer versions apart.
+// Known partial-rollout gap, deliberately open: a participant from before the
+// shard-name redaction sets the same [CanCommitErrInFlightReindex] kind and
+// names the shard in its message, which this promotion republishes. Closing it
+// would cost a wire field whose only job is telling peer versions apart.
 func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	if resp == nil {
 		return errCannotCommit

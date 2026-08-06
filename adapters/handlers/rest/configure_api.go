@@ -2552,15 +2552,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 // 404s everything, and the gate would read that as "no backups anywhere".
 //
 // The probe corroborates a 404 against the shape this server's own mux emits, so
-// an ordinary proxy error page is rejected and the cluster refuses closed. That
-// leaves one measured hole: a proxy answering these two routes with a 404 byte-
-// identical to Go's stdlib one, which anything fronted by a Go default mux
-// produces. Corroboration cannot tell it from a real old node, so submission is
-// admitted over a live backup — and the operator is told a rolling upgrade is in
-// progress on a fully upgraded cluster. The commit-time overlap check still
-// failed that backup, so what this closes is the admission-side fail-open, not a
-// path to a corrupt backup. Not routing these probes through a proxy removes the
-// class rather than narrowing it.
+// an ordinary proxy error page is rejected. That still leaves a proxy whose 404
+// is byte-identical to Go's stdlib one, which anything fronted by a Go default
+// mux produces; not routing these probes through a proxy removes the class
+// rather than narrowing it.
 //
 // Scoped to these probes on purpose: whether cluster-internal traffic in general
 // should honor a proxy is a deployment-visible question, and is left as it is.

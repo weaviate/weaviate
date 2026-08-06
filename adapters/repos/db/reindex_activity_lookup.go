@@ -79,17 +79,28 @@ func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
 	db.anyReindexActivityLookup = lookup
 }
 
-// redactedCauseErr keeps a cause reachable via errors.Is without printing it;
-// the cause may name nodes that must not reach an API response body.
-type redactedCauseErr struct {
-	msg   string
-	cause error
+// redactedErr keeps a sentinel and a cause reachable via errors.Is without
+// printing either. The cause names nodes and task internals that must not reach
+// an API response body, and the sentinel's own text would otherwise be printed
+// twice by %w wrapping. Without the sentinel in Unwrap, every caller
+// classifying the refusal sees a plain error and treats a fail-closed gate
+// refusal as an unrelated failure.
+//
+// A nil cause is allowed: the retention-window refusal has nothing to hide,
+// only a message that must not be prefixed with the sentinel's text.
+type redactedErr struct {
+	msg      string
+	sentinel error
+	cause    error
 }
 
-func (e redactedCauseErr) Error() string { return e.msg }
+func (e redactedErr) Error() string { return e.msg }
 
-func (e redactedCauseErr) Unwrap() []error {
-	return []error{entitiesbackup.ErrReindexInFlight, e.cause}
+func (e redactedErr) Unwrap() []error {
+	if e.cause == nil {
+		return []error{e.sentinel}
+	}
+	return []error{e.sentinel, e.cause}
 }
 
 // RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart of
@@ -148,10 +159,11 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 				Errorf("restore-reindex gate: cannot query the cluster task manager, assuming a migration is live: %v", err)
 		}
 		// "(assumed)" marks this as a fallback, not an observed live task.
-		return redactedCauseErr{
+		return redactedErr{
 			msg: entitiesbackup.ErrReindexInFlight.Error() +
 				" (assumed): the cluster task manager could not be queried; retry once it is reachable",
-			cause: err,
+			sentinel: entitiesbackup.ErrReindexInFlight,
+			cause:    err,
 		}
 	}
 	if !live {
@@ -178,16 +190,12 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 // A non-nil error means either that one overlapped or that the question can no
 // longer be answered; callers fail closed on both.
 //
-// A task cancelled before completing is not counted, whether it was withdrawn
-// because a backup claimed first or cancelled by an operator part-way through:
-// no cluster state tells the two apart, and neither is provably write-free
-// (0-wi#473).
-//
-// The gap that leaves is the backup's whole duration, not a window at the end
-// of it: a migration admitted through a fail-open route and cancelled before
-// commit is invisible to every layer from shard-halt onwards, because the
-// per-shard check runs once at halt and cannot see one that starts after it.
-// Pinned by TestReindexOverlapLookupResidual.
+// A task cancelled before completing is not counted: no cluster state separates
+// one withdrawn because a backup claimed first from one an operator cancelled
+// part-way through, and neither is provably write-free (0-wi#473). The gap that
+// leaves is the backup's whole duration, since the per-shard check runs once at
+// halt and cannot see a migration that starts after it. Pinned by
+// TestReindexOverlapLookupResidual.
 type ReindexOverlapLookup func(ctx context.Context, collections []string, since time.Time) error
 
 // SetReindexOverlapLookup installs the lookup consulted by
@@ -199,27 +207,10 @@ func (db *DB) SetReindexOverlapLookup(lookup ReindexOverlapLookup) {
 	db.reindexOverlapLookup = lookup
 }
 
-// redactedOverlapErr keeps a cause reachable for errors.Is without printing
-// it. The causes here are RAFT and decoding errors that name nodes and task
-// internals, and this text reaches an API response body.
-type redactedOverlapErr struct {
-	msg   string
-	cause error
-}
-
-func (e redactedOverlapErr) Error() string { return e.msg }
-
-// Unwrap yields the sentinel as well as the cause. Without it every caller
-// classifying this refusal with errors.Is sees a plain error and treats a
-// fail-closed overlap refusal as an unrelated failure. Matches redactedCauseErr.
-//
-// A nil cause is allowed: the retention-window refusal has no underlying error
-// to hide, only a message that must not be prefixed with the sentinel's text.
-func (e redactedOverlapErr) Unwrap() []error {
-	if e.cause == nil {
-		return []error{entitiesbackup.ErrBackupSpannedReindex}
-	}
-	return []error{entitiesbackup.ErrBackupSpannedReindex, e.cause}
+// redactedOverlapErr is [redactedErr] fixed to the overlap sentinel; every
+// refusal from the commit-time check carries it.
+func redactedOverlapErr(msg string, cause error) error {
+	return redactedErr{msg: msg, sentinel: entitiesbackup.ErrBackupSpannedReindex, cause: cause}
 }
 
 // ReindexTaskLister lists DTM tasks by namespace, narrowed from the cluster
@@ -236,23 +227,16 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
-			// Carries the sentinel like the two refusals below it: a caller that
-			// cannot match it treats a fail-closed overlap refusal as an
-			// unrelated failure.
-			return redactedOverlapErr{
-				msg: fmt.Sprintf(
-					"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
-					completedTaskTTL),
-			}
+			return redactedOverlapErr(fmt.Sprintf(
+				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
+				completedTaskTTL), nil)
 		}
 		tasksByNamespace, err := list(ctx)
 		if err != nil {
 			// The RAFT error names the nodes it could not reach, and this text
 			// is stored in the failure meta and served from the status API.
-			return redactedOverlapErr{
-				msg:   "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried",
-				cause: err,
-			}
+			return redactedOverlapErr(
+				"cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried", err)
 		}
 		wanted := lowercasedSet(collections)
 		for _, task := range tasksByNamespace[ReindexNamespace] {
@@ -290,10 +274,8 @@ func lowercasedSet(collections []string) map[string]struct{} {
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
-		return "", false, redactedOverlapErr{
-			msg:   "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
-			cause: err,
-		}
+		return "", false, redactedOverlapErr(
+			"cannot rule out a runtime-reindex during this backup: a task payload is unreadable", err)
 	}
 	if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
 		return "", false, nil
@@ -341,24 +323,20 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []strin
 	if db.config.RuntimeReindexDisabled {
 		// Same contract as the other two gates: RUNTIME_REINDEX_ENABLED=false
 		// means no reindex check anywhere. Returning here also skips the lookup
-		// itself, which is a leader-forwarded RAFT query — with the feature off
-		// it could fail a backup for reasons that need no reindex to exist (an
-		// unreachable leader, or a backup outliving the completed-task
-		// retention window).
+		// itself, a leader-forwarded RAFT query that could fail a backup for
+		// reasons needing no reindex to exist (an unreachable leader, or a
+		// backup outliving the completed-task retention window).
 		//
 		// Residual, at its true width: "no new task can start" is not "no task
-		// is running". Three ways a reindex is live with the flag off, and with
-		// this check off a backup can span any of them.
+		// is running". A reindex is still live with the flag off if
 		//
-		//  1. A task already running when the flag was turned off keeps running.
-		//  2. A node that BOOTS with the flag off still resumes a STARTED task
-		//     from DTM — the flag gates submission, not recovery.
-		//  3. Cancel stays deliberately allowed with the flag off, so the whole
-		//     teardown runs, and with the gates off it runs unguarded.
+		//  1. it was already running when the flag was turned off;
+		//  2. the node BOOTED with the flag off and resumed a STARTED task from
+		//     DTM — the flag gates submission, not recovery;
+		//  3. a cancel is tearing down, which stays allowed with the flag off.
 		//
 		// Accepted: the flag is the escape hatch for the whole feature, so it
-		// cannot itself fail backups. Stated in full because the narrow version
-		// ("turned off mid-flight") reads as the only case and is not.
+		// cannot itself fail backups.
 		return nil
 	}
 
