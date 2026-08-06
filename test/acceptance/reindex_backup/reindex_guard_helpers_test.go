@@ -192,13 +192,18 @@ func localBackupStatus(t *testing.T, backend, backupID string) func() (string, b
 func nodeBackupStatus(restURI, backend, backupID string) func() (string, bool) {
 	url := fmt.Sprintf("http://%s/v1/backups/%s/%s", restURI, backend, backupID)
 	return func() (string, bool) {
+		// Pointer, like the generated payload localBackupStatus reads: status is
+		// omitempty, so a body without it decodes cleanly into the zero value.
+		// Returning that as a successful read makes the backup look live
+		// forever, and makes every failed read count as a good one in the
+		// vacuity check.
 		var parsed struct {
-			Status string `json:"status"`
+			Status *string `json:"status"`
 		}
-		if !getJSON(url, &parsed) {
+		if !getJSON(url, &parsed) || parsed.Status == nil || *parsed.Status == "" {
 			return "", false
 		}
-		return parsed.Status, true
+		return *parsed.Status, true
 	}
 }
 

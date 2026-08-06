@@ -66,29 +66,11 @@ func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
 		"gate must allow when no live task targets the tuple")
 }
 
-// TestAnyLiveReindexForShard_DifferentCollection pins that a live task
-// in another collection does not block a backup of the queried
-// collection.
-func TestAnyLiveReindexForShard_DifferentCollection(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{"OtherClass", "shard1"}: true,
-	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must scope by collection")
-}
-
-// TestAnyLiveReindexForShard_DifferentShard pins that a live task on
-// the right collection but a different shard does not block a backup
-// of the queried shard.
-func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{"MyClass", "shard2"}: true,
-	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must scope by shard, not just by collection")
-}
+// Collection and shard scoping is not pinned here: the compare lives entirely
+// inside the injected lookup, which production builds in
+// adapters/handlers/rest. A test written against makeActivityBuilder would
+// assert that the fixture does what the fixture does. See
+// TestShardReindexActivityBuilderScopesByCollectionAndShard.
 
 // TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired
 // lookup defaults to "no live reindex" — production gates HTTP serving

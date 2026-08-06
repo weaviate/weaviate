@@ -131,7 +131,12 @@ func TestReindexBlockClearsAfterNodeCrash(t *testing.T) {
 		"ReindexGuard_CrashClearsBlock", "reindex-guard-crash-clears")
 	t.Logf("guard engaged before the crash: %s", guarded.blocked.body)
 
-	require.NoError(t, guarded.compose.StopAt(ctx, 0, nil))
+	// SIGKILL, not the default SIGTERM grace: a graceful shutdown gets to run
+	// Weaviate's own teardown, which could release the slot deliberately —
+	// the opposite of what this test claims. A zero timeout forces the kill;
+	// see the timeout contract on DockerCompose.RestartAt.
+	kill := time.Duration(0)
+	require.NoError(t, guarded.compose.StopAt(ctx, 0, &kill))
 	require.NoError(t, guarded.compose.StartAt(ctx, 0))
 
 	// The dynamic port rebinds on restart, so the URI must be re-resolved before use.
@@ -148,4 +153,21 @@ func TestReindexBlockClearsAfterNodeCrash(t *testing.T) {
 
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
 		reindexhelpers.WithTimeout(60*time.Second))
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, guarded.className, guarded.propName,
+		"searchable", reindexhelpers.WithTimeout(180*time.Second))
+
+	// The 202 above on its own is not proof the block cleared: probeBackupActivity
+	// fails open when the activity prober is missing or the node list is empty,
+	// which is exactly the state a booting node passes through, so a gate that
+	// never re-wired answers 202 too. Make it refuse again, on the restarted
+	// process, to tell the two apart.
+	const rearmedBackupID = "reindex-guard-crash-rearmed"
+	_, err := helper.CreateBackup(t, slowBackupConfig(), guarded.className, guarded.backend, rearmedBackupID)
+	require.NoError(t, err, "backup create must be accepted once the reindex has finished")
+
+	rearmed := probeReindexDuringBackup(t, restURI, guarded.className, guarded.propName, "word",
+		localBackupStatus(t, guarded.backend, rearmedBackupID), 5*time.Minute)
+	blocked := assertReindexBlocked(t, rearmed, rearmedBackupID)
+	t.Logf("the restarted node's guard refuses again while backup %s is %s: %s",
+		rearmedBackupID, blocked.backupStatus, blocked.body)
 }

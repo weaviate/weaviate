@@ -460,9 +460,25 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 			why:        "a failed migration may have written before it failed",
 		},
 		{
-			name: "cancelled before this backup even started",
+			// Units that left PENDING on purpose: with nil units the
+			// cancelled-and-untouched rule would exempt this row too, and
+			// either rule alone would keep it green.
+			name: "cancelled after writing, but before this backup started",
 			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
-				backupStart.Add(-time.Minute), nil),
+				backupStart.Add(-time.Minute),
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
+				}),
+			wantRefuse: false,
+			why:        "it wrote, but it was over before the capture began",
+		},
+		{
+			name: "finished before this backup started",
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFinished,
+				backupStart.Add(-time.Minute),
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
+				}),
 			wantRefuse: false,
 			why:        "no overlap at all",
 		},

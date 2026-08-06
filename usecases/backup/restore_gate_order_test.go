@@ -22,10 +22,39 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+// recordingAuthorizer refuses every check and remembers what it was asked, so a
+// test can tell an unauthorized answer from a merely-absent one.
+type recordingAuthorizer struct {
+	err    error
+	verbs  []string
+	assets [][]string
+}
+
+func (a *recordingAuthorizer) Authorize(_ context.Context, _ *models.Principal, verb string, resources ...string) error {
+	a.verbs = append(a.verbs, verb)
+	a.assets = append(a.assets, resources)
+	return a.err
+}
+
+func (a *recordingAuthorizer) AuthorizeSilent(ctx context.Context, pr *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(ctx, pr, verb, resources...)
+}
+
+func (a *recordingAuthorizer) FilterAuthorizedResources(_ context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
+	if a.err != nil {
+		return nil, a.err
+	}
+	return resources, nil
+}
+
 // Pins the order Scheduler.Restore documents: authorization, then the reindex
-// gate, then existence. The authorization half is pinned in auth_test.go.
+// gate, then existence. The authorization half of the meta-found path is pinned
+// in auth_test.go; the meta-not-found arm has no classes to authorize against
+// and stands on its own broad grant, which is pinned below.
 func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	ctx := context.Background()
 	const (
@@ -70,6 +99,75 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 		require.Error(t, err)
 		assert.IsType(t, backup.ErrNotFound{}, err,
 			"the gate must not turn a genuinely unknown id into anything else")
+	})
+
+	// The gate's answer is cluster-wide state. On this arm the request names no
+	// classes and the meta does not exist, so there is nothing class-scoped to
+	// authorize against and the broad grant is the only thing standing between a
+	// principal with no backup permission at all and that answer.
+	t.Run("an unauthorized caller is refused before the gate answers", func(t *testing.T) {
+		fs := newFixture(t)
+		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
+		authz := &recordingAuthorizer{err: errors.New("forbidden")}
+		fs.auth = authz
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      unknownID,
+		}, false)
+
+		require.EqualError(t, err, "forbidden",
+			"a caller with no backup permission must be refused, not told whether a reindex is running")
+		require.Equal(t, [][]string{authorization.Backups()}, authz.assets,
+			"the only check on this arm is the broad backup grant")
+		require.Equal(t, []string{authorization.CREATE}, authz.verbs)
+	})
+
+	// The same arm with the grant held: the gate is what answers, and it
+	// answers before existence.
+	t.Run("an authorized caller reaches the gate", func(t *testing.T) {
+		fs := newFixture(t)
+		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
+		authz := &recordingAuthorizer{}
+		fs.auth = authz
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      unknownID,
+		}, false)
+
+		require.Error(t, err)
+		assert.IsTypef(t, backup.ErrUnprocessable{}, err,
+			"with the grant held the gate must answer 422; got %v", err)
+		require.Equal(t, [][]string{authorization.Backups()}, authz.assets)
+	})
+
+	// The arm has no meta, so it cannot know which collections the backup would
+	// have touched. Re-asking about the caller's own Include only repeats the
+	// question already answered above and lets a migration anywhere else in the
+	// cluster through.
+	t.Run("the unknown-id arm asks the gate cluster-wide", func(t *testing.T) {
+		fs := newFixture(t)
+		fs.selector.reindexInFlightFor = func(collections []string) error {
+			if len(collections) == 0 {
+				return errors.New("runtime-reindex in flight")
+			}
+			return nil
+		}
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      unknownID,
+			Include: []string{"Movies"},
+		}, false)
+
+		require.Error(t, err)
+		assert.IsTypef(t, backup.ErrUnprocessable{}, err,
+			"a migration outside the caller's classes must still block this restore; got %v", err)
+		require.Len(t, fs.selector.reindexCollections, 2,
+			"the caller's classes are asked about first, the cluster second")
+		require.Nil(t, fs.selector.reindexCollections[1],
+			"the second question must be cluster-wide; scoping it repeats the first")
 	})
 }
 

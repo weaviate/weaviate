@@ -17,8 +17,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -124,11 +126,15 @@ type stubCleanupGateProvider struct {
 	released  atomic.Bool
 	handoffs  int
 	handedOff func()
+
+	drainDeadline    time.Time
+	drainHasDeadline bool
 }
 
 func (p *stubCleanupGateProvider) DrainWithCleanupGate(
-	context.Context, *db.ReindexTaskPayload, distributedtask.TaskDescriptor,
+	ctx context.Context, _ *db.ReindexTaskPayload, _ distributedtask.TaskDescriptor,
 ) (func(), error) {
+	p.drainDeadline, p.drainHasDeadline = ctx.Deadline()
 	return func() { p.released.Store(true) }, p.drainErr
 }
 
@@ -158,6 +164,27 @@ func TestCancelDrainTimeoutHandsTheGateToTheWorkerExitWatcher(t *testing.T) {
 
 	provider.handedOff()
 	require.True(t, provider.released.Load(), "the watcher must have been handed the real release")
+}
+
+// The drain is detached from the request, so nothing upstream bounds it. Its own
+// timeout is the only thing that stops a wedged worker from holding the
+// goroutine open forever, and it must stay short enough that "let the next
+// submit clean up" is still a fallback rather than a theory.
+func TestCancelDrainRunsUnderItsOwnBound(t *testing.T) {
+	h, _ := cancelFixture(t, &scriptedCleanupProber{})
+	// Stops at the drain: the on-disk sweep past it needs a real DB.
+	provider := &stubCleanupGateProvider{drainErr: context.DeadlineExceeded}
+
+	start := time.Now()
+	h.drainAndCleanupCancelledTask(context.Background(), provider,
+		&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
+		&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
+		"Movies", "title", "filterable")
+
+	require.True(t, provider.drainHasDeadline,
+		"the drain is detached from the request, so without its own deadline a wedged worker holds the goroutine forever")
+	assert.InDelta(t, (10 * time.Second).Seconds(), provider.drainDeadline.Sub(start).Seconds(), 1,
+		"the drain must be capped at 10s, short enough for 'the next submit cleans up' to still apply")
 }
 
 // The cancel is answered only once every other owner confirms it closed its

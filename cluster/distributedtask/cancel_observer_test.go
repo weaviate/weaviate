@@ -203,17 +203,52 @@ func TestManagerCancelObserver(t *testing.T) {
 		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
 	})
 
-	t.Run("nil and empty registrations are dropped", func(t *testing.T) {
+	// Registration is last-write-wins, so a nil stored over a live observer
+	// would end cancel observation for the namespace with nothing logged and
+	// nothing failing — the cancels simply stop being signalled.
+	t.Run("a nil registration must not silence the live observer", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer h.manager.Close()
 
+		var rec observerRecorder
+		h.manager.RegisterCancelObserver(observerNamespace, rec.record)
 		h.manager.RegisterCancelObserver(observerNamespace, nil)
-		h.manager.RegisterCancelObserver("", func(*Task) {
-			require.Fail(t, "an observer registered under an empty namespace must never fire")
-		})
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+
+		require.Eventually(t, func() bool { return rec.count() == 1 },
+			5*time.Second, 5*time.Millisecond,
+			"a nil re-registration must be dropped, not stored over the live observer")
+	})
+
+	t.Run("an observer registered under an empty namespace never runs", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		defer h.manager.Close()
+
+		var live, empty observerRecorder
+		h.manager.RegisterCancelObserver(observerNamespace, live.record)
+		h.manager.RegisterCancelObserver("", empty.record)
+
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+		require.Eventually(t, func() bool { return live.count() == 1 },
+			5*time.Second, 5*time.Millisecond)
+
+		// Dispatched by hand: no task reaches apply with an empty namespace, so
+		// this is the only way to ask whether such a registration is reachable
+		// at all.
+		h.manager.mu.Lock()
+		h.manager.dispatchCancelWithLock(&Task{
+			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
+			Status:         TaskStatusCancelled,
+			FinishedAt:     h.clock.Now(),
+		})
+		h.manager.mu.Unlock()
+
+		require.Never(t, func() bool { return empty.count() > 0 },
+			200*time.Millisecond, 10*time.Millisecond,
+			"an observer registered under an empty namespace must never fire")
 	})
 }
 
