@@ -1134,10 +1134,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// tens of seconds. The cleanup-in-progress lookup keeps the gate
 		// closed for that window so a backup landing in the gap doesn't
 		// snapshot half-removed sidecars.
-		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
+		reindexProvider := appState.ReindexProvider.Load()
+		repo.SetReindexCleanupInProgressLookup(reindexProvider.CleanupInProgressLookupBuilder())
 		// Same race, restore side: the cluster lookup above sees only DTM,
 		// which has already forgotten the task by the time sidecars come down.
-		repo.SetAnyCleanupInProgressLookup(anyCleanupInProgressLookup(appState.ReindexProvider))
+		repo.SetAnyCleanupInProgressLookup(anyCleanupInProgressLookup(reindexProvider))
 	}, appState.Logger)
 
 	return appState
@@ -1174,7 +1175,7 @@ func initReindexAndDistributedTasks(
 	// to load already-loaded ingest buckets.
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
-	appState.ReindexProvider = reindexProvider
+	appState.ReindexProvider.Store(reindexProvider)
 
 	// Closes this node's cleanup gate as the cancel applies rather than when the
 	// scheduler next ticks, which is what lets a cancel be confirmed cluster-wide

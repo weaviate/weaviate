@@ -59,8 +59,8 @@ func cancelFixture(t *testing.T, prober reindexCleanupProber) (*indexesHandlers,
 	h.reindexCleanup = prober
 	// A real provider, so the gates the cancel closes are the ones a backup
 	// would consult.
-	h.appState.ReindexProvider = db.NewReindexProvider(nil, nil, h.appState.Logger, "node1",
-		func() int { return 1 }, context.Background())
+	h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, "node1",
+		func() int { return 1 }, context.Background()))
 	return h, svc
 }
 
@@ -75,7 +75,7 @@ func TestCancelHoldsCleanupGateUntilTheHandlerAnswers(t *testing.T) {
 
 	prober := &gateWatchCleanupProber{collection: collection}
 	h, svc := cancelFixture(t, prober)
-	prober.provider = h.appState.ReindexProvider
+	prober.provider = h.appState.ReindexProvider.Load()
 
 	responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
 		&models.Principal{Username: "u1"})
@@ -89,7 +89,7 @@ func TestCancelHoldsCleanupGateUntilTheHandlerAnswers(t *testing.T) {
 	require.NotEmpty(t, samples, "the owner must have been asked, or the gate is sampled nowhere")
 	require.True(t, samples[0],
 		"the gate must still be closed while the owners are asked to confirm theirs")
-	require.False(t, h.appState.ReindexProvider.IsCleanupInProgress(collection, shard),
+	require.False(t, h.appState.ReindexProvider.Load().IsCleanupInProgress(collection, shard),
 		"the gate must be released once the handler answers")
 }
 

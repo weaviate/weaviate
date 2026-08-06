@@ -15,7 +15,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -217,8 +219,56 @@ func TestInternalReindexCleanupActivityResolvesProviderLate(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, get(),
 		"before the provider exists the route must say so")
 
-	appState.ReindexProvider = &db.ReindexProvider{}
+	appState.ReindexProvider.Store(&db.ReindexProvider{})
 
 	require.Equal(t, http.StatusOK, get(),
 		"the route must pick the provider up once bootstrap assigns it")
+}
+
+// The route serves ~200 lines of startup before bootstrap assigns the
+// provider, so the resolver reads the field on request goroutines while the
+// startup goroutine writes it. Acceptance images are built with -race, where
+// an unsynchronized pair aborts the process.
+func TestInternalReindexCleanupActivityWiringIsRaceFree(t *testing.T) {
+	appState := &state.State{}
+
+	handler := clusterapi.NewReindexCleanupFromState(appState, clusterapi.NewNoopAuthHandler())
+	server := httptest.NewServer(handler.Activity())
+	defer server.Close()
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+				if err != nil {
+					return
+				}
+				io.Copy(io.Discard, res.Body)
+				res.Body.Close()
+			}
+		}()
+	}
+
+	// Land the bootstrap-time write in the middle of the polling.
+	time.Sleep(20 * time.Millisecond)
+	appState.ReindexProvider.Store(&db.ReindexProvider{})
+	time.Sleep(20 * time.Millisecond)
+
+	close(stop)
+	wg.Wait()
+
+	res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+	require.NoError(t, err)
+	defer res.Body.Close()
+	require.Equal(t, http.StatusOK, res.StatusCode,
+		"the readers must observe the write, not a stale nil")
 }
