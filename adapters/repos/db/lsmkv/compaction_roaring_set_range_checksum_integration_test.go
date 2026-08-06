@@ -15,9 +15,10 @@ package lsmkv
 
 import "testing"
 
-// A checksum leaves trailing bytes behind the segment payload that only the
-// pread cursors have to page past. The bucketIntegrationTests matrix pairs
-// checksums with mmap alone, so the combination is covered here instead.
+// A checksum leaves trailing bytes behind the segment payload that a pread
+// cursor must stop short of rather than read as a node. The
+// bucketIntegrationTests matrix pairs checksums with mmap alone, so the
+// combination is covered here instead.
 func TestCompactionRoaringSetRangeStrategy_ChecksumPread(t *testing.T) {
 	compactionRoaringSetRangeStrategy_Random(testCtx(), t, []BucketOption{
 		WithStrategy(StrategyRoaringSetRange),

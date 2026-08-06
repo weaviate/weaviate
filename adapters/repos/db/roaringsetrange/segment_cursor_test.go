@@ -166,6 +166,9 @@ func TestSegmentCursorPread(t *testing.T) {
 	})
 }
 
+// bufio floors every buffer at this size, whatever smaller size it is asked for.
+const minBufioReadBufferSize = 16
+
 // TestSegmentCursorPreadReadBufferSize pins the read buffer to the smaller of
 // the payload and the cap, so a cursor neither allocates more than it pages
 // through nor grows back to a size that is expensive once per segment.
@@ -181,8 +184,8 @@ func TestSegmentCursorPreadReadBufferSize(t *testing.T) {
 	}{
 		{name: "payload below the cap", payloadSize: int64(len(small)), expected: len(small)},
 		{name: "payload above the cap", payloadSize: int64(len(large)), expected: segmentCursorPreadMaxBufferSize},
-		{name: "payload size unknown", payloadSize: 0, expected: segmentCursorPreadMaxBufferSize},
-		{name: "payload size negative", payloadSize: -1, expected: segmentCursorPreadMaxBufferSize},
+		{name: "empty payload", payloadSize: 0, expected: minBufioReadBufferSize},
+		{name: "payload size unknown", payloadSize: -1, expected: segmentCursorPreadMaxBufferSize},
 	}
 
 	for _, test := range tests {

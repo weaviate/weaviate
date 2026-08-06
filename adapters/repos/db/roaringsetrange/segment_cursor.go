@@ -76,9 +76,11 @@ func (c *SegmentCursorMmap) Next() (uint8, roaringset.BitmapLayer, bool) {
 const segmentCursorPreadMaxBufferSize = 256 * 1024
 
 // preadBufferSize keeps the read buffer from outgrowing the payload it pages
-// through. A payloadSize of 0 or less means the size is unknown.
+// through. A negative payloadSize means the size is unknown; a compaction that
+// drops every node leaves a payload of exactly 0, which must not be mistaken
+// for it.
 func preadBufferSize(payloadSize int64) int {
-	if payloadSize > 0 && payloadSize < segmentCursorPreadMaxBufferSize {
+	if payloadSize >= 0 && payloadSize < segmentCursorPreadMaxBufferSize {
 		return int(payloadSize)
 	}
 	return segmentCursorPreadMaxBufferSize
@@ -103,8 +105,8 @@ type SegmentCursorPread struct {
 // is used to determine if more keys can be found.
 //
 // payloadSize is the length of that payload. It only sizes the read buffer, so
-// pass 0 if it is not known; a value that is too small costs extra reads, never
-// correctness.
+// pass a negative value if it is not known; a value that is too small costs
+// extra reads, never correctness.
 //
 // bufferCount tells how many exclusive payload buffers should be used to return
 // expected data. Set multiple buffers if data returned by First/Next will not be used
