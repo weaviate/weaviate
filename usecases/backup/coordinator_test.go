@@ -958,8 +958,12 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 	)
 
 	tests := []struct {
-		name            string
+		name string
+		// refusalResp is what the refusing participant answers. transportErr,
+		// when set, is the RPC error returned alongside it — the case where no
+		// response was ever produced.
 		refusalResp     *CanCommitResponse
+		transportErr    error
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
@@ -1016,6 +1020,17 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			expectCanCommit: true,
 			expectNodeNamed: true,
 		},
+		{
+			// A participant that cannot be reached never produces a
+			// CanCommitResponse, so there is no ErrKind to redact on.
+			// "connection refused" with no node name is unactionable on a
+			// cluster of any size.
+			name:            "a transport error names the node",
+			refusalResp:     &CanCommitResponse{},
+			transportErr:    errors.New("connection refused"),
+			expectContain:   "connection refused",
+			expectNodeNamed: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1031,7 +1046,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			})).Return(acceptResp, nil).Maybe()
 			fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
 				return r.Method == OpCreate && r.ID == backupID
-			})).Return(tc.refusalResp, nil)
+			})).Return(tc.refusalResp, tc.transportErr)
 
 			// On refusal the coordinator aborts the participant that accepted.
 			fc.client.On("Abort", any, nodes[0], mock.Anything).Return(nil).Maybe()
@@ -1073,40 +1088,6 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			}
 		})
 	}
-}
-
-// A participant that cannot be reached never produces a CanCommitResponse, so
-// there is no ErrKind to redact on. "connection refused" with no node name is
-// unactionable on a cluster of any size.
-func TestCoordinator_TransportErrorNamesTheNode(t *testing.T) {
-	t.Parallel()
-	var (
-		backendName = "s3"
-		any         = mock.Anything
-		backupID    = "transport-err-test"
-		ctx         = context.Background()
-		nodes       = []string{"N1", "N2"}
-		classes     = []string{"Class-A"}
-		transport   = errors.New("connection refused")
-	)
-
-	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
-	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
-	fc.client.On("CanCommit", any, nodes[0], any).
-		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil).Maybe()
-	fc.client.On("CanCommit", any, nodes[1], any).Return(&CanCommitResponse{}, transport)
-	fc.client.On("Abort", any, any, any).Return(nil).Maybe()
-	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-
-	coordinator := *fc.coordinator()
-	req := newReq(classes, backendName, backupID)
-	store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
-	err := coordinator.Backup(ctx, store, &req)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), nodes[1],
-		"an unreachable participant must be named; the operator cannot act on a bare transport error")
-	assert.Contains(t, err.Error(), transport.Error())
 }
 
 // TestErrInFlightReindex_IsShared pins that the in-flight-reindex sentinel
