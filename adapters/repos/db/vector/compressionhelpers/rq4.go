@@ -59,6 +59,10 @@ type FourBitRotationalQuantizer struct {
 	err error   // Precomputed error returned on unsupported distancers.
 	cos float32 // Indicator for the cosine-dot distancer.
 	l2  float32 // Indicator for the l2-squared distancer.
+
+	// Centering state
+	mean      []float32
+	meanNorm2 float32 // dot(mean, mean), for the compressed-compressed path.
 }
 
 const (
@@ -82,11 +86,33 @@ func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distance
 		cos:       cos,
 		l2:        l2,
 	}
-	rq.scratch.New = func() any { return newRQ4Scratch(int(rotation.OutputDim)) }
+	rq.scratch.New = func() any { return newRQ4Scratch(int(rotation.OutputDim), 0) }
 	return rq
 }
 
-func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, distancer distancer.Provider) (*FourBitRotationalQuantizer, error) {
+func NewCenteredFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider, mean []float32) (*FourBitRotationalQuantizer, error) {
+	if len(mean) == 0 {
+		return nil, errors.New("centering requires a non-empty mean vector")
+	}
+	if len(mean) != inputDim {
+		return nil, errors.Errorf("centering mean length %d does not match input dimension %d", len(mean), inputDim)
+	}
+	rq := NewFourBitRotationalQuantizer(inputDim, seed, distancer)
+	rq.mean = mean
+	rq.meanNorm2 = dotProduct(mean, mean)
+	rq.scratch.New = func() any { return newRQ4Scratch(rq.OutputDimension(), len(mean)) }
+	return rq, nil
+}
+
+func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, mean []float32, distancer distancer.Provider) (*FourBitRotationalQuantizer, error) {
+	// Normalize empty to nil: an uncentered quantizer must never reach the
+	// SIMD dot below — the amd64 kernel faults on a nil/empty slice.
+	if len(mean) == 0 {
+		mean = nil
+	}
+	if mean != nil && len(mean) != inputDim {
+		return nil, errors.Errorf("centering mean length %d does not match input dimension %d", len(mean), inputDim)
+	}
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &FourBitRotationalQuantizer{
 		inputDim:  uint32(inputDim),
@@ -95,8 +121,12 @@ func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, 
 		err:       err,
 		cos:       cos,
 		l2:        l2,
+		mean:      mean,
 	}
-	rq.scratch.New = func() any { return newRQ4Scratch(outputDim) }
+	if mean != nil {
+		rq.meanNorm2 = dotProduct(mean, mean)
+	}
+	rq.scratch.New = func() any { return newRQ4Scratch(outputDim, len(mean)) }
 	return rq, nil
 }
 
@@ -200,14 +230,34 @@ type rq4Scratch struct {
 	ci []int32   // integer codes of the most recent quantization
 	cf []float32 // residual-stage scratch (rq4r); plain rq4 no longer uses it
 	rx []float32 // rotated input, output buffer for RotateInto
+	cx []float32 // centered input (x - mean); empty unless centering is on
 }
 
-func newRQ4Scratch(d int) *rq4Scratch {
+func newRQ4Scratch(d, meanDim int) *rq4Scratch {
 	return &rq4Scratch{
 		ci: make([]int32, d),
 		cf: make([]float32, d),
 		rx: make([]float32, d),
+		cx: make([]float32, meanDim),
 	}
+}
+
+// centerInto writes x - mean into dst and returns the centered slice along
+// with dot(x-mean, mean). Inputs shorter than mean are zero-padded before
+// centering; entries beyond len(mean) are ignored.
+func centerInto(dst, x, mean []float32) ([]float32, float32) {
+	dst = dst[:len(mean)]
+	n := copy(dst, x)
+	for i := n; i < len(dst); i++ {
+		dst[i] = 0
+	}
+	var dmu float32
+	for i, m := range mean {
+		v := dst[i] - m
+		dst[i] = v
+		dmu += v * m
+	}
+	return dst, dmu
 }
 
 // rq4Correlation quantizes xs over [lower, lower + 15*step] with clamping and
@@ -317,11 +367,19 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 
 	scratch := rq.scratch.Get().(*rq4Scratch)
 	defer rq.scratch.Put(scratch)
+	var dmu float32
+	if rq.mean != nil {
+		x, dmu = centerInto(scratch.cx, x, rq.mean)
+	}
 	rx := rq.rotation.RotateInto(x, scratch.rx)
 	lower, step, t, codeSum := rq4Interval(rx, scratch)
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.
-		return ZeroRQ4Code(outDim)
+		// Still record the norm2-slot metadata: the scalar estimator terms
+		// stay exact even when the codes degenerate to zero.
+		code := RQ4Code(ZeroRQ4Code(outDim))
+		code.setNorm2(rq.norm2Slot(x, dmu))
+		return code
 	}
 
 	code := NewRQ4Code(outDim)
@@ -339,8 +397,21 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	code.setLower(t * lower)
 	code.setStep(t * step)
 	code.setCodeSum(t * step * codeSum)
-	code.setNorm2(dotProduct(x, x))
+	code.setNorm2(rq.norm2Slot(x, dmu))
 	return code
+}
+
+// norm2Slot computes the value stored in the code's norm2 metadata field. In
+// centered dot/cosine mode the l2 estimator never reads it, so the slot
+// carries the exact centering correction dot(x-mean, mean) instead — zero
+// extra bytes per vector. In every other mode it is the squared norm of the
+// (possibly centered) encode input, which for centered l2 is exactly what the
+// translation-invariant l2 estimator needs.
+func (rq *FourBitRotationalQuantizer) norm2Slot(x []float32, dmu float32) float32 {
+	if rq.mean != nil && rq.l2 == 0 {
+		return dmu
+	}
+	return dotProduct(x, x)
 }
 
 func (rq *FourBitRotationalQuantizer) Rotate(x []float32) []float32 {
@@ -369,7 +440,12 @@ func (rq *FourBitRotationalQuantizer) Restore(b []byte) []float32 {
 func (rq *FourBitRotationalQuantizer) Decode(compressed []byte) []float32 {
 	unrotated := rq.rotation.UnRotateInPlace(rq.Restore(compressed))
 	if int(rq.inputDim) < len(unrotated) {
-		return unrotated[:rq.inputDim]
+		unrotated = unrotated[:rq.inputDim]
+	}
+	// Centered codes hold x-mean; add the mean back so Decode returns an
+	// approximation of the original vector.
+	for i, m := range rq.mean {
+		unrotated[i] += m
 	}
 	return unrotated
 }
@@ -461,6 +537,10 @@ type FourBitRQDistancer struct {
 	err error
 	cos float32
 	l2  float32
+
+	// Centered dot/cosine mode
+	centeredDot bool
+	qMeanDot    float32
 }
 
 // bytesAsInt8 reinterprets a byte slice as int8 for the SIMD int8 kernels.
@@ -470,7 +550,17 @@ func bytesAsInt8(b []byte) []int8 {
 }
 
 func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistancer {
-	cq := rq.encodeQuery(q)
+	// The distancer quantizes the centered query but keeps the original in
+	// d.query: DistanceToFloat must rescore against uncentered floats.
+	cq4 := q
+	var qMeanDot float32
+	if rq.mean != nil {
+		cq4, qMeanDot = centerInto(make([]float32, len(rq.mean)), q, rq.mean)
+		// centerInto returns dot(q-mean, mean); the estimator needs
+		// dot(mean, q) = dot(q-mean, mean) + dot(mean, mean).
+		qMeanDot += rq.meanNorm2
+	}
+	cq := rq.encodeQuery(cq4)
 	scratch := make([]byte, len(cq.codes))
 	return &FourBitRQDistancer{
 		distancer:   rq.distancer,
@@ -484,6 +574,8 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 		err:         rq.err,
 		cos:         rq.cos,
 		l2:          rq.l2,
+		centeredDot: rq.mean != nil && rq.l2 == 0,
+		qMeanDot:    qMeanDot,
 	}
 }
 
@@ -501,6 +593,11 @@ func (d *FourBitRQDistancer) Distance(x []byte) (float32, error) {
 	dot := dotByteNibbleImpl(d.cq.codes, cx.Packed())
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
 		cx.Step()*d.cq.step*float32(dot)
+	if d.centeredDot {
+		// dot(x, q) = dot(x-mean, q-mean) + dot(x-mean, mean) + dot(mean, q);
+		// the second term rides in the norm2 slot, the third is per-query.
+		return d.cos - (dotEstimate + cx.Norm2() + d.qMeanDot), d.err
+	}
 	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
 }
 
@@ -514,6 +611,9 @@ func (d *FourBitRQDistancer) distanceScalar(x []byte) (float32, error) {
 	cx := RQ4Code(x)
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
 		cx.Step()*d.cq.step*float32(dotByteNibbleGo(d.cq.codes, cx.Packed()))
+	if d.centeredDot {
+		return d.cos - (dotEstimate + cx.Norm2() + d.qMeanDot), d.err
+	}
 	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
 }
 
@@ -536,6 +636,11 @@ func (rq *FourBitRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []by
 	c := cy.Lower() * cx.CodeSum()
 	d := cx.Step() * cy.Step() * float32(dotNibbleNibbleImpl(cx.Packed(), cy.Packed()))
 	dotEstimate := a + b + c + d
+	if rq.mean != nil && rq.l2 == 0 {
+		// dot(x, y) = dot(x', y') + dot(x', mean) + dot(y', mean) + |mean|^2
+		// with x' = x-mean; both cross terms ride in the norm2 slots.
+		return rq.cos - (dotEstimate + cx.Norm2() + cy.Norm2() + rq.meanNorm2), rq.err
+	}
 	return rq.l2*(cx.Norm2()+cy.Norm2()) + rq.cos - (1.0+rq.l2)*dotEstimate, rq.err
 }
 
@@ -589,11 +694,7 @@ func (rq *FourBitRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(comp
 // can be reconstructed on startup. The record is the same AddRQ entry used by
 // the 8-bit quantizer; the Bits field distinguishes the two on restore.
 func (rq *FourBitRotationalQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddRQCompression(compression.RQData{
-		InputDim: rq.inputDim,
-		Bits:     4,
-		Rotation: *rq.rotation,
-	})
+	logger.AddRQCompression(rq.Data())
 }
 
 func (rq *FourBitRotationalQuantizer) Data() compression.RQData {
@@ -601,11 +702,13 @@ func (rq *FourBitRotationalQuantizer) Data() compression.RQData {
 		InputDim: rq.inputDim,
 		Bits:     4,
 		Rotation: *rq.rotation,
+		Mean:     rq.mean,
 	}
 }
 
 type RQ4Stats struct {
-	Bits uint32 `json:"bits"`
+	Bits      uint32 `json:"bits"`
+	Centering bool   `json:"centering"`
 }
 
 func (s RQ4Stats) CompressionType() string {
@@ -621,5 +724,5 @@ func (s RQ4Stats) CompressionRatio(dimensionality int) float64 {
 }
 
 func (rq *FourBitRotationalQuantizer) Stats() CompressionStats {
-	return RQ4Stats{Bits: 4}
+	return RQ4Stats{Bits: 4, Centering: rq.mean != nil}
 }

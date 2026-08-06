@@ -552,6 +552,7 @@ var (
 		"hnsw.Distance", "hnsw.PQ.Enabled", "hnsw.PQ.BitCompression", "hnsw.PQ.Segments", "hnsw.PQ.Centroids",
 		"hnsw.PQ.TrainingLimit", "hnsw.PQ.Encoder.Type", "hnsw.PQ.Encoder.Distribution", "hnsw.BQ.Enabled",
 		"hnsw.SQ.Enabled", "hnsw.SQ.TrainingLimit", "hnsw.RQ.Enabled", "hnsw.RQ.Bits",
+		"hnsw.RQ.Centering", "hnsw.RQ.TrainingLimit",
 		"flat.Distance", "flat.PQ.Enabled", "flat.BQ.Enabled", "flat.SQ.Enabled", "flat.RQ.Enabled", "flat.RQ.Bits",
 		"dynamic.Distance",
 	}

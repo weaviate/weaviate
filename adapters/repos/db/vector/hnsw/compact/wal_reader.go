@@ -285,6 +285,8 @@ func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
 		return w.readAddRQ()
 	case AddBRQ:
 		return w.readAddBRQ()
+	case AddRQCentered:
+		return w.readAddRQCentered()
 	default:
 		return nil, errors.Errorf("unrecognized commit type %d", ct)
 	}
@@ -896,6 +898,32 @@ func (w *WALCommitReader) readAddRQ() (Commit, error) {
 	if err != nil {
 		return nil, err
 	}
+	return &AddRQCommit{Data: data}, nil
+}
+
+func (w *WALCommitReader) readAddRQCentered() (Commit, error) {
+	data, err := readRQData(w.r)
+	if err != nil {
+		return nil, err
+	}
+	meanLen, err := readUint32(w.r)
+	if err != nil {
+		return nil, err
+	}
+	// The mean always has exactly InputDim entries; validating before the
+	// allocation stops a corrupted record from requesting an arbitrarily
+	// large slice (and surfaces the corruption here instead of at restore).
+	if meanLen != data.InputDim {
+		return nil, errors.Errorf("centered RQ mean length %d does not match input dimension %d", meanLen, data.InputDim)
+	}
+	mean := make([]float32, meanLen)
+	for i := range mean {
+		mean[i], err = readFloat32(w.r)
+		if err != nil {
+			return nil, err
+		}
+	}
+	data.Mean = mean
 	return &AddRQCommit{Data: data}, nil
 }
 

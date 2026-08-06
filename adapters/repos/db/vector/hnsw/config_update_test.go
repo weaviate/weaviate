@@ -153,6 +153,63 @@ func TestUserConfigUpdates(t *testing.T) {
 						"attempted change from \"8\" to \"4\""),
 			},
 			{
+				name: "attempting to enable rq centering after the fact",
+				initial: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: true,
+						Bits:    4,
+					},
+				},
+				update: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled:   true,
+						Bits:      4,
+						Centering: true,
+					},
+				},
+				expectedError: errors.Errorf(
+					"rq centering is immutable: " +
+						"attempted change from \"false\" to \"true\""),
+			},
+			{
+				name: "attempting to disable rq centering after the fact",
+				initial: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled:   true,
+						Bits:      4,
+						Centering: true,
+					},
+				},
+				update: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled: true,
+						Bits:    4,
+					},
+				},
+				expectedError: errors.Errorf(
+					"rq centering is immutable: " +
+						"attempted change from \"true\" to \"false\""),
+			},
+			{
+				name: "unchanged rq centering is accepted",
+				initial: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled:   true,
+						Bits:      4,
+						Centering: true,
+					},
+				},
+				update: ent.UserConfig{
+					RQ: ent.RQConfig{
+						Enabled:      true,
+						Bits:         4,
+						Centering:    true,
+						RescoreLimit: 100,
+					},
+				},
+				expectedError: nil,
+			},
+			{
 				name: "enabling rq with bits set",
 				initial: ent.UserConfig{
 					RQ: ent.RQConfig{

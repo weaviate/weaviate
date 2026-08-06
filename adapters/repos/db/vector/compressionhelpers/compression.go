@@ -944,6 +944,62 @@ func NewRQCompressor(
 	return rqVectorsCompressor, nil
 }
 
+func MeanVector(vectors [][]float32, dim int) []float32 {
+	mean := make([]float32, dim)
+	if len(vectors) == 0 {
+		return mean
+	}
+	acc := make([]float64, dim)
+	for _, v := range vectors {
+		if len(v) > dim {
+			v = v[:dim]
+		}
+		for i, x := range v {
+			acc[i] += float64(x)
+		}
+	}
+	n := float64(len(vectors))
+	for i, a := range acc {
+		mean[i] = float32(a / n)
+	}
+	return mean
+}
+
+func NewCenteredRQ4Compressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+	dim int,
+	mean []float32,
+	targetVector string,
+	vectorForID common.VectorForID[float32],
+) (VectorCompressor, error) {
+	quantizer, err := NewCenteredFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance, mean)
+	if err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor := &quantizedVectorsCompressor[byte]{
+		quantizer:         quantizer,
+		compressedStore:   store,
+		storeId:           binary.BigEndian.PutUint64,
+		loadId:            binary.BigEndian.Uint64,
+		targetVector:      targetVector,
+		logger:            logger,
+		makeBucketOptions: makeBucketOptions,
+		vectorForID:       vectorForID,
+	}
+	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+		0, allocChecker)
+	return rqVectorsCompressor, nil
+}
+
 func RestoreRQCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,
@@ -955,12 +1011,16 @@ func RestoreRQCompressor(
 	swaps [][]compression.Swap,
 	signs [][]float32,
 	rounding []float32,
+	mean []float32,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	targetVector string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
+	if mean != nil && bits != 4 {
+		return nil, errors.New("RQ centering requires bits=4")
+	}
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
@@ -985,7 +1045,7 @@ func RestoreRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	case 4:
-		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, mean, distance)
 		if err != nil {
 			return nil, err
 		}
@@ -1150,7 +1210,7 @@ func RestoreRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	case 4:
-		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, nil, distance)
 		if err != nil {
 			return nil, err
 		}

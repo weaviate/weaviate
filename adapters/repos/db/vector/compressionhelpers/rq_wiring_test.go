@@ -105,7 +105,7 @@ func TestRQPersistRestoreRoundTrip(t *testing.T) {
 			restore: func(data *compression.RQData, m distancer.Provider) (rqQuantizer, error) {
 				rq, err := compressionhelpers.RestoreFourBitRotationalQuantizer(
 					int(data.InputDim), int(data.Rotation.OutputDim), int(data.Rotation.Rounds),
-					data.Rotation.Swaps, data.Rotation.Signs, m)
+					data.Rotation.Swaps, data.Rotation.Signs, data.Mean, m)
 				if err != nil {
 					return rqQuantizer{}, err
 				}
@@ -201,7 +201,7 @@ func TestRQCompressorFactoryDispatch(t *testing.T) {
 			defer restoreStore.Shutdown(context.Background())
 			restoredCompressor, err := compressionhelpers.RestoreRQCompressor(dist, 1e6, logger,
 				int(data.InputDim), int(data.Bits), int(data.Rotation.OutputDim), int(data.Rotation.Rounds),
-				data.Rotation.Swaps, data.Rotation.Signs, nil, restoreStore, memwatch.NewDummyMonitor(),
+				data.Rotation.Swaps, data.Rotation.Signs, nil, data.Mean, restoreStore, memwatch.NewDummyMonitor(),
 				lsmkv.MakeNoopBucketOptions, "", nil)
 			require.NoError(t, err)
 			defer restoredCompressor.Drop()
