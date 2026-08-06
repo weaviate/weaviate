@@ -672,6 +672,20 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status code")
+		assert.NotErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"a 500 must stay a hard failure, not a retry-later signal")
+	})
+
+	t.Run("NotReady412MapsToSentinel", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "hashtree not initialized on shard \"S1\"", http.StatusPreconditionFailed)
+		}))
+		defer server.Close()
+
+		c := newReplicationClient(t, server.Client())
+		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"a 412 means the replica is not ready and must map to the typed sentinel")
 	})
 
 	t.Run("InvalidBinaryLength", func(t *testing.T) {

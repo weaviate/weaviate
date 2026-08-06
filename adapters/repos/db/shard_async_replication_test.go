@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -154,6 +156,58 @@ func withReplicationClient(t *testing.T, client replica.Client) func(*Index) {
 			Maybe()
 
 		nodeResolver := cluster.NewMockNodeResolver(t)
+
+		rep, err := replica.NewReplicator(
+			idx.Config.ClassName.String(),
+			mockRouter,
+			nodeResolver,
+			"node1",
+			func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
+			client,
+			monitoring.GetMetrics(),
+			logger,
+		)
+		require.NoError(t, err)
+		idx.replicator = rep
+	}
+}
+
+// withRemoteReplicaClient wires a replicator whose router resolves one remote replica, so hashbeat descents reach the given client.
+func withRemoteReplicaClient(t *testing.T, client replica.Client) func(*Index) {
+	t.Helper()
+	return func(idx *Index) {
+		logger, _ := test.NewNullLogger()
+
+		mockRouter := routerTypes.NewMockRouter(t)
+		replicas := []routerTypes.Replica{
+			{NodeName: "node1", ShardName: "shard1", HostAddr: "127.0.0.1"},
+			{NodeName: "node2", ShardName: "shard1", HostAddr: "127.0.0.2"},
+		}
+		mockRouter.EXPECT().
+			GetWriteReplicasLocation(mock.Anything, mock.Anything, mock.Anything).
+			Return(routerTypes.WriteReplicaSet{Replicas: replicas}, nil).
+			Maybe()
+		mockRouter.EXPECT().
+			GetReadReplicasLocation(mock.Anything, mock.Anything, mock.Anything).
+			Return(routerTypes.ReadReplicaSet{Replicas: replicas}, nil).
+			Maybe()
+		mockRouter.EXPECT().
+			BuildRoutingPlanOptions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(tenant, shard string, cl routerTypes.ConsistencyLevel, direct string) routerTypes.RoutingPlanBuildOptions {
+				return routerTypes.RoutingPlanBuildOptions{Shard: shard, Tenant: tenant, ConsistencyLevel: cl}
+			}).
+			Maybe()
+		mockRouter.EXPECT().
+			BuildReadRoutingPlan(mock.Anything).
+			Return(routerTypes.ReadRoutingPlan{
+				LocalHostname: "127.0.0.1",
+				ReplicaSet:    routerTypes.ReadReplicaSet{Replicas: replicas},
+			}, nil).
+			Maybe()
+
+		nodeResolver := cluster.NewMockNodeResolver(t)
+		nodeResolver.EXPECT().NodeHostname("node1").Return("127.0.0.1", true).Maybe()
+		nodeResolver.EXPECT().NodeHostname("node2").Return("127.0.0.2", true).Maybe()
 
 		rep, err := replica.NewReplicator(
 			idx.Config.ClassName.String(),
@@ -738,6 +792,51 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 		// catch any FSM call here (none allowed; we restored the nil reader).
 		_, _ = concrete.runHashbeatCycle(ctx, cfg)
 	})
+}
+
+// notReadyHashTreeClient returns the not-ready sentinel from HashTreeLevel, as the mapped transport clients do.
+type notReadyHashTreeClient struct {
+	FakeReplicationClient
+}
+
+func (*notReadyHashTreeClient) HashTreeLevel(
+	context.Context, string, string, string, int, *hashtree.Bitset,
+) ([]hashtree.Digest, error) {
+	return nil, fmt.Errorf("%w: hashtree not initialized on shard", replica.ErrAsyncReplicationNotActive)
+}
+
+// TestRunHashbeatCycleNotReadyIsQuiet: a not-ready peer must neither count as an iteration failure nor log a warning.
+func TestRunHashbeatCycleNotReadyIsQuiet(t *testing.T) {
+	ctx := context.Background()
+	const class = "HashbeatNotReadyQuietTest"
+
+	logger, hook := test.NewNullLogger()
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx),
+		withRemoteReplicaClient(t, &notReadyHashTreeClient{}),
+		func(i *Index) { i.logger = logger },
+	)
+	s := concreteShard(t, sl)
+	idx.replicationFSMReader = nil
+	setShardReplicas(t, idx, "node1", "node2")
+
+	metrics, err := NewMetrics(logger, monitoring.GetMetrics(), class, s.name)
+	require.NoError(t, err)
+	s.metrics = metrics
+	enableAndAwaitAsync(t, ctx, s)
+
+	require.NotNil(t, s.metrics.asyncReplicationIterationFailureCount)
+	failuresBefore := testutil.ToFloat64(s.metrics.asyncReplicationIterationFailureCount)
+
+	_, err = s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+	require.ErrorIs(t, err, errAsyncReplicationNotActive)
+
+	require.Equal(t, failuresBefore, testutil.ToFloat64(s.metrics.asyncReplicationIterationFailureCount),
+		"a not-ready peer must not count as an iteration failure")
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel {
+			require.NotContains(t, e.Message, "hashbeat", "not-ready must log at Debug, not Warn: %s", e.Message)
+		}
+	}
 }
 
 func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {

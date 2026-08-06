@@ -1714,6 +1714,19 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			return false, replicaerrors.ErrNoDiffFound
 		}
 
+		if errors.Is(err, errAsyncReplicationNotActive) {
+			// Expected during peer restart, freeze upload, or hashtree init — Debug, not Warn.
+			if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= config.loggingFrequency {
+				s.asyncRepFailLastLog.Store(time.Now().Unix())
+				s.index.logger.
+					WithField("action", "async_replication").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
+					Debugf("hashbeat iteration skipped: target replica not ready: %v", err)
+			}
+			return false, err
+		}
+
 		if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= config.loggingFrequency {
 			s.asyncRepFailLastLog.Store(time.Now().Unix())
 			s.index.logger.
@@ -1805,7 +1818,8 @@ func (s *Shard) hashBeat(
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
 
-		if err != nil && !errors.Is(err, replicaerrors.ErrNoDiffFound) {
+		// Not-ready targets are retry-later, not faults: keep them out of the failure counter.
+		if err != nil && !errors.Is(err, replicaerrors.ErrNoDiffFound) && !errors.Is(err, errAsyncReplicationNotActive) {
 			s.metrics.IncAsyncReplicationIterationFailureCount()
 			return
 		}

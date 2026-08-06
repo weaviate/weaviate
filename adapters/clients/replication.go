@@ -326,6 +326,11 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	if code := res.StatusCode; !successCode(code) {
 		errBody, _ := io.ReadAll(res.Body)
+		// 412 = replica not ready (unloaded or hashtree still initializing) — a
+		// typed retry-later signal, not a fault (pre-1.38 peers send 500 instead).
+		if code == http.StatusPreconditionFailed {
+			return nil, fmt.Errorf("%w: %s", replica.ErrAsyncReplicationNotActive, errBody)
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
 	}
 

@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -66,6 +67,9 @@ type fakeGRPCReplicationServer struct {
 
 	// commitPayload is the JSON payload returned by Commit on success.
 	commitPayload []byte
+
+	// hashTreeLevelErr, when set, is returned verbatim by HashTreeLevel.
+	hashTreeLevelErr error
 }
 
 func newFakeGRPCReplicationServer(t *testing.T) *fakeGRPCReplicationServer {
@@ -100,6 +104,13 @@ func (f *fakeGRPCReplicationServer) dispatchWrite(requestID, index, shard string
 	default:
 		return &pb.SimpleReplicaResponse{}, nil
 	}
+}
+
+func (f *fakeGRPCReplicationServer) HashTreeLevel(_ context.Context, _ *pb.HashTreeLevelRequest) (*pb.HashTreeLevelResponse, error) {
+	if f.hashTreeLevelErr != nil {
+		return nil, f.hashTreeLevelErr
+	}
+	return &pb.HashTreeLevelResponse{DigestsData: []byte("[]")}, nil
 }
 
 func (f *fakeGRPCReplicationServer) PutObject(_ context.Context, req *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
@@ -795,6 +806,36 @@ func TestGRPCReplicationDigestObjects(t *testing.T) {
 			[]strfmt.UUID{UUID1}, 9)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connection")
+	})
+}
+
+func TestGRPCReplicationHashTreeLevelNotReady(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	discriminant := hashtree.NewBitset(hashtree.LeavesCount(3))
+	discriminant.Set(0)
+
+	t.Run("FailedPreconditionMapsToSentinel", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelErr = status.Error(codes.FailedPrecondition, "async replication is not active on this shard")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"FailedPrecondition on HashTreeLevel means replica not ready and must map to the typed sentinel")
+	})
+
+	t.Run("InternalStaysHardFailure", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelErr = status.Error(codes.Internal, "boom")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
 	})
 }
 
