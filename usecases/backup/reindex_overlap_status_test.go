@@ -123,3 +123,37 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 	require.Equal(t, backup.Cancelled, observed[len(observed)-1],
 		"the last status an operator can poll has to be the cancellation they caused")
 }
+
+// The check is a backstop only because it is asked about the whole capture
+// window. Handed the commit instant instead, it would ask "is a reindex running
+// right now" — the question the pre-capture gates already answered — and a
+// migration that started and finished inside the window would read as clean.
+func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.T) {
+	const backupID = "1"
+	any := mock.Anything
+
+	backend := newFakeBackend()
+	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
+
+	logger, _ := test.NewNullLogger()
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, store, backupID,
+		func(backup.Status) {}, logger)
+
+	// Far enough back that "now" cannot be mistaken for it.
+	startedAt := time.Now().UTC().Add(-time.Hour)
+	desc := backup.BackupDescriptor{ID: backupID, StartedAt: startedAt}
+	classes := []string{"Movies"}
+
+	require.NoError(t, uploader.all(context.Background(), classes, &desc, nil, "", ""))
+
+	askedClasses, askedSince, calls := sourcer.lastOverlapQuery()
+	require.Equal(t, 1, calls, "every commit has to consult the overlap check exactly once")
+	require.Equal(t, startedAt, askedSince,
+		"the check must be asked about the capture start, not the commit instant")
+	require.Equal(t, classes, askedClasses,
+		"the check must be asked about the classes this backup captured")
+}

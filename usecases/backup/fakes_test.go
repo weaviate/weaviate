@@ -62,6 +62,13 @@ type fakeSourcer struct {
 	// reindexOverlapFn lets a test act on the context the lookup is handed, so
 	// an abort landing while the lookup runs can be reproduced.
 	reindexOverlapFn func(ctx context.Context) error
+
+	// overlapMu guards the recorded arguments below: the participant backup
+	// runs the commit-time check on its own goroutine.
+	overlapMu      sync.Mutex
+	overlapClasses []string
+	overlapSince   time.Time
+	overlapCalls   int
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
@@ -75,11 +82,29 @@ func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context, []string) erro
 
 // reindexOverlapErr backs RefuseIfReindexOverlapped as a plain field so a test
 // can distinguish "live at commit" from "overlapped and already finished".
-func (s *fakeSourcer) RefuseIfReindexOverlapped(ctx context.Context, _ []string, _ time.Time) error {
+//
+// The arguments are recorded as well: the answer alone says nothing about which
+// window the check was asked about, and asking about the wrong one is a silent
+// way for this backstop to stop backstopping.
+func (s *fakeSourcer) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
+	s.overlapMu.Lock()
+	s.overlapCalls++
+	s.overlapClasses = classes
+	s.overlapSince = since
+	s.overlapMu.Unlock()
+
 	if s.reindexOverlapFn != nil {
 		return s.reindexOverlapFn(ctx)
 	}
 	return s.reindexOverlapErr
+}
+
+// lastOverlapQuery returns the arguments of the most recent
+// RefuseIfReindexOverlapped call, plus how many calls have been made.
+func (s *fakeSourcer) lastOverlapQuery() (classes []string, since time.Time, calls int) {
+	s.overlapMu.Lock()
+	defer s.overlapMu.Unlock()
+	return s.overlapClasses, s.overlapSince, s.overlapCalls
 }
 
 func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
