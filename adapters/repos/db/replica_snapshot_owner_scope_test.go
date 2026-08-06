@@ -29,7 +29,9 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // These tests drive the real Index+Shard+LSM harness (newSharedHaltTestShard), so
@@ -203,7 +205,9 @@ func TestOffloadAbortResumesOwnHalt(t *testing.T) {
 	}
 
 	ec := errorcompounder.New()
-	m.freeze(ctx, index, "TestClass", []string{"shard1"}, ec)
+	m.freeze(ctx, index, "TestClass", []*schemaUC.UpdateTenantPayload{
+		{Name: "shard1", PreFreezeStatus: models.TenantActivityStatusHOT},
+	}, ec)
 
 	requireTotal(t, shard, 0, "offload abort must lift its own halt")
 	// A resumed shard must reject file listing again.
@@ -230,7 +234,9 @@ func TestOffloadAbortResumesOwnHaltUnderCanceledCtx(t *testing.T) {
 	}
 
 	ec := errorcompounder.New()
-	m.freeze(ctx, index, "TestClass", []string{"shard1"}, ec)
+	m.freeze(ctx, index, "TestClass", []*schemaUC.UpdateTenantPayload{
+		{Name: "shard1", PreFreezeStatus: models.TenantActivityStatusHOT},
+	}, ec)
 
 	requireTotal(t, shard, 0, "the offload halt must be lifted even under a canceled op ctx")
 	_, err := shard.ListBackupFiles(context.Background(), &backup.ShardDescriptor{})
@@ -259,7 +265,9 @@ func TestOffloadAbortDetachesResumeFromOpCtx(t *testing.T) {
 	}
 
 	ec := errorcompounder.New()
-	m.freeze(ctx, index, "TestClass", []string{"shard2"}, ec)
+	m.freeze(ctx, index, "TestClass", []*schemaUC.UpdateTenantPayload{
+		{Name: "shard2", PreFreezeStatus: models.TenantActivityStatusHOT},
+	}, ec)
 
 	require.Error(t, ctx.Err(), "the fixture must cancel the operation ctx during the upload")
 	require.Equal(t, 1, recorder.resumeCalls, "the abort must run the recovery exactly once")

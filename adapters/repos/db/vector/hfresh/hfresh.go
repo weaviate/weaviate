@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
@@ -91,6 +92,9 @@ type HFresh struct {
 
 	vectorForId common.VectorForID[float32]
 
+	tempVectorForIDThunk common.TempVectorForIDWithView[float32]
+	tempVectors          *common.TempVectorsPool
+
 	rootPath string
 }
 
@@ -116,19 +120,21 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
-		id:            cfg.ID,
-		logger:        logger,
-		config:        cfg,
-		scheduler:     cfg.Scheduler,
-		store:         store,
-		metrics:       metrics,
-		PostingStore:  postingStore,
-		vectorForId:   cfg.VectorForIDThunk,
-		VersionMap:    NewVersionMap(bucket),
-		PostingMap:    NewPostingMap(bucket),
-		PostingSizes:  NewPostingSizes(bucket, metrics),
-		IndexMetadata: NewIndexMetadataStore(bucket),
-		postingLocks:  common.NewDefaultShardedRWLocks(),
+		id:                   cfg.ID,
+		logger:               logger,
+		config:               cfg,
+		scheduler:            cfg.Scheduler,
+		store:                store,
+		metrics:              metrics,
+		PostingStore:         postingStore,
+		vectorForId:          cfg.VectorForIDThunk,
+		tempVectorForIDThunk: cfg.TempVectorForIDWithViewThunk,
+		tempVectors:          common.NewTempVectorsPool(),
+		VersionMap:           NewVersionMap(bucket),
+		PostingMap:           NewPostingMap(bucket),
+		PostingSizes:         NewPostingSizes(bucket, metrics),
+		IndexMetadata:        NewIndexMetadataStore(bucket),
+		postingLocks:         common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:      visited.NewPool(512),
@@ -347,6 +353,39 @@ func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, err
 }
 
 func (h *HFresh) PostStartup(ctx context.Context) {
+	// Warm the version map in the background
+	before := time.Now()
+	enterrors.GoWrapper(func() {
+		count, err := h.VersionMap.Warmup(h.ctx)
+		if err != nil {
+			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+			return
+		}
+
+		// the store only holds updated or deleted vectors: fill the implicit
+		// first version for every remaining vector known to the posting map,
+		// so never-updated vectors skip the lazy fault path too
+		var defaults int
+		for _, metadata := range h.PostingMap.Iter() {
+			if h.ctx.Err() != nil {
+				h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
+				return
+			}
+			for vectorID := range metadata.Iter() {
+				if h.VersionMap.EnsureDefault(vectorID) {
+					defaults++
+				}
+			}
+		}
+
+		h.logger.WithFields(logrus.Fields{
+			"action":   "hfresh_version_map_warmup",
+			"count":    count,
+			"defaults": defaults,
+			"took":     time.Since(before).String(),
+		}).Info("version map warmed up")
+	}, h.logger)
+
 	h.Centroids.hnsw.PostStartup(ctx)
 }
 

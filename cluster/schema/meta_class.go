@@ -458,7 +458,10 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	return sc, nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64) (map[string]int, error) {
+// UpdateTenants applies the requested tenant statuses. For every tenant it puts into
+// FREEZING it records the status the tenant held beforehand in preFreezeStatuses, which
+// the DB layer reports back if the freeze aborts. Callers must pass a non-nil map.
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64, preFreezeStatuses map[string]string) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -541,6 +544,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 
 		case requestedToFrozen && !existedSharedFrozen:
+			preFreezeStatuses[requestTenant.Name] = oldTenant.ActivityStatus()
 			m.freeze(i, req, oldTenant)
 		default:
 			// do nothing
