@@ -1035,7 +1035,7 @@ function run_acceptance_reindex_backup() {
   # exact name: a typo here silently runs zero tests.
   # TestCIAllowlistCoversEveryTestInThisPackage guards these two lists against
   # the silent-skip described above; it has to be listed to be able to run.
-  AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage)$' \
+  AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage)$' \
     run_aof_group "reindex-backup" test/acceptance/reindex_backup
 }
 
