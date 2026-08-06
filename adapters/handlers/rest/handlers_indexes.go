@@ -1451,7 +1451,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	if err := h.tasks.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		if resp := h.refuseCancelThatRacedTheCommit(ctx, err, collection,
+		if resp := h.answerCancelThatRacedTheCommit(ctx, err, collection,
 			propertyName, indexType, target, principal); resp != nil {
 			return resp
 		}
@@ -1674,24 +1674,38 @@ func reindexCancelPastCancellationPoint(principal *models.Principal) middleware.
 			"index reports status=\"ready\"."))
 }
 
-// refuseCancelThatRacedTheCommit answers the cancel that DTM refused because
+// answerCancelThatRacedTheCommit answers the cancel that DTM refused because
 // the task left STARTED between [distributedtask.TaskLister.ListDistributedTasks]
 // and the cancel itself. Returns nil when the caller should keep its 500.
 //
-// The pre-cancel check already refuses a task that is live to the backup gate
-// but past STARTED. It cannot cover the window after it runs, and without this
-// the same state answers 409 or 500 depending only on which side of the window
+// The two checks before the cancel already answer this state: a task that is
+// live to the backup gate but past STARTED gets a 409, and a task that is
+// terminal or absent gets a 202 NO_OP. Neither can cover the window after they
+// run, so without this the answer depends only on which side of that window
 // the task's transition landed on.
 //
 // [distributedtask.ErrTaskNotRunning] is the sole error CancelTask returns for
 // "not STARTED", and it survives the RAFT/gRPC round trip (see
 // RehydratePermanentRejection). It says nothing about the status the task
-// reached, so a fresh listing decides: only a task the backup gate still counts
-// as live earns the 409, because only for that task is "poll until every index
-// is ready" the accurate instruction. Everything else keeps the 500 — a
-// version mismatch, an unreachable leader, a timeout, or a listing that fails
-// and leaves the new status unknown.
-func (h *indexesHandlers) refuseCancelThatRacedTheCommit(ctx context.Context, cancelErr error,
+// reached, so a fresh listing decides, in the same order the pre-cancel checks
+// run:
+//
+//   - live but past STARTED → the same 409, because "poll until every index is
+//     ready" is only true for a migration that is still committing.
+//   - FINISHED, FAILED or CANCELLED → the same 202 NO_OP, because the caller
+//     asked for no reindex to be running on this property and none is. The
+//     three are not distinguished: each means the task stopped on its own and
+//     nothing is left to cancel. Only these three, matched by name — a status
+//     a newer node introduced is live per [db.IsLiveReindexTaskStatus] and is
+//     caught above, and inferring "terminal" from "not live" would answer
+//     NO_OP for any status this build has yet to learn about.
+//
+// Everything else keeps the 500: an unreachable leader, a timeout, a version
+// mismatch, a rejection this build cannot name, a listing that fails, a task
+// that is gone from the listing entirely, and a task the listing still reports
+// as STARTED. In each of those the task's state is unknown or contradicts the
+// rejection, and both a refusal and a NO_OP would be a guess.
+func (h *indexesHandlers) answerCancelThatRacedTheCommit(ctx context.Context, cancelErr error,
 	collection, propertyName, indexType string, target *distributedtask.Task,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -1708,20 +1722,58 @@ func (h *indexesHandlers) refuseCancelThatRacedTheCommit(ctx context.Context, ca
 		}).Warnf("cancel: DTM refused the cancel and the re-listing failed, so the task's status is unknown: %v", err)
 		return nil
 	}
-	held := h.uncancellableLiveTask(fresh[db.ReindexNamespace], collection, propertyName, indexType)
-	if held == nil {
-		return nil
+	tasks := fresh[db.ReindexNamespace]
+
+	if held := h.uncancellableLiveTask(tasks, collection, propertyName, indexType); held != nil {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_task_cancel_past_cancellation_point",
+			"taskID":      held.ID,
+			"task_status": string(held.Status),
+			"collection":  collection,
+			"property":    propertyName,
+			"index_type":  indexType,
+			"principal":   principalUsername(principal),
+		}).Infof("cancel: the task left STARTED before the cancel landed, so DTM refused it; refusing instead of failing: %v", cancelErr)
+		return reindexCancelPastCancellationPoint(principal)
 	}
-	h.appState.Logger.WithFields(logrus.Fields{
-		"audit_event": "reindex_task_cancel_past_cancellation_point",
-		"taskID":      held.ID,
-		"task_status": string(held.Status),
-		"collection":  collection,
-		"property":    propertyName,
-		"index_type":  indexType,
-		"principal":   principalUsername(principal),
-	}).Infof("cancel: the task left STARTED before the cancel landed, so DTM refused it; refusing instead of failing: %v", cancelErr)
-	return reindexCancelPastCancellationPoint(principal)
+
+	if settled := terminalReindexTask(tasks, target.ID); settled != nil {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_task_cancel_noop",
+			"taskID":      settled.ID,
+			"task_status": string(settled.Status),
+			"collection":  collection,
+			"property":    propertyName,
+			"index_type":  indexType,
+			"principal":   principalUsername(principal),
+		}).Infof("cancel: the task stopped on its own before the cancel landed, so there is nothing left to cancel: %v", cancelErr)
+		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+			Status: reindexCancelStatusNoOp,
+		})
+	}
+
+	return nil
+}
+
+// terminalReindexTask returns the task with this ID when it holds one of the
+// three statuses that mean it stopped on its own. Any other status, and a task
+// that is not in the listing at all, return nil: only a status this build can
+// name is evidence that there is nothing left to cancel.
+func terminalReindexTask(tasks []*distributedtask.Task, id string) *distributedtask.Task {
+	for _, task := range tasks {
+		if task.ID != id {
+			continue
+		}
+		switch task.Status {
+		case distributedtask.TaskStatusFinished,
+			distributedtask.TaskStatusFailed,
+			distributedtask.TaskStatusCancelled:
+			return task
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
