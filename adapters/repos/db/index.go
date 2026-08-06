@@ -3749,7 +3749,9 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 // getShardsStatus returns status of the vector indexing pipeline for each shard
 // in the collection.
 // In a replicated setup, a shard's status is [storagestate.StatusReady] iff all
-// of its replicas report READY and [storagestate.StatusIndexing] otherwise.
+// of its replicas report READY. Otherwise, the status is either any other status
+// that all replicas can agree on or [storagestate.StatusIndexing] if their statuses
+// diverge or a replica is not reachable.
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
