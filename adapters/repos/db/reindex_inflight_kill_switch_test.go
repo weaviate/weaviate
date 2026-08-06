@@ -61,7 +61,9 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 // Both of the gate's inputs are installed in every case, because the gate has
 // two of them: the node-local cleanup probe runs first and can refuse on its
 // own, so a kill switch that only covers the cluster-wide lookup still refuses
-// restores with the feature off.
+// restores with the feature off. The disabled row therefore also pins WHERE the
+// flag check sits — above the cleanup lookup, not merely somewhere in the
+// function.
 func TestRefuseIfAnyReindexInFlight_RuntimeReindexDisabled(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -87,7 +89,8 @@ func TestRefuseIfAnyReindexInFlight_RuntimeReindexDisabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var lookups, cleanups atomic.Int64
-			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
+			logger, _ := logrustest.NewNullLogger()
+			db := &DB{logger: logger, config: Config{RuntimeReindexDisabled: tt.disabled}}
 			db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) {
 				lookups.Add(1)
 				return true, nil
@@ -104,7 +107,8 @@ func TestRefuseIfAnyReindexInFlight_RuntimeReindexDisabled(t *testing.T) {
 				require.NoError(t, err, "no restore gate applies while the feature is off")
 			}
 			require.Equal(t, tt.wantCleanupCall, cleanups.Load() > 0,
-				"the restore path must make no node-local cleanup lookup while the feature is off")
+				"the flag check must precede the node-local cleanup lookup, or a node holding a "+
+					"teardown refuses restores with the feature off and the gate is only half disabled")
 			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
 				"the restore path must make no reindex lookup while the feature is off")
 		})
@@ -162,7 +166,7 @@ func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
 // backup gate. So the flag check has to cover that input too. Covering only the
 // activity lookup would mean every flag-off cancel refuses this node's backups
 // for the length of its teardown, through a gate the flag is meant to have
-// turned off. Sibling of the restore-side pin below.
+// turned off. Sibling of the restore-side pin in the table above.
 func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
 	var activityBuilds, cleanupBuilds atomic.Int64
 	db := &DB{config: Config{RuntimeReindexDisabled: true}}
@@ -182,27 +186,4 @@ func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
 		"the flag check must precede the cleanup lookup, or the gate is only half disabled")
 	require.Zero(t, activityBuilds.Load(),
 		"the backup path must make no reindex lookup while the feature is off")
-}
-
-// The flag check has to sit ABOVE the node-local cleanup lookup, not just
-// somewhere in the function. Below it, a node holding a cleanup or submit hold
-// refuses restores with the feature off — the gate is then only half disabled,
-// and "off means the behavior operators had" stops being true.
-func TestRefuseIfAnyReindexInFlight_DisabledIgnoresACleanupHold(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	db := &DB{logger: logger, config: Config{RuntimeReindexDisabled: true}}
-
-	var cleanupAsked atomic.Int64
-	db.SetAnyCleanupInProgressLookup(func([]string) bool {
-		cleanupAsked.Add(1)
-		return true // a teardown IS holding this node
-	})
-	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) {
-		return true, nil
-	})
-
-	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"C"}),
-		"with the feature off the restore gate must not refuse, even while a cleanup holds the node")
-	require.Zero(t, cleanupAsked.Load(),
-		"the flag check must precede the cleanup lookup, or the gate is only half disabled")
 }

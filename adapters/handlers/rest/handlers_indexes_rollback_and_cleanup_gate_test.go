@@ -213,6 +213,9 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 		expectedLevel       logrus.Level
 		expectedMessage     string
 		expectedAudit       string
+		// minElapsed, when set, is the floor on how long the whole rollback
+		// must take. Only the rows that retry have one.
+		minElapsed time.Duration
 	}{
 		{
 			name: "the listing fails, so the task to cancel is never identified",
@@ -348,6 +351,25 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedMessage:     "rollback: cancelled a reindex task that raced a backup claim",
 			expectedAudit:       "reindex_task_rolled_back",
 		},
+		{
+			// The transient case the retry exists for. It must report success
+			// rather than the give-up line, and it must wait between attempts:
+			// a RAFT leader election lasts seconds while failing in
+			// microseconds, so three immediate attempts all fail inside the
+			// same millisecond.
+			name:                "the cancel fails once and then lands",
+			svc:                 &scriptedRollbackService{tasks: liveTask(), failFirstN: 1},
+			expectedListCalls:   2,
+			expectedCancelCalls: 2,
+			expectedLevel:       logrus.InfoLevel,
+			expectedMessage:     "rollback: cancelled a reindex task that raced a backup claim",
+			expectedAudit:       "reindex_task_rolled_back",
+			// The base delay is 500ms and the library jitters it down to half,
+			// so 250ms is the floor. Spelled out rather than derived from the
+			// constant, so that shrinking the constant fails here instead of
+			// moving the bar with it.
+			minElapsed: 250 * time.Millisecond,
+		},
 	}
 
 	for _, test := range tests {
@@ -359,7 +381,15 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 				tasks:    test.svc,
 			}
 
+			start := time.Now()
 			h.rollbackRacedReindexTask(context.Background(), taskID, collection, property)
+			elapsed := time.Since(start)
+
+			if test.minElapsed > 0 {
+				require.Greater(t, elapsed, test.minElapsed,
+					"the second attempt must be spaced from the first, or the retry never "+
+						"outlives the transient it exists for")
+			}
 
 			test.svc.mu.Lock()
 			defer test.svc.mu.Unlock()
@@ -707,52 +737,6 @@ func TestUpdateIndexPostCommitVerdictSurvivesClientDisconnect(t *testing.T) {
 				"the migration is running; without its id the caller's retry is answered 409 for a task it never heard of")
 		})
 	}
-}
-
-// The retry exists for the transient case, so the transient case is what has to
-// be pinned: a cancel that fails once and then lands must leave the task
-// cancelled and report success, not the give-up line. It must also wait between
-// attempts — the transient it retries (a RAFT leader election) lasts seconds
-// while failing in microseconds, so three immediate attempts would all fail
-// inside the same millisecond.
-func TestRollbackRacedReindexTaskSucceedsOnRetry(t *testing.T) {
-	const (
-		taskID     = "Movies:change-tokenization:title:ab12"
-		collection = "Movies"
-		property   = "title"
-	)
-
-	svc := &scriptedRollbackService{
-		tasks: []*distributedtask.Task{{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: taskID, Version: 3},
-			Namespace:      db.ReindexNamespace,
-			Status:         distributedtask.TaskStatusStarted,
-		}},
-		failFirstN: 1,
-	}
-
-	logger, hook := logrustest.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-	h := &indexesHandlers{appState: &state.State{Logger: logger}, tasks: svc}
-
-	start := time.Now()
-	h.rollbackRacedReindexTask(context.Background(), taskID, collection, property)
-	elapsed := time.Since(start)
-
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	require.Equal(t, 2, svc.cancelCalls, "the first cancel failed, so a second must have been made")
-	// The base delay is 500ms and the library jitters it down to half, so 250ms
-	// is the floor. Spelled out rather than derived from the constant, so that
-	// shrinking the constant fails here instead of moving the bar with it.
-	require.Greater(t, elapsed, 250*time.Millisecond,
-		"the second attempt must be spaced from the first, or the retry never outlives the transient it exists for")
-
-	entries := hook.AllEntries()
-	require.Len(t, entries, 1, "one outcome, one audit line")
-	require.Contains(t, entries[0].Message, "rollback: cancelled a reindex task that raced a backup claim")
-	require.Equal(t, logrus.InfoLevel, entries[0].Level,
-		"a rollback that succeeded on retry is not an operator problem")
 }
 
 // An exhausted backoff means stop, not "wait zero": backoff.Stop is a negative
