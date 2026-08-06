@@ -1770,6 +1770,13 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		defer applyGate()
 	}
 
+	if cancelledWithoutClaimedUnits(task) {
+		// No worker ever claimed a unit, so no sidecar state exists to tear
+		// down and holding the gate would only refuse the backup this task was
+		// withdrawn for. See [cancelledWithoutClaimedUnits].
+		return
+	}
+
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
@@ -2591,7 +2598,28 @@ func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
 		// same unparseable payload; do not duplicate it on the apply path.
 		return
 	}
+	if cancelledWithoutClaimedUnits(task) {
+		// See [cancelledWithoutClaimedUnits]: the confirmation latch above
+		// still fires, only the blocking gate is skipped.
+		return
+	}
 	p.holdCleanupGateUntilTeardown(task.TaskDescriptor, payload)
+}
+
+// cancelledWithoutClaimedUnits reports whether the task is a cancelled one no
+// worker ever claimed a unit of. It is the same waiver the backup's commit-time
+// backstop applies in reindexTaskOverlaps, and the two have to agree: the
+// submit path manufactures exactly this task when a backup claims the slot
+// first and it rolls itself back. Holding the cleanup gate over such a task's
+// shards fails the backup the rollback exists to let win, and there is nothing
+// to protect either way, since no worker wrote.
+//
+// Cancelled only. A FAILED task, or one whose units the caller has not
+// populated, keeps the gate.
+func cancelledWithoutClaimedUnits(task *distributedtask.Task) bool {
+	return task != nil &&
+		task.Status == distributedtask.TaskStatusCancelled &&
+		!reindexTaskTouchedShards(task)
 }
 
 // cancelledTaskCollection reads just the collection out of a task payload,

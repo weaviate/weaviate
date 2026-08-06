@@ -43,11 +43,18 @@ func cancelGateTask(t *testing.T, payload *ReindexTaskPayload) *distributedtask.
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
+	// A claimed unit: the cancel of a migration that had already started
+	// rebuilding buckets, which is the only shape with sidecars to gate. A
+	// cancel whose units never left PENDING is waived by
+	// [cancelledWithoutClaimedUnits] and is covered by the rollback journey.
 	return &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-1", Version: 4},
 		Namespace:      ReindexNamespace,
 		Status:         distributedtask.TaskStatusCancelled,
 		Payload:        raw,
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
+		},
 	}
 }
 

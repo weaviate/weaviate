@@ -64,9 +64,17 @@ func lifecycleTask(t *testing.T, id string) (*distributedtask.Task, *ReindexTask
 	}
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
+	// Cancelled with a claimed unit: the shape a cancel of a migration that had
+	// already started rebuilding buckets has, which is the only one that still
+	// has sidecars to tear down. A cancel whose units never left PENDING is
+	// waived by [cancelledWithoutClaimedUnits] and holds no gate at all.
 	return &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
 		Payload:        raw,
+		Status:         distributedtask.TaskStatusCancelled,
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
+		},
 	}, payload
 }
 
