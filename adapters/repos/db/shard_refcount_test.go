@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +121,17 @@ func forwardToRemote(t *testing.T, idx *Index, className, shardName string) {
 	idx.router = router
 }
 
+// blockShardInit makes every init of the named shard fail: a regular file at
+// the shard's directory path errors NewShard before any store opens. NewShard
+// never removes the file, so the block holds across repeated init attempts.
+func blockShardInit(t *testing.T, idx *Index, name string) {
+	t.Helper()
+
+	p := shardPath(idx.path(), name)
+	require.NoError(t, os.RemoveAll(p))
+	require.NoError(t, os.WriteFile(p, nil, 0o644))
+}
+
 // batchDeleteErr collapses the per-object errors of a delete batch, which the
 // call reports inside the result rather than as its own error.
 func batchDeleteErr(objs objects.BatchSimpleObjects, err error) error {
@@ -219,7 +231,7 @@ func TestShardRefCountArity(t *testing.T) {
 			// group that acquired a shard still has to release it
 			name: "batchDeleteObjects partial group failure", wantErr: true,
 			setup: func(t *testing.T, idx *Index, shard *Shard) {
-				idx.backupProtectedShards.Store(blockedShard, struct{}{})
+				blockShardInit(t, idx, blockedShard)
 			},
 			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				objs, err := idx.batchDeleteObjects(t.Context(), map[string][]strfmt.UUID{
@@ -563,7 +575,7 @@ func TestShardLookupReleasesReplacedReference(t *testing.T) {
 			wantInUse := int64(1)
 			if test.blockInit {
 				idx.shards.LoadAndDelete(shard.name)
-				idx.backupProtectedShards.Store(shard.name, struct{}{})
+				blockShardInit(t, idx, shard.name)
 				wantInUse = 0
 			}
 

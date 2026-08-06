@@ -605,17 +605,15 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	require.Len(t, classDescs, 1)
 	require.NotEmpty(t, classDescs[0].Shards)
 
-	sourceDataPath := db.config.RootPath
-
 	// Use very small chunk/split sizes to force file splitting even on small test data.
 	const chunkSize = 512     // 512 bytes
 	const splitFileSize = 256 // 256 bytes
 
-	result := backupWithSizes(t, ctx, sourceDataPath, classDescs, chunkSize, splitFileSize)
+	result := backupWithSizes(t, ctx, classDescs, chunkSize, splitFileSize)
 	t.Logf("backup produced %d chunks from %d shards", len(result.chunks), len(classDescs[0].Shards))
 	require.Greater(t, len(result.chunks), 1, "expected multiple chunks due to small chunk/split sizes")
 
-	restoreAndVerify(t, sourceDataPath, classDescs, result.chunks)
+	restoreAndVerify(t, classDescs, result.chunks)
 
 	for _, class := range classes {
 		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
@@ -632,19 +630,15 @@ type backupChunkResult struct {
 func backupWithSizes(
 	t *testing.T,
 	ctx context.Context,
-	sourceDataPath string,
 	classDescs []entBackup.ClassDescriptor,
 	chunkSize, splitFileSize int64,
 ) backupChunkResult {
 	t.Helper()
 
-	// Use staging dir (hard-linked snapshot) if available, matching production
-	// behavior in usecases/backup/backend.go. The live data path may have files
-	// rotated (e.g. HNSW commitlog) between descriptor creation and backup writing.
-	effectivePath := sourceDataPath
-	if classDescs[0].StagingDir != "" {
-		effectivePath = classDescs[0].StagingDir
-	}
+	// The descriptor always records a staging dir (hard-linked snapshot); the
+	// upload reads only from it, matching usecases/backup/backend.go.
+	effectivePath := classDescs[0].StagingDir
+	require.NotEmpty(t, effectivePath)
 
 	var result backupChunkResult
 
@@ -707,17 +701,14 @@ func backupWithSizes(
 // restoreAndVerify restores all chunks into a temp dir and verifies every shard file matches the original.
 func restoreAndVerify(
 	t *testing.T,
-	sourceDataPath string,
 	classDescs []entBackup.ClassDescriptor,
 	chunks [][]byte,
 ) {
 	t.Helper()
 
-	// Use staging dir when available (hard-linked snapshot), same as backupWithSizes.
-	effectivePath := sourceDataPath
-	if classDescs[0].StagingDir != "" {
-		effectivePath = classDescs[0].StagingDir
-	}
+	// Same staging-dir-only contract as backupWithSizes.
+	effectivePath := classDescs[0].StagingDir
+	require.NotEmpty(t, effectivePath)
 
 	restoreDir := t.TempDir()
 
@@ -807,18 +798,16 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	require.Len(t, classDescs, 1)
 	require.NotEmpty(t, classDescs[0].Shards)
 
-	sourceDataPath := db.config.RootPath
-
 	// --- Pass 1: backup with a large split file size (effectively no splitting) ---
 	const largeChunkSize = 512               // small chunk target to get multiple chunks
 	const largeSplitSize = 100 * 1024 * 1024 // 100 MB — no file will be this big
 
-	pass1 := backupWithSizes(t, ctx, sourceDataPath, classDescs, largeChunkSize, largeSplitSize)
+	pass1 := backupWithSizes(t, ctx, classDescs, largeChunkSize, largeSplitSize)
 	t.Logf("pass 1 (no splitting): %d chunks", len(pass1.chunks))
 	require.Greater(t, len(pass1.chunks), 1, "expected multiple chunks with small chunk target")
 
 	// Verify pass 1 restore works.
-	restoreAndVerify(t, sourceDataPath, classDescs, pass1.chunks)
+	restoreAndVerify(t, classDescs, pass1.chunks)
 
 	// Find the sizes of the 3 biggest files and set splitFileSize below the biggest.
 	sortedSizes := append([]int64{}, pass1.fileSizes...)
@@ -848,7 +837,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 		classDescs2 = append(classDescs2, d)
 	}
 
-	pass2 := backupWithSizes(t, ctx, sourceDataPath, classDescs2, largeChunkSize, splitSize)
+	pass2 := backupWithSizes(t, ctx, classDescs2, largeChunkSize, splitSize)
 	t.Logf("pass 2 (splitFileSize=%d): %d chunks", splitSize, len(pass2.chunks))
 
 	// The smaller split size should produce more chunks because large files are now split.
@@ -857,7 +846,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 		len(pass1.chunks), len(pass2.chunks))
 
 	// Verify pass 2 restore produces identical files.
-	restoreAndVerify(t, sourceDataPath, classDescs2, pass2.chunks)
+	restoreAndVerify(t, classDescs2, pass2.chunks)
 
 	// Release pass 2 backup hold (pass 1 was already released above).
 	for _, class := range classes {

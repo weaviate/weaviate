@@ -411,6 +411,9 @@ func genClassDescriptions(t *testing.T, sourcePath string, classes ...string) []
 	for i, cls := range classes {
 		ret[i] = backup.ClassDescriptor{
 			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+			// The uploader reads only from StagingDir; these fixtures stage
+			// their files directly in sourcePath.
+			StagingDir: sourcePath,
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",

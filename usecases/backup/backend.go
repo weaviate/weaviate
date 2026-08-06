@@ -405,12 +405,12 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 
-	// Determine source path: use staging dir (hard-linked snapshot) if available,
-	// otherwise fall back to live data path for backward compatibility.
-	sourcePath := u.backend.SourceDataPath()
-	if desc.StagingDir != "" {
-		sourcePath = desc.StagingDir
+	// The uploader only ever reads the staged snapshot. Reading the live data
+	// path instead would race compaction for the whole upload (torn reads).
+	if desc.StagingDir == "" {
+		return 0, fmt.Errorf("backup descriptor for class %q has no staging dir", desc.Name)
 	}
+	sourcePath := desc.StagingDir
 
 	nShards := len(desc.Shards)
 	if nShards == 0 {
@@ -614,30 +614,6 @@ func (u *uploader) compress(ctx context.Context,
 		return fileSizeExceededInfo, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
 	}
 	return fileSizeExceededInfo, preCompressionSize.Load(), nil
-}
-
-// calculateShardPreCompressionSize calculates the total size of a shard before compression
-// Since shards are paused and memtables are flushed during backup, we only need to calculate
-// the size of files on disk, not in-memory data.
-func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescriptor) int64 {
-	var totalSize int64
-	sourceDataPath := u.backend.SourceDataPath()
-	// Add size of files on disk (in-memory data is flushed to disk during backup preparation)
-	for _, filePath := range shard.Files {
-		fullPath := filepath.Join(sourceDataPath, filePath)
-		if info, err := os.Stat(fullPath); err == nil {
-			totalSize += info.Size()
-		}
-	}
-
-	u.log.WithFields(logrus.Fields{
-		"shard":          shard.Name,
-		"filesCount":     len(shard.Files),
-		"totalSize":      totalSize,
-		"sourceDataPath": sourceDataPath,
-	}).Debug("calculated pre-compression size for shard")
-
-	return totalSize
 }
 
 // createFileList creates a FileList from a ShardDescriptor with Files copied,

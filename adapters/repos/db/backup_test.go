@@ -428,111 +428,6 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	assert.Equal(t, walContent, stagedWAL, "staged WAL copy should not reflect post-backup source modifications")
 }
 
-func TestBackupProtectedShardsBlockActivation(t *testing.T) {
-	logger, _ := tlog.NewNullLogger()
-	rootDir := t.TempDir()
-	ctx := context.Background()
-	className := "MyClass"
-
-	newTestIndex := func() *Index {
-		return &Index{
-			Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
-			getSchema: &fakeSchemaGetter{
-				schema: schema.Schema{
-					Objects: &models.Schema{
-						Classes: []*models.Class{{Class: className}},
-					},
-				},
-			},
-			logger:           logger,
-			backupLock:       esync.NewKeyRWLocker(),
-			shardCreateLocks: esync.NewKeyRWLocker(),
-			closingCtx:       context.Background(),
-			db:               stubDBWithNoLiveReindex(),
-		}
-	}
-
-	t.Run("initLocalShardWithForcedLoading blocked by protection", func(t *testing.T) {
-		idx := newTestIndex()
-		shardName := "tenant1"
-
-		idx.backupProtectedShards.Store(shardName, struct{}{})
-
-		class := &models.Class{Class: className}
-		err := idx.initLocalShardWithForcedLoading(ctx, class, shardName, true, false)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "protected for backup")
-	})
-
-	t.Run("getOptInitLocalShard blocked by protection", func(t *testing.T) {
-		idx := newTestIndex()
-		shardName := "tenant2"
-
-		idx.backupProtectedShards.Store(shardName, struct{}{})
-
-		_, release, err := idx.getOptInitLocalShard(ctx, shardName, true)
-		defer release()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "protected for backup")
-	})
-
-	t.Run("getOptInitLocalShard skips check when ensureInit is false", func(t *testing.T) {
-		idx := newTestIndex()
-		shardName := "tenant3"
-
-		idx.backupProtectedShards.Store(shardName, struct{}{})
-
-		// With ensureInit=false, the function returns nil shard without error
-		// (the protection check is never reached).
-		shard, release, err := idx.getOptInitLocalShard(ctx, shardName, false)
-		defer release()
-		require.NoError(t, err)
-		assert.Nil(t, shard)
-	})
-
-	t.Run("ReleaseBackup clears protections and releases locks", func(t *testing.T) {
-		idx := newTestIndex()
-		shards := []string{"shardA", "shardB", "shardC"}
-
-		// Simulate what backupShardWithoutHardlinks does: hold lock + set flag.
-		for _, name := range shards {
-			idx.backupLock.Lock(name)
-			idx.backupProtectedShards.Store(name, struct{}{})
-		}
-		// Set backup state so ReleaseBackup has something to reset.
-		idx.lastBackup.Store(&BackupState{BackupID: "test-backup", InProgress: true})
-
-		err := idx.ReleaseBackup(ctx, "test-backup")
-		require.NoError(t, err)
-
-		// Verify all protection flags are cleared.
-		for _, name := range shards {
-			_, protected := idx.backupProtectedShards.Load(name)
-			assert.False(t, protected, "shard %s should no longer be protected", name)
-		}
-
-		// Verify all backupLock.Locks were released by confirming RLock succeeds.
-		for _, name := range shards {
-			done := make(chan struct{})
-			go func() {
-				idx.backupLock.RLock(name)
-				idx.backupLock.RUnlock(name)
-				close(done)
-			}()
-			select {
-			case <-done:
-				// Lock was released.
-			case <-time.After(time.Second):
-				t.Fatalf("RLock on %s should succeed after ReleaseBackup", name)
-			}
-		}
-
-		// The protection flag is cleared and the lock is released. Combined with the
-		// subtests above (which prove the flag blocks activation), this proves that
-		// activation is no longer blocked after ReleaseBackup.
-	})
-}
-
 func TestBackupFrozenShardOmitted(t *testing.T) {
 	rootDir := t.TempDir()
 	shardName := "frozen_tenant"
@@ -553,13 +448,23 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
+}
 
-	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
-		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil)
-		require.Error(t, err)
-		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
-	})
+// TestDescriptorFailsWithoutHardlinkSupport pins the fail-fast guard: on a
+// filesystem without hard links, descriptor rejects the backup before taking
+// any backup state, so no release is required afterwards.
+func TestDescriptorFailsWithoutHardlinkSupport(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+
+	rootDir := t.TempDir()
+	// nil sharding state: the guard must fire before any schema read.
+	idx := newDescriptorTestIndex(t, rootDir, "TestClass", nil)
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(context.Background(), "backup-guard", &desc, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "supports hard links")
+	require.Nil(t, idx.lastBackup.Load(), "a rejected backup must not consume backup state")
 }
 
 // newDescriptorTestIndex creates a minimal Index wired up for testing Index.descriptor.

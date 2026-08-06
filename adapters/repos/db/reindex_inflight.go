@@ -113,8 +113,7 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 }
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and
+// [DB.Backupable], [Index.backupInactiveShardWithHardlinks], and
 // [Shard.HaltForTransfer]. Consults DTM via
 // [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
 // replaced only saw the local node and lagged DTM's actual state.

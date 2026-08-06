@@ -15,12 +15,15 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -34,8 +37,8 @@ const (
 	deleteTestBackupID   = "delete-lifecycle-backup"
 )
 
-// deadline bounds every "must not hang" assertion. A dropping class blocking a
-// caller is the bug under test, so exceeding it fails rather than stalls.
+// deadline bounds every "must not hang" assertion. A delete waiting on the
+// open backup is the bug under test, so exceeding it fails rather than stalls.
 const deadline = 15 * time.Second
 
 func newTestRepo(t *testing.T, lazyLoadShards bool, classes ...*models.Class) (*DB, *Migrator, *fakeSchemaGetter) {
@@ -128,22 +131,27 @@ func TestClassLifecycle(t *testing.T) {
 }
 
 // TestDeleteClassDuringBackup deletes a class while a backup of it is still
-// open. On a filesystem without hardlink support a backup keeps its shard
-// write-locked under backupLock until ReleaseBackup, so the delete parks in
-// dropShard. While it is parked the node must stay live: the dropping class
-// reads as absent, unrelated classes keep serving, and releasing the backup
-// lets the delete finish.
+// open (snapshot taken, not yet released). The snapshot holds no locks across
+// the upload window, so the delete completes without waiting for the release.
+// The dropping class reads as absent, unrelated classes keep serving, and the
+// staged snapshot survives the drop: staging sits at root level (outside the
+// class directory the drop renames) and holds its own hard-linked inodes, so
+// every staged file stays readable until ReleaseBackup removes it.
 func TestDeleteClassDuringBackup(t *testing.T) {
-	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
 	ctx := context.Background()
 	repo, migrator, sg := newTestRepo(t, true,
 		makeTestClass(deleteTestClass), makeTestClass(deleteTestOtherClass))
 
+	addObject(t, ctx, repo, deleteTestClass, "to-be-dropped")
 	addObject(t, ctx, repo, deleteTestOtherClass, "bystander")
 
+	var desc backup.ClassDescriptor
 	for d := range repo.BackupDescriptors(ctx, deleteTestBackupID, []string{deleteTestClass}, nil) {
 		require.NoError(t, d.Error)
+		desc = d
 	}
+	require.NotEmpty(t, desc.StagingDir, "the snapshot must record a staging dir")
+	require.NotEmpty(t, desc.Shards, "the backed-up class must contribute shards")
 
 	deleted := make(chan struct{})
 	go func() {
@@ -158,52 +166,27 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 
 	select {
 	case <-deleted:
-		t.Fatal("precondition: the open backup must hold the delete")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(deadline):
+		t.Fatal("the delete must not wait for the open backup")
 	}
 
-	// The parked delete must not freeze the node.
-	var droppingErr, bystanderErr *objects.Error
-	var bystander search.Results
-	var writeErr error
-	requireNoHang(t, "read of the dropping class", func() {
-		_, droppingErr = queryClass(ctx, repo, deleteTestClass)
-	})
-	requireNoHang(t, "read of an unrelated class", func() {
-		bystander, bystanderErr = queryClass(ctx, repo, deleteTestOtherClass)
-	})
-	requireNoHang(t, "write to an unrelated class", func() {
-		writeErr = putObject(ctx, repo, deleteTestOtherClass, "still writable")
-	})
-
-	require.NotNil(t, droppingErr, "reading a class being deleted must fail")
+	_, droppingErr := queryClass(ctx, repo, deleteTestClass)
+	require.NotNil(t, droppingErr, "reading a deleted class must fail")
 	assert.Equal(t, objects.StatusNotFound, droppingErr.Code, "got %v", droppingErr.Msg)
+
+	bystander, bystanderErr := queryClass(ctx, repo, deleteTestOtherClass)
 	require.Nil(t, bystanderErr)
 	assert.Len(t, bystander, 1)
-	assert.NoError(t, writeErr)
+	assert.NoError(t, putObject(ctx, repo, deleteTestOtherClass, "still writable"))
+
+	// Durability of the open backup across the drop.
+	require.DirExists(t, desc.StagingDir)
+	for _, sd := range desc.Shards {
+		for _, f := range sd.Files {
+			_, err := os.ReadFile(filepath.Join(desc.StagingDir, f))
+			require.NoError(t, err, "staged file %q must survive the class drop", f)
+		}
+	}
 
 	require.NoError(t, repo.ReleaseBackup(ctx, deleteTestBackupID, deleteTestClass))
-
-	select {
-	case <-deleted:
-	case <-time.After(deadline):
-		t.Fatal("releasing the backup must unblock the delete")
-	}
-}
-
-// requireNoHang fails instead of stalling when fn blocks on a lock the parked
-// delete holds. fn runs on its own goroutine, so it records results for the
-// caller to assert on rather than calling require itself.
-func requireNoHang(t *testing.T, what string, fn func()) {
-	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		fn()
-	}()
-	select {
-	case <-done:
-	case <-time.After(deadline):
-		t.Fatalf("%s blocked behind the parked delete", what)
-	}
 }

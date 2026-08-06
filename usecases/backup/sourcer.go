@@ -19,9 +19,9 @@ import (
 
 // Sourcer represents the source of artifacts used in the backup
 type Sourcer interface { // implemented by the index
-	// ReleaseBackup signals to the underlying index that the files have been
-	// copied (or the operation aborted), and that it is safe for the index to
-	// change the files, such as start compactions.
+	// ReleaseBackup removes the backup's staging directory and clears the
+	// index's backup state. Compaction already resumed when the snapshot was
+	// taken; release frees snapshot resources only.
 	ReleaseBackup(_ context.Context, id, class string) error
 
 	// Backupable returns whether all given class can be backed up.

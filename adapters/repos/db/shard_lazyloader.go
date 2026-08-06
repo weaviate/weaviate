@@ -47,7 +47,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -624,13 +623,6 @@ func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
 	l.shard.MayResetTransferInactivityTimer()
 }
 
-func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
-	if err := l.Load(ctx); err != nil {
-		return nil, err
-	}
-	return l.shard.ListBackupFiles(ctx, ret)
-}
-
 func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -657,20 +649,6 @@ func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
 		return err
 	}
 	return l.shard.resumeMaintenanceCycles(ctx)
-}
-
-func (l *LazyLoadShard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
-	if err := l.Load(ctx); err != nil {
-		return file.FileMetadata{}, err
-	}
-	return l.shard.GetFileMetadata(ctx, relativeFilePath)
-}
-
-func (l *LazyLoadShard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error) {
-	if err := l.Load(ctx); err != nil {
-		return nil, err
-	}
-	return l.shard.GetFile(ctx, relativeFilePath)
 }
 
 func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {

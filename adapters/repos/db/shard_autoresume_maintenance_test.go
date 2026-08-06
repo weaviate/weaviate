@@ -39,6 +39,7 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, idx := testShard(t, ctx, className)
+	s := shd.(*Shard)
 
 	amount := 10
 
@@ -63,17 +64,7 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	})
 
 	t.Run("attempt to list backup files without halting for transfer should fail", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
-		require.ErrorContains(t, err, "not paused for transfer")
-	})
-
-	t.Run("attempt to get file metadata without halting for transfer should fail", func(t *testing.T) {
-		_, err := shd.GetFileMetadata(ctx, "any.db")
-		require.ErrorContains(t, err, "not paused for transfer")
-	})
-
-	t.Run("attempt to get file content without halting for transfer should fail", func(t *testing.T) {
-		_, err := shd.GetFile(ctx, "any.db")
+		_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 		require.ErrorContains(t, err, "not paused for transfer")
 	})
 
@@ -90,17 +81,7 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	})
 
 	t.Run("attempt to list backup files after explicitly resuming maintenance tasks should fail", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
-		require.ErrorContains(t, err, "not paused for transfer")
-	})
-
-	t.Run("attempt to get file metadata after explicitly resuming maintenance tasks should fail", func(t *testing.T) {
-		_, err := shd.GetFileMetadata(ctx, "any.db")
-		require.ErrorContains(t, err, "not paused for transfer")
-	})
-
-	t.Run("attempt to get file content after explicitly resuming maintenance tasks should fail", func(t *testing.T) {
-		_, err := shd.GetFile(ctx, "any.db")
+		_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 		require.ErrorContains(t, err, "not paused for transfer")
 	})
 
@@ -114,17 +95,7 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	})
 
 	t.Run("attempt to list backup files after inactivity time should fail", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
-		require.ErrorContains(t, err, "not paused for transfer")
-	})
-
-	t.Run("attempt to get file metadata after inactivity time should fail", func(t *testing.T) {
-		_, err := shd.GetFileMetadata(ctx, "any.db")
-		require.ErrorContains(t, err, "not paused for transfer")
-	})
-
-	t.Run("attempt to get file content after inactivity time should fail", func(t *testing.T) {
-		_, err := shd.GetFile(ctx, "any.db")
+		_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 		require.ErrorContains(t, err, "not paused for transfer")
 	})
 
@@ -136,6 +107,7 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, idx := testShard(t, ctx, className)
+	s := shd.(*Shard)
 
 	amount := 10
 
@@ -169,19 +141,9 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 	backupDescriptor := &backup.ShardDescriptor{}
 
 	t.Run("attempt to list backup files should succeed", func(t *testing.T) {
-		files, err := shd.ListBackupFiles(ctx, backupDescriptor)
+		files, err := s.ListBackupFiles(ctx, backupDescriptor)
 		require.NoError(t, err)
 		backupDescriptor.Files = files
-	})
-
-	t.Run("attempt to get file metadata should succeed", func(t *testing.T) {
-		_, err := shd.GetFileMetadata(ctx, backupDescriptor.Files[0])
-		require.NoError(t, err)
-	})
-
-	t.Run("attempt to get file content should succeed", func(t *testing.T) {
-		_, err := shd.GetFile(ctx, backupDescriptor.Files[0])
-		require.NoError(t, err)
 	})
 
 	t.Run("resume maintenance tasks", func(t *testing.T) {
@@ -282,6 +244,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, idx := testShard(t, ctx, className)
+	s := shd.(*Shard)
 
 	amount := 10
 
@@ -313,7 +276,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	})
 
 	t.Run("attempt to list backup files should succeed", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+		_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 		require.NoError(t, err)
 	})
 
@@ -332,7 +295,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	})
 
 	t.Run("attempt to list backup files for a second time should succeed", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+		_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 		require.NoError(t, err)
 	})
 
@@ -342,7 +305,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	})
 
 	t.Run("attempt to list backup files with one halt request still active should succeed", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+		_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 		require.NoError(t, err)
 	})
 
@@ -352,7 +315,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	})
 
 	t.Run("attempt to list backup files after resuming for a second time should fail", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+		_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 		require.ErrorContains(t, err, "not paused for transfer")
 	})
 

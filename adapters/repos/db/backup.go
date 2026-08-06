@@ -182,7 +182,7 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 		// Clean up staging directory that may have been created by CreateBackupSnapshot
 		stagingDir := backupStagingDir(db.config.RootPath, bakID, schema.ClassName(class))
 		if err := os.RemoveAll(stagingDir); err != nil {
-			db.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+			db.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 		}
 	}
 	return nil
@@ -243,19 +243,18 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+	// The guard precedes initBackup so a rejected backup consumes no backup
+	// state: lastBackup stays nil and no release is required.
+	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
+		return fmt.Errorf("backup requires a filesystem that supports hard links; "+
+			"the data directory for class %s does not", i.Config.ClassName)
+	}
+
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
 
-	useHardlinks := file.ProbeHardlinkSupport(i.Config.RootPath)
-	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
-
-	if useHardlinks {
-		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
-	}
-	// NO-HARDLINK-BACKUP: only reachable on filesystems without hardlink support.
-	// Removed in v1.40; bugs here are not fixed.
-	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs)
+	return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
 }
 
 // descriptorWithHardlinks creates hard-linked snapshots per shard, allowing compaction
@@ -445,166 +444,17 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if backup.IsImmutableFile(relPath) {
-			if err := os.Link(src, dst); err != nil {
-				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
-		} else {
-			if err := file.CopyFile(src, dst); err != nil {
-				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
+		if err := file.CopyFile(src, dst); err != nil {
+			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 		}
 	}
 	if err := file.HardlinkFiles(hardlinks); err != nil {
 		return fmt.Errorf("hardlink inactive shard %s files to staging: %w", name, err)
 	}
 
-	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
-		return fmt.Errorf("gather inactive shard %s file info: %w", name, err)
-	}
-
-	return nil
-}
-
-// descriptorWithoutHardlinks is the fallback path for filesystems that don't support
-// hardlinks. Compaction remains paused for the entire backup upload duration.
-//
-// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
-	defer func() {
-		if err != nil {
-			// closelock is hold by the caller
-			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
-		}
-	}()
-
-	shardNames, stateBytes, err := i.readSchema()
-	if err != nil {
-		return fmt.Errorf("list local shards: %w", err)
-	}
-
-	shards := map[string]*backup.ShardDescriptor{}
-	for _, name := range shardNames {
-		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
-		if err != nil {
-			if errors.Is(err, errShardNoLocalData) {
-				i.logger.WithField("shard", name).Debug("skipping shard with no local data")
-				continue
-			}
-			return err
-		}
-		if sd != nil {
-			shards[name] = sd
-		}
-	}
-
-	// Preserve original shard order from sharding state.
-	for _, name := range shardNames {
-		if sd, ok := shards[name]; ok {
-			desc.Shards = append(desc.Shards, sd)
-		}
-	}
-
-	return i.marshalBackupMetadata(desc, stateBytes)
-}
-
-// backupShardWithoutHardlinks backs up a single shard without hardlinks. Compaction
-// for active shards is paused and stays paused until ReleaseBackup is called.
-//
-// For inactive shards, backupProtectedShards is set and backupLock.Lock is held
-// until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
-//
-// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
-	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
-
-	i.backupLock.Lock(name)
-	unlockOnReturn := true
-	defer func() {
-		if unlockOnReturn {
-			i.backupLock.Unlock(name)
-		}
-	}()
-
-	var shard ShardLike
-	var sd backup.ShardDescriptor
-	var err error
-	if err := func() error {
-		// Acquire shardCreateLocks to atomically check shard state and protect
-		// inactive shards. This prevents concurrent activation from racing.
-		i.shardCreateLocks.Lock(name)
-		defer i.shardCreateLocks.Unlock(name)
-		shard = i.shards.Load(name)
-
-		if shard == nil {
-			// Not in shardMap => back up from disk if directory exists.
-			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
-			i.backupProtectedShards.Store(name, struct{}{})
-			unlockOnReturn = false
-			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
-		}
-
-		// For unloaded LazyLoadShards, block concurrent loading so we can safely
-		// read files from disk. See backupShardWithHardlinks for details.
-		if lazyShard, ok := shard.(*LazyLoadShard); ok {
-			releaseBlock := lazyShard.blockLoading()
-			defer releaseBlock()
-			if !lazyShard.loaded {
-				// Shard is in the map but not loaded; protect and keep lock held.
-				i.backupProtectedShards.Store(name, struct{}{})
-				unlockOnReturn = false
-				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
-			}
-		}
-
-		return nil
-	}(); err != nil {
-		return nil, err
-	}
-
-	// Active path => halt compaction (stays paused until ReleaseBackup).
-	// backupLock.Lock is released on return (unlockOnReturn=true).
-	if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
-		return nil, fmt.Errorf("halt shard %v for backup: %w", name, err)
-	}
-
-	files, err := shard.ListBackupFiles(ctx, &sd)
-	if err != nil {
-		return nil, fmt.Errorf("list backup files shard %v: %w", name, err)
-	}
-
-	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
-		return nil, fmt.Errorf("gather shard %v file info: %w", name, err)
-	}
-
-	return &sd, nil
-}
-
-// backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading
-// its files directly from disk.
-//
-// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
-	shardDir := shardPath(i.path(), name)
-	if _, err := os.Stat(shardDir); err != nil {
-		if os.IsNotExist(err) {
-			// FROZEN/OFFLOADED — no local data. Status is preserved in the
-			// sharding state; omit from desc.Shards.
-			return errShardNoLocalData
-		}
-		return fmt.Errorf("stat shard dir: %w", err)
-	}
-
-	if err := i.refuseIfReindexInFlight(name); err != nil {
-		return err
-	}
-
-	files, err := i.listInactiveShardFiles(name, sd)
-	if err != nil {
-		return fmt.Errorf("list inactive shard %s files: %w", name, err)
-	}
-
-	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+	// File info is filled from the staged copies — the bytes the uploader
+	// reads — matching the active arm in backupShardWithHardlinks.
+	if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
 		return fmt.Errorf("gather inactive shard %s file info: %w", name, err)
 	}
 
@@ -659,24 +509,13 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
 	stagingDir := backupStagingDir(i.Config.RootPath, id, i.Config.ClassName)
 	if err := os.RemoveAll(stagingDir); err != nil {
-		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+		i.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
-
-	// Release non-hardlink backup protections: clear the protection flag and
-	// release the held backupLock.Lock for each protected shard.
-	//
-	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
-	i.backupProtectedShards.Range(func(key, _ any) bool {
-		name := key.(string)
-		i.backupLock.Unlock(name)
-		i.backupProtectedShards.Delete(key)
-		return true
-	})
 
 	i.resetBackupState()
 
-	// Releasing backupLock above unblocks a waiting index.drop(), which shuts the
-	// shard stores down. Resuming their cycles now would be a use-after-drop.
+	// The index can be dropped while the backup uploads; enterRead refuses a
+	// dropped index so the resume below cannot touch torn-down stores.
 	if err := i.enterRead(); err != nil {
 		return nil
 	}
