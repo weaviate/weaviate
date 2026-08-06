@@ -121,10 +121,11 @@ func TestShardReindexActivityBuilderRefusesWhenDTMIsUnreachable(t *testing.T) {
 		"the operator has to be told why every backup is being refused")
 }
 
-// One undecodable payload must not take the rest of the snapshot with it: the
-// tasks around it still hold their shards.
-func TestShardReindexActivityBuilderSkipsUndecodablePayloads(t *testing.T) {
-	logger, _ := test.NewNullLogger()
+// A live task whose payload will not decode names shards nobody can read. Those
+// shards must not come back free, and neither may any other shard in that
+// snapshot: the builder cannot tell which ones the broken task was holding.
+func TestShardReindexActivityBuilderRefusesOnUndecodablePayload(t *testing.T) {
+	logger, hook := test.NewNullLogger()
 	broken := reindexGateTask(t, "t1", distributedtask.TaskStatusStarted, "MyClass",
 		map[string]string{"u1": "shard1"})
 	broken.Payload = []byte("{not json")
@@ -138,7 +139,12 @@ func TestShardReindexActivityBuilderSkipsUndecodablePayloads(t *testing.T) {
 			}}, nil
 		}, logger)()
 
-	assert.False(t, lookup("MyClass", "shard1"))
+	assert.True(t, lookup("MyClass", "shard1"),
+		"the shards an unreadable task names must not read free")
 	assert.True(t, lookup("MyClass", "shard2"),
-		"a task the snapshot could read must still hold its shard")
+		"an unreadable payload refuses the whole snapshot, not just its own task")
+	assert.True(t, lookup("UntouchedClass", "shard42"),
+		"a collection no task mentions is refused too: the broken task may have named it")
+	require.NotEmpty(t, hook.AllEntries(),
+		"the operator has to be told why every backup is being refused")
 }
