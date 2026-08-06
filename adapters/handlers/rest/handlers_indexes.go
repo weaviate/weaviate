@@ -841,7 +841,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 //
 // The owners close their gates as the cancel applies rather than when the
 // scheduler next ticks, which is what makes this budget meetable at all; see
-// [db.ReindexProvider.OnCancelApplied].
+// [db.ReindexProvider.OnTerminalApplied].
 const reindexOwnerGateTimeout = 5 * time.Second
 
 // reindexOwnerGatePollInterval is how often each owner is re-asked.

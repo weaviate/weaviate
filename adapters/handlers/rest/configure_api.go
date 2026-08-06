@@ -1225,11 +1225,12 @@ func initReindexAndDistributedTasks(
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider.Store(reindexProvider)
 
-	// Closes this node's cleanup gate as the cancel applies rather than when the
-	// scheduler next ticks, which is what lets a cancel be confirmed cluster-wide
-	// inside a request's budget. See [db.ReindexProvider.OnCancelApplied].
-	appState.ClusterService.RegisterDistributedTaskCancelObserver(
-		db.ReindexNamespace, reindexProvider.OnCancelApplied)
+	// Closes this node's cleanup gate as the terminal status applies rather than
+	// when the scheduler next ticks, which is what lets a cancel be confirmed
+	// cluster-wide inside a request's budget. Fires on FAILED as well, which
+	// needs the same gate. See [db.ReindexProvider.OnTerminalApplied].
+	appState.ClusterService.RegisterDistributedTaskTerminalObserver(
+		db.ReindexNamespace, reindexProvider.OnTerminalApplied)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,

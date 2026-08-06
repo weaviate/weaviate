@@ -445,10 +445,11 @@ func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, ex
 	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
 }
 
-// RegisterDistributedTaskCancelObserver installs a namespace's
-// [distributedtask.CancelObserver]; see that type for the apply-path contract.
-func (st *Store) RegisterDistributedTaskCancelObserver(namespace string, observer distributedtask.CancelObserver) {
-	st.distributedTasksManager.RegisterCancelObserver(namespace, observer)
+// RegisterDistributedTaskTerminalObserver installs a namespace's
+// [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
+// see that type for the apply-path contract.
+func (st *Store) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
+	st.distributedTasksManager.RegisterTerminalObserver(namespace, observer)
 }
 
 // lastIndex returns the last index in stable storage,
@@ -672,7 +673,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	st.open.Store(false)
 
-	// Stop the cancel-observer drainer once no further apply can enqueue.
+	// Stop the terminal-observer drainer once no further apply can enqueue.
 	st.distributedTasksManager.Close()
 
 	// close log store after raft shutdown to persist final log entries

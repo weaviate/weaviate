@@ -77,13 +77,13 @@ func (r *observerRecorder) first() *Task {
 	return r.seen[0]
 }
 
-func TestManagerCancelObserver(t *testing.T) {
+func TestManagerTerminalObserver(t *testing.T) {
 	t.Run("a registered observer sees the cancelled task", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer h.manager.Close()
 
 		var rec observerRecorder
-		h.manager.RegisterCancelObserver(observerNamespace, rec.record)
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 		require.Zero(t, rec.count(), "adding a task must not fire the cancel observer")
@@ -114,7 +114,7 @@ func TestManagerCancelObserver(t *testing.T) {
 		defer close(release)
 
 		var rec observerRecorder
-		h.manager.RegisterCancelObserver(observerNamespace, func(task *Task) {
+		h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
 			<-release
 			rec.record(task)
 		})
@@ -137,7 +137,7 @@ func TestManagerCancelObserver(t *testing.T) {
 	// any more. Every signal an observer raises has expired by then, so paying
 	// for them means a restart holds gates it can never usefully release.
 	//
-	// The age is a literal rather than cancelObserverStaleAfter+something:
+	// The age is a literal rather than terminalObserverStaleAfter+something:
 	// derived from the constant it would still pass at a window of a day, which
 	// is exactly the replay this test exists to forbid.
 	t.Run("a cancel older than the observer window is skipped", func(t *testing.T) {
@@ -145,7 +145,7 @@ func TestManagerCancelObserver(t *testing.T) {
 		defer h.manager.Close()
 
 		var rec observerRecorder
-		h.manager.RegisterCancelObserver(observerNamespace, rec.record)
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 		require.NoError(t, h.manager.CancelTask(
@@ -166,7 +166,7 @@ func TestManagerCancelObserver(t *testing.T) {
 
 		release := make(chan struct{})
 		var rec observerRecorder
-		h.manager.RegisterCancelObserver(observerNamespace, func(task *Task) {
+		h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
 			<-release
 			rec.record(task)
 		})
@@ -176,7 +176,7 @@ func TestManagerCancelObserver(t *testing.T) {
 		// One event parks in the observer, the queue then fills, and the rest
 		// have to find another way through.
 		const overflow = 3
-		total := cancelDispatchQueueDepth + 1 + overflow
+		total := terminalDispatchQueueDepth + 1 + overflow
 		task := &Task{
 			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
 			Namespace:      observerNamespace,
@@ -199,7 +199,7 @@ func TestManagerCancelObserver(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer h.manager.Close()
 
-		h.manager.RegisterCancelObserver("some-other-namespace", func(*Task) {
+		h.manager.RegisterTerminalObserver("some-other-namespace", func(*Task) {
 			require.Fail(t, "another namespace's observer must not fire")
 		})
 
@@ -215,8 +215,8 @@ func TestManagerCancelObserver(t *testing.T) {
 		defer h.manager.Close()
 
 		var rec observerRecorder
-		h.manager.RegisterCancelObserver(observerNamespace, rec.record)
-		h.manager.RegisterCancelObserver(observerNamespace, nil)
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+		h.manager.RegisterTerminalObserver(observerNamespace, nil)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
@@ -231,8 +231,8 @@ func TestManagerCancelObserver(t *testing.T) {
 		defer h.manager.Close()
 
 		var live, empty observerRecorder
-		h.manager.RegisterCancelObserver(observerNamespace, live.record)
-		h.manager.RegisterCancelObserver("", empty.record)
+		h.manager.RegisterTerminalObserver(observerNamespace, live.record)
+		h.manager.RegisterTerminalObserver("", empty.record)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
@@ -260,11 +260,11 @@ func TestManagerCancelObserver(t *testing.T) {
 // the drainer goroutine, which otherwise outlives the Manager and keeps a
 // provider reachable after the node tore its dependencies down, and the apply
 // path's handover, which otherwise keeps feeding that goroutine.
-func TestManagerCloseStopsTheCancelDrainer(t *testing.T) {
+func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
 	var rec observerRecorder
-	h.manager.RegisterCancelObserver(observerNamespace, rec.record)
+	h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
 	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 
 	h.manager.Close()
@@ -273,7 +273,7 @@ func TestManagerCloseStopsTheCancelDrainer(t *testing.T) {
 	// Put an event on the queue by hand, bypassing the apply path's own guard:
 	// only a live drainer can take it off again, so this asks about the
 	// goroutine and nothing else.
-	h.manager.cancelDispatch <- &Task{
+	h.manager.terminalDispatch <- &Task{
 		TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
 		Namespace:      observerNamespace,
 		Status:         TaskStatusCancelled,
@@ -285,18 +285,18 @@ func TestManagerCloseStopsTheCancelDrainer(t *testing.T) {
 
 	// The drainer is gone by now, so the queue below reads the apply path alone
 	// rather than racing a consumer.
-	for len(h.manager.cancelDispatch) > 0 {
-		<-h.manager.cancelDispatch
+	for len(h.manager.terminalDispatch) > 0 {
+		<-h.manager.terminalDispatch
 	}
 	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
-	require.Empty(t, h.manager.cancelDispatch,
+	require.Empty(t, h.manager.terminalDispatch,
 		"the apply path must not hand a cancel over after Close")
 }
 
-// newCancelDispatchManager builds a Manager without the scheduler around it,
+// newTerminalDispatchManager builds a Manager without the scheduler around it,
 // because the tests below need many of them and touch nothing but the dispatch
 // path.
-func newCancelDispatchManager() *Manager {
+func newTerminalDispatchManager() *Manager {
 	logger, _ := logrustest.NewNullLogger()
 	return NewManager(ManagerParameters{
 		Clock:  clockwork.NewFakeClock(),
@@ -304,7 +304,7 @@ func newCancelDispatchManager() *Manager {
 	})
 }
 
-func cancelDispatchTask(m *Manager) *Task {
+func terminalDispatchTask(m *Manager) *Task {
 	return &Task{
 		TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
 		Namespace:      observerNamespace,
@@ -317,19 +317,19 @@ func cancelDispatchTask(m *Manager) *Task {
 // wedged observer would otherwise turn a cancel storm into unbounded fan-out:
 // every one of those goroutines parks on the same wedge for the lifetime of the
 // process. Past the bound the events have to be dropped instead.
-func TestCancelDispatchOverflowIsBounded(t *testing.T) {
-	m := newCancelDispatchManager()
+func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
+	m := newTerminalDispatchManager()
 	defer m.Close()
 
 	release := make(chan struct{})
 	var rec observerRecorder
-	m.RegisterCancelObserver(observerNamespace, func(task *Task) {
+	m.RegisterTerminalObserver(observerNamespace, func(task *Task) {
 		<-release
 		rec.record(task)
 	})
 
 	// Literals, not the constants themselves. Derived from
-	// cancelDispatchQueueDepth and cancelDispatchOverflowLimit these numbers
+	// terminalDispatchQueueDepth and terminalDispatchOverflowLimit these numbers
 	// move with them, and the assertions below then hold at any bound,
 	// including one large enough to be no bound at all. 256 queue slots, one
 	// more the drainer can take and then block looking its observer up, and
@@ -341,13 +341,13 @@ func TestCancelDispatchOverflowIsBounded(t *testing.T) {
 
 	m.mu.Lock()
 	for range maxDelivered + pastTheBound {
-		m.dispatchTerminalWithLock(cancelDispatchTask(m), m.clock.Now())
+		m.dispatchTerminalWithLock(terminalDispatchTask(m), m.clock.Now())
 	}
 	m.mu.Unlock()
 
 	// The observer is wedged on release, so nothing has decremented yet: the
 	// count is exactly what the apply path was allowed to spawn.
-	require.EqualValues(t, 32, m.cancelOverflowInFlight.Load(),
+	require.EqualValues(t, 32, m.terminalOverflowInFlight.Load(),
 		"a wedged observer must not hold more than 32 overflow goroutines")
 
 	close(release)
@@ -357,34 +357,34 @@ func TestCancelDispatchOverflowIsBounded(t *testing.T) {
 	require.Never(t, func() bool { return rec.count() > maxDelivered },
 		300*time.Millisecond, 10*time.Millisecond,
 		"events past the overflow bound must be dropped, not fanned out")
-	require.EqualValues(t, 0, m.cancelOverflowInFlight.Load(),
+	require.EqualValues(t, 0, m.terminalOverflowInFlight.Load(),
 		"every overflow goroutine must have released its slot")
 }
 
 // Close tears the Manager's dependencies down, and an overflow goroutine is not
 // joined by it, so its own stop-signal check is the only thing between a
 // shutdown and an observer call into a torn-down node.
-func TestCancelDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
-	m := newCancelDispatchManager()
+func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
+	m := newTerminalDispatchManager()
 
 	var rec observerRecorder
 	m.mu.Lock()
-	// Registered by hand: RegisterCancelObserver would start the drainer, which
+	// Registered by hand: RegisterTerminalObserver would start the drainer, which
 	// would empty the queue this test needs full.
-	m.cancelObservers[observerNamespace] = rec.record
+	m.terminalObservers[observerNamespace] = rec.record
 	m.mu.Unlock()
 
-	for range cancelDispatchQueueDepth {
-		m.cancelDispatch <- cancelDispatchTask(m)
+	for range terminalDispatchQueueDepth {
+		m.terminalDispatch <- terminalDispatchTask(m)
 	}
 
 	// The state under test is a shutdown landing between the dispatch and the
 	// goroutine's first instruction. Close cannot stage it: it also latches the
 	// apply path shut, and the dispatch below has to get past that.
-	close(m.cancelDispatchDone)
+	close(m.terminalDispatchDone)
 
 	m.mu.Lock()
-	m.dispatchTerminalWithLock(cancelDispatchTask(m), m.clock.Now())
+	m.dispatchTerminalWithLock(terminalDispatchTask(m), m.clock.Now())
 	m.mu.Unlock()
 
 	require.Never(t, func() bool { return rec.count() > 0 },
@@ -404,8 +404,8 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 	release := make(chan struct{})
 
 	for range drainers {
-		m := newCancelDispatchManager()
-		m.RegisterCancelObserver(observerNamespace, func(task *Task) {
+		m := newTerminalDispatchManager()
+		m.RegisterTerminalObserver(observerNamespace, func(task *Task) {
 			// Only the first call per drainer has to be observable; a
 			// blocking send here would wedge the extra calls a broken
 			// recheck makes, and those are the point of the test.
@@ -418,7 +418,7 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 		})
 
 		for range 8 {
-			m.cancelDispatch <- cancelDispatchTask(m)
+			m.terminalDispatch <- terminalDispatchTask(m)
 		}
 		// Parking one event inside the observer proves the drainer is past its
 		// select, and leaves the rest queued so Close finds it with both cases
@@ -439,10 +439,10 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 // A panicking observer must not end cancel observation for everyone.
 //
 // GoWrapper's recover is outside the drainer loop, so a panic there exits the
-// goroutine while cancelDrainerRunning stays true — nothing restarts it, and
+// goroutine while terminalDrainerRunning stays true — nothing restarts it, and
 // re-registering does not help. One namespace's bug then silences cancels for
 // every namespace until the process restarts.
-func TestCancelDrainerSurvivesAPanickingObserver(t *testing.T) {
+func TestTerminalDrainerSurvivesAPanickingObserver(t *testing.T) {
 	h := newTestHarness(t)
 	// The recovered panic is the only evidence an operator gets that an
 	// observer is broken: the drainer swallows it and carries on, so without
@@ -454,7 +454,7 @@ func TestCancelDrainerSurvivesAPanickingObserver(t *testing.T) {
 
 	var rec observerRecorder
 	panicked := make(chan struct{}, 1)
-	h.manager.RegisterCancelObserver(observerNamespace, func(task *Task) {
+	h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
 		if task.Version == observerVersion {
 			select {
 			case panicked <- struct{}{}:
@@ -497,7 +497,7 @@ func TestCancelDrainerSurvivesAPanickingObserver(t *testing.T) {
 	var panicEntry *logrus.Entry
 	require.Eventuallyf(t, func() bool {
 		for _, e := range hook.AllEntries() {
-			if strings.Contains(e.Message, "cancel observer panicked") {
+			if strings.Contains(e.Message, "terminal observer panicked") {
 				panicEntry = e
 				return true
 			}

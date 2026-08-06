@@ -127,7 +127,7 @@ type ReindexProvider struct {
 	cancelAppliedMu sync.RWMutex
 	// cancelSeen is the per-collection refcount of recently applied cancels.
 	// It answers the cluster probe only and blocks nothing; see
-	// [ReindexProvider.OnCancelApplied] for why confirmation and blocking
+	// [ReindexProvider.OnTerminalApplied] for why confirmation and blocking
 	// cannot be the same signal.
 	cancelSeen map[string]int
 	// cancelApplyGates holds the cleanup-gate release taken at cancel-apply
@@ -139,7 +139,7 @@ type ReindexProvider struct {
 
 	// cancelTeardownSettled records tasks whose teardown has already run here,
 	// so an apply that lands after it releases at once instead of waiting out
-	// the cap. See [ReindexProvider.OnCancelApplied] for why either order
+	// the cap. See [ReindexProvider.OnTerminalApplied] for why either order
 	// happens.
 	cancelTeardownSettled map[distributedtask.TaskDescriptor]time.Time
 
@@ -1759,7 +1759,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	// Claim the gate the cancel-apply parked, before anything can return: this
 	// teardown is what it was waiting for, and a task with nothing to tear down
-	// must not leave it held. See [ReindexProvider.OnCancelApplied].
+	// must not leave it held. See [ReindexProvider.OnTerminalApplied].
 	if applyGate := p.adoptCancelApplyGate(task.TaskDescriptor); applyGate != nil {
 		defer applyGate()
 	}
@@ -1856,7 +1856,7 @@ func (p *ReindexProvider) AnyCleanupInProgress() bool {
 // why it has to wait on the answer.
 //
 // This is the confirmation signal, so it also answers yes for the window after
-// an apply during which no teardown is running; [ReindexProvider.OnCancelApplied]
+// an apply during which no teardown is running; [ReindexProvider.OnTerminalApplied]
 // explains why that window cannot come from the blocking gate. It gates nothing
 // itself: the backup gate reads [ReindexProvider.IsCleanupInProgress] and the
 // restore gate [ReindexProvider.BlockingHoldForCollection], falling back to
@@ -2545,8 +2545,13 @@ const reindexCancelConfirmWindow = 15 * time.Second
 // means a gate was leaking, so it is logged at Error.
 const reindexCancelApplyGateCap = time.Minute
 
-// OnCancelApplied runs on every node shortly after a CANCEL applies, off the
-// apply path. It raises two separate signals, and the separation is the point.
+// OnTerminalApplied runs on every node shortly after a task goes terminal —
+// CANCELLED or FAILED — off the apply path. Both statuses keep the cleanup
+// gate: a failed task stops reading live the moment the apply lands, while its
+// partial sidecar state survives until the teardown removes it. The only
+// exemption is [cancelledWithoutClaimedUnits], which is cancelled-only.
+//
+// It raises two separate signals, and the separation is the point.
 //
 // The cleanup gate is closed to cover the gap between the task going terminal in
 // DTM and the teardown starting: in that gap the task no longer reads live, but
@@ -2555,8 +2560,10 @@ const reindexCancelApplyGateCap = time.Minute
 // gap. It must NOT be held for a fixed window: teardown routinely finishes in
 // about a second, and callers back up immediately afterwards.
 //
-// Confirmation is the other half. A node handling a cancel learns that no backup
-// can start into a half-torn-down shard by polling the owners for a few seconds.
+// Confirmation is the other half. A node handling a cancel learns that no
+// backup can start into a half-torn-down shard by polling the owners for a few
+// seconds. Only the cancel path reads it, but a FAILED task raises it too: the
+// latch names a collection, and the two cannot be told apart from the probe.
 // Teardown is a level, not an edge: a shard with nothing to remove closes and
 // reopens its gate in microseconds, so no polling budget is guaranteed to see it.
 // That is why the probe answers from [ReindexProvider.cancelSeen], held for a
@@ -2570,9 +2577,9 @@ const reindexCancelApplyGateCap = time.Minute
 // parked. Whichever side is second releases, via the settled set below; the cap
 // only covers a teardown that never runs here at all.
 //
-// Registered via [distributedtask.Manager.RegisterCancelObserver], whose
-// [distributedtask.CancelObserver] godoc carries the apply-path contract.
-func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
+// Registered via [distributedtask.Manager.RegisterTerminalObserver], whose
+// [distributedtask.TerminalObserver] godoc carries the apply-path contract.
+func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
 	payload, err := p.loadPayload(task)
 
 	// Confirmation reads the collection alone, so a payload this node cannot

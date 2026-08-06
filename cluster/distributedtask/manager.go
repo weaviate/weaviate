@@ -66,24 +66,24 @@ type Manager struct {
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
 
-	// Per-namespace terminal-apply observers; see [CancelObserver].
-	cancelObservers map[string]CancelObserver
-	// cancelDispatch carries terminal tasks from the apply path to the single
+	// Per-namespace terminal-apply observers; see [TerminalObserver].
+	terminalObservers map[string]TerminalObserver
+	// terminalDispatch carries terminal tasks from the apply path to the single
 	// drainer goroutine that calls the observers. See
 	// [Manager.dispatchTerminalWithLock] for why they do not run inline.
-	cancelDispatch chan *Task
-	// cancelDispatchDone is closed by [Manager.Close] to stop the drainer.
-	cancelDispatchDone chan struct{}
-	// cancelOverflowInFlight counts the goroutines the apply path spawned
-	// because the queue was full; bounded by [cancelDispatchOverflowLimit].
+	terminalDispatch chan *Task
+	// terminalDispatchDone is closed by [Manager.Close] to stop the drainer.
+	terminalDispatchDone chan struct{}
+	// terminalOverflowInFlight counts the goroutines the apply path spawned
+	// because the queue was full; bounded by [terminalDispatchOverflowLimit].
 	// Read and incremented under mu (every dispatcher holds it), decremented
 	// from the goroutine itself, hence atomic.
-	cancelOverflowInFlight atomic.Int64
-	// cancelDrainerRunning keeps the drainer to exactly one goroutine across
+	terminalOverflowInFlight atomic.Int64
+	// terminalDrainerRunning keeps the drainer to exactly one goroutine across
 	// repeated registrations. Guarded by mu.
-	cancelDrainerRunning bool
-	// cancelDispatchClosed makes Close idempotent. Guarded by mu.
-	cancelDispatchClosed bool
+	terminalDrainerRunning bool
+	// terminalDispatchClosed makes Close idempotent. Guarded by mu.
+	terminalDispatchClosed bool
 
 	completedTaskTTL time.Duration
 
@@ -240,9 +240,9 @@ func NewManager(params ManagerParameters) *Manager {
 	return &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
-		cancelObservers:      make(map[string]CancelObserver),
-		cancelDispatch:       make(chan *Task, cancelDispatchQueueDepth),
-		cancelDispatchDone:   make(chan struct{}),
+		terminalObservers:    make(map[string]TerminalObserver),
+		terminalDispatch:     make(chan *Task, terminalDispatchQueueDepth),
+		terminalDispatchDone: make(chan struct{}),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -263,45 +263,46 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.collectionExtractors[namespace] = extractor
 }
 
-// RegisterCancelObserver installs the namespace's [CancelObserver]. Last write
-// wins per namespace; nil / empty arguments are silently dropped. Starts the
-// drainer that runs the observers, so registering is what opens the queue.
-func (m *Manager) RegisterCancelObserver(namespace string, observer CancelObserver) {
+// RegisterTerminalObserver installs the namespace's [TerminalObserver], which
+// fires on CANCELLED and on FAILED. Last write wins per namespace; nil / empty
+// arguments are silently dropped. Starts the drainer that runs the observers,
+// so registering is what opens the queue.
+func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalObserver) {
 	if namespace == "" || observer == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.cancelObservers[namespace] = observer
-	m.startCancelDrainerWithLock()
+	m.terminalObservers[namespace] = observer
+	m.startTerminalDrainerWithLock()
 }
 
-// Close stops the cancel-observer drainer. Idempotent. Anything still queued is
+// Close stops the terminal-observer drainer. Idempotent. Anything still queued is
 // dropped: the signal observers raise is only ever read by another node in the
 // same cluster, and on the way down there is no longer anyone to read it.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.cancelDispatchClosed {
+	if m.terminalDispatchClosed {
 		return
 	}
-	m.cancelDispatchClosed = true
-	close(m.cancelDispatchDone)
+	m.terminalDispatchClosed = true
+	close(m.terminalDispatchDone)
 }
 
-// cancelDispatchQueueDepth is how many cancel events the apply path may hand to
+// terminalDispatchQueueDepth is how many cancel events the apply path may hand to
 // the drainer before it has to fan one out on its own goroutine. Cancels are
 // operator-driven and the drainer only forwards, so a queue this deep can only
 // fill if an observer has wedged.
-const cancelDispatchQueueDepth = 256
+const terminalDispatchQueueDepth = 256
 
-// cancelDispatchOverflowLimit bounds the goroutines spawned for events the
+// terminalDispatchOverflowLimit bounds the goroutines spawned for events the
 // queue could not take. A queue this deep only fills when an observer has
 // wedged, and a wedged observer means every one of these goroutines parks
 // forever, so the fan-out has to stop somewhere.
-const cancelDispatchOverflowLimit = 32
+const terminalDispatchOverflowLimit = 32
 
-// cancelObserverStaleAfter is how old a terminal transition may be and still be
+// terminalObserverStaleAfter is how old a terminal transition may be and still be
 // worth telling an observer about. Observers exist to make a JUST-applied
 // ending observable to a request waiting on it. A node catching up on the RAFT
 // log applies endings that happened long ago; without this bound each one would
@@ -312,17 +313,17 @@ const cancelDispatchOverflowLimit = 32
 // cross-node clock comparison [Manager.CleanUpTask] already makes. A clock
 // further out of step than this skips the observer, and the request-scoped
 // confirmation it feeds is already unusable at that skew.
-const cancelObserverStaleAfter = time.Minute
+const terminalObserverStaleAfter = time.Minute
 
-// startCancelDrainerWithLock brings up the single goroutine that runs cancel
+// startTerminalDrainerWithLock brings up the single goroutine that runs cancel
 // observers. Caller holds m.mu.
-func (m *Manager) startCancelDrainerWithLock() {
-	if m.cancelDrainerRunning {
+func (m *Manager) startTerminalDrainerWithLock() {
+	if m.terminalDrainerRunning {
 		return
 	}
-	m.cancelDrainerRunning = true
+	m.terminalDrainerRunning = true
 
-	queue, done := m.cancelDispatch, m.cancelDispatchDone
+	queue, done := m.terminalDispatch, m.terminalDispatchDone
 	enterrors.GoWrapper(func() {
 		for {
 			select {
@@ -340,26 +341,26 @@ func (m *Manager) startCancelDrainerWithLock() {
 					return
 				default:
 				}
-				m.runCancelObserverSafely(task)
+				m.runTerminalObserverSafely(task)
 			}
 		}
 	}, m.dispatchLogger())
 }
 
-// runCancelObserverSafely keeps one namespace's panicking observer from taking
+// runTerminalObserverSafely keeps one namespace's panicking observer from taking
 // the drainer down for all of them. GoWrapper's recover sits outside the loop,
-// so a panic there ends the goroutine for good — and cancelDrainerRunning stays
+// so a panic there ends the goroutine for good — and terminalDrainerRunning stays
 // true, so nothing restarts it and re-registering an observer does not help.
-func (m *Manager) runCancelObserverSafely(task *Task) {
+func (m *Manager) runTerminalObserverSafely(task *Task) {
 	defer func() {
 		if r := recover(); r != nil {
 			m.dispatchLogger().
 				WithField("namespace", task.Namespace).
 				WithField("task_id", task.ID).
-				Errorf("distributedtask: cancel observer panicked; dropping this event and keeping the drainer alive: %v", r)
+				Errorf("distributedtask: terminal observer panicked; dropping this event and keeping the drainer alive: %v", r)
 		}
 	}()
-	m.runCancelObserver(task)
+	m.runTerminalObserver(task)
 }
 
 // dispatchLogger keeps the drainer usable from fixtures that build a Manager
@@ -371,11 +372,11 @@ func (m *Manager) dispatchLogger() logrus.FieldLogger {
 	return m.logger
 }
 
-// runCancelObserver looks the observer up fresh so a registration that lands
+// runTerminalObserver looks the observer up fresh so a registration that lands
 // after the event was queued still sees it.
-func (m *Manager) runCancelObserver(task *Task) {
+func (m *Manager) runTerminalObserver(task *Task) {
 	m.mu.RLock()
-	observer := m.cancelObservers[task.Namespace]
+	observer := m.terminalObservers[task.Namespace]
 	m.mu.RUnlock()
 	if observer == nil {
 		return
@@ -401,18 +402,18 @@ func (m *Manager) runCancelObserver(task *Task) {
 //
 // The task is cloned because it stays in m.tasks and later applies mutate it.
 func (m *Manager) dispatchTerminalWithLock(task *Task, occurredAt time.Time) {
-	if m.cancelDispatchClosed {
+	if m.terminalDispatchClosed {
 		// The drainer has been told to exit and drops whatever it still finds
 		// on the queue, so nothing handed over from here can be delivered.
 		// Applies keep arriving on the way down; without this they would fill a
 		// 256-deep queue that no one is left to empty.
 		return
 	}
-	observer := m.cancelObservers[task.Namespace]
+	observer := m.terminalObservers[task.Namespace]
 	if observer == nil {
 		return
 	}
-	if age := m.clock.Since(occurredAt); age > cancelObserverStaleAfter {
+	if age := m.clock.Since(occurredAt); age > terminalObserverStaleAfter {
 		m.dispatchLogger().WithFields(logrus.Fields{
 			"namespace": task.Namespace,
 			"task_id":   task.ID,
@@ -423,7 +424,7 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, occurredAt time.Time) {
 
 	clone := task.Clone()
 	select {
-	case m.cancelDispatch <- clone:
+	case m.terminalDispatch <- clone:
 	default:
 		// A missing event does not fail the cancel open: the node handling it
 		// keeps polling this node's gate and answers "unconfirmed" when its
@@ -433,18 +434,18 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, occurredAt time.Time) {
 		// the observers already tolerate.
 		logger := m.dispatchLogger()
 		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
-		if m.cancelOverflowInFlight.Load() >= cancelDispatchOverflowLimit {
+		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {
 			// Past the bound the observer is wedged rather than merely behind,
 			// and every further goroutine parks on the same wedge for the
 			// lifetime of the process.
-			logger.WithFields(fields).Error("distributedtask: cancel-observer queue is full and the overflow bound is reached; dropping this cancel event")
+			logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full and the overflow bound is reached; dropping this terminal event")
 			return
 		}
-		logger.WithFields(fields).Error("distributedtask: cancel-observer queue is full, the observer is not keeping up; dispatching this one separately")
-		m.cancelOverflowInFlight.Add(1)
-		done := m.cancelDispatchDone
+		logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full, the observer is not keeping up; dispatching this one separately")
+		m.terminalOverflowInFlight.Add(1)
+		done := m.terminalDispatchDone
 		enterrors.GoWrapper(func() {
-			defer m.cancelOverflowInFlight.Add(-1)
+			defer m.terminalOverflowInFlight.Add(-1)
 			// Not joined by Close: the observer may block for as long as it
 			// likes and Close runs under the same lock the observer takes to
 			// look itself up. Checking here is the whole stop signal, so a
