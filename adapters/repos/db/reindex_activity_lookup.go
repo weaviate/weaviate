@@ -279,30 +279,11 @@ func lowercasedSet(collections []string) map[string]struct{} {
 	return set
 }
 
-// reindexOverlapClockSkewAllowance widens the "finished before the backup
-// started" window because the two timestamps compared here are stamped on
-// different machines: since is the backup participant's wall clock, while
-// FinishedAt is the RAFT proposer's. Without an allowance, a proposer running
-// behind the participant makes a migration that really did finish inside the
-// backup window look like it finished before it, and the backup is published as
-// clean while it is in fact torn.
-//
-// The two errors are not symmetric. Too small an allowance publishes a torn
-// backup, which is silent and unrecoverable. Too large an allowance refuses a
-// backup that was in fact clean, which the operator sees and can retry. We
-// would rather refuse a clean backup than publish a torn one, so the allowance
-// is generous relative to real drift: 30s is two orders of magnitude above the
-// sub-second offset an NTP-synced cluster holds, while only extending the
-// refusal window by 30s for migrations that finished just before the backup.
-const reindexOverlapClockSkewAllowance = 30 * time.Second
-
 // reindexTaskOverlaps applies the overlap rules to a single task: it overlaps
 // when it targets one of the wanted collections and is either still running or
 // reached a terminal status at or after since, equal timestamps counting as
-// overlap. Only a finish more than [reindexOverlapClockSkewAllowance] before
-// since clears the task, because the two timestamps come from different clocks.
-// The returned collection name is the payload's, for the refusal message; it is
-// only meaningful when overlaps is true.
+// overlap. The returned collection name is the payload's, for the refusal
+// message; it is only meaningful when overlaps is true.
 //
 // A non-nil error means the task payload could not be read, so overlap can no
 // longer be ruled out; the caller fails closed on it.
@@ -324,7 +305,7 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 		// submit path's post-commit rollback.
 		return "", false, nil
 	}
-	if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since.Add(-reindexOverlapClockSkewAllowance)) {
+	if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
 		return "", false, nil
 	}
 	return payload.Collection, true, nil
