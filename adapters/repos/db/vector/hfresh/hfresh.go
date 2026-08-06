@@ -361,10 +361,28 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
 			return
 		}
+
+		// the store only holds updated or deleted vectors: fill the implicit
+		// first version for every remaining vector known to the posting map,
+		// so never-updated vectors skip the lazy fault path too
+		var defaults int
+		for _, metadata := range h.PostingMap.Iter() {
+			if h.ctx.Err() != nil {
+				h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
+				return
+			}
+			for vectorID := range metadata.Iter() {
+				if h.VersionMap.EnsureDefault(vectorID) {
+					defaults++
+				}
+			}
+		}
+
 		h.logger.WithFields(logrus.Fields{
-			"action": "hfresh_version_map_warmup",
-			"count":  count,
-			"took":   time.Since(before).String(),
+			"action":   "hfresh_version_map_warmup",
+			"count":    count,
+			"defaults": defaults,
+			"took":     time.Since(before).String(),
 		}).Info("version map warmed up")
 	}, h.logger)
 
