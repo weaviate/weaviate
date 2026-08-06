@@ -190,13 +190,6 @@ func (fb *fakeBackend) Name() string {
 	return "fakeBackend"
 }
 
-func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	fb.Lock()
-	defer fb.Unlock()
-	args := fb.Called(ctx, backupID, key, destPath)
-	return args.Error(0)
-}
-
 func (fb *fakeBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
