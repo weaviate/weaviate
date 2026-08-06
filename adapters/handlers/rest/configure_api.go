@@ -1131,9 +1131,19 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 // A DTM it cannot reach refuses every backup: the gate must not read "free"
 // from a question it could not ask. A live task whose payload will not decode
 // is the same uncertainty in a smaller shape — the shards it holds cannot be
-// named, so it too refuses every backup rather than let those shards read free.
-// The commit-time backstop ([db.ReindexOverlapLookup]) already refuses on an
-// unreadable payload; the two gates have to agree on what unreadable means.
+// named, so none of them may read free.
+//
+// How wide that refusal goes is decided by how much of the payload survives.
+// [db.ReindexTaskCollection] reads the collection out of payloads the full
+// decoder rejects, which is the state a rolling upgrade produces, and the
+// refusal is then held to that collection's shards. Only a payload naming no
+// collection at all refuses every backup in the cluster, because nothing says
+// which shards it could have been holding.
+//
+// The commit-time backstop ([db.ReindexOverlapLookup]) draws the same line, and
+// the two gates have to agree on what unreadable means: a gap between them
+// either admits a capture the commit will reject after all the upload work, or
+// refuses at admission what the commit would have allowed.
 func newShardReindexActivityBuilder(
 	ctx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -1151,23 +1161,35 @@ func newShardReindexActivityBuilder(
 			return func(string, string) bool { return true }
 		}
 		live := make(map[shardKey]bool)
+		// Collections held whole because a live task names them but its payload
+		// does not say which of their shards it took.
+		blocked := make(map[string]bool)
 		for _, task := range tasksByNamespace[db.ReindexNamespace] {
 			if !db.IsLiveReindexTaskStatus(task.Status) {
 				continue
 			}
 			var payload db.ReindexTaskPayload
 			if err := json.Unmarshal(task.Payload, &payload); err != nil {
+				collection := db.ReindexTaskCollection(task.Payload)
+				if collection == "" {
+					logger.WithField("action", "backup_reindex_gate").
+						WithField("task_id", task.ID).
+						Warnf("backup-reindex gate: cannot decode task payload and it names no collection; refusing all backups until it is readable or evicted: %v", err)
+					return func(string, string) bool { return true }
+				}
 				logger.WithField("action", "backup_reindex_gate").
 					WithField("task_id", task.ID).
-					Warnf("backup-reindex gate: cannot decode task payload; refusing all backups until it is readable: %v", err)
-				return func(string, string) bool { return true }
+					WithField("collection", collection).
+					Warnf("backup-reindex gate: cannot decode task payload; refusing backups of this collection until it is readable or evicted: %v", err)
+				blocked[strings.ToLower(collection)] = true
+				continue
 			}
 			for _, shardName := range payload.UnitToShard {
 				live[shardKey{payload.Collection, shardName}] = true
 			}
 		}
 		return func(collection, shardName string) bool {
-			return live[shardKey{collection, shardName}]
+			return blocked[strings.ToLower(collection)] || live[shardKey{collection, shardName}]
 		}
 	}
 }
