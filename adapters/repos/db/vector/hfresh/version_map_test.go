@@ -379,3 +379,25 @@ func TestVersionMapWarmup(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, count)
 }
+
+func TestVersionMapEnsureDefault(t *testing.T) {
+	ctx := t.Context()
+	m := makeVersionMap(t)
+
+	// unknown vector: installs the implicit first version without a store read
+	require.True(t, m.EnsureDefault(7))
+	page, slot := m.data.GetPageFor(7)
+	require.NotNil(t, page)
+	require.Equal(t, v1, page[slot], "default must be installed in memory")
+
+	// second call is a no-op
+	require.False(t, m.EnsureDefault(7))
+
+	// a vector with a known version must not be touched
+	v, err := m.Increment(ctx, 7, v1)
+	require.NoError(t, err)
+	require.False(t, m.EnsureDefault(7))
+	got, err := m.Get(ctx, 7)
+	require.NoError(t, err)
+	require.Equal(t, v, got, "EnsureDefault must never overwrite a live version")
+}
