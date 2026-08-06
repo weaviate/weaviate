@@ -66,11 +66,11 @@ type Manager struct {
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
 
-	// Per-namespace cancel-apply observers; see [CancelObserver].
+	// Per-namespace terminal-apply observers; see [CancelObserver].
 	cancelObservers map[string]CancelObserver
-	// cancelDispatch carries cancelled tasks from the apply path to the single
+	// cancelDispatch carries terminal tasks from the apply path to the single
 	// drainer goroutine that calls the observers. See
-	// [Manager.dispatchCancelWithLock] for why they do not run inline.
+	// [Manager.dispatchTerminalWithLock] for why they do not run inline.
 	cancelDispatch chan *Task
 	// cancelDispatchDone is closed by [Manager.Close] to stop the drainer.
 	cancelDispatchDone chan struct{}
@@ -301,10 +301,10 @@ const cancelDispatchQueueDepth = 256
 // forever, so the fan-out has to stop somewhere.
 const cancelDispatchOverflowLimit = 32
 
-// cancelObserverStaleAfter is how old a cancel may be and still be worth
-// telling an observer about. Observers exist to make a JUST-applied cancel
-// observable to a request waiting on it. A node catching up on the RAFT log
-// applies cancels that finished long ago; without this bound each one would
+// cancelObserverStaleAfter is how old a terminal transition may be and still be
+// worth telling an observer about. Observers exist to make a JUST-applied
+// ending observable to a request waiting on it. A node catching up on the RAFT
+// log applies endings that happened long ago; without this bound each one would
 // raise a gate nothing can release except its timeout, so a restart costs a
 // stretch of refused backups and an error line per replayed cancel.
 //
@@ -383,18 +383,24 @@ func (m *Manager) runCancelObserver(task *Task) {
 	observer(task)
 }
 
-// dispatchCancelWithLock hands a cancelled task to the drainer. Caller holds
-// m.mu.
+// dispatchTerminalWithLock hands a task that has just gone terminal to the
+// drainer. Caller holds m.mu.
+//
+// occurredAt is when the terminal transition happened, and is what the
+// staleness bound is measured against. It is passed rather than read off the
+// task because task.FinishedAt means "when the units stopped working", which on
+// the swap and prep failure paths is deliberately older than the failure
+// itself.
 //
 // Observers run off the apply path, never inline: they take their own locks,
 // which the admission path and HTTP handlers also take, and a RAFT apply that
 // waits on any of those stalls every FSM behind it. Moving them off also
 // removes the temptation to read the apply as happening first — a follower's
-// scheduler learns the task is cancelled through a leader-forwarded query and
+// scheduler learns the task is terminal through a leader-forwarded query and
 // routinely acts on it before the local apply lands, which was a real bug.
 //
 // The task is cloned because it stays in m.tasks and later applies mutate it.
-func (m *Manager) dispatchCancelWithLock(task *Task) {
+func (m *Manager) dispatchTerminalWithLock(task *Task, occurredAt time.Time) {
 	if m.cancelDispatchClosed {
 		// The drainer has been told to exit and drops whatever it still finds
 		// on the queue, so nothing handed over from here can be delivered.
@@ -406,12 +412,12 @@ func (m *Manager) dispatchCancelWithLock(task *Task) {
 	if observer == nil {
 		return
 	}
-	if age := m.clock.Since(task.FinishedAt); age > cancelObserverStaleAfter {
+	if age := m.clock.Since(occurredAt); age > cancelObserverStaleAfter {
 		m.dispatchLogger().WithFields(logrus.Fields{
 			"namespace": task.Namespace,
 			"task_id":   task.ID,
 			"age":       age,
-		}).Debug("distributedtask: skipping the cancel observer for a cancel that is already older than anything it could signal")
+		}).Debug("distributedtask: skipping the terminal observer for a transition that is already older than anything it could signal")
 		return
 	}
 
@@ -634,6 +640,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.FinishedAt = finishedAt
+		m.dispatchTerminalWithLock(task, finishedAt)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -661,6 +668,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
 		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
 		task.FinishedAt = finishedAt
+		if task.Status == TaskStatusFailed {
+			m.dispatchTerminalWithLock(task, finishedAt)
+		}
 	}
 
 	// Notify on every unit completion — even when not the last one — so
@@ -730,6 +740,9 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		} else {
 			task.Error = ackErr
 		}
+		// The ack, not task.FinishedAt: the failure happened when the node
+		// reported it, which is arbitrarily later than the units stopping.
+		m.dispatchTerminalWithLock(task, time.UnixMilli(r.AckedAtUnixMillis))
 	}
 
 	m.notifySchedulerWithLock()
@@ -821,6 +834,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 			task.Error = ackErr
 		}
 		// FinishedAt was set when AllUnitsTerminal landed; keep it.
+		m.dispatchTerminalWithLock(task, time.UnixMilli(r.AckedAtUnixMillis))
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -949,6 +963,10 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			task.Error = r.Error
 		}
 	}
+	// FailedAtUnixMillis, not task.FinishedAt: the latter deliberately stays at
+	// the units-stopped moment, which a long swap puts arbitrarily far in the
+	// past.
+	m.dispatchTerminalWithLock(task, time.UnixMilli(r.FailedAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -1039,7 +1057,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	task.Status = TaskStatusCancelled
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
-	m.dispatchCancelWithLock(task)
+	m.dispatchTerminalWithLock(task, task.FinishedAt)
 	m.notifySchedulerWithLock()
 	return nil
 }
