@@ -2745,8 +2745,11 @@ const reindexWorkerExitGateCap = 5 * time.Minute
 // [reindexWorkerExitGateCap], whichever comes first.
 //
 // A drain that times out is the case the gate exists for: the worker is still
-// writing, and the commit-time overlap check skips cancelled tasks, so releasing
-// on return would open the gate over a live writer with nothing behind it.
+// writing, and the commit-time overlap check can miss exactly this task. It
+// skips a cancelled task only when no unit ever left PENDING, and a cancel that
+// lands before the workers claim their units leaves that state behind while a
+// worker writes on. Releasing on return would open the gate over a live writer
+// with nothing behind it.
 func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
 	desc distributedtask.TaskDescriptor,
 	release func(),
