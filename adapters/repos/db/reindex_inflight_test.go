@@ -181,6 +181,11 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
 	require.Contains(t, err.Error(), "retry after the migration finishes")
+	// This reason covers PREPARING and SWAPPING too, and DTM refuses to cancel
+	// a task in either. Promising cancel outright loops the operator between a
+	// backup this text refuses and a cancel that refuses back.
+	require.Contains(t, err.Error(), "While it is still building indexes you can cancel it")
+	require.Contains(t, err.Error(), "once it has started committing its result it can only be waited out")
 }
 
 // TestReindexInFlightError_Submit pins the wording variant used while a

@@ -340,7 +340,13 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 		// for something that is gone.
 		advice = ": a cancelled migration is still removing its temporary index files; retry once the cleanup finishes (usually a few seconds)"
 	default:
-		advice = " has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}"
+		// The cancel clause is stated as conditional because it is: DTM only
+		// accepts a cancel while the task is still building indexes. Once it
+		// has entered its commit phase (PREPARING / SWAPPING) it is still live
+		// here and still refuses the backup, but cancel refuses too. Promising
+		// cancel outright sent operators into a loop between a refused backup
+		// and a cancel that reported nothing to do.
+		advice = " has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\"). While it is still building indexes you can cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}; once it has started committing its result it can only be waited out"
 	}
 	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf("%s: collection %q%s",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection, advice)}

@@ -174,8 +174,11 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 		db.logger.WithField("action", "restore_reindex_gate").
 			Debug("restore-reindex gate: refusing — DTM lists a live runtime-reindex task in the cluster")
 	}
+	// Conditional on purpose, and for the same reason as the backup gate's
+	// text in [reindexInFlightError]: this lookup counts PREPARING and
+	// SWAPPING as live, and DTM refuses to cancel a task in either.
 	return fmt.Errorf(
-		"%w: retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+		"%w: retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\"). While it is still building indexes you can cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}; once it has started committing its result it can only be waited out",
 		entitiesbackup.ErrReindexInFlight,
 	)
 }
