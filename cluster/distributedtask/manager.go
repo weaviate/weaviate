@@ -663,9 +663,6 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
 		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
 		task.FinishedAt = finishedAt
-		if task.Status == TaskStatusFailed {
-			m.dispatchTerminalWithLock(task, finishedAt)
-		}
 	}
 
 	// Notify on every unit completion — even when not the last one — so
