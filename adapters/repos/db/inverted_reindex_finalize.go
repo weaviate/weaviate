@@ -19,6 +19,9 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // nextMigrationGeneration returns the per-node generation `N` a new
@@ -213,19 +216,13 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //     `property_<prop>_<index>/`, remove `…_<backupSuffix-base>_<T>/`.
 //   - If `effective == M > T`: recovery path. The in-process runtime
 //     swap on this node crashed AFTER `markMerged` but BEFORE
-//     `markTidied`, so the ingest dir at gen M holds the
-//     target-tokenization data the schema expects and is safe to
-//     promote even though the canonical-name rename never ran. Write
-//     `swapped.mig` + `tidied.mig` sentinels into gen-M's tracker dir
-//     (so the namespace becomes self-consistent on disk and the same
-//     finalize path runs) and then promote gen M the same way.
-//     CRITICAL: this means the cluster-wide schema flip
-//     [ReindexProvider.flipSemanticMigrationSchema] has likely already
-//     committed via RAFT (the DTM task was FINISHED before this node
-//     died, otherwise the unit would not have transitioned terminal),
-//     so the canonical bucket MUST have target-tokenization data on
-//     restart — otherwise this node serves the old data under the new
-//     schema → divergence vs other replicas → #10675-shape bug.
+//     `markTidied`, so the ingest dir at gen M holds a complete dataset
+//     under the target encoding while the canonical-name rename never
+//     ran. Whether that dataset may be promoted depends on the task
+//     that produced it — see [mergedPromotionDecision]. When it may,
+//     `swapped.mig` + `tidied.mig` sentinels are written into gen-M's
+//     tracker dir (so the namespace becomes self-consistent on disk and
+//     the same finalize path runs) and gen M is promoted the same way.
 //   - Remove every dir on disk (sidecars + tracker) with gen < effective
 //     — these are pre-`effective` data, no longer referenced.
 //   - Remove the tracker dir for `effective` itself.
@@ -235,13 +232,22 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //   - Generations with `gen > effective` are in-flight (next migration)
 //     and left alone — recovery picks them up via their `payload.mig`.
 //
+// `class` is the collection schema this shard is being loaded with (the
+// restored schema on a restore path) and `taskLiveness` resolves the
+// task identity in a tracker's payload.mig against the distributed task
+// list. Both are only consulted on the merged-without-tidied branch;
+// passing nil for either makes that branch keep its historical
+// promote-unconditionally behavior.
+//
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
 // the store. The deferred-finalize design relies on the in-memory swap
 // (via DTM) marking tidied while the directory renames are deferred to
 // the next startup when no buckets are loaded. See
 // `docs/runtime-reindex.md` for the rationale.
-func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
+func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
+	taskLiveness ReindexTaskLivenessLookup, logger logrus.FieldLogger,
+) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -314,27 +320,31 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 
 		// If the effective promotion gen lacks tidied.mig, this is the
 		// recovery path: the in-process runtime swap on this node died
-		// after markMerged but before markTidied. Write the missing
-		// sentinels so the rest of the finalize logic sees a consistent
-		// tracker and the same ingest→canonical rename runs. The schema
-		// flip has likely already committed cluster-wide via the DTM
-		// task's FINISHED state; promoting gen-effective here is what
-		// makes this node's bucket data consistent with that schema.
+		// after markMerged but before markTidied. Whether its data may
+		// be promoted depends on the task that produced it.
 		if effective > highestTidied {
 			for _, g := range gens {
 				if g.gen != effective {
 					continue
 				}
 				migDir := filepath.Join(migrationsDir, g.dirName)
-				if err := writeRecoveryTidiedSentinels(migDir); err != nil {
-					logger.WithField("migration", g.dirName).
-						Errorf("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart: %v", err)
-					// Skip the recovery path; fall back to the tidied
-					// gen if any (existing behavior).
+				switch mergedPromotionDecision(migDir, g.dirName, class, taskLiveness, logger) {
+				case mergedPromotionPromote:
+					if err := writeRecoveryTidiedSentinels(migDir); err != nil {
+						logger.WithField("migration", g.dirName).
+							Errorf("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart: %v", err)
+						// Skip the recovery path; fall back to the tidied
+						// gen if any (existing behavior).
+						effective = highestTidied
+					} else {
+						logger.WithField("migration", g.dirName).WithField("gen", effective).
+							Info("reindex finalize: recovered untidied gen — runtime swap died post-merge, completing finalize from disk state")
+					}
+				case mergedPromotionLeave:
 					effective = highestTidied
-				} else {
-					logger.WithField("migration", g.dirName).WithField("gen", effective).
-						Info("reindex finalize: recovered untidied gen — runtime swap died post-merge, completing finalize from disk state")
+				case mergedPromotionRefuse:
+					discardRefusedMergedGen(lsmPath, namespace, migDir, g.dirName, logger)
+					effective = highestTidied
 				}
 				break
 			}
@@ -377,6 +387,194 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 				// payload.mig read.
 			}
 		}
+	}
+}
+
+// mergedPromotion is what [FinalizeCompletedMigrations] does with a
+// generation that reached merged.mig but never reached tidied.mig.
+type mergedPromotion int
+
+const (
+	// mergedPromotionPromote renames the ingest dir to canonical, the
+	// deferred second half of a swap that did commit.
+	mergedPromotionPromote mergedPromotion = iota
+	// mergedPromotionLeave keeps every dir where it is. Either the task
+	// is still running and owns them, or nothing on disk proves it is
+	// not.
+	mergedPromotionLeave
+	// mergedPromotionRefuse discards the ingest dir and its tracker.
+	mergedPromotionRefuse
+)
+
+// mergedPromotionDecision decides what may happen to a
+// merged-but-untidied generation, from the task identity in its
+// payload.mig plus the collection schema.
+//
+// The dangerous case this exists for: a task that was cancelled or
+// failed between markMerged and markTidied leaves an ingest dir that
+// nothing will ever complete. Promoting it moves data the cluster
+// decided not to migrate into the bucket queries read, and the schema
+// disagrees with it — for change-tokenization that is live-wrong data
+// on this replica only.
+//
+// Refusal is lossless: the swap never renamed the old canonical dir
+// away, so the property keeps serving its complete pre-migration data.
+// It is also mandatory rather than deferrable, because the task's
+// double-write mirror stopped when the task died — the ingest dir goes
+// stale from that moment and must never be promoted by a later startup.
+//
+// Refusal is deliberately narrow. It requires proof of death: a live
+// task keeps its state, and so does a task whose liveness cannot be
+// established (early startup, unreadable task list). A tracker with no
+// readable payload.mig keeps the historical behavior of promoting,
+// since without the task identity there is no proof of anything.
+func mergedPromotionDecision(migDir, dirName string, class *models.Class,
+	taskLiveness ReindexTaskLivenessLookup, logger logrus.FieldLogger,
+) mergedPromotion {
+	logger = logger.WithField("migration", dirName)
+
+	rec, ok := loadAuditRecord(migDir)
+	if !ok {
+		logger.Warn("reindex finalize: merged-but-untidied tracker has no readable payload.mig; " +
+			"promoting it unverified, as pre-payload builds and operator surgery both produce this shape")
+		return mergedPromotionPromote
+	}
+
+	liveness := taskLiveness.Answer(rec.TaskID, rec.TaskVersion)
+	agrees := mergedPromotionAgreesWithSchema(rec.Payload, class)
+
+	logger = logger.WithField("task", rec.TaskID).
+		WithField("task_liveness", liveness.String()).
+		WithField("schema_agrees", agrees)
+
+	switch {
+	case liveness == ReindexTaskLivenessLive:
+		logger.Info("reindex finalize: merged-but-untidied tracker belongs to a running task; " +
+			"leaving its state to the reindex machinery")
+		return mergedPromotionLeave
+	case agrees:
+		return mergedPromotionPromote
+	case liveness == ReindexTaskLivenessDead:
+		logger.Warnf("reindex finalize: refusing to promote merged-but-untidied migration — the %q task is "+
+			"no longer running and the schema does not reflect it. The property keeps its pre-migration data "+
+			"and the abandoned working dirs are discarded", rec.Payload.MigrationType)
+		return mergedPromotionRefuse
+	default:
+		logger.Warnf("reindex finalize: the schema does not reflect the %q migration and its task's status is "+
+			"unknown at this point in startup; leaving every dir in place for the next startup or the orphan audit",
+			rec.Payload.MigrationType)
+		return mergedPromotionLeave
+	}
+}
+
+// mergedPromotionAgreesWithSchema reports whether `class` confirms the
+// migration described by `payload` already completed for every property
+// it targets. Content-equivalent rewrites (repair / rebuild / algorithm
+// change) leave no schema trace and are always accepted, since their
+// ingest bucket holds the same information as the canonical one it
+// replaces; every other type needs its schema flag already flipped as
+// proof. An unknown migration type is not confirmed, so a new strategy
+// opts in here deliberately.
+func mergedPromotionAgreesWithSchema(payload ReindexTaskPayload, class *models.Class) bool {
+	var reflected func(prop *models.Property) bool
+	switch payload.MigrationType {
+	case ReindexTypeRepairFilterable, ReindexTypeRepairRangeable,
+		ReindexTypeRebuildSearchable, ReindexTypeChangeAlgorithm:
+		return true
+	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
+		reflected = func(prop *models.Property) bool {
+			return payload.TargetTokenization != "" && prop.Tokenization == payload.TargetTokenization
+		}
+	case ReindexTypeEnableFilterable:
+		reflected = inverted.HasFilterableIndex
+	case ReindexTypeEnableSearchable:
+		reflected = inverted.HasSearchableIndex
+	case ReindexTypeEnableRangeable:
+		reflected = inverted.HasRangeableIndex
+	default:
+		return false
+	}
+
+	if len(payload.Properties) == 0 {
+		return false
+	}
+	for _, propName := range payload.Properties {
+		prop := propertyByName(class, propName)
+		if prop == nil || !reflected(prop) {
+			return false
+		}
+	}
+	return true
+}
+
+func propertyByName(class *models.Class, propName string) *models.Property {
+	if class == nil {
+		return nil
+	}
+	for _, p := range class.Properties {
+		if p != nil && p.Name == propName {
+			return p
+		}
+	}
+	return nil
+}
+
+// discardRefusedMergedGen removes the working dirs a refused generation
+// built (ingest and reindex) and then its tracker dir. Tracker last: a
+// crash in between re-enters the same refusal on the next startup, and
+// both steps are idempotent.
+//
+// A backup dir is only removed when the property has a canonical dir to
+// serve from. A backup with no canonical name beside it is the last copy
+// of that property's data — a swap that renamed old-main away and died
+// before renaming ingest in — and deleting it is the one thing this
+// branch must never do.
+func discardRefusedMergedGen(lsmPath, namespace, migDir, dirName string, logger logrus.FieldLogger) {
+	suffixes := migrationSuffixes(dirName)
+	_, gen, ok := parseMigrationDirName(dirName)
+	props, propsErr := readMigrationProps(migDir)
+	if suffixes == nil || !ok || propsErr != nil {
+		logger.WithField("path", migDir).
+			Warnf("reindex finalize: cannot enumerate the refused migration's dirs; leaving them on disk for the orphan audit: %v", propsErr)
+		return
+	}
+
+	genTail := "_" + strconv.Itoa(gen)
+	for _, propName := range props {
+		main := suffixes.sourceBucketName(propName)
+		for _, suff := range []string{suffixes.ingestSuffix, reindexSuffixForFinalize(namespace)} {
+			if suff == "" {
+				// An empty suffix would name the canonical dir itself.
+				continue
+			}
+			removeDirIfPresent(filepath.Join(lsmPath, main+suff+genTail), logger)
+		}
+		backupDir := filepath.Join(lsmPath, main+suffixes.backupSuffix+genTail)
+		if !fileExists(backupDir) {
+			continue
+		}
+		if !fileExists(filepath.Join(lsmPath, main)) {
+			logger.WithField("property", propName).WithField("backup_dir", backupDir).
+				Warn("reindex finalize: refused migration left a backup dir with no canonical dir beside it; " +
+					"keeping it, it may be the only copy of this property's data")
+			continue
+		}
+		removeDirIfPresent(backupDir, logger)
+	}
+
+	if err := os.RemoveAll(migDir); err != nil {
+		logger.WithField("path", migDir).
+			Warnf("reindex finalize: failed to remove refused merged tracker dir: %v", err)
+	}
+}
+
+func removeDirIfPresent(path string, logger logrus.FieldLogger) {
+	if !fileExists(path) {
+		return
+	}
+	if err := os.RemoveAll(path); err != nil {
+		logger.WithField("path", path).
+			Warnf("reindex finalize: failed to remove refused migration dir: %v", err)
 	}
 }
 

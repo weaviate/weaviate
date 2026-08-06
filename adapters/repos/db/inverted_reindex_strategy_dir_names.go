@@ -171,13 +171,19 @@ func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
 // Wholesale-deleting them on a single property's DELETE would corrupt
 // the class-level migration; their per-property entries are pruned by
 // the strategy's own bookkeeping.
+//
+// The rangeable tracker belongs to the "rangeable" arm only. Listing it
+// under "filterable" too would let an orphaned rangeable tracker wedge an
+// unrelated filterable-family task's LocalCallbacksDone forever, and let
+// DELETE /indexes/filterable sweep a live rangeable tracker. There is no
+// data dependency between the two: the rangeable backfill reads the
+// objects bucket, not the filterable one.
 func migrationDirsForPropertyIndex(propName, indexType string) []string {
 	switch indexType {
 	case "filterable":
 		return []string{
 			migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}),
 			MigrationDirPrefixFilterableRetokenize + "_" + propName,
-			migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName}),
 		}
 	case "searchable":
 		return []string{

@@ -159,7 +159,10 @@ func TestHasUntidiedTracker(t *testing.T) {
 }
 
 // TestIsSemanticMigration pins the semantic/format-only classification
-// (weaviate/0-weaviate-issues#254 promoted change-algorithm to semantic).
+// The rule: semantic iff the migration requires a global schema flip.
+// weaviate/0-weaviate-issues#254 promoted change-algorithm; #465 promoted
+// enable-rangeable. repair-rangeable stays format-only — it rebuilds an
+// already-enabled index and changes no schema.
 func TestIsSemanticMigration(t *testing.T) {
 	semantic := []ReindexMigrationType{
 		ReindexTypeChangeTokenization,
@@ -167,11 +170,11 @@ func TestIsSemanticMigration(t *testing.T) {
 		ReindexTypeEnableFilterable,
 		ReindexTypeEnableSearchable,
 		ReindexTypeChangeAlgorithm,
+		ReindexTypeEnableRangeable,
 	}
 	formatOnly := []ReindexMigrationType{
 		ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable,
 		ReindexTypeRepairRangeable,
 	}
 	for _, mt := range semantic {
@@ -187,9 +190,9 @@ func TestIsSemanticMigration(t *testing.T) {
 }
 
 // TestSemanticMigrationIndexTypes pins the migration-type → index-type
-// mapping. Format-only migrations (repair-*, enable-rangeable) MUST
-// return nil here — they don't go through the swap barrier, so
-// LocalCallbacksDone has nothing to check for them.
+// mapping. Format-only migrations MUST return nil here — they don't go
+// through the swap barrier, so LocalCallbacksDone has nothing to check
+// for them.
 func TestSemanticMigrationIndexTypes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -227,8 +230,18 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "enable-rangeable → empty (format-only)",
+			name: "enable-rangeable → rangeable",
 			mt:   ReindexTypeEnableRangeable,
+			want: []string{"rangeable"},
+		},
+		{
+			name: "repair-rangeable → empty (format-only, no schema flip)",
+			mt:   ReindexTypeRepairRangeable,
+			want: nil,
+		},
+		{
+			name: "rebuild-searchable → empty (format-only)",
+			mt:   ReindexTypeRebuildSearchable,
 			want: nil,
 		},
 	}
