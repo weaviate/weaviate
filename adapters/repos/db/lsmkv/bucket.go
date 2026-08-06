@@ -556,7 +556,13 @@ func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quar
 	if !b.HasEditOps() {
 		return false, 0, 0, fmt.Errorf("edit ops not enabled for this bucket")
 	}
-	return b.disk.editOps.DeleteOpIfDrained(opID)
+	deleted, pending, quarantined, err = b.disk.editOps.DeleteOpIfDrained(opID)
+	if err == nil && deleted {
+		// The op's series must go with it, or its gauges keep reporting a
+		// value forever (refresh is self-reconciling and forgets vanished ops).
+		b.disk.refreshEditOpsMetrics()
+	}
+	return deleted, pending, quarantined, err
 }
 
 // EditOpsHaveRows reports whether ANY edit op on this bucket still has
