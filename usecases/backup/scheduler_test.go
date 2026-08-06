@@ -1174,6 +1174,8 @@ func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {
 	assert.IsType(t, backup.ErrUnprocessable{}, err,
 		"a participant refusing over a live migration must not surface as a 500")
 	assert.Contains(t, err.Error(), "restore blocked: runtime-reindex in flight in the cluster")
+	assert.NotContains(t, err.Error(), nodeA,
+		"the reindex refusal is node-free by construction; the coordinator must not prefix it with the node name")
 }
 
 // TestSchedulerBackupRefusedByParticipantIsUnprocessable is the backup-side
@@ -1213,6 +1215,8 @@ func TestSchedulerBackupRefusedByParticipantIsUnprocessable(t *testing.T) {
 	assert.IsType(t, backup.ErrUnprocessable{}, err,
 		"a participant refusing over a live migration must not surface as a 500")
 	assert.Contains(t, err.Error(), "backup blocked: runtime-reindex in flight")
+	assert.NotContains(t, err.Error(), node,
+		"the reindex refusal is node-free by construction; the coordinator must not prefix it with the node name")
 }
 
 func TestSchedulerList(t *testing.T) {
