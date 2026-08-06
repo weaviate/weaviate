@@ -1234,7 +1234,7 @@ configuration:
 - *Lookup not yet installed.* The lookups are wired from a
   post-bootstrap goroutine in `configure_api.go`. Until it runs, the
   backup gate, the restore gate, the commit-time overlap check
-  (`DB.ObserveReindexOverlap`) and the reindex gate each allow the
+  (`DB.RefuseIfReindexOverlapped`) and the reindex gate each allow the
   operation and emit a WARN, rate-limited to one line per hour so a
   persistent misconfiguration stays visible to whoever reads the log
   next. This window is reachable from outside: a request that arrives
@@ -1262,6 +1262,23 @@ configuration:
   any of the three, and no commit-time backstop catches it either, since
   that check is off too. This is the escape hatch for the whole feature,
   so it cannot itself fail backups.
+
+**The commit-time backstop compares two clocks.** `RefuseIfReindexOverlapped`
+clears a task when its `FinishedAt` is before the backup's start time. Those two
+stamps come from different machines: the start time from the node capturing the
+backup, `FinishedAt` from whichever node proposed the task to RAFT. If the
+proposer's clock runs far enough behind, a migration that really did finish
+inside the backup window reads as having finished before it, and the backup is
+published as clean while it is torn.
+
+This is accepted, not a bug to be worked around here. Backup state is not
+tracked in RAFT, so there is no cluster-wide consistent answer to "when did this
+backup start" to order task state against — every timestamp comparison
+downstream of that inherits the same window. Two attempts to close it locally
+(a fixed skew allowance, then a task-set snapshot taken at backup start and
+re-read at commit) were reverted for that reason: both were workarounds for a
+limitation in the backup subsystem, placed in the reindex code. Closing it means
+putting backup state in RAFT.
 
 Refusals are retryable, never terminal:
 
