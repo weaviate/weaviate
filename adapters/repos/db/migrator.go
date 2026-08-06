@@ -441,7 +441,15 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 
 		// a shut index or a dead context fails every tenant that is left, so
 		// carrying on only compounds the same error once per tenant
-		if errors.Is(err, errAlreadyShutdown) || ctx.Err() != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// a tenant already in the wanted state returns nil, so without this the
+			// break reports success while the remaining tenants went unreconciled
+			if !errors.Is(err, ctxErr) {
+				ec.AddWrapf(ctxErr, "reconcile tenants of index %s", idx.ID())
+			}
+			break
+		}
+		if errors.Is(err, errAlreadyShutdown) {
 			break
 		}
 	}
