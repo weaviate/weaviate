@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
@@ -134,15 +133,9 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	}
 
 	if lookup == nil {
-		db.gateSamplers().unwiredRestoreGate.WithSampling(func(logrus.FieldLogger) {
-			logger := db.logger
-			if logger == nil {
-				logger = logrus.New()
-			}
-			logger.WithField("action", "restore_reindex_gate").
-				Warn("restore-reindex gate: AnyReindexActivityLookup not yet installed; allowing restore. " +
-					"Expected briefly during startup; if this persists past bootstrap, check the SetAnyReindexActivityLookup wiring in configure_api.go.")
-		})
+		warnUnwiredGate(db.gateSamplers().unwiredRestoreGate, "restore_reindex_gate",
+			"restore-reindex gate: AnyReindexActivityLookup not yet installed; allowing restore. "+
+				"Expected briefly during startup; if this persists past bootstrap, check the SetAnyReindexActivityLookup wiring in configure_api.go.")
 		return nil
 	}
 
@@ -374,16 +367,10 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []strin
 	db.reindexAuditMu.RUnlock()
 
 	if lookup == nil {
-		db.gateSamplers().unwiredOverlap.WithSampling(func(logrus.FieldLogger) {
-			logger := db.logger
-			if logger == nil {
-				logger = logrus.New()
-			}
-			logger.WithField("action", "backup_reindex_overlap").
-				Warn("backup-reindex overlap check: lookup not yet installed; allowing the backup. " +
-					"Expected briefly during startup; if this persists past bootstrap, check the " +
-					"SetReindexOverlapLookup wiring in configure_api.go.")
-		})
+		warnUnwiredGate(db.gateSamplers().unwiredOverlap, "backup_reindex_overlap",
+			"backup-reindex overlap check: lookup not yet installed; allowing the backup. "+
+				"Expected briefly during startup; if this persists past bootstrap, check the "+
+				"SetReindexOverlapLookup wiring in configure_api.go.")
 		return nil
 	}
 	return lookup(ctx, collections, since)

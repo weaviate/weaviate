@@ -27,7 +27,6 @@ import (
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/logrusext"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -121,10 +120,10 @@ func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 // checked. Reopening after the window is covered by logrusext's own test.
 func TestWarnUnwiredReindexGate_RateLimited(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
-	sampler := logrusext.NewSampler(logger, 1, time.Hour)
+	db := &DB{logger: logger}
 
 	for range 5 {
-		warnUnwiredReindexGate(sampler, logger)
+		db.warnUnwiredReindexGate()
 	}
 
 	entries := hook.AllEntries()
@@ -528,10 +527,10 @@ func TestReindexInFlightError_UnknownHold(t *testing.T) {
 // runs per shard, and the condition persists until someone ships a fix.
 func TestWarnUnknownReindexHold_RateLimited(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
-	sampler := logrusext.NewSampler(logger, 1, time.Hour)
+	db := &DB{logger: logger}
 
 	for range 5 {
-		warnUnknownReindexHold(sampler, logger, unknownReindexHold)
+		db.warnUnknownReindexHold(unknownReindexHold)
 	}
 
 	entries := hook.AllEntries()
