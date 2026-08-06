@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -141,10 +142,9 @@ func requireTenantEventually(t *testing.T, qualifiedClass, tenant, status string
 	}, 30*time.Second, 200*time.Millisecond, "tenant %q never reported %s", tenant, status)
 }
 
-// A suspended namespace must materialize no further shards. A tenant create is
-// what reaches that decision on a running node: unlike a class create or a
-// tenant status change, it carries no namespace gate at RAFT apply, so it runs
-// all the way down into the shard registration the namespace guards.
+// A suspended namespace must materialize no further shards. Both tenant
+// commands are refused at RAFT apply, ahead of the schema commit, so neither
+// can leave a tenant listed with no shard behind it.
 func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
@@ -168,18 +168,27 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 
 	// The namespace's own key is rejected while it is suspended, so these run as
 	// the global operator against the qualified class name.
-	t.Run("a new HOT tenant materializes no shard", func(t *testing.T) {
-		_ = addTenantsAuth(t, qualified, []*models.Tenant{
+	t.Run("a tenant create is refused", func(t *testing.T) {
+		// The COLD tenant needs no shard, so nothing below the gate would
+		// refuse it: it pins that one refusal takes the whole batch.
+		err := addTenantsAuth(t, qualified, []*models.Tenant{
 			{Name: "added", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "addedcold", ActivityStatus: models.TenantActivityStatusCOLD},
 		}, adminKey)
+		require.Error(t, err)
 
-		requireTenantEventually(t, qualified, "added", models.TenantActivityStatusHOT)
+		// The whole list is read back rather than the two tenants, so a refused
+		// create is told apart from a read that failed for its own reasons.
+		tenants, err := getTenantsAuth(t, qualified, adminKey)
+		require.NoError(t, err)
+		assert.NotContains(t, tenantNames(tenants), "added")
+		assert.NotContains(t, tenantNames(tenants), "addedcold")
 		requireShardAbsent(t, qualified, "added", presentShard{qualified, "warm"})
 	})
 
-	// A status change is refused outright rather than applied without a shard.
-	// The node running it holds no shard for either a COLD or a HOT tenant here,
-	// so a freeze it started would abort against a status nothing can read back.
+	// The node running a status change holds no shard for either a COLD or a HOT
+	// tenant here, so a freeze it started would abort against a status nothing
+	// can read back.
 	t.Run("a tenant status change is refused", func(t *testing.T) {
 		err := updateTenantsAuth(t, qualified, []*models.Tenant{
 			{Name: "chilled", ActivityStatus: models.TenantActivityStatusHOT},
@@ -334,6 +343,24 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 			requireShardAbsent(t, dropMTQualified, tenant, live)
 		})
 	}
+
+	// A read cannot materialize a shard, so a write is what puts the request
+	// path's namespace check on a shard the boot skipped. As the global
+	// operator, since the namespace's own key stops authenticating while it is
+	// suspended and would be turned away before ever reaching a shard.
+	t.Run("a write into the suspended namespace is refused", func(t *testing.T) {
+		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			Class: dropSTQualified, Properties: map[string]any{"title": "written while suspended"},
+		}, adminKey)
+		require.Error(t, err)
+
+		// The responder renders its payload as a pointer, so the message has to
+		// be read off the typed error rather than its Error() string.
+		var serverErr *objects.ObjectsCreateInternalServerError
+		require.ErrorAs(t, err, &serverErr)
+		require.NotEmpty(t, serverErr.Payload.Error)
+		assert.Contains(t, serverErr.Payload.Error[0].Message, "namespace is suspended")
+	})
 
 	t.Run("the suspended namespace keeps its schema", func(t *testing.T) {
 		for _, class := range []string{dropSTQualified, dropMTQualified} {
