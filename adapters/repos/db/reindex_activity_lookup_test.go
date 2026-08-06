@@ -314,6 +314,92 @@ func TestReindexOverlapLookup(t *testing.T) {
 	}
 }
 
+// The two timestamps the overlap rule compares are stamped on different
+// machines: since comes from the backup participant, FinishedAt from the RAFT
+// proposer. Every other case in this file derives both from one time.Now(),
+// which assumes a single clock and hides the skew entirely. Here the ground
+// truth is fixed in participant time and the proposer's stamp is offset
+// independently, so both skew directions are visible.
+func TestReindexOverlapLookupToleratesClockSkew(t *testing.T) {
+	// Backup start, on the participant's clock. This is the `since` argument.
+	backupStart := time.Now().Add(-2 * time.Minute)
+
+	tests := []struct {
+		name string
+		// Where the migration really finished, in participant time.
+		finishedInParticipantTime time.Duration
+		// How far the proposer's clock is off the participant's.
+		proposerSkew time.Duration
+		wantRefuse   bool
+		why          string
+	}{
+		{
+			name:                      "real overlap, proposer clock behind",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              -5 * time.Second,
+			wantRefuse:                true,
+			why:                       "a slow proposer stamps a finish that predates the backup start it really followed; clearing it publishes a torn backup",
+		},
+		{
+			name:                      "real overlap, proposer clock ahead",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              5 * time.Second,
+			wantRefuse:                true,
+		},
+		{
+			name:                      "real overlap, clocks agree",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              0,
+			wantRefuse:                true,
+		},
+		{
+			name:                      "real overlap at the far edge of the allowance, proposer behind",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              -(reindexOverlapClockSkewAllowance - 2*time.Second),
+			wantRefuse:                true,
+		},
+		{
+			name:                      "no overlap, proposer clock behind",
+			finishedInParticipantTime: -10 * time.Minute,
+			proposerSkew:              -5 * time.Second,
+			wantRefuse:                false,
+			why:                       "a migration that finished long before the backup stays cleared under skew",
+		},
+		{
+			name:                      "no overlap, proposer clock ahead",
+			finishedInParticipantTime: -10 * time.Minute,
+			proposerSkew:              5 * time.Second,
+			wantRefuse:                false,
+		},
+		{
+			name:                      "no overlap, clocks agree",
+			finishedInParticipantTime: -10 * time.Minute,
+			proposerSkew:              0,
+			wantRefuse:                false,
+			why:                       "the allowance must not swallow every past migration",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stamped := backupStart.Add(tc.finishedInParticipantTime).Add(tc.proposerSkew)
+			task := overlapTask("Movies", distributedtask.TaskStatusFinished, stamped)
+
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {task}}, nil
+			}, time.Hour)
+
+			err := lookup(context.Background(), []string{"Movies"}, backupStart)
+			if tc.wantRefuse {
+				require.Error(t, err, tc.why)
+				assert.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex, tc.why)
+				return
+			}
+			require.NoError(t, err, tc.why)
+		})
+	}
+}
+
 func overlapTaskWithUnits(collection string, status distributedtask.TaskStatus, finishedAt time.Time,
 	units map[string]*distributedtask.Unit,
 ) *distributedtask.Task {
