@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -151,6 +152,80 @@ func (s *segment) loadBloomFilterFromDisk() error {
 	}
 
 	return nil
+}
+
+// getBloomFilter returns nil if the segment has none. Shared with every
+// concurrent reader, so callers must not mutate it.
+func (s *segment) getBloomFilter() *bloom.BloomFilter {
+	return s.bloomFilter
+}
+
+// getKeysSorted returns the primary index's keys ascending. They alias the
+// segment's data, so they are valid only while it is pinned.
+func (s *segment) getKeysSorted() [][]byte {
+	keys := make([][]byte, 0, s.index.KeyCount())
+	s.index.ForEachKey(func(key []byte) {
+		keys = append(keys, key)
+	})
+	slices.SortFunc(keys, bytes.Compare)
+	return keys
+}
+
+// combineBloomFilters returns an unsaturated, mutable copy of the
+// largest-estimating filter it can build from the pinned segments: a union per
+// (m, k) geometry — Merge rejects mismatched ones — or a single segment's
+// filter. Nil if no segment carries a filter; segments without one contribute
+// their keys to exact instead.
+func combineBloomFilters(segments []Segment, exact *exactKeys) *bloom.BloomFilter {
+	type geometry struct{ m, k uint }
+	var (
+		unions           map[geometry]*bloom.BloomFilter
+		largestSingle    *bloom.BloomFilter
+		largestSingleEst uint32
+	)
+	for _, seg := range segments {
+		bf := seg.getBloomFilter()
+		if bf == nil {
+			exact.add(seg.getKeysSorted())
+			continue
+		}
+		if bloomSaturated(bf) {
+			// sized for its own key count, so this should not happen; skip
+			// rather than poison a union
+			continue
+		}
+		if est := bf.ApproximatedSize(); largestSingle == nil || est > largestSingleEst {
+			largestSingle, largestSingleEst = bf, est
+		}
+		g := geometry{m: bf.Cap(), k: bf.K()}
+		if u, ok := unions[g]; ok {
+			_ = u.Merge(bf) // equal geometry, cannot fail
+		} else {
+			if unions == nil {
+				unions = map[geometry]*bloom.BloomFilter{}
+			}
+			unions[g] = bf.Copy()
+		}
+	}
+
+	var (
+		best    *bloom.BloomFilter
+		bestEst uint32
+	)
+	for _, u := range unions {
+		if bloomSaturated(u) {
+			continue
+		}
+		if est := u.ApproximatedSize(); best == nil || est > bestEst {
+			best, bestEst = u, est
+		}
+	}
+	// a union bounds only its own geometry, so a surviving small union must not
+	// displace a larger single filter whose union saturated
+	if largestSingle != nil && (best == nil || largestSingleEst > bestEst) {
+		return largestSingle.Copy()
+	}
+	return best
 }
 
 func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList map[string]int64) error {

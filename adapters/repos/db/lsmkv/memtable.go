@@ -69,6 +69,7 @@ type memtable interface {
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	SetTombstone(docId uint64) error
 	GetPropLengths() (uint64, uint64)
+	GetKeys() ([][]byte, error)
 
 	newCursor() innerCursorReplace
 	newBlockingCursor() (innerCursorReplace, func())
@@ -801,4 +802,31 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 
 	result := m.roaringSetRange
 	return result
+}
+
+// GetKeys returns the memtable's keys ascending, aliasing the nodes' keys.
+func (m *Memtable) GetKeys() ([][]byte, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	// roaringsetrange stores per-bit bitmaps rather than keys, and an empty
+	// result would read as "no keys"
+	if m.strategy == StrategyRoaringSetRange {
+		return nil, fmt.Errorf("GetKeys unsupported for strategy %q", m.strategy)
+	}
+
+	if m.key != nil && m.key.root != nil {
+		return m.key.keysInOrder(), nil
+	}
+	if m.keyMulti != nil && m.keyMulti.root != nil {
+		return m.keyMulti.keysInOrder(), nil
+	}
+	if m.keyMap != nil && m.keyMap.root != nil {
+		return m.keyMap.keysInOrder(), nil
+	}
+	if m.roaringSet != nil {
+		return m.roaringSet.KeysInOrder(), nil
+	}
+
+	return [][]byte{}, nil
 }

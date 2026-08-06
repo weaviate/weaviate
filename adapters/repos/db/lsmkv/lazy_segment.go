@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/sroar"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -230,6 +231,16 @@ func (s *lazySegment) getCollectionBytes(key []byte) ([][]byte, error) {
 func (s *lazySegment) getInvertedData() *segmentInvertedData {
 	s.mustLoad()
 	return s.segment.getInvertedData()
+}
+
+func (s *lazySegment) getBloomFilter() *bloom.BloomFilter {
+	s.mustLoad()
+	return s.segment.getBloomFilter()
+}
+
+func (s *lazySegment) getKeysSorted() [][]byte {
+	s.mustLoad()
+	return s.segment.getKeysSorted()
 }
 
 func (s *lazySegment) isLoaded() bool {

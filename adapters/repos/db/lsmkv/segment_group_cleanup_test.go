@@ -18,6 +18,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bolt "go.etcd.io/bbolt"
@@ -62,7 +63,9 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 	t.Run("no segments", func(t *testing.T) {
 		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
+			logger:          logger,
 			dir:             dir,
 			segments:        []Segment{},
 			cleanupInterval: time.Second,
@@ -80,8 +83,10 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 	t.Run("single segment", func(t *testing.T) {
 		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
-			dir: dir,
+			logger: logger,
+			dir:    dir,
 			segments: []Segment{
 				&segment{
 					path: filepath.Join(dir, "segment-0001.db"),
@@ -103,8 +108,10 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 	t.Run("multilpe segments, segments in order oldest to newest, last one skipped", func(t *testing.T) {
 		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
-			dir: dir,
+			logger: logger,
+			dir:    dir,
 			segments: []Segment{
 				&segment{
 					path: filepath.Join(dir, "segment-0001.db"),
@@ -163,8 +170,10 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 	t.Run("multilpe segments, no candidates after interval if no new segments", func(t *testing.T) {
 		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
-			dir: dir,
+			logger: logger,
+			dir:    dir,
 			segments: []Segment{
 				&segment{
 					path: filepath.Join(dir, "segment-0001.db"),
@@ -255,8 +264,10 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 	t.Run("multilpe segments, candidates after interval if new segments created", func(t *testing.T) {
 		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
-			dir: dir,
+			logger: logger,
+			dir:    dir,
 			segments: []Segment{
 				&segment{
 					path: filepath.Join(dir, "segment-0001.db"),
@@ -429,8 +440,10 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 	t.Run("multilpe segments, candidates after interval dependant on new segments sizes", func(t *testing.T) {
 		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
-			dir: dir,
+			logger: logger,
+			dir:    dir,
 			segments: []Segment{
 				&segment{
 					path: filepath.Join(dir, "segment-0001.db"),
@@ -679,8 +692,10 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 	t.Run("multilpe segments, cleanup and compaction", func(t *testing.T) {
 		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
 		sg := &SegmentGroup{
-			dir: dir,
+			logger: logger,
+			dir:    dir,
 			segments: []Segment{
 				&segment{
 					path: filepath.Join(dir, "segment-0001.db"),

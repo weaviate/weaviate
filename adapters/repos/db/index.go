@@ -3224,6 +3224,8 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		results[j] = res
 	}
 
+	aggregator.NormalizeCardinalityOnlyProperties(params.Properties, results)
+
 	return aggregator.NewShardCombiner().Do(results), nil
 }
 

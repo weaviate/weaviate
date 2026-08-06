@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -2811,4 +2812,128 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 // for full semantics and preconditions.
 func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
+}
+
+// GetKeysCount estimates the bucket's distinct key count, taking the largest
+// of the bounds it can derive from one pinned view. The index retains the keys
+// of deleted and updated values until compaction prunes them, so the result
+// can exceed the number of distinct live values.
+func (b *Bucket) GetKeysCount() (uint32, error) {
+	if !b.useBloomFilter {
+		return 0, fmt.Errorf("bloom filter not enabled")
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	exact, err := collectMemtableKeys(view)
+	if err != nil {
+		return 0, err
+	}
+
+	diskBloom := combineBloomFilters(view.Disk, &exact)
+
+	best := exact.distinct()
+	if diskBloom == nil {
+		return best, nil
+	}
+	if est := diskBloom.ApproximatedSize(); est > best {
+		best = est
+	}
+	if exact.total == 0 {
+		return best, nil
+	}
+
+	// diskBloom is a copy owned by this call, so it can absorb the exact keys.
+	// A saturated filter makes ApproximatedSize evaluate ln(0), whose uint32
+	// conversion is platform-defined, so the union only competes while there is
+	// room left.
+	exact.addTo(diskBloom)
+	if !bloomSaturated(diskBloom) {
+		if est := diskBloom.ApproximatedSize(); est > best {
+			best = est
+		}
+	}
+
+	return best, nil
+}
+
+// exactKeys holds key sets counted rather than estimated: memtables and disk
+// segments too small to carry a bloom filter. Each set is sorted ascending and
+// holds each key once.
+type exactKeys struct {
+	sets  [][][]byte
+	total int
+}
+
+func (ek *exactKeys) add(set [][]byte) {
+	if len(set) == 0 {
+		return
+	}
+	ek.sets = append(ek.sets, set)
+	ek.total += len(set)
+}
+
+func collectMemtableKeys(view BucketConsistentView) (exactKeys, error) {
+	memtables, count := viewMemtables(view)
+
+	var ek exactKeys
+	for i := range count {
+		keys, err := memtables[i].GetKeys()
+		if err != nil {
+			return exactKeys{}, err
+		}
+		ek.add(keys)
+	}
+	return ek, nil
+}
+
+func (ek exactKeys) addTo(keysBloom *bloom.BloomFilter) {
+	for _, set := range ek.sets {
+		for _, key := range set {
+			keysBloom.Add(key)
+		}
+	}
+}
+
+// distinct counts the union of the sets exactly: a key rewritten after a
+// memtable switch or flush appears in more than one set.
+func (ek exactKeys) distinct() uint32 {
+	switch len(ek.sets) {
+	case 0:
+		return 0
+	case 1:
+		return uint32(len(ek.sets[0]))
+	}
+
+	heads := make([]int, len(ek.sets))
+	distinct := uint32(0)
+	for {
+		var (
+			minKey []byte
+			found  bool
+		)
+		for i, set := range ek.sets {
+			if heads[i] == len(set) {
+				continue
+			}
+			if head := set[heads[i]]; !found || bytes.Compare(head, minKey) < 0 {
+				minKey = head
+				found = true
+			}
+		}
+		if !found {
+			return distinct
+		}
+		distinct++
+		for i, set := range ek.sets {
+			if heads[i] < len(set) && bytes.Equal(set[heads[i]], minKey) {
+				heads[i]++
+			}
+		}
+	}
+}
+
+func bloomSaturated(keysBloom *bloom.BloomFilter) bool {
+	return keysBloom.BitSet().Count() >= keysBloom.Cap()
 }
