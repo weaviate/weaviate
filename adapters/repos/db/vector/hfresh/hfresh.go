@@ -352,6 +352,21 @@ func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, err
 }
 
 func (h *HFresh) PostStartup(ctx context.Context) {
+	// Warm the version map with one sequential sweep: without it, the first
+	// searches after a restart fault versions in one LSM read per scanned
+	// vector.
+	before := time.Now()
+	count, err := h.VersionMap.Warmup(ctx)
+	if err != nil {
+		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+	} else {
+		h.logger.WithFields(logrus.Fields{
+			"action": "hfresh_version_map_warmup",
+			"count":  count,
+			"took":   time.Since(before).String(),
+		}).Info("version map warmed up")
+	}
+
 	h.Centroids.hnsw.PostStartup(ctx)
 }
 
