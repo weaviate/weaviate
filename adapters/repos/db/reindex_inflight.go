@@ -149,25 +149,14 @@ type reindexGateSnapshot struct {
 func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	var snap reindexGateSnapshot
 	if db.config.RuntimeReindexDisabled {
-		// No new task can start, so this gate checks nothing — which is not the
-		// same as no task running; see [DB.RefuseIfReindexOverlapped]. Returning before
-		// the builders run is the point: the activity builder issues a
-		// leader-forwarded RAFT query, and the kill switch has to cost nothing.
-		// Every gate consumer builds its snapshot here, so this covers the
-		// capture path as well as admission. A zero snapshot reads as "not
-		// blocked" downstream, without the unwired warning below.
+		// Returning before the builders run is the point: the activity builder
+		// issues a leader-forwarded RAFT query, and the kill switch has to cost
+		// nothing. A zero snapshot reads as "not blocked" downstream, without
+		// the unwired warning below.
 		//
-		// Every entry point honours the flag itself rather than sharing one
-		// check; grep RuntimeReindexDisabled and RuntimeReindexEnabled for the
-		// full set. The others are [DB.RefuseIfAnyReindexInFlight],
-		// [DB.RefuseIfReindexOverlapped], and the submission route in
-		// adapters/handlers/rest, which stays open for cancel on purpose.
-		// Together they make the flag-off behavior "no reindex check anywhere",
-		// with one accepted residual, stated in full at
-		// [DB.RefuseIfReindexOverlapped]. Pointed at rather than repeated: a
-		// third copy of that enumeration is a drift hazard, and widening it in
-		// only some copies is exactly how this comment ended up narrower than
-		// the other two.
+		// Flag-off is "no reindex check anywhere", not "no reindex running";
+		// the residual that leaves is stated in full at
+		// [DB.RefuseIfReindexOverlapped].
 		return snap
 	}
 
@@ -331,43 +320,30 @@ func (i *Index) logReindexRefusal(shardName string) {
 // the collection, and the shard and node reach the operator through the log in
 // [Index.refuseIfReindexInFlight].
 func reindexInFlightError(collection string, reason reindexBlockReason) error {
+	var advice string
 	switch reason {
 	case reindexBlockedPreWire:
-		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
-			"%s: collection %q: backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-		)}
+		advice = ": backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping"
 	case reindexBlockedBySubmit:
-		// Accurate wording matters: nothing was cancelled here, and the
-		// cleanup text would send the operator looking for a migration that
-		// does not exist.
-		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
-			"%s: collection %q: a reindex submission is preparing this collection; retry in a moment",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-		)}
+		// Nothing was cancelled here, so the cleanup text below would send the
+		// operator looking for a migration that does not exist.
+		advice = ": a reindex submission is preparing this collection; retry in a moment"
 	case reindexBlockedByUnknownHold:
-		// The gate knows the shard is held but not by what, so the text promises
-		// nothing it cannot back: no cancelled migration, no submission, and no
-		// duration estimate. The diagnosis is a server-side defect, which is what
-		// the log line in [reindexBlockReasonIn] carries.
-		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
-			"%s: collection %q is held by a reindex operation this server build does not recognize; retry, and report this to Weaviate if it persists",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-		)}
+		// The gate knows the shard is held but not by what, so this promises
+		// nothing it cannot back: no cancelled migration, no submission, no
+		// duration estimate. The diagnosis is a server-side defect, which is
+		// what the log line in [reindexBlockReasonIn] carries.
+		advice = " is held by a reindex operation this server build does not recognize; retry, and report this to Weaviate if it persists"
 	case reindexBlockedByCleanup:
-		// No cancel advice here: the task this is cleaning up after is already
+		// No cancel advice: the task this is cleaning up after is already
 		// cancelled, and telling the operator to cancel it sends them looking
 		// for something that is gone.
-		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
-			"%s: collection %q: a cancelled migration is still removing its temporary index files; retry once the cleanup finishes (usually a few seconds)",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-		)}
+		advice = ": a cancelled migration is still removing its temporary index files; retry once the cleanup finishes (usually a few seconds)"
 	default:
-		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
-			"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
-		)}
+		advice = " has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}"
 	}
+	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf("%s: collection %q%s",
+		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection, advice)}
 }
 
 // NoSearchableIndexHint identifies which `PUT /v1/schema/{class}/indexes/{prop}`

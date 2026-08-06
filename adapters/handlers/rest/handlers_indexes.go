@@ -69,7 +69,7 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 type indexesHandlers struct {
 	appState *state.State
 
-	// nil in fixtures without a cluster HTTP client; refuseIfBackupInFlight allows submission then.
+	// nil in fixtures without a cluster HTTP client; probeBackupActivity allows submission then.
 	backupActivity nodeActivityProber
 
 	// nil in fixtures without a cluster; treated the same as an unwired probe.
@@ -333,16 +333,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Key on the qualified class (the reindex-task key) so short- and qualified-name
 	// callers for the same collection share the DeleteClassPropertyIndex lock.
 	//
-	// Worst case with one unreachable node: the lock is held for the 5s
-	// pre-commit backup probe, the RAFT task-add and the 5s post-commit probe —
-	// around 10s, during which a DELETE on the same property waits and
-	// MarkSubmitInProgress refuses the collection's backups. The rollback that
-	// can follow the post-commit probe runs outside both, see there. The probes
+	// Worst case with one unreachable node the lock is held ~10s (two 5s backup
+	// probes plus the RAFT task-add), during which a DELETE on the same property
+	// waits and MarkSubmitInProgress refuses the collection's backups. The probes
 	// are not hoisted out of the lock even though they read no schema state:
-	// outside it they would run before the 404, conflict and cap checks, so
-	// every request that fails locally would pay a cluster-wide fan-out first,
-	// and a submit for a collection that does not exist would answer 409
-	// instead of 404.
+	// outside it they would run before the 404, conflict and cap checks, so every
+	// request that fails locally would pay a cluster-wide fan-out first, and a
+	// submit for a collection that does not exist would answer 409 instead of 404.
 	//
 	// Released through a OnceFunc rather than a bare deferred Unlock so the
 	// rollback path can hand it back early and this defer still covers every
@@ -670,7 +667,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	}
 
 	// Runs after the free local checks; this one costs a cluster-wide round trip.
-	if responder := h.refuseIfBackupInFlight(ctx, principal); responder != nil {
+	if _, responder := h.probeBackupActivity(ctx, principal); responder != nil {
 		return responder
 	}
 
@@ -710,16 +707,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
-		// Detached from the request on the same posture as the cancel handler's
-		// sweep: this sweep is the retry for state an earlier run left behind,
-		// so failing it for a reason we control just defers the work again.
 		//
-		// Narrower than the cancel-path detach, and worth knowing which case it
-		// covers: the sweep consults its context only inside ShutdownBucket, so
-		// it can be cancelled only while sidecar buckets are still loaded — the
-		// shape a crash leaves. Once they are deregistered, the steps that
-		// remove started.mig never look at the context, and detaching it buys
-		// nothing. See [Shard.CleanStalePartialReindexState].
+		// Detached from the request like the cancel handler's sweep: this one is
+		// the retry for state an earlier run left behind, so failing it for a
+		// reason we control just defers the work again. It only matters while
+		// sidecar buckets are still loaded (the shape a crash leaves), which is
+		// the sole point the sweep consults its context — see
+		// [Shard.CleanStalePartialReindexState].
 		cleanupCtx, cancelCleanup := context.WithTimeout(
 			context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 		defer cancelCleanup()
@@ -776,15 +770,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// run against a backup that is known to hold the slot. That is why
 		// rollbackRacedReindexTask detaches from this context.
 		if scan.BusyNode != "" {
-			// Hand back the submit lock and the submit gate before rolling
-			// back. Both exist to keep the schema read, the sidecar sweep and
-			// the task-add one window; the task is committed, so nothing left
-			// in this handler reads schema state and neither protects anything
-			// from here on. Holding them across a rollback of up to
+			// Hand back the submit lock and gate (in acquisition-inverse order)
+			// before rolling back. Both exist to keep the schema read, the
+			// sidecar sweep and the task-add one window, and the task is now
+			// committed. Holding them across a rollback of up to
 			// reindexRollbackTimeout would make a disconnected client — whose
 			// request nobody is waiting for — block an unrelated DELETE on this
 			// property and every backup of this collection for those 10s.
-			// Released in acquisition-inverse order.
 			//
 			// The rollback stays on this goroutine: the caller, if still there,
 			// must not be told the submission was refused before the rollback
@@ -955,29 +947,23 @@ const reindexRollbackRetryDelay = 500 * time.Millisecond
 // rollbackRacedReindexTask cancels a task committed into a backup that
 // claimed the same slot.
 //
-// It runs before the 409 is answered, so the caller told the submission was
-// refused is told so after the rollback was attempted; a rollback that never
-// lands leaves a migration running that its submitter believes was refused. It
-// is retried with a growing delay, and a final failure is logged at Error under
-// its own audit event so the state is findable. Escalating further is not
-// available: the refusal is the only answer the caller gets, and leaving the
-// task is safer than any blind second cancel — the backup side's commit-time
-// overlap check still refuses to publish a backup that spans it.
+// It runs before the 409 is answered: a rollback that never lands leaves a
+// migration running that its submitter believes was refused. A final failure is
+// logged at Error under its own audit event so the state is findable; leaving
+// the task is safer than a blind second cancel, and the backup side's
+// commit-time overlap check still refuses to publish a backup that spans it.
 //
-// The rollback deliberately does not run on the request context. A client
-// disconnect is itself one of the inputs that makes the second probe report
-// every node unreachable, so the very condition that decides a rollback is
-// needed would also kill it, leaving the task STARTED against a live backup.
+// It deliberately does not run on the request context. A client disconnect is
+// itself one of the inputs that makes the second probe report every node
+// unreachable, so the very condition that decides a rollback is needed would
+// also kill it, leaving the task STARTED against a live backup.
 //
 // Each rollback leaves a CANCELLED task in DTM until the retention window drops
-// it, and those are not inert: the commit-time overlap check reads them, and a
-// cancelled task that reached a unit counts as an overlap. So a run of races
-// leaves a run of corpses the backstop must classify, and it classifies them by
-// unit state rather than by ignoring them — see reindexTaskTouchedShards, whose
-// waiver exists precisely so a rollback that never claimed a unit stays
-// harmless. Bounding the accumulation would mean deleting task records the
-// backstop still needs, which trades a tidy list for a blind spot; the
-// retention window is the intended bound and is operator-tunable.
+// it, and those are not inert: the commit-time overlap check reads them and
+// classifies them by unit state — see reindexTaskTouchedShards, whose waiver
+// exists precisely so a rollback that never claimed a unit stays harmless.
+// Bounding the accumulation would mean deleting records that backstop needs;
+// the retention window is the intended bound and is operator-tunable.
 func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) {
 	fields := logrus.Fields{
 		"audit_event": "reindex_task_rolled_back",
@@ -1140,16 +1126,10 @@ func reindexTaskKeptResponder(principal *models.Principal, taskID string) middle
 			taskID)))
 }
 
-// refuseIfBackupInFlight blocks reindex submission while any node holds a
-// backup or restore slot, mirroring backups refusing to start under a running reindex.
-func (h *indexesHandlers) refuseIfBackupInFlight(ctx context.Context, principal *models.Principal) middleware.Responder {
-	_, responder := h.probeBackupActivity(ctx, principal)
-	return responder
-}
-
-// probeBackupActivity is [indexesHandlers.refuseIfBackupInFlight] with the
-// verdict kept, for the post-commit caller that must tell a definite "busy"
-// apart from "nobody answered".
+// probeBackupActivity blocks reindex submission while any node holds a backup
+// or restore slot, mirroring backups refusing to start under a running reindex.
+// It returns the scan as well as the refusal, for the post-commit caller that
+// must tell a definite "busy" apart from "nobody answered".
 func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *models.Principal) (backupActivityScan, middleware.Responder) {
 	var nodes []string
 	if h.cluster != nil {
@@ -1381,15 +1361,12 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	}
 	h.appState.Logger.WithFields(fields).Info("cancel: starting drain+cleanup for cancelled reindex task")
 
-	// Detached from the request for the same reason as the sweep below, and it
-	// is the wider of the two: a disconnect here fails the drain, the handler
-	// returns before the sweep, and the gate goes to the worker-exit watcher —
-	// so the sweep never runs at all. What the sweep would have healed then
-	// survives until a later submit on this same node sweeps it, which may be
-	// never — the healing is node-local, and no peer does it for us.
-	//
-	// Its own timeout still bounds it, so a stuck worker cannot hold the
-	// goroutine open.
+	// Detached from the request, and this is the wider of the two detaches on
+	// this path: a disconnect here fails the drain, the handler returns before
+	// the sweep, and the gate goes to the worker-exit watcher — so the sweep
+	// never runs at all. What it would have healed then survives until a later
+	// submit on this same node sweeps it, which may be never; the healing is
+	// node-local. Its own timeout still bounds the wait.
 	drainCtx, drainCancel := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelDrainTimeout)
 	releaseGate, drainErr := provider.DrainWithCleanupGate(drainCtx, payload, target.TaskDescriptor)
@@ -1411,21 +1388,16 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	if !known || len(indexTypesToClean) == 0 {
 		indexTypesToClean = []string{indexType}
 	}
-	// Detached from the request, for the reason both other detaches on this
-	// path share: this sweep is the only trigger we control for state nothing
-	// else clears, so aborting it because the client went away just defers the
-	// work to a later submit that may never come. A disconnect part-way through
-	// would leave the sidecar buckets deregistered with started.mig still on
-	// disk. The timeout below keeps it bounded.
+	// Detached from the request: this sweep is the only trigger we control for
+	// state nothing else clears, so aborting it because the client went away
+	// just defers the work to a later submit that may never come, and a
+	// disconnect part-way through leaves the sidecar buckets deregistered with
+	// started.mig still on disk. The timeout below keeps it bounded.
 	//
-	// It does not make the gate released below mean "the disk is clean". That
-	// gate reports cleanup-in-progress, not a swept shard: a failed sweep is
-	// logged and the gate released anyway, here and in
-	// [db.ReindexProvider.autoCleanupAfterTerminal], which sweeps the same
-	// state on the provider's shutdown context. Recovery is the next submit's
-	// pre-cleanup and the restart audit — nothing clears it before then, so
-	// what a failed sweep leaves behind persists rather than passing. See
-	// weaviate/0-weaviate-issues#352.
+	// The gate released below does NOT mean "the disk is clean": it reports
+	// cleanup-in-progress, and a failed sweep is logged with the gate released
+	// anyway. Recovery is the next submit's pre-cleanup and the restart audit.
+	// See weaviate/0-weaviate-issues#352.
 	cleanupCtx, cancelCleanup := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 	defer cancelCleanup()
