@@ -1,0 +1,186 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package rest
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+)
+
+// recordingSubmitAuthorizer answers every check with a fixed verdict and
+// remembers what it was asked, so a test can tell a refusal from a check that
+// never happened.
+type recordingSubmitAuthorizer struct {
+	err error
+
+	verbs     []string
+	resources [][]string
+}
+
+func (a *recordingSubmitAuthorizer) Authorize(_ context.Context, _ *models.Principal,
+	verb string, resources ...string,
+) error {
+	a.verbs = append(a.verbs, verb)
+	a.resources = append(a.resources, resources)
+	return a.err
+}
+
+func (a *recordingSubmitAuthorizer) AuthorizeSilent(ctx context.Context, pr *models.Principal,
+	verb string, resources ...string,
+) error {
+	return a.Authorize(ctx, pr, verb, resources...)
+}
+
+func (a *recordingSubmitAuthorizer) FilterAuthorizedResources(_ context.Context, _ *models.Principal,
+	_ string, resources ...string,
+) ([]string, error) {
+	if a.err != nil {
+		return nil, a.err
+	}
+	return resources, nil
+}
+
+// authzSubmitFixture wires the submission handler so that every collaborator
+// sitting BEHIND the authorization check records that it ran.
+//
+// The order behind the check is: read this node's own backup slots, close the
+// collection's backup gate, fan out the cluster-wide probe, sweep stale
+// on-disk reindex state, then write the task. The sweep runs against the
+// concrete *db.DB, which has no seam a fixture can stand in for; it is covered
+// here by the fan-out probe, which strictly precedes it under the same gate —
+// a probe that never ran means a sweep that never ran.
+type authzSubmitFixture struct {
+	handlers *indexesHandlers
+	authz    *recordingSubmitAuthorizer
+	tasks    *raceTaskService
+	local    *localSlotProbe
+	fanOut   *gateObservingProber
+}
+
+func newAuthzSubmitFixture(t *testing.T, authzErr error) *authzSubmitFixture {
+	t.Helper()
+
+	svc := &raceTaskService{}
+	h, provider := gatePriorityHandlers(t, svc)
+
+	authz := &recordingSubmitAuthorizer{err: authzErr}
+	h.appState.Authorizer = authz
+
+	local := &localSlotProbe{provider: provider}
+	h.localBackupActivity = local
+	fanOut := &gateObservingProber{provider: provider}
+	h.backupActivity = fanOut
+
+	return &authzSubmitFixture{handlers: h, authz: authz, tasks: svc, local: local, fanOut: fanOut}
+}
+
+// requireNothingBehindTheCheckRan states the property a status-code assertion
+// cannot: the handler stopped AT the check, rather than doing the work and
+// refusing afterwards.
+func (f *authzSubmitFixture) requireNothingBehindTheCheckRan(t *testing.T) {
+	t.Helper()
+
+	require.Emptyf(t, f.local.observed(),
+		"this node's own backup slots were read for a caller that has no permission to submit")
+	require.Emptyf(t, f.fanOut.observed(),
+		"a refused caller triggered the cluster-wide backup fan-out; the gate was closed on the "+
+			"collection and the destructive stale-state sweep behind it became reachable")
+	require.Zerof(t, f.tasks.lists,
+		"a refused caller made the handler read the cluster's task list")
+	require.Zerof(t, f.tasks.adds,
+		"a refused caller got a reindex task written to RAFT")
+}
+
+// The submit route is the privileged arm of PUT .../indexes/{prop}: behind its
+// authorization check the handler closes the collection's backup gate, fans a
+// probe out over every node, and deletes stale on-disk reindex state. A
+// regression in the check does not just leak an answer — it hands an
+// unauthorized caller all three.
+func TestUpdateIndexAuthorization(t *testing.T) {
+	principal := &models.Principal{Username: "u1"}
+
+	t.Run("an unauthorized caller is refused before anything behind the check runs", func(t *testing.T) {
+		forbidden := authzerrors.NewForbidden(principal, authorization.UPDATE,
+			authorization.Collections("Movies")...)
+		f := newAuthzSubmitFixture(t, forbidden)
+
+		responder := submitReindex(f.handlers)
+
+		// Asserted before the status code on purpose. A refusal handed back
+		// after the work already happened carries the same 403, so checking
+		// the code first would let that regression abort the test here and
+		// never reach the assertions that would have caught it.
+		f.requireNothingBehindTheCheckRan(t)
+
+		refused, ok := responder.(*schema.SchemaObjectsIndexesUpdateForbidden)
+		require.Truef(t, ok, "a caller without update_collections must be refused with 403, got %T", responder)
+		require.Equal(t, forbidden.Error(), errorMessage(t, refused.Payload))
+	})
+
+	// A check that fails for a reason other than "denied" must not be read as a
+	// grant, and must stop the handler in the same place.
+	t.Run("an authorizer that errors refuses too, and just as early", func(t *testing.T) {
+		f := newAuthzSubmitFixture(t, errors.New("policy store unreachable"))
+
+		responder := submitReindex(f.handlers)
+
+		f.requireNothingBehindTheCheckRan(t)
+
+		failed, ok := responder.(*schema.SchemaObjectsIndexesUpdateInternalServerError)
+		require.Truef(t, ok, "an authorizer that cannot answer must not admit the submission, got %T", responder)
+		require.Equal(t, "policy store unreachable", errorMessage(t, failed.Payload))
+	})
+
+	// The allow arm is what makes the two arms above discriminate: it proves the
+	// same observers do fire when the check passes, so their emptiness on the
+	// deny arms is the check's doing and not the fixture's.
+	t.Run("an authorized caller reaches every step behind the check", func(t *testing.T) {
+		f := newAuthzSubmitFixture(t, nil)
+
+		responder := submitReindex(f.handlers)
+
+		_, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+		require.Truef(t, ok, "a caller holding update_collections must be admitted, got %T", responder)
+
+		require.Equal(t, []db.ReindexHold{db.ReindexHoldNone}, f.local.observed(),
+			"the local slots are read once, ahead of the gate")
+		require.Equal(t, []db.ReindexHold{db.ReindexHoldSubmit, db.ReindexHoldSubmit}, f.fanOut.observed(),
+			"the fan-out runs once before and once after the commit, both under the closed gate; "+
+				"this is the observation the deny arms require to be absent")
+		require.Equal(t, 1, f.tasks.lists)
+		require.Equal(t, 1, f.tasks.adds)
+	})
+
+	// The verb and resource are the check itself. Weakening either — to a read
+	// verb, or to the metadata resource the sibling GET route uses — still
+	// refuses some callers, so the arms above would keep passing.
+	t.Run("the check demands UPDATE on the collection", func(t *testing.T) {
+		f := newAuthzSubmitFixture(t, nil)
+
+		submitReindex(f.handlers)
+
+		require.Equal(t, []string{authorization.UPDATE}, f.authz.verbs,
+			"submitting rebuilds buckets on every replica and flips schema flags; "+
+				"a read verb is not enough to authorize it")
+		require.Equal(t, [][]string{authorization.Collections("Movies")}, f.authz.resources,
+			"the check must be scoped to the collection being reindexed")
+	})
+}
