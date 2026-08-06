@@ -70,7 +70,8 @@ func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
 // inside the injected lookup, which production builds in
 // adapters/handlers/rest. A test written against makeActivityBuilder would
 // assert that the fixture does what the fixture does. See
-// TestShardReindexActivityBuilderScopesByCollectionAndShard.
+// TestShardReindexActivityBuilderScopesByCollectionAndShard in
+// adapters/handlers/rest.
 
 // TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired
 // lookup defaults to "no live reindex" — production gates HTTP serving
