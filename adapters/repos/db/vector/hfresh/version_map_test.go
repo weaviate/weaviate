@@ -308,3 +308,63 @@ func TestVersionStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, VectorVersion(10), v)
 }
+
+func TestVersionMapWarmup(t *testing.T) {
+	ctx := t.Context()
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "warmup", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+
+	// a previous process lifetime persisted versions: live ones and a few
+	// deleted ones
+	previous := NewVersionMap(bucket)
+	const n = uint64(10_000)
+	for i := uint64(0); i < n; i++ {
+		require.NoError(t, previous.store.Set(ctx, i, VectorVersion(2)))
+	}
+	for i := uint64(0); i < 10; i++ {
+		_, err := previous.MarkDeleted(ctx, i)
+		require.NoError(t, err)
+	}
+
+	// flush so the sweep reads from disk segments, as after a real restart
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// simulate the restart: fresh map over the same bucket, then warm up
+	m := NewVersionMap(bucket)
+	count, err := m.Warmup(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int(n), count, "every persisted version must be installed")
+
+	// versions must be correct straight from memory
+	deleted, err := m.IsDeleted(ctx, 5)
+	require.NoError(t, err)
+	require.True(t, deleted, "deleted flag must survive the warmup")
+
+	deleted, err = m.IsDeleted(ctx, 500)
+	require.NoError(t, err)
+	require.False(t, deleted)
+
+	v, err := m.Get(ctx, 500)
+	require.NoError(t, err)
+	require.Equal(t, VectorVersion(2), v)
+
+	// memory always wins: an entry loaded (and possibly being written)
+	// before the warmup must not be clobbered by the sweep
+	m2 := NewVersionMap(bucket)
+	v, err = m2.Get(ctx, 42) // faults version 2 into memory
+	require.NoError(t, err)
+	require.Equal(t, VectorVersion(2), v)
+	require.NoError(t, m2.store.Set(ctx, 42, VectorVersion(9))) // store diverges
+
+	_, err = m2.Warmup(ctx)
+	require.NoError(t, err)
+	v, err = m2.Get(ctx, 42)
+	require.NoError(t, err)
+	require.Equal(t, VectorVersion(2), v, "warmup must not overwrite in-memory state")
+
+	// warming up an already-warm map installs nothing new
+	count, err = m.Warmup(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
