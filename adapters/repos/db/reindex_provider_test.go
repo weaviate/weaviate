@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Wave 2 S1: cleanup-vs-status-visibility race in
@@ -661,42 +662,121 @@ func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 }
 
 // And the raise moved past the drain only, not past the applicability checks.
-func TestAutoCleanupAfterTerminalSkipsTheGateWhenNothingToClean(t *testing.T) {
+// Two things decide applicability, and both are in this table: what the payload
+// says there is to tear down, and whether the task's units say a worker ever
+// ran. The gate is what refuses a backup, so a skip that is too eager admits a
+// backup over half-removed sidecars, and one that is too shy fails the backup
+// the submit path's rollback exists to let win.
+//
+// FAILED with nothing claimed is here because a failed task means a worker
+// reported a failure, so something ran no matter what the unit map says: the
+// waiver is deliberately narrower than "terminal with nothing claimed".
+func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-2", Version: 1}
-	serverCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	const shard = "shard1"
+	teardownPayload := &ReindexTaskPayload{
+		Collection: "Movies", Properties: []string{"body"},
+		MigrationType: ReindexTypeChangeTokenization,
+		UnitToShard:   map[string]string{"u1": shard},
+	}
 
 	tests := []struct {
-		name    string
-		payload *ReindexTaskPayload
+		name     string
+		payload  *ReindexTaskPayload
+		status   distributedtask.TaskStatus
+		unit     distributedtask.UnitStatus
+		wantHold bool
 	}{
 		{
 			name: "migration type tears nothing down",
 			payload: &ReindexTaskPayload{
 				Collection: "Movies", Properties: []string{"body"},
 				MigrationType: ReindexMigrationType("something-else"),
+				UnitToShard:   map[string]string{"u1": shard},
 			},
+			status: distributedtask.TaskStatusFailed,
+			unit:   distributedtask.UnitStatusInProgress,
 		},
 		{
 			name: "no properties named",
 			payload: &ReindexTaskPayload{
 				Collection: "Movies", MigrationType: ReindexTypeChangeTokenization,
+				UnitToShard: map[string]string{"u1": shard},
 			},
+			status: distributedtask.TaskStatusFailed,
+			unit:   distributedtask.UnitStatusInProgress,
+		},
+		{
+			name:    "cancelled, no unit ever claimed — the submit rollback",
+			payload: teardownPayload,
+			status:  distributedtask.TaskStatusCancelled,
+			unit:    distributedtask.UnitStatusPending,
+		},
+		{
+			name:     "cancelled after a worker claimed a unit",
+			payload:  teardownPayload,
+			status:   distributedtask.TaskStatusCancelled,
+			unit:     distributedtask.UnitStatusInProgress,
+			wantHold: true,
+		},
+		{
+			name:     "failed with nothing claimed",
+			payload:  teardownPayload,
+			status:   distributedtask.TaskStatusFailed,
+			unit:     distributedtask.UnitStatusPending,
+			wantHold: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// A handle that never drains is the window in which a raised gate
+			// is visible from outside. The drain budget is what separates the
+			// two expectations: a skip has to return without touching the
+			// drain, so it is set far above the deadline the skip rows assert;
+			// a hold has to be observable and then end, so it is set low enough
+			// that the drain times out and the call returns on its own.
 			p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
 				desc: {doneCh: make(chan struct{})},
 			})
-			p.serverCtx = serverCtx
+			p.serverCtx = context.Background()
+			if tc.wantHold {
+				p.timings.terminalCleanupDrainTimeout = time.Second
+			} else {
+				p.timings.terminalCleanupDrainTimeout = 30 * time.Second
+			}
+
+			task := &distributedtask.Task{
+				TaskDescriptor: desc,
+				Status:         tc.status,
+				Units:          map[string]*distributedtask.Unit{"u1": {ID: "u1", Status: tc.unit}},
+			}
+
 			logger, _ := logrustest.NewNullLogger()
+			done := make(chan struct{})
+			enterrors.GoWrapper(func() {
+				defer close(done)
+				p.autoCleanupAfterTerminal(task, tc.payload, logger)
+			}, logger)
 
-			p.autoCleanupAfterTerminal(&distributedtask.Task{TaskDescriptor: desc}, tc.payload, logger)
+			if !tc.wantHold {
+				select {
+				case <-done:
+				case <-time.After(2 * time.Second):
+					require.Fail(t, "the teardown must return at once rather than drain a worker that never started")
+				}
+				require.Equal(t, ReindexHoldNone, p.HoldForShard("Movies", shard),
+					"nothing was written, so nothing may be held")
+				require.False(t, p.AnyCleanupInProgressForCollection("Movies"),
+					"and the collection-wide probe must agree")
+				return
+			}
 
-			require.False(t, p.AnyCleanupInProgressForCollection("Movies"),
-				"nothing to tear down, so nothing to gate — and it must not block on the drain either")
+			require.Eventually(t,
+				func() bool { return p.HoldForShard("Movies", shard) == ReindexHoldCleanup },
+				time.Second, 5*time.Millisecond,
+				"the sidecars are still coming down, so the backup must be refused")
+			<-done
 		})
 	}
 }

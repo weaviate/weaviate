@@ -483,48 +483,157 @@ func TestReindexOverlapLookupCountsCancelledTasksThatRan(t *testing.T) {
 	}
 }
 
-// The overlap refusal is stored in the backup's failure meta and served from
-// GET /v1/backups/{backend}/{id}. Its causes are RAFT and decoding errors that
-// name nodes and task internals, which a backup caller is granted nothing on.
-func TestReindexOverlapLookupRedactsItsCauses(t *testing.T) {
+// poisonTask defeats the full payload decoder while leaving the collection
+// readable, which is what a rolling upgrade that retypes a payload field
+// produces.
+func poisonTask(t *testing.T, collection string, status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
+	t.Helper()
+	raw := poisonPayload(collection)
+	var payload ReindexTaskPayload
+	require.Error(t, json.Unmarshal(raw, &payload),
+		"this fixture is only meaningful while the payload really is undecodable")
+
+	task := unreadableTask(status, finishedAt)
+	task.ID = collection + ":poison"
+	task.Payload = raw
+	return task
+}
+
+// unreadableTask is the harder case: not even the collection can be recovered.
+func unreadableTask(status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
+	return &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "unreadable", Version: 1},
+		Namespace:      ReindexNamespace,
+		Status:         status,
+		Payload:        []byte("{not json"),
+		FinishedAt:     finishedAt,
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
+		},
+	}
+}
+
+// The refusal is stored in the backup's failure meta and served from
+// GET /v1/backups/{backend}/{id}, so it must not carry the RAFT and decoding
+// internals its causes name. It must also stay scoped: a payload no node can
+// decode has to fail the backups of the collection it names and no others,
+// because refusing all of them is a self-inflicted outage whose only exit is
+// the completed-task TTL days later.
+//
+// wantMsg is exact on purpose. A refusal that merely happens is not enough:
+// "collection X was migrated" would be a claim this check cannot make about a
+// payload it could not read, and asserting only that an error came back cannot
+// tell the two apart. An empty wantMsg means the backup must be allowed.
+func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 	raftErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
+	backupStart := time.Now().Add(-2 * time.Minute)
+	insideWindow := backupStart.Add(time.Minute)
 
 	tests := []struct {
-		name    string
-		list    ReindexTaskLister
-		cause   error
-		leaked  []string
-		wantMsg string
+		name      string
+		listErr   error
+		task      func(t *testing.T) *distributedtask.Task
+		backingUp []string
+		cause     error
+		leaked    []string
+		wantMsg   string
+		why       string
 	}{
 		{
 			name:    "task manager unreachable",
-			list:    func(context.Context) (map[string][]*distributedtask.Task, error) { return nil, raftErr },
+			listErr: raftErr,
 			cause:   raftErr,
 			leaked:  []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
 			wantMsg: "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried",
+			why:     "an unanswerable question is not an all-clear",
 		},
 		{
-			name: "task payload unreadable",
-			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
-				return map[string][]*distributedtask.Task{ReindexNamespace: {{
-					TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 1},
-					Namespace:      ReindexNamespace,
-					Status:         distributedtask.TaskStatusStarted,
-					Payload:        []byte("{not json"),
-				}}}, nil
+			name: "collection unrecoverable, live",
+			task: func(*testing.T) *distributedtask.Task {
+				return unreadableTask(distributedtask.TaskStatusStarted, time.Time{})
 			},
 			leaked:  []string{"not json", "invalid character"},
 			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
+			why:     "nothing identifies what this task touches, so no collection can be declared clean",
+		},
+		{
+			name: "collection unrecoverable, but finished before the backup started",
+			task: func(*testing.T) *distributedtask.Task {
+				return unreadableTask(distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))
+			},
+			why: "an unidentifiable task still cannot write after it finished; the timestamps alone clear it",
+		},
+		{
+			name: "poison on another collection",
+			task: func(t *testing.T) *distributedtask.Task {
+				return poisonTask(t, "Actors", distributedtask.TaskStatusStarted, time.Time{})
+			},
+			backingUp: []string{"Movies"},
+			why:       "the task names Actors; nothing about it says anything about a backup of Movies",
+		},
+		{
+			name: "poison on the collection being backed up",
+			task: func(t *testing.T) *distributedtask.Task {
+				return poisonTask(t, "Movies", distributedtask.TaskStatusStarted, time.Time{})
+			},
+			leaked:  []string{"not json", "invalid character"},
+			wantMsg: unreadablePayloadMsg("Movies"),
+			why:     "a live migration on this very collection cannot be ruled out, so the backup must fail",
+		},
+		{
+			name: "poison on one of several collections being backed up",
+			task: func(t *testing.T) *distributedtask.Task {
+				return poisonTask(t, "Actors", distributedtask.TaskStatusStarted, time.Time{})
+			},
+			backingUp: []string{"Movies", "Actors"},
+			wantMsg:   unreadablePayloadMsg("Actors"),
+			why:       "the backup covers the affected collection, so the uncertainty is inside its scope",
+		},
+		{
+			name: "poison matched case-insensitively",
+			task: func(t *testing.T) *distributedtask.Task {
+				return poisonTask(t, "movies", distributedtask.TaskStatusStarted, time.Time{})
+			},
+			wantMsg: unreadablePayloadMsg("movies"),
+			why:     "collection names fold, and a fail-closed gate must not be evadable by casing",
+		},
+		{
+			name: "terminal poison that finished before the backup started",
+			task: func(t *testing.T) *distributedtask.Task {
+				return poisonTask(t, "Movies", distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))
+			},
+			why: "status and FinishedAt come off the task, not the payload; one that was over before the capture began cannot have spanned it",
+		},
+		{
+			name: "terminal poison that finished inside the window",
+			task: func(t *testing.T) *distributedtask.Task {
+				return poisonTask(t, "Movies", distributedtask.TaskStatusFinished, insideWindow)
+			},
+			wantMsg: unreadablePayloadMsg("Movies"),
+			why:     "it ran while the files were being copied",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			lookup := NewReindexOverlapLookup(tc.list, time.Hour)
-			err := lookup(context.Background(), []string{"Movies"}, time.Now().Add(-time.Minute))
-			require.Error(t, err)
+			backingUp := tc.backingUp
+			if backingUp == nil {
+				backingUp = []string{"Movies"}
+			}
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				if tc.listErr != nil {
+					return nil, tc.listErr
+				}
+				return map[string][]*distributedtask.Task{ReindexNamespace: {tc.task(t)}}, nil
+			}, time.Hour)
 
-			assert.Equal(t, tc.wantMsg, err.Error())
+			err := lookup(context.Background(), backingUp, backupStart)
+			if tc.wantMsg == "" {
+				require.NoError(t, err, tc.why)
+				return
+			}
+			require.Error(t, err, tc.why)
+			assert.Equal(t, tc.wantMsg, err.Error(), tc.why)
 			for _, leaked := range tc.leaked {
 				assert.NotContainsf(t, err.Error(), leaked, "the refusal body leaked %q", leaked)
 			}
@@ -538,6 +647,14 @@ func TestReindexOverlapLookupRedactsItsCauses(t *testing.T) {
 				"the refusal must stay classifiable through the redaction wrapper")
 		})
 	}
+}
+
+// unreadablePayloadMsg is the collection-scoped refusal, spelled out here so a
+// change to the operator's remedy has to be made deliberately.
+func unreadablePayloadMsg(collection string) string {
+	return `cannot rule out a runtime-reindex of collection "` + collection +
+		`" during this backup: its task payload is unreadable; ` +
+		`retry once every node runs the same server version, and report this to Weaviate if it persists`
 }
 
 // TestRefuseIfReindexOverlapped_Unwired pins the startup-window default: allow + warn once.
