@@ -3694,9 +3694,9 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 			}
 
 			var shardStatus atomic.Value
-			for _, node := range replicas {
-				var nodeStatus storagestate.Status
-				if node == thisNode {
+			for _, nodeName := range replicas {
+				nodeStatus := storagestate.StatusIndexing
+				if nodeName == thisNode {
 					shard, release, err := i.getShardForDirectLocalOperation(
 						ctx,
 						shardName,
@@ -3709,14 +3709,14 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 					}
 					release()
 				} else {
-					if ss, err := i.remote.GetShardStatus(ctx, shardName); err == nil {
+					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
 						nodeStatus = storagestate.Status(ss)
 					}
 				}
 
 				// Assume all replicas are READY and search for any which are not.
 				// Fall back to StatusIndexing if we find two different non-ready statuses.
-				if nodeStatus != storagestate.StatusReady {
+				if nodeStatus != "" && nodeStatus != storagestate.StatusReady {
 					if old := shardStatus.Swap(nodeStatus); old != nil && old.(storagestate.Status) != nodeStatus {
 						shardStatus.Store(storagestate.StatusIndexing)
 						break
@@ -3734,6 +3734,10 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 			mu.Unlock()
 			return nil
 		}, shardName)
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 	return shardsStatus, nil
 }
