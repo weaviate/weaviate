@@ -81,6 +81,23 @@ type indexesHandlers struct {
 	// nil in fixtures without a cluster HTTP client; the cancel handler then
 	// answers without confirming remote gates.
 	reindexCleanup reindexCleanupProber
+
+	// Per-handler, not per-process: a package-level budget leaves every test
+	// after the first with an exhausted one. See [backupActivityGateWarn].
+	gateWarnOnce    sync.Once
+	gateWarnSampler *logrusext.Sampler
+}
+
+// backupActivityGateWarn rate-limits the fail-open WARN to one line per hour.
+// The condition it reports — no probe wired, or an empty node list — is a
+// persistent misconfiguration, so a once-per-process line would leave every
+// later submission silent for an operator who starts reading the logs after the
+// first one. Built on first use because fixtures construct the handler directly.
+func (h *indexesHandlers) backupActivityGateWarn() *logrusext.Sampler {
+	h.gateWarnOnce.Do(func() {
+		h.gateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
+	})
+	return h.gateWarnSampler
 }
 
 // clusterMembership is the slice of the cluster state the backup gate needs.
@@ -1036,14 +1053,6 @@ func (h *indexesHandlers) tryRollbackRacedReindexTask(
 // backupActivityScanTimeout bounds the cluster fan-out so one hung node cannot hang the PUT.
 const backupActivityScanTimeout = 5 * time.Second
 
-// backupActivityGateWarnSampler rate-limits the fail-open WARN to one line per
-// hour. The condition it reports — no probe wired, or an empty node list — is a
-// persistent misconfiguration rather than a transient one, so a once-per-process
-// line leaves every later submission silent for an operator who starts reading
-// the logs after the first one. Same posture as the unwired warning on the
-// backup side of the gate.
-var backupActivityGateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
-
 type nodeActivityProber interface {
 	NodeActivity(ctx context.Context, nodeName string) (backup.NodeActivity, error)
 }
@@ -1148,7 +1157,7 @@ func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *mo
 	}
 
 	if h.backupActivity == nil || len(nodes) == 0 {
-		backupActivityGateWarnSampler.WithSampling(func(logrus.FieldLogger) {
+		h.backupActivityGateWarn().WithSampling(func(logrus.FieldLogger) {
 			h.appState.Logger.WithField("action", "reindex_backup_gate").
 				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
 					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")
