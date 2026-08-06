@@ -302,15 +302,6 @@ func TestIndex_getShardsStatus(t *testing.T) {
 		"all_shutdown":  storagestate.StatusShutdown.String(),
 	}
 
-	shardingState := &sharding.State{
-		Physical: map[string]sharding.Physical{
-			"all_ready":     {BelongsToNodes: clusterNodes},
-			"one_not_ready": {BelongsToNodes: clusterNodes},
-			"two_not_ready": {BelongsToNodes: clusterNodes},
-			"all_shutdown":  {BelongsToNodes: clusterNodes},
-		},
-	}
-
 	var replicas []types.Replica
 	for shard, nodes := range shardReplicas {
 		for _, node := range nodes {
@@ -359,11 +350,8 @@ func TestIndex_getShardsStatus(t *testing.T) {
 		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
 
 	index := Index{
-		Config: IndexConfig{ClassName: schema.ClassName("Songs")},
-		getSchema: &fakeSchemaGetter{
-			nodeName:   targetNode,
-			shardState: shardingState,
-		},
+		Config:           IndexConfig{ClassName: schema.ClassName("Songs")},
+		getSchema:        &fakeSchemaGetter{nodeName: targetNode},
 		schemaReader:     schemaReader,
 		shardCreateLocks: esync.NewKeyRWLocker(),
 		router:           router,
