@@ -235,6 +235,23 @@ func (v *VersionMap) Warmup(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// EnsureDefault installs the implicit first version for a vector with no
+// in-memory entry yet, and reports whether it did. Vectors are added at
+// version 1 without persisting it (the store only sees increments and
+// deletes), so entries absent from the store default to v1 on load;
+// installing that default eagerly keeps such vectors off the lazy fault
+// path. In-memory values always win.
+func (v *VersionMap) EnsureDefault(vectorID uint64) bool {
+	page, slot := v.data.EnsurePageFor(vectorID)
+	v.locks.Lock(vectorID)
+	installed := page[slot] == 0
+	if installed {
+		page[slot] = v1
+	}
+	v.locks.Unlock(vectorID)
+	return installed
+}
+
 // VersionStore is a persistent store for vector versions.
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
