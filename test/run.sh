@@ -1024,7 +1024,9 @@ function run_acceptance_reindex_backup() {
   # The package's multi-node test runs separately in -backup-cluster (below);
   # it alone can eat the whole 20m budget this group shares. Filter matches by
   # exact name: a typo here silently runs zero tests.
-  AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex)$' \
+  # TestCIAllowlistCoversEveryTestInThisPackage guards these two lists against
+  # the silent-skip described above; it has to be listed to be able to run.
+  AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage)$' \
     run_aof_group "reindex-backup" test/acceptance/reindex_backup
 }
 
