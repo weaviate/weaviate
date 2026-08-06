@@ -45,12 +45,14 @@ type raceTaskService struct {
 	tasks       []*distributedtask.Task
 	cancelled   []distributedtask.TaskDescriptor
 	adds        int
+	lists       int
 	onCommitted func()
 }
 
 func (s *raceTaskService) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lists++
 	out := make([]*distributedtask.Task, len(s.tasks))
 	copy(out, s.tasks)
 	return map[string][]*distributedtask.Task{db.ReindexNamespace: out}, nil
