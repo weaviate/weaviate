@@ -1417,6 +1417,23 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	if target == nil {
+		if held := h.uncancellableLiveTask(tasks[db.ReindexNamespace], collection,
+			propertyName, indexType); held != nil {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"audit_event": "reindex_task_cancel_past_cancellation_point",
+				"taskID":      held.ID,
+				"task_status": string(held.Status),
+				"collection":  collection,
+				"property":    propertyName,
+				"index_type":  indexType,
+				"principal":   principalUsername(principal),
+			}).Info("cancel: the task has left STARTED, so DTM will not cancel it; refusing instead of NO_OP")
+			return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+				"cancel refused: the migration has finished building and is committing its result; "+
+					"it can no longer be cancelled. Poll GET /v1/schema/<class>/indexes until every "+
+					"index reports status=\"ready\"."))
+		}
+
 		// Idempotent cancel: caller's (collection, property) is known to
 		// exist (updateIndex verified before dispatch). No task to cancel
 		// means the request is a no-op — surface that explicitly via
@@ -1596,6 +1613,53 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 // the request. Generous: it is bucket teardown across every strategy the
 // migration touched, and abandoning it half-done is what the detach avoids.
 const reindexCancelCleanupTimeout = 2 * time.Minute
+
+// uncancellableLiveTask finds a task that the backup gate and the status
+// endpoint both count as live ([db.IsLiveReindexTaskStatus]) but that
+// [distributedtask.Manager.CancelTask] will not accept, because it has left
+// STARTED. PREPARING and SWAPPING are those states, and so is any status a
+// newer node introduced.
+//
+// Three predicates used to disagree about one task: the gate refused backups of
+// its collection, the status endpoint reported it running, and cancel answered
+// NO_OP. The operator was told to cancel and then told there was nothing to
+// cancel, with the backup still refused. Widening the cancel filter is not the
+// fix — DTM rejects a cancel in these states, so that only turns the NO_OP into
+// a 500. What is wrong is the answer, so this exists to give the caller a
+// refusal that matches the gate.
+//
+// Matching mirrors the two passes above: an exact (collection, property, index
+// type) match where the payload decodes, and a collection-only match where it
+// does not, because the property is inside the payload that will not decode.
+func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
+	collection, propertyName, indexType string,
+) *distributedtask.Task {
+	for _, task := range tasks {
+		if task.Status == distributedtask.TaskStatusStarted ||
+			!db.IsLiveReindexTaskStatus(task.Status) {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			if recovered := db.ReindexTaskCollection(task.Payload); recovered != "" &&
+				strings.EqualFold(recovered, collection) {
+				return task
+			}
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		if !slices.Contains(payload.Properties, propertyName) {
+			continue
+		}
+		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
+			continue
+		}
+		return task
+	}
+	return nil
+}
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
 // cancel handler emits when there is nothing to cancel. Lets scripts
