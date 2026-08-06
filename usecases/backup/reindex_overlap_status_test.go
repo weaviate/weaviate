@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -142,8 +143,7 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 	sourcer.reindexOverlapFn = func(context.Context) error {
 		// The backup's own context is untouched; the cancellation belongs to
 		// whatever the RAFT client ran the query on.
-		return fmt.Errorf("cannot rule out a runtime-reindex during this backup: "+
-			"the cluster task manager could not be queried: %w", context.Canceled)
+		return undeterminedOverlapErr{cause: context.Canceled}
 	}
 
 	var observed []backup.Status
@@ -162,13 +162,86 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 	storedStatus, storedReason := backend.getMetaStatus()
 	require.Equal(t, backup.Failed, storedStatus,
 		"a refusal published as CANCELLED reads as an operator abort that never happened")
-	require.Contains(t, storedReason, "a runtime-reindex overlapped this backup",
+	require.Contains(t, storedReason, "cannot rule out a runtime-reindex during this backup",
 		"the refusal must keep the text that says why the backup was failed")
+	require.NotContains(t, storedReason, "overlapped this backup",
+		"the check never got an answer, so it must not report a migration it did not see")
 
 	require.NotContains(t, observed, backup.Cancelled,
 		"nobody cancelled this backup")
 	require.Equal(t, backup.Failed, observed[len(observed)-1],
 		"the last status an operator can poll has to be the failure")
+}
+
+// undeterminedOverlapErr is the shape the storage layer gives a commit-time
+// refusal that never observed an overlap: both sentinels reachable through
+// errors.Is, neither of their texts printed.
+type undeterminedOverlapErr struct{ cause error }
+
+func (e undeterminedOverlapErr) Error() string {
+	return "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried"
+}
+
+func (e undeterminedOverlapErr) Unwrap() []error {
+	return []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined, e.cause}
+}
+
+// The refusal is the only thing an operator gets, and the two kinds of refusal
+// call for different next steps. "A migration ran during your backup" sends them
+// to the task list; for a check that could not read the task list there is
+// nothing there to find, and the honest answer is to fix what made it
+// unreadable and back up again.
+func TestOverlapRefusalDistinguishesAnObservedMigrationFromAnUnansweredCheck(t *testing.T) {
+	const backupID = "1"
+	any := mock.Anything
+
+	tests := []struct {
+		name       string
+		overlapErr error
+		wantReason string
+		wantAbsent string
+	}{
+		{
+			name: "the check saw the migration",
+			overlapErr: fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+				backup.ErrBackupSpannedReindex, "Movies"),
+			wantReason: "a runtime-reindex overlapped this backup",
+			wantAbsent: "cannot rule out",
+		},
+		{
+			name:       "the check could not answer",
+			overlapErr: undeterminedOverlapErr{cause: errors.New("leader unreachable")},
+			wantReason: "cannot rule out a runtime-reindex during this backup",
+			wantAbsent: "overlapped this backup",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeBackend()
+			backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
+			sourcer.reindexOverlapErr = tc.overlapErr
+
+			logger, _ := test.NewNullLogger()
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID,
+				func(backup.Status) {}, logger)
+
+			desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
+			err := uploader.all(context.Background(), nil, &desc, nil, "", "")
+			require.ErrorIs(t, err, backup.ErrBackupSpannedReindex,
+				"both refusals stay classifiable as this check's")
+
+			storedStatus, storedReason := backend.getMetaStatus()
+			require.Equal(t, backup.Failed, storedStatus, "both refusals fail the backup")
+			require.Contains(t, storedReason, tc.wantReason)
+			require.NotContains(t, storedReason, tc.wantAbsent,
+				"the refusal must not claim more than the check established")
+		})
+	}
 }
 
 // The check is a backstop only because it is asked about the whole capture

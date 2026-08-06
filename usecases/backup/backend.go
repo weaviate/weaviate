@@ -385,6 +385,15 @@ Loop:
 		}
 		overlapRefused = true
 		desc.Status = backup.Failed
+		if errors.Is(err, backup.ErrReindexOverlapUndetermined) {
+			// The check could not answer, so it did not observe a migration. Its
+			// own text already opens with "cannot rule out a runtime-reindex
+			// during this backup" and carries the remedy for the reason it could
+			// not answer; prefixing it here would assert the overlap the same
+			// sentence disclaims, and send the operator hunting for a task that
+			// may never have existed.
+			return err
+		}
 		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)
 	}
 

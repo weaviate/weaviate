@@ -38,6 +38,17 @@ var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-rein
 // in-flight sends the operator after a task that is gone.
 var ErrBackupSpannedReindex = errors.New("backup spanned a runtime-reindex")
 
+// ErrReindexOverlapUndetermined accompanies [ErrBackupSpannedReindex] on the
+// refusals that never observed an overlap and only failed to rule one out: a
+// task list that could not be fetched, a payload that would not decode, a
+// backup that outlived the window finished tasks are kept for.
+//
+// Both refusals fail the backup, so the sentinel is not about the outcome. It
+// is about what the operator is told: "a migration ran during your backup"
+// sends them looking for a task, and for three of the four ways this refusal is
+// raised there is none to find.
+var ErrReindexOverlapUndetermined = errors.New("runtime-reindex overlap could not be determined")
+
 // ReindexBlockedError is the API-safe form of a backup refused by the reindex
 // gate. Wrappers on the way out add the shard and node an operator wants and a
 // backup caller is not granted, so the publishable message travels alongside
