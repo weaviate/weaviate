@@ -134,15 +134,16 @@ func (r *Resolution) apply(qi int, doc uint64, adds bool) {
 	}
 }
 
-// Bitmap collects every document still held into one bitmap. It consumes the
-// resolution: nothing may read or amend it afterwards.
+// SortedDocs returns every document still held, ascending, with duplicates
+// left in — one document can be reached through several query keys, and both
+// sroar constructors collapse them while building. It consumes the resolution:
+// nothing may read or amend it afterwards, and the returned slice aliases its
+// storage.
 //
-// The surviving documents are compacted into the slot array itself rather than
-// gathered into a second one of the same size — which is what consumes it, and
-// is safe because both cursors walk in order and the write never overtakes the
-// read. Built from the sorted result in a single step, and deduplicated there,
-// since one document can be reached through several query keys.
-func (r *Resolution) Bitmap() *sroar.Bitmap {
+// The survivors are compacted into the slot array itself rather than gathered
+// into a second one of the same size — which is what consumes it, and is safe
+// because both cursors walk in order and the write never overtakes the read.
+func (r *Resolution) SortedDocs() []uint64 {
 	out := r.docs[:0]
 	for _, held := range r.docs {
 		if held != noDoc {
@@ -153,5 +154,12 @@ func (r *Resolution) Bitmap() *sroar.Bitmap {
 		out = append(out, e.doc)
 	}
 	slices.Sort(out)
-	return sroar.FromSortedList(out)
+	return out
+}
+
+// Bitmap collects every document still held into one heap-allocated bitmap,
+// consuming the resolution. Callers that pool result memory should take
+// [Resolution.SortedDocs] and build through their pool instead.
+func (r *Resolution) Bitmap() *sroar.Bitmap {
+	return sroar.FromSortedList(r.SortedDocs())
 }

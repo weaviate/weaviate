@@ -347,12 +347,14 @@ func (s *Searcher) resolveContainsKeyDocColumn(reader containsBatchReader,
 	}
 
 	// Resolve the flushed layers per key, apply the unflushed ones on the same
-	// per-key terms, then materialize once.
+	// per-key terms, then materialize once — into a pooled buffer, so the result
+	// returns to the pool on release exactly as the fold's does.
 	res := idx.Resolve(pv.containsValues)
 	if err := res.ApplyMemtables(reader.MemtableReaders(), pv.containsValues); err != nil {
 		return docBitmap{}, false
 	}
-	return docBitmap{docIDs: res.Bitmap(), release: noopRelease, isDenyList: false}, true
+	bm, put := s.bitmapFactory.BufPool().SortedListToBuf(res.SortedDocs())
+	return docBitmap{docIDs: bm, release: put, isDenyList: false}, true
 }
 
 // foldContainsAnyAccumulator unions the rows of all keys through a
