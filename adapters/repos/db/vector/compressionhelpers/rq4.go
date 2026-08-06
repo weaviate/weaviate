@@ -91,6 +91,9 @@ func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distance
 }
 
 func NewCenteredFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider, mean []float32) (*FourBitRotationalQuantizer, error) {
+	if len(mean) == 0 {
+		return nil, errors.New("centering requires a non-empty mean vector")
+	}
 	if len(mean) != inputDim {
 		return nil, errors.Errorf("centering mean length %d does not match input dimension %d", len(mean), inputDim)
 	}
@@ -102,6 +105,11 @@ func NewCenteredFourBitRotationalQuantizer(inputDim int, seed uint64, distancer 
 }
 
 func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, mean []float32, distancer distancer.Provider) (*FourBitRotationalQuantizer, error) {
+	// Normalize empty to nil: an uncentered quantizer must never reach the
+	// SIMD dot below — the amd64 kernel faults on a nil/empty slice.
+	if len(mean) == 0 {
+		mean = nil
+	}
 	if mean != nil && len(mean) != inputDim {
 		return nil, errors.Errorf("centering mean length %d does not match input dimension %d", len(mean), inputDim)
 	}
@@ -114,7 +122,9 @@ func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, 
 		cos:       cos,
 		l2:        l2,
 		mean:      mean,
-		meanNorm2: dotProduct(mean, mean),
+	}
+	if mean != nil {
+		rq.meanNorm2 = dotProduct(mean, mean)
 	}
 	rq.scratch.New = func() any { return newRQ4Scratch(outputDim, len(mean)) }
 	return rq, nil
