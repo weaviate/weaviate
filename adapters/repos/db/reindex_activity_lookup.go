@@ -180,46 +180,47 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	)
 }
 
-// ReindexOverlapObserver opens the backup's commit-time backstop: called at
-// backup start, it records the cluster's reindex-task state for these
-// collections and returns the check to run once the files are captured. The
-// check refuses when a task appeared or changed status in between.
+// ReindexOverlapLookup answers the backup's commit-time question: did any
+// reindex task on these collections have a lifetime overlapping [since, now]?
 //
 // Overlap, not liveness. A migration that both starts and finishes while the
 // files are being copied leaves the capture just as inconsistent, and asking
 // whether one is running at commit time answers no — there is nothing left to
-// see. Every caller of this backstop depends on that distinction.
+// see. Every caller of this lookup depends on that distinction.
 //
-// The verdict comes from comparing two observations of RAFT-ordered task state,
-// never from comparing timestamps. A task's timestamps are stamped by whichever
-// node proposed it, so testing one against the backup's own start time compares
-// two machines' clocks: a proposer running behind made a migration that really
-// did finish inside the window look like it finished before it, and the backup
-// was published as clean while it was torn. Two observations have no such
-// failure mode. They also need no skew allowance, so a backup started after a
-// migration finished is admitted rather than serving a blackout window.
+// A non-nil error means either that one overlapped or that the question can no
+// longer be answered; callers fail closed on both.
 //
-// One case is decided by unit state rather than by the two observations: a
-// cancelled task. Cancel only applies to a task that had already STARTED, so a
-// cancelled one may already have rebuilt buckets, and it counts as an overlap
-// whenever any of its units left PENDING. Only a cancelled task where no unit
-// was ever claimed is exempt, because no worker could have written. That
-// carve-out exists for a state the submit path manufactures on purpose: its
-// post-commit rollback withdraws a task when a backup claims first, and
-// counting that would fail the backup that won the race.
+// One case is decided by unit state rather than by timestamps: a cancelled
+// task. Cancel only applies to a task that had already STARTED, so a cancelled
+// one may already have rebuilt buckets, and it counts as an overlap whenever
+// any of its units left PENDING. Only a cancelled task where no unit was ever
+// claimed is exempt, because no worker could have written. That carve-out
+// exists for a state the submit path manufactures on purpose: its post-commit
+// rollback withdraws a task when a backup claims first, and counting that would
+// fail the backup that won the race.
 //
 // The residual it leaves is a cancelled task whose units all still read PENDING
 // at commit while a worker had in fact begun writing. Pinned by
-// TestReindexOverlapObserverCountsCancelledTasksThatRan.
-type ReindexOverlapObserver func(ctx context.Context, collections []string) entitiesbackup.ReindexOverlapCheck
+// TestReindexOverlapLookupCountsCancelledTasksThatRan.
+//
+// The comparison against since is between two machines' clocks: the backup's
+// start time is stamped on the capturing node, a task's FinishedAt by whichever
+// node proposed it. Skewed far enough apart, a migration that really did finish
+// inside the window reads as having finished before it and the backup is
+// published as clean. Accepted, not worked around: backup state is not held in
+// RAFT, so no cluster-consistent ordering exists to compare against, and
+// building one here would only paper over that boundary. See
+// docs/runtime-reindex.md.
+type ReindexOverlapLookup func(ctx context.Context, collections []string, since time.Time) error
 
-// SetReindexOverlapObserver installs the observer consulted by
-// [DB.ObserveReindexOverlap]. Wired from configure_api.go, which is where both
-// the task list and the retention window are reachable.
-func (db *DB) SetReindexOverlapObserver(observer ReindexOverlapObserver) {
+// SetReindexOverlapLookup installs the lookup consulted by
+// [DB.RefuseIfReindexOverlapped]. Wired from configure_api.go, which is where
+// both the task list and the retention window are reachable.
+func (db *DB) SetReindexOverlapLookup(lookup ReindexOverlapLookup) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
-	db.reindexOverlapObserver = observer
+	db.reindexOverlapLookup = lookup
 }
 
 // redactedOverlapErr is [redactedErr] fixed to the overlap sentinel; every
@@ -232,117 +233,40 @@ func redactedOverlapErr(msg string, cause error) error {
 // service so the overlap rules can be exercised without a RAFT node.
 type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.Task, error)
 
-// NewReindexOverlapObserver builds the [ReindexOverlapObserver] rules: the
-// observation taken at backup start is the baseline, and at commit time a task
-// overlaps when it is running, when it is absent from the baseline (it was
-// submitted while the files were being captured), or when its status moved.
+// NewReindexOverlapLookup builds the [ReindexOverlapLookup] rules: a task
+// overlaps when it is still running or reached a terminal status at or after
+// the backup started, equal timestamps counting as overlap.
 //
 // Past completedTaskTTL a finished task is dropped from the list, so its
-// absence stops being evidence and the check refuses outright rather than read
-// an unchanged list as all-clear. That bound is what makes "absent from the
-// baseline" sound in the other direction too: a task can only start AND finish
-// AND age out inside the window if the window is at least as long as the TTL,
-// which this refuses before looking at any task.
-//
-// A task present in the baseline but gone at commit splits on what it was doing
-// when the baseline was taken. Already terminal: ignored, since it cannot have
-// run during the capture, and treating its expiry as evidence would fail backups
-// that merely outlived some unrelated old task's retention. Still running:
-// refused, because dropping out of the list is not proof it did nothing — DTM
-// also forgets a task when its collection is deleted, whatever its status.
-func NewReindexOverlapObserver(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapObserver {
-	return func(ctx context.Context, collections []string) entitiesbackup.ReindexOverlapCheck {
+// absence stops being evidence; the lookup refuses outright rather than read an
+// empty list as all-clear.
+func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
+	return func(ctx context.Context, collections []string, since time.Time) error {
+		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
+			return redactedOverlapErr(fmt.Sprintf(
+				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
+				completedTaskTTL), nil)
+		}
+		tasksByNamespace, err := list(ctx)
+		if err != nil {
+			// The RAFT error names the nodes it could not reach, and this text
+			// is stored in the failure meta and served from the status API.
+			return redactedOverlapErr(
+				"cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried", err)
+		}
 		wanted := lowercasedSet(collections)
-		// Started before the query, not after, so the retention bound below
-		// covers the query's own duration too.
-		observedAt := time.Now()
-		baseline, observeErr := observeReindexTasks(ctx, list, wanted)
-
-		return func(ctx context.Context) error {
-			if observeErr != nil {
-				// No baseline means no comparison, so nothing can be ruled out.
-				// Surfaced here rather than at backup start so every refusal
-				// this backstop produces reaches the operator the same way.
-				return observeErr
-			}
-			// Both readings come from this node's clock and carry Go's
-			// monotonic reading, so this is an elapsed duration rather than a
-			// comparison between two machines.
-			if completedTaskTTL > 0 && time.Since(observedAt) >= completedTaskTTL {
-				return redactedOverlapErr(fmt.Sprintf(
-					"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
-					completedTaskTTL), nil)
-			}
-			current, err := observeReindexTasks(ctx, list, wanted)
+		for _, task := range tasksByNamespace[ReindexNamespace] {
+			collection, overlaps, err := reindexTaskOverlaps(task, wanted, since)
 			if err != nil {
 				return err
 			}
-			for descriptor, task := range current {
-				if collection, overlaps := reindexTaskOverlaps(descriptor, task, baseline); overlaps {
-					return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-						entitiesbackup.ErrBackupSpannedReindex, collection)
-				}
+			if overlaps {
+				return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+					entitiesbackup.ErrBackupSpannedReindex, collection)
 			}
-			// A task that was RUNNING when the backup started and is no longer
-			// listed at commit. Dropping out of the list is not proof it did
-			// nothing: DTM also forgets a task when its collection is deleted,
-			// which removes it whatever its status. It was live during the
-			// capture, so it overlapped.
-			for descriptor, was := range baseline {
-				if _, stillListed := current[descriptor]; stillListed {
-					continue
-				}
-				if IsLiveReindexTaskStatus(was.status) {
-					return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-						entitiesbackup.ErrBackupSpannedReindex, was.collection)
-				}
-			}
-			return nil
 		}
+		return nil
 	}
-}
-
-// reindexTaskObservation is one task as seen at one point in time, reduced to
-// the fields the overlap verdict reads. No timestamp: the whole point of
-// comparing two observations is that the proposer's clock never enters it.
-type reindexTaskObservation struct {
-	collection    string
-	status        distributedtask.TaskStatus
-	touchedShards bool
-}
-
-// observeReindexTasks reads the reindex tasks targeting the wanted collections,
-// keyed by task id and version so a re-run of the same task is a new entry
-// rather than a mutation of the old one.
-//
-// A non-nil error means the cluster state could not be read; callers fail
-// closed on it, which is what separates it from an empty result.
-func observeReindexTasks(ctx context.Context, list ReindexTaskLister, wanted map[string]struct{},
-) (map[distributedtask.TaskDescriptor]reindexTaskObservation, error) {
-	tasksByNamespace, err := list(ctx)
-	if err != nil {
-		// The RAFT error names the nodes it could not reach, and this text is
-		// stored in the failure meta and served from the status API.
-		return nil, redactedOverlapErr(
-			"cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried", err)
-	}
-	observed := make(map[distributedtask.TaskDescriptor]reindexTaskObservation)
-	for _, task := range tasksByNamespace[ReindexNamespace] {
-		var payload ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			return nil, redactedOverlapErr(
-				"cannot rule out a runtime-reindex during this backup: a task payload is unreadable", err)
-		}
-		if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
-			continue
-		}
-		observed[task.TaskDescriptor] = reindexTaskObservation{
-			collection:    payload.Collection,
-			status:        task.Status,
-			touchedShards: reindexTaskTouchedShards(task),
-		}
-	}
-	return observed, nil
 }
 
 // lowercasedSet indexes the collection names for the case-insensitive match
@@ -355,39 +279,55 @@ func lowercasedSet(collections []string) map[string]struct{} {
 	return set
 }
 
-// reindexTaskOverlaps decides one commit-time task against the backup-start
-// baseline. The returned collection name is the payload's, for the refusal
-// message; it is only meaningful when overlaps is true.
+// reindexOverlapClockSkewAllowance widens the "finished before the backup
+// started" window because the two timestamps compared here are stamped on
+// different machines: since is the backup participant's wall clock, while
+// FinishedAt is the RAFT proposer's. Without an allowance, a proposer running
+// behind the participant makes a migration that really did finish inside the
+// backup window look like it finished before it, and the backup is published as
+// clean while it is in fact torn.
 //
-// Reads no timestamp, from either observation. "Was it there before, and has it
-// moved since" is answerable from RAFT-ordered state alone, which is why no
-// clock-skew allowance appears anywhere in this file: a migration that finished
-// before the backup started is admitted no matter how far the proposer's clock
-// is off, and one that ran during the capture is refused just the same.
-func reindexTaskOverlaps(descriptor distributedtask.TaskDescriptor, task reindexTaskObservation,
-	baseline map[distributedtask.TaskDescriptor]reindexTaskObservation,
-) (string, bool) {
-	if task.status == distributedtask.TaskStatusCancelled && !task.touchedShards {
+// The two errors are not symmetric. Too small an allowance publishes a torn
+// backup, which is silent and unrecoverable. Too large an allowance refuses a
+// backup that was in fact clean, which the operator sees and can retry. We
+// would rather refuse a clean backup than publish a torn one, so the allowance
+// is generous relative to real drift: 30s is two orders of magnitude above the
+// sub-second offset an NTP-synced cluster holds, while only extending the
+// refusal window by 30s for migrations that finished just before the backup.
+const reindexOverlapClockSkewAllowance = 30 * time.Second
+
+// reindexTaskOverlaps applies the overlap rules to a single task: it overlaps
+// when it targets one of the wanted collections and is either still running or
+// reached a terminal status at or after since, equal timestamps counting as
+// overlap. Only a finish more than [reindexOverlapClockSkewAllowance] before
+// since clears the task, because the two timestamps come from different clocks.
+// The returned collection name is the payload's, for the refusal message; it is
+// only meaningful when overlaps is true.
+//
+// A non-nil error means the task payload could not be read, so overlap can no
+// longer be ruled out; the caller fails closed on it.
+func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
+	var payload ReindexTaskPayload
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		return "", false, redactedOverlapErr(
+			"cannot rule out a runtime-reindex during this backup: a task payload is unreadable", err)
+	}
+	if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
+		return "", false, nil
+	}
+	if IsLiveReindexTaskStatus(task.Status) {
+		return payload.Collection, true, nil
+	}
+	if task.Status == distributedtask.TaskStatusCancelled && !reindexTaskTouchedShards(task) {
 		// A cancelled task that never claimed a unit wrote nothing, so it
 		// cannot have spanned this backup. One is produced on purpose by the
 		// submit path's post-commit rollback.
-		return "", false
+		return "", false, nil
 	}
-	if IsLiveReindexTaskStatus(task.status) {
-		return task.collection, true
+	if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since.Add(-reindexOverlapClockSkewAllowance)) {
+		return "", false, nil
 	}
-	was, seenAtStart := baseline[descriptor]
-	if !seenAtStart {
-		// Submitted after the baseline was taken, so it ran inside the window.
-		return task.collection, true
-	}
-	if was.status != task.status {
-		// It was live when the capture began and reached a terminal status
-		// during it, or moved between terminal statuses. Either way it was
-		// still doing something after the backup started.
-		return task.collection, true
-	}
-	return "", false
+	return payload.Collection, true, nil
 }
 
 // reindexTaskTouchedShards reports whether any unit of the task ever left
@@ -407,20 +347,14 @@ func reindexTaskTouchedShards(task *distributedtask.Task) bool {
 	return false
 }
 
-// noReindexOverlap is the check handed back when this backstop has nothing to
-// say: the feature is off, or the observer is not wired yet.
-func noReindexOverlap(context.Context) error { return nil }
-
-// ObserveReindexOverlap opens the backup's commit-time backstop; see
-// [ReindexOverlapObserver] for why the question is overlap and not liveness,
-// and why it is answered without reading a clock. Call it before the capture
-// begins and call the returned check once the files are written.
+// RefuseIfReindexOverlapped is the backup's commit-time backstop; see
+// [ReindexOverlapLookup] for why the question is overlap and not liveness.
 //
 // Unwired means fail-open with a rate-limited WARN, matching the other gates:
 // module tests construct a DB without the post-bootstrap install path, and a
 // production request that arrives before that path runs is better admitted
 // than refused. The WARN is what tells the operator it happened.
-func (db *DB) ObserveReindexOverlap(ctx context.Context, collections []string) entitiesbackup.ReindexOverlapCheck {
+func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
 		// Same contract as the other two gates: RUNTIME_REINDEX_ENABLED=false
 		// means no reindex check anywhere. Returning here also skips the lookup
@@ -438,19 +372,19 @@ func (db *DB) ObserveReindexOverlap(ctx context.Context, collections []string) e
 		//
 		// Accepted: the flag is the escape hatch for the whole feature, so it
 		// cannot itself fail backups.
-		return noReindexOverlap
+		return nil
 	}
 
 	db.reindexAuditMu.RLock()
-	observer := db.reindexOverlapObserver
+	lookup := db.reindexOverlapLookup
 	db.reindexAuditMu.RUnlock()
 
-	if observer == nil {
+	if lookup == nil {
 		warnUnwiredGate(db.gateSamplers().unwiredOverlap, "backup_reindex_overlap",
-			"backup-reindex overlap check: observer not yet installed; allowing the backup. "+
+			"backup-reindex overlap check: lookup not yet installed; allowing the backup. "+
 				"Expected briefly during startup; if this persists past bootstrap, check the "+
-				"SetReindexOverlapObserver wiring in configure_api.go.")
-		return noReindexOverlap
+				"SetReindexOverlapLookup wiring in configure_api.go.")
+		return nil
 	}
-	return observer(ctx, collections)
+	return lookup(ctx, collections, since)
 }

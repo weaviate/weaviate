@@ -1101,8 +1101,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			return false, nil
 		})
-		// Commit-time overlap check; see db.ReindexOverlapObserver.
-		repo.SetReindexOverlapObserver(db.NewReindexOverlapObserver(
+		// Commit-time overlap check; see db.ReindexOverlapLookup.
+		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
 			appState.ClusterService.ListDistributedTasks,
 			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 		))
@@ -1132,7 +1132,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 // from a question it could not ask. A live task whose payload will not decode
 // is the same uncertainty in a smaller shape — the shards it holds cannot be
 // named, so it too refuses every backup rather than let those shards read free.
-// The commit-time backstop ([db.ReindexOverlapObserver]) already refuses on an
+// The commit-time backstop ([db.ReindexOverlapLookup]) already refuses on an
 // unreadable payload; the two gates have to agree on what unreadable means.
 func newShardReindexActivityBuilder(
 	ctx context.Context,
