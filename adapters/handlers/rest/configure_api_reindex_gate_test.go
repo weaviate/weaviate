@@ -121,30 +121,73 @@ func TestShardReindexActivityBuilderRefusesWhenDTMIsUnreachable(t *testing.T) {
 		"the operator has to be told why every backup is being refused")
 }
 
-// A live task whose payload will not decode names shards nobody can read. Those
-// shards must not come back free, and neither may any other shard in that
-// snapshot: the builder cannot tell which ones the broken task was holding.
-func TestShardReindexActivityBuilderRefusesOnUndecodablePayload(t *testing.T) {
-	logger, hook := test.NewNullLogger()
-	broken := reindexGateTask(t, "t1", distributedtask.TaskStatusStarted, "MyClass",
-		map[string]string{"u1": "shard1"})
-	broken.Payload = []byte("{not json")
+// A live task whose payload will not decode names shards nobody can read, so
+// none of them may read free. How far that spreads depends on how much of the
+// payload survives, and it has to match what the commit-time backstop
+// ([db.ReindexOverlapLookup]) does with the same payload — a wider admission
+// gate refuses captures the commit would allow, a narrower one lets a capture
+// upload in full before the commit rejects it.
+func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
+	brokenTask := func(t *testing.T, id, collection string, payload []byte) *distributedtask.Task {
+		task := reindexGateTask(t, id, distributedtask.TaskStatusStarted, collection,
+			map[string]string{"u1": "shard1"})
+		task.Payload = payload
+		return task
+	}
 
-	lookup := newShardReindexActivityBuilder(context.Background(),
-		func(context.Context) (map[string][]*distributedtask.Task, error) {
-			return map[string][]*distributedtask.Task{db.ReindexNamespace: {
-				broken,
-				reindexGateTask(t, "t2", distributedtask.TaskStatusStarted, "MyClass",
-					map[string]string{"u1": "shard2"}),
-			}}, nil
-		}, logger)()
+	tests := []struct {
+		name    string
+		payload []byte
+		// probes maps a (collection, shard) tuple to whether the gate must
+		// report it held.
+		probes map[[2]string]bool
+	}{
+		{
+			// The rolling-upgrade case: a newer node retypes a field, the full
+			// decoder gives up, the collection is still perfectly readable.
+			name:    "a field retyped by a newer node",
+			payload: []byte(`{"collection":"MyClass","unitToShard":"a-newer-node-changed-this-shape"}`),
+			probes: map[[2]string]bool{
+				{"MyClass", "shard1"}:      true,
+				{"MyClass", "shard99"}:     true,
+				{"myclass", "shard1"}:      true,
+				{"OtherClass", "shard1"}:   false,
+				{"UntouchedClass", "s42"}:  false,
+				{"SiblingLiveClass", "sX"}: false,
+			},
+		},
+		{
+			name:    "nothing readable at all",
+			payload: []byte("{not json"),
+			probes: map[[2]string]bool{
+				{"MyClass", "shard1"}:      true,
+				{"OtherClass", "shard1"}:   true,
+				{"UntouchedClass", "s42"}:  true,
+				{"SiblingLiveClass", "sX"}: true,
+			},
+		},
+	}
 
-	assert.True(t, lookup("MyClass", "shard1"),
-		"the shards an unreadable task names must not read free")
-	assert.True(t, lookup("MyClass", "shard2"),
-		"an unreadable payload refuses the whole snapshot, not just its own task")
-	assert.True(t, lookup("UntouchedClass", "shard42"),
-		"a collection no task mentions is refused too: the broken task may have named it")
-	require.NotEmpty(t, hook.AllEntries(),
-		"the operator has to be told why every backup is being refused")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			lookup := newShardReindexActivityBuilder(context.Background(),
+				func(context.Context) (map[string][]*distributedtask.Task, error) {
+					return map[string][]*distributedtask.Task{db.ReindexNamespace: {
+						brokenTask(t, "t1", "MyClass", tc.payload),
+						reindexGateTask(t, "t2", distributedtask.TaskStatusStarted,
+							"SiblingLiveClass", map[string]string{"u1": "shardOK"}),
+					}}, nil
+				}, logger)()
+
+			for probe, want := range tc.probes {
+				assert.Equalf(t, want, lookup(probe[0], probe[1]),
+					"collection %q shard %q", probe[0], probe[1])
+			}
+			assert.True(t, lookup("SiblingLiveClass", "shardOK"),
+				"a readable live task in the same snapshot still holds its own shards")
+			require.NotEmpty(t, hook.AllEntries(),
+				"the operator has to be told which backups are being refused and why")
+		})
+	}
 }
