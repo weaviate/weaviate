@@ -183,6 +183,19 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "retry after the migration finishes")
 }
 
+// TestReindexInFlightError_Submit pins the wording variant used while a
+// submission is still preparing the collection. Nothing was started and nothing
+// was cancelled, so the live-task advice must not appear here.
+func TestReindexInFlightError_Submit(t *testing.T) {
+	err := reindexInFlightError("MyClass", reindexBlockedBySubmit)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
+	require.Contains(t, err.Error(), "MyClass")
+	require.Contains(t, err.Error(), "a reindex submission is preparing this collection")
+	require.NotContains(t, err.Error(), "cancel it via",
+		"no task exists yet; this advice sends the operator chasing one that was never started")
+}
+
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
 // the shard-level halt-for-backup path delegates the gate decision to
 // the same DTM-backed lookup as the inactive-shard path.

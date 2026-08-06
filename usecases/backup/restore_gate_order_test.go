@@ -222,6 +222,12 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 			"a blocked restore is retryable, so 422; got %v", err)
 		assert.Contains(t, err.Error(), "restore blocked")
 		fs.backend.AssertNotCalled(t, "GetObject", ctx, backupID+"/"+node, BackupFile)
+
+		// Same shape as the arms in TestRestoreGateIsScopedPerArm; kept here
+		// because this is where the meta-backed fixture already lives.
+		require.Len(t, fs.selector.reindexCollections, 1, "the gate must run exactly once on this arm")
+		require.Equal(t, []string{class}, fs.selector.reindexCollections[0],
+			"once the meta is read this arm knows its classes and must scope the gate to them")
 	})
 
 	t.Run("without a live reindex the restore proceeds past the gate", func(t *testing.T) {
