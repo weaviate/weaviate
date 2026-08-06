@@ -186,7 +186,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, refs, repl, schemaVersion); err != nil {
-		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %w", err)
 	} else {
 		return res, nil
 	}
