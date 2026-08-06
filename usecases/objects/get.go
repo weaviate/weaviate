@@ -142,7 +142,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 			if errors.As(err, &authzerrs.Forbidden{}) {
 				return nil, fmt.Errorf("repo: object by id: %w", err)
 			}
-			return nil, NewErrInternal("repo: object by id: %v", err)
+			return nil, NewErrInternal("repo: object by id: %w", err)
 		}
 	}
 
@@ -174,7 +174,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
 		nil, m.getSort(sort, order), additional, tenant)
 	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+		return nil, NewErrInternal("list objects: %w", err)
 	}
 
 	if m.modulesProvider != nil {

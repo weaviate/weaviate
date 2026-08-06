@@ -12,6 +12,7 @@
 package objects
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -78,15 +79,24 @@ func NewErrInvalidUserInput(format string, args ...interface{}) ErrInvalidUserIn
 // ErrInternal indicates something went wrong during processing
 type ErrInternal struct {
 	msg string
+	err error
 }
 
 func (e ErrInternal) Error() string {
 	return e.msg
 }
 
-// NewErrInternal with Errorf signature
+// Unwrap returns the cause wrapped with a %w verb, so callers can classify it
+// with errors.Is/As instead of matching on the message.
+func (e ErrInternal) Unwrap() error {
+	return e.err
+}
+
+// NewErrInternal with Errorf signature. An operand formatted with %w stays
+// reachable through Unwrap; %v flattens it to text.
 func NewErrInternal(format string, args ...interface{}) ErrInternal {
-	return ErrInternal{msg: fmt.Sprintf(format, args...)}
+	formatted := fmt.Errorf(format, args...)
+	return ErrInternal{msg: formatted.Error(), err: errors.Unwrap(formatted)}
 }
 
 // ErrNotFound indicates the desired resource doesn't exist
