@@ -1040,17 +1040,23 @@ func (h *indexesHandlers) tryRollbackRacedReindexTask(
 		if task.ID != taskID {
 			continue
 		}
+		if task.Status.IsTerminal() {
+			// The rollback wants the task not running, and it already is not.
+			// Read from the observed status rather than from the cancel's
+			// error: the FSM answers a PREPARING or SWAPPING task, and a
+			// version that moved under a STARTED one, with the same permanent
+			// rejection, and those tasks are still live. Treating the error as
+			// proof of a terminal status would declare a running migration
+			// settled and skip the Error line telling the operator to cancel it
+			// by hand. A task that goes terminal between this listing and the
+			// cancel below is caught by the next attempt's listing.
+			h.appState.Logger.WithFields(fields).
+				WithField("audit_event", "reindex_task_rollback_already_terminal").
+				WithField("task_status", task.Status.String()).
+				Info("rollback: the reindex task that raced a backup claim had already reached a terminal status")
+			return true, nil
+		}
 		if err := h.tasks.CancelDistributedTask(ctx, task.Namespace, task.ID, task.Version); err != nil {
-			if errors.Is(err, distributedtask.ErrPermanentRejection) {
-				// The FSM refused because the task is no longer cancellable —
-				// it already reached a terminal status. That is the state the
-				// rollback wanted, so retrying it would only produce an Error
-				// line telling the operator to cancel a task by hand that is
-				// not running.
-				h.appState.Logger.WithFields(fields).Infof(
-					"rollback: the reindex task that raced a backup claim was already settled: %v", err)
-				return true, nil
-			}
 			return false, fmt.Errorf("cancelling: %w", err)
 		}
 		h.appState.Logger.WithFields(fields).Info("rollback: cancelled a reindex task that raced a backup claim")

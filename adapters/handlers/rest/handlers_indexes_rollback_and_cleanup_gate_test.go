@@ -130,6 +130,10 @@ type scriptedRollbackService struct {
 	// failFirstN makes the first N cancels fail, so the retry can be observed
 	// succeeding rather than only exhausting itself.
 	failFirstN int
+	// statusAfterFailedCancel is applied to every task once a cancel has been
+	// refused, reproducing the case the refusal is meant to describe: the task
+	// reached that status between the listing and the cancel.
+	statusAfterFailedCancel distributedtask.TaskStatus
 }
 
 func (s *scriptedRollbackService) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
@@ -147,9 +151,31 @@ func (s *scriptedRollbackService) CancelDistributedTask(context.Context, string,
 	defer s.mu.Unlock()
 	s.cancelCalls++
 	if s.cancelCalls <= s.failFirstN {
+		s.applyStatusAfterFailedCancel()
 		return errors.New("raft: leader election in progress")
 	}
+	if s.cancelErr != nil {
+		s.applyStatusAfterFailedCancel()
+	}
 	return s.cancelErr
+}
+
+func (s *scriptedRollbackService) applyStatusAfterFailedCancel() {
+	if s.statusAfterFailedCancel == "" {
+		return
+	}
+	for _, t := range s.tasks {
+		t.Status = s.statusAfterFailedCancel
+	}
+}
+
+// permanentRejection reproduces what the FSM actually returns: the specific
+// sentinel AND the umbrella, joined. distributedtask.wrapPermanent is
+// unexported, and a fixture built from the bare umbrella alone would let a
+// classifier that only matches the umbrella look correct.
+func permanentRejection(sentinel error, msg string) error {
+	return fmt.Errorf("%s: %w", msg,
+		errors.Join(sentinel, distributedtask.ErrPermanentRejection))
 }
 
 func (s *scriptedRollbackService) AddDistributedTaskWithBarrier(context.Context, string, string, any, []string, bool) error {
@@ -168,11 +194,16 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 		collection = "Movies"
 		property   = "title"
 	)
-	liveTask := []*distributedtask.Task{{
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: taskID, Version: 3},
-		Namespace:      db.ReindexNamespace,
-		Status:         distributedtask.TaskStatusStarted,
-	}}
+	// A fresh slice per row: the rows below move the task's status, and a
+	// shared one would carry that move into the next row.
+	taskIn := func(status distributedtask.TaskStatus) []*distributedtask.Task {
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: taskID, Version: 3},
+			Namespace:      db.ReindexNamespace,
+			Status:         status,
+		}}
+	}
+	liveTask := func() []*distributedtask.Task { return taskIn(distributedtask.TaskStatusStarted) }
 
 	tests := []struct {
 		name                string
@@ -186,7 +217,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 		{
 			name: "the listing fails, so the task to cancel is never identified",
 			svc: &scriptedRollbackService{
-				tasks:   liveTask,
+				tasks:   liveTask(),
 				listErr: errors.New("raft: not leader"),
 			},
 			expectedListCalls:   3,
@@ -198,7 +229,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 		{
 			name: "the cancel itself fails",
 			svc: &scriptedRollbackService{
-				tasks:     liveTask,
+				tasks:     liveTask(),
 				cancelErr: errors.New("raft: timeout"),
 			},
 			expectedListCalls:   3,
@@ -217,26 +248,89 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedAudit:       "reindex_task_rollback_not_needed",
 		},
 		{
-			// A cancel the FSM permanently rejects because the task already
-			// reached a terminal status is the rollback's own goal, not a
-			// failure: escalating it sends the operator after a task that is
-			// not running.
-			name: "the cancel is permanently rejected because the task is no longer running",
+			// The task finished between the listing and the cancel, so the FSM
+			// refuses it. The rollback wanted the task not running and it is
+			// not, so the next attempt's listing settles it: no escalation, and
+			// no audit line claiming a rollback that never happened.
+			name: "the task reaches a terminal status between the listing and the cancel",
 			svc: &scriptedRollbackService{
-				tasks:     liveTask,
-				cancelErr: fmt.Errorf("task is not running: %w", distributedtask.ErrPermanentRejection),
+				tasks: liveTask(),
+				cancelErr: permanentRejection(distributedtask.ErrTaskNotRunning,
+					"[dtm-perm/task-not-running] task reindex/Movies:rebuild-filterable:title:ab3f/3 is no longer running"),
+				statusAfterFailedCancel: distributedtask.TaskStatusFinished,
 			},
-			expectedListCalls:   1,
+			expectedListCalls:   2,
 			expectedCancelCalls: 1,
 			expectedLevel:       logrus.InfoLevel,
-			expectedMessage:     "rollback: the reindex task that raced a backup claim was already settled",
-			expectedAudit:       "reindex_task_rolled_back",
+			expectedMessage:     "rollback: the reindex task that raced a backup claim had already reached a terminal status",
+			expectedAudit:       "reindex_task_rollback_already_terminal",
+		},
+		{
+			// PREPARING is not cancellable, so the FSM answers with the same
+			// permanent rejection — but the migration is live and will swap and
+			// flip the schema. Reading the rejection as "settled" would tell the
+			// operator nothing while the submitter was told the submission was
+			// refused.
+			name: "the cancel is permanently rejected while the task is still preparing",
+			svc: &scriptedRollbackService{
+				tasks: taskIn(distributedtask.TaskStatusPreparing),
+				cancelErr: permanentRejection(distributedtask.ErrTaskNotRunning,
+					"[dtm-perm/task-not-running] task reindex/Movies:rebuild-filterable:title:ab3f/3 is no longer running"),
+			},
+			expectedListCalls:   3,
+			expectedCancelCalls: 3,
+			expectedLevel:       logrus.ErrorLevel,
+			expectedMessage:     "rollback: could not cancel the task in",
+			expectedAudit:       "reindex_task_rollback_failed",
+		},
+		{
+			// A version that moved under a STARTED task is reported as "does not
+			// exist". The task is running; the rollback has to keep trying and,
+			// failing that, escalate.
+			name: "the cancel is permanently rejected on a version mismatch",
+			svc: &scriptedRollbackService{
+				tasks: liveTask(),
+				cancelErr: permanentRejection(distributedtask.ErrTaskDoesNotExist,
+					"[dtm-perm/task-not-exist] task reindex/Movies:rebuild-filterable:title:ab3f/3 does not exist"),
+			},
+			expectedListCalls:   3,
+			expectedCancelCalls: 3,
+			expectedLevel:       logrus.ErrorLevel,
+			expectedMessage:     "rollback: could not cancel the task in",
+			expectedAudit:       "reindex_task_rollback_failed",
+		},
+		{
+			// A permanent rejection carrying a marker this build does not know
+			// is rehydrated as the bare umbrella. Nothing about it says the task
+			// is settled, so it must not be read as such.
+			name: "the cancel is permanently rejected with an unrecognized marker",
+			svc: &scriptedRollbackService{
+				tasks: liveTask(),
+				cancelErr: fmt.Errorf("cancel task: %w",
+					distributedtask.ErrPermanentRejection),
+			},
+			expectedListCalls:   3,
+			expectedCancelCalls: 3,
+			expectedLevel:       logrus.ErrorLevel,
+			expectedMessage:     "rollback: could not cancel the task in",
+			expectedAudit:       "reindex_task_rollback_failed",
+		},
+		{
+			// The listing already reports the task terminal, so there is nothing
+			// to cancel and the cluster is never asked.
+			name:                "the task is already terminal in the listing",
+			svc:                 &scriptedRollbackService{tasks: taskIn(distributedtask.TaskStatusCancelled)},
+			expectedListCalls:   1,
+			expectedCancelCalls: 0,
+			expectedLevel:       logrus.InfoLevel,
+			expectedMessage:     "rollback: the reindex task that raced a backup claim had already reached a terminal status",
+			expectedAudit:       "reindex_task_rollback_already_terminal",
 		},
 		{
 			// A retryable RAFT failure must still escalate.
 			name: "the cancel fails without a permanent rejection",
 			svc: &scriptedRollbackService{
-				tasks:     liveTask,
+				tasks:     liveTask(),
 				cancelErr: errors.New("raft: leader election in progress"),
 			},
 			expectedListCalls:   3,
@@ -247,7 +341,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 		},
 		{
 			name:                "the task is cancelled",
-			svc:                 &scriptedRollbackService{tasks: liveTask},
+			svc:                 &scriptedRollbackService{tasks: liveTask()},
 			expectedListCalls:   1,
 			expectedCancelCalls: 1,
 			expectedLevel:       logrus.InfoLevel,
