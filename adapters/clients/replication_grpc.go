@@ -548,7 +548,7 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 		// FailedPrecondition on this RPC only ever means replica-not-ready
 		// (see replicationErrorToGRPC) — a typed retry-later signal, not a fault.
 		if status.Code(err) == codes.FailedPrecondition {
-			return nil, fmt.Errorf("%w: %v", replica.ErrAsyncReplicationNotActive, err)
+			return nil, fmt.Errorf("%w: %w", replica.ErrAsyncReplicationNotActive, err)
 		}
 		return nil, fmt.Errorf("gRPC HashTreeLevel: %w", err)
 	}

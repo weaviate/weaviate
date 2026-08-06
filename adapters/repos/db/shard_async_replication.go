@@ -688,7 +688,7 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 				// trust scope. Only an un-neutralizable stale .ht still fails the load.
 				quarantined := filename + hashtreeQuarantineSuffix
 				if renameErr := os.Rename(filename, quarantined); renameErr != nil {
-					return nil, fmt.Errorf("deleting stale hashtree file %q: %w (quarantine rename failed: %v)", filename, err, renameErr)
+					return nil, fmt.Errorf("deleting stale hashtree file %q: %w (quarantine rename failed: %w)", filename, err, renameErr)
 				}
 				logger.Warnf("quarantined undeletable stale hashtree file as %q: %v", quarantined, err)
 				removedAny = true
