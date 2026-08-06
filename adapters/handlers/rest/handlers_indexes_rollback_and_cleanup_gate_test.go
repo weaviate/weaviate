@@ -578,9 +578,9 @@ func (p *countingProber) NodeActivity(context.Context, string) (backup.NodeActiv
 }
 
 // With RUNTIME_REINDEX_ENABLED off there is no reindex to gate, so the
-// submission is refused before any of this branch's machinery runs. Pinned
-// because the flag and the gate landed from different directions onto the same
-// handler, and "off" must not mean "off except for the new cluster probes".
+// submission is refused before any of the gate's machinery runs. Pinned because
+// the flag check and the gate sit in the same handler and are easy to reorder,
+// and "off" must not mean "off except for the cluster probes".
 func TestUpdateIndexWithRuntimeReindexDisabledSkipsTheGate(t *testing.T) {
 	svc := &raceTaskService{}
 	prober := &countingProber{}

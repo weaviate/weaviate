@@ -960,9 +960,7 @@ const reindexRollbackRetryDelay = 500 * time.Millisecond
 // waiver exists precisely so a rollback that never claimed a unit stays
 // harmless. Bounding the accumulation would mean deleting task records the
 // backstop still needs, which trades a tidy list for a blind spot; the
-// retention window is the intended bound and is operator-tunable. Recorded here
-// because an earlier pass dispositioned this as cosmetic, before it was known
-// that the backstop reads these records.
+// retention window is the intended bound and is operator-tunable.
 func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) {
 	fields := logrus.Fields{
 		"audit_event": "reindex_task_rolled_back",
@@ -1378,7 +1376,8 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	// is the wider of the two: a disconnect here fails the drain, the handler
 	// returns before the sweep, and the gate goes to the worker-exit watcher —
 	// so the sweep never runs at all. What the sweep would have healed then
-	// survives until some later submit sweeps it, which may be never.
+	// survives until a later submit on this same node sweeps it, which may be
+	// never — the healing is node-local, and no peer does it for us.
 	//
 	// Its own timeout still bounds it, so a stuck worker cannot hold the
 	// goroutine open.
@@ -1403,9 +1402,12 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	if !known || len(indexTypesToClean) == 0 {
 		indexTypesToClean = []string{indexType}
 	}
-	// Detached from the request, like the rollback: a disconnect part-way
-	// through leaves the sidecar buckets deregistered with started.mig still on
-	// disk, and this is the one trigger for that we control here.
+	// Detached from the request, for the reason both other detaches on this
+	// path share: this sweep is the only trigger we control for state nothing
+	// else clears, so aborting it because the client went away just defers the
+	// work to a later submit that may never come. A disconnect part-way through
+	// would leave the sidecar buckets deregistered with started.mig still on
+	// disk. The timeout below keeps it bounded.
 	//
 	// It does not make the gate released below mean "the disk is clean". That
 	// gate reports cleanup-in-progress, not a swept shard: a failed sweep is

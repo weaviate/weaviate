@@ -55,9 +55,8 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 	}
 }
 
-// The restore gate is new in this branch, so RUNTIME_REINDEX_ENABLED=false must
-// take it back to the behavior operators had: no gate, and no leader query to
-// answer it.
+// RUNTIME_REINDEX_ENABLED=false must take the restore path back to the behavior
+// it had before the gate existed: no gate, and no leader query to answer it.
 //
 // Both of the gate's inputs are installed in every case, because the gate has
 // two of them: the node-local cleanup probe runs first and can refuse on its
@@ -161,9 +160,6 @@ func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
 // somewhere in the function. Below it, a node holding a cleanup or submit hold
 // refuses restores with the feature off — the gate is then only half disabled,
 // and "off means the behavior operators had" stops being true.
-//
-// Round-3 N-3 named this and it was never actually pinned: moving the check
-// below the cleanup block left the package green until this test existed.
 func TestRefuseIfAnyReindexInFlight_DisabledIgnoresACleanupHold(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger, config: Config{RuntimeReindexDisabled: true}}

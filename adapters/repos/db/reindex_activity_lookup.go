@@ -37,12 +37,11 @@ type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 // precheck to obtain a fresh DTM snapshot.
 //
 // Calls before installation default to "no live reindex" with a one-time
-// WARN: production HTTP gates on bootstrap completion (the lookup is
-// wired by configure_api.go's post-bootstrap goroutine), so an external
-// backup request cannot land before this builder is installed. The WARN
-// is the operator-facing signal if startup ordering ever breaks the
-// wiring. Refusing instead would block every module-test fixture that
-// bypasses the bootstrap path. See [DB.AnyLiveReindexForShard].
+// WARN. The builder is wired by configure_api.go's post-bootstrap
+// goroutine, and an external backup request can arrive before that runs,
+// so the WARN names a backup that really was admitted without a check.
+// Refusing instead would block every module-test fixture that bypasses
+// the bootstrap path. See [DB.AnyLiveReindexForShard].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
@@ -101,10 +100,10 @@ func (e redactedCauseErr) Unwrap() []error {
 // WARN, matching [DB.AnyLiveReindexForShard].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error {
 	if db.config.RuntimeReindexDisabled {
-		// Same contract the backup half honours: with RUNTIME_REINDEX_ENABLED
-		// off there is no reindex check at all, and no restore gate existed
-		// before this branch — so off means the behavior operators had. Returns
-		// before the lookup, which is a leader-forwarded RAFT query.
+		// Same contract the backup half honors: with RUNTIME_REINDEX_ENABLED
+		// off there is no reindex check at all, so off means the behavior
+		// operators had before the restore gate existed. Returns before the
+		// lookup, which is a leader-forwarded RAFT query.
 		return nil
 	}
 
@@ -342,8 +341,9 @@ func reindexTaskTouchedShards(task *distributedtask.Task) bool {
 // [ReindexOverlapLookup] for why the question is overlap and not liveness.
 //
 // Unwired means fail-open with a rate-limited WARN, matching the other gates:
-// module tests construct a DB without the post-bootstrap install path, and
-// production gates external traffic on bootstrap completion.
+// module tests construct a DB without the post-bootstrap install path, and a
+// production request that arrives before that path runs is better admitted
+// than refused. The WARN is what tells the operator it happened.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
 		// Same contract as the other two gates: RUNTIME_REINDEX_ENABLED=false

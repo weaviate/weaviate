@@ -27,9 +27,9 @@ import (
 // gate that returns "allowed" after asking the leader still fails backups when
 // the leader is unreachable, which is the failure the switch exists to remove.
 //
-// Counted rather than reasoned about: reading the code cannot tell you a query
-// was skipped, and an earlier claim that the backstop "returns before the RAFT
-// query" was made from the code and turned out not to hold on a merged tree.
+// Counted rather than reasoned about: whether a gate skips its query depends on
+// where the flag check sits relative to the lookup, which reading the call site
+// alone does not settle.
 func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 	const collection = "Movies"
 
@@ -63,7 +63,7 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 		db := newDB(t, true, &queries)
 
 		// The per-shard backup gate, the restore gate, and the commit-time
-		// backstop — the three places this branch can query the leader.
+		// backstop — the three places the feature can query the leader.
 		require.False(t, db.AnyLiveReindexForShard(collection, "shard1"))
 		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{collection}))
 		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{collection}, time.Now()))

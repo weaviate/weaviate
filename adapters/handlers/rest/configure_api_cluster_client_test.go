@@ -36,8 +36,8 @@ func TestReindexGateProbeTransportIgnoresProxyEnv(t *testing.T) {
 		"the gate's probes must reach the peer itself, never an HTTP_PROXY that can answer in its stead")
 
 	// Pins the scope of that decision: whether cluster-internal traffic at large
-	// should honour a proxy is a deployment-visible question this PR does not
-	// settle, so the shared client keeps the behavior it has always had.
+	// should honor a proxy is a deployment-visible question left open, so the
+	// shared client keeps the behavior it has always had.
 	shared := clusterHttpTransport(time.Second, http.ProxyFromEnvironment)
 	require.NotNil(t, shared.Proxy,
 		"the shared cluster client's proxy behavior is pre-existing and must not change here")
