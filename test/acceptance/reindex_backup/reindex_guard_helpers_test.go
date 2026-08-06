@@ -188,6 +188,119 @@ func localBackupStatus(t *testing.T, backend, backupID string) func() (string, b
 	}
 }
 
+// backupSnapshot is the whole status payload, not just the status string. The
+// whole-window guard needs the server-stamped capture window and the failure
+// reason to tell a migration admitted inside the window from one admitted
+// after it closed.
+type backupSnapshot struct {
+	status      string
+	startedAt   time.Time
+	completedAt time.Time
+	errMessage  string
+}
+
+func (s backupSnapshot) terminal() bool { return backupTerminal(s.status) }
+
+// localBackupSnapshot is localBackupStatus with the timestamps kept.
+func localBackupSnapshot(t *testing.T, backend, backupID string) func() (backupSnapshot, bool) {
+	return func() (backupSnapshot, bool) {
+		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
+		if err != nil || resp == nil || resp.Payload == nil || resp.Payload.Status == nil {
+			return backupSnapshot{}, false
+		}
+		payload := resp.Payload
+		return backupSnapshot{
+			status:      *payload.Status,
+			startedAt:   time.Time(payload.StartedAt),
+			completedAt: time.Time(payload.CompletedAt),
+			errMessage:  payload.Error,
+		}, true
+	}
+}
+
+// awaitBackupTerminal polls until the backup can no longer change, returning
+// the last snapshot read either way.
+func awaitBackupTerminal(snapshotOf func() (backupSnapshot, bool), last backupSnapshot, deadline time.Duration) backupSnapshot {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	end := time.Now().Add(deadline)
+	for time.Now().Before(end) {
+		if snap, ok := snapshotOf(); ok {
+			last = snap
+			if snap.terminal() {
+				return snap
+			}
+		}
+		<-ticker.C
+	}
+	return last
+}
+
+// reindexTaskStartedAt reads a task's DTM start time. Stamped by the same node
+// that stamps the backup's capture window, so the two order exactly against
+// each other with no clock skew to reason about.
+func reindexTaskStartedAt(t *testing.T, restURI, taskID string) time.Time {
+	t.Helper()
+
+	var started time.Time
+	found := assert.Eventually(t, func() bool {
+		tasks, ok := reindexhelpers.TryFetchTasks(restURI)
+		if !ok {
+			return false
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID == taskID {
+				started = time.Time(task.StartedAt)
+				return !started.IsZero()
+			}
+		}
+		return false
+	}, 30*time.Second, 250*time.Millisecond)
+	if !found {
+		t.Fatalf("the admitted reindex task %q never appeared in GET /v1/tasks with a start time, "+
+			"so it cannot be ordered against the backup's capture window", taskID)
+	}
+	return started
+}
+
+// cancelReindexAndDrain cancels a task the test admitted and waits for it to go
+// terminal, so the deferred DeleteClass is not refused by the mutation guard.
+func cancelReindexAndDrain(t *testing.T, restURI, className, propName, taskID string) {
+	t.Helper()
+
+	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
+	req, err := http.NewRequest(http.MethodPut, url, strings.NewReader(`{"searchable":{"cancel":true}}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	t.Logf("cancel of admitted reindex task %s answered %d: %s",
+		taskID, resp.StatusCode, strings.TrimSpace(string(body)))
+
+	last := "(task not seen)"
+	drained := assert.Eventually(t, func() bool {
+		tasks, ok := reindexhelpers.TryFetchTasks(restURI)
+		if !ok {
+			return false
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID != taskID {
+				continue
+			}
+			last = task.Status
+			return slices.Contains([]string{"CANCELLED", "FAILED", "FINISHED"}, task.Status)
+		}
+		return false
+	}, 90*time.Second, 500*time.Millisecond)
+	if !drained {
+		t.Logf("admitted reindex task %s did not go terminal after cancel; last status %q", taskID, last)
+	}
+}
+
 // nodeBackupStatus reads status straight off one node, since the shared client only targets one host.
 func nodeBackupStatus(restURI, backend, backupID string) func() (string, bool) {
 	url := fmt.Sprintf("http://%s/v1/backups/%s/%s", restURI, backend, backupID)
