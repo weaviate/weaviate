@@ -3664,37 +3664,84 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return size, nil
 }
 
+// getShardsStatus returns status of the vector indexing pipeline for each shard
+// in the collection.
+// In a replicated setup, a shard's status is [storagestate.StatusReady] iff all
+// of its replicas report READY. Otherwise, the status is either any other status
+// that all replicas can agree on or [storagestate.StatusIndexing] if their statuses
+// diverge or a replica is not reachable.
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
+	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return nil, err
 	}
 
-	shardsStatus := make(map[string]string)
+	var mu sync.Mutex // guards shardsStatus
+	shardsStatus := make(map[string]string, len(shardNames))
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
 
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
 		}
-		var status string
-		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				status = shard.GetStatus().String()
-				return nil
-			},
-			func() error {
-				var err error
-				status, err = i.remote.GetShardStatus(ctx, shardName)
-				return err
-			})
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
 
-		shardsStatus[shardName] = status
+		eg.Go(func() error {
+			replicas, err := i.schemaReader.ShardReplicas(className, shardName)
+			if err != nil {
+				return err
+			}
+
+			var shardStatus atomic.Value
+			for _, nodeName := range replicas {
+				var nodeStatus storagestate.Status
+				if nodeName == thisNode {
+					shard, release, err := i.getShardForDirectLocalOperation(
+						ctx,
+						shardName,
+						shardName,
+						localShardOperationRead,
+						0,
+					)
+					if err == nil && shard != nil {
+						nodeStatus = shard.GetStatus()
+					}
+					release()
+				} else {
+					nodeStatus = storagestate.StatusIndexing
+					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil && ss != "" {
+						nodeStatus = storagestate.Status(ss)
+					}
+				}
+
+				// Assume all replicas are READY and search for any which are not.
+				// Fall back to StatusIndexing if we find two different non-ready statuses.
+				if nodeStatus != "" && nodeStatus != storagestate.StatusReady {
+					if old := shardStatus.Swap(nodeStatus); old != nil && old.(storagestate.Status) != nodeStatus {
+						shardStatus.Store(storagestate.StatusIndexing)
+						break
+					}
+				}
+			}
+
+			reconciled := storagestate.StatusReady
+			if ss := shardStatus.Load(); ss != nil {
+				reconciled = ss.(storagestate.Status)
+			}
+
+			mu.Lock()
+			shardsStatus[shardName] = reconciled.String()
+			mu.Unlock()
+			return nil
+		}, shardName)
 	}
 
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 	return shardsStatus, nil
 }
 
