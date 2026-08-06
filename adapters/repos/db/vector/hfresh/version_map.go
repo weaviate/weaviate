@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 
@@ -202,6 +203,34 @@ func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, erro
 	return version.Deleted(), nil
 }
 
+// Warmup loads every persisted vector version into memory with one
+// sequential sweep over the store, so that searches after a restart never
+// fault versions in one LSM read at a time. In-memory values always win
+// over persisted ones, making it safe to run concurrently with reads and
+// writes. It returns the number of entries installed.
+func (v *VersionMap) Warmup(ctx context.Context) (int, error) {
+	var count int
+	v.store.IterateAll(func(vectorID uint64, loaded VectorVersion) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		page, slot := v.data.EnsurePageFor(vectorID)
+		v.locks.Lock(vectorID)
+		if page[slot] == 0 {
+			page[slot] = loaded
+			count++
+		}
+		v.locks.Unlock(vectorID)
+		return true
+	})
+
+	err := ctx.Err()
+	if err != nil {
+		return count, err
+	}
+	return count, nil
+}
+
 // VersionStore is a persistent store for vector versions.
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
@@ -238,4 +267,24 @@ func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion,
 func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorVersion) error {
 	key := v.key(vectorID)
 	return v.bucket.Put(key[:], []byte{byte(version)})
+}
+
+// IterateAll calls fn for every persisted vector version, in one sequential
+// sweep over the store. Iteration stops early when fn returns false.
+func (v *VersionStore) IterateAll(fn func(vectorID uint64, version VectorVersion) bool) {
+	c := v.bucket.Cursor()
+	defer c.Close()
+
+	for k, val := c.Seek(versionMapBucketPrefix); k != nil; k, val = c.Next() {
+		if !bytes.HasPrefix(k, versionMapBucketPrefix) {
+			break // left the version keyspace of the shared bucket
+		}
+		if len(k) != len(versionMapBucketPrefix)+8 || len(val) == 0 {
+			continue
+		}
+		vectorID := binary.LittleEndian.Uint64(k[len(versionMapBucketPrefix):])
+		if !fn(vectorID, VectorVersion(val[0])) {
+			break
+		}
+	}
 }
