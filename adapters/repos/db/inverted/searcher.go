@@ -12,12 +12,10 @@
 package inverted
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"time"
 
@@ -1147,7 +1145,6 @@ func newBatchedContainsPair(property *models.Property, operator filters.Operator
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(keys, bytes.Compare)
 	pv.prop = property.Name
 	pv.operator = operator
 	pv.hasFilterableIndex = true

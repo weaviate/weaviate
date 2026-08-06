@@ -48,6 +48,8 @@ import (
 	"sort"
 	"sync/atomic"
 
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -73,16 +75,14 @@ type keyColumn interface {
 	// Resolution — everything below is on the query path.
 
 	len() int
-	// prepareQueries maps sorted full-width query keys to the form compare/
-	// searchGE expect, returning the in-range sub-window and where it starts in
-	// the input. For blob/fixed it is the identity; for prefix it drops keys
-	// whose shared-prefix does not match (guaranteed absent) so compare can skip
-	// the per-call prefix check. The input is sorted, so the in-range keys are a
-	// contiguous sub-slice (no copy) and the offset relocates a window position
-	// back to the caller's query position.
-	prepareQueries(sorted [][]byte) (window [][]byte, offset int)
-	// compare returns the sign of the key at position i versus q, where q is a
-	// key returned by prepareQueries.
+	// queryWindow reports the sub-range [lo, hi) of sorted that this column
+	// could match. Blob and fixed match anything and return the whole range;
+	// prefix drops the keys whose shared prefix does not match — guaranteed
+	// absent — so compare can skip the per-call prefix check. The input is
+	// sorted, so those keys are contiguous, and returning positions rather than
+	// a sub-list keeps every index a query position.
+	queryWindow(sorted entinverted.SortedKeys) (lo, hi int)
+	// compare returns the sign of the key at position i versus q, a query key.
 	compare(i int, q []byte) int
 	// searchGE returns the first index i with key(i) >= q, or len() if none.
 	searchGE(q []byte) int
@@ -134,7 +134,9 @@ func (c *blobKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
 }
 
-func (c *blobKeyColumn) prepareQueries(sorted [][]byte) ([][]byte, int) { return sorted, 0 }
+func (c *blobKeyColumn) queryWindow(sorted entinverted.SortedKeys) (int, int) {
+	return 0, sorted.Len()
+}
 
 func (c *blobKeyColumn) info() keyColumnInfo {
 	return keyColumnInfo{width: -1, sizeBytes: cap(c.blob) + cap(c.offsets)*4}
@@ -162,7 +164,9 @@ func (c *fixedKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
 }
 
-func (c *fixedKeyColumn) prepareQueries(sorted [][]byte) ([][]byte, int) { return sorted, 0 }
+func (c *fixedKeyColumn) queryWindow(sorted entinverted.SortedKeys) (int, int) {
+	return 0, sorted.Len()
+}
 
 func (c *fixedKeyColumn) info() keyColumnInfo {
 	return keyColumnInfo{width: c.w, sizeBytes: cap(c.data)}
@@ -187,9 +191,9 @@ func (c *prefixKeyColumn) len() int { return len(c.data) / c.w }
 func (c *prefixKeyColumn) suffixAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] }
 
 // compare returns the sign of key(i) versus q, where q is a full-width query
-// key already confirmed by prepareQueries to share this column's prefix. Only
-// the suffixes are compared — the prefix is equal by construction, so the
-// per-call prefix check is elided (that is prepareQueries' whole purpose).
+// key already confirmed by queryWindow to share this column's prefix. Only the
+// suffixes are compared — the prefix is equal by construction, so the per-call
+// prefix check is elided, which is what queryWindow exists for.
 func (c *prefixKeyColumn) compare(i int, q []byte) int {
 	return bytes.Compare(c.suffixAt(i), q[len(c.prefix):])
 }
@@ -198,18 +202,19 @@ func (c *prefixKeyColumn) searchGE(q []byte) int {
 	return sort.Search(c.len(), func(i int) bool { return c.compare(i, q) >= 0 })
 }
 
-// prepareQueries narrows the sorted query keys to the contiguous window whose
+// queryWindow narrows the sorted query keys to the contiguous run whose
 // leading bytes equal the shared prefix. Keys outside it cannot match (their
-// prefix differs, so they fall outside [min,max]); dropping them lets compare
-// skip the prefix check on every comparison. Two binary searches, no copy.
-func (c *prefixKeyColumn) prepareQueries(sorted [][]byte) ([][]byte, int) {
-	lo := sort.Search(len(sorted), func(i int) bool {
-		return comparePrefix(sorted[i], c.prefix) >= 0
+// prefix differs, so they fall outside [min,max]); skipping them lets compare
+// drop the prefix check on every comparison. Two binary searches, no copy.
+func (c *prefixKeyColumn) queryWindow(sorted entinverted.SortedKeys) (int, int) {
+	n := sorted.Len()
+	lo := sort.Search(n, func(i int) bool {
+		return comparePrefix(sorted.At(i), c.prefix) >= 0
 	})
-	hi := lo + sort.Search(len(sorted)-lo, func(i int) bool {
-		return comparePrefix(sorted[lo+i], c.prefix) > 0
+	hi := lo + sort.Search(n-lo, func(i int) bool {
+		return comparePrefix(sorted.At(lo+i), c.prefix) > 0
 	})
-	return sorted[lo:hi], lo
+	return lo, hi
 }
 
 // comparePrefix orders a query key against a column's shared prefix by the key's
@@ -612,9 +617,9 @@ func (idx *Index) Info() Info {
 // retiring a docID some later flush already replaced does nothing. The caller
 // gets the per-key state rather than a bitmap so it can layer unflushed
 // memtables on the same terms before materializing once.
-func (idx *Index) Resolve(sortedKeys [][]byte) *Resolution {
+func (idx *Index) Resolve(sortedKeys entinverted.SortedKeys) *Resolution {
 	state := idx.state.Load()
-	res := newResolution(len(sortedKeys))
+	res := newResolution(sortedKeys.Len())
 
 	state.base.scanInto(sortedKeys, res, true)
 	for _, r := range state.layers {
@@ -634,28 +639,29 @@ func (idx *Index) Resolve(sortedKeys [][]byte) *Resolution {
 // Adaptive merge-scan vs binary-search, no bitmap ops, and no per-hit
 // bookkeeping: matches are applied where they are found. Shared by the base and
 // by each layer's adds and dels segments.
-func (seg *segment) scanInto(sortedKeys [][]byte, res *Resolution, adds bool) {
+func (seg *segment) scanInto(sortedKeys entinverted.SortedKeys, res *Resolution, adds bool) {
 	n := seg.keys.len()
 	if n == 0 {
 		return
 	}
 	// Hoisted: unique values leave overflow nil, so the scan never consults it.
 	overflowed := len(seg.overflow) > 0
-	// Adapt the query keys to the backing once (identity for blob/fixed; drops
-	// prefix-mismatched keys for prefix), so per-comparison stays a single
-	// compare. offset relocates a window position back to the caller's.
-	keys, offset := seg.keys.prepareQueries(sortedKeys)
+	// Narrow to the keys this backing could match (everything for blob/fixed,
+	// the prefix-matching run for prefix), so per-comparison stays a single
+	// compare. The window is a range over the caller's keys, so every position
+	// below is already a query position.
+	lo, hi := seg.keys.queryWindow(sortedKeys)
 
-	if mergeScanCheaper(len(keys), n) {
-		si, qi := 0, 0
-		for si < n && qi < len(keys) {
-			switch cmp := seg.keys.compare(si, keys[qi]); {
+	if mergeScanCheaper(hi-lo, n) {
+		si, qi := 0, lo
+		for si < n && qi < hi {
+			switch cmp := seg.keys.compare(si, sortedKeys.At(qi)); {
 			case cmp < 0: // corpus key behind the query cursor — advance the scan
 				si++
 			case cmp > 0: // query key absent from the corpus — advance the query
 				qi++
 			default: // match — one row per key, so both cursors advance
-				seg.applyRow(si, qi+offset, res, adds, overflowed)
+				seg.applyRow(si, qi, res, adds, overflowed)
 				si++
 				qi++
 			}
@@ -663,9 +669,10 @@ func (seg *segment) scanInto(sortedKeys [][]byte, res *Resolution, adds bool) {
 		return
 	}
 
-	for qi, q := range keys {
+	for qi := lo; qi < hi; qi++ {
+		q := sortedKeys.At(qi)
 		if i := seg.keys.searchGE(q); i < n && seg.keys.compare(i, q) == 0 {
-			seg.applyRow(i, qi+offset, res, adds, overflowed)
+			seg.applyRow(i, qi, res, adds, overflowed)
 		}
 	}
 }

@@ -15,6 +15,8 @@ import (
 	"math"
 	"slices"
 
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -94,9 +96,9 @@ func (r *Resolution) delete(qi int, doc uint64) {
 // sits under another key from vanishing from both. Readers arrive oldest first,
 // so replaying them in order settles a document added by one layer and deleted by
 // a later one as deleted.
-func (r *Resolution) ApplyMemtables(readers []roaringset.LayerReader, keys [][]byte) error {
+func (r *Resolution) ApplyMemtables(readers []roaringset.LayerReader, keys entinverted.SortedKeys) error {
 	for _, reader := range readers {
-		for i, key := range keys {
+		for i, key := range keys.All() {
 			layer, err := reader.Get(key)
 			if err != nil {
 				return err
@@ -155,11 +157,4 @@ func (r *Resolution) SortedDocs() []uint64 {
 	}
 	slices.Sort(out)
 	return out
-}
-
-// Bitmap collects every document still held into one heap-allocated bitmap,
-// consuming the resolution. Callers that pool result memory should take
-// [Resolution.SortedDocs] and build through their pool instead.
-func (r *Resolution) Bitmap() *sroar.Bitmap {
-	return sroar.FromSortedList(r.SortedDocs())
 }

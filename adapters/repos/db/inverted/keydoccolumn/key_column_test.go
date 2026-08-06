@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,19 +47,21 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 
 	// dense builds a sorted query of `below` + the first 16 corpus keys + `above`,
 	// which is enough keys to push resolveMatches onto the merge-scan branch.
-	dense := func(below, above []string) ([][]byte, []uint64) {
-		keys := make([][]byte, 0, len(below)+16+len(above))
+	dense := func(below, above []string) (entinverted.SortedKeys, []uint64) {
+		kb := entinverted.NewKeyBuilder(len(below)+16+len(above), 0)
 		for _, b := range below {
-			keys = append(keys, []byte(b))
+			kb.AppendString(b)
 		}
 		docs := make([]uint64, 16)
 		for i := 0; i < 16; i++ {
-			keys = append(keys, []byte(fmt.Sprintf("key_%03d", i)))
+			kb.AppendString(fmt.Sprintf("key_%03d", i))
 			docs[i] = uint64(i)
 		}
 		for _, a := range above {
-			keys = append(keys, []byte(a))
+			kb.AppendString(a)
 		}
+		keys := kb.Build()
+		require.True(t, keys.IsAscending(), "query keys must be ascending")
 		return keys, docs
 	}
 
@@ -66,32 +70,32 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		keys  [][]byte
+		keys  entinverted.SortedKeys
 		want  []uint64
 		merge bool
 	}{
 		{
 			name: "short key alone",
-			keys: [][]byte{[]byte("ke")},
+			keys: testKeys("ke"),
 		},
 		{
 			name: "short key below the prefix, mixed with a hit",
-			keys: [][]byte{[]byte("ke"), []byte("key_007")},
+			keys: testKeys("ke", "key_007"),
 			want: []uint64{7},
 		},
 		{
 			name: "key exactly as long as the prefix",
-			keys: [][]byte{[]byte("key_0"), []byte("key_007")},
+			keys: testKeys("key_0", "key_007"),
 			want: []uint64{7},
 		},
 		{
 			name: "empty key",
-			keys: [][]byte{{}, []byte("key_007")},
+			keys: testKeys("", "key_007"),
 			want: []uint64{7},
 		},
 		{
 			name: "short key above the prefix",
-			keys: [][]byte{[]byte("key_007"), []byte("kez")},
+			keys: testKeys("key_007", "kez"),
 			want: []uint64{7},
 		},
 		{
@@ -110,10 +114,10 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.merge, mergeScanCheaper(len(tt.keys), corpusSize),
+			require.Equal(t, tt.merge, mergeScanCheaper(tt.keys.Len(), corpusSize),
 				"test case must exercise the branch it claims")
 
-			res := newResolution(len(tt.keys))
+			res := newResolution(tt.keys.Len())
 			seg.scanInto(tt.keys, res, true)
 
 			var got []uint64
@@ -129,7 +133,7 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 
 // TestComparePrefix pins the ordering comparePrefix imposes. It must agree with
 // the byte order of the keys themselves, or the query keys carrying the prefix
-// would not form the contiguous window prepareQueries binary-searches for.
+// would not form the contiguous window queryWindow binary-searches for.
 func TestComparePrefix(t *testing.T) {
 	prefix := []byte("key_0")
 
@@ -153,4 +157,14 @@ func TestComparePrefix(t *testing.T) {
 			require.Equal(t, tt.want, comparePrefix([]byte(tt.key), prefix))
 		})
 	}
+}
+
+// testKeys builds ascending query keys from literals, so a table can state the
+// keys it means.
+func testKeys(keys ...string) entinverted.SortedKeys {
+	kb := entinverted.NewKeyBuilder(len(keys), 0)
+	for _, k := range keys {
+		kb.AppendString(k)
+	}
+	return kb.Build()
 }

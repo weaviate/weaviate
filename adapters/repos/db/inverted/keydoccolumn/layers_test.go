@@ -13,6 +13,7 @@ package keydoccolumn
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -99,12 +100,9 @@ func waitForFlatten(t *testing.T, idx *Index) {
 }
 
 func resolveSorted(idx *Index, keys ...string) []uint64 {
-	q := make([][]byte, len(keys))
-	for i, k := range keys {
-		q[i] = []byte(k)
-	}
-	sort.Slice(q, func(i, j int) bool { return string(q[i]) < string(q[j]) })
-	arr := idx.Resolve(q).Bitmap().ToArray()
+	sorted := slices.Clone(keys)
+	slices.Sort(sorted)
+	arr := sroar.FromSortedList(idx.Resolve(testKeys(sorted...)).SortedDocs()).ToArray()
 	sort.Slice(arr, func(i, j int) bool { return arr[i] < arr[j] })
 	return arr
 }

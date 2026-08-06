@@ -98,27 +98,29 @@ func newNumericFixture(tb testing.TB, numDocs int) *numericFixture {
 // sampleKeys picks `size` int values spread across the corpus, returns their
 // encoded keys (sorted ascending, as Resolve requires) and the
 // docIDs they resolve to.
-func (f *numericFixture) sampleKeys(tb testing.TB, size int) (keys [][]byte, docIDs []uint64) {
+func (f *numericFixture) sampleKeys(tb testing.TB, size int) (keys entinverted.SortedKeys, docIDs []uint64) {
 	tb.Helper()
 	stride := f.numDocs / size
 	if stride < 1 {
 		stride = 1
 	}
-	for i := 0; i < f.numDocs && len(keys) < size; i += stride {
+	// the encoding is order-preserving and i increases, so appending in this
+	// order already satisfies the ascending contract
+	kb := entinverted.NewKeyBuilder(size, size*8)
+	for i := 0; i < f.numDocs && len(docIDs) < size; i += stride {
 		key, err := entinverted.LexicographicallySortableInt64(int64(i))
 		require.NoError(tb, err)
-		keys = append(keys, key)
+		kb.AppendString(string(key))
 		docIDs = append(docIDs, uint64(i))
 	}
-	// encoding is order-preserving and i is increasing, so keys are already
-	// ascending; sort defensively so the contract holds regardless.
-	sort.Slice(keys, func(a, b int) bool { return string(keys[a]) < string(keys[b]) })
+	keys = kb.Build()
+	require.True(tb, keys.IsAscending())
 	return keys, docIDs
 }
 
 // numericPointLookup mirrors the production fold's fetch shape: one batch
 // reader held across N per-key lookups, unioned via an accumulator.
-func numericPointLookup(ctx context.Context, b *lsmkv.Bucket, keys [][]byte) *sroar.Bitmap {
+func numericPointLookup(ctx context.Context, b *lsmkv.Bucket, keys entinverted.SortedKeys) *sroar.Bitmap {
 	reader, err := b.NewRoaringSetBatchReader()
 	if err != nil {
 		panic(err)
@@ -127,7 +129,7 @@ func numericPointLookup(ctx context.Context, b *lsmkv.Bucket, keys [][]byte) *sr
 
 	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	acc := sroar.NewAccumulator()
-	for _, k := range keys {
+	for _, k := range keys.All() {
 		bm, release, err := reader.Get(k, mergeConc)
 		if err != nil {
 			panic(err)
@@ -151,7 +153,7 @@ func TestKeyDocColumnNumericPOC_Correctness(t *testing.T) {
 	for _, size := range []int{1, 100, 1_000, 10_000} {
 		keys, want := f.sampleKeys(t, size)
 
-		got := idx.Resolve(keys).Bitmap().ToArray()
+		got := sroar.FromSortedList(idx.Resolve(keys).SortedDocs()).ToArray()
 		require.Equal(t, want, got, "key/doc column vs sampled docIDs at N=%d", size)
 
 		point := numericPointLookup(ctx, f.bucket, keys).ToArray()
@@ -178,7 +180,7 @@ func BenchmarkKeyDocColumnNumericPOC(b *testing.B) {
 		b.Run(fmt.Sprintf("keydoccolumn/N=%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				idx.Resolve(keys).Bitmap()
+				sroar.FromSortedList(idx.Resolve(keys).SortedDocs())
 			}
 		})
 		b.Run(fmt.Sprintf("roaringset_point/N=%d", size), func(b *testing.B) {

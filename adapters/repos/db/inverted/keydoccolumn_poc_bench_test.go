@@ -14,13 +14,16 @@
 package inverted
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"testing"
 
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -36,13 +39,18 @@ import (
 //	go test -tags integrationTest -run '^$' -bench 'KeyDocColumnPOC' \
 //	    -benchmem -benchtime 20x -count 3 ./adapters/repos/db/inverted/
 
-func keyDocColumnSortedKeys(values []string) [][]byte {
-	keys := make([][]byte, len(values))
-	for i, v := range values {
-		keys[i] = []byte(v)
+func keyDocColumnSortedKeys(values []string) entsInverted.SortedKeys {
+	sorted := slices.Clone(values)
+	slices.Sort(sorted)
+	total := 0
+	for _, v := range sorted {
+		total += len(v)
 	}
-	sort.Slice(keys, func(i, j int) bool { return bytes.Compare(keys[i], keys[j]) < 0 })
-	return keys
+	kb := entsInverted.NewKeyBuilder(len(sorted), total)
+	for _, v := range sorted {
+		kb.AppendString(v)
+	}
+	return kb.Build()
 }
 
 func bucketKeyDocColumn(tb testing.TB, f *containsFixture) *keydoccolumn.Index {
@@ -64,7 +72,7 @@ func TestKeyDocColumnPOC_Correctness(t *testing.T) {
 		values, wantSampled := f.sampleValues(size)
 		keys := keyDocColumnSortedKeys(values)
 
-		got := idx.Resolve(keys).Bitmap().ToArray()
+		got := sroar.FromSortedList(idx.Resolve(keys).SortedDocs()).ToArray()
 
 		// against the known sampled docIDs
 		require.Equal(t, wantSampled, got, "key/doc column vs sampled docIDs at N=%d", size)
@@ -94,7 +102,7 @@ func BenchmarkKeyDocColumnPOC(b *testing.B) {
 		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				idx.Resolve(keys).Bitmap()
+				sroar.FromSortedList(idx.Resolve(keys).SortedDocs())
 			}
 		})
 	}
