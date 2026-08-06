@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -48,6 +49,120 @@ func TestUpdateIndex_RuntimeReindexDisabled(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "runtime reindex is disabled")
 	require.Contains(t, rec.Body.String(), "RUNTIME_REINDEX_ENABLED",
 		"the refusal must name the knob that turns the feature on")
+}
+
+// confirmingCleanupProber answers every owner "my gate is closed" on the first
+// ask, so the cancel confirms without spending its polling budget. What the
+// owners answer is not what these tests are about.
+type confirmingCleanupProber struct{}
+
+func (confirmingCleanupProber) CleanupInProgress(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
+// The kill switch stops migrations being started, not migrations already
+// running. A task in flight when the flag is turned off keeps rebuilding
+// buckets, so refusing its cancel would leave the operator holding the one
+// thing they cannot stop with the escape hatch they just pulled.
+//
+// TestRequestsCancel below pins the predicate; this pins that updateIndex
+// actually consults it, which is the part a refusal placed one line higher
+// would silently break.
+func TestUpdateIndex_RuntimeReindexDisabledStillCancels(t *testing.T) {
+	const (
+		collection = "Movies"
+		property   = "title"
+	)
+
+	cancelBody := func(indexType string) *models.IndexUpdateRequest {
+		switch indexType {
+		case "searchable":
+			return &models.IndexUpdateRequest{Searchable: &models.IndexUpdateSearchable{Cancel: true}}
+		case "rangeable":
+			return &models.IndexUpdateRequest{Rangeable: &models.IndexUpdateRangeable{Cancel: true}}
+		default:
+			return &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Cancel: true}}
+		}
+	}
+
+	tests := []struct {
+		name string
+		body *models.IndexUpdateRequest
+		// wantCancelled is the live repair-filterable task the fixture holds;
+		// only the matching index type can stop it.
+		wantCancelled bool
+		wantStatus    string
+	}{
+		{
+			name:          "filterable cancel reaches the task",
+			body:          cancelBody("filterable"),
+			wantCancelled: true,
+			wantStatus:    "CANCELLED",
+		},
+		{
+			name:       "searchable cancel reaches the handler and finds nothing to stop",
+			body:       cancelBody("searchable"),
+			wantStatus: "NO_OP",
+		},
+		{
+			name:       "rangeable cancel reaches the handler and finds nothing to stop",
+			body:       cancelBody("rangeable"),
+			wantStatus: "NO_OP",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, svc := cancelFixture(t, confirmingCleanupProber{})
+			h.appState.ServerConfig.Config.RuntimeReindexEnabled = false
+
+			responder := h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
+				HTTPRequest:  httptest.NewRequest("PUT", "/", nil),
+				ClassName:    collection,
+				PropertyName: property,
+				Body:         tc.body,
+			}, &models.Principal{Username: "u1"})
+
+			accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+			require.Truef(t, ok, "a cancel must not be refused by the kill switch, got %T", responder)
+			require.Equal(t, tc.wantStatus, accepted.Payload.Status)
+			if tc.wantCancelled {
+				require.Len(t, svc.cancelled, 1, "the live task must actually be cancelled")
+				require.Empty(t, svc.startedTasks(),
+					"the caller was told the migration stopped; none may remain STARTED")
+			} else {
+				require.Empty(t, svc.cancelled, "no task of this index type was running")
+				require.Len(t, svc.startedTasks(), 1,
+					"a cancel aimed at another index type must leave the running task alone")
+			}
+			require.Zero(t, svc.adds,
+				"the carve-out exempts cancel from the refusal, not from the ban on new tasks")
+		})
+	}
+}
+
+// The carve-out is narrow: it lets the cancel through, it does not switch the
+// feature back on for the duration. The gates the flag disables read node-local
+// holds, and a cancel is exactly what closes those holds — so a flag-off cancel
+// is the one moment a half-disabled gate would start refusing backups on a node
+// whose operator has turned the whole feature off.
+func TestUpdateIndex_RuntimeReindexDisabledCancelStartsNoMigration(t *testing.T) {
+	h, svc := cancelFixture(t, confirmingCleanupProber{})
+	h.appState.ServerConfig.Config.RuntimeReindexEnabled = false
+
+	responder := h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
+		HTTPRequest:  httptest.NewRequest("PUT", "/", nil),
+		ClassName:    "Movies",
+		PropertyName: "title",
+		Body:         &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Cancel: true}},
+	}, &models.Principal{Username: "u1"})
+
+	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+	require.Truef(t, ok, "expected the cancel to be accepted, got %T", responder)
+	require.Len(t, svc.cancelled, 1)
+
+	require.False(t, h.appState.ReindexProvider.Load().AnyCleanupInProgress(),
+		"the cancel must hand its cleanup gate back before answering, so no later backup is refused by it")
 }
 
 // TestRequestsCancel pins which bodies the refusal exempts: cancel must
