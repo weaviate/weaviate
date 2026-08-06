@@ -1574,6 +1574,12 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 
 // tryRebuildHashtree performs one disable→enable attempt; retry means back off and try again.
 func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool) {
+	// Serialize with config fan-outs (apply lock first — it is outermost): the
+	// re-read of the shard's base config below must not interleave with a fan-out,
+	// or the rebuild's enable could re-install a stale config in place.
+	s.index.asyncReplicationApplyLock.Lock()
+	defer s.index.asyncReplicationApplyLock.Unlock()
+
 	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
 	// across store teardown): enable either finishes before shutdown or is skipped.
 	// drop() never takes shutdownLock, so this check is best-effort for drop —

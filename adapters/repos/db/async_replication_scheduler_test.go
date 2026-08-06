@@ -682,6 +682,36 @@ func TestRebuildHashtreeEnableFailureRetriesUntilShutdown(t *testing.T) {
 	}
 }
 
+// TestTryRebuildHashtreeSerializedByApplyLock: a rebuild attempt must queue behind a running config fan-out, so its enable cannot re-install a stale config.
+func TestTryRebuildHashtreeSerializedByApplyLock(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	idx.asyncReplicationApplyLock.Lock()
+	attemptDone := make(chan bool, 1)
+	go func() { attemptDone <- sched.tryRebuildHashtree(s) }()
+
+	select {
+	case <-attemptDone:
+		t.Fatal("tryRebuildHashtree ran while a config fan-out held the apply lock")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	idx.asyncReplicationApplyLock.Unlock()
+	select {
+	case retry := <-attemptDone:
+		require.True(t, retry, "the enable failure (nil scheduler on the index) must request a retry")
+	case <-time.After(5 * time.Second):
+		t.Fatal("tryRebuildHashtree never completed after the apply lock was released")
+	}
+}
+
 // TestNextIntervalErrNoDiffFoundWithPropagatedTrue verifies that ErrNoDiffFound
 // always returns the base frequency — even when propagated=true — because an
 // empty diff means there is nothing to propagate in the next cycle.
