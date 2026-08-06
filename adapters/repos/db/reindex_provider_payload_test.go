@@ -63,3 +63,58 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 		assert.Equal(t, "Foo", got)
 	})
 }
+
+// The task an operator most needs to delete is the one whose payload no node can
+// read: it is the one holding backups hostage. Deletion is keyed by the
+// collection this extractor reports, so an extractor that gives up on such a
+// payload leaves the completed-task TTL as the only remedy.
+func TestExtractReindexTaskCollectionSurvivesAnUnreadablePayload(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		want    string
+		wantOK  bool
+	}{
+		{
+			name:    "fully decodable",
+			payload: []byte(`{"collection":"Movies","unitToShard":{"u1":"s1"}}`),
+			want:    "Movies",
+			wantOK:  true,
+		},
+		{
+			name:    "a field retyped by a newer node",
+			payload: poisonPayload("Movies"),
+			want:    "Movies",
+			wantOK:  true,
+		},
+		{
+			name:    "not JSON at all",
+			payload: []byte("{not json"),
+			want:    "",
+			wantOK:  false,
+		},
+		{
+			name:    "collection itself retyped",
+			payload: []byte(`{"collection":42}`),
+			want:    "",
+			wantOK:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ExtractReindexTaskCollection(tc.payload)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantOK, ok,
+				"a task the extractor cannot scope is skipped by DeleteTasksForCollection")
+		})
+	}
+}
+
+// poisonPayload defeats the full [ReindexTaskPayload] decoder while leaving the
+// collection readable: unitToShard is a map today, and a newer node shipping it
+// as anything else is the concrete rolling-upgrade case these fallbacks exist
+// for. Shared with the backup overlap tests.
+func poisonPayload(collection string) []byte {
+	return []byte(`{"collection":"` + collection + `","unitToShard":"a-newer-node-changed-this-shape"}`)
+}
