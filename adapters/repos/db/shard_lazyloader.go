@@ -319,8 +319,7 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 }
 
 func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
-	// Never load: init applies config at load, and loading here ABBA-deadlocks
-	// under a caller-held replicationConfigLock.
+	// Never load: init applies config at load; loading here ABBA-deadlocks under a caller-held replicationConfigLock.
 	if !l.isLoaded() {
 		return nil
 	}

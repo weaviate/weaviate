@@ -38,9 +38,7 @@ func headerChecksum(hdr []byte) [DigestLength]byte {
 	return cs
 }
 
-// legacyHeaderChecksum reproduces the pre-fix stored value: hash.Sum appended,
-// so the copy took the header's own leading bytes, zero-padded (murmur3-128 of
-// empty input is zeros). Accepted on read so pre-fix files stay loadable.
+// legacyHeaderChecksum reproduces the pre-fix stored value (hash.Sum appended, so the copy took the header's own leading bytes, zero-padded); accepted on read so pre-fix files stay loadable.
 func legacyHeaderChecksum(hdr []byte) [DigestLength]byte {
 	var legacy [DigestLength]byte
 	copy(legacy[:], hdr)
@@ -138,8 +136,7 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength])
 	hdrOff += DigestLength
 
-	// The checksum catches bit-rot; NewHashTree's MaxHeight bound catches
-	// crafted or echo-validated heights. Both run before the allocation.
+	// The checksum catches bit-rot; NewHashTree's MaxHeight bound catches crafted heights — both before allocation.
 	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
 		return nil, fmt.Errorf("header checksum mismatch")
 	}

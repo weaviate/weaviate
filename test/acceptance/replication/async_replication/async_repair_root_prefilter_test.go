@@ -30,10 +30,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// TestAsyncRepairRootPrefilterManyTenants exercises the batched hashtree-root
-// pre-filter end-to-end: a node restarts and every MT tenant reconciles via it.
-// Async replication never loads shards, so the restarted node's lazy tenants
-// are touched first — repair reaches a tenant once it is loaded.
+// TestAsyncRepairRootPrefilterManyTenants: a node restarts and every MT tenant reconciles via the batched root pre-filter; async replication never loads shards, so lazy tenants are touched first.
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants() {
 	t := suite.T()
 	mainCtx := context.Background()

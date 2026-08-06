@@ -30,9 +30,7 @@ import (
 // uuidPostDump is written after the snapshot dump; a correct rebuild differs from the dump-time root.
 const uuidPostDump = strfmt.UUID("77777777-7777-7777-7777-777777777777")
 
-// haltForOffloadWithStaleSnapshot puts s into the post-offloading-halt state
-// (maintenance paused, async off) and plants a .ht as a pre-fix binary or
-// crash window could leave one; recovery must discard it, not trust it.
+// haltForOffloadWithStaleSnapshot halts s for offload and plants a stale .ht (as a pre-fix binary could); recovery must discard it, not trust it.
 func haltForOffloadWithStaleSnapshot(t *testing.T, ctx context.Context, s *Shard) {
 	t.Helper()
 	s.asyncReplicationRWMux.RLock()

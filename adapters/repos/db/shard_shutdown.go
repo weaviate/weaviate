@@ -173,8 +173,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		storeDurable = err == nil
 	}
 
-	// Publish only after the store flushed the digested writes: a snapshot
-	// surviving a crash must never over-represent the store.
+	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.
 	if capturedHT != nil && storeDurable {
 		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
 	} else if capturedHT != nil {

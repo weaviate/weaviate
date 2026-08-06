@@ -151,8 +151,7 @@ func TestAsyncSchedulerRegistrationIdempotent(t *testing.T) {
 	s.asyncRepWg.Wait()
 }
 
-// TestIndexCompareHashTreeRoots: a loaded shard diverges when its root differs
-// or is not ready; unknown/unloaded shards are omitted without loading.
+// TestIndexCompareHashTreeRoots: a loaded shard diverges when its root differs or is not ready; unknown/unloaded shards are omitted without loading.
 func TestIndexCompareHashTreeRoots(t *testing.T) {
 	ctx := context.Background()
 	_, idx := testShard(t, ctx, "CompareRootsClass")

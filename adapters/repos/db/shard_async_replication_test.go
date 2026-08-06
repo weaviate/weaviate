@@ -526,8 +526,7 @@ func stopAsyncAndDump(t *testing.T, s *Shard) {
 	s.dumpHashTreeWithTimeout(ht, hashtreeDumpTimeout)
 }
 
-// newSeededAsyncShard builds a shard with three flushed objects and async
-// replication fully initialized.
+// newSeededAsyncShard builds a shard with three flushed objects and async replication fully initialized.
 func newSeededAsyncShard(t *testing.T, ctx context.Context, class string) (ShardLike, *Shard) {
 	t.Helper()
 	sl, s := newAsyncTestShard(t, ctx, class)

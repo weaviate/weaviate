@@ -34,8 +34,7 @@ func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cut
 		return fmt.Errorf("get shard %q: %w", shardName, err)
 	}
 	if shard == nil {
-		// Fan-out creates post the same shard list to every node: not hosted
-		// here is benign, hosted-but-unloaded is a visible 412.
+		// Not hosted here is benign for a fan-out create; hosted-but-unloaded is a visible 412.
 		if i.shards.Load(shardName) == nil {
 			return nil
 		}
@@ -101,8 +100,7 @@ func (i *Index) deleteAsyncCheckpointShards(ctx context.Context, shardNames []st
 	return errors.Join(errs...)
 }
 
-// deleteAsyncCheckpoint is idempotent; checkpoints are not persisted, so an
-// unloaded shard has nothing to delete and is never loaded for it.
+// deleteAsyncCheckpoint is idempotent; checkpoints are not persisted, so an unloaded shard has nothing to delete.
 func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) error {
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
@@ -115,10 +113,8 @@ func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) err
 	return shard.DeleteAsyncCheckpoint(ctx)
 }
 
-// getAsyncCheckpointShardStatus omits shards not loaded here — without loading
-// them — so the aggregator can distinguish "not on this node" from "loaded but
-// inactive" (CutoffMs == 0). Per-shard failures are logged and dropped so one
-// bad shard can't deny status for the rest.
+// getAsyncCheckpointShardStatus omits shards not loaded here (without loading them) so the aggregator can distinguish "not on this node" from "loaded but inactive" (CutoffMs == 0).
+// Per-shard failures are logged and dropped so one bad shard can't deny status for the rest.
 func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
 	var mu sync.Mutex

@@ -47,9 +47,7 @@ type HashTree struct {
 	mux sync.Mutex
 }
 
-// MaxHeight bounds construction and deserialization: allocation scales as
-// 2^(height+1), so an unbounded deserialized height means GiB allocations or a
-// makeslice panic. 20 is the max any producer writes.
+// MaxHeight bounds construction and deserialization: allocation scales as 2^(height+1), so an unbounded height means GiB allocations or a makeslice panic; 20 is the producers' max.
 const MaxHeight = 20
 
 func NewHashTree(height int) (*HashTree, error) {
