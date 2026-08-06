@@ -364,10 +364,9 @@ func TestForceDeleteByIds_IsDeterministicAcrossDivergentTimestamps(t *testing.T)
 	require.Equal(t, remaining(nodeA), remaining(nodeB))
 }
 
-// Removing the last READY target op for a replica deletes its opsByTargetFQDN
-// key, which unmasks the replica's source-side DEHYDRATING state and drops it
-// from both replica sets. This characterises that routing change.
-func TestForceDeleteByIds_UnmasksDehydratingSource(t *testing.T) {
+// A READY target record must not mask the replica's source-side DEHYDRATING
+// state, and deleting the READY op must not change routing.
+func TestForceDeleteByIds_RoutingNeutralWithDehydratingSource(t *testing.T) {
 	const (
 		coll  = "Foo"
 		shard = "s1"
@@ -384,13 +383,49 @@ func TestForceDeleteByIds_UnmasksDehydratingSource(t *testing.T) {
 	driveToState(t, fsm, 2, api.DEHYDRATING)
 
 	replicas := []string{"A", "C"}
-	require.Equal(t, []string{"A", "C"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas),
-		"C is masked as a READY target while op1 is present")
+	require.Equal(t, []string{"A"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas),
+		"C is DEHYDRATING as a source; the READY target record must not mask that")
+	require.Equal(t, []string{"A"}, fsm.FilterOneShardReplicasWrite(coll, shard, replicas),
+		"a consistency=ONE write routed to C would be dropped with the shard")
 
 	require.NoError(t, fsm.ForceDeleteByIds([]uint64{1}))
 
 	require.Equal(t, []string{"A"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas),
-		"removing op1 unmasks C's DEHYDRATING source state")
+		"deleting the READY op must be routing-neutral")
+	require.Equal(t, []string{"A"}, fsm.FilterOneShardReplicasWrite(coll, shard, replicas),
+		"deleting the READY op must be routing-neutral")
+}
+
+// A lingering CANCELLED target op must be inert for routing: after the sweep
+// deletes its READY sibling, the replica stays in both replica sets.
+func TestForceDeleteByIds_CancelledSiblingKeepsReplicaRouted(t *testing.T) {
+	const (
+		coll  = "Foo"
+		shard = "s1"
+	)
+
+	fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+
+	// COPY A -> C cancelled before registration; the CANCELLED op lingers.
+	seedOpFull(t, fsm, 1, "A", "C", coll, shard, api.COPY)
+	driveToCancelled(t, fsm, 1)
+
+	// Retried COPY A -> C is admitted (admission skips cancelled ops) and
+	// completes, registering C.
+	seedOpFull(t, fsm, 2, "A", "C", coll, shard, api.COPY)
+	driveToState(t, fsm, 2, api.READY)
+
+	replicas := []string{"A", "C"}
+	require.Equal(t, []string{"A", "C"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas))
+	require.Equal(t, []string{"A", "C"}, fsm.FilterOneShardReplicasWrite(coll, shard, replicas))
+
+	// The default-config sweep deletes READY ops and keeps CANCELLED ones.
+	require.NoError(t, fsm.ForceDeleteByIds([]uint64{2}))
+
+	require.Equal(t, []string{"A", "C"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas),
+		"the surviving CANCELLED op must not de-route healthy replica C")
+	require.Equal(t, []string{"A", "C"}, fsm.FilterOneShardReplicasWrite(coll, shard, replicas),
+		"the surviving CANCELLED op must not de-route healthy replica C")
 }
 
 // BenchmarkForceDeleteByIds documents the complexity change of the batched

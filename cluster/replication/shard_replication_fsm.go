@@ -458,8 +458,8 @@ func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardR
 	return readReplicas, writeReplicas
 }
 
-// filterOneReplicaAsTargetReadWrite returns whether the replica node for collection and shard is usable for read and write
-// It returns a tuple of boolean (readOk, writeOk)
+// filterOneReplicaReadWrite returns whether the replica node for collection and
+// shard is usable for read and write, as a (readOk, writeOk) tuple.
 func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection string, shard string) (bool, bool) {
 	replicaFQDN := newShardFQDN(node, collection, shard)
 	ops, ok := s.opsByTargetFQDN[replicaFQDN]
@@ -468,31 +468,43 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
 	}
 
-	readOk, writeOk := false, false
-outer:
+	targetOk, sawLive := false, false
 	for _, op := range ops {
 		opState, ok := s.statusById[op.ID]
 		if !ok {
-			// A missing status should never happen (every indexed op has one). Bail
-			// conservatively as read+write allowed; this early-returns rather than
-			// continuing the fold, discarding any routability accumulated so far —
-			// acceptable precisely because the branch is unreachable.
+			// A missing status should never happen (every indexed op has one).
+			// Bail conservatively as read+write allowed.
 			return true, true
 		}
 		switch opState.GetCurrentState() {
 		case api.READY, api.DEHYDRATING, api.INTEGRATING:
 			// Target is a counted r/w replica while the CCL is still draining.
-			readOk = true
-			writeOk = true
-			break outer
+			targetOk = true
+		case api.CANCELLED:
+			// Terminal and inert: admission skips cancelled ops
+			// (checkNoConflictingOp) and routing must too, or a lingering
+			// cancelled record de-routes a healthy replica once the sweep
+			// deletes its READY sibling.
 		default:
+			sawLive = true
 		}
 	}
-	return readOk, writeOk
+	if !targetOk && !sawLive {
+		// Only cancelled target ops: same as no target entry at all.
+		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
+	}
+	if !targetOk {
+		return false, false
+	}
+	// A routable target record must not mask the node's own source state: if a
+	// later MOVE off this node is DEHYDRATING, a consistency=ONE write routed
+	// here is dropped with the shard. AND the source side in, which also makes
+	// deleting a READY op routing-neutral.
+	return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
 }
 
-// filterOneReplicaAsSourceReadWrite returns a tuple of boolean (found, readOk, writeOk)
-// if found is true it means there's a source replication op for that replica and readOk and writeOk should be considered
+// filterOneReplicaAsSourceReadWrite returns whether the replica node is usable
+// for read and write given its source-side ops, as a (readOk, writeOk) tuple.
 func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, collection string, shard string) (bool, bool) {
 	replicaFQDN := newShardFQDN(node, collection, shard)
 	ops, ok := s.opsBySourceFQDN[replicaFQDN]
