@@ -15,9 +15,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"io/fs"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -187,6 +189,12 @@ type commitLogger struct {
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
 	paused bool
+
+	// closed makes close() re-entrant: a memtable flush closes the log before
+	// writing the segment, so a flush that fails PAST that point leaves a
+	// closed log — retrying the flush (flushAndSwitchLocked's leftover drain)
+	// must not fail forever on "file already closed".
+	closed bool
 }
 
 // commit log entry data format
@@ -392,6 +400,9 @@ func (cl *commitLogger) sync() error {
 }
 
 func (cl *commitLogger) close() error {
+	if cl.closed {
+		return nil
+	}
 	if !cl.paused {
 		if err := cl.writer.Flush(); err != nil {
 			return err
@@ -402,7 +413,11 @@ func (cl *commitLogger) close() error {
 		}
 	}
 
-	return cl.file.Close()
+	if err := cl.file.Close(); err != nil {
+		return err
+	}
+	cl.closed = true
+	return nil
 }
 
 func (cl *commitLogger) pause() {
@@ -414,7 +429,13 @@ func (cl *commitLogger) unpause() {
 }
 
 func (cl *commitLogger) delete() error {
-	return os.Remove(cl.path)
+	// Tolerate an already-deleted WAL: a flush retried after failing past its
+	// commitlog delete (e.g. in segment metadata precompute) must not wedge
+	// on the second delete.
+	if err := os.Remove(cl.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (cl *commitLogger) flushBuffers() error {

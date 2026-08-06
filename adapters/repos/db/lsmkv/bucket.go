@@ -484,7 +484,9 @@ func (b *Bucket) HasEditOps() bool {
 // RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
 // current segments as pending for the compaction/cleanup transformer to rewrite.
 // It flushes the active memtable first so in-memory data is captured. Idempotent:
-// an op that already has a snapshot (resume) is a no-op and skips the flush.
+// an op that already has a snapshot (resume) skips the flush and the snapshot,
+// keeping the recorded pending set as the progress marker; it only requeues
+// segments an earlier round quarantined, granting them a fresh retry budget.
 func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
@@ -514,7 +516,12 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 		return err
 	}
 	if snapshotted {
-		return nil
+		// Resume: the recorded pending set IS the progress, so no new snapshot
+		// and no flush. A re-arm marks a new round, though, so segments
+		// quarantined by an earlier round get a fresh retry budget — otherwise
+		// a single exhausted budget would wedge the drop permanently (the op
+		// and its quarantine rows outlive FAILED rounds by design).
+		return b.disk.requeueQuarantinedEditOps(opID)
 	}
 	if err := b.flushAndSwitchLocked(); err != nil {
 		return fmt.Errorf("flush before edit-op snapshot: %w", err)
@@ -531,17 +538,48 @@ func (b *Bucket) EditOpPending(opID string) ([]string, error) {
 	return b.disk.editOps.Pending(opID)
 }
 
-// DeleteEditOp removes opID and its bookkeeping from the sidecar once its task
-// stops being live (success — delivered as SWAPPING or a replayed FINISHED — or
-// FAILED/CANCELLED), so the op stops driving the compaction/cleanup transformer.
-// A lingering op would re-decode every object on every future compaction, force a
-// full re-clean on each restart (via recoverEditOps), and — once the dropped name
-// is freed for re-creation — strip the re-created vector. Idempotent.
-func (b *Bucket) DeleteEditOp(opID string) error {
+// DeleteEditOpIfDrained removes opID and its bookkeeping from the sidecar
+// once this bucket's work for it is finished for good: task success
+// (delivered as SWAPPING or a replayed FINISHED), or a terminal round whose
+// unit here COMPLETED (the shard enters the epoch's inherited coverage, so no
+// later round returns). A lingering op would re-decode every object on every
+// future compaction and — once the dropped name is freed for re-creation —
+// strip the re-created vector (the dropped-target fence is the runtime guard
+// against exactly that). The delete is gated, in one transaction, on the op
+// having no pending and no quarantined rows — the caller's "this op is
+// drained" belief is verified atomically instead of across separate reads,
+// because a pending row may be unstripped data's only cover. Reports whether
+// the op was deleted and, when kept, the row counts that vetoed it.
+// Idempotent; this is the ONLY delete the provider gets — an unguarded
+// variant existed and was removed so it cannot be reached for.
+func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error) {
 	if !b.HasEditOps() {
-		return fmt.Errorf("edit ops not enabled for this bucket")
+		return false, 0, 0, fmt.Errorf("edit ops not enabled for this bucket")
 	}
-	return b.disk.editOps.DeleteOp(opID)
+	return b.disk.editOps.DeleteOpIfDrained(opID)
+}
+
+// EditOpsHaveRows reports whether ANY edit op on this bucket still has
+// pending or quarantined segments — i.e. an in-place edit (drop-vector strip)
+// is mid-flight on this bucket's data. Replica movement consults this: the
+// sidecar is excluded from copied file lists, so moving a bucket with rows
+// would land the unstripped bytes at the target with no record they exist.
+func (b *Bucket) EditOpsHaveRows() (bool, error) {
+	if !b.HasEditOps() {
+		return false, nil
+	}
+	pending, err := b.disk.editOps.AllPending()
+	if err != nil {
+		return false, err
+	}
+	if len(pending) > 0 {
+		return true, nil
+	}
+	quarantined, err := b.disk.editOps.Quarantined()
+	if err != nil {
+		return false, err
+	}
+	return len(quarantined) > 0, nil
 }
 
 // EditOpQuarantined returns the segment IDs the cleanup driver quarantined
@@ -2108,6 +2146,22 @@ func (b *Bucket) flushAndSwitchLocked() error {
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
 
+	// A non-nil b.flushing here is the aftermath of a FAILED earlier flush
+	// (flushAndSwitchLocked returned mid-way and nothing else retries that
+	// memtable). Its acknowledged, fsynced writes are readable only through
+	// the flushing memtable — switching over it would orphan them until a
+	// restart's WAL replay (and, mid-drop, leave pre-arm bytes outside every
+	// snapshot). Complete the leftover flush first; if it fails again, this
+	// attempt fails too and the data stays readable where it is.
+	if b.flushing != nil {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Warn("a previous memtable flush did not complete; retrying it before switching")
+		if err := b.flushFlushingLocked(); err != nil {
+			return fmt.Errorf("retry incomplete previous flush: %w", err)
+		}
+	}
+
 	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
@@ -2122,6 +2176,30 @@ func (b *Bucket) flushAndSwitchLocked() error {
 		return nil
 	}
 
+	if err := b.flushFlushingLocked(); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		Trace("finish flush and switch")
+
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		WithField("took", took).
+		Debugf("flush and switch took %s\n", took)
+
+	return nil
+}
+
+// flushFlushingLocked completes the flush of the memtable currently in
+// b.flushing (steps 2-4 of FlushAndSwitch): wait out its writers, flush it to
+// a segment, precompute metadata, and atomically add the segment while
+// clearing b.flushing. Split out so flushAndSwitchLocked can also drain a
+// memtable a FAILED earlier flush left behind before switching. The caller
+// must hold flushAndSwitchMu.
+func (b *Bucket) flushFlushingLocked() error {
 	// Before we can start the actual flush, we need to make sure that all
 	// ongoing writers have finished their write, otherwise we could lose the
 	// write.
@@ -2202,16 +2280,6 @@ func (b *Bucket) flushAndSwitchLocked() error {
 		}
 	}
 
-	took := time.Since(before)
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		Trace("finish flush and switch")
-
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		WithField("took", took).
-		Debugf("flush and switch took %s\n", took)
-
 	return nil
 }
 
@@ -2222,6 +2290,13 @@ func (b *Bucket) flushAndSwitchLocked() error {
 func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+
+	if b.flushing != nil {
+		// Overwriting a leftover flushing memtable would orphan its
+		// acknowledged writes (unreadable until a restart's WAL replay).
+		// Callers must drain it first — flushAndSwitchLocked does.
+		return false, fmt.Errorf("previous flushing memtable still present; refusing to overwrite it")
+	}
 
 	if b.active.Size() == 0 {
 		return false, nil

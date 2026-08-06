@@ -126,6 +126,47 @@ func TestAuthzDeleteClassVectorIndex(t *testing.T) {
 	})
 }
 
+// TestAuthzDeleteVectorIndexZeroTenantMT pins the authz gate on the one path
+// where the DELETE request itself immediately mutates the schema: an MT
+// collection with zero tenants has no shard to clean, so the enqueuer removes
+// the entries directly instead of spawning a background task. The 403 must
+// land before any of that — the entry must survive unmarked.
+func TestAuthzDeleteVectorIndexZeroTenantMT(t *testing.T) {
+	adminAuth := helper.CreateAuth(sharedRootKey)
+	customKey := "custom-key"
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	className := "AuthzDropVectorZeroTenants"
+	deleteObjectClass(t, className, adminAuth)
+
+	noneVectorizer := map[string]any{"none": map[string]any{}}
+	c := &models.Class{
+		Class:              className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		VectorConfig: map[string]models.VectorConfig{
+			"toDrop":  {Vectorizer: noneVectorizer, VectorIndexType: "hnsw"},
+			"sibling": {Vectorizer: noneVectorizer, VectorIndexType: "hnsw"},
+		},
+	}
+	helper.CreateClassAuth(t, c, sharedRootKey)
+	defer deleteObjectClass(t, className, adminAuth)
+
+	params := clschema.NewSchemaObjectsVectorsDeleteParams().
+		WithClassName(className).
+		WithVectorIndexName("toDrop")
+	_, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(params, helper.CreateAuth(customKey))
+	require.Error(t, err)
+	var forbidden *clschema.SchemaObjectsVectorsDeleteForbidden
+	require.True(t, errors.As(err, &forbidden))
+
+	cur := helper.GetClassAuth(t, className, sharedRootKey)
+	cfg, present := cur.VectorConfig["toDrop"]
+	require.True(t, present, "an unauthorized request must not remove the entry — this path finalizes in-request")
+	require.Equal(t, "hnsw", cfg.VectorIndexType, "and must not even mark it dropped")
+}
+
 // TestAuthzUpdateClassVectorConfigRemoval pins the generic-update side of the
 // same hardened surface: PUT /v1/schema/{class} with a VectorConfig entry
 // missing reaches the identical removal checkpoint the drop endpoint guards,

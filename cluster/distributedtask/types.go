@@ -51,9 +51,11 @@ type TargetVectorExtractor func(payload []byte) (collection string, targets []st
 // Consulted on the proposal side only (the scheduler's cleanup phase), so it
 // need not be deterministic; the FSM's CleanUpTask stays unchanged. Vetoed
 // records are re-evaluated every tick — return false once the record stops
-// mattering, or it lives forever.
+// mattering, or it lives forever. namespaceTasks is the provider namespace's
+// full task map, so relative judgments (e.g. "is this the newest record of
+// its kind") stay local instead of costing a lookup per record per tick.
 type CompletedTaskRetainer interface {
-	ShouldRetainCompletedTask(task *Task) bool
+	ShouldRetainCompletedTask(task *Task, namespaceTasks map[TaskDescriptor]*Task) bool
 }
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.

@@ -505,6 +505,18 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
+		//
+		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
+		// a deterministic apply, so a mixed-version cluster diverges on this
+		// very log entry — a node without this code neither purges nor refuses,
+		// and the two FSMs stay disagreeing after the upgrade completes. The
+		// AddTask apply has the same exposure (CheckConflict's claim re-check
+		// rejects on new binaries, accepts on old). An in-apply version check
+		// cannot fix it: reading node-local version state during apply is
+		// itself non-deterministic, so any fence has to sit proposal-side.
+		// Accepted while the endpoint is experimental
+		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
+		// before the feature is promoted to a supported release.
 		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 			if s.distributedTaskManager == nil {
 				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
@@ -571,23 +583,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		},
 	)
 }
-
-// DropVectorMarkerPurgeMinVersion is the minimum cluster version at which a
-// drop-vector marker introduction is safe to accept: the record purge/refusal
-// in the UpdateClass apply is new behavior, so a mixed-version cluster
-// diverges on the same log entry (a pre-purge node neither purges nor
-// refuses). The AddTask apply has the same exposure: the enqueue-time
-// CleanedShards/DropEpochID claim re-check (CheckConflict) can reject on new
-// binaries while old binaries accept blindly. Both are fenced only
-// PROPOSAL-side — an in-apply version check would read node-local state and
-// be non-deterministic itself — so the rolling-upgrade min-version gate
-// (#11901, at the top of EnqueueDropVectorIndex) MUST consume this constant
-// to fence marker introductions until every node runs at least this version —
-// it exists so the release dependency is code-visible, not PR-description
-// prose. NOTE for the gate implementation: builds carry pre-release suffixes
-// ("1.39.0-rc.0"), and under semver rc.0 < 1.39.0 — the comparison must be
-// pre-release-tolerant or a homogeneous rc cluster would wrongly refuse.
-const DropVectorMarkerPurgeMinVersion = "1.39.0"
 
 // introducedDroppedVectorConfigs returns the names of VectorConfig entries that
 // are dropped ("none") in next but were live or absent in prev — i.e. markers
