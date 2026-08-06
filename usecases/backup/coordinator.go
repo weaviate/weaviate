@@ -525,8 +525,10 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 //   - [CanCommitErrRestoreBlockedByReindex] (restore refused) carries
 //     [backup.ErrReindexInFlight] and NOT [errCannotCommit]: a caller that maps
 //     it to [errCannotCommit] answers 500 for what the scheduler answers 422.
-//   - every other kind, including the empty one older nodes send, keeps the
-//     legacy [errCannotCommit] wrapping so existing callers and tests match.
+//   - every other kind, including the empty one older nodes send, stays wrapped
+//     in [errCannotCommit]. None of them is retryable, so 500 is the right
+//     answer, and [errCannotCommit] is what the callers that decide that match
+//     on.
 //
 // Deliberately open: a participant from before the shard-name redaction sets
 // the same [CanCommitErrInFlightReindex] kind and names the shard in its
