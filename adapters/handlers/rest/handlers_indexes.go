@@ -44,6 +44,16 @@ import (
 )
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
+	h := newIndexesHandlers(appState)
+	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
+	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
+}
+
+// newIndexesHandlers wires the collaborators every gate in this file consults.
+// A collaborator left nil here disables the gate that reads it, so the wiring
+// is behavior and is tested as such. It is split out of setupIndexesHandlers
+// so a test can build the handlers without a swagger API.
+func newIndexesHandlers(appState *state.State) *indexesHandlers {
 	h := &indexesHandlers{appState: appState}
 	if appState.Cluster != nil {
 		h.cluster = appState.Cluster
@@ -64,8 +74,7 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	if appState.BackupActivity != nil {
 		h.localBackupActivity = appState.BackupActivity
 	}
-	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
-	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
+	return h
 }
 
 type indexesHandlers struct {
