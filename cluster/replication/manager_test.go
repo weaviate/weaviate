@@ -1750,3 +1750,55 @@ func TestManager_SnapshotRestore_Deterministic(t *testing.T) {
 		})
 	}
 }
+
+// Both the op-creation and state-transition timestamps must reach the query
+// response. The cleanup sweep's age predicate reads the latter, so an operator
+// has to be able to see it.
+func TestReplicationDetails_ReportsOpAndStateStartTimes(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	require.NoError(t, schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false))
+
+	manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
+
+	opUUID := uuid4()
+	subCommand, err := json.Marshal(&api.ReplicationReplicateShardRequest{
+		Uuid:             opUUID,
+		SourceCollection: "TestCollection",
+		SourceShard:      "shard1",
+		SourceNode:       "node1",
+		TargetNode:       "node2",
+	})
+	require.NoError(t, err)
+	require.NoError(t, manager.Replicate(0, &api.ApplyRequest{SubCommand: subCommand}))
+
+	// Both stamps come from time.Now() at their own moments, so sleep to keep
+	// them distinct.
+	time.Sleep(2 * time.Millisecond)
+	subCommand, err = json.Marshal(&api.ReplicationUpdateOpStateRequest{Id: 0, State: api.READY})
+	require.NoError(t, err)
+	require.NoError(t, manager.UpdateReplicateOpState(&api.ApplyRequest{SubCommand: subCommand}))
+
+	subCommand, err = json.Marshal(&api.ReplicationDetailsRequest{Uuid: opUUID})
+	require.NoError(t, err)
+	payload, err := manager.GetReplicationDetailsByReplicationId(&api.QueryRequest{
+		Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
+		SubCommand: subCommand,
+	})
+	require.NoError(t, err)
+
+	var details api.ReplicationDetailsResponse
+	require.NoError(t, json.Unmarshal(payload, &details))
+
+	require.NotZero(t, details.StartTimeUnixMs, "op-level start time must be reported")
+	require.NotZero(t, details.Status.StartTimeUnixMs, "state-level start time must be reported")
+	require.Less(t, details.StartTimeUnixMs, details.Status.StartTimeUnixMs,
+		"the op was created before it entered READY, so the two must differ")
+}

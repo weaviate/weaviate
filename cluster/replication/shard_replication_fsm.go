@@ -14,6 +14,7 @@ package replication
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -192,10 +193,13 @@ func (s *ShardReplicationFSM) GetOpById(id uint64) (ShardReplicationOpAndStatus,
 	return NewShardReplicationOpAndStatus(op, status), true
 }
 
+// GetOpsForTarget returns a copy. Callers iterate the result after the lock is
+// dropped, while removeReplicationOps compacts the bucket's backing array in
+// place, so returning the bucket itself would be an unsynchronized read.
 func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return s.opsByTarget[node]
+	return slices.Clone(s.opsByTarget[node])
 }
 
 func (s *ShardReplicationFSM) GetOpsForCollection(collection string) ([]ShardReplicationOpAndStatus, bool) {
@@ -298,6 +302,74 @@ func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicati
 	return s.getOpsWithStatus(ops), ok
 }
 
+// StaleOp is one sweep candidate. The state travels with the id so the cleanup
+// metric's per-state label stays exact when only some batches of a tick apply.
+type StaleOp struct {
+	ID    uint64
+	State api.ShardReplicationState
+}
+
+// SelectStaleOps returns at most limit eligible ops, ascending by id, plus the
+// number of ops that matched state and age but carried a flag. That count is the
+// whole such population, not just the part within limit: it is the diagnostic
+// for a READY gauge that plateaus above zero.
+//
+// An op is eligible when all of:
+//
+//  1. its current state is READY, or CANCELLED when includeCancelled is true;
+//  2. it carries neither ShouldCancel nor ShouldDelete. Those ops are owned by an
+//     in-flight deletion and are the only terminal ops whose removal moves a
+//     gate predicate, because ShouldConsumeOps() is true only for them;
+//  3. its current-state start time is before cutoffUnixMs, or is zero or
+//     negative. Ops predating the field carry no timestamp and are infinitely old.
+//
+// Candidates are collected in full, sorted, and only then truncated: truncating
+// a randomly-ordered map iteration would starve an ancient op behind a churning
+// backlog. The sort is by id because ids are RAFT log indices, identical on every
+// node, whereas StartTimeUnixMs is stamped locally at apply time and would
+// reshuffle the priority order on every leadership change.
+func (s *ShardReplicationFSM) SelectStaleOps(cutoffUnixMs int64, includeCancelled bool, limit int) (ops []StaleOp, flaggedSkipped int) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	candidates := make([]uint64, 0, len(s.statusById))
+	for id, status := range s.statusById {
+		switch status.GetCurrentState() {
+		case api.READY:
+		case api.CANCELLED:
+			if !includeCancelled {
+				continue
+			}
+		default:
+			continue
+		}
+
+		st := status.Current.StartTimeUnixMs
+		oldEnough := st <= 0 || st < cutoffUnixMs
+		if !oldEnough {
+			continue
+		}
+
+		if status.ShouldCancel || status.ShouldDelete {
+			flaggedSkipped++
+			continue
+		}
+		candidates = append(candidates, id)
+	}
+
+	slices.Sort(candidates)
+	if limit >= 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	ops = make([]StaleOp, 0, len(candidates))
+	for _, id := range candidates {
+		status := s.statusById[id]
+		ops = append(ops, StaleOp{ID: id, State: status.GetCurrentState()})
+	}
+	return ops, flaggedSkipped
+}
+
 func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardReplicationOpStatus {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
@@ -386,8 +458,8 @@ func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardR
 	return readReplicas, writeReplicas
 }
 
-// filterOneReplicaAsTargetReadWrite returns whether the replica node for collection and shard is usable for read and write
-// It returns a tuple of boolean (readOk, writeOk)
+// filterOneReplicaReadWrite returns whether the replica node for collection and
+// shard is usable for read and write, as a (readOk, writeOk) tuple.
 func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection string, shard string) (bool, bool) {
 	replicaFQDN := newShardFQDN(node, collection, shard)
 	ops, ok := s.opsByTargetFQDN[replicaFQDN]
@@ -396,31 +468,43 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
 	}
 
-	readOk, writeOk := false, false
-outer:
+	targetOk, sawLive := false, false
 	for _, op := range ops {
 		opState, ok := s.statusById[op.ID]
 		if !ok {
-			// A missing status should never happen (every indexed op has one). Bail
-			// conservatively as read+write allowed; this early-returns rather than
-			// continuing the fold, discarding any routability accumulated so far —
-			// acceptable precisely because the branch is unreachable.
+			// A missing status should never happen (every indexed op has one).
+			// Bail conservatively as read+write allowed.
 			return true, true
 		}
 		switch opState.GetCurrentState() {
 		case api.READY, api.DEHYDRATING, api.INTEGRATING:
 			// Target is a counted r/w replica while the CCL is still draining.
-			readOk = true
-			writeOk = true
-			break outer
+			targetOk = true
+		case api.CANCELLED:
+			// Terminal and inert: admission skips cancelled ops
+			// (checkNoConflictingOp) and routing must too, or a lingering
+			// cancelled record de-routes a healthy replica once the sweep
+			// deletes its READY sibling.
 		default:
+			sawLive = true
 		}
 	}
-	return readOk, writeOk
+	if !targetOk && !sawLive {
+		// Only cancelled target ops: same as no target entry at all.
+		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
+	}
+	if !targetOk {
+		return false, false
+	}
+	// A routable target record must not mask the node's own source state: if a
+	// later MOVE off this node is DEHYDRATING, a consistency=ONE write routed
+	// here is dropped with the shard. AND the source side in, which also makes
+	// deleting a READY op routing-neutral.
+	return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
 }
 
-// filterOneReplicaAsSourceReadWrite returns a tuple of boolean (found, readOk, writeOk)
-// if found is true it means there's a source replication op for that replica and readOk and writeOk should be considered
+// filterOneReplicaAsSourceReadWrite returns whether the replica node is usable
+// for read and write given its source-side ops, as a (readOk, writeOk) tuple.
 func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, collection string, shard string) (bool, bool) {
 	replicaFQDN := newShardFQDN(node, collection, shard)
 	ops, ok := s.opsBySourceFQDN[replicaFQDN]

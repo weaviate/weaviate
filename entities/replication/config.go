@@ -60,4 +60,21 @@ type GlobalConfig struct {
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
 
 	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
+
+	// ReplicaMovementCleanupEnabled is the master switch, REPLICA_MOVEMENT_CLEANUP_ENABLED.
+	ReplicaMovementCleanupEnabled *runtime.DynamicValue[bool] `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
+	// ReplicaMovementCleanupMaxAge is how old a terminal op must be before it is
+	// swept, REPLICA_MOVEMENT_CLEANUP_MAX_AGE. 0 disables the sweep and must
+	// never be read as "delete everything". A negative value is rejected rather
+	// than coerced: it fails startup via env and is refused at reload, leaving
+	// the previous value in place.
+	ReplicaMovementCleanupMaxAge *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
+	// ReplicaMovementCleanupInterval is the sweep period,
+	// REPLICA_MOVEMENT_CLEANUP_INTERVAL. 0 disables the sweep; a negative value
+	// is rejected on the same terms as MaxAge above.
+	ReplicaMovementCleanupInterval *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
+	// ReplicaMovementCleanupIncludeCancelled widens the sweep predicate to old
+	// CANCELLED ops, REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED. Opt-in because
+	// CANCELLED ops carry diagnostic error context.
+	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool] `json:"replica_movement_cleanup_include_cancelled" yaml:"replica_movement_cleanup_include_cancelled"`
 }

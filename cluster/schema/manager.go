@@ -525,21 +525,50 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// DELETE_CLASS apply MUST drop tasks the replay just
 				// re-added. weaviate/0-weaviate-issues#231.
 				s.cascadeDeleteDistributedTasks(cmd.Class)
+				// Same reasoning for the replication FSM: its ops must be
+				// flagged on every apply path, schemaOnly replay and
+				// MetadataOnlyVoters included. Otherwise ShouldConsumeOps(),
+				// and with it three schema gates, disagrees between nodes.
+				s.cascadeDeleteReplicationOps(cmd.Class)
 				return nil
 			},
 			updateStore: func() error {
-				if s.replicationFSM == nil {
-					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationFSM.DeleteReplicationsByCollection(cmd.Class); err != nil {
-					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
-					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
-				}
 				return s.db.DeleteClass(cmd.Class, hasFrozen)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// cascadeDeleteReplicationOps flags every replication op of class for deletion.
+// It logs and continues rather than returning an error: it runs inside
+// updateSchema, whose error aborts the whole apply, and a replication-FSM
+// hiccup must never block a class deletion.
+func (s *SchemaManager) cascadeDeleteReplicationOps(class string) {
+	if s.replicationFSM == nil {
+		s.log.WithField("class", class).
+			Debug("replication FSM not set; skipping cascade-delete on class delete")
+		return
+	}
+	if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
+		s.log.WithField("class", class).
+			Errorf("could not delete replication operations for deleted class: %v", err)
+	}
+}
+
+// cascadeDeleteReplicationOpsForTenants is cascadeDeleteReplicationOps scoped to
+// the tenants a DELETE_TENANT apply removes.
+func (s *SchemaManager) cascadeDeleteReplicationOpsForTenants(class string, tenants []string) {
+	if s.replicationFSM == nil {
+		s.log.WithField("class", class).
+			Debug("replication FSM not set; skipping cascade-delete on tenant delete")
+		return
+	}
+	if err := s.replicationFSM.DeleteReplicationsByTenants(class, tenants); err != nil {
+		s.log.WithField("class", class).WithField("tenants", tenants).
+			Errorf("could not delete replication operations for deleted tenants: %v", err)
+	}
 }
 
 func (s *SchemaManager) cascadeDeleteDistributedTasks(class string) {
@@ -779,15 +808,16 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
-			updateStore: func() error {
-				if s.replicationFSM == nil {
-					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationFSM.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
-					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
-					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				// In updateSchema so it also runs on schemaOnly applies; see deleteClass.
+				if err := s.schema.deleteTenants(cmd.Class, cmd.Version, req); err != nil {
+					return err
 				}
+				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
+				return nil
+			},
+			updateStore: func() error {
 				return s.db.DeleteTenants(cmd.Class, tenants)
 			},
 			schemaOnly: schemaOnly,
