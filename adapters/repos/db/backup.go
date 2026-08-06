@@ -57,13 +57,20 @@ const reindexRefusalShardSample = 10
 // the coordinator's canCommit phase so no staging dir is created on
 // rejection.
 //
-// All per-class / per-shard failures are accumulated and joined into a
-// single error rather than short-circuiting on the first one. Joining
-// ensures that when several classes are blocked at once, the operator sees
-// the full list in a single canCommit round instead of fixing one,
-// retrying, fixing the next, retrying, and so on. The joined error still
-// satisfies errors.Is for any wrapped sentinel (e.g.
-// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
+// Failures are accumulated rather than short-circuiting on the first one, so
+// that when several classes are blocked at once the operator sees the full list
+// in a single canCommit round instead of fixing one, retrying, fixing the next,
+// retrying, and so on. What gets returned depends on whether a gate refusal is
+// among them:
+//
+//   - No gate refusal: every accumulated failure is joined and returned.
+//   - Any gate refusal: the gate refusals are joined and returned, and the rest
+//     go to the log via [DB.logReindexRefusals] only. The withheld ones name the
+//     local node, and this error becomes an API response body that a backup
+//     caller has no grant on node names for.
+//
+// Either way the joined error satisfies errors.Is for any wrapped sentinel
+// (e.g. ErrBackupBlockedByInFlightReindex), because errors.Join preserves the
 // underlying error graph.
 //
 // Class-missing errors stop aggregation for that class but do not short
