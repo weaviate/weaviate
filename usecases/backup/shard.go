@@ -121,6 +121,26 @@ func (s *backupStat) set(st backup.Status) {
 	s.reqState.Status = st
 }
 
+// setIfOwned writes the status only if id still holds the slot, the write half
+// of the same ownership rule as [backupStat.resetIfOwned]. A caller that does
+// not derive id from the slot itself — a cancel, which takes it from object
+// storage — would otherwise stamp whichever operation happens to hold it, and a
+// slot reading Cancelled makes coordinator.commit abort the operation as
+// "cancelled externally". Reports whether it wrote.
+func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	// Cancelled is terminal - don't allow overwriting
+	if s.reqState.Status == backup.Cancelled {
+		return false
+	}
+	s.reqState.Status = st
+	return true
+}
+
 // shardSyncChan makes sure that a backup operation is mutually exclusive.
 // It also contains the channel used to communicate with the coordinator.
 type shardSyncChan struct {

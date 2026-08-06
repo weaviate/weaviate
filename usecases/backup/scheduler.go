@@ -574,7 +574,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// Another coordinator already completed cancellation
 			return nil
 		}
-		s.restorer.lastOp.set(backup.Cancelling)
+		s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -590,8 +590,11 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	s.restorer.abortAll(ctx,
 		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
-	// Update coordinator's lastOp status to prevent stale reads from OnStatus()
-	s.restorer.lastOp.set(backup.Cancelled)
+	// Update coordinator's lastOp status to prevent stale reads from OnStatus().
+	// Only when this node's restore slot is still held by the restore being
+	// cancelled: the slot is one per node and shared by every restore this node
+	// coordinates, and OnStatus reads it only for a matching id anyway.
+	s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
 
 	// Write final CANCELED status to restore_config.json
 	if meta != nil {
