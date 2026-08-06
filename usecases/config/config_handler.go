@@ -245,6 +245,11 @@ type Config struct {
 
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 
+	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
+	// off by default. With it off, new reindex submissions are refused and
+	// the backup path performs no reindex check.
+	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
+
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
 	// interaction with a tenant leads to a log line. However, this may
 	// temporarily be desired, e.g. for analysis or debugging purposes. In this
@@ -1105,7 +1110,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

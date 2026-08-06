@@ -649,7 +649,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
-	freezing := make([]string, 0, len(updates))
+	// freeze needs each tenant's pre-freeze status, so it keeps the whole payload
+	freezing := make([]*schemaUC.UpdateTenantPayload, 0, len(updates))
 	frozen := make([]string, 0, len(updates))
 	unfreezing := make([]string, 0, len(updates))
 
@@ -663,7 +664,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			frozen = append(frozen, tenant.Name)
 
 		case types.TenantActivityStatusFREEZING: // never arrives from user
-			freezing = append(freezing, tenant.Name)
+			freezing = append(freezing, tenant)
 		case types.TenantActivityStatusUNFREEZING: // never arrives from user
 			unfreezing = append(unfreezing, tenant.Name)
 		}
@@ -747,7 +748,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	}
 
 	if len(freezing) > 0 {
-		m.logger.WithField("action", "tenants_to_freezing").Debug(freezing)
+		m.logger.WithField("action", "tenants_to_freezing").Debug(tenantNames(freezing))
 		m.freeze(ctx, idx, class.Class, freezing, ec)
 	}
 
@@ -757,6 +758,14 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	}
 
 	return ec.ToError()
+}
+
+func tenantNames(tenants []*schemaUC.UpdateTenantPayload) []string {
+	names := make([]string, len(tenants))
+	for i, tenant := range tenants {
+		names[i] = tenant.Name
+	}
+	return names
 }
 
 // DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant

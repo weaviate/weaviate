@@ -381,9 +381,19 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 
 	className := t.Name() + "Class"
 	tenantName := "tenant"
+	// "vector" is a proper prefix of the other two names, so at 384 dimensions its key sorts
+	// after theirs in the dimensions bucket
+	vectorPrefix := "vector"
 	vector1 := "vector1"
 	vector2 := "vector2"
-	dimensions := 128
+
+	// every vector gets its own dimensions and object count, so a report that attributes one
+	// vector's numbers to another cannot pass
+	expected := map[string]usagetypes.Dimensionality{
+		vectorPrefix: {Dimensions: 384, Count: 100},
+		vector1:      {Dimensions: 128, Count: 60},
+		vector2:      {Dimensions: 256, Count: 30},
+	}
 
 	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
@@ -401,6 +411,12 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 			},
 		},
 		VectorConfig: map[string]models.VectorConfig{
+			vectorPrefix: {
+				Vectorizer: map[string]any{
+					"none": map[string]any{},
+				},
+				VectorIndexType: "hnsw",
+			},
 			vector1: {
 				Vectorizer: map[string]any{
 					"none": map[string]any{},
@@ -421,10 +437,16 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName}).Do(ctx))
 
-	// Insert 100 objects with both named vectors
+	// Insert 100 objects, each carrying the named vectors its index still falls within
 	const numObjects = 100
 	objs := make([]*models.Object, numObjects)
 	for i := range numObjects {
+		vectors := models.Vectors{}
+		for name, dimensionality := range expected {
+			if i < dimensionality.Count {
+				vectors[name] = generateRandomVector(dimensionality.Dimensions)
+			}
+		}
 		objs[i] = &models.Object{
 			Class:  className,
 			ID:     strfmt.UUID(uuid.NewString()),
@@ -433,10 +455,7 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 				"name":        fmt.Sprintf("name %d", i),
 				"description": fmt.Sprintf("description %d", i),
 			},
-			Vectors: models.Vectors{
-				vector1: generateRandomVector(dimensions),
-				vector2: generateRandomVector(dimensions),
-			},
+			Vectors: vectors,
 		}
 	}
 	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
@@ -452,26 +471,23 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	// COLD/HOT cycle flushes to disk so the baseline is comparable post-drop
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+
+	// the cold shard is reported straight from the dimensions bucket on disk
+	colUsageCold, err := GetDebugUsageForCollection(className)
+	require.NoError(t, err)
+	require.Len(t, colUsageCold.Shards, 1)
+	require.Equal(t, expected, namedVectorDimensionalities(t, colUsageCold.Shards[0]))
+
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
 
-	// Verify both named vectors appear in usage
+	// Verify all named vectors appear in usage
 	colUsageBefore, err := GetDebugUsageForCollection(className)
 	require.NoError(t, err)
 	require.Len(t, colUsageBefore.Shards, 1)
 	shard := colUsageBefore.Shards[0]
 	require.Equal(t, int64(numObjects), shard.ObjectsCount)
-	require.Len(t, shard.NamedVectors, 2)
-
-	vectorNames := map[string]bool{}
-	for _, v := range shard.NamedVectors {
-		vectorNames[v.Name] = true
-		require.NotEmpty(t, v.Dimensionalities)
-		require.Equal(t, dimensions, v.Dimensionalities[0].Dimensions)
-		require.Equal(t, numObjects, v.Dimensionalities[0].Count)
-	}
-	require.True(t, vectorNames[vector1], "expected vector1 in usage report")
-	require.True(t, vectorNames[vector2], "expected vector2 in usage report")
+	require.Equal(t, expected, namedVectorDimensionalities(t, shard))
 
 	initialFullStorage := shard.FullShardStorageBytes
 	initialVectorStorage := shard.VectorStorageBytes
@@ -482,19 +498,16 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	require.NoError(t, c.Schema().VectorIndexDeleter().
 		WithClassName(className).WithVectorIndexName(vector1).Do(ctx))
 
-	// Verify vector1 is no longer in the usage metrics, vector2 remains,
+	// Verify vector1 is no longer in the usage metrics, the others remain,
 	// and storage bytes have decreased
+	delete(expected, vector1)
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		colUsageAfter, err := GetDebugUsageForCollection(className)
 		require.NoError(ct, err)
 		require.Len(ct, colUsageAfter.Shards, 1)
 		shardAfter := colUsageAfter.Shards[0]
 		require.Equal(ct, int64(numObjects), shardAfter.ObjectsCount)
-		require.Len(ct, shardAfter.NamedVectors, 1)
-		require.Equal(ct, vector2, shardAfter.NamedVectors[0].Name)
-		require.NotEmpty(ct, shardAfter.NamedVectors[0].Dimensionalities)
-		require.Equal(ct, dimensions, shardAfter.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(ct, numObjects, shardAfter.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(ct, expected, namedVectorDimensionalities(ct, shardAfter))
 		assert.Less(ct, shardAfter.FullShardStorageBytes, initialFullStorage)
 		assert.Less(ct, shardAfter.VectorStorageBytes, initialVectorStorage)
 	}, 30*time.Second, 500*time.Millisecond)
@@ -699,6 +712,17 @@ func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
 			}
 		}
 	}, 30*time.Second, 500*time.Millisecond)
+}
+
+// namedVectorDimensionalities maps every named vector of a shard usage report to the
+// dimensionality it reports.
+func namedVectorDimensionalities(t require.TestingT, shard *usagetypes.ShardUsage) map[string]usagetypes.Dimensionality {
+	dimensionalities := make(map[string]usagetypes.Dimensionality, len(shard.NamedVectors))
+	for _, v := range shard.NamedVectors {
+		require.NotEmpty(t, v.Dimensionalities, "no dimensionality reported for vector %q", v.Name)
+		dimensionalities[v.Name] = *v.Dimensionalities[0]
+	}
+	return dimensionalities
 }
 
 func generateRandomVector(dimensionality int) []float32 {

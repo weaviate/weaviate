@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -240,6 +241,10 @@ type asyncReplicationController interface {
 	// hasActiveAsyncReplicationTargetOverrides reports whether the shard holds
 	// target-node overrides that force async replication on.
 	hasActiveAsyncReplicationTargetOverrides() bool
+	// removePersistedHashtree deletes any persisted hashtree (.ht) snapshot.
+	removePersistedHashtree() error
+	// rebuildAsyncReplicationFromScratch drops any snapshot and rebuilds from a full scan.
+	rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -340,6 +345,8 @@ type Shard struct {
 	// treated as "epoch = very long ago"). Atomic to satisfy the race detector:
 	// initAsyncReplication resets it while runHashbeatCycle reads/writes it.
 	asyncRepLastLog atomic.Int64
+	// asyncRepFailLastLog throttles the failure Warn separately so success Debugs cannot starve it.
+	asyncRepFailLastLog atomic.Int64
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
@@ -647,20 +654,23 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 	return metrics.StorageBytes, nil
 }
 
-// VectorStorageSize calculates the total storage size of all vector indexes in the shard
-func (s *Shard) VectorStorageSize(ctx context.Context, lsmPath string, directories []string) (int64, int64, error) {
+// VectorStorageUsage calculates the total storage size of all vector indexes in the shard. It also
+// returns every target vector's dimensionality, so callers need not re-read the dimensions bucket.
+func (s *Shard) VectorStorageUsage(ctx context.Context, lsmPath string, directories []string) (int64, int64, map[string]usagetypes.Dimensionality, error) {
 	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 
 	uncompressedSize := int64(0)
+	dimensionalities := map[string]usagetypes.Dimensionality{}
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
 		dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
 		if err != nil {
 			return err
 		}
+		dimensionalities[targetVector] = dimensionality
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
 			return nil
 		}
@@ -668,10 +678,10 @@ func (s *Shard) VectorStorageSize(ctx context.Context, lsmPath string, directori
 		uncompressedSize += int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
 		return nil
 	}); err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 
-	return vectorSize, uncompressedSize, nil
+	return vectorSize, uncompressedSize, dimensionalities, nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {

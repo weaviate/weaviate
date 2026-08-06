@@ -416,7 +416,7 @@ func (c *segmentCleanerCommon) storeSegmentMeta(id, lastProcessedId, size, clean
 }
 
 func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortCallback,
-) (bool, error) {
+) (cleaned bool, err error) {
 	if c.sg.isReadyOnly() {
 		return false, nil
 	}
@@ -424,6 +424,16 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	var candidateIdx, startIdx, lastIdx int
 	var onCompleted onCompletedFunc
 	var tmpSegmentPath string
+	var newFile *os.File
+
+	// the candidate segment still holds everything the new file has until
+	// switchOnDisk starts marking, so discard it on every earlier exit
+	discardNewSegment := false
+	defer func() {
+		if discardNewSegment {
+			err = discardSegmentFile(newFile, tmpSegmentPath, err)
+		}
+	}()
 
 	ok, err := func() (bool, error) {
 		segments, release := c.sg.getConsistentViewOfSegments()
@@ -502,6 +512,8 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		if err != nil {
 			return false, err
 		}
+		newFile = file
+		discardNewSegment = true
 
 		switch c.sg.strategy {
 		case StrategyReplace:
@@ -533,7 +545,9 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		return false, nil
 	}
 
-	segment, err := c.sg.replaceSegment(candidateIdx, tmpSegmentPath)
+	segment, err := c.sg.replaceSegment(candidateIdx, tmpSegmentPath, func() {
+		discardNewSegment = false
+	})
 	if err != nil {
 		err = fmt.Errorf("replace compacted segments: %w", err)
 		return false, err
@@ -576,6 +590,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 }
 
 func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
+	onCommitted func(),
 ) (*segment, error) {
 	newSegment, err := sg.preinitializeNewSegment(tmpSegmentPath, segmentPos)
 	if err != nil {
@@ -583,7 +598,7 @@ func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 	}
 
 	replacer := newSegmentReplacer(sg, segmentPos, segmentPos, newSegment)
-	_, oldSegment, err := replacer.switchOnDisk()
+	_, oldSegment, err := replacer.switchOnDisk(onCommitted)
 	if err != nil {
 		return nil, fmt.Errorf("replace cleaned segment on disk: %w", err)
 	}

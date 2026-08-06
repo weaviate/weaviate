@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -398,6 +399,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.asyncRepCtx = ctx
 
 	s.asyncRepLastLog.Store(0)
+	s.asyncRepFailLastLog.Store(0)
 	s.asyncReplicationConfig = config
 
 	effectiveConfig := config
@@ -1067,6 +1069,47 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 	return nil
 }
 
+// rebuildAsyncReplicationFromScratch drops any tree, deletes the snapshot, and rebuilds from a full scan when enabled — atomically, so no racing enable can trust the stale snapshot.
+func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
+	var clearStats bool
+	err := func() error {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock()
+
+		if s.hashtree != nil { // drop any tree a racing enable may have installed
+			s.asyncReplicationCancelFunc()
+			s.hashtree = nil
+			s.hashtreeFullyInitialized = false
+			s.clearAsyncCheckpointLocked()
+
+			// Deadlock-free: removeCh takes only sched.mu, never asyncReplicationRWMux.
+			if s.index.asyncReplicationScheduler != nil {
+				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+					s.index.logger.WithField("action", "async_replication").Error(err)
+				}
+			}
+			clearStats = true
+		}
+
+		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached
+			return err
+		}
+
+		if enabled {
+			return s.initAsyncReplication(config, nil) // cached=nil forces a full scan
+		}
+		return nil
+	}()
+
+	// Clear stats outside the mux, matching disableAsyncReplication.
+	if clearStats {
+		s.asyncReplicationStatsMux.Lock()
+		s.asyncReplicationStatsByTargetNode = nil
+		s.asyncReplicationStatsMux.Unlock()
+	}
+	return err
+}
+
 func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	func() {
 		s.asyncReplicationRWMux.Lock()
@@ -1176,7 +1219,9 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	defer s.asyncReplicationStatsMux.RUnlock()
 
 	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
-	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
+	// a fixed order keeps repeated reads from reshuffling the reported targets
+	for _, targetNodeName := range slices.Sorted(maps.Keys(s.asyncReplicationStatsByTargetNode)) {
+		asyncReplicationStats := s.asyncReplicationStatsByTargetNode[targetNodeName]
 		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
 			ObjectsPropagated:       uint64(max(0, asyncReplicationStats.localObjectsPropagationCount-asyncReplicationStats.objectsNotResolved)),
 			StartDiffTimeUnixMillis: asyncReplicationStats.hashtreeDiffStartTime.UnixMilli(),
@@ -1294,8 +1339,23 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	if level < 0 {
 		return nil, fmt.Errorf("hashtree level must be non-negative: %d", level)
 	}
+	// the request-supplied level is otherwise unbounded and sizes scale with 2^level
+	if level > maxHashtreeHeight {
+		return nil, fmt.Errorf("hashtree level %d exceeds the maximum height %d", level, maxHashtreeHeight)
+	}
 	if discriminant == nil {
 		return nil, fmt.Errorf("hashtree level %d: nil discriminant", level)
+	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
+	}
+
+	if height := s.hashtree.Height(); level > height {
+		return nil, fmt.Errorf("hashtree level %d exceeds height %d on shard %q", level, height, s.ID())
 	}
 
 	expected := hashtree.LeavesCount(level)
@@ -1303,14 +1363,8 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (height mismatch?)",
 			level, discriminant.Size(), expected)
 	}
-	digests = make([]hashtree.Digest, expected)
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	if !s.hashtreeFullyInitialized {
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
-	}
+	digests = make([]hashtree.Digest, discriminant.SetCount())
 
 	n, err := s.hashtree.Level(level, discriminant, digests)
 	if err != nil {
@@ -1535,8 +1589,8 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			return false, replicaerrors.ErrNoDiffFound
 		}
 
-		if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
-			s.asyncRepLastLog.Store(time.Now().Unix())
+		if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= config.loggingFrequency {
+			s.asyncRepFailLastLog.Store(time.Now().Unix())
 			s.index.logger.
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).

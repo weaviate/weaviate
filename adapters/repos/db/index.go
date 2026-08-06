@@ -225,6 +225,12 @@ func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
 	return v.(ShardLike), ok
 }
 
+// causes of Index.closeRequestedCtx
+var (
+	errIndexDropped  = stderrors.New("collection is being deleted")
+	errIndexShutdown = stderrors.New("node is shutting down")
+)
+
 // Index is the logical unit which contains all the data for one particular
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
@@ -273,12 +279,13 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
-	// dropRequestedCtx is cancelled as soon as a drop of this index is requested,
-	// before the drop starts waiting for dropIndex. Long-running readers holding
-	// dropIndex.RLock (e.g. usage scans) watch it to abort promptly and unblock
-	// the drop.
-	dropRequestedCtx    context.Context
-	signalDropRequested context.CancelFunc
+	// closeRequestedCtx is cancelled when a drop or shutdown is requested, before
+	// it waits for dropIndex or closeLock, so readers holding either can abort
+	// instead of blocking the teardown. Its cause tells the two apart: a reader may
+	// leave out a collection being deleted, but not one that is only shutting down.
+	// Shutdown signals unconditionally, so an index built without these panics.
+	closeRequestedCtx    context.Context
+	signalCloseRequested context.CancelCauseFunc
 
 	// The other locks in the index should always be called in the given order to prevent deadlocks:
 	// 1. closeLock
@@ -293,6 +300,8 @@ type Index struct {
 	// backupProtectedShards tracks shard names protected during non-hardlink backup.
 	// Activation and destructive status changes are blocked until ReleaseBackup.
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
+	//
+	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 	backupProtectedShards sync.Map
 
 	// Release uses this to decide whether to resume the shard (halt-for-duration
@@ -461,7 +470,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
-	index.dropRequestedCtx, index.signalDropRequested = context.WithCancel(context.Background())
+	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
@@ -728,6 +737,21 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 		return bucket.IterateObjects(ctx, wrapper)
 	})
+}
+
+// cancelOnCloseRequested derives a context cancelled on close request, so a teardown
+// does not wait behind a lock the caller holds. Call the returned func when done.
+// The derived context is cancelled with the same cause, so a caller can tell a
+// drop from a shutdown.
+func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, func()) {
+	derived, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(i.closeRequestedCtx, func() {
+		cancel(context.Cause(i.closeRequestedCtx))
+	})
+	return derived, func() {
+		stop()
+		cancel(nil)
+	}
 }
 
 // ForEachShard applies func f on each shard in the index.
@@ -1651,6 +1675,29 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 		return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
 	}
 	return ctrl.disableAsyncReplication(ctx)
+}
+
+// resumeAfterAbortedOffload reverses an aborted offloading HaltForTransfer: resume maintenance and rebuild async replication from a full scan so the shard cannot silently diverge. No-op when not loaded.
+func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
+	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
+	}
+
+	i.replicationConfigLock.Lock()
+	defer i.replicationConfigLock.Unlock()
+
+	return ctrl.rebuildAsyncReplicationFromScratch(ctx, i.asyncReplicationEnabledForShard(shardName), i.Config.AsyncReplicationConfig)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -2921,6 +2968,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	if _, protected := i.backupProtectedShards.Load(shardName); protected {
 		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
 	}
@@ -2981,6 +3029,40 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	return i.getOptInitLocalShard(ctx, shardName, true)
 }
 
+// getLoadedShard returns the shard only if it is already loaded, never
+// materializing one, plus a release that drops the shutdown refcount. A nil
+// shard and a nil error mean the shard is not loaded here.
+//
+// The refcount rather than shardCreateLocks keeps the shard alive, because
+// shardCreateLocks is on the shard's own read and write path and callers can
+// run long. Same reasoning as backupShardWithHardlinks.
+func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(), err error) {
+	// Every shard teardown holds one of these two: Index.Shutdown takes closeLock
+	// for write, the unload paths take shardCreateLocks for write.
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
+	}
+
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard = i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+	// Both locks span the map read and the refcount: a lazy shard's
+	// preventShutdown loads, so a teardown landing in between would have it
+	// rebuild the shard outside i.shards, where nothing can ever shut it down.
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("shard %q, no shutdown: %w", shardName, err)
+	}
+	return shard, release, nil
+}
+
 // getOptInitLocalShard returns the local shard with the given name.
 // It is ensured that the returned instance is a fully loaded shard if ensureInit is set to true.
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
@@ -3021,6 +3103,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard == nil {
+			// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 			if _, protected := i.backupProtectedShards.Load(shardName); protected {
 				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
 			}
@@ -3430,6 +3513,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
+	// a reader holding closeLock would hold up the whole DB shutdown
+	i.signalCloseRequested(errIndexShutdown)
+
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 

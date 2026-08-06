@@ -407,31 +407,6 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 	return nil
 }
 
-// WriteFile downloads contents of an object to a local file destPath
-func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	client, err := s.getClient(ctx)
-	if err != nil {
-		return errors.Wrap(err, "write to file: cannot get client")
-	}
-	bucket, remotePath, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
-	if err != nil {
-		return err
-	}
-
-	err = client.FGetObject(ctx, bucket, remotePath, destPath, minio.GetObjectOptions{})
-	if err != nil {
-		return fmt.Errorf("s3.FGetObject %q %q: %w", destPath, remotePath, err)
-	}
-
-	if st, err := os.Stat(destPath); err == nil {
-		metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
-		if err == nil {
-			metric.Add(float64(st.Size()))
-		}
-	}
-	return nil
-}
-
 func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
 	// Close the reader when done. Use CloseWithError to signal any error to the
 	// producer so it sees the actual error instead of "closed pipe".
