@@ -506,9 +506,17 @@ func installPosting(t *testing.T, tf *TestHFresh, postingID uint64, posting Post
 	for i := range mean {
 		mean[i] /= float32(len(vectors))
 	}
+	installPostingWithCentroid(t, tf, postingID, posting, mean)
+}
+
+// installPostingWithCentroid is installPosting with an explicit centroid
+// position, as real splits produce (the clustering centroid generally differs
+// from the plain mean of the members).
+func installPostingWithCentroid(t *testing.T, tf *TestHFresh, postingID uint64, posting Posting, centroid []float32) {
+	t.Helper()
 	require.NoError(t, tf.Index.Centroids.Insert(postingID, &Centroid{
-		Uncompressed: mean,
-		Compressed:   tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(mean)),
+		Uncompressed: centroid,
+		Compressed:   tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(centroid)),
 	}))
 	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, posting))
 	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, posting))
@@ -705,12 +713,17 @@ func countVectorCopies(t *testing.T, tf *TestHFresh, postingIDs []uint64, vecID 
 // the re-route inflated replication.
 func TestAddReroutePartialLossKeepsExactReplication(t *testing.T) {
 	// ids 0..4 live in P1, ids 5..9 in P2, id 10 is the racing insert.
-	// P1 and P2 sit far apart, the query equidistant-ish from both, so the
-	// initial RNGSelect picks both as replicas (RNG pruning at factor 10
-	// only drops candidates ~10x closer to a replica than to the query).
+	// P1 sits much closer to the query (d² 0.04) than P2 and its clone
+	// (d² 0.81): with the capped retry stopping after one successful
+	// append, P1 must be unambiguously the FIRST candidate the retry
+	// visits, so that only the appendedTo skip guard — not an accidental
+	// distance or id tie-break — keeps the duplicate copy out of P1. Both
+	// postings still enter the initial selection (RNG pruning at factor 10
+	// only drops candidates ~10x closer to a replica than to the query;
+	// dist²(P1,P2)=0.85 is far above that).
 	vectors := make([][]float32, 11)
 	for i := 0; i < 5; i++ {
-		vectors[i] = []float32{0, 0.9, 0, 1}
+		vectors[i] = []float32{0, 0.2, 0, 1}
 	}
 	for i := 5; i < 10; i++ {
 		vectors[i] = []float32{0.9, 0, 0, 1}
@@ -872,4 +885,85 @@ func TestAddAcksAndParksWhenRerouteRoutingFails(t *testing.T) {
 		"routing failure must park exactly one reassign task")
 	require.True(t, tf.Index.taskQueue.reassignList.Contains(newID),
 		"parked reassign must keep its dedup bit until the task runs")
+}
+
+// TestAddRerouteCapsReplacementsAtLostCount pins the replacement cap with the
+// posting-set transition a real split produces: two children, both far enough
+// apart to survive RNG pruning, so the retry's selection is {P1, childA,
+// childB}. The insert lost exactly one placement (P2), so the re-route must
+// add exactly one copy — the nearest child — and stop. Without the cap, both
+// children would receive same-version copies that garbage collection can
+// never retire (the red state of this test): one lost placement must not
+// inflate replication.
+func TestAddRerouteCapsReplacementsAtLostCount(t *testing.T) {
+	// ids 0..4 live in P1, ids 5..9 in P2, id 10 is the racing insert
+	vectors := make([][]float32, 11)
+	for i := 0; i < 5; i++ {
+		vectors[i] = []float32{0, 0.9, 0, 1}
+	}
+	for i := 5; i < 10; i++ {
+		vectors[i] = []float32{0.9, 0, 0, 1}
+	}
+	newID := uint64(10)
+	vectors[newID] = []float32{0, 0, 0, 1}
+
+	tf := createHFreshIndexWithVectorStore(t, vectors)
+	pauseAllTaskQueues(t, &tf)
+
+	p1ID, p1 := createPostingWithVectors(t, &tf, vectors[:5], 0)
+	installPosting(t, &tf, p1ID, p1, vectors[:5])
+	p2ID, p2 := createPostingWithVectors(t, &tf, vectors[5:10], 5)
+	installPosting(t, &tf, p2ID, p2, vectors[5:10])
+
+	tf.Index.postingLocks.Lock(p2ID)
+	locked := true
+	defer func() {
+		if locked {
+			tf.Index.postingLocks.Unlock(p2ID)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tf.Index.Add(context.Background(), newID, vectors[newID])
+	}()
+	waitForParkedAppend(t)
+
+	// split P2 into two children while the insert is parked: members are
+	// partitioned, and the centroids sit at deliberately DIFFERENT distances
+	// from the query — childA at d² 0.90, childB at d² 1.30 — so the test
+	// can pin that the cap keeps the NEAREST new target, not an arbitrary
+	// one. Their separation (squared distance 1.0) stays far above the RNG
+	// factor-1/10 pruning threshold, so both survive selection. P2's
+	// centroid is deleted last — publish before delete, the doSplit order.
+	childAID, childA := createPostingWithVectors(t, &tf, vectors[5:8], 5)
+	installPostingWithCentroid(t, &tf, childAID, childA, []float32{0.9, 0, 0.3, 1})
+	childBID, childB := createPostingWithVectors(t, &tf, vectors[8:10], 8)
+	installPostingWithCentroid(t, &tf, childBID, childB, []float32{0.9, 0, -0.7, 1})
+	require.NoError(t, tf.Index.Centroids.MarkAsDeleted(p2ID))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), p2ID, Posting{}))
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), p2ID, Posting{}))
+
+	tf.Index.postingLocks.Unlock(p2ID)
+	locked = false
+	addErr := <-errCh
+	require.NoError(t, addErr, "Add must return nil when the capped re-route succeeds")
+
+	ids, _, err := tf.Index.SearchByVector(t.Context(), vectors[newID], len(vectors), nil)
+	require.NoError(t, err)
+	require.Contains(t, ids, newID, "re-routed insert must stay searchable")
+
+	total, perPosting := countVectorCopies(t, &tf, []uint64{p1ID, p2ID, childAID, childBID}, newID)
+	require.Equal(t, 2, total,
+		"one lost placement must produce exactly one replacement: P1's copy plus one child copy")
+	require.Equal(t, 1, perPosting[p1ID], "P1 must keep exactly one copy")
+	require.Equal(t, 0, perPosting[p2ID], "the split-away posting must hold no copy")
+	require.Equal(t, 1, perPosting[childAID],
+		"the replacement copy must land in the NEAREST child: the cap consumes targets in ascending distance order")
+	require.Equal(t, 0, perPosting[childBID],
+		"the farther child must not receive a copy once the deficit is covered")
+
+	require.Zero(t, tf.Index.taskQueue.reassignQueue.Size(),
+		"a fully covered deficit must not enqueue a reassign")
+	require.False(t, tf.Index.taskQueue.reassignList.Contains(newID))
 }
