@@ -124,21 +124,32 @@ func TestBackupVsReindexSuite(t *testing.T) {
 }
 
 // testReindexRefusedForTheWholeCaptureWindow submits a reindex over and over
-// for as long as a slow backup is capturing, and asserts every single
-// submission is refused.
+// for as long as a slow backup is capturing, and asserts the two are never both
+// allowed to complete over the same collection.
 //
-// What this pins is the gap between the two guards. The pre-capture gate is
-// checked once per shard at admission, so on its own it says nothing about a
-// migration starting later; the commit-time overlap check
-// (DB.RefuseIfReindexOverlapped) exists precisely because one could. This test
-// asserts the reason that backstop is not reachable from the API on a
-// single-node cluster: the reindex gate refuses for the whole time the node
-// holds a backup slot, not merely at the instant the backup was created, so no
-// migration can begin inside the window.
+// The property under test is mutual exclusion, not "every submission is
+// refused". Those are not the same thing, and only the first one is guaranteed.
+// The gate refuses for as long as a node holds a backup slot, so in the common
+// case every probe is refused — but a submission and a capture can also tie,
+// each passing its own pre-check before seeing the other. The loser is decided
+// by whichever commits second, and it may be either side: the submission rolls
+// its committed task back and answers 409, or the backup ends FAILED naming the
+// migration. Requiring every probe to be refused asserts that the reindex
+// always loses, which the design does not promise, so it reds a run in which
+// nothing went wrong.
 //
-// A 202 here is not a flake. It means a migration just started inside a capture
-// window, which is the exact state the commit-time backstop is there to catch,
-// and the failure prints every probe so the admitting one can be identified.
+// What is asserted instead:
+//
+//   - Every refusal is the backup gate's own 409, not an unrelated conflict.
+//   - If nothing was admitted, the whole window was covered — the original
+//     property, in the case where it does hold.
+//   - If a submission was admitted, the backup must not be published spanning
+//     it: either it ends FAILED naming the migration, or the admitted task
+//     started only after the capture window had already closed.
+//
+// The window boundary is read from the server's own timestamps rather than
+// measured on the test's clock, so a migration admitted just after the last
+// capture is told apart from one admitted inside it exactly, not by a margin.
 func testReindexRefusedForTheWholeCaptureWindow(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_WholeWindowGuard"
@@ -157,71 +168,151 @@ func testReindexRefusedForTheWholeCaptureWindow(t *testing.T, restURI string) {
 	_, err := helper.CreateBackup(t, slowBackupConfig(), className, backend, backupID)
 	require.NoError(t, err, "backup create must be accepted with no reindex in flight")
 
-	statusOf := localBackupStatus(t, backend, backupID)
+	snapshotOf := localBackupSnapshot(t, backend, backupID)
 	requestBody := `{"searchable":{"tokenization":"whitespace"}}`
 
 	var probes []reindexProbe
 	var statusReads, statusErrors int
-	lastStatus := "(no successful status read)"
+	var admittedTask string
+	last := backupSnapshot{status: "(no successful status read)"}
 
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	deadline := time.Now().Add(5 * time.Minute)
 
 	for time.Now().Before(deadline) {
-		status, ok := statusOf()
+		snap, ok := snapshotOf()
 		statusReads++
 		if !ok {
 			statusErrors++
 			<-ticker.C
 			continue
 		}
-		lastStatus = status
-		if backupTerminal(status) {
+		last = snap
+		if snap.terminal() {
 			break
 		}
 
 		resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, propName, requestBody)
 		probes = append(probes, reindexProbe{
-			backupStatus: status,
+			backupStatus: snap.status,
 			httpStatus:   resp.StatusCode,
 			body:         resp.Body,
 		})
 		if resp.StatusCode == http.StatusAccepted {
-			t.Fatalf("a reindex was ADMITTED while backup %q was %s: a migration has begun inside "+
-				"a capture window, which is the state the commit-time overlap check exists to "+
-				"catch. All probes:\n%s", backupID, status, formatProbes(probes))
+			// Probing past an admission would only measure the reindex gate
+			// refusing on its own account, which is a different test.
+			admittedTask = admittedTaskID(t, resp.Body)
+			break
 		}
 		<-ticker.C
 	}
 
-	// Without this the whole loop could have been skipped and every assertion
-	// below would hold vacuously.
-	require.GreaterOrEqualf(t, len(probes), 3,
-		"backup %q read as %q after only %d probes (%d status reads, %d failed): the backup has "+
-			"to stay in flight long enough to probe the window repeatedly, otherwise this test "+
-			"proves nothing about the window",
-		backupID, lastStatus, len(probes), statusReads, statusErrors)
-
-	for i, p := range probes {
-		require.Equalf(t, http.StatusConflict, p.httpStatus,
-			"probe %d was answered %d while the backup was %s; the gate must refuse for the whole "+
-				"window, not only at its start. All probes:\n%s",
-			i, p.httpStatus, p.backupStatus, formatProbes(probes))
+	// A migration this test let in has to be taken back out, or the deferred
+	// DeleteClass runs into the mutation guard.
+	if admittedTask != "" {
+		defer cancelReindexAndDrain(t, restURI, className, propName, admittedTask)
+		last = awaitBackupTerminal(snapshotOf, last, 5*time.Minute)
 	}
 
-	// The refusals must be the backup guard's, not some unrelated 409.
-	message := guardMessage(probes[len(probes)-1].body)
-	require.Contains(t, message, "reindex blocked",
-		"the last refusal must still name the blocking condition; got: %s", message)
-	require.Contains(t, message, "is running in the cluster",
-		"the last refusal must still say what is blocking; got: %s", message)
+	for i, p := range probes {
+		if p.httpStatus == http.StatusAccepted {
+			continue
+		}
+		require.Equalf(t, http.StatusConflict, p.httpStatus,
+			"probe %d was answered %d while the backup was %s; a submission during a capture is "+
+				"either refused with the gate's 409 or admitted, never anything else. All probes:\n%s",
+			i, p.httpStatus, p.backupStatus, formatProbes(probes))
 
-	require.Equal(t, string(backup.Success), lastStatus,
-		"a backup that no migration overlapped must be published, not failed")
+		// The refusal must be the backup guard's, not some unrelated 409.
+		message := guardMessage(p.body)
+		require.Containsf(t, message, "reindex blocked",
+			"probe %d's refusal must name the blocking condition; got: %s", i, message)
+		require.Containsf(t, message, "is running in the cluster",
+			"probe %d's refusal must say what is blocking; got: %s", i, message)
+	}
 
-	t.Logf("the reindex gate refused all %d submissions spanning backup %q, which ended %s",
-		len(probes), backupID, lastStatus)
+	if admittedTask == "" {
+		// Without this the whole loop could have been skipped and every
+		// assertion above would hold vacuously.
+		require.GreaterOrEqualf(t, len(probes), 3,
+			"backup %q read as %q after only %d probes (%d status reads, %d failed): the backup has "+
+				"to stay in flight long enough to probe the window repeatedly, otherwise this test "+
+				"proves nothing about the window",
+			backupID, last.status, len(probes), statusReads, statusErrors)
+
+		requireBackupPublishedOrBlamedTheMigration(t, backupID, last, probes)
+		t.Logf("the reindex gate refused all %d submissions spanning backup %q, which ended %s",
+			len(probes), backupID, last.status)
+		return
+	}
+
+	require.Truef(t, last.terminal(),
+		"reindex task %s was admitted during backup %q, but the backup never reached a terminal "+
+			"status (last read %q), so it cannot be shown that the two did not both complete. "+
+			"All probes:\n%s", admittedTask, backupID, last.status, formatProbes(probes))
+
+	if last.status != string(backup.Success) {
+		// The backup lost the tie. That is the safe direction, as long as it
+		// lost to the migration and not to something unrelated.
+		require.Containsf(t, last.errMessage, "runtime-reindex",
+			"backup %q ended %s while reindex task %s was admitted, but its reason does not name the "+
+				"migration, so the two did not exclude each other — something else failed the backup. "+
+				"Reason: %q. All probes:\n%s",
+			backupID, last.status, admittedTask, last.errMessage, formatProbes(probes))
+		t.Logf("exact tie: reindex task %s was admitted and backup %q ended %s naming the migration (%s)",
+			admittedTask, backupID, last.status, last.errMessage)
+		return
+	}
+
+	// The backup was published, so it must not span the migration.
+	require.Falsef(t, last.completedAt.IsZero(),
+		"backup %q reports SUCCESS with no completedAt, so the capture window has no end to order "+
+			"reindex task %s against", backupID, admittedTask)
+
+	taskStartedAt := reindexTaskStartedAt(t, restURI, admittedTask)
+	require.Falsef(t, taskStartedAt.Before(last.completedAt),
+		"backup %q was PUBLISHED spanning reindex task %s: the capture ran %s..%s and the migration "+
+			"started at %s, inside it. A published capture may not span an admitted migration — one "+
+			"of the two has to lose. All probes:\n%s",
+		backupID, admittedTask,
+		last.startedAt.Format(time.RFC3339Nano), last.completedAt.Format(time.RFC3339Nano),
+		taskStartedAt.Format(time.RFC3339Nano), formatProbes(probes))
+
+	t.Logf("reindex task %s was admitted only after backup %q had closed its capture window at %s "+
+		"(task started %s)", admittedTask, backupID,
+		last.completedAt.Format(time.RFC3339Nano), taskStartedAt.Format(time.RFC3339Nano))
+}
+
+// requireBackupPublishedOrBlamedTheMigration covers the run in which no
+// submission was admitted. The backup is normally published, but a submission
+// can also lose the tie after its own hold has already failed the backup, so a
+// failure is legitimate as long as it names the migration.
+func requireBackupPublishedOrBlamedTheMigration(t *testing.T, backupID string, last backupSnapshot, probes []reindexProbe) {
+	t.Helper()
+
+	if last.status == string(backup.Success) {
+		return
+	}
+	require.Containsf(t, last.errMessage, "runtime-reindex",
+		"backup %q ended %s with every submission refused; only a migration may end it that way, "+
+			"and this reason names none. Reason: %q. All probes:\n%s",
+		backupID, last.status, last.errMessage, formatProbes(probes))
+	t.Logf("both sides refused: every submission was answered 409 and backup %q still ended %s "+
+		"naming the migration (%s)", backupID, last.status, last.errMessage)
+}
+
+// admittedTaskID pulls the task id out of a 202 the probe loop did not expect.
+func admittedTaskID(t *testing.T, body string) string {
+	t.Helper()
+
+	var parsed struct {
+		TaskID string `json:"taskId"`
+	}
+	require.NoErrorf(t, json.Unmarshal([]byte(body), &parsed),
+		"a 202 from the reindex endpoint must decode as an IndexUpdateResponse: %s", body)
+	require.NotEmptyf(t, parsed.TaskID, "a 202 from the reindex endpoint must carry a taskId: %s", body)
+	return parsed.TaskID
 }
 
 // testBaselineBackupRoundTrip backs up, deletes, and restores a class
