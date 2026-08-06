@@ -609,9 +609,9 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: schema.ErrSchema},
 			doBefore: func(m *MockStore) {
 				doFirst(m)
-				// The cascade runs even when the schema mutation errors: apply returns
-				// immediately on a non-partial schema error, so deferring it would skip
-				// the flagging on exactly the nodes whose schema is already diverged.
+				// The cascade runs even when the schema mutation errors: apply
+				// returns immediately on a non-partial error, so deferring it
+				// would skip flagging on the nodes already diverged.
 				m.replicationFSM.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},

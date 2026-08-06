@@ -302,9 +302,8 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		status := randomString(statusOptions)
 		replicationType := randomReplicationType()
 
-		// Two distinct timestamps: the op-level one is when the op was created, the
-		// status-level one is when it entered its current state. They must land in
-		// their own payload fields.
+		// The op-level stamp is creation time, the status-level one is when the
+		// op entered its current state. Each must land in its own payload field.
 		opStartTime := time.Now().Add(-2 * time.Hour).UnixMilli()
 		stateStartTime := time.Now().Add(-time.Hour).UnixMilli()
 		expectedResponse := api.ReplicationDetailsResponse{
@@ -776,11 +775,10 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	})
 }
 
-// TestForceDeleteReplicationsDryRun_NotFoundIsEmptyResult pins that a dry run
-// against a collection/shard/node with no replication ops is a 200 with an empty
+// A dry run against a target with no replication ops must be a 200 with an empty
 // list, not a 500. The RAFT query hop re-wraps a missing bucket as
 // ErrReplicationOperationNotFound, and the cleanup sweep makes drained buckets
-// the routine case rather than a rare one.
+// routine.
 func TestForceDeleteReplicationsDryRun_NotFoundIsEmptyResult(t *testing.T) {
 	const (
 		collection = "Collection1"

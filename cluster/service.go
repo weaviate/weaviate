@@ -46,21 +46,18 @@ const (
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
 
-	// Compiled-in fallbacks for the replica-movement cleanup knobs, used only when
-	// the config seam left one unwired.
+	// Fallbacks used only when the config seam left a cleanup knob unwired.
 	defaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	defaultReplicaMovementCleanupInterval = time.Hour
 )
 
-// boolGetter / durationGetter turn a *runtime.DynamicValue into the closure the
-// sweeper polls. A nil pointer means the rConfig line was missed: Get() on a nil
-// receiver returns the zero value, and taking the method value of a nil pointer is
-// legal Go, so the knob would silently read false / 0 and disable the sweep. Fall
-// back to the compiled-in default and say so loudly instead.
+// boolGetter turns a *runtime.DynamicValue into the closure the sweeper polls.
+// A nil pointer means the rConfig line was missed: Get() on a nil receiver
+// returns the zero value and taking its method value is legal Go, so the knob
+// would silently read false and disable the sweep. Fall back and log instead.
 //
-// Both tolerate a nil logger defensively, for callers other than New: New itself
-// already dereferences cfg.Logger well before it gets here (NewFSMOpProducer and
-// friends), so a nil logger has panicked long since on that path.
+// The nil-logger guard is for callers other than New, which dereferences
+// cfg.Logger long before reaching here. durationGetter below is the same.
 func boolGetter(logger *logrus.Logger, dv *runtime.DynamicValue[bool], knob string, fallback bool) func() bool {
 	if dv != nil {
 		return dv.Get
@@ -81,8 +78,8 @@ func durationGetter(logger *logrus.Logger, dv *runtime.DynamicValue[time.Duratio
 	return func() time.Duration { return fallback }
 }
 
-// jitterUpTo spreads the sweepers' first tick across the interval so a cluster
-// restarted together does not converge on one instant.
+// jitterUpTo spreads first ticks across the interval so a cluster restarted
+// together does not converge on one instant.
 func jitterUpTo(d time.Duration) time.Duration {
 	if d <= 0 {
 		return d
@@ -161,8 +158,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		Remover:    raft,
 		Clock:      clockwork.NewRealClock(),
 		Registerer: prometheus.DefaultRegisterer,
-		// The whole-tick gate, verbatim from shouldLogSlowApply: the loop runs on
-		// every node and a tick on a follower ends right here.
+		// The loop runs on every node; a tick on a follower ends right here.
 		ReadyToSweep: func() bool {
 			return raft.store.IsLeader() && raft.store.Ready() && raft.store.FSMHasCaughtUp()
 		},
@@ -174,10 +170,8 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		Jitter:           jitterUpTo,
 	})
 	if err != nil && cfg.Logger != nil {
-		// Reachable only with a nil dependency. The logger guard is defensive and
-		// matches the getters above; New has already dereferenced cfg.Logger by this
-		// point, so a nil one cannot actually get here. New cannot return an error,
-		// so log it and leave the cleaner nil.
+		// Reachable only with a nil dependency. New cannot return an error, so
+		// log it and leave the cleaner nil.
 		cfg.Logger.Errorf("could not construct the replication cleanup sweeper: %v", err)
 	}
 
@@ -286,10 +280,9 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		c.onFSMCaughtUp(ctx)
 	}, c.logger)
 
-	// Deliberately outside onFSMCaughtUp: that function returns early when
-	// ReplicaMovementEnabled is false while the FSM keeps accumulating ops, so the
-	// sweeper must not inherit that gate. The loop runs on every node; leadership
-	// is handled inside Tick.
+	// Outside onFSMCaughtUp: that function returns early when
+	// ReplicaMovementEnabled is false while the FSM keeps accumulating ops, so
+	// the sweeper must not inherit that gate.
 	if c.opCleaner != nil {
 		cleanerCtx, cleanerCancel := context.WithCancel(ctx)
 		c.cancelOpCleaner = cleanerCancel
@@ -320,8 +313,8 @@ func (c *Service) Close(ctx context.Context) error {
 	}
 
 	// Outside the conditional: the cleanup loop runs regardless of
-	// ReplicaMovementEnabled, and the manager's context is created unconditionally.
-	// Nil-guarded because Open has early-return paths that leave the cancel unset.
+	// ReplicaMovementEnabled. Nil-guarded because Open has early-return paths
+	// that leave the cancel unset.
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
 	}

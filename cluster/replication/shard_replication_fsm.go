@@ -193,10 +193,9 @@ func (s *ShardReplicationFSM) GetOpById(id uint64) (ShardReplicationOpAndStatus,
 	return NewShardReplicationOpAndStatus(op, status), true
 }
 
-// GetOpsForTarget returns a copy: the caller (the producer's node poll) iterates the
-// result after the lock is dropped, while removeReplicationOps compacts the bucket's
-// backing array in place under the write lock. Returning the bucket itself would make
-// that an unsynchronized read of a concurrently rewritten array.
+// GetOpsForTarget returns a copy. Callers iterate the result after the lock is
+// dropped, while removeReplicationOps compacts the bucket's backing array in
+// place, so returning the bucket itself would be an unsynchronized read.
 func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
@@ -303,35 +302,32 @@ func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicati
 	return s.getOpsWithStatus(ops), ok
 }
 
-// StaleOp is one sweep candidate: the op id plus the terminal state that made it
-// eligible. The state travels with the id so the cleanup metric's per-state label
-// stays exact even when only some batches of a tick are applied.
+// StaleOp is one sweep candidate. The state travels with the id so the cleanup
+// metric's per-state label stays exact when only some batches of a tick apply.
 type StaleOp struct {
 	ID    uint64
 	State api.ShardReplicationState
 }
 
-// SelectStaleOps returns the lowest-id eligible ops, at most limit of them,
-// ascending by id, plus the number of ops that matched state and age but were
-// rejected by clause 2 (the whole such population, not just the part within
-// limit — it is the diagnostic for a READY gauge that plateaus above zero).
+// SelectStaleOps returns at most limit eligible ops, ascending by id, plus the
+// number of ops that matched state and age but carried a flag. That count is the
+// whole such population, not just the part within limit: it is the diagnostic
+// for a READY gauge that plateaus above zero.
 //
 // An op is eligible when all of:
 //
 //  1. its current state is READY, or CANCELLED when includeCancelled is true;
-//  2. it carries neither ShouldCancel nor ShouldDelete — those ops are owned by
-//     an in-flight deletion (operator DELETE, or the class/tenant-deletion
-//     cascade), and they are the only terminal ops for which ShouldConsumeOps()
-//     is true, i.e. the only ones whose removal moves a gate predicate;
-//  3. its current-state start time is strictly before cutoffUnixMs, or is zero or
-//     negative — ops predating the field carry no timestamp and are infinitely old.
+//  2. it carries neither ShouldCancel nor ShouldDelete. Those ops are owned by an
+//     in-flight deletion and are the only terminal ops whose removal moves a
+//     gate predicate, because ShouldConsumeOps() is true only for them;
+//  3. its current-state start time is before cutoffUnixMs, or is zero or
+//     negative. Ops predating the field carry no timestamp and are infinitely old.
 //
-// Candidates are collected in full, sorted, and only then truncated. That is not an
-// optimisation: truncating a randomly-ordered map iteration would let an ancient op
-// be starved indefinitely behind a churning backlog. The sort is by id, not by
-// timestamp, because ids are RAFT log indices — identical on every node and equal to
-// creation order — while StartTimeUnixMs is stamped locally at apply time, so sorting
-// by it would reshuffle the priority order on every leadership change.
+// Candidates are collected in full, sorted, and only then truncated: truncating
+// a randomly-ordered map iteration would starve an ancient op behind a churning
+// backlog. The sort is by id because ids are RAFT log indices, identical on every
+// node, whereas StartTimeUnixMs is stamped locally at apply time and would
+// reshuffle the priority order on every leadership change.
 func (s *ShardReplicationFSM) SelectStaleOps(cutoffUnixMs int64, includeCancelled bool, limit int) (ops []StaleOp, flaggedSkipped int) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()

@@ -181,14 +181,12 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 	}
 	target := NewMockStore(t, "concurrent-snapshot-node", utils.MustGetFreeTCPPort())
 	target.store.init()
-	// Test concurrent Restore operations.
-	//
-	// Restore clears the target schema before repopulating it, so a goroutine that
-	// verifies the target while a sibling is mid-Restore legitimately observes zero
-	// classes. restoreAndVerify makes each restore-then-verify pair atomic with
-	// respect to the other restorers; concurrency with the Persist and reader
-	// goroutines below — which is what this test is actually about — is unaffected.
-	// (RAFT never issues concurrent Restores against one FSM.)
+	// Restore clears the target schema before repopulating it, so a goroutine
+	// verifying the target while a sibling is mid-Restore legitimately observes
+	// zero classes. restoreMu makes each restore-then-verify pair atomic against
+	// the other restorers. Concurrency with the Persist and reader goroutines
+	// below, which is what this test is about, is unaffected. RAFT never issues
+	// concurrent Restores against one FSM.
 	var restoreMu sync.Mutex
 	for i := 0; i < numGoroutines; i++ {
 		go func() {

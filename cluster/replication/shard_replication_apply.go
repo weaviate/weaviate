@@ -415,8 +415,8 @@ func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
 	return s.removeReplicationOps(idsOf(ops))
 }
 
-// idsOf snapshots the ids of ops before any removal runs: removeReplicationOps
-// rewrites the very backing arrays these slices are headers over.
+// idsOf snapshots the ids before any removal runs: removeReplicationOps
+// rewrites the backing arrays these slices are headers over.
 func idsOf(ops []ShardReplicationOp) []uint64 {
 	ids := make([]uint64, 0, len(ops))
 	for _, op := range ops {
@@ -425,12 +425,12 @@ func idsOf(ops []ShardReplicationOp) []uint64 {
 	return ids
 }
 
-// ForceDeleteByIds removes exactly the listed ops with no teardown and no state
-// checks, like the rest of the force-delete family. Ids not present are skipped:
-// the command is idempotent, so a batch re-proposed after leader churn is a no-op.
+// ForceDeleteByIds removes the listed ops with no teardown and no state checks,
+// like the rest of the force-delete family. Ids not present are skipped, so a
+// batch re-proposed after leader churn is a no-op.
 //
-// It must stay a pure function of ids — no clock, config, node identity or op
-// state may be read here — because it is applied independently on every node.
+// It must stay a pure function of ids: no clock, config, node identity or op
+// state may be read here, because every node applies it independently.
 func (s *ShardReplicationFSM) ForceDeleteByIds(ids []uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
@@ -455,15 +455,14 @@ func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
 }
 
 // removeReplicationOps removes every op in ids in one filtering pass per touched
-// index bucket, rather than one full pass per op. Unknown ids are skipped, so the
-// operation is idempotent. Callers must hold s.opsLock.
+// index bucket. Unknown ids are skipped. Callers must hold s.opsLock.
 func (s *ShardReplicationFSM) removeReplicationOps(ids []uint64) error {
 	idSet := make(map[uint64]struct{}, len(ids))
 	ops := make([]ShardReplicationOp, 0, len(ids))
 
-	// The key derivation mirrors insertOpIntoFSM: the collection, collection-and-shard
-	// and source-FQDN indices are keyed off SourceShard, opsByTarget/opsByTargetFQDN
-	// off TargetShard.
+	// Keys mirror insertOpIntoFSM: the collection, collection-and-shard and
+	// source-FQDN indices key off SourceShard, opsByTarget/opsByTargetFQDN off
+	// TargetShard.
 	targetNodes := make(map[string]struct{})
 	sourceNodes := make(map[string]struct{})
 	collections := make(map[string]struct{})
@@ -537,11 +536,11 @@ func (s *ShardReplicationFSM) removeReplicationOps(ids []uint64) error {
 }
 
 // filterOpsFromBucket rewrites m[key] without the ops in idSet, deleting the key
-// once the bucket drains. Deleting the key matters for opsByTargetFQDN: a present
-// key is OR-folded by filterOneReplicaReadWrite, so an empty slice reads
-// (false,false) and silently drops a live replica from routing instead of falling
-// through to the source check. It also keeps the (slice, ok) getters from
-// reporting a drained bucket as present.
+// once the bucket drains. Deleting matters for opsByTargetFQDN: a present key is
+// OR-folded by filterOneReplicaReadWrite, so an empty slice reads (false,false)
+// and drops a live replica from routing instead of falling through to the source
+// check. It also keeps the (slice, ok) getters from reporting a drained bucket
+// as present.
 func filterOpsFromBucket[K comparable](m map[K][]ShardReplicationOp, key K, idSet map[uint64]struct{}) {
 	ops, ok := m[key]
 	if !ok {
@@ -560,9 +559,9 @@ func filterOpsFromBucket[K comparable](m map[K][]ShardReplicationOp, key K, idSe
 	m[key] = kept
 }
 
-// removeReplicationOp is the single-op path used by RemoveReplicationOp and
-// ForceDeleteByUuid; unlike removeReplicationOps it reports a missing op as
-// ErrReplicationOperationNotFound, which the consumer path relies on.
+// removeReplicationOp is the single-op path. Unlike removeReplicationOps it
+// reports a missing op as ErrReplicationOperationNotFound, which the consumer
+// path relies on.
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error
 	op, ok := s.opsById[id]
@@ -570,8 +569,8 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 
-	// Every index below must contain the op: insertOpIntoFSM writes all of them
-	// together. A missing bucket is a torn FSM, reported but not fatal.
+	// insertOpIntoFSM writes every index below together, so a missing bucket is
+	// a torn FSM. Reported but not fatal.
 	if _, ok := s.opsByTarget[op.TargetShard.NodeId]; !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by target %s, this should not happen", op.ID, op.TargetShard.NodeId))
 	}

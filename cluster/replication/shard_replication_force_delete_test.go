@@ -24,9 +24,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication"
 )
 
-// TestForceDeleteFamily_RemovesAllMatchingOps covers the three bucket-iterating
-// ForceDelete methods. Each used to range over the very slice removeReplicationOp
-// rewrites in place, so with three ops it skipped one and errored on a stale entry.
+// Covers the three bucket-iterating ForceDelete methods. Each used to range over
+// the slice removeReplicationOp rewrites in place, so with three ops it skipped
+// one and errored on a stale entry.
 func TestForceDeleteFamily_RemovesAllMatchingOps(t *testing.T) {
 	const (
 		coll  = "TestClass"
@@ -94,10 +94,9 @@ func TestForceDeleteAll_RemovesEverything(t *testing.T) {
 	}
 }
 
-// TestForceDelete_LeavesNoEmptyBucketKeys pins that draining a bucket deletes its
-// key rather than leaving an empty slice behind. A lingering empty key in
-// opsByTargetFQDN OR-folds to (false,false) in filterOneReplicaReadWrite and
-// silently drops a live replica from routing.
+// Draining a bucket must delete its key, not leave an empty slice. A lingering
+// empty key in opsByTargetFQDN OR-folds to (false,false) in
+// filterOneReplicaReadWrite and drops a live replica from routing.
 func TestForceDelete_LeavesNoEmptyBucketKeys(t *testing.T) {
 	const (
 		coll  = "TestClass"
@@ -105,8 +104,7 @@ func TestForceDelete_LeavesNoEmptyBucketKeys(t *testing.T) {
 	)
 
 	cases := []struct {
-		name string
-		// seed returns the number of ops seeded; forceDelete must remove all of them
+		name        string
 		seed        func(t *testing.T, fsm *replication.ShardReplicationFSM)
 		forceDelete func(fsm *replication.ShardReplicationFSM) error
 		replicas    []string
@@ -154,10 +152,9 @@ func TestForceDelete_LeavesNoEmptyBucketKeys(t *testing.T) {
 	}
 }
 
-// TestGetOpsForTarget_ReturnsACopy pins that the target-node getter does not hand out
-// the FSM's own bucket: the producer iterates the result with no lock held, so an
-// aliased return is an unsynchronized read of an array removeReplicationOps rewrites
-// in place, and the reader observes duplicated/shifted ops.
+// The target-node getter must not hand out the FSM's own bucket. The producer
+// iterates the result with no lock held, so an aliased return is an
+// unsynchronized read of an array removeReplicationOps rewrites in place.
 func TestGetOpsForTarget_ReturnsACopy(t *testing.T) {
 	const (
 		coll  = "TestClass"
@@ -173,7 +170,7 @@ func TestGetOpsForTarget_ReturnsACopy(t *testing.T) {
 	require.Len(t, snapshot, 3)
 
 	// Removing the first op compacts the bucket to [2, 3] in place, leaving the
-	// third slot stale — an aliased snapshot reads back as [2, 3, 3].
+	// third slot stale. An aliased snapshot reads back as [2, 3, 3].
 	require.NoError(t, fsm.ForceDeleteByIds([]uint64{1}))
 
 	ids := make([]uint64, 0, len(snapshot))

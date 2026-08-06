@@ -393,9 +393,8 @@ func (s *Raft) ForceDeleteReplicationByUuid(ctx context.Context, uuid strfmt.UUI
 	return nil
 }
 
-// ForceDeleteReplicationsByIds removes exactly the listed ops on every node. It is
-// the sweeper's only RAFT surface; unknown ids are skipped by the apply, so a batch
-// re-proposed after leader churn is a harmless no-op.
+// ForceDeleteReplicationsByIds removes the listed ops on every node. The apply
+// skips unknown ids, so a batch re-proposed after leader churn is a no-op.
 func (s *Raft) ForceDeleteReplicationsByIds(ctx context.Context, ids []uint64) error {
 	req := &api.ReplicationForceDeleteByIdsRequest{
 		Version: api.ReplicationCommandVersionV0,

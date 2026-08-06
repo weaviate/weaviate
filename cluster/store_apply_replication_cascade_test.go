@@ -25,11 +25,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// The replication FSM is in-memory RAFT-FSM state rebuilt from log replay, so
-// DELETE_CLASS / DELETE_TENANT must flag its ops on *every* apply path — including
-// the two that skip updateStore: catch-up replay below lastAppliedIndexToDB, and
-// MetadataOnlyVoters. When they do not, ShouldConsumeOps() disagrees between nodes
-// and the same UPDATE_CLASS / UPDATE_TENANT entry can be accepted on one node and
+// DELETE_CLASS and DELETE_TENANT must flag replication ops on every apply path,
+// including the two that skip updateStore: catch-up replay below
+// lastAppliedIndexToDB, and MetadataOnlyVoters. Otherwise ShouldConsumeOps()
+// disagrees between nodes and one UPDATE entry is accepted on one node and
 // rejected on another.
 func TestReplicationCascade_RunsOnEverySchemaOnlyApplyPath(t *testing.T) {
 	const (

@@ -525,11 +525,10 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// DELETE_CLASS apply MUST drop tasks the replay just
 				// re-added. weaviate/0-weaviate-issues#231.
 				s.cascadeDeleteDistributedTasks(cmd.Class)
-				// Same reasoning for the replication FSM: it is in-memory RAFT-FSM
-				// state, so its ops must be flagged on every apply path, including
-				// schemaOnly catchup replay and MetadataOnlyVoters nodes. Otherwise
-				// ShouldConsumeOps() — and with it three schema gates — disagrees
-				// between nodes.
+				// Same reasoning for the replication FSM: its ops must be
+				// flagged on every apply path, schemaOnly replay and
+				// MetadataOnlyVoters included. Otherwise ShouldConsumeOps(),
+				// and with it three schema gates, disagrees between nodes.
 				s.cascadeDeleteReplicationOps(cmd.Class)
 				return nil
 			},
@@ -543,8 +542,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 }
 
 // cascadeDeleteReplicationOps flags every replication op of class for deletion.
-// It is log-and-continue: it runs inside updateSchema, whose error aborts the
-// whole apply, and a replication-FSM hiccup must never block a class deletion.
+// It logs and continues rather than returning an error: it runs inside
+// updateSchema, whose error aborts the whole apply, and a replication-FSM
+// hiccup must never block a class deletion.
 func (s *SchemaManager) cascadeDeleteReplicationOps(class string) {
 	if s.replicationFSM == nil {
 		s.log.WithField("class", class).
@@ -806,9 +806,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
 				err := s.schema.deleteTenants(cmd.Class, cmd.Version, req)
-				// Cascade in updateSchema so it also runs on schemaOnly applies; see
-				// deleteClass. It runs even when the schema mutation errored, because
-				// apply returns immediately on a non-partial schema error.
+				// In updateSchema so it also runs on schemaOnly applies; see
+				// deleteClass. It runs even when the schema mutation errored,
+				// because apply returns immediately on a non-partial error.
 				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
 				return err
 			},

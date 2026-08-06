@@ -24,10 +24,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication"
 )
 
-// seedSpec declares one op to inject through Restore. Status.Current.StartTimeUnixMs
-// is written by ChangeState's time.Now(), so an external test cannot set an op's age
-// through the mutators; Restore is the exported route that preserves timestamps
-// verbatim.
+// seedSpec declares one op to inject through Restore. ChangeState writes
+// Status.Current.StartTimeUnixMs from time.Now(), so the mutators cannot set an
+// op's age; Restore is the only exported route that preserves timestamps.
 type seedSpec struct {
 	id              uint64
 	state           api.ShardReplicationState
@@ -59,8 +58,8 @@ func (s seedSpec) withDefaults() seedSpec {
 }
 
 // seedViaRestore builds a snapshot from specs and restores it into fsm. Every op
-// needs a distinct UUID: insertOpIntoFSM writes idsByUuid[op.UUID], so ops left with
-// the constructor's empty UUID all collide on "".
+// needs a distinct UUID: insertOpIntoFSM writes idsByUuid[op.UUID], so ops left
+// with the constructor's empty UUID all collide on "".
 func seedViaRestore(t testing.TB, fsm *replication.ShardReplicationFSM, specs ...seedSpec) {
 	t.Helper()
 
@@ -232,9 +231,8 @@ func TestSelectStaleOps(t *testing.T) {
 	}
 }
 
-// TestSelectStaleOps_ExcludesOpsThatArmGatePredicates is the single-FSM property
-// the design rests on: sweeping the selected set must not move any of the three
-// gate predicates that the rest of the database reads.
+// Sweeping the selected set must not move any of the three gate predicates the
+// rest of the database reads. That is the property the design rests on.
 func TestSelectStaleOps_ExcludesOpsThatArmGatePredicates(t *testing.T) {
 	const (
 		coll   = "TestClass"
@@ -269,10 +267,9 @@ func TestSelectStaleOps_ExcludesOpsThatArmGatePredicates(t *testing.T) {
 	require.Equal(t, before, after, "sweeping the selected set must not move any gate predicate")
 }
 
-// TestSelectStaleOps_FlaggedOpAloneKeepsGatesArmed is the same property with the
-// non-terminal op removed. That op arms every gate on its own, so in the sibling test
-// they would read true either way; here only the flagged op the selection must exclude
-// holds them up, so a selection that swept it flips them.
+// The same property with the non-terminal op removed. That op arms every gate on
+// its own, so the sibling test would read true either way. Here only the flagged
+// op holds the gates up, so a selection that swept it flips them.
 func TestSelectStaleOps_FlaggedOpAloneKeepsGatesArmed(t *testing.T) {
 	const (
 		coll   = "TestClass"
@@ -286,8 +283,8 @@ func TestSelectStaleOps_FlaggedOpAloneKeepsGatesArmed(t *testing.T) {
 		seedSpec{id: 2, state: api.READY, stateStartMs: 1, collection: coll, shard: shard, tgtNode: target, shouldDelete: true},
 	)
 
-	// ShouldDelete on a terminal op means the consumer still owes it teardown, so it
-	// counts as active replication for the collection and shard gates.
+	// ShouldDelete on a terminal op means the consumer still owes it teardown,
+	// so it counts as active replication for the collection and shard gates.
 	require.True(t, fsm.HasActiveReplicationForCollection(coll))
 	require.True(t, fsm.HasActiveReplicationForShard(coll, shard))
 
@@ -302,8 +299,8 @@ func TestSelectStaleOps_FlaggedOpAloneKeepsGatesArmed(t *testing.T) {
 	require.True(t, fsm.HasActiveReplicationForShard(coll, shard),
 		"the flagged op alone must keep the shard gate armed")
 
-	// Removing the flagged op too disarms them — the assertions above are about that
-	// op, not about an FSM that never had anything active.
+	// Removing the flagged op too disarms them, proving the assertions above are
+	// about that op and not about an FSM that never had anything active.
 	require.NoError(t, fsm.ForceDeleteByIds([]uint64{2}))
 	require.False(t, fsm.HasActiveReplicationForCollection(coll))
 	require.False(t, fsm.HasActiveReplicationForShard(coll, shard))
@@ -327,9 +324,8 @@ func TestForceDeleteByIds_SkipsUnknownIds(t *testing.T) {
 	require.True(t, ok, "the unlisted op must be untouched")
 }
 
-// TestForceDeleteByIds_IsDeterministicAcrossDivergentTimestamps pins that the apply
-// is a pure function of its id-list payload. It goes red the moment anyone
-// reintroduces a cutoff (or any clock read) into the apply path.
+// The apply must be a pure function of its id-list payload. This goes red the
+// moment anyone reintroduces a cutoff, or any clock read, into the apply path.
 func TestForceDeleteByIds_IsDeterministicAcrossDivergentTimestamps(t *testing.T) {
 	build := func(offsetMs int64) *replication.ShardReplicationFSM {
 		fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
@@ -346,8 +342,8 @@ func TestForceDeleteByIds_IsDeterministicAcrossDivergentTimestamps(t *testing.T)
 		return fsm
 	}
 
-	// The two FSMs hold the same ops with timestamps hours apart, as two nodes
-	// would after each stamped its own time.Now() at apply.
+	// The two FSMs hold the same ops with timestamps hours apart, as two nodes do
+	// after each stamps its own time.Now() at apply.
 	nodeA := build(0)
 	nodeB := build(6 * 60 * 60 * 1000)
 
@@ -368,10 +364,9 @@ func TestForceDeleteByIds_IsDeterministicAcrossDivergentTimestamps(t *testing.T)
 	require.Equal(t, remaining(nodeA), remaining(nodeB))
 }
 
-// TestForceDeleteByIds_UnmasksDehydratingSource characterises a hot-path routing
-// change this feature is the first thing to exercise at scale: removing the last
-// READY target op for a replica deletes its opsByTargetFQDN key, which unmasks the
-// replica's source-side DEHYDRATING state and drops it from both replica sets.
+// Removing the last READY target op for a replica deletes its opsByTargetFQDN
+// key, which unmasks the replica's source-side DEHYDRATING state and drops it
+// from both replica sets. This characterises that routing change.
 func TestForceDeleteByIds_UnmasksDehydratingSource(t *testing.T) {
 	const (
 		coll  = "Foo"
@@ -380,11 +375,11 @@ func TestForceDeleteByIds_UnmasksDehydratingSource(t *testing.T) {
 
 	fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
 
-	// op1: COPY A -> C, driven to READY before op2 is admitted.
+	// COPY A -> C, driven to READY before op2 is admitted.
 	seedOpFull(t, fsm, 1, "A", "C", coll, shard, api.COPY)
 	driveToState(t, fsm, 1, api.READY)
 
-	// op2: MOVE C -> D. Admission explicitly permits sourcing from a READY target.
+	// MOVE C -> D. Admission permits sourcing from a READY target.
 	seedOpFull(t, fsm, 2, "C", "D", coll, shard, api.MOVE)
 	driveToState(t, fsm, 2, api.DEHYDRATING)
 
@@ -399,7 +394,7 @@ func TestForceDeleteByIds_UnmasksDehydratingSource(t *testing.T) {
 }
 
 // BenchmarkForceDeleteByIds documents the complexity change of the batched
-// removal. It asserts nothing about wall time.
+// removal. It asserts nothing.
 func BenchmarkForceDeleteByIds(b *testing.B) {
 	for _, n := range []int{10_000, 100_000} {
 		b.Run(fmt.Sprintf("ops=%d", n), func(b *testing.B) {

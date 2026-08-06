@@ -65,8 +65,6 @@ const (
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
 
-	// Replica-movement cleanup. Both durations validate as >= 0, so 0 is the only
-	// expressible disable sentinel and a negative value fails startup.
 	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	DefaultReplicaMovementCleanupInterval = time.Hour
 )

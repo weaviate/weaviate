@@ -30,21 +30,18 @@ const (
 	cleanupMaxBatchesPerTick = 10   // ⇒ at most 10k ops removed per tick
 	cleanupLogAction         = "replication_cleanup"
 
-	// Re-check period used when the interval reads 0 — the disable sentinel — so a
-	// sweep re-enabled at runtime is picked up without a restart. (The guard also
-	// covers a negative, which config validation makes unreachable.)
+	// Re-check period used when the interval reads 0, the disable sentinel, so a
+	// sweep re-enabled at runtime is picked up without a restart.
 	defaultCleanupInterval = time.Hour
 )
 
-// StaleOpRemover is the narrow RAFT surface the cleaner needs. *cluster.Raft
-// satisfies it.
+// StaleOpRemover is the RAFT surface the cleaner needs. *cluster.Raft satisfies it.
 type StaleOpRemover interface {
 	ForceDeleteReplicationsByIds(ctx context.Context, ids []uint64) error
 }
 
-// OpCleanerParams are the dependencies of an OpCleaner. Every field is required:
-// NewOpCleaner rejects a nil one rather than letting a nil config getter silently
-// disable the sweep.
+// OpCleanerParams are the dependencies of an OpCleaner. Every field is
+// required; NewOpCleaner rejects a nil one.
 type OpCleanerParams struct {
 	Logger     *logrus.Logger
 	NodeID     string
@@ -55,8 +52,8 @@ type OpCleanerParams struct {
 
 	// ReadyToSweep is the whole-tick gate: IsLeader() && Ready() && FSMHasCaughtUp().
 	ReadyToSweep func() bool
-	// IsLeader is re-checked before every chunk submission so a leader demoted
-	// mid-tick stops at the next chunk boundary.
+	// IsLeader is re-checked before every chunk, so a leader demoted mid-tick
+	// stops at the next chunk boundary.
 	IsLeader func() bool
 
 	Enabled          func() bool
@@ -66,8 +63,8 @@ type OpCleanerParams struct {
 	Jitter           func(time.Duration) time.Duration
 }
 
-// OpCleaner periodically removes old terminal replication ops from the FSM via a
-// single deterministic RAFT command. Its loop runs on every node; a tick on a
+// OpCleaner periodically removes old terminal replication ops from the FSM via
+// a deterministic RAFT command. Its loop runs on every node; a tick on a
 // follower returns immediately, so leadership needs no lifecycle choreography.
 type OpCleaner struct {
 	logger *logrus.Entry
@@ -78,9 +75,9 @@ type OpCleaner struct {
 	ineligible *prometheus.GaugeVec
 }
 
-// NewOpCleaner returns an error if any dependency or config getter is nil. A nil
-// getter would make Get() return the zero value, silently disabling the sweep; the
-// caller must substitute an explicit fallback rather than pass nil.
+// NewOpCleaner returns an error if any dependency or config getter is nil. A
+// nil getter would make Get() return the zero value and silently disable the
+// sweep, so callers must substitute an explicit fallback instead.
 func NewOpCleaner(p OpCleanerParams) (*OpCleaner, error) {
 	switch {
 	case p.Logger == nil:
@@ -135,15 +132,14 @@ func NewOpCleaner(p OpCleanerParams) (*OpCleaner, error) {
 	}, nil
 }
 
-// Run loops until ctx is cancelled. It runs on every node: leadership is enforced
-// inside Tick, so nothing starts or stops on election or demotion.
+// Run loops until ctx is cancelled. It runs on every node: leadership is
+// enforced inside Tick, so nothing starts or stops on election or demotion.
 func (c *OpCleaner) Run(ctx context.Context) error {
-	// Jittered first wait so a whole cluster restarted together does not sweep in
-	// lockstep once leadership settles.
+	// Jittered first wait so a cluster restarted together does not sweep in lockstep.
 	wait := c.p.Jitter(c.currentInterval())
 	for {
 		// A stoppable timer rather than Clock.After: an After timer stays armed
-		// until it fires, so a cancelled loop would leave one behind on every cycle.
+		// until it fires, so a cancelled loop would leave one behind per cycle.
 		timer := c.p.Clock.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -154,11 +150,8 @@ func (c *OpCleaner) Run(ctx context.Context) error {
 
 		interval := c.p.Interval()
 		if interval <= 0 {
-			// The sibling of the zero max age Tick warns about: say so here too rather
-			// than silently re-checking every hour. Same defence-in-depth reasoning for
-			// <= 0 (see Tick). The loop cadence rate-limits this to one line per
-			// substituted interval, and a disabled sweep is not misconfigured, so it
-			// stays quiet.
+			// Say so rather than silently re-checking every hour. A disabled
+			// sweep is not misconfigured, so it stays quiet.
 			if c.p.Enabled() {
 				c.logger.Warnf("replication cleanup is enabled but REPLICA_MOVEMENT_CLEANUP_INTERVAL is %s; "+
 					"skipping the sweep and re-checking in %s", interval, defaultCleanupInterval)
@@ -168,15 +161,14 @@ func (c *OpCleaner) Run(ctx context.Context) error {
 		}
 		wait = interval
 
-		// Tick logs its own failures at the right level, and a failed tick changes
-		// nothing about the next one: the sweep is idempotent and re-selects.
+		// Tick logs its own failures, and the sweep is idempotent, so a failed
+		// tick changes nothing about the next one.
 		_, _ = c.Tick(ctx)
 	}
 }
 
-// currentInterval is Interval() with the built-in fallback applied, for the
-// first wait only — Run re-reads Interval() on every cycle, which is the
-// hot-reload mechanism.
+// currentInterval applies the built-in fallback for the first wait only. Run
+// re-reads Interval() on every cycle, which is the hot-reload mechanism.
 func (c *OpCleaner) currentInterval() time.Duration {
 	if interval := c.p.Interval(); interval > 0 {
 		return interval
@@ -185,8 +177,7 @@ func (c *OpCleaner) currentInterval() time.Duration {
 }
 
 // Tick performs one sweep pass and returns the number of ops removed. On a
-// follower, or when the sweep is disabled, it returns (0, nil) having done
-// nothing.
+// follower, or when the sweep is disabled, it does nothing and returns (0, nil).
 func (c *OpCleaner) Tick(ctx context.Context) (int, error) {
 	if !c.p.Enabled() || !c.p.ReadyToSweep() {
 		return 0, nil
@@ -194,35 +185,33 @@ func (c *OpCleaner) Tick(ctx context.Context) (int, error) {
 
 	maxAge := c.p.MaxAge()
 	if maxAge <= 0 {
-		// A zero max-age must never be read as "delete every terminal op". The test
-		// is <= 0 rather than == 0 as defence in depth, not because a negative is
-		// configurable: config validation rejects negative durations outright, but a
-		// nil config getter falls back to the zero value, and the cutoff arithmetic
-		// below must never run on a negative age whatever the source.
+		// A zero max-age must never be read as "delete every terminal op". The
+		// test is <= 0 because the cutoff arithmetic below must never run on a
+		// negative age, whatever its source.
 		c.logger.Warnf("replication cleanup is enabled but REPLICA_MOVEMENT_CLEANUP_MAX_AGE is %s; skipping the sweep", maxAge)
 		return 0, nil
 	}
 
 	cutoff := c.p.Clock.Now().Add(-maxAge).UnixMilli()
 
-	// Exactly one selection scan per tick. The budget is per tick, not per state:
-	// turning include-cancelled on widens the predicate but must not raise the
-	// number of ops removed or RAFT commands issued.
+	// One selection scan per tick. The budget is per tick, not per state:
+	// include-cancelled widens the predicate but must not raise the number of
+	// ops removed or RAFT commands issued.
 	stale, flaggedSkipped := c.p.FSM.SelectStaleOps(cutoff, c.p.IncludeCancelled(), cleanupBatchSize*cleanupMaxBatchesPerTick)
 	c.ineligible.WithLabelValues("flagged").Set(float64(flaggedSkipped))
 
 	removed := 0
 	var tickErr error
-	// Chunk the one selection; never re-select between chunks. Execute returns when
-	// the leader has applied, but this node's own applied index may lag behind that
-	// by a moment, so a re-select could hand back ids already removed.
+	// Never re-select between chunks. Execute returns once the leader has
+	// applied, but this node's own applied index can still lag, so a re-select
+	// could hand back ids already removed.
 	for start := 0; start < len(stale); start += cleanupBatchSize {
 		if ctx.Err() != nil {
 			break
 		}
 		if !c.p.IsLeader() {
-			// Demoted mid-tick: stop here rather than forwarding the remaining
-			// batches to the new leader, which picks the work up on its own tick.
+			// Demoted mid-tick. The new leader picks the remaining batches up on
+			// its own tick, so do not forward them.
 			c.logger.Debug("stopping replication cleanup tick, no longer leader")
 			break
 		}

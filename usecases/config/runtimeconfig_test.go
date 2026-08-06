@@ -958,10 +958,9 @@ replica_movement_cleanup_include_cancelled: true
 	})
 }
 
-// TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup guards the
-// silent-off seam: a missing registration line leaves a nil *DynamicValue, whose
-// Get() returns the zero value, so the runtime override would be accepted and
-// ignored with every other test still green.
+// A missing registration line leaves a nil *DynamicValue whose Get() returns the
+// zero value, so the runtime override would be accepted and ignored with every
+// other test still green.
 func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing.T) {
 	cfg := &Config{}
 	cfg.Replication.ReplicaMovementCleanupEnabled = runtime.NewDynamicValue(true)

@@ -212,7 +212,8 @@ type Config struct {
 	// tenant-cap rejection, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 
-	// Replica-movement cleanup knobs, runtime-overrides so the sweeper can re-read them on every tick without a restart.
+	// Replica-movement cleanup knobs. The sweeper re-reads them every tick, so
+	// a change takes effect without a restart.
 	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]
 	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration]
 	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration]

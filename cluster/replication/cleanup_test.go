@@ -39,8 +39,8 @@ const (
 	ineligibleMetric = "weaviate_replication_operation_cleanup_ineligible"
 )
 
-// recordingRemover is the hand-rolled fake for StaleOpRemover. onCall runs before
-// the result is returned, which is how the demotion-mid-tick row flips leadership.
+// recordingRemover fakes StaleOpRemover. onCall runs before the result is
+// returned, which is how the demotion-mid-tick row flips leadership.
 type recordingRemover struct {
 	mu     sync.Mutex
 	calls  [][]uint64
@@ -67,8 +67,8 @@ func (r *recordingRemover) recorded() [][]uint64 {
 	return out
 }
 
-// cleanerHarness owns the mutable knobs a test flips between ticks. Leadership is
-// a single atomic.Bool behind both leadership closures.
+// cleanerHarness owns the knobs a test flips between ticks. Both leadership
+// closures read one atomic.Bool.
 type cleanerHarness struct {
 	cleaner  *replication.OpCleaner
 	fsm      *replication.ShardReplicationFSM
@@ -128,8 +128,7 @@ func (h *cleanerHarness) params(logger *logrus.Logger) replication.OpCleanerPara
 	}
 }
 
-// seedAncient seeds n ops with ids startID..startID+n-1, aged far past the
-// harness's 24h max age.
+// seedAncient seeds n ops aged far past the harness's 24h max age.
 func (h *cleanerHarness) seedAncient(t testing.TB, startID uint64, n int, state api.ShardReplicationState, flagged bool) {
 	t.Helper()
 	specs := make([]seedSpec, 0, n)
@@ -145,8 +144,8 @@ func (h *cleanerHarness) seedAncient(t testing.TB, startID uint64, n int, state 
 	seedViaRestore(t, h.fsm, specs...)
 }
 
-// seedMixed replaces the FSM contents in one Restore call: Restore clears first,
-// so two calls would drop the first batch.
+// seedMixed uses one Restore call: Restore clears first, so two calls would
+// drop the first batch.
 func (h *cleanerHarness) seedMixed(t testing.TB, ready, cancelled int) {
 	t.Helper()
 	specs := make([]seedSpec, 0, ready+cancelled)
@@ -160,8 +159,7 @@ func (h *cleanerHarness) seedMixed(t testing.TB, ready, cancelled int) {
 	seedViaRestore(t, h.fsm, specs...)
 }
 
-// metricValue reads one gathered metric by name and label values, returning 0 when
-// the series has never been touched.
+// metricValue returns 0 when the series has never been touched.
 func metricValue(t *testing.T, g prometheus.Gatherer, name string, labels map[string]string) float64 {
 	t.Helper()
 	families, err := g.Gather()
@@ -290,9 +288,9 @@ func TestOpCleaner_DisableSwitch(t *testing.T) {
 	require.Equal(t, 10, removed, "the enabled flag must be read on every tick")
 }
 
-// TestOpCleaner_ZeroMaxAgeDoesNotDeleteEverything is the highest-consequence row in
-// this file: the naive cutoff = now - 0 implementation would delete every READY op
-// in the cluster and pass every other test here.
+// TestOpCleaner_ZeroMaxAgeDoesNotDeleteEverything guards the naive
+// cutoff = now - 0 implementation, which deletes every READY op in the cluster
+// and passes every other test in this file.
 func TestOpCleaner_ZeroMaxAgeDoesNotDeleteEverything(t *testing.T) {
 	for _, maxAge := range []time.Duration{0, -time.Hour} {
 		t.Run(fmt.Sprintf("max age %s", maxAge), func(t *testing.T) {
@@ -328,8 +326,8 @@ func TestOpCleaner_Pacing(t *testing.T) {
 		}
 	}
 
-	// The fake remover does not mutate the FSM, so drop the first tick's ids from
-	// it by hand to model the applied removals.
+	// The fake remover does not mutate the FSM, so model the applied removals
+	// by dropping the first tick's ids by hand.
 	require.NoError(t, h.fsm.ForceDeleteByIds(flatten(calls)))
 
 	removed, err = h.cleaner.Tick(context.Background())
@@ -343,8 +341,8 @@ func TestOpCleaner_Pacing(t *testing.T) {
 	}
 }
 
-// TestOpCleaner_PacingWithCancelledIncluded pins that the per-tick budget is per
-// tick, not per state: widening the predicate must not raise the RAFT volume.
+// TestOpCleaner_PacingWithCancelledIncluded pins that the budget is per tick,
+// not per state: widening the predicate must not raise the RAFT volume.
 func TestOpCleaner_PacingWithCancelledIncluded(t *testing.T) {
 	h := newCleanerHarness(t)
 	h.seedMixed(t, 15_000, 15_000)
@@ -383,8 +381,8 @@ func TestOpCleaner_StopsOnRemoverError(t *testing.T) {
 	require.Zero(t, metricValue(t, h.registry, deletedMetric, map[string]string{"state": "READY"}))
 }
 
-// TestOpCleaner_LostElectionIsNotAFailure: a demotion discovered inside Execute is
-// a deferral to the new leader, not an error worth alerting on.
+// A demotion discovered inside Execute is a deferral to the new leader, not an
+// error worth alerting on.
 func TestOpCleaner_LostElectionIsNotAFailure(t *testing.T) {
 	h := newCleanerHarness(t)
 	h.seedAncient(t, 1, 3000, api.READY, false)
@@ -410,8 +408,8 @@ func TestOpCleaner_DeletedMetricSplitsByState(t *testing.T) {
 	require.Equal(t, 3.0, metricValue(t, h.registry, deletedMetric, map[string]string{"state": "CANCELLED"}))
 }
 
-// TestOpCleaner_ReportsIneligibleFlaggedOps: the flagged population is the only
-// explanation an operator gets for a READY gauge that plateaus above zero.
+// The flagged population is the only explanation an operator gets for a READY
+// gauge that plateaus above zero.
 func TestOpCleaner_ReportsIneligibleFlaggedOps(t *testing.T) {
 	h := newCleanerHarness(t)
 
@@ -441,8 +439,8 @@ func TestOpCleaner_ReportsIneligibleFlaggedOps(t *testing.T) {
 	require.True(t, logged, "the flagged count must reach the operator-facing log line")
 }
 
-// TestOpCleaner_HotReloadsInterval pins that Interval() is re-read every cycle,
-// which is the whole hot-reload mechanism (there is no ticker to Reset).
+// TestOpCleaner_HotReloadsInterval pins that Interval() is re-read every cycle.
+// There is no ticker to Reset, so that read is the whole hot-reload mechanism.
 func TestOpCleaner_HotReloadsInterval(t *testing.T) {
 	h := newCleanerHarness(t)
 	h.seedAncient(t, 1, 1, api.READY, false)
@@ -475,9 +473,8 @@ func TestOpCleaner_HotReloadsInterval(t *testing.T) {
 	<-done
 }
 
-// TestOpCleaner_NonPositiveInterval is the operability sibling of the zero-max-age
-// warning in Tick: a knob left at 0 must not silently substitute the built-in
-// re-check period. A disabled sweep is not misconfigured, so it stays quiet.
+// A knob left at 0 must not silently substitute the built-in re-check period.
+// A disabled sweep is not misconfigured, so it stays quiet.
 func TestOpCleaner_NonPositiveInterval(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -505,11 +502,11 @@ func TestOpCleaner_NonPositiveInterval(t *testing.T) {
 			}()
 
 			// A non-positive interval also drives the first wait, which is the
-			// unexported defaultCleanupInterval, i.e. an hour.
+			// unexported defaultCleanupInterval of one hour.
 			requireParked(t, h.clock)
 			h.clock.Advance(time.Hour)
-			// Parked again ⇒ the loop has been all the way round, so the log and the
-			// remover can be read without racing it.
+			// Parked again means the loop went all the way round, so the log
+			// and the remover can be read without racing it.
 			requireParked(t, h.clock)
 
 			require.Equal(t, tc.wantWarn, loggedWarning(h.logs, "REPLICA_MOVEMENT_CLEANUP_INTERVAL"),
@@ -552,19 +549,18 @@ func TestOpCleaner_RunStopsOnContextCancel(t *testing.T) {
 	require.False(t, clockHasWaiter(h.clock), "nothing may be left parked on the clock after Run returns")
 }
 
-// requireParked waits until the loop is parked on the fake clock. A bare Advance
-// races: between the timer firing and Run re-arming via clock.After the fake clock
-// has zero waiters.
+// requireParked waits until the loop is parked on the fake clock. A bare
+// Advance races: between the timer firing and Run re-arming, the fake clock has
+// zero waiters.
 func requireParked(t *testing.T, clock *clockwork.FakeClock) {
 	t.Helper()
 	require.Eventually(t, func() bool { return clockHasWaiter(clock) }, time.Second, 2*time.Millisecond,
 		"the cleanup loop never parked on the fake clock")
 }
 
-// clockHasWaiter probes whether the FakeClock has at least one waiter.
-// BlockUntilContext(ctx, 1) returns nil immediately when one is registered and
-// context.DeadlineExceeded when there are none; clockwork exports no NumWaiters,
-// so this asymmetric probe is the only way to tell the two apart.
+// clockHasWaiter probes whether the FakeClock has at least one waiter. clockwork
+// exports no NumWaiters, so the only signal is BlockUntilContext returning nil
+// immediately with a waiter and DeadlineExceeded without one.
 func clockHasWaiter(clock *clockwork.FakeClock) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 	defer cancel()

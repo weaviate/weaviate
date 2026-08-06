@@ -493,9 +493,9 @@ func TestShardReplicationFSM_SetUnCancellable(t *testing.T) {
 	})
 }
 
-// TestCancellationComplete_GaugeAccuracy pins that the CANCELLED transition
-// adjusts opsByStateGauge like every other transition does. CompleteCancellation
-// changes state internally, so the Dec/Inc has to wrap the call site.
+// The CANCELLED transition must adjust opsByStateGauge like every other
+// transition. CompleteCancellation changes state internally, so the Dec/Inc has
+// to wrap the call site.
 func TestCancellationComplete_GaugeAccuracy(t *testing.T) {
 	const opID uint64 = 1
 
@@ -536,8 +536,7 @@ func TestCancellationComplete_GaugeAccuracy(t *testing.T) {
 	})
 }
 
-// gaugeValue reads weaviate_replication_operation_fsm_ops_by_state for one state
-// label, returning 0 when the label has never been touched.
+// gaugeValue returns 0 when the state label has never been touched.
 func gaugeValue(t *testing.T, g prometheus.Gatherer, state string) float64 {
 	t.Helper()
 	families, err := g.Gather()

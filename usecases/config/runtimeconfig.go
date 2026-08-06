@@ -83,8 +83,6 @@ type WeaviateRuntimeConfig struct {
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
 
-	// Replica-movement cleanup. For both durations 0 disables the sweep; a negative
-	// override is refused at reload and the previous value is retained.
 	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
 	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
 	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
@@ -410,12 +408,11 @@ func matchUpdatedFields(match string, records []updateLogRecord) bool {
 	return false
 }
 
-// BuildRegisteredRuntimeConfig returns the WeaviateRuntimeConfig whose *DynamicValue
-// pointers are shared with cfg, so the reload loop's SetValue is observed by every
-// consumer. It is split out of the REST layer's initRuntimeOverrides so the
-// registration list can be tested: a missing entry is otherwise silent (nil
-// *DynamicValue, and both Get and SetValue are nil-safe), and the list belongs next
-// to the struct it registers.
+// BuildRegisteredRuntimeConfig returns a WeaviateRuntimeConfig sharing cfg's
+// *DynamicValue pointers, so the reload loop's SetValue reaches every consumer.
+// It lives here rather than in the REST layer so the registration list can be
+// tested: a missing entry is otherwise silent, since Get and SetValue are both
+// nil-safe on a nil *DynamicValue.
 func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	// Runtimeconfig manager takes of keeping the `registered` config values upto date
 	registered := &WeaviateRuntimeConfig{}

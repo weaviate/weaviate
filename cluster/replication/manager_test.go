@@ -1751,10 +1751,9 @@ func TestManager_SnapshotRestore_Deterministic(t *testing.T) {
 	}
 }
 
-// TestReplicationDetails_ReportsOpAndStateStartTimes pins that both timestamps
-// reach the query response: the op-level one (when the op was created) and the
-// status-level one (when it entered its current state). The latter is what the
-// cleanup sweep's age predicate reads, so an operator has to be able to see it.
+// Both the op-creation and state-transition timestamps must reach the query
+// response. The cleanup sweep's age predicate reads the latter, so an operator
+// has to be able to see it.
 func TestReplicationDetails_ReportsOpAndStateStartTimes(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
@@ -1780,8 +1779,8 @@ func TestReplicationDetails_ReportsOpAndStateStartTimes(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, manager.Replicate(0, &api.ApplyRequest{SubCommand: subCommand}))
 
-	// The op's creation stamp and the READY transition stamp are taken from
-	// time.Now() at their own moments; sleep so they cannot collide.
+	// Both stamps come from time.Now() at their own moments, so sleep to keep
+	// them distinct.
 	time.Sleep(2 * time.Millisecond)
 	subCommand, err = json.Marshal(&api.ReplicationUpdateOpStateRequest{Id: 0, State: api.READY})
 	require.NoError(t, err)

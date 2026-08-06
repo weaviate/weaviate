@@ -23,16 +23,16 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// TestApplyForceDeleteByIds drives the new command through Store.Apply end to end.
-// It is red if the store_apply.go case is missing: the default branch logs and
-// no-ops, so the ops would simply survive.
+// Drives the command through Store.Apply end to end. It is red if the
+// store_apply.go case is missing: the default branch logs and no-ops, so the ops
+// would simply survive.
 func TestApplyForceDeleteByIds(t *testing.T) {
 	ms := NewMockStore(t, "Node-1", 0)
 	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
 
-	// NewMockStore only replaces the *schema* manager's replication FSM with a
-	// mock; store.replicationManager stays real, so seed it directly rather than
-	// driving a TYPE_REPLICATION_REPLICATE apply (which would need schema fixtures).
+	// NewMockStore mocks only the schema manager's replication FSM;
+	// store.replicationManager stays real. Seeding it directly avoids the schema
+	// fixtures a TYPE_REPLICATION_REPLICATE apply would need.
 	fsm := ms.store.replicationManager.GetReplicationFSM()
 	for id := uint64(1); id <= 3; id++ {
 		require.NoError(t, fsm.Replicate(id, &api.ReplicationReplicateShardRequest{

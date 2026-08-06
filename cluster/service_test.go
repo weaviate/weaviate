@@ -23,10 +23,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// TestReplicaMovementCleanupGetters is the wiring half of the silent-off guard.
-// rConfig is a keyed composite literal, so omitting one of the four cleanup knobs
-// compiles; the omitted field is a nil *DynamicValue whose Get() returns the zero
-// value, which would disable the sweep with every other test still green.
+// rConfig is a keyed composite literal, so omitting one of the four cleanup
+// knobs still compiles. The omitted field is a nil *DynamicValue whose Get()
+// returns the zero value, which disables the sweep with every other test green.
 func TestReplicaMovementCleanupGetters(t *testing.T) {
 	t.Run("an unwired bool knob falls back loudly", func(t *testing.T) {
 		logger, hook := logrustest.NewNullLogger()
@@ -47,9 +46,8 @@ func TestReplicaMovementCleanupGetters(t *testing.T) {
 		requireLoggedError(t, hook, "REPLICA_MOVEMENT_CLEANUP_MAX_AGE")
 	})
 
-	// Only the fallback path logs, so it is the only one that can trip over a nil
-	// logger. New never reaches here with one — it dereferences cfg.Logger much
-	// earlier — but a direct caller like this test can, and must get the fallback.
+	// Only the fallback path logs, so it is the only one a nil logger can trip.
+	// New never reaches here with one, but a direct caller like this test can.
 	t.Run("a nil logger falls back without panicking", func(t *testing.T) {
 		require.True(t, boolGetter(nil, nil, "REPLICA_MOVEMENT_CLEANUP_ENABLED", true)())
 		require.Equal(t, defaultReplicaMovementCleanupMaxAge,

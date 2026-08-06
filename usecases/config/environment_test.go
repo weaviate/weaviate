@@ -1956,9 +1956,8 @@ func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
 			wantIncludeCancelled: true,
 		},
 		{
-			// Zero passes the >= 0 validator and is the only expressible disable
-			// sentinel; the sweeper must read it as "off", never as "delete every
-			// READY op".
+			// Zero passes the >= 0 validator and is the only disable sentinel.
+			// The sweeper reads it as "off", never as "delete every READY op".
 			name: "zero max age is accepted and handled downstream",
 			env: map[string]string{
 				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "0s",
@@ -1975,8 +1974,8 @@ func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
 			wantInterval: 0,
 		},
 		{
-			// A negative duration is not coerced to zero, it fails startup. Both rows
-			// go red if anyone drops ValidateDurationGreaterThanEqual0 from the parse.
+			// A negative duration fails startup rather than coercing to zero.
+			// Both rows go red if ValidateDurationGreaterThanEqual0 is dropped.
 			name: "negative max age fails startup, naming the variable",
 			env: map[string]string{
 				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "-1h",
