@@ -191,7 +191,7 @@ func TestResolveDoubleWriteBucket_FallsBackAfterSwap(t *testing.T) {
 
 	// Pre-swap: sidecar resolves directly.
 	require.Same(t, shard.store.Bucket(sidecarName),
-		resolveDoubleWriteBucket(shard, sidecarName, canonicalName),
+		resolveDoubleWriteBucket(shard, sidecarName, canonicalName, true),
 		"pre-swap the sidecar bucket must be resolved directly")
 
 	// The production swap: canonical takes over the sidecar's physical bucket
@@ -203,11 +203,18 @@ func TestResolveDoubleWriteBucket_FallsBackAfterSwap(t *testing.T) {
 
 	// Ingest-phase: sidecar gone, falls back to canonical (not nil).
 	require.Same(t, shard.store.Bucket(canonicalName),
-		resolveDoubleWriteBucket(shard, sidecarName, canonicalName),
+		resolveDoubleWriteBucket(shard, sidecarName, canonicalName, true),
 		"#11688: post-swap the resolver must fall back to the canonical bucket, "+
 			"not return nil (the pre-fix nil deref that panicked the write)")
 
+	// Same store state, but no swap ran on this task: the sidecar was torn
+	// down by cleanup, so the canonical bucket is NOT the sidecar's physical
+	// bucket and mirroring into it would corrupt a live index.
+	require.Nil(t, resolveDoubleWriteBucket(shard, sidecarName, canonicalName, false),
+		"a missing sidecar without a swap means cleanup removed it — the mirror must "+
+			"be skipped, not redirected into the canonical bucket")
+
 	// Backup-phase: no fallback, nil is correct (no-op, not loss).
-	require.Nil(t, resolveDoubleWriteBucket(shard, sidecarName, ""),
+	require.Nil(t, resolveDoubleWriteBucket(shard, sidecarName, "", true),
 		"with no swap-fallback name the resolver must return nil (backup phase)")
 }

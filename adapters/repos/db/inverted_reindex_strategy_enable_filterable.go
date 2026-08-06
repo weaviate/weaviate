@@ -90,14 +90,11 @@ func (s *EnableFilterableStrategy) ShouldProcessProperty(property *inverted.Prop
 	return true
 }
 
-func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+func (s *EnableFilterableStrategy) MakeAddCallback(scope doubleWriteScope) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — it's false on the target
 		// property until OnMigrationComplete flips it.
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
@@ -110,12 +107,9 @@ func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) stri
 	}
 }
 
-func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+func (s *EnableFilterableStrategy) MakeDeleteCallback(scope doubleWriteScope) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}

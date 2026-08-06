@@ -82,11 +82,9 @@ func (s *MapToBlockmaxStrategy) ShouldProcessProperty(property *inverted.Propert
 	return property.HasSearchableIndex
 }
 
-func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+func (s *MapToBlockmaxStrategy) MakeAddCallback(scope doubleWriteScope) onAddToPropertyValueIndex {
 	calcPropLen := calcPropLenMap
-	if forTargetStrategy {
+	if scope.forTargetStrategy {
 		calcPropLen = calcPropLenInverted
 	}
 
@@ -94,8 +92,7 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
@@ -110,15 +107,12 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 	}
 }
 
-func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+func (s *MapToBlockmaxStrategy) MakeDeleteCallback(scope doubleWriteScope) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
