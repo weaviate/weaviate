@@ -16,7 +16,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -26,33 +25,8 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
-
-// failingOffloadCloud is an OffloadCloud whose Upload always fails.
-type failingOffloadCloud struct{ uploadErr error }
-
-func (f *failingOffloadCloud) VerifyBucket(context.Context) error { return nil }
-
-func (f *failingOffloadCloud) Upload(context.Context, string, string, string) error {
-	return f.uploadErr
-}
-
-func (f *failingOffloadCloud) Download(context.Context, string, string, string) error { return nil }
-
-func (f *failingOffloadCloud) Delete(context.Context, string, string, string) error { return nil }
-
-// recordingProcessor captures the RAFT command freeze produces.
-type recordingProcessor struct {
-	mu  sync.Mutex
-	req *command.TenantProcessRequest
-}
-
-func (p *recordingProcessor) UpdateTenantsProcess(_ context.Context, _ string, req *command.TenantProcessRequest) (uint64, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.req = req
-	return 0, nil
-}
 
 // TestFreezeAbortRestoresShardOnUploadFailure: a freeze whose Upload fails must fully restore the shard.
 func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
@@ -78,7 +52,9 @@ func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
 	m.cloud = &failingOffloadCloud{uploadErr: fmt.Errorf("simulated upload failure")}
 
 	ec := errorcompounder.New()
-	m.freeze(ctx, idx, class, []string{s.name}, ec)
+	m.freeze(ctx, idx, class, []*schemaUC.UpdateTenantPayload{
+		{Name: s.name, PreFreezeStatus: models.TenantActivityStatusHOT},
+	}, ec)
 
 	require.Equal(t, 0, s.haltForTransferCount, "freeze abort must resume maintenance")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()), "freeze abort must discard the stale snapshot")
