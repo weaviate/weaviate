@@ -1772,33 +1772,21 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(objects))
 		}
 	}
+	// Resolve every object's target shard in one pass. Multi-tenant classes
+	// share a single schema lookup; single-tenant classes fall back to per-object
+	// UUID hashing. Either way the per-object errors this method returns to batch
+	// callers are retained, so a bad object fails without sinking its batch.
 	byShard := map[string]objsAndPos{}
-	if i.partitioningEnabled {
-		// Bulk tenant validation shares one schema lookup while retaining the
-		// per-object errors this method returns to batch callers.
-		targets, resolutionErrs := i.shardResolver.ResolveShardsWithErrors(ctx, objects)
-		for pos, target := range targets {
-			if err := resolutionErrs[pos]; err != nil {
-				out[pos] = err
-				continue
-			}
-			group := byShard[target.Shard]
-			group.objects = append(group.objects, objects[pos])
-			group.pos = append(group.pos, pos)
-			byShard[target.Shard] = group
+	targets, resolutionErrs := i.shardResolver.ResolveShardsWithErrors(ctx, objects)
+	for pos, target := range targets {
+		if err := resolutionErrs[pos]; err != nil {
+			out[pos] = err
+			continue
 		}
-	} else {
-		for pos, obj := range objects {
-			target, err := i.shardResolver.ResolveShard(ctx, obj)
-			if err != nil {
-				out[pos] = err
-				continue
-			}
-			group := byShard[target.Shard]
-			group.objects = append(group.objects, obj)
-			group.pos = append(group.pos, pos)
-			byShard[target.Shard] = group
-		}
+		group := byShard[target.Shard]
+		group.objects = append(group.objects, objects[pos])
+		group.pos = append(group.pos, pos)
+		byShard[target.Shard] = group
 	}
 
 	wg := &sync.WaitGroup{}
