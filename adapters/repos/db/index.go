@@ -3774,7 +3774,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		eg.Go(func() error {
 			replicas, err := i.schemaReader.ShardReplicas(className, shardName)
 			if err != nil {
-				return nil
+				return err
 			}
 
 			var shardStatus atomic.Value
