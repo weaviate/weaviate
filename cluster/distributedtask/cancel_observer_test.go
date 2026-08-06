@@ -136,6 +136,10 @@ func TestManagerCancelObserver(t *testing.T) {
 	// A node catching up on the RAFT log applies cancels nobody is waiting on
 	// any more. Every signal an observer raises has expired by then, so paying
 	// for them means a restart holds gates it can never usefully release.
+	//
+	// The age is a literal rather than cancelObserverStaleAfter+something:
+	// derived from the constant it would still pass at a window of a day, which
+	// is exactly the replay this test exists to forbid.
 	t.Run("a cancel older than the observer window is skipped", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer h.manager.Close()
@@ -145,11 +149,11 @@ func TestManagerCancelObserver(t *testing.T) {
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 		require.NoError(t, h.manager.CancelTask(
-			observerCancelCmd(t, h, cancelObserverStaleAfter+time.Minute)))
+			observerCancelCmd(t, h, 2*time.Minute)))
 
 		require.Never(t, func() bool { return rec.count() > 0 },
 			200*time.Millisecond, 5*time.Millisecond,
-			"a cancel this old must not reach the observer")
+			"a cancel two minutes old must not reach the observer")
 	})
 
 	// A full queue keeps delivering up to the overflow bound; past it production
@@ -324,11 +328,16 @@ func TestCancelDispatchOverflowIsBounded(t *testing.T) {
 		rec.record(task)
 	})
 
-	// The drainer can take one event off the queue and then block looking its
-	// observer up, so the queue swallows one more than its depth before the
-	// overflow path is reached at all.
-	maxDelivered := cancelDispatchQueueDepth + 1 + cancelDispatchOverflowLimit
-	const pastTheBound = 16
+	// Literals, not the constants themselves. Derived from
+	// cancelDispatchQueueDepth and cancelDispatchOverflowLimit these numbers
+	// move with them, and the assertions below then hold at any bound,
+	// including one large enough to be no bound at all. 256 queue slots, one
+	// more the drainer can take and then block looking its observer up, and
+	// 32 goroutines of overflow.
+	const (
+		maxDelivered = 256 + 1 + 32
+		pastTheBound = 16
+	)
 
 	m.mu.Lock()
 	for range maxDelivered + pastTheBound {
@@ -338,8 +347,8 @@ func TestCancelDispatchOverflowIsBounded(t *testing.T) {
 
 	// The observer is wedged on release, so nothing has decremented yet: the
 	// count is exactly what the apply path was allowed to spawn.
-	require.EqualValues(t, cancelDispatchOverflowLimit, m.cancelOverflowInFlight.Load(),
-		"a wedged observer must not hold more goroutines than the overflow bound")
+	require.EqualValues(t, 32, m.cancelOverflowInFlight.Load(),
+		"a wedged observer must not hold more than 32 overflow goroutines")
 
 	close(release)
 	require.Eventually(t, func() bool { return rec.count() >= maxDelivered-1 },

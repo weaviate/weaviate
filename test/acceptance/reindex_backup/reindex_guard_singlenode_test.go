@@ -131,10 +131,11 @@ func TestReindexBlockClearsAfterNodeCrash(t *testing.T) {
 		"ReindexGuard_CrashClearsBlock", "reindex-guard-crash-clears")
 	t.Logf("guard engaged before the crash: %s", guarded.blocked.body)
 
-	// SIGKILL, not the default SIGTERM grace: a graceful shutdown gets to run
-	// Weaviate's own teardown, which could release the slot deliberately —
-	// the opposite of what this test claims. A zero timeout forces the kill;
-	// see the timeout contract on DockerCompose.RestartAt.
+	// A graceful shutdown gets to run Weaviate's own teardown, which could
+	// release the slot deliberately, the opposite of what this test claims.
+	// The zero timeout gives Docker no grace between SIGTERM and SIGKILL, so
+	// the process dies before teardown can do anything; see the timeout
+	// contract on DockerCompose.RestartAt.
 	kill := time.Duration(0)
 	require.NoError(t, guarded.compose.StopAt(ctx, 0, &kill))
 	require.NoError(t, guarded.compose.StartAt(ctx, 0))
