@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,6 +233,72 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			}, 10*time.Second, 20*time.Millisecond,
 				"the finished backup never released its own slot")
 			require.Equal(t, NodeActivity{}, probe.Activity())
+		})
+	}
+}
+
+// The write half of the same ownership invariant. CancelRestore stamps the
+// coordinator's restore slot from what it read in object storage, not from what
+// the slot holds — and that slot is one per node, shared by every restore this
+// node coordinates. So a cancel aimed at one restore lands on whichever restore
+// currently holds it, and commit() reads Cancelled there as "cancelled
+// externally" and aborts a restore nobody asked to cancel.
+func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName  = "s3"
+		beingCancely = "restore-being-cancelled"
+		stillRunning = "restore-still-running"
+	)
+
+	tests := []struct {
+		name       string
+		slotHolder string
+		wantStatus backup.Status
+		reason     string
+	}{
+		{
+			name:       "the slot is held by the restore being cancelled",
+			slotHolder: beingCancely,
+			wantStatus: backup.Cancelled,
+			reason: "this node coordinates the restore being cancelled; leaving its slot Started " +
+				"makes OnStatus report a cancelled restore as running",
+		},
+		{
+			name:       "the slot is held by a different, live restore",
+			slotHolder: stillRunning,
+			wantStatus: backup.Started,
+			reason: "a cancel aimed at a different restore stamped this one Cancelled; commit() reads " +
+				"that as 'cancelled externally' and aborts a restore nobody cancelled",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+			meta, err := json.Marshal(backup.DistributedBackupDescriptor{
+				Status: backup.Transferring,
+				ID:     beingCancely,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{"Class1"}}},
+			})
+			require.NoError(t, err)
+
+			fakeScheduler.backend.On("GetObject", mock.Anything, beingCancely, GlobalRestoreFile).Return(meta, nil)
+			fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+			fakeScheduler.backend.On("PutObject", mock.Anything, beingCancely, GlobalRestoreFile, mock.Anything).Return(nil)
+			fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+			fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+			fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+			s := fakeScheduler.scheduler()
+			require.Empty(t, s.restorer.lastOp.renew(test.slotHolder, "", "", ""))
+
+			require.NoError(t, s.CancelRestore(ctx, nil, backendName, beingCancely, "", ""))
+
+			held := s.restorer.lastOp.get()
+			require.Equal(t, test.slotHolder, held.ID, "the cancel must never take a slot over")
+			require.Equal(t, test.wantStatus, held.Status, test.reason)
 		})
 	}
 }
