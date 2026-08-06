@@ -16,7 +16,9 @@ import (
 	"errors"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -1212,6 +1214,140 @@ func TestGuardBoot(t *testing.T) {
 
 		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
 		assert.Empty(t, registeredShards(t, idx))
+	})
+}
+
+// initAndStoreShards hands its shard names to a loop that loads them one per
+// tick, so the state read at boot is stale by the time a later shard comes up.
+// Each load re-reads it, and refuses by returning nil so the loop carries on to
+// the shards behind it.
+//
+// The seeded shard's alloc checker fails every reservation, so an error reaching
+// the caller is what says LazyLoadShard.Load was entered.
+func TestGuardBackgroundLoad(t *testing.T) {
+	const class = "alpha:Product"
+
+	tests := []struct {
+		name       string
+		className  string
+		state      api.NamespaceState
+		namespaced bool
+		wantLoad   bool
+	}{
+		{
+			name: "an active namespace loads", className: class,
+			state: api.NamespaceStateActive, namespaced: true, wantLoad: true,
+		},
+		{
+			// Red if the filter is the request-path check, which rejects resuming.
+			name: "a resuming namespace loads", className: class,
+			state: api.NamespaceStateResuming, namespaced: true, wantLoad: true,
+		},
+		{
+			name: "a namespace suspended after boot loads nothing", className: class,
+			state: api.NamespaceStateSuspended, namespaced: true,
+		},
+		{
+			name: "a deleting namespace loads nothing", className: class,
+			state: api.NamespaceStateDeleting, namespaced: true,
+		},
+		{
+			name: "an unknown state loads nothing", className: class,
+			state: api.NamespaceState("gone"), namespaced: true,
+		},
+		{
+			name: "an unqualified class loads", className: "Product", wantLoad: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var e namespaces.Exister
+			if tc.namespaced {
+				e = existerWithState(t, tc.state)
+			}
+			idx := indexForGuardTest(t, tc.className, e)
+			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+
+			err := idx.loadLocalShardIfActive("t1")
+			if tc.wantLoad {
+				require.ErrorIs(t, err, errInjectedMemoryPressure)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+
+	// Index.Shutdown sweeps i.shards without taking shardCreateLocks, and skips
+	// a lazy shard that is not loaded. A load admitted after that sweep would
+	// build a shard nothing is left to close.
+	t.Run("a shut-down index loads nothing", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateActive))
+		idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+		idx.closed = true
+
+		require.NoError(t, idx.loadLocalShardIfActive("t1"))
+	})
+
+	// A state that cannot be read refuses the load like a closed namespace does,
+	// and returns nil for the same reason: one unreadable read must not stop the
+	// shards behind it from being tried.
+	refusals := []struct {
+		name    string
+		exister func(*testing.T) namespaces.Exister
+	}{
+		{
+			name:    "a missing lookup",
+			exister: func(*testing.T) namespaces.Exister { return nil },
+		},
+		{
+			name: "a lookup miss",
+			exister: func(t *testing.T) namespaces.Exister {
+				e := namespaces.NewMockExister(t)
+				e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+				return e
+			},
+		},
+	}
+
+	for _, tc := range refusals {
+		t.Run(tc.name+" loads nothing", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, tc.exister(t))
+			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+
+			require.NoError(t, idx.loadLocalShardIfActive("t1"))
+		})
+	}
+
+	// The one case that drives the loop rather than a single load, because the
+	// state lookup count is what says the loop carried on: it reaches three only
+	// by asking again for the second shard. The alloc checker turns any admitted
+	// load into the error the loop stops on, so the absent log is the other half.
+	t.Run("a suspend after boot stops the loop opening shards, not the loop", func(t *testing.T) {
+		var lookups atomic.Int32
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").RunAndReturn(func(string) (api.Namespace, bool) {
+			state := api.NamespaceStateSuspended
+			if lookups.Add(1) == 1 {
+				// The boot read, which has to admit or no loop starts at all.
+				state = api.NamespaceStateActive
+			}
+			return api.Namespace{Name: "alpha", State: state}, true
+		}).Maybe()
+
+		shards := map[string]sharding.Physical{"t1": hotPhysical("t1"), "t2": hotPhysical("t2")}
+		idx, hook := indexForBootTest(t, class, e, readerForShards(t, class, shards))
+		idx.allocChecker = failingAllocChecker{}
+
+		require.NoError(t, idx.initAndStoreShards(context.Background(), &models.Class{Class: class}, nil))
+
+		require.Eventually(t, func() bool { return lookups.Load() >= 3 }, 10*time.Second, 20*time.Millisecond,
+			"the loop stopped instead of asking again for the second shard")
+		for _, entry := range hook.AllEntries() {
+			assert.NotContains(t, entry.Message, "failed to load shard")
+		}
+		assert.Equal(t, []string{"t1", "t2"}, registeredShards(t, idx),
+			"a refused shard stays registered, so a resumed namespace still has something to load")
 	})
 }
 

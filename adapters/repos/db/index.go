@@ -724,6 +724,24 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {
+	// Index.Shutdown takes closeLock for write and does not take
+	// shardCreateLocks, so without this a load can build a shard after shutdown
+	// has already swept the map, leaving one nothing will ever close.
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil
+	}
+
+	// The namespace state read at boot goes stale as initLazyShardsInBackground
+	// walks its shard list, so re-read it here. A refusal returns nil because an
+	// error would end that loop for every shard behind this one.
+	state, err := i.namespaceState()
+	if err != nil || !namespaces.ShardsShouldBeOpen(state) {
+		return nil
+	}
+
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
