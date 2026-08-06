@@ -253,8 +253,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			Store: hfresh.StoreConfig{
 				MakeBucketOptions: makeBucketOptions,
 			},
-			VectorForIDThunk:   hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                            s.index.logger,

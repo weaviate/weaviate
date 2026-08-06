@@ -117,10 +117,34 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	cfg.PrometheusMetrics = monitoring.GetMetrics()
 	cfg.PrometheusMetrics.Registerer.MustRegister()
 
+	setDelegatingTempThunk(cfg)
+
 	return cfg, ent.NewDefaultUserConfig()
 }
 
+// setDelegatingTempThunk satisfies the required TempVectorForIDWithViewThunk
+// by delegating to cfg.VectorForIDThunk at call time — tests assign their
+// fixture thunk after building the config, and the pooled read path picks it
+// up automatically. The vector is copied into the pooled container because
+// the caller may normalize the returned slice in place.
+func setDelegatingTempThunk(cfg *Config) {
+	cfg.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		vec, err := cfg.VectorForIDThunk(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if cap(container.Slice) < len(vec) {
+			container.Slice = make([]float32, len(vec))
+		}
+		container.Slice = container.Slice[:len(vec)]
+		copy(container.Slice, vec)
+		return container.Slice, nil
+	}
+}
+
 func makeHFreshWithConfig(t *testing.T, store *lsmkv.Store, cfg *Config, uc ent.UserConfig) *HFresh {
+	createObjectsBucket(t, store)
+
 	index, err := New(cfg, uc, store)
 	require.NoError(t, err)
 
