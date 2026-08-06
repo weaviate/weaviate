@@ -272,7 +272,7 @@ func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorV
 // IterateAll calls fn for every persisted vector version, in one sequential
 // sweep over the store. Iteration stops early when fn returns false.
 func (v *VersionStore) IterateAll(fn func(vectorID uint64, version VectorVersion) bool) {
-	c := v.bucket.Cursor()
+	c := v.bucket.CursorReplaceReusable()
 	defer c.Close()
 
 	for k, val := c.Seek(versionMapBucketPrefix); k != nil; k, val = c.Next() {
