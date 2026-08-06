@@ -285,6 +285,13 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
 		f = func() {
+			// A namespace that is not active materializes no shard on the
+			// request path, and the schema commits before the DB does, so an
+			// ungated create leaves the tenant listed with nothing behind it.
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.AddTenants(&cmd, schemaOnly)
 		}
 

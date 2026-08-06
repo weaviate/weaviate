@@ -51,6 +51,7 @@ var namespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
 	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
 	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
+	api.ApplyRequest_TYPE_ADD_TENANT:               {},
 	api.ApplyRequest_TYPE_UPDATE_TENANT:            {},
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
@@ -66,7 +67,6 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:                                        {},
 	api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:                                       {},
 	api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:                                  {},
-	api.ApplyRequest_TYPE_ADD_TENANT:                                                 {},
 	api.ApplyRequest_TYPE_DELETE_TENANT:                                              {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
 	api.ApplyRequest_TYPE_DELETE_ALIAS:                                               {},
@@ -202,6 +202,16 @@ func TestApplyGate_RejectsGatedSchemaApplyTypes(t *testing.T) {
 			rpcSub:  &api.ReplaceAliasRequest{Collection: "alpha:Foo", Alias: "alpha:Bar"},
 		},
 		{
+			// The schema commits before the DB refuses the shard, so an ungated
+			// create leaves the tenant listed with nothing behind it.
+			name:    "TYPE_ADD_TENANT",
+			cmdType: api.ApplyRequest_TYPE_ADD_TENANT,
+			rpcSub: &api.AddTenantsRequest{
+				Tenants:      []*api.Tenant{{Name: "T2", Status: models.TenantActivityStatusHOT}},
+				ClusterNodes: []string{"Node-1"},
+			},
+		},
+		{
 			// A freeze started here would abort against a status no node can
 			// read back, silently activating or deactivating the tenant.
 			name:    "TYPE_UPDATE_TENANT",
@@ -295,6 +305,14 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 			jsonSub: api.AddClassRequest{Class: cls, State: ss},
 		},
 		{
+			name:    "TYPE_ADD_TENANT",
+			cmdType: api.ApplyRequest_TYPE_ADD_TENANT,
+			rpcSub: &api.AddTenantsRequest{
+				Tenants:      []*api.Tenant{{Name: "T2", Status: models.TenantActivityStatusHOT}},
+				ClusterNodes: []string{"Node-1"},
+			},
+		},
+		{
 			name:    "TYPE_UPDATE_TENANT",
 			cmdType: api.ApplyRequest_TYPE_UPDATE_TENANT,
 			rpcSub: &api.UpdateTenantsRequest{
@@ -317,6 +335,7 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
 			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
 			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceSuspended)
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceResuming)
 		})
 	}
 }
