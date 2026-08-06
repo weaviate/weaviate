@@ -61,6 +61,9 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		h.backupActivity = clients.NewClusterBackupActivity(probeClient, appState.Cluster)
 		h.reindexCleanup = clients.NewClusterReindexCleanup(probeClient, appState.Cluster)
 	}
+	if appState.BackupActivity != nil {
+		h.localBackupActivity = appState.BackupActivity
+	}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
 }
@@ -70,6 +73,10 @@ type indexesHandlers struct {
 
 	// nil in fixtures without a cluster HTTP client; probeBackupActivity allows submission then.
 	backupActivity nodeActivityProber
+
+	// nil in fixtures without a backup manager; the submit-gate pre-check is
+	// skipped then and the fan-out probe is the only backup check.
+	localBackupActivity localActivityProber
 
 	// nil in fixtures without a cluster; treated the same as an unwired probe.
 	cluster clusterMembership
@@ -103,6 +110,13 @@ func (h *indexesHandlers) backupActivityGateWarn() *logrusext.Sampler {
 type clusterMembership interface {
 	AllNames() []string
 	LocalName() string
+}
+
+// localActivityProber reads this node's own backup and restore slots in
+// process. It gives the same answer the fan-out probe would get for this one
+// node, without leaving the process.
+type localActivityProber interface {
+	Activity() backup.NodeActivity
 }
 
 // reindexCleanupProber asks one node whether its reindex-cleanup gate is closed.
@@ -665,6 +679,21 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
+	// Refuse from this node's own slots before the gate below is taken. The gate
+	// closes the backup gate on the whole collection, so a submission that is
+	// certain to be refused anyway would otherwise fail a capture that is already
+	// running — the lowest-priority operation killing a higher-priority one while
+	// being denied. Reading the local slots is an in-memory map lookup, so it
+	// costs nothing to do first.
+	//
+	// This does not replace the probe below: a backup held only by another node
+	// is invisible here, still takes the gate, and is still refused by the
+	// fan-out. It removes the single-node case, which is the one a retrying
+	// caller can loop on.
+	if responder := h.refuseOnLocalBackupActivity(principal); responder != nil {
+		return responder
+	}
+
 	// Taken BEFORE the probe, not after it. The probe fans out over every node
 	// in the cluster, so a backup can claim its slot on a node that was already
 	// answered while the scan is still running: it sees no submission, gets
@@ -1160,9 +1189,7 @@ func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivity
 func backupActivityResponder(principal *models.Principal, scan backupActivityScan) middleware.Responder {
 	// A definite "busy" outranks an unreachable node: it's a certain answer.
 	if scan.BusyNode != "" {
-		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-			fmt.Sprintf("reindex blocked: a %s is running in the cluster; retry after it finishes",
-				scan.Activity.Kind)))
+		return backupBusyResponder(principal, scan.Activity)
 	}
 	if scan.UnreachableNode != "" {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
@@ -1181,6 +1208,35 @@ func reindexTaskKeptResponder(principal *models.Principal, taskID string) middle
 		fmt.Sprintf("reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers. "+
 			"The migration was committed and is running as task %q; cancel it if you do not want it to continue.",
 			taskID)))
+}
+
+// backupBusyResponder is the refusal for a node that certainly holds a slot,
+// whichever check found it. The kind is all that reaches the caller; see
+// [backupActivityResponder] for why the node and backup id do not.
+func backupBusyResponder(principal *models.Principal, activity backup.NodeActivity) middleware.Responder {
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex blocked: a %s is running in the cluster; retry after it finishes",
+			activity.Kind)))
+}
+
+// refuseOnLocalBackupActivity answers with the fan-out probe's refusal when
+// this node's own slots already settle the question. Only this node is visible
+// to it, so it is a pre-check and not a replacement: it exists so the caller is
+// turned away before the submit gate closes the backup gate on the collection.
+func (h *indexesHandlers) refuseOnLocalBackupActivity(principal *models.Principal) middleware.Responder {
+	if h.localBackupActivity == nil {
+		return nil
+	}
+	activity := h.localBackupActivity.Activity()
+	if !activity.Busy {
+		return nil
+	}
+
+	h.appState.Logger.WithField("action", "reindex_backup_gate").
+		WithField("backup_id", activity.ID).
+		Infof("refusing reindex submission before the submit gate: this node is running a %s", activity.Kind)
+
+	return backupBusyResponder(principal, activity)
 }
 
 // probeBackupActivity blocks reindex submission while any node holds a backup
