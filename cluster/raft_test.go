@@ -49,7 +49,7 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
 	m.indexer.On("UpdateShardStatus", Anything).Return(nil)
 	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
-	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateTenants", Anything, Anything, Anything).Return(nil)
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddReplicaToShard", Anything, Anything, Anything).Return(nil)

@@ -287,7 +287,7 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) error {
+func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
 	ctx := context.Background()
 	cls := e.schemaReader.ReadOnlyClass(class)
 	if cls == nil {
@@ -297,8 +297,9 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 	updates := make([]*UpdateTenantPayload, 0, len(req.Tenants))
 	for _, tu := range req.Tenants {
 		updates = append(updates, &UpdateTenantPayload{
-			Name:   tu.Name,
-			Status: tu.Status,
+			Name:            tu.Name,
+			Status:          tu.Status,
+			PreFreezeStatus: preFreezeStatuses[tu.Name],
 		})
 	}
 
