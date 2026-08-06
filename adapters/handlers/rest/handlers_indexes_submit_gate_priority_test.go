@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"testing"
 
@@ -21,7 +22,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // The submit gate closes the backup gate on a whole collection. Two properties
@@ -142,17 +146,44 @@ func TestUpdateIndexRefusedByLocalBackupLeavesTheBackupGateOpen(t *testing.T) {
 	require.Zero(t, svc.adds, "a refused submission must write no task")
 }
 
-// The two tests above set localBackupActivity themselves, so neither notices
-// production leaving it unwired — and unwired means the pre-check is skipped
-// and the priority inversion is back for every real deployment.
-func TestIndexesHandlersWireTheLocalBackupProbe(t *testing.T) {
+// Every gate in handlers_indexes.go reads one of these five fields, and every
+// gate test injects its own. So production dropping a field on the floor is
+// invisible to all of them: the gate keeps its tests and stops running. This is
+// the one place the real constructor is exercised, so it has to name each field
+// and say what goes unguarded when it is nil.
+func TestIndexesHandlersWireEveryGateCollaborator(t *testing.T) {
 	probe := backup.NewNodeActivityProbe(nil)
+	clusterState := &cluster.State{}
+	tasks := &rCluster.Service{}
 
-	h := newIndexesHandlers(&state.State{BackupActivity: probe})
+	h := newIndexesHandlers(&state.State{
+		BackupActivity:    probe,
+		Cluster:           clusterState,
+		ClusterService:    tasks,
+		ClusterHttpClient: &http.Client{},
+		ServerConfig:      &config.WeaviateConfig{},
+	})
+
 	require.NotNil(t, h.localBackupActivity,
 		"unwired, the submit gate is taken before anything reads this node's own backup slots, "+
 			"and the priority inversion is back for every real deployment")
 	require.Same(t, probe, h.localBackupActivity, "it must be this node's own probe")
+
+	require.NotNil(t, h.cluster,
+		"unwired, there is no node list to fan out over, so the cluster-wide backup probe "+
+			"scans nobody and every submission is admitted over a running capture")
+	require.Same(t, clusterState, h.cluster, "it must be this node's own membership view")
+
+	require.NotNil(t, h.tasks,
+		"unwired, both reindex routes answer 503 and no migration can be submitted or cancelled")
+	require.Same(t, tasks, h.tasks, "it must be the real cluster service, not a stand-in")
+
+	require.NotNil(t, h.backupActivity,
+		"unwired, no peer is asked whether it holds a backup slot, so a submission races "+
+			"a capture running anywhere else in the cluster")
+
+	require.NotNil(t, h.reindexCleanup,
+		"unwired, cancel answers without confirming that peers finished their rollback sweep")
 
 	h = newIndexesHandlers(&state.State{})
 	require.Nil(t, h.localBackupActivity,
