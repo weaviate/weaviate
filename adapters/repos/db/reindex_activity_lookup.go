@@ -35,8 +35,9 @@ type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
 // precheck to obtain a fresh DTM snapshot.
 //
-// Calls before installation default to "no live reindex" with a one-time
-// WARN. The builder is wired by configure_api.go's post-bootstrap
+// Calls before installation default to "no live reindex" and WARN,
+// rate-limited to one line per hour so a shard-by-shard pass cannot flood
+// the log. The builder is wired by configure_api.go's post-bootstrap
 // goroutine, and an external backup request can arrive before that runs,
 // so the WARN names a backup that really was admitted without a check.
 // Refusing instead would block every module-test fixture that bypasses
@@ -209,7 +210,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 //
 // The residual it leaves is a cancelled task whose units all still read PENDING
 // at commit while a worker had in fact begun writing. Pinned by
-// TestReindexOverlapObserverCountsCancelledTasksThatRan (0-wi#473).
+// TestReindexOverlapObserverCountsCancelledTasksThatRan.
 type ReindexOverlapObserver func(ctx context.Context, collections []string) entitiesbackup.ReindexOverlapCheck
 
 // SetReindexOverlapObserver installs the observer consulted by
