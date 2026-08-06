@@ -59,6 +59,7 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_acceptance_backups=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -117,6 +118,7 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -165,6 +167,7 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
+              "--acceptance-backups | -ab"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -411,6 +414,11 @@ function main() {
     echo "running backup × runtime-reindex acceptance tests"
     run_acceptance_reindex_backup
   fi
+
+  if $run_acceptance_backups; then
+    echo "running backup/restore acceptance tests"
+    run_acceptance_backups
+  fi
   echo "Done!"
 }
 
@@ -598,6 +606,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_rangeable' \
     | grep -v 'test/acceptance/reindex_mt' \
     | grep -v 'test/acceptance/reindex_backup' \
+    | grep -v 'test/acceptance/backups' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
@@ -1015,6 +1024,13 @@ function run_acceptance_reindex_backup() {
   echo_green "acceptance — reindex-backup"
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
+}
+
+function run_acceptance_backups() {
+  build_weaviate_test_image
+  echo_green "acceptance — backups"
+  run_aof_group "backups" \
+    test/acceptance/backups
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
