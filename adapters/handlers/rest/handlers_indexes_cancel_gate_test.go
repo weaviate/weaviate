@@ -91,6 +91,18 @@ func warned(hook *logrustest.Hook, fragment string) *logrus.Entry {
 	return nil
 }
 
+// audited finds the entry tagged with auditEvent. The event name is a
+// structured field and never appears in the rendered message, so warned can
+// never match it.
+func audited(hook *logrustest.Hook, auditEvent string) *logrus.Entry {
+	for _, e := range hook.AllEntries() {
+		if e.Data["audit_event"] == auditEvent {
+			return e
+		}
+	}
+	return nil
+}
+
 // Covers the window described on awaitOwnerCleanupGates: the answer must wait
 // for the owners, and must not be blockable by one that cannot reply.
 func TestAwaitOwnerCleanupGates(t *testing.T) {
@@ -119,7 +131,8 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		// cancel trips it and it degrades into noise nobody reads.
 		require.Nil(t, warned(hook, "could not confirm"),
 			"a healthy routed cancel must not report an unconfirmed gate")
-		require.Nil(t, warned(hook, "reindex_cancel_gate_unconfirmed"))
+		require.Nil(t, audited(hook, "reindex_cancel_gate_unconfirmed"),
+			"a healthy routed cancel must not emit the unconfirmed-gate audit event")
 	})
 
 	t.Run("does not ask the local node about itself", func(t *testing.T) {
