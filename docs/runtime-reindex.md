@@ -1218,8 +1218,11 @@ see "Where each gate fails open" below, whose third window is that default.
 
 **Where each gate fails closed.** Once its lookup is installed, every
 gate treats an uncertain answer as a blocking one. The backup gate
-refuses every backup while the cluster task manager cannot be listed
-(`buildShardReindexActivity` in `configure_api.go`). The restore gate
+refuses every backup while the cluster task manager cannot be listed,
+and equally while a live task's payload will not decode, since the
+shards it holds cannot be named (`newShardReindexActivityBuilder` in
+`configure_api.go`). The commit-time overlap check refuses on an
+unreadable payload the same way. The restore gate
 refuses the restore on the same failure. The reindex gate answers 503
 for a node that does not respond to the probe. An `Index` built without
 a back-reference to `DB` refuses the backup outright.

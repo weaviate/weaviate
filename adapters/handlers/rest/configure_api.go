@@ -1129,7 +1129,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 // because a sibling shard is idle.
 //
 // A DTM it cannot reach refuses every backup: the gate must not read "free"
-// from a question it could not ask.
+// from a question it could not ask. A live task whose payload will not decode
+// is the same uncertainty in a smaller shape — the shards it holds cannot be
+// named, so it too refuses every backup rather than let those shards read free.
+// The commit-time backstop ([db.ReindexOverlapObserver]) already refuses on an
+// unreadable payload; the two gates have to agree on what unreadable means.
 func newShardReindexActivityBuilder(
 	ctx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -1155,8 +1159,8 @@ func newShardReindexActivityBuilder(
 			if err := json.Unmarshal(task.Payload, &payload); err != nil {
 				logger.WithField("action", "backup_reindex_gate").
 					WithField("task_id", task.ID).
-					Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-				continue
+					Warnf("backup-reindex gate: cannot decode task payload; refusing all backups until it is readable: %v", err)
+				return func(string, string) bool { return true }
 			}
 			for _, shardName := range payload.UnitToShard {
 				live[shardKey{payload.Collection, shardName}] = true
