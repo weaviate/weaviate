@@ -1803,10 +1803,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// FAILED attempt that the operator just retried (terminal tasks
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
 	// Pick the most useful one to surface rather than first-in-map-order:
-	//   STARTED  > FAILED ≈ CANCELLED       (in-flight beats terminal)
-	//   newer StartedAt > older StartedAt   (within the same priority)
-	// FINISHED was already skipped by parseReindexTasks (the schema flag
-	// flips and the regular "ready" entry takes over).
+	//   STARTED  > FINISHED ≈ FAILED ≈ CANCELLED  (in-flight beats terminal)
+	//   newer StartedAt > older StartedAt          (within the same priority)
+	// FINISHED tasks are in the slice too: parseReindexTasks keeps them so
+	// the finalize window below can surface the swap that has not yet
+	// reached the schema flag.
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
@@ -1857,21 +1858,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 
 	if best == nil {
-		// A live task whose payload will not decode holds this whole
-		// collection at the backup gate, and the refusal sends the operator
-		// here to poll until every index reads "ready". Reporting "ready"
-		// would send them back to a backup that keeps being refused.
-		//
-		// Every index of the collection carries it because the property and
-		// index type it targets are inside the payload that will not decode.
-		// That matches the gate, which blocks the collection for the same
-		// reason. Progress is left at zero: none was readable.
-		for _, pt := range parsedTasks {
-			if pt.unreadable && strings.EqualFold(pt.payload.Collection, collection) {
-				idx.Status = models.IndexStatusStatusPending
-				return
-			}
-		}
+		markUnreadablePayload(idx, collection, parsedTasks)
 		return
 	}
 
@@ -1955,6 +1942,17 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 	}
 
+	// A matching task that leaves the entry at "ready" answers nothing the
+	// unreadable payload has not already invalidated, so the fallback still
+	// applies. The switch above reaches "ready" for a FINISHED task the
+	// schema has caught up with, and for a status this build does not know.
+	// A FINISHED task survives for DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS
+	// (5 days by default), so this is not a narrow window.
+	if idx.Status == models.IndexStatusStatusReady &&
+		markUnreadablePayload(idx, collection, parsedTasks) {
+		return
+	}
+
 	// Only paint the per-migration-type "in-flight" side-effect fields when
 	// the status switch actually surfaced an in-flight or finalizing signal.
 	// If the entry stayed "ready" (FINISHED + flag-on, or FINISHED outside
@@ -1986,6 +1984,28 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		db.ReindexTypeRepairRangeable:
 		// No tokenization or algorithm side effects for these types.
 	}
+}
+
+// markUnreadablePayload paints the entry as pending when a live task whose
+// payload will not decode names this collection, and reports whether it did.
+//
+// Such a task holds the whole collection at the backup gate, and the refusal
+// sends the operator here to poll until every index reads "ready". Reporting
+// "ready" would send them back to a backup that keeps being refused.
+//
+// Every index of the collection carries it because the property and index type
+// it targets are inside the payload that will not decode. That matches the
+// gate, which blocks the collection for the same reason. Progress is left at
+// zero: none was readable.
+func markUnreadablePayload(idx *models.IndexStatus, collection string, parsedTasks []parsedReindexTask) bool {
+	for _, pt := range parsedTasks {
+		if pt.unreadable && strings.EqualFold(pt.payload.Collection, collection) {
+			idx.Status = models.IndexStatusStatusPending
+			idx.Progress = 0
+			return true
+		}
+	}
+	return false
 }
 
 // taskStatusPriority returns a priority for picking the most user-relevant
