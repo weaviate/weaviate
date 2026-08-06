@@ -178,7 +178,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			if errors.As(err, &authzerrs.Forbidden{}) {
 				return "", err
 			}
-			return "", NewErrInternal("%v", err)
+			return "", NewErrInternal("%w", err)
 		}
 	}
 

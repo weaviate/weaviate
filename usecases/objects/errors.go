@@ -96,7 +96,15 @@ func (e ErrInternal) Unwrap() error {
 // reachable through Unwrap; %v flattens it to text.
 func NewErrInternal(format string, args ...interface{}) ErrInternal {
 	formatted := fmt.Errorf(format, args...)
-	return ErrInternal{msg: formatted.Error(), err: errors.Unwrap(formatted)}
+	cause := errors.Unwrap(formatted)
+	if cause == nil {
+		// Several %w verbs unwrap to a slice, which errors.Unwrap reports as
+		// nil; keeping the formatted error preserves both causes.
+		if _, multi := formatted.(interface{ Unwrap() []error }); multi {
+			cause = formatted
+		}
+	}
+	return ErrInternal{msg: formatted.Error(), err: cause}
 }
 
 // ErrNotFound indicates the desired resource doesn't exist
