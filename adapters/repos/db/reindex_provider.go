@@ -133,19 +133,9 @@ type ReindexProvider struct {
 	// cancelApplyGates holds the cleanup-gate release taken at cancel-apply
 	// time, until the teardown for that task takes over.
 	cancelApplyGates map[distributedtask.TaskDescriptor]func()
-	// workerExitGateCap overrides [reindexWorkerExitGateCap]; zero means the
-	// default. Shortening it is how the bound is reached without waiting it out.
-	workerExitGateCap time.Duration
-	// cancelConfirmWindow overrides [reindexCancelConfirmWindow]; zero means the
-	// default. Same purpose as workerExitGateCap: the window expiring is what a
-	// test has to observe, and waiting it out costs the default every run.
-	cancelConfirmWindow time.Duration
-	// terminalCleanupDrainTimeout overrides
-	// [reindexTerminalCleanupDrainTimeout]; zero means the default. Same
-	// purpose as workerExitGateCap: the timed-out drain is the branch that
-	// hands the gate to the worker's exit, and it cannot be reached by
-	// cancelling serverCtx, which would release the gate as well.
-	terminalCleanupDrainTimeout time.Duration
+	// timings holds the bounds the cancel and cleanup paths wait out; see
+	// [reindexTimings].
+	timings reindexTimings
 
 	// cancelTeardownSettled records tasks whose teardown has already run here,
 	// so an apply that lands after it releases at once instead of waiting out
@@ -223,6 +213,31 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 	return envelope
 }
 
+// reindexTimings holds the three bounds the cancel and cleanup paths wait out.
+// [NewReindexProvider] fills it from [defaultReindexTimings]; a provider built
+// by struct literal has to supply its own.
+type reindexTimings struct {
+	// workerExitGateCap bounds the wait in
+	// [ReindexProvider.ReleaseCleanupGateOnWorkerExit].
+	workerExitGateCap time.Duration
+	// cancelConfirmWindow is how long [ReindexProvider.holdCancelSeen] keeps
+	// answering the cluster cleanup probe.
+	cancelConfirmWindow time.Duration
+	// terminalCleanupDrainTimeout bounds the drain in
+	// [ReindexProvider.autoCleanupAfterTerminal].
+	terminalCleanupDrainTimeout time.Duration
+}
+
+// defaultReindexTimings is what every production provider runs with. Each
+// constant carries the reasoning for its value.
+func defaultReindexTimings() reindexTimings {
+	return reindexTimings{
+		workerExitGateCap:           reindexWorkerExitGateCap,
+		cancelConfirmWindow:         reindexCancelConfirmWindow,
+		terminalCleanupDrainTimeout: reindexTerminalCleanupDrainTimeout,
+	}
+}
+
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
@@ -241,6 +256,7 @@ func NewReindexProvider(
 		localNode:         localNode,
 		concurrency:       concurrency,
 		serverCtx:         serverCtx,
+		timings:           defaultReindexTimings(),
 		runningHandles:    make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
@@ -1767,10 +1783,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 
 	release := p.MarkCleanupInProgress(payload)
 
-	drainTimeout := p.terminalCleanupDrainTimeout
-	if drainTimeout <= 0 {
-		drainTimeout = reindexTerminalCleanupDrainTimeout
-	}
+	drainTimeout := p.timings.terminalCleanupDrainTimeout
 	drainCtx, drainCancel := context.WithTimeout(p.shutdownCtx(), drainTimeout)
 	defer drainCancel()
 	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
@@ -2613,10 +2626,7 @@ func cancelledTaskCollection(raw []byte) string {
 func (p *ReindexProvider) holdCancelSeen(collection string) {
 	folded := strings.ToLower(collection)
 
-	window := p.cancelConfirmWindow
-	if window <= 0 {
-		window = reindexCancelConfirmWindow
-	}
+	window := p.timings.cancelConfirmWindow
 
 	p.cancelAppliedMu.Lock()
 	p.ensureCancelMaps()
@@ -2740,10 +2750,7 @@ func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
 	release func(),
 	logger logrus.FieldLogger,
 ) {
-	gateCap := p.workerExitGateCap
-	if gateCap <= 0 {
-		gateCap = reindexWorkerExitGateCap
-	}
+	gateCap := p.timings.workerExitGateCap
 	enterrors.GoWrapper(func() {
 		defer release()
 		ctx, cancel := context.WithTimeout(p.shutdownCtx(), gateCap)

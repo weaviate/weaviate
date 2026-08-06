@@ -29,6 +29,7 @@ func cancelGateProvider(serverCtx context.Context) *ReindexProvider {
 	return &ReindexProvider{
 		logger:                logger,
 		serverCtx:             serverCtx,
+		timings:               defaultReindexTimings(),
 		payloads:              make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		cleanupInProgress:     make(map[reindexCleanupKey]int),
 		submitInProgress:      make(map[reindexCleanupKey]int),
