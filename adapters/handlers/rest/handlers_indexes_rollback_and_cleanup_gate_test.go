@@ -414,10 +414,10 @@ func (p *gateWatchProber) calls() []bool {
 	return out
 }
 
-// The gate must enclose the pre-submit deletion; see updateIndex's call site.
-// The fixture's DB holds no index, so the window is asserted rather than the
-// loop: open at the first probe, closed at the commit and the second probe,
-// open again once the handler returns.
+// The gate must enclose the pre-submit deletion AND the probe that decides
+// whether the deletion may happen at all; see updateIndex's call site. The
+// fixture's DB holds no index, so the window is asserted rather than the loop:
+// closed at both probes and at the commit, open again once the handler returns.
 func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 	const collection = "Movies"
 
@@ -450,19 +450,83 @@ func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 
 	probes := prober.calls()
 	require.Len(t, probes, 2, "submission probes for backups before and after the commit")
-	require.False(t, probes[0],
-		"nothing is being deleted yet at the first probe")
+	require.True(t, probes[0],
+		"the gate must already be closed at the first probe: the probe fans out "+
+			"node by node, so a backup admitted on a node answered early is "+
+			"admitted into the deletion this probe is deciding to run")
 	require.True(t, probes[1],
 		"a backup probing here would be looking straight at the deletion; "+
 			"it must see the gate closed")
 
 	holds := prober.holds()
-	require.Equal(t, db.ReindexHoldSubmit, holds[1],
+	require.Equal(t, db.ReindexHoldSubmit, holds[0],
 		"an ordinary submission must refuse backups as a submission, not as a "+
 			"cancelled migration that never happened")
+	require.Equal(t, db.ReindexHoldSubmit, holds[1])
 
 	require.False(t, provider.AnyCleanupInProgressForCollection(collection),
 		"the gate must be released once the handler returns")
+}
+
+// backupDuringScanProber is a backup trying to claim its slot while the
+// submission's cluster-wide probe is still running. The probe fans out to every
+// node concurrently, so it records which nodes' probes found the gate open —
+// each of those is a backup that would have been admitted into the sweep.
+type backupDuringScanProber struct {
+	provider   *db.ReindexProvider
+	collection string
+
+	mu       sync.Mutex
+	probes   int
+	admitted []string
+}
+
+func (p *backupDuringScanProber) NodeActivity(_ context.Context, node string) (backup.NodeActivity, error) {
+	p.mu.Lock()
+	p.probes++
+	if p.provider.HoldForShard(p.collection, "shard1") == db.ReindexHoldNone {
+		p.admitted = append(p.admitted, node)
+	}
+	p.mu.Unlock()
+	return backup.NodeActivity{}, nil
+}
+
+func (p *backupDuringScanProber) result() (int, []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.probes, append([]string(nil), p.admitted...)
+}
+
+// The submit gate has to close before the probe, not after it. The probe is a
+// cluster-wide fan-out, so the whole scan is a window: a backup that claims its
+// slot anywhere in it is admitted, and then has its sidecar dirs and its
+// .migrations tracker removed underneath it by the sweep the probe was
+// authorizing.
+//
+// The post-commit rollback is not a repair for this. It produces a cancelled
+// task no unit was ever claimed on, which the commit-time backstop waives on
+// purpose, so a backup admitted here is published as clean.
+func TestSubmitGateIsClosedBeforeTheClusterWideProbe(t *testing.T) {
+	const collection = "Movies"
+
+	logger, _ := logrustest.NewNullLogger()
+	provider := db.NewReindexProvider(nil, nil, logger, "node1",
+		func() int { return 1 }, context.Background())
+
+	prober := &backupDuringScanProber{provider: provider, collection: collection}
+	h := submissionHandlers(t, &raceTaskService{}, prober)
+	h.appState.ReindexProvider.Store(provider)
+	h.cluster = fixedMembership{"node1", "node2", "node3"}
+
+	require.NotNil(t, submitReindex(h))
+
+	probes, admitted := prober.result()
+	require.Equal(t, 6, probes,
+		"both probes fan out over all three nodes")
+	require.Empty(t, admitted,
+		"no node may report the collection free of reindex submissions while one "+
+			"is in flight; every node listed here is a backup that would have been "+
+			"captured across the pre-submit deletion")
 }
 
 // starvationProber models a slow owner that burns its whole budget and a fast
