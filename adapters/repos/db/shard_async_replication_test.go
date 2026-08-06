@@ -2641,3 +2641,21 @@ func TestUpdateReplicationConfigDisablesWhenNoActiveOverrides(t *testing.T) {
 		return ht == nil && !ok
 	}, 10*time.Second, 10*time.Millisecond, "shard must be disabled and deregistered after config-disable with no override")
 }
+
+// TestEnableAsyncReplicationInvalidHeightLeavesHashtreeNil: a failed tree allocation must not store a typed-nil interface that reads as "already running" forever.
+func TestEnableAsyncReplicationInvalidHeightLeavesHashtreeNil(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "EnableInvalidHeightTest")
+
+	bad := minAsyncReplicationConfig()
+	bad.hashtreeHeight = hashtree.MaxHeight + 1
+	require.ErrorIs(t, s.enableAsyncReplication(ctx, bad), hashtree.ErrIllegalArguments)
+
+	s.asyncReplicationRWMux.RLock()
+	interfaceNil := s.hashtree == nil
+	s.asyncReplicationRWMux.RUnlock()
+	require.True(t, interfaceNil, "a failed allocation must leave the hashtree interface nil, not typed-nil")
+
+	enableAndAwaitAsync(t, ctx, s)
+	require.NoError(t, s.disableAsyncReplication(ctx))
+}

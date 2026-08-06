@@ -565,3 +565,18 @@ func TestIndex_GetAsyncCheckpointStatus_AggregatesLocalAndRemote(t *testing.T) {
 	assert.True(t, sawLocal, "local entry tagged with LocalNodeName must be present")
 	assert.True(t, sawRemote, "remote entry from the broadcaster must be present")
 }
+
+// TestAsyncCheckpointOpsDoNotLoadColdShards: create/delete/status must leave a cold tenant cold; create reports the gap instead of loading.
+func TestAsyncCheckpointOpsDoNotLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "AsyncCkptNoLoad", singleShardState())
+
+	for name, lazy := range f.coldShards(t) {
+		require.ErrorIs(t, f.index.createAsyncCheckpoint(ctx, name, 123, time.Now()), errAsyncReplicationNotActive)
+		require.NoError(t, f.index.deleteAsyncCheckpoint(ctx, name))
+		statuses, err := f.index.getAsyncCheckpointShardStatus(ctx, []string{name})
+		require.NoError(t, err)
+		require.Empty(t, statuses, "an unloaded shard must be omitted from status")
+		require.False(t, lazy.isLoaded(), "shard %q was loaded by a checkpoint op", name)
+	}
+}

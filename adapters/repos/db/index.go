@@ -993,19 +993,22 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	}
 
 	// unloaded shards will fetch the latest config when they are loaded
-	return i.applyAsyncReplicationToLoadedShardsLocked(ctx, config)
+	return i.applyAsyncReplicationToLoadedShards(ctx, config)
 }
 
-// applyAsyncReplicationToLoadedShardsLocked (re-)applies the per-shard
+// applyAsyncReplicationToLoadedShards (re-)applies the per-shard
 // enable/disable decision to every loaded shard. The decision is per-shard, so
 // an over-replicated shard at ReplicationFactor 1 keeps async on (e.g. mid
 // scale-out, or while the factor is lowered before the extra replicas drain).
 //
-// config must be a snapshot taken under i.replicationConfigLock (a torn read
-// of the multi-word struct would hand shards a mixed config). The remaining
-// per-shard factor read is a single word. enableAsyncReplication does
-// synchronous hashtree disk I/O, so hashbeat cycles stall until this ends.
-func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context, config AsyncReplicationConfig) error {
+// Callers must NOT hold i.replicationConfigLock: the fan-out takes each
+// LazyLoadShard's mutex (isLoaded), and a mid-load shard holds that mutex
+// while RLocking the config — ABBA deadlock. config must instead be a
+// snapshot taken under the lock (a torn read of the multi-word struct would
+// hand shards a mixed config). The remaining per-shard factor read is a
+// single word. enableAsyncReplication does synchronous hashtree disk I/O, so
+// hashbeat cycles stall until this ends.
+func (i *Index) applyAsyncReplicationToLoadedShards(ctx context.Context, config AsyncReplicationConfig) error {
 	// iterate concurrently so one shard's fault can't skip the rest (errors are
 	// accumulated, not first-error abort).
 	return i.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
@@ -1047,10 +1050,13 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context, c
 // AsyncReplicationDisabled flag. Must not short-circuit on
 // ReplicationFactor <= 1 — over-replicated shards still need async.
 func (i *Index) reconcileAsyncReplication(ctx context.Context) error {
-	i.replicationConfigLock.Lock()
-	defer i.replicationConfigLock.Unlock()
+	// Snapshot-then-release: holding the lock across the fan-out deadlocks
+	// against a mid-load shard (see applyAsyncReplicationToLoadedShards).
+	i.replicationConfigLock.RLock()
+	config := i.Config.AsyncReplicationConfig
+	i.replicationConfigLock.RUnlock()
 
-	return i.applyAsyncReplicationToLoadedShardsLocked(ctx, i.Config.AsyncReplicationConfig)
+	return i.applyAsyncReplicationToLoadedShards(ctx, config)
 }
 
 // ReconcileAsyncReplication re-applies async replication to every loaded shard
@@ -1696,10 +1702,15 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
 	}
 
-	i.replicationConfigLock.Lock()
-	defer i.replicationConfigLock.Unlock()
+	// Snapshot-then-release: the lazy wrapper takes the shard mutex, which a
+	// mid-load shard holds while RLocking the config — holding the lock across
+	// the call deadlocks (see applyAsyncReplicationToLoadedShards).
+	i.replicationConfigLock.RLock()
+	enabled := i.asyncReplicationEnabledForShard(shardName)
+	config := i.Config.AsyncReplicationConfig
+	i.replicationConfigLock.RUnlock()
 
-	return ctrl.rebuildAsyncReplicationFromScratch(ctx, i.asyncReplicationEnabledForShard(shardName), i.Config.AsyncReplicationConfig)
+	return ctrl.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which

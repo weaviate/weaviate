@@ -65,6 +65,7 @@ func deadlockStacks(full string) string {
 	var kept []string
 	for _, g := range strings.Split(full, "\n\n") {
 		if strings.Contains(g, "updateReplicationConfig") ||
+			strings.Contains(g, "reconcileAsyncReplication") ||
 			strings.Contains(g, "LazyLoadShard") ||
 			strings.Contains(g, "initNonVector") {
 			kept = append(kept, g)
@@ -185,5 +186,96 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 				deadlockTimeout, loadOK, updateOK, deadlockStacks(stacks))
 		}
 	}
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad pins the updater deadlock's sibling: reconcile must not hold replicationConfigLock across the fan-out, whose isLoaded() blocks on a mid-load shard's mutex.
+func TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad(t *testing.T) {
+	const (
+		syncTimeout     = 10 * time.Second
+		deadlockTimeout = 15 * time.Second
+	)
+	ctx := context.Background()
+
+	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigReconcileDeadlock")
+	lazy := soleColdShard(t, index)
+
+	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
+	lazy.memMonitor = gate
+
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- lazy.Load(ctx) }()
+
+	select {
+	case <-gate.entered:
+	case <-time.After(syncTimeout):
+		t.Fatal("Load never reached the gate inside its critical section — the fixture no longer exercises the interleaving")
+	}
+
+	reconcileDone := make(chan error, 1)
+	go func() { reconcileDone <- index.reconcileAsyncReplication(ctx) }()
+
+	// Completing here would mean the fan-out no longer blocks on the parked shard's mutex.
+	select {
+	case <-reconcileDone:
+		t.Fatal("reconcile completed while Load held the shard mutex — the fan-out no longer touches it")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(gate.release) // Load proceeds into its config read
+
+	loadOK, reconcileOK := false, false
+	timeout := time.After(deadlockTimeout)
+	for !loadOK || !reconcileOK {
+		select {
+		case err := <-loadDone:
+			require.NoError(t, err)
+			loadOK = true
+		case err := <-reconcileDone:
+			require.NoError(t, err)
+			reconcileOK = true
+		case <-timeout:
+			buf := make([]byte, 1<<22)
+			stacks := string(buf[:runtime.Stack(buf, true)])
+			t.Fatalf("deadlock: reconcileAsyncReplication and LazyLoadShard.Load wedged for %s (load done: %v, reconcile done: %v).\n\ninvolved goroutines:\n\n%s",
+				deadlockTimeout, loadOK, reconcileOK, deadlockStacks(stacks))
+		}
+	}
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// resumeLockScopeProbe records whether replicationConfigLock was free while rebuildAsyncReplicationFromScratch ran.
+type resumeLockScopeProbe struct {
+	ShardLike
+	asyncReplicationController
+	idx      *Index
+	rebuilt  bool
+	lockFree bool
+}
+
+func (p *resumeLockScopeProbe) resumeMaintenanceCycles(context.Context) error { return nil }
+
+func (p *resumeLockScopeProbe) rebuildAsyncReplicationFromScratch(context.Context, bool, AsyncReplicationConfig) error {
+	p.rebuilt = true
+	if p.idx.replicationConfigLock.TryLock() {
+		p.idx.replicationConfigLock.Unlock()
+		p.lockFree = true
+	}
+	return nil
+}
+
+// TestResumeAfterAbortedOffload_ConfigLockNotHeldAcrossRebuild: holding the config lock across the wrapper call recreates the lazy-load deadlock cycle.
+func TestResumeAfterAbortedOffload_ConfigLockNotHeldAcrossRebuild(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "ResumeLockScope")
+
+	probe := &resumeLockScopeProbe{idx: index}
+	index.shards.Store("probe-shard", probe)
+
+	require.NoError(t, index.resumeAfterAbortedOffload(ctx, "probe-shard"))
+	require.True(t, probe.rebuilt, "the rebuild must run for a loaded shard")
+	require.True(t, probe.lockFree, "replicationConfigLock must not be held across rebuildAsyncReplicationFromScratch")
+
+	_, _ = index.shards.LoadAndDelete("probe-shard")
 	require.NoError(t, repo.Shutdown(context.Background()))
 }

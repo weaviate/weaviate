@@ -459,12 +459,15 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	// {hashtree == nil, hashtreeFullyInitialized == true}.
 	s.hashtreeFullyInitialized = false
 
-	var err error
-	s.hashtree, err = hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
+	// Publish only on success: assigning the (*HashTree, error) return directly
+	// would store a typed-nil interface on error, defeating every
+	// s.hashtree == nil guard (enable would read "already running" forever).
+	ht, err := hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
 	if err != nil {
 		cancelFunc() // don't leak the child ctx in the scheduler's children
 		return err
 	}
+	s.hashtree = ht
 	s.minimalHashtreeInitializationCh = make(chan struct{})
 	// The init goroutine closes the channel it owns, not the shard field, which a
 	// concurrent enable may have swapped out under flapping. See closeInitCh.
