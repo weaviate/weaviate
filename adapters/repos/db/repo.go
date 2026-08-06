@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -45,6 +44,7 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -143,6 +143,11 @@ type DB struct {
 	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
 	// nil disables the check. See docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
+
+	// namespacesExister is propagated to each Index when it is created, so a
+	// shard decision can read its namespace's state. nil is only for tests
+	// that build no namespaced class; a namespaced one then fails closed.
+	namespacesExister namespaces.Exister
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -287,22 +292,15 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 }
 
 // localShardsToLoad returns the number of local shards that count toward eager
-// startup loading for the given class: local physical shards whose activity
-// status is HOT (empty status counts as HOT)
+// startup loading for the given class: the shards its namespace state and their
+// own activity status agree should be open. A class whose shards none of the
+// loading paths will open must not be counted, or progress never completes.
 func (db *DB) localShardsToLoad(className string) int64 {
-	var count int64
-	_ = db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return nil
-		}
-		for name, physical := range state.Physical {
-			if state.IsLocalShard(name) && physical.ActivityStatus() == models.TenantActivityStatusHOT {
-				count++
-			}
-		}
-		return nil
-	})
-	return count
+	desired, err := db.DesiredOpenLocalShards(className)
+	if err != nil {
+		return 0
+	}
+	return int64(len(desired))
 }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
@@ -324,6 +322,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
+	namespacesExister namespaces.Exister,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -373,6 +372,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		nodeSelector:              nodeSelector,
 		schemaReader:              schemaReader,
 		replicationFSM:            replicationFSM,
+		namespacesExister:         namespacesExister,
 		bitmapBufPool:             roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:        func() {},
 		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,

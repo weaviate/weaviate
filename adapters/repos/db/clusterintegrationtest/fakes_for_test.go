@@ -154,7 +154,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		MaxImportGoroutinesFactor: 1,
 		AsyncIndexingEnabled:      asyncIndexEnabled,
 	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	if err != nil {
 		panic(err)
 	}

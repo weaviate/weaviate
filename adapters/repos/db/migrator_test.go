@@ -300,7 +300,7 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			// Initialize shards
 			for _, shardName := range tt.initialShards {
-				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false)
+				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false, callerUserRequest)
 				require.NoError(t, err)
 			}
 

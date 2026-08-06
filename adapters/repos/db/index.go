@@ -78,9 +78,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -338,6 +340,11 @@ type Index struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
+	// namespacesExister is inherited from the owning DB at index creation; nil
+	// disables the check. namespace is empty for an unqualified class name.
+	namespacesExister namespaces.Exister
+	namespace         string
+
 	closed bool
 
 	shardReindexer ShardReindexerV3
@@ -463,6 +470,8 @@ func NewIndex(
 		replicaSnapshotOpLocks:  esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
+		namespacesExister:       cfg.NamespacesExister,
+		namespace:               namespacing.NamespaceFromQualified(string(cfg.ClassName)),
 		shardReindexer:          shardReindexer,
 		router:                  router,
 		shardResolver:           shardResolver,
@@ -536,6 +545,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 	var localShards []shardInfo
 	className := i.Config.ClassName.String()
+
+	if !i.shardsShouldBeOpen() {
+		// Nothing loads, and leaving the flag false suppresses the node-wide
+		// object count for every index on this node.
+		i.allShardsReady.Store(true)
+		return nil
+	}
 
 	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
@@ -1164,6 +1180,7 @@ type IndexConfig struct {
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
+	NamespacesExister                   namespaces.Exister
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
@@ -1415,7 +1432,7 @@ func (i *Index) getShardForWrite(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit, callerUserRequest)
 		// the reference we were handed is not returned to the caller, release it
 		release()
 		if err != nil {
@@ -1455,7 +1472,7 @@ func (i *Index) getShardForRead(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit, callerUserRequest)
 		// the reference we were handed is not returned to the caller, release it
 		release()
 		if err != nil {
@@ -2928,13 +2945,22 @@ func (i *Index) getClass() *models.Class {
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
 func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false, callerUserRequest)
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
 	// TODO: implicitShardLoading needs to be double checked if needed at all
 	// consalidate mustLoad and implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading, callerUserRequest)
+}
+
+// LoadLocalShardForReplication loads a shard on behalf of a replica movement.
+// Suspending or resuming the namespace mid-movement must not fail that load, so
+// it is exempt from the request-path namespace check. The exemption covers this
+// node's target shard, not the movement — the source node reads its own shard
+// through the request path, which a suspend still refuses.
+func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName string) error {
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplication)
 }
 
 // DropLocalShard removes a single local shard and its on-disk files. It is the
@@ -2944,12 +2970,18 @@ func (i *Index) DropLocalShard(name string) error {
 	return i.dropShards([]string{name})
 }
 
-func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
+func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool, caller shardLoadCaller) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
 	if i.closed {
 		return errAlreadyShutdown
+	}
+
+	// Checked before the already-in-map return below, because with mustLoad that
+	// return still loads a lazy shard.
+	if err := i.requireNamespaceAllowsShardLoad(caller); err != nil {
+		return err
 	}
 
 	// make sure same shard is not inited in parallel
@@ -3014,7 +3046,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
+	return i.getOptInitLocalShard(ctx, shardName, false, callerUserRequest)
 }
 
 // getOrInitShard initiates the shard locally if it doesn't exist.
@@ -3026,7 +3058,16 @@ func (i *Index) GetShard(ctx context.Context, shardName string) (
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, true)
+	return i.getOptInitLocalShard(ctx, shardName, true, callerUserRequest)
+}
+
+// getOrInitShardForReplication exempts a replica movement's write to its target
+// shard from the request-path namespace check, as LoadLocalShardForReplication
+// does for the load.
+func (i *Index) getOrInitShardForReplication(ctx context.Context, shardName string) (
+	shard ShardLike, release func(), err error,
+) {
+	return i.getOptInitLocalShard(ctx, shardName, true, callerReplication)
 }
 
 // getLoadedShard returns the shard only if it is already loaded, never
@@ -3068,7 +3109,7 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
 // The returned shard cannot be closed until release is called.
 // release is never nil, including on error, so defer it immediately after the call.
-func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
+func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool, caller shardLoadCaller) (
 	shard ShardLike, release func(), err error,
 ) {
 	i.closeLock.RLock()
@@ -3076,6 +3117,12 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 	if i.closed {
 		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
+	}
+
+	// Above both load points: preventShutdown below loads a resident lazy shard
+	// even with ensureInit false, so a check further down would miss the reads.
+	if err := i.requireNamespaceAllowsShardLoad(caller); err != nil {
+		return nil, func() {}, err
 	}
 
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
