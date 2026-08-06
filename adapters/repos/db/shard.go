@@ -246,6 +246,14 @@ type asyncReplicationController interface {
 	rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error
 }
 
+// offloadHaltResumer is a package-internal interface implemented by both *Shard and
+// *LazyLoadShard. It exists so that index-level recovery can drop a named owner's
+// halt outright without exposing that on ShardLike, which offers only the
+// one-decrement resumeMaintenanceCycles.
+type offloadHaltResumer interface {
+	resumeHaltOwner(ctx context.Context, owner string) (wasHeld bool, err error)
+}
+
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
 
 type onDeleteFromPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error

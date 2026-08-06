@@ -21,7 +21,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // uuidPostDump is written after the snapshot dump; a correct rebuild differs from the dump-time root.
@@ -196,4 +199,135 @@ func TestResumeAfterAbortedOffload_ConcurrentReconcileNoStaleTree(t *testing.T) 
 	s.asyncReplicationRWMux.RUnlock()
 	require.NotEqual(t, rootAtDump, rootAfterResume,
 		"final hashtree must reflect the post-dump write even under a concurrent reconcile")
+}
+
+// seedHealTestShard returns a loaded shard of class with async replication running
+// and one flushed object, the state a live HOT tenant is in when a freeze starts.
+func seedHealTestShard(t *testing.T, ctx context.Context, class string) (ShardLike, *Index, *Shard) {
+	t.Helper()
+
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	setShardReplicas(t, idx, "node1", "node2")
+
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+	require.NoError(t, s.store.FlushMemtables(ctx))
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+
+	return sl, idx, s
+}
+
+// updateTenantToHot drives the production entry point the abort takes on a node
+// whose own upload succeeded: the FSM applies the tenant's return to HOT through
+// Migrator.UpdateTenants.
+func updateTenantToHot(t *testing.T, ctx context.Context, idx *Index, class, shardName string) {
+	t.Helper()
+
+	m := newDropTestMigrator(idx, class, nil)
+	require.NoError(t, m.UpdateTenants(ctx, &models.Class{Class: class},
+		[]*schemaUC.UpdateTenantPayload{{Name: shardName, Status: models.TenantActivityStatusHOT}}, true))
+}
+
+// TestAbortedFreezeHealsOffloadHaltOnHotTransition: a freeze this node uploaded
+// successfully keeps its offload halt until FROZEN drops the shard. When another
+// node aborts the round the tenant returns to HOT instead, and no offload halt may
+// survive that transition — nothing else would ever lift it, leaving compaction,
+// vector maintenance and async replication off on a live, write-serving tenant.
+func TestAbortedFreezeHealsOffloadHaltOnHotTransition(t *testing.T) {
+	coResidentBackupOwner := backup.NewOp("b").HaltOwner()
+
+	tests := []struct {
+		name   string
+		class  string
+		setup  func(t *testing.T, ctx context.Context, s *Shard)
+		assert func(t *testing.T, ctx context.Context, s *Shard)
+	}{
+		{
+			name:  "leaked offload halt",
+			class: "AbortedFreezeHealLeaked",
+			setup: func(t *testing.T, ctx context.Context, s *Shard) {
+				haltForOffload(t, ctx, s)
+			},
+			assert: func(t *testing.T, ctx context.Context, s *Shard) {
+				requireTotal(t, s, 0, "the offload halt must not survive the return to HOT")
+				require.Empty(t, htFilesInDir(t, s.pathHashTree()), "no stale .ht may be trusted after the heal")
+				awaitHashtreeInitialized(t, s)
+			},
+		},
+		{
+			name:  "two aborted rounds",
+			class: "AbortedFreezeHealTwoRounds",
+			setup: func(t *testing.T, ctx context.Context, s *Shard) {
+				owner := offloadHaltOwner(s.name)
+				require.NoError(t, s.HaltForTransfer(ctx, owner, true, 0))
+				require.NoError(t, s.HaltForTransfer(ctx, owner, true, 0))
+				requireTotal(t, s, 2, "pre-condition: two freeze rounds leaked one halt each")
+			},
+			assert: func(t *testing.T, ctx context.Context, s *Shard) {
+				requireTotal(t, s, 0, "the heal drops the owner outright, so a second leaked round clears too")
+				awaitHashtreeInitialized(t, s)
+			},
+		},
+		{
+			name:  "co-resident backup halt",
+			class: "AbortedFreezeHealCoResidentBackup",
+			setup: func(t *testing.T, ctx context.Context, s *Shard) {
+				haltForOffload(t, ctx, s)
+				require.NoError(t, s.HaltForTransfer(ctx, coResidentBackupOwner, false, 0))
+			},
+			assert: func(t *testing.T, ctx context.Context, s *Shard) {
+				requireTotal(t, s, 1, "a backup still holding this shard must keep its halt")
+				s.haltForTransferMux.Lock()
+				defer s.haltForTransferMux.Unlock()
+				_, backupHeld := s.haltForTransferOwners[coResidentBackupOwner]
+				require.True(t, backupHeld, "the heal is scoped to the offload owner")
+			},
+		},
+		{
+			name:  "no halt",
+			class: "AbortedFreezeHealNoHalt",
+			setup: func(t *testing.T, ctx context.Context, s *Shard) {},
+			assert: func(t *testing.T, ctx context.Context, s *Shard) {
+				requireTotal(t, s, 0, "a routine activation must not invent a halt")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			sl, idx, s := seedHealTestShard(t, ctx, tt.class)
+
+			tt.setup(t, ctx, s)
+			updateTenantToHot(t, ctx, idx, tt.class, sl.Name())
+			tt.assert(t, ctx, s)
+		})
+	}
+}
+
+// TestHotTransitionWithoutOffloadHaltDoesNotRescan pins the wasHeld gate.
+//
+// This test is not red against the unhealed code — there the HOT branch is a no-op.
+// It is red against a heal that recovers unconditionally: rebuildAsyncReplicationFromScratch
+// replaces the hashtree by a full object scan, so every routine tenant activation
+// would pay one.
+func TestHotTransitionWithoutOffloadHaltDoesNotRescan(t *testing.T) {
+	ctx := context.Background()
+	const class = "HotTransitionNoRescan"
+
+	sl, idx, s := seedHealTestShard(t, ctx, class)
+
+	s.asyncReplicationRWMux.RLock()
+	before := s.hashtree
+	s.asyncReplicationRWMux.RUnlock()
+	require.NotNil(t, before, "pre-condition: async replication is running")
+
+	updateTenantToHot(t, ctx, idx, class, sl.Name())
+
+	s.asyncReplicationRWMux.RLock()
+	after := s.hashtree
+	s.asyncReplicationRWMux.RUnlock()
+	require.Same(t, before, after, "an unhalted HOT transition must not rebuild the hashtree")
 }

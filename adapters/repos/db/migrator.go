@@ -694,6 +694,22 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 						"shard":  name,
 					}).WithError(err).Errorf("loading shard %q failed", name)
 				}
+
+				// A freeze that this node uploaded successfully keeps its offload halt
+				// until FROZEN drops the shard; when another node aborts the round the
+				// tenant returns to HOT instead and nothing else lifts that halt. No
+				// legitimate in-flight freeze can be healed away here: this node applies
+				// FREEZING synchronously and Migrator.freeze blocks for the whole upload,
+				// and classLocks serialises the two updates for this class. It runs
+				// regardless of the load error above, because a halt on an
+				// already-loaded shard must be lifted even when that load reports one.
+				if err := idx.resumeOffloadHaltAfterAbortedFreeze(ctx, name); err != nil {
+					ec.Add(err)
+					idx.logger.WithFields(logrus.Fields{
+						"action": "tenant_activation_resume_offload_halt",
+						"shard":  name,
+					}).Errorf("resuming the offload halt of shard %q failed: %v", name, err)
+				}
 				return nil
 			})
 		}

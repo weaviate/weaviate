@@ -667,6 +667,18 @@ func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context, owner strin
 	return l.shard.resumeMaintenanceCycles(ctx, owner)
 }
 
+// Never loads, for the reason above: an unloaded shard holds no halt, so it also
+// held nothing.
+func (l *LazyLoadShard) resumeHaltOwner(ctx context.Context, owner string) (bool, error) {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		return false, nil
+	}
+	return l.shard.resumeHaltOwner(ctx, owner)
+}
+
 func (l *LazyLoadShard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
 	if err := l.Load(ctx); err != nil {
 		return file.FileMetadata{}, err

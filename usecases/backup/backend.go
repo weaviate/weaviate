@@ -429,11 +429,12 @@ func (u *uploader) joinDescriptorProducer(ch <-chan backup.ClassDescriptor, clas
 // admission gate CAS compares the full Op, and the maintenance resume names
 // op.HaltOwner(), which embeds the fence.
 //
-// The fourth step is not fenced: the non-hardlink protection sweep unlocks and
-// deletes every entry in backupProtectedShards regardless of which operation added
+// The fourth step is not fenced: the non-hardlink protection sweep claims and
+// releases every entry in backupProtectedShards regardless of which operation added
 // it, so a late re-release can drop a successor's protection there. That is a
 // declared residual of the deprecated no-hardlink path (see the PR's deferred item
-// 11), not an invariant this function provides.
+// 11), not an invariant this function provides. The sweep does claim each entry
+// atomically, so concurrent releases of the SAME operation are safe.
 func (u *uploader) detachDescriptorProducer(ch <-chan backup.ClassDescriptor, classes []string) {
 	enterrors.GoWrapper(func() {
 		for range ch { //nolint:revive // drain: the producer always closes (deferred close)

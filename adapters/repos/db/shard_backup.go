@@ -67,6 +67,16 @@ func (s *Shard) haltRemoveOwnerLocked(owner string) (gone bool) {
 	return false
 }
 
+// haltDropOwnerLocked removes every halt held by owner and reports whether any
+// existed. Caller must hold haltForTransferMux.
+func (s *Shard) haltDropOwnerLocked(owner string) (held bool) {
+	if _, ok := s.haltForTransferOwners[owner]; !ok {
+		return false
+	}
+	delete(s.haltForTransferOwners, owner)
+	return true
+}
+
 // clearHaltForTransferStateLocked drops every trace of halt-for-transfer state at
 // shard teardown: a shard whose store is closed must not keep answering "paused for
 // transfer", nor keep claiming an outstanding resume. Both owner maps are cleared
@@ -467,6 +477,25 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context, owner string) error
 	defer s.haltForTransferMux.Unlock()
 
 	return s.resumeOwnerLocked(ctx, owner)
+}
+
+// resumeHaltOwner drops all of owner's halts and resumes maintenance when no other
+// halt remains. Reports whether owner held anything, so the caller can skip recovery
+// work on a shard that was never halted.
+//
+// It drops the owner outright rather than decrementing once, because it recovers a
+// halt whose placer is gone: two aborted freeze rounds leave two halts under the same
+// owner and no actor is left to match them one for one.
+func (s *Shard) resumeHaltOwner(ctx context.Context, owner string) (wasHeld bool, err error) {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+
+	if !s.haltDropOwnerLocked(owner) {
+		return false, nil
+	}
+	delete(s.haltForTransferInactivityOwners, owner)
+
+	return true, s.completeResumeLocked(ctx)
 }
 
 // resumeOwnerLocked removes one of owner's halts and, once the owner is fully

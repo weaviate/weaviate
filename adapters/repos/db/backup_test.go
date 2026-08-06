@@ -581,6 +581,63 @@ func TestStaleReleaseLeavesLiveStagingIntact(t *testing.T) {
 	}
 }
 
+// Concurrent releases of the SAME operation must unlock each protected shard exactly
+// once: a second Unlock on an already-unlocked RWMutex is an uncatchable runtime
+// fatal that kills the whole test binary.
+//
+// The repro is probabilistic by necessity — deterministically hitting the
+// read-vs-delete window would need a hook inside sync.Map.Range, which does not
+// exist. Across 800 shard-releases a single hit is fatal, so a miss is very
+// unlikely; the exact rate is not measured here.
+func TestConcurrentReleasesNeverDoubleUnlock(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		shards    int
+		releasers int
+		rounds    int
+	}{
+		{name: "4 shards, 8 releasers, 200 rounds", shards: 4, releasers: 8, rounds: 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := newReleaseTestIndex(t)
+
+			names := make([]string, tt.shards)
+			for i := range names {
+				names[i] = fmt.Sprintf("tenant-%d", i)
+			}
+
+			for round := range tt.rounds {
+				op := backup.NewOp(fmt.Sprintf("round-%d", round))
+				for _, name := range names {
+					protectShard(t, idx, name)
+				}
+
+				var wg sync.WaitGroup
+				for range tt.releasers {
+					wg.Add(1)
+					enterrors.GoWrapper(func() {
+						defer wg.Done()
+						assert.NoError(t, idx.ReleaseBackup(ctx, op))
+					}, idx.logger)
+				}
+				wg.Wait()
+
+				for _, name := range names {
+					require.True(t, idx.backupLock.TryRLock(name),
+						"round %d: %s must be unlocked exactly once", round, name)
+					idx.backupLock.RUnlock(name)
+					_, protected := idx.backupProtectedShards.Load(name)
+					require.False(t, protected, "round %d: %s must no longer be protected", round, name)
+				}
+			}
+		})
+	}
+}
+
 // A cancelled operation and its same-ID retry must stage into different directories,
 // or the stale instance's release deletes the retry's live snapshot mid-hardlink.
 func TestStagingDirIsFencedPerOpInstance(t *testing.T) {

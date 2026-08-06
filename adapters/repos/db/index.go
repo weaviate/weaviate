@@ -1689,16 +1689,55 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 		return nil
 	}
 
-	ctrl, ok := shard.(asyncReplicationController)
-	if !ok {
-		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
-	}
-
 	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
 	// Scoped to the offload's own owner key: a co-resident backup or replica
 	// transfer holding this shard must keep its halt.
 	if err := shard.resumeMaintenanceCycles(ctx, offloadHaltOwner(shardName)); err != nil {
 		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
+	}
+
+	// Unconditional: the not-halted case is a HaltForTransfer that failed after
+	// stopAsyncReplication and self-resumed, so async is off with no halt held.
+	return i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard)
+}
+
+// resumeOffloadHaltAfterAbortedFreeze lifts an offload halt this node placed for a
+// freeze the cluster later aborted, and repairs the async replication that halt
+// stopped. offloadHaltOwner is deterministic, so this caller can name a halt its own
+// instance never placed. No-op when the shard is not loaded or holds no offload
+// halt, so a routine tenant activation pays one mutex acquisition and no rescan.
+func (i *Index) resumeOffloadHaltAfterAbortedFreeze(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	resumer, ok := shard.(offloadHaltResumer)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement offloadHaltResumer", shardName)
+	}
+
+	wasHeld, err := resumer.resumeHaltOwner(ctx, offloadHaltOwner(shardName))
+	if err != nil {
+		return fmt.Errorf("resume offload halt on shard %q: %w", shardName, err)
+	}
+	if !wasHeld {
+		return nil
+	}
+
+	return i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard)
+}
+
+// rebuildAsyncReplicationAfterOffloadHalt restores shardName's async replication
+// after an offloading halt stopped it. Only a full scan can restore it: the halt
+// nils the hashtree and deliberately persists no snapshot, so there is nothing to
+// reload. The rebuild runs even when a co-resident backup or replica halt still
+// holds the shard (the maintenance resume returns early there): deferring it
+// would leave async replication stopped with no later trigger.
+func (i *Index) rebuildAsyncReplicationAfterOffloadHalt(ctx context.Context, shardName string, shard ShardLike) error {
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
 	i.replicationConfigLock.Lock()

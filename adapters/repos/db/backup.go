@@ -689,14 +689,21 @@ func (i *Index) ReleaseBackup(ctx context.Context, op backup.Op) error {
 		i.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 
-	// 2. Release non-hardlink backup protections: clear the protection flag and
-	// release the held backupLock.Lock for each protected shard.
+	// 2. Release non-hardlink backup protections: claim the protection flag, and
+	// release the held backupLock.Lock only for the shards this sweep claimed.
+	// Concurrent releases of the same operation are routine — a user abort schedules
+	// both a detached late re-release and an immediate one — and LoadAndDelete makes
+	// exactly one of them the unlocker. A second Unlock of the same RWMutex is a
+	// runtime fatal that no recover can catch.
+	//
+	// No protection can appear under a key between the claim and the unlock: placing
+	// one needs backupLock.Lock(name), which is still held until this sweep releases it.
 	//
 	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
-		name := key.(string)
-		i.backupLock.Unlock(name)
-		i.backupProtectedShards.Delete(key)
+		if _, loaded := i.backupProtectedShards.LoadAndDelete(key); loaded {
+			i.backupLock.Unlock(key.(string))
+		}
 		return true
 	})
 
