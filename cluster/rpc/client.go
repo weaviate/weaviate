@@ -328,6 +328,8 @@ func fromRPCError(err error) error {
 			// raft.ErrNotLeader shares types.ErrNotLeader's message and matches
 			// the first arm; ErrLeadershipLost has its own wording.
 			return errors.Join(err, types.ErrNotLeader)
+		case strings.Contains(msg, raft.ErrLeadershipTransferInProgress.Error()):
+			return errors.Join(err, raft.ErrLeadershipTransferInProgress)
 		}
 	case codes.NotFound:
 		switch {

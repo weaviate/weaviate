@@ -18,6 +18,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -390,6 +391,12 @@ func TestToRPCError(t *testing.T) {
 		{
 			name:     "ErrLeaderNotFound maps to NotLeaderRPCCode",
 			err:      types.ErrLeaderNotFound,
+			expected: NotLeaderRPCCode,
+		},
+		{
+			// As codes.Internal the forwarding node would never retry the handover.
+			name:     "raft.ErrLeadershipTransferInProgress maps to NotLeaderRPCCode",
+			err:      raft.ErrLeadershipTransferInProgress,
 			expected: NotLeaderRPCCode,
 		},
 		{

@@ -16,7 +16,17 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/weaviate/weaviate/cluster/types"
 )
+
+// applyBackoff retries leadership churn — the next pass re-resolves the leader,
+// which the gRPC policy can't do; it re-sends to the node that stepped down.
+func applyBackoff(err error) error {
+	if types.IsNoLeader(err) {
+		return err
+	}
+	return backoff.Permanent(err)
+}
 
 // backoffConfig creates a backoff configuration based on the election timeout.
 // The initial interval is set to 1/20th of the election timeout, and the max interval
