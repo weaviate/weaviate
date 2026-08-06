@@ -41,7 +41,8 @@ func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 		ReindexSubmitLocks: locks,
 		Logger:             logger,
 		ServerConfig: &config.WeaviateConfig{Config: config.Config{
-			Namespaces: config.Namespaces{Enabled: true},
+			Namespaces:            config.Namespaces{Enabled: true},
+			RuntimeReindexEnabled: true,
 		}},
 		// SchemaManager left nil: the correctly-keyed handler blocks before the
 		// class read; the buggy path reaches it and panics, which the goroutine recovers.

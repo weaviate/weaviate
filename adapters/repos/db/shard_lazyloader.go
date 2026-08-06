@@ -827,9 +827,10 @@ func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	return l.shard.preventShutdown()
 }
 
+// HashTreeLevel maps unloaded to ErrAsyncReplicationNotActive; an empty level would read as convergence.
 func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
 	if !l.isLoaded() {
-		return []hashtree.Digest{}, nil
+		return nil, errAsyncReplicationNotActive
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }

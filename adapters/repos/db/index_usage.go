@@ -300,7 +300,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		return nil, err
 	}
 
-	vectorStorageSize, uncompressedVectorSize, err := shard.VectorStorageSize(ctx, lsmPath, directories)
+	vectorStorageSize, uncompressedVectorSize, dimensionalities, err := shard.VectorStorageUsage(ctx, lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
@@ -327,9 +327,20 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		IndexStorageBytes:     indexUsage,                                                                 // lsm property folders and dimensions folder
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
 	}
-	// Get vector usage for each named vector
+	shardUsage.NamedVectors, err = i.vectorUsages(ctx, shard, dimensionalities)
+	if err != nil {
+		return nil, err
+	}
+	return shardUsage, nil
+}
+
+// vectorUsages builds the usage entry of every vector index of a loaded shard.
+// dimensionalities holds what [Shard.VectorStorageUsage] already read from the
+// dimensions bucket; a target vector missing from it is read on demand.
+func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities map[string]types.Dimensionality) (types.VectorsUsage, error) {
 	vectorConfigs := i.GetVectorIndexConfigs()
-	if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
+	var usages types.VectorsUsage
+	if err := shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
 		var vectorIndexConfig schemaConfig.VectorIndexConfig
 		if vecCfg, exists := vectorConfigs[targetVector]; exists {
 			vectorIndexConfig = vecCfg
@@ -350,9 +361,14 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		}
 		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
-		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
-		if err != nil {
-			return err
+		dimensionality, ok := dimensionalities[targetVector]
+		if !ok {
+			// a target vector added since VectorStorageUsage ran would report no dimensionality
+			var err error
+			dimensionality, err = shard.DimensionsUsage(ctx, targetVector)
+			if err != nil {
+				return err
+			}
 		}
 
 		compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions)
@@ -375,13 +391,13 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			})
 		}
 
-		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+		usages = append(usages, vectorUsage)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	sort.Sort(shardUsage.NamedVectors)
-	return shardUsage, nil
+	sort.Sort(usages)
+	return usages, nil
 }
 
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
