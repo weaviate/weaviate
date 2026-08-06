@@ -156,6 +156,34 @@ func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
 	}
 }
 
+// The kill switch does not stop a cancel: an operator who turns the feature off
+// still has to be able to stop a migration that was already running. That cancel
+// closes this node's cleanup gate, which is the second input of the per-shard
+// backup gate. So the flag check has to cover that input too. Covering only the
+// activity lookup would mean every flag-off cancel refuses this node's backups
+// for the length of its teardown, through a gate the flag is meant to have
+// turned off. Sibling of the restore-side pin below.
+func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
+	var activityBuilds, cleanupBuilds atomic.Int64
+	db := &DB{config: Config{RuntimeReindexDisabled: true}}
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		activityBuilds.Add(1)
+		return func(string, string) bool { return false }
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		cleanupBuilds.Add(1)
+		// What a cancel's teardown leaves behind on this shard.
+		return func(string, string) ReindexHold { return ReindexHoldCleanup }
+	})
+
+	require.False(t, db.AnyLiveReindexForShard("Movies", "shard1"),
+		"with the feature off a cancel's cleanup hold must not refuse this node's backup")
+	require.Zero(t, cleanupBuilds.Load(),
+		"the flag check must precede the cleanup lookup, or the gate is only half disabled")
+	require.Zero(t, activityBuilds.Load(),
+		"the backup path must make no reindex lookup while the feature is off")
+}
+
 // The flag check has to sit ABOVE the node-local cleanup lookup, not just
 // somewhere in the function. Below it, a node holding a cleanup or submit hold
 // refuses restores with the feature off — the gate is then only half disabled,

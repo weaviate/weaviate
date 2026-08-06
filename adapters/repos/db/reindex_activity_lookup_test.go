@@ -557,17 +557,17 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 			leaked:  []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
 			wantMsg: "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried; " +
 				"retry once it is reachable",
-			why:     "an unanswerable question is not an all-clear",
+			why: "an unanswerable question is not an all-clear",
 		},
 		{
 			name: "collection unrecoverable, live",
 			task: func(*testing.T) *distributedtask.Task {
 				return unreadableTask(distributedtask.TaskStatusStarted, time.Time{})
 			},
-			leaked:  []string{"not json", "invalid character"},
+			leaked: []string{"not json", "invalid character"},
 			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable; " +
 				"retry once every node runs the same server version, and report this to Weaviate if it persists",
-			why:     "nothing identifies what this task touches, so no collection can be declared clean",
+			why: "nothing identifies what this task touches, so no collection can be declared clean",
 		},
 		{
 			name: "collection unrecoverable, but finished before the backup started",
