@@ -51,9 +51,9 @@ func TestLevelValidation(t *testing.T) {
 		require.ErrorIs(t, err, ErrIllegalArguments)
 	})
 
-	t.Run("output buffer too small", func(t *testing.T) {
+	t.Run("output buffer smaller than set count", func(t *testing.T) {
 		small := make([]Digest, 4)
-		_, err := ht.Level(3, NewBitset(8), small)
+		_, err := ht.Level(3, NewBitset(8).SetAll(), small)
 		require.ErrorIs(t, err, ErrIllegalArguments)
 	})
 }
@@ -273,4 +273,118 @@ func marshalledSize(t *testing.T, b *Bitset) int {
 	buf, err := b.Marshal()
 	require.NoError(t, err)
 	return len(buf)
+}
+
+func TestLevelSetCountSizedBuffer(t *testing.T) {
+	testCases := []struct {
+		name    string
+		newTree func(t *testing.T) AggregatedHashTree
+	}{
+		{"HashTree", func(t *testing.T) AggregatedHashTree {
+			ht, err := NewHashTree(4)
+			require.NoError(t, err)
+			return ht
+		}},
+		{"CompactHashTree", func(t *testing.T) AggregatedHashTree {
+			ht, err := NewCompactHashTree(1024, 4)
+			require.NoError(t, err)
+			return ht
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ht := tc.newTree(t)
+			for i := uint64(0); i < 16; i++ {
+				require.NoError(t, ht.AggregateLeafWith(i, []byte{byte(i)}))
+			}
+
+			discriminant := NewBitset(nodesAtLevel(2)).Set(1).Set(3)
+
+			full := make([]Digest, nodesAtLevel(2))
+			nFull, err := ht.Level(2, discriminant, full)
+			require.NoError(t, err)
+			require.Equal(t, 2, nFull)
+
+			exact := make([]Digest, discriminant.SetCount())
+			nExact, err := ht.Level(2, discriminant, exact)
+			require.NoError(t, err)
+			require.Equal(t, nFull, nExact)
+			assert.Equal(t, full[:nFull], exact[:nExact])
+
+			_, err = ht.Level(2, discriminant, make([]Digest, 1))
+			require.ErrorIs(t, err, ErrIllegalArguments)
+
+			n, err := ht.Level(2, NewBitset(nodesAtLevel(2)), nil)
+			require.NoError(t, err)
+			assert.Equal(t, 0, n)
+		})
+	}
+}
+
+func TestLevelResponseEquivalentAcrossBufferSizing(t *testing.T) {
+	height := 6
+	ht, err := NewHashTree(height)
+	require.NoError(t, err)
+	for i := uint64(0); i < uint64(LeavesCount(height)); i++ {
+		require.NoError(t, ht.AggregateLeafWith(i, []byte{byte(i), byte(i >> 3)}))
+	}
+
+	discriminants := func(level int) []*Bitset {
+		width := nodesAtLevel(level)
+		root := NewBitset(width).Set(0)
+		sparse := NewBitset(width)
+		for i := 0; i < width; i += 3 {
+			sparse.Set(i)
+		}
+		return []*Bitset{root, sparse, NewBitset(width).SetAll(), NewBitset(width)}
+	}
+
+	for level := 0; level <= height; level++ {
+		for di, disc := range discriminants(level) {
+			fullWidth := make([]Digest, nodesAtLevel(level))
+			nOld, err := ht.Level(level, disc, fullWidth)
+			require.NoError(t, err, "level %d disc %d", level, di)
+
+			setCountSized := make([]Digest, disc.SetCount())
+			nNew, err := ht.Level(level, disc, setCountSized)
+			require.NoError(t, err, "level %d disc %d", level, di)
+
+			require.Equal(t, nOld, nNew, "level %d disc %d", level, di)
+			require.Equal(t, fullWidth[:nOld], setCountSized[:nNew], "level %d disc %d", level, di)
+		}
+	}
+}
+
+func TestLevelRejectsUnderstatedSetCount(t *testing.T) {
+	ht, err := NewHashTree(3)
+	require.NoError(t, err)
+
+	disc := NewBitset(nodesAtLevel(2)).Set(0).Set(1).Set(2)
+	disc.setCount = 1
+
+	_, err = ht.Level(2, disc, make([]Digest, 1))
+	require.ErrorIs(t, err, ErrIllegalArguments)
+}
+
+func TestLevelDiffRejectsUnderstatedSetCount(t *testing.T) {
+	disc := NewBitset(nodesAtLevel(2)).Set(0).Set(1).Set(2)
+	disc.setCount = 1
+
+	_, _, err := LevelDiff(2, 4, disc, make([]Digest, 1), make([]Digest, 1))
+	require.ErrorIs(t, err, ErrIllegalArguments)
+}
+
+func TestSizeDigests(t *testing.T) {
+	buf := SizeDigests(nil, 3)
+	require.Len(t, buf, 3)
+
+	grown := SizeDigests(buf, 5)
+	require.Len(t, grown, 5)
+
+	shrunk := SizeDigests(grown, 2)
+	require.Len(t, shrunk, 2)
+	require.Equal(t, 5, cap(shrunk))
+
+	require.Empty(t, SizeDigests(nil, 0))
 }

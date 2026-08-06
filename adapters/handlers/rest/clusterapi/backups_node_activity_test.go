@@ -63,8 +63,8 @@ func (fakeBackupSchema) ClassEqual(name string) string { return name }
 
 type fakeSnapshotter struct{}
 
-func (fakeSnapshotter) Snapshot() ([]byte, error) { return nil, nil }
-func (fakeSnapshotter) Restore([]byte) error      { return nil }
+func (fakeSnapshotter) Snapshot(...string) ([]byte, error) { return nil, nil }
+func (fakeSnapshotter) Restore([]byte, bool) error         { return nil }
 
 type fakeDynUserSnapshotter struct{}
 

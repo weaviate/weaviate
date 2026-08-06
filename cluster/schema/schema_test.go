@@ -174,7 +174,7 @@ func Test_schemaShardMetrics(t *testing.T) {
 	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
 		Tenants:      []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
 		ClusterNodes: []string{"testNode"},
-	}, fsm)
+	}, fsm, map[string]string{})
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("UNFREEZING")))
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
@@ -246,13 +246,13 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm))
+		}, fsm, map[string]string{}))
 
 		// HOT request while FREEZING must be rejected
 		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm)
+		}, fsm, map[string]string{})
 		require.ErrorIs(t, err, ErrTenantTransitionalState)
 	})
 
@@ -266,12 +266,12 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm))
+		}, fsm, map[string]string{}))
 
 		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "COLD"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm)
+		}, fsm, map[string]string{})
 		require.ErrorIs(t, err, ErrTenantTransitionalState)
 	})
 
@@ -285,13 +285,13 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm))
+		}, fsm, map[string]string{}))
 
 		// Second FROZEN request while already FREEZING must succeed (idempotent)
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm))
+		}, fsm, map[string]string{}))
 	})
 
 	t.Run("UNFREEZING rejects conflicting status", func(t *testing.T) {
@@ -305,13 +305,13 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm))
+		}, fsm, map[string]string{}))
 
 		// COLD request while UNFREEZING-to-HOT must be rejected
 		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "COLD"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm)
+		}, fsm, map[string]string{})
 		require.ErrorIs(t, err, ErrTenantTransitionalState)
 	})
 }
@@ -353,7 +353,7 @@ func Test_UpdateTenants_MovementRejection(t *testing.T) {
 		return s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: status}},
 			ClusterNodes: []string{nodeID},
-		}, fsm)
+		}, fsm, map[string]string{})
 	}
 
 	t.Run("HOT→COLD blocked during movement", func(t *testing.T) {
@@ -408,7 +408,7 @@ func Test_UpdateTenants_MovementRejection(t *testing.T) {
 		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: "tenant1", Status: "COLD"}, {Name: "tenant2", Status: "COLD"}},
 			ClusterNodes: []string{nodeID},
-		}, fsm)
+		}, fsm, map[string]string{})
 		require.ErrorIs(t, err, ErrReplicaMovementInProgress)
 		// tenant1 blocked (stays HOT), tenant2 applied (COLD).
 		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")), "blocked tenant1 stays HOT")
@@ -421,6 +421,126 @@ func Test_UpdateTenants_MovementRejection(t *testing.T) {
 			err := update(s, "COLD", movementFSM(t, true))
 			require.ErrorIs(t, err, ErrReplicaMovementInProgress, "must block on %s", node)
 		}
+	})
+}
+
+// Test_UpdateTenants_RecordsPreFreezeStatus verifies that starting a freeze records the
+// status the tenant held beforehand. The node reports that status back when a freeze
+// aborts, so a wrong or missing entry silently deactivates a tenant that was HOT.
+func Test_UpdateTenants_RecordsPreFreezeStatus(t *testing.T) {
+	const (
+		nodeID    = "testNode"
+		className = "TestClass"
+	)
+	setup := func(t *testing.T, existing []*api.Tenant) *schema {
+		t.Helper()
+		s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+		require.NoError(t, s.addClass(&models.Class{
+			Class:              className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		}, &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      existing,
+		}))
+		return s
+	}
+	newFSM := func(t *testing.T) replicationFSM {
+		t.Helper()
+		fsm := NewMockreplicationFSM(t)
+		fsm.On("HasActiveReplicationForShard", mock.Anything, mock.Anything).Return(false).Maybe()
+		return fsm
+	}
+	update := func(s *schema, tenants []*api.Tenant, recorded map[string]string, fsm replicationFSM) error {
+		return s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      tenants,
+			ClusterNodes: []string{nodeID},
+		}, fsm, recorded)
+	}
+
+	cases := []struct {
+		name     string
+		existing []*api.Tenant
+		update   []*api.Tenant
+		want     map[string]string
+		wantErr  error
+	}{
+		{
+			name:     "HOT tenant freezing records HOT",
+			existing: []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+			update:   []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusFROZEN}},
+			want:     map[string]string{"t1": models.TenantActivityStatusHOT},
+		},
+		{
+			name:     "COLD tenant freezing records COLD",
+			existing: []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusCOLD}},
+			update:   []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusFROZEN}},
+			want:     map[string]string{"t1": models.TenantActivityStatusCOLD},
+		},
+		{
+			name:     "unset status normalizes to HOT",
+			existing: []*api.Tenant{{Name: "t1", Status: ""}},
+			update:   []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusFROZEN}},
+			want:     map[string]string{"t1": models.TenantActivityStatusHOT},
+		},
+		{
+			name:     "non-freeze update records nothing",
+			existing: []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+			update:   []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusCOLD}},
+			want:     map[string]string{},
+		},
+		{
+			name: "batch records only the freezing tenants",
+			existing: []*api.Tenant{
+				{Name: "t1", Status: models.TenantActivityStatusCOLD},
+				{Name: "t2", Status: models.TenantActivityStatusHOT},
+				{Name: "t3", Status: models.TenantActivityStatusHOT},
+			},
+			update: []*api.Tenant{
+				{Name: "t1", Status: models.TenantActivityStatusFROZEN},
+				{Name: "t2", Status: models.TenantActivityStatusCOLD},
+				{Name: "t3", Status: models.TenantActivityStatusFROZEN},
+			},
+			want: map[string]string{
+				"t1": models.TenantActivityStatusCOLD,
+				"t3": models.TenantActivityStatusHOT,
+			},
+		},
+		{
+			name:     "unknown tenant records nothing",
+			existing: []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+			update:   []*api.Tenant{{Name: "absent", Status: models.TenantActivityStatusFROZEN}},
+			want:     map[string]string{},
+			wantErr:  ErrShardNotFound,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := setup(t, tc.existing)
+			recorded := map[string]string{}
+
+			err := update(s, tc.update, recorded, newFSM(t))
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.want, recorded)
+		})
+	}
+
+	t.Run("an already FREEZING tenant records nothing again", func(t *testing.T) {
+		s := setup(t, []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}})
+		fsm := newFSM(t)
+		require.NoError(t, update(s, []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusFROZEN}},
+			map[string]string{}, fsm))
+
+		recorded := map[string]string{}
+		require.NoError(t, update(s, []*api.Tenant{{Name: "t1", Status: models.TenantActivityStatusFROZEN}},
+			recorded, fsm))
+		require.Empty(t, recorded)
 	})
 }
 

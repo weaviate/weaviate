@@ -54,7 +54,7 @@ func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testin
 
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, store, backupID, setStatus, logger)
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
 
 	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
 	err := uploader.all(context.Background(), nil, &desc, nil, "", "")
@@ -107,7 +107,7 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, store, backupID, setStatus, logger)
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
 
 	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
 	err := uploader.all(ctx, nil, &desc, nil, "", "")
@@ -140,7 +140,7 @@ func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.
 
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, store, backupID,
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID,
 		func(backup.Status) {}, logger)
 
 	// Far enough back that "now" cannot be mistaken for it.

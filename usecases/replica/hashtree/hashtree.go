@@ -213,7 +213,8 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 			ErrIllegalArguments, discriminant.Size(), expectedSize, level)
 	}
 
-	if len(digests) < expectedSize {
+	// one digest is written per set bit, so SetCount() capacity suffices (see LevelDiff)
+	if len(digests) < discriminant.SetCount() {
 		return 0, fmt.Errorf("%w: output buffer has not enough capacity", ErrIllegalArguments)
 	}
 
@@ -223,6 +224,10 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 
 	for i := 0; i < expectedSize; i++ {
 		if discriminant.IsSet(i) {
+			// bound writes even if the cached set count understates the bits
+			if n == len(digests) {
+				return 0, fmt.Errorf("%w: discriminant set count understates its set bits", ErrIllegalArguments)
+			}
 			digests[n] = ht.nodes[offset+i]
 			n++
 		}

@@ -65,6 +65,9 @@ func TestStoreApply(t *testing.T) {
 		PartitioningEnabled: true, // multi-tenant collection
 	}
 
+	// captured by UpdateTenant/FreezeHandsPreFreezeStatusToTheDB
+	var preFreezeStatusesSeenByDB map[string]string
+
 	tests := []struct {
 		name     string
 		req      raft.Log
@@ -466,7 +469,7 @@ func TestStoreApply(t *testing.T) {
 				})
 				// ErrShardNotFound (partial success), so the DB layer is invoked with the
 				// filtered (empty) tenant list before the schema error is propagated.
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error { return nil },
 		},
@@ -489,7 +492,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(true)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -525,7 +528,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(false)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -570,7 +573,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				m.replicationFSM.EXPECT().HasActiveReplicationForShard(Anything, Anything).Return(false)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -592,6 +595,49 @@ func TestStoreApply(t *testing.T) {
 				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
+				}
+				return nil
+			},
+		},
+		{
+			// The DB reports the pre-freeze status back if the freeze aborts, so the
+			// schema update must hand the DB update what it recorded.
+			name: "UpdateTenant/FreezeHandsPreFreezeStatusToTheDB",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
+					{Name: "T1", Status: models.TenantActivityStatusFROZEN},
+					{Name: "T2", Status: models.TenantActivityStatusFROZEN},
+				}})},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"THIS"},
+					Status:         models.TenantActivityStatusHOT,
+				}, "T2": {
+					Name:           "T2",
+					BelongsToNodes: []string{"THIS"},
+					Status:         models.TenantActivityStatusCOLD,
+				}}, PartitioningEnabled: true}
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+				preFreezeStatusesSeenByDB = nil
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).
+					Run(func(args mock.Arguments) {
+						preFreezeStatusesSeenByDB = args.Get(2).(map[string]string)
+					}).Return(nil)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard(Anything, Anything).Return(false)
+			},
+			doAfter: func(ms *MockStore) error {
+				want := map[string]string{
+					"T1": models.TenantActivityStatusHOT,
+					"T2": models.TenantActivityStatusCOLD,
+				}
+				if !reflect.DeepEqual(preFreezeStatusesSeenByDB, want) {
+					return fmt.Errorf("pre-freeze statuses want: %v got: %v", want, preFreezeStatusesSeenByDB)
 				}
 				return nil
 			},
@@ -1474,7 +1520,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
 
-	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
 	ms.store = &s
 	return ms

@@ -211,7 +211,7 @@ func Test_Authorization(t *testing.T) {
 					gate.Maybe()
 				}
 
-				s := NewScheduler(authorizer, nil, selector, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, logger)
+				s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, logger)
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {

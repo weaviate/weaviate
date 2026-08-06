@@ -22,7 +22,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -157,11 +156,19 @@ type NodeResolver interface {
 	LeaderID() string
 }
 
-// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM,
-// deliberately separate from fsm.Snapshotter (RAFT log compaction): the
-// variadic filter only makes sense for backups.
+// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM. The variadic
+// Snapshot filters to a user subset for backups; zero args is the full snapshot.
 type dynUserSnapshotter interface {
 	Snapshot(userIDs ...string) ([]byte, error)
+	Restore(snapshot []byte, stripNamespaces bool) error
+}
+
+// RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
+// Snapshot filters to a role subset for backups; zero args is the full snapshot.
+// It is exported so the wiring can hold one as a genuinely nil interface when
+// RBAC is off, rather than boxing a nil *rbac.Manager into a non-nil interface.
+type RBACSnapshotter interface {
+	Snapshot(roles ...string) ([]byte, error)
 	Restore(snapshot []byte, stripNamespaces bool) error
 }
 
@@ -192,7 +199,7 @@ func NewHandler(
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-	rbacSourcer fsm.Snapshotter,
+	rbacSourcer RBACSnapshotter,
 	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
 	node := schema.NodeName()
@@ -241,6 +248,10 @@ type BackupRequest struct {
 	// Non-empty switches the backup to a filtered dynamic-user snapshot.
 	// Empty keeps the whole-cluster snapshot. Same '*'/'?' wildcards as Include.
 	IncludeUsers []string
+
+	// Non-empty filters the RBAC snapshot to the matching roles. Empty keeps the
+	// whole-cluster snapshot. Same '*'/'?' wildcards as Include; built-ins rejected.
+	IncludeRoles []string
 
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
