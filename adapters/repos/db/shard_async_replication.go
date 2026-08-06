@@ -642,12 +642,13 @@ func (s *Shard) removePersistedHashtree() error {
 // It never falls back to an older tree; an unremovable .ht fails the load, an unremovable .tmp only warns.
 func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.AggregatedHashTree, error) {
 	dir := s.pathHashTree()
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return nil, err
-	}
-
+	// Never create the dir here (the dump path does): an enable racing a drop
+	// must not resurrect it after drop renamed the shard directory away.
 	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
@@ -986,8 +987,8 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		return fmt.Errorf("async replication scheduler is nil for index %q", s.index.ID())
 	}
 
-	// A shut shard must not consume the shutdown .ht or register a zombie tree.
-	if s.shut.Load() {
+	// A shut or dropped shard must not consume the shutdown .ht or register a zombie tree.
+	if s.shutOrDropped() {
 		return nil
 	}
 
@@ -1011,7 +1012,7 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		}
 		// Hashtree was nil-ed between the RLock check and write lock acquisition.
 		// Fall through to a fresh init without a cached tree.
-		if s.shut.Load() {
+		if s.shutOrDropped() {
 			return nil
 		}
 		return s.initAsyncReplication(config, nil)
@@ -1040,8 +1041,8 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		s.asyncReplicationConfig = config
 		return nil
 	}
-	if s.shut.Load() {
-		// cached (already consumed) is dropped; the shard is shut, so next boot rescans.
+	if s.shutOrDropped() {
+		// cached (already consumed) is discarded; the shard is shut or dropped, so next boot rescans.
 		return nil
 	}
 	return s.initAsyncReplication(config, cached)
@@ -1064,8 +1065,8 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 // asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
 // Wait) when a happens-before with in-flight cycles is required.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
-	// A shut shard's .ht is legitimate; a config apply racing shutdown must not scrub it.
-	if s.shut.Load() {
+	// A shut shard's .ht is legitimate and a dropped shard's dir is renamed away; a config apply racing teardown must not scrub or recreate anything.
+	if s.shutOrDropped() {
 		return nil
 	}
 
@@ -1097,8 +1098,8 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		s.asyncReplicationStatsMux.Unlock()
 	}
 
-	// Re-check post-mux: a shutdown that won the mux ordering owns the snapshot.
-	if s.shut.Load() {
+	// Re-check post-mux: a shutdown that won the mux ordering owns the snapshot; a drop left nothing behind.
+	if s.shutOrDropped() {
 		return nil
 	}
 
@@ -1116,8 +1117,8 @@ func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled 
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
 
-		// A shut shard's .ht must survive: scrub and install nothing (same in-lock ordering as enable's shut checks).
-		if s.shut.Load() {
+		// A shut shard's .ht must survive and a dropped shard's dir is gone: scrub and install nothing (same in-lock ordering as enable's shut checks).
+		if s.shutOrDropped() {
 			return nil
 		}
 

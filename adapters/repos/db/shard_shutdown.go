@@ -199,6 +199,13 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
 
+// shutOrDropped reports shard teardown: drop() cancels shutCtx as its first
+// statement but never sets shut, so both signals must be checked. A nil
+// shutCtx (bare test fixtures) reads as not dropped.
+func (s *Shard) shutOrDropped() bool {
+	return s.shut.Load() || (s.shutCtx != nil && s.shutCtx.Err() != nil)
+}
+
 func (s *Shard) preventShutdown() (release func(), err error) {
 	if s.shutdownRequested.Load() {
 		return func() {}, errShutdownInProgress

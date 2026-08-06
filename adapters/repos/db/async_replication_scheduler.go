@@ -1576,10 +1576,12 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool) {
 	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
 	// across store teardown): enable either finishes before shutdown or is skipped.
+	// drop() never takes shutdownLock, so this check is best-effort for drop —
+	// the decisive guards are the in-mux ones inside disable/enable.
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
 
-	if s.shut.Load() {
+	if s.shutOrDropped() {
 		return false
 	}
 
@@ -1626,8 +1628,8 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	s.asyncRepRebuildFailures.Store(0)
 	s.asyncRepRebuildBackoffUntil.Store(0)
 
-	// Close() during enable registered against a cancelled scheduler — disable to clean up (s.shut cannot flip: shutdownLock.RLock held throughout).
-	if sched.ctx.Err() != nil || s.shut.Load() {
+	// Close() during enable registered against a cancelled scheduler, or a drop raced the enable — disable to clean up (shutdownLock.RLock blocks shutdown but not drop).
+	if sched.ctx.Err() != nil || s.shutOrDropped() {
 		if err := s.disableAsyncReplication(sched.ctx); err != nil {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
 		}

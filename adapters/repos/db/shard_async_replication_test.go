@@ -1176,10 +1176,13 @@ func TestPropagateObjects(t *testing.T) {
 
 // ─── Shutdown hashtree persistence ───────────────────────────────────────────
 
-// htFilesInDir returns all .ht files found directly inside dir.
+// htFilesInDir returns all .ht files found directly inside dir; a missing dir counts as empty.
 func htFilesInDir(t *testing.T, dir string) []os.DirEntry {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	require.NoError(t, err)
 	var ht []os.DirEntry
 	for _, e := range entries {
@@ -2140,6 +2143,7 @@ func TestDisableAsyncReplicationScrubsPersistedHashtree(t *testing.T) {
 	awaitHashtreeInitialized(t, s)
 
 	dir := s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
 	stray := filepath.Join(dir, "hashtree-00000000000000aa.ht")
 	require.NoError(t, os.WriteFile(stray, []byte("stale snapshot"), 0o600))
 	require.NotEmpty(t, htFilesInDir(t, dir), "pre-condition: a stray .ht is present")
@@ -2236,6 +2240,7 @@ func TestDisableAsyncReplicationScrubsWhenAlreadyStopped(t *testing.T) {
 
 	s.mayStopAsyncReplication(false)
 
+	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
 	stray := filepath.Join(s.pathHashTree(), "hashtree-00000000000000aa.ht")
 	require.NoError(t, os.WriteFile(stray, []byte("stale snapshot"), 0o600))
 
@@ -2254,6 +2259,7 @@ func TestDisableAsyncReplicationPropagatesScrubError(t *testing.T) {
 	enableAndAwaitAsync(t, ctx, s)
 
 	dir := s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashtree-00000000000000aa.ht"), []byte("stale snapshot"), 0o600))
 	require.NoError(t, os.Chmod(dir, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
@@ -2309,6 +2315,7 @@ func TestRebuildHashtreeRetriesAfterFailure(t *testing.T) {
 	enableAndAwaitAsync(t, ctx, s)
 
 	dir := s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashtree-00000000000000aa.ht"), []byte("stale snapshot"), 0o600))
 	require.NoError(t, os.Chmod(dir, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
@@ -2417,6 +2424,117 @@ func TestEnableAsyncReplicationShutObservedUnderLock(t *testing.T) {
 		tree := s.hashtree
 		s.asyncReplicationRWMux.RUnlock()
 		require.Nil(t, tree, "no tree may be installed once shut is set")
+
+		// Consumed ⇒ the entry guard passed ⇒ the in-lock check did the skip.
+		if len(htFilesInDir(t, dir)) == 0 {
+			return
+		}
+	}
+	t.Fatal("enable never reached the in-lock check across attempts")
+}
+
+// TestEnableAsyncReplicationSkipsDroppedShard: enable on a dropped shard is a no-op — no snapshot consumed, no tree, no registration, nothing resurrected.
+func TestEnableAsyncReplicationSkipsDroppedShard(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("keepFiles drop leaves planted snapshot", func(t *testing.T) {
+		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardKeep", withAsyncScheduler(t))
+		s := concreteShard(t, sl)
+
+		dir := s.pathHashTree()
+		require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+		stray := filepath.Join(dir, "hashtree-00000000000000aa.ht")
+		require.NoError(t, os.WriteFile(stray, []byte("snapshot"), 0o600))
+
+		require.NoError(t, s.drop(true))
+
+		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+		s.asyncReplicationRWMux.RLock()
+		require.Nil(t, s.hashtree)
+		s.asyncReplicationRWMux.RUnlock()
+		require.Len(t, htFilesInDir(t, dir), 1, "skip must not consume the snapshot")
+
+		sched := s.index.asyncReplicationScheduler
+		require.Never(t, func() bool {
+			sched.mu.Lock()
+			defer sched.mu.Unlock()
+			_, registered := sched.entries[s]
+			return registered
+		}, 300*time.Millisecond, 25*time.Millisecond, "a dropped shard must never register with the scheduler")
+	})
+
+	t.Run("full drop resurrects nothing", func(t *testing.T) {
+		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardFull", withAsyncScheduler(t))
+		s := concreteShard(t, sl)
+
+		require.NoError(t, s.drop(false))
+
+		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+		s.asyncReplicationRWMux.RLock()
+		require.Nil(t, s.hashtree)
+		s.asyncReplicationRWMux.RUnlock()
+		_, err := os.Stat(s.path())
+		require.True(t, os.IsNotExist(err), "enable must not resurrect the dropped shard directory")
+	})
+}
+
+// TestRebuildFromScratchSkipsDroppedShard: a rebuild racing a tenant delete must install nothing and resurrect nothing.
+func TestRebuildFromScratchSkipsDroppedShard(t *testing.T) {
+	ctx := context.Background()
+	sl, _ := testShard(t, ctx, "RebuildFromScratchDroppedShardTest", withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	enableAndAwaitAsync(t, ctx, s)
+
+	require.NoError(t, s.drop(false))
+
+	require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, true, minAsyncReplicationConfig()))
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree, "no tree may be installed on a dropped shard")
+	s.asyncReplicationRWMux.RUnlock()
+	_, err := os.Stat(s.path())
+	require.True(t, os.IsNotExist(err), "rebuild must not resurrect the dropped shard directory")
+}
+
+// TestDisableAsyncReplicationSkipsDroppedShard: a config apply racing a tenant delete must leave the renamed dir alone.
+func TestDisableAsyncReplicationSkipsDroppedShard(t *testing.T) {
+	ctx := context.Background()
+	sl, _ := testShard(t, ctx, "DisableSkipsDroppedShardTest", withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	enableAndAwaitAsync(t, ctx, s)
+
+	require.NoError(t, s.drop(false))
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	_, err := os.Stat(s.path())
+	require.True(t, os.IsNotExist(err), "a late disable must leave the dropped shard directory alone")
+}
+
+// TestEnableAsyncReplicationDropObservedUnderLock: a drop signal fired while enable is parked on the mux must still be observed.
+func TestEnableAsyncReplicationDropObservedUnderLock(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "EnableDropUnderLockTest")
+
+	dir := s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	stale := filepath.Join(dir, "hashtree-00000000000000aa.ht")
+
+	for attempt := 0; attempt < 50; attempt++ {
+		require.NoError(t, os.WriteFile(stale, []byte("junk"), 0o600))
+		// Fresh teardown signal per attempt (test-only; prod never reassigns shutCtx).
+		s.shutCtx, s.shutCtxCancel = context.WithCancelCause(context.Background())
+
+		s.asyncReplicationRWMux.Lock()
+		enableDone := make(chan error, 1)
+		go func() { enableDone <- s.enableAsyncReplication(ctx, minAsyncReplicationConfig()) }()
+		time.Sleep(time.Millisecond)
+		s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
+		s.asyncReplicationRWMux.Unlock()
+		require.NoError(t, <-enableDone)
+
+		s.asyncReplicationRWMux.RLock()
+		tree := s.hashtree
+		s.asyncReplicationRWMux.RUnlock()
+		require.Nil(t, tree, "no tree may be installed once the drop signal fired")
 
 		// Consumed ⇒ the entry guard passed ⇒ the in-lock check did the skip.
 		if len(htFilesInDir(t, dir)) == 0 {

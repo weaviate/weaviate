@@ -46,6 +46,7 @@ func haltForOffloadWithStaleSnapshot(t *testing.T, ctx context.Context, s *Shard
 	s.asyncReplicationRWMux.RUnlock()
 	require.Equal(t, 1, s.haltForTransferCount, "offloading halt must pause maintenance")
 
+	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
 	stale := filepath.Join(s.pathHashTree(), "hashtree-0000000000000001.ht")
 	require.NoError(t, os.WriteFile(stale, payload.Bytes(), 0o600))
 }
