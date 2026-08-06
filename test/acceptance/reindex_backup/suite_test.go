@@ -33,6 +33,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -116,6 +117,111 @@ func TestBackupVsReindexSuite(t *testing.T) {
 	t.Run("CancelClearsTrackerDirsViaOnTaskCompleted", func(t *testing.T) {
 		testCancelClearsTrackerDirsViaOnTaskCompleted(t, ctx, compose, compose.GetWeaviate().URI())
 	})
+
+	t.Run("ReindexRefusedForTheWholeCaptureWindow", func(t *testing.T) {
+		testReindexRefusedForTheWholeCaptureWindow(t, compose.GetWeaviate().URI())
+	})
+}
+
+// testReindexRefusedForTheWholeCaptureWindow submits a reindex over and over
+// for as long as a slow backup is capturing, and asserts every single
+// submission is refused.
+//
+// What this pins is the gap between the two guards. The pre-capture gate is
+// checked once per shard at admission, so on its own it says nothing about a
+// migration starting later; the commit-time overlap check
+// (DB.RefuseIfReindexOverlapped) exists precisely because one could. This test
+// asserts the reason that backstop is not reachable from the API on a
+// single-node cluster: the reindex gate refuses for the whole time the node
+// holds a backup slot, not merely at the instant the backup was created, so no
+// migration can begin inside the window.
+//
+// A 202 here is not a flake. It means a migration just started inside a capture
+// window, which is the exact state the commit-time backstop is there to catch,
+// and the failure prints every probe so the admitting one can be identified.
+func testReindexRefusedForTheWholeCaptureWindow(t *testing.T, restURI string) {
+	const (
+		className = "ReindexBackup_WholeWindowGuard"
+		propName  = "body"
+		backend   = "filesystem"
+		backupID  = "reindex-backup-whole-window"
+	)
+
+	createBodyClass(t, className, propName)
+	defer helper.DeleteClass(t, className)
+
+	// Same corpus the single-node guard tests use, sized so a BestCompression
+	// backup pinned to one CPU stays in flight long enough to probe repeatedly.
+	importBodies(t, className, guardDataset)
+
+	_, err := helper.CreateBackup(t, slowBackupConfig(), className, backend, backupID)
+	require.NoError(t, err, "backup create must be accepted with no reindex in flight")
+
+	statusOf := localBackupStatus(t, backend, backupID)
+	requestBody := `{"searchable":{"tokenization":"whitespace"}}`
+
+	var probes []reindexProbe
+	var statusReads, statusErrors int
+	lastStatus := "(no successful status read)"
+
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.Now().Add(5 * time.Minute)
+
+	for time.Now().Before(deadline) {
+		status, ok := statusOf()
+		statusReads++
+		if !ok {
+			statusErrors++
+			<-ticker.C
+			continue
+		}
+		lastStatus = status
+		if backupTerminal(status) {
+			break
+		}
+
+		resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, propName, requestBody)
+		probes = append(probes, reindexProbe{
+			backupStatus: status,
+			httpStatus:   resp.StatusCode,
+			body:         resp.Body,
+		})
+		if resp.StatusCode == http.StatusAccepted {
+			t.Fatalf("a reindex was ADMITTED while backup %q was %s: a migration has begun inside "+
+				"a capture window, which is the state the commit-time overlap check exists to "+
+				"catch. All probes:\n%s", backupID, status, formatProbes(probes))
+		}
+		<-ticker.C
+	}
+
+	// Without this the whole loop could have been skipped and every assertion
+	// below would hold vacuously.
+	require.GreaterOrEqualf(t, len(probes), 3,
+		"backup %q read as %q after only %d probes (%d status reads, %d failed): the backup has "+
+			"to stay in flight long enough to probe the window repeatedly, otherwise this test "+
+			"proves nothing about the window",
+		backupID, lastStatus, len(probes), statusReads, statusErrors)
+
+	for i, p := range probes {
+		require.Equalf(t, http.StatusConflict, p.httpStatus,
+			"probe %d was answered %d while the backup was %s; the gate must refuse for the whole "+
+				"window, not only at its start. All probes:\n%s",
+			i, p.httpStatus, p.backupStatus, formatProbes(probes))
+	}
+
+	// The refusals must be the backup guard's, not some unrelated 409.
+	message := guardMessage(probes[len(probes)-1].body)
+	require.Contains(t, message, "reindex blocked",
+		"the last refusal must still name the blocking condition; got: %s", message)
+	require.Contains(t, message, "is running in the cluster",
+		"the last refusal must still say what is blocking; got: %s", message)
+
+	require.Equal(t, string(backup.Success), lastStatus,
+		"a backup that no migration overlapped must be published, not failed")
+
+	t.Logf("the reindex gate refused all %d submissions spanning backup %q, which ended %s",
+		len(probes), backupID, lastStatus)
 }
 
 // testBaselineBackupRoundTrip backs up, deletes, and restores a class
