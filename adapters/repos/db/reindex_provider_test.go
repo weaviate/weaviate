@@ -427,6 +427,7 @@ func drainGateProvider(handles map[distributedtask.TaskDescriptor]*reindexTaskHa
 	return &ReindexProvider{
 		cleanupInProgress: make(map[reindexCleanupKey]int),
 		runningHandles:    handles,
+		timings:           defaultReindexTimings(),
 	}
 }
 
@@ -560,7 +561,7 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 		desc: {doneCh: doneCh},
 	})
 	p.serverCtx = context.Background()
-	p.terminalCleanupDrainTimeout = time.Second
+	p.timings.terminalCleanupDrainTimeout = time.Second
 
 	logger, _ := logrustest.NewNullLogger()
 	done := make(chan struct{})
@@ -607,6 +608,7 @@ func TestReleaseCleanupGateOnWorkerExitHoldsUntilTheWorkerIsGone(t *testing.T) {
 			desc: {doneCh: doneCh},
 		},
 		serverCtx: serverCtx,
+		timings:   defaultReindexTimings(),
 	}
 
 	logger, _ := logrustest.NewNullLogger()
@@ -641,6 +643,7 @@ func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 		},
 		// Never cancelled, so the cap is the only way out.
 		serverCtx: context.Background(),
+		timings:   defaultReindexTimings(),
 	}
 
 	logger, _ := logrustest.NewNullLogger()
@@ -648,7 +651,7 @@ func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 		Collection:  "Movies",
 		UnitToShard: map[string]string{"u1": "shard1"},
 	})
-	p.workerExitGateCap = 50 * time.Millisecond
+	p.timings.workerExitGateCap = 50 * time.Millisecond
 	p.ReleaseCleanupGateOnWorkerExit(desc, release, logger)
 
 	require.Eventually(t, func() bool {

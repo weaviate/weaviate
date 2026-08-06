@@ -42,6 +42,7 @@ func lifecycleProvider(t *testing.T, serverCtx context.Context) *ReindexProvider
 		cancelTeardownSettled: make(map[distributedtask.TaskDescriptor]time.Time),
 		runningHandles:        map[distributedtask.TaskDescriptor]*reindexTaskHandle{},
 		serverCtx:             serverCtx,
+		timings:               defaultReindexTimings(),
 		logger:                logger,
 		// An empty local index: the teardown sweeps nothing either way, so the
 		// test stays about the gate lifecycle. Registered rather than absent
@@ -170,7 +171,7 @@ func TestGateRefcountsBalanceOverManyCycles(t *testing.T) {
 	// The window's length is not what is under test; that every raise expires
 	// exactly once is. Waiting out the production window costs 15s per run.
 	const confirmWindow = 200 * time.Millisecond
-	p.cancelConfirmWindow = confirmWindow
+	p.timings.cancelConfirmWindow = confirmWindow
 
 	const cycles = 50
 	for i := range cycles {
