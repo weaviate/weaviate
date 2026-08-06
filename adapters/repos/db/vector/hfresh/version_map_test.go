@@ -206,14 +206,25 @@ func TestVersionMap(t *testing.T) {
 			require.EqualValues(t, i+2, version.Version())
 		}
 
+		// wraparound must skip 0: the in-memory paged array uses 0 as its
+		// "empty slot" sentinel, so a live vector at version 0 would be
+		// indistinguishable from a never-loaded one (and e.g. the warmup
+		// sweep could roll it back to an older persisted version)
 		version, err = versionMap.Increment(ctx, 1, version)
 		require.NoError(t, err)
-		require.EqualValues(t, 0, version.Version())
+		require.EqualValues(t, 1, version.Version())
 
 		version, err = versionMap.Get(ctx, 1)
 		require.NoError(t, err)
-		require.EqualValues(t, 0, version.Version())
+		require.EqualValues(t, 1, version.Version())
 		require.False(t, version.Deleted())
+
+		// no number of increments may ever produce the reserved value 0
+		v := VectorVersion(1)
+		for range 300 {
+			v = v.Increment()
+			require.NotZero(t, v.Version())
+		}
 	})
 
 	t.Run("mark unknown vector as deleted", func(t *testing.T) {
