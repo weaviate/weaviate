@@ -67,16 +67,3 @@ func NestedFilteringEnabled() bool {
 func NestedFilteringDisabledError() error {
 	return fmt.Errorf("filtering on nested properties is a preview feature, disabled by default; set %s=true to enable", EnvNestedFilteringPreview)
 }
-
-// EnvEnableColumnarContains is the env var that opts a server into the resident
-// columnar ContainsAny accelerator: an in-memory key->docID column consulted in
-// place of the per-key roaringset fold. Off by default (POC). The accelerator
-// only serves when a bucket's writes are fully flushed; otherwise resolution
-// falls back to the standard fold, so results are unchanged either way.
-const EnvEnableColumnarContains = "WEAVIATE_ENABLE_COLUMNAR_CONTAINS"
-
-// ColumnarContainsEnabled reports whether the columnar ContainsAny accelerator
-// is opted in for this server.
-func ColumnarContainsEnabled() bool {
-	return Enabled(os.Getenv(EnvEnableColumnarContains))
-}

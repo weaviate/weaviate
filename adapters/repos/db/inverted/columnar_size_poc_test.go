@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 )
 
@@ -28,13 +27,12 @@ func TestColumnarIndexPOC_ResidentSize(t *testing.T) {
 	const n = benchCorpusSize
 
 	numeric := newNumericFixture(t, n)
-	numIdx, err := columnar.BuildFromBucket(numeric.bucket, uint64(numeric.numDocs+1), columnarTestLogger())
-	require.NoError(t, err)
+	numIdx := numeric.bucket.ColumnarContainsIndex()
+	require.NotNil(t, numIdx)
 
 	textF := newContainsFixture(t, n)
-	textBucket := textF.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	textIdx, err := columnar.BuildFromBucket(textBucket, uint64(textF.numDocs+1), columnarTestLogger())
-	require.NoError(t, err)
+	textIdx := textF.bucket.ColumnarContainsIndex()
+	require.NotNil(t, textIdx)
 
 	report := func(name string, idx *columnar.ColumnarIndex) {
 		info := idx.Info()

@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -33,7 +32,7 @@ import (
 
 // POC benchmark for the FIXED-WIDTH columnar key backing. The shared text
 // fixture exercises blobKeyColumn (variable-length); this builds a standalone
-// int64 roaringset corpus so BuildFromBucket selects fixedKeyColumn (8-byte
+// int64 roaringset corpus so the build selects fixedKeyColumn (8-byte
 // LexicographicallySortableInt64 keys) and we can measure the fixed path and
 // compare it against roaringset point lookups on the same numeric data.
 //
@@ -80,6 +79,17 @@ func newNumericFixture(tb testing.TB, numDocs int) *numericFixture {
 		require.NoError(tb, bucket.RoaringSetAddList(key, []uint64{uint64(i)}))
 	}
 	require.NoError(tb, bucket.FlushAndSwitch())
+
+	// Reopen with the index option now that the corpus is in segments — a bucket
+	// builds its index at open, over the segments it has then.
+	require.NoError(tb, store.ShutdownBucket(context.Background(), name))
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), name,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(bufPool),
+		lsmkv.WithColumnarContainsIndex(true),
+		lsmkv.WithMaxIdGetter(func() uint64 { return uint64(numDocs + 1) }),
+	))
+	bucket = store.Bucket(name)
 
 	return &numericFixture{store: store, bucket: bucket, numDocs: numDocs}
 }
@@ -128,8 +138,8 @@ func TestColumnarIndexNumericPOC_Correctness(t *testing.T) {
 	f := newNumericFixture(t, 20_000)
 	ctx := context.Background()
 
-	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), columnarTestLogger())
-	require.NoError(t, err)
+	idx := f.bucket.ColumnarContainsIndex()
+	require.NotNil(t, idx)
 	require.Equal(t, 8, idx.Info().KeyWidth, "int64 corpus must select the fixed 8-byte key backing")
 
 	for _, size := range []int{1, 100, 1_000, 10_000} {
@@ -150,8 +160,8 @@ func BenchmarkColumnarIndexNumericPOC(b *testing.B) {
 	f := newNumericFixture(b, benchCorpusSize)
 	ctx := context.Background()
 
-	idx, err := columnar.BuildFromBucket(f.bucket, uint64(f.numDocs+1), columnarTestLogger())
-	require.NoError(b, err)
+	idx := f.bucket.ColumnarContainsIndex()
+	require.NotNil(b, idx)
 	info := idx.Info()
 	require.Equal(b, 8, info.KeyWidth)
 	b.Logf("numeric columnar index built: %d keys, width=%d", info.Keys, info.KeyWidth)

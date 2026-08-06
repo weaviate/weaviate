@@ -16,7 +16,7 @@ import (
 	"slices"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 // Resolution is the per-query-key working set a ContainsAny resolution is built
@@ -94,7 +94,7 @@ func (r *Resolution) delete(qi int, doc uint64) {
 // sits under another key from vanishing from both. Readers arrive oldest first,
 // so replaying them in order settles a document added by one tier and deleted by
 // a later one as deleted.
-func (r *Resolution) LayerUnflushed(readers []lsmkv.RoaringSetLayerReader, keys [][]byte) error {
+func (r *Resolution) LayerUnflushed(readers []roaringset.LayerReader, keys [][]byte) error {
 	for _, reader := range readers {
 		for i, key := range keys {
 			layer, err := reader.Get(key)

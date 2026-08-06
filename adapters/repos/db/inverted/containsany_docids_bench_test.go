@@ -62,9 +62,21 @@ type containsFixture struct {
 	searcher *Searcher
 	store    *lsmkv.Store
 	numDocs  int
+	bucket   *lsmkv.Bucket
+	bufPool  roaringset.BitmapBufPool
 }
 
 func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
+	return newContainsFixtureOpt(tb, numDocs, true)
+}
+
+// newContainsFixtureNoIndex builds the same corpus without a columnar index, for
+// comparing the two query paths over identical data.
+func newContainsFixtureNoIndex(tb testing.TB, numDocs int) *containsFixture {
+	return newContainsFixtureOpt(tb, numDocs, false)
+}
+
+func newContainsFixtureOpt(tb testing.TB, numDocs int, withIndex bool) *containsFixture {
 	tb.Helper()
 	dir := tb.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -89,7 +101,6 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), bucketName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithBitmapBufPool(bufPool),
-		lsmkv.WithContainsAcceleratorFactory(columnarTestFactory(numDocs)),
 	))
 	bucket := store.Bucket(bucketName)
 
@@ -149,7 +160,38 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
 		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
 
-	return &containsFixture{searcher: searcher, store: store, numDocs: numDocs}
+	f := &containsFixture{
+		searcher: searcher, store: store, numDocs: numDocs,
+		bucket: bucket, bufPool: bufPool,
+	}
+	if withIndex {
+		// The corpus is in segments now, so reopening builds the index over all of
+		// it — the same path a restart takes.
+		f.reopenBucket(tb, true)
+	}
+	return f
+}
+
+// reopenBucket closes the value bucket and opens it again, optionally asking for
+// a columnar ContainsAny index. Opening is where that index is built, so this is
+// also how the load-time build cost is measured.
+func (f *containsFixture) reopenBucket(tb testing.TB, withIndex bool) {
+	tb.Helper()
+	ctx := context.Background()
+	name := helpers.BucketFromPropNameLSM(benchPropName)
+
+	require.NoError(tb, f.store.ShutdownBucket(ctx, name))
+	opts := []lsmkv.BucketOption{
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(f.bufPool),
+	}
+	if withIndex {
+		opts = append(opts,
+			lsmkv.WithColumnarContainsIndex(true),
+			lsmkv.WithMaxIdGetter(func() uint64 { return uint64(f.numDocs + 1) }))
+	}
+	require.NoError(tb, f.store.CreateOrLoadBucket(ctx, name, opts...))
+	f.bucket = f.store.Bucket(name)
 }
 
 func benchValue(i int) string { return fmt.Sprintf("val_%08d", i) }

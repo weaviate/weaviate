@@ -40,6 +40,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -91,14 +92,11 @@ type Bucket struct {
 	disk           *SegmentGroup
 	logger         logrus.FieldLogger
 
-	// containsAcc is an optional resident ContainsAny accelerator (a columnar
-	// index), built at open by containsAccFactory and kept live via the flush
-	// hook. Held behind an interface because lsmkv cannot import the columnar
-	// package (which imports lsmkv). Atomic so the flush hook can detach it (on a
-	// decline) concurrently with lock-free reads. See
-	// bucket_contains_accelerator.go.
-	containsAcc        atomic.Pointer[containsAccelerator]
-	containsAccFactory ContainsAcceleratorFactory
+	// columnarContainsIndex requests a resident ContainsAny index over this
+	// bucket's segments; the segment group owns it, as with the rangeable
+	// in-memory representation.
+	columnarContainsIndex bool
+	maxIdGetter           roaringset.MaxIdGetterFunc
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -392,6 +390,8 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			cleanupInterval:              b.segmentsCleanupInterval,
 			enableChecksumValidation:     b.enableChecksumValidation,
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			columnarContainsIndex:        b.columnarContainsIndex,
+			maxIdGetter:                  b.maxIdGetter,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
 			lazyPropertyLengths:          b.lazyPropertyLengths,
@@ -413,10 +413,6 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			return nil, err
 		}
 	}
-
-	// build+attach the ContainsAny accelerator now that disk segments are loaded
-	// and the memtables are empty (so its base is disk-only), before any flush.
-	b.initContainsAccelerator()
 
 	id := "bucket/flush/" + b.dir
 	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
@@ -453,6 +449,21 @@ func (b *Bucket) GetDesiredStrategy() string {
 
 func (b *Bucket) GetSecondaryIndices() uint16 {
 	return b.secondaryIndices
+}
+
+// ColumnarContainsIndex returns the resident ContainsAny index over this
+// bucket's data, or nil if it has none — not configured, a build that declined,
+// or a flush that detached it. Lock-free. See segment_group_columnar_contains.go.
+func (b *Bucket) ColumnarContainsIndex() *columnar.ColumnarIndex {
+	return b.disk.columnarContainsIndex.Load()
+}
+
+// DetachColumnarContainsIndex drops that index, sending ContainsAny back to the
+// standard fold from here on. Callers use this when something the index was
+// built over stops holding — a property whose values are being retokenized, or
+// segments spliced in behind it.
+func (b *Bucket) DetachColumnarContainsIndex() {
+	b.disk.columnarContainsIndex.Store(nil)
 }
 
 func (b *Bucket) GetStatus() storagestate.Status {
@@ -2166,12 +2177,12 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSet:
-		// Copy the flushed memtable into the ContainsAny accelerator in the same
-		// critical section that stops the memtable being visible, so a query sees
-		// the data as one or the other and never as neither.
-		if err := b.absorbFlushIntoAccelerator(flushing); err != nil {
+		// Copy the flushed memtable into the columnar ContainsAny index in the
+		// same critical section that stops the memtable being visible, so a query
+		// sees the data as one or the other and never as neither.
+		if err := b.disk.absorbFlushIntoColumnarIndex(flushing); err != nil {
 			b.logger.WithField("action", "columnar_absorb_flush").
-				Warnf("columnar accelerator failed to absorb flush: %v", err)
+				Warnf("columnar ContainsAny index detached, it could not absorb a flush: %v", err)
 		}
 
 	case StrategyRoaringSetRange:

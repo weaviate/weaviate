@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -103,7 +104,13 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
-	bitmapBufPool                  roaringset.BitmapBufPool
+
+	// columnarContainsIndex is an optional resident ContainsAny index over these
+	// segments, plus the flushes absorbed since it was built. Atomic so a flush
+	// can detach it — when what it was built over stops holding — concurrently
+	// with lock-free reads. See segment_group_columnar_contains.go.
+	columnarContainsIndex atomic.Pointer[columnar.ColumnarIndex]
+	bitmapBufPool         roaringset.BitmapBufPool
 	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
 	// base layer; built once at construction
 	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
@@ -143,6 +150,8 @@ type sgConfig struct {
 	cleanupInterval              time.Duration
 	enableChecksumValidation     bool
 	keepSegmentsInMemory         bool
+	columnarContainsIndex        bool
+	maxIdGetter                  roaringset.MaxIdGetterFunc
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
@@ -561,6 +570,20 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				"bucket":  filepath.Base(cfg.dir),
 				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
 			}).Debug("rangeable segment-in-memory built")
+		}
+
+	case StrategyRoaringSet:
+		if cfg.columnarContainsIndex {
+			if err := sg.initColumnarContainsIndex(cfg.maxIdGetter); err != nil {
+				// Unlike the rangeable representation, this one not being there does
+				// not fail the bucket: it only accelerates ContainsAny, which returns
+				// the same documents through the standard fold without it. Silence is
+				// what would make a property that quietly fell back hard to notice.
+				logger.WithFields(logrus.Fields{
+					"action": "columnar_build",
+					"bucket": filepath.Base(cfg.dir),
+				}).Warnf("columnar ContainsAny index not built, queries stay on the standard path: %v", err)
+			}
 		}
 	}
 

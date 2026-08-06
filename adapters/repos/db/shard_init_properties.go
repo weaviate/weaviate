@@ -487,13 +487,13 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 
 		valueBucketOpts := makeBucketOptions(lsmkv.StrategyRoaringSet)
-		if entcfg.ColumnarContainsEnabled() {
-			// Offered to every filterable property bucket; the build reads the
-			// bucket and declines any whose keys are not unique, which is the only
-			// thing the accelerator actually requires. Deciding by datatype instead
-			// would only save the declined builds their startup scan.
+		if s.columnarContainsConfigured(prop.Name) {
+			// Asked for explicitly, so the datatype is not second-guessed here; the
+			// build reads the bucket and declines if the values turn out not to be
+			// near-unique, which is the only thing the index actually requires.
 			valueBucketOpts = append(valueBucketOpts,
-				lsmkv.WithContainsAcceleratorFactory(s.containsAcceleratorFactory()))
+				lsmkv.WithColumnarContainsIndex(true),
+				lsmkv.WithMaxIdGetter(func() uint64 { return s.counter.Get() }))
 		}
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),

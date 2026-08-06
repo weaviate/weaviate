@@ -21,12 +21,10 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -288,12 +286,12 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	isDenyList := pv.operator == filters.ContainsNone
 	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	// Opt-in resident columnar accelerator: serve ContainsAny straight from an
-	// in-memory key->docID column when the bucket is fully flushed. Any miss
-	// (disabled, wrong operator, unflushed writes, absent/stale index, or a
-	// non-*lsmkv.Bucket) falls through to the standard fold below — results are
-	// identical either way (pinned by a differential test).
-	if pv.operator == filters.ContainsAny && entcfg.ColumnarContainsEnabled() {
+	// Serve ContainsAny from the resident columnar index when the property was
+	// configured for one; a property that was not simply has no index attached.
+	// Any miss — no index, a build that declined, a flush that detached it, or a
+	// non-*lsmkv.Bucket — falls through to the standard fold below, which returns
+	// the same documents either way.
+	if pv.operator == filters.ContainsAny {
 		if dbm, ok := s.resolveContainsColumnar(b, view, pv); ok {
 			return dbm, nil
 		}
@@ -327,13 +325,11 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
 }
 
-// resolveContainsColumnar attempts to serve a ContainsAny query from the
-// bucket's resident columnar accelerator. It returns (result, true) when the
-// accelerator served the query, or (_, false) when the caller must fall back to
-// the standard fold — because the bucket is not an *lsmkv.Bucket, has unflushed
-// writes (the base-only accelerator cannot layer memtables yet), or the build
-// declined (e.g. the property is not unique). The bucket caches the build
-// outcome per disk segment set, so this rebuilds only after a flush/compaction.
+// resolveContainsColumnar serves a ContainsAny query from the bucket's resident
+// columnar index. It returns (result, true) when the index served the query, or
+// (_, false) when the caller must fall back to the standard fold — the bucket is
+// not an *lsmkv.Bucket, or it has no index because the property was not
+// configured for one, the build declined, or a flush detached it.
 func (s *Searcher) resolveContainsColumnar(b containsBatchBucket,
 	view lsmkv.BucketConsistentView, pv *propValuePair,
 ) (docBitmap, bool) {
@@ -341,14 +337,9 @@ func (s *Searcher) resolveContainsColumnar(b containsBatchBucket,
 	if !ok {
 		return docBitmap{}, false
 	}
-	resolver := bkt.ContainsAnyAccelerator()
-	if resolver == nil {
-		return docBitmap{}, false // no accelerator: flag off, non-roaringset, or declined
-	}
-
-	idx, ok := resolver.(*columnar.ColumnarIndex)
-	if !ok {
-		return docBitmap{}, false // some other accelerator; this path only knows the columnar one
+	idx := bkt.ColumnarContainsIndex()
+	if idx == nil {
+		return docBitmap{}, false // not configured, declined at build, or detached
 	}
 
 	// Resolve the flushed tiers per key, layer the unflushed ones on the same

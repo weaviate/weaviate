@@ -301,13 +301,21 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	}
 }
 
-// WithContainsAcceleratorFactory attaches a factory that builds the resident
-// ContainsAny accelerator at bucket open (roaringset only). The bucket calls it
-// once, after disk segments are loaded and while the memtables are empty, and
-// keeps the result live via the flush hook.
-func WithContainsAcceleratorFactory(f ContainsAcceleratorFactory) BucketOption {
+// WithColumnarContainsIndex builds a resident columnar ContainsAny index over
+// this bucket at open. Requires [WithMaxIdGetter]; without one the bucket cannot
+// size the index and declines to build it.
+func WithColumnarContainsIndex(enabled bool) BucketOption {
 	return func(b *Bucket) error {
-		b.containsAccFactory = f
+		b.columnarContainsIndex = enabled
+		return nil
+	}
+}
+
+// WithMaxIdGetter supplies an upper bound on the document IDs this bucket holds,
+// read when a structure needs to size itself to them.
+func WithMaxIdGetter(getter roaringset.MaxIdGetterFunc) BucketOption {
+	return func(b *Bucket) error {
+		b.maxIdGetter = getter
 		return nil
 	}
 }

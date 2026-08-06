@@ -14,8 +14,6 @@ package db
 import (
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
@@ -68,38 +66,6 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 	}
 
 	return append(options, customOptions...)
-}
-
-// containsAcceleratorFactory builds the resident columnar ContainsAny
-// accelerator for a roaringset bucket at open, sized to the shard's current
-// docID counter. Declines (returns nil) if the counter isn't wired yet or the
-// property is not unique (BuildFromBucket with requireUnique errors), in which
-// case ContainsAny falls back to the standard fold.
-func (s *Shard) containsAcceleratorFactory() lsmkv.ContainsAcceleratorFactory {
-	return func(bkt *lsmkv.Bucket) lsmkv.ContainsAnyResolver {
-		if s.counter == nil {
-			return nil
-		}
-		idx, err := columnar.BuildFromBucket(bkt, s.counter.Get(), s.index.logger)
-		if err != nil {
-			return nil
-		}
-		return idx
-	}
-}
-
-// detachContainsAccelerator drops the columnar ContainsAny accelerator from
-// propName's filterable bucket, if it carries one. Called when the property's
-// tokenization is changing: the accelerator's base was built by reading the
-// bucket's keys, and a retokenization rewrites what those keys are, which it has
-// no way to notice on its own.
-func (s *Shard) detachContainsAccelerator(propName string) {
-	if propName == "" || s.store == nil {
-		return
-	}
-	if bkt := s.store.Bucket(helpers.BucketFromPropNameLSM(propName)); bkt != nil {
-		bkt.DetachContainsAccelerator()
-	}
 }
 
 func (s *Shard) overwrittenMakeDefaultBucketOptions(overwrittenDefaults ...lsmkv.BucketOption) lsmkv.MakeBucketOptions {

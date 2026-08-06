@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package columnar is a POC of a resident in-memory accelerator for
+// Package columnar is a POC of a resident in-memory index that accelerates
 // ContainsAny/Equal resolution on a filterable (roaringset) property.
 //
 // Instead of N per-key roaringset lookups (each an LSM segment-index search +
@@ -49,7 +49,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -318,7 +317,7 @@ type indexState struct {
 	runs []*run
 }
 
-// ColumnarIndex is the resident accelerator for one property: an immutable base
+// ColumnarIndex is the resident index for one property: an immutable base
 // (built from disk segments at startup) plus a list of runs, one per flushed
 // memtable absorbed since. Resolution folds the runs over the base, newest last.
 // Live active/flushing memtables are layered by the caller, not held here.
@@ -333,11 +332,23 @@ type ColumnarIndex struct {
 	logger  logrus.FieldLogger
 }
 
-// BuildFromBucket populates the index from a single cursor pass over a
-// roaringset bucket — the startup path. The cursor yields keys in sorted order
-// and merges all disk segments (and memtables) per key, so each key's bitmap is
-// its net docID set; under the 1-doc-per-key assumption that is exactly one
-// docID, taken as the bitmap minimum.
+// MergedCursor walks keys in order, yielding each key's net document set with
+// deletions already applied and newer tiers already winning over older ones —
+// what [roaringset.CombinedCursor] produces over a set of tier cursors.
+//
+// Taking the merged form rather than raw layers leaves the merge policy with the
+// tiers it belongs to, and means this package never learns how many there were.
+type MergedCursor interface {
+	First() ([]byte, *sroar.Bitmap)
+	Next() ([]byte, *sroar.Bitmap)
+}
+
+// BuildFromCursor populates the index from a single pass over cursor — the
+// startup path, where the caller passes a merge of the bucket's disk segments.
+//
+// Segments alone, not the memtables: what has not been flushed is layered at
+// query time instead, and a base that quietly included it would depend on the
+// memtables happening to be empty when the index was built.
 //
 // maxDocID is an upper bound on every docID in the bucket (the shard's monotonic
 // docID counter). It sets the docID column's byte width up front, so docs are
@@ -352,16 +363,13 @@ type ColumnarIndex struct {
 // A key holding several documents is kept in full: the first goes in the column
 // and the rest into overflow, with a warning naming the scale of the problem.
 // Past overflowLimit the build fails instead, leaving ContainsAny on the fold.
-func BuildFromBucket(bucket *lsmkv.Bucket, maxDocID uint64,
+func BuildFromCursor(cursor MergedCursor, maxDocID uint64,
 	logger logrus.FieldLogger,
 ) (*ColumnarIndex, error) {
-	c := bucket.CursorRoaringSet()
-	defer c.Close()
-
 	builder := newSegmentBuilder()
 	builder.docs.w = bytesForMax(maxDocID)
 
-	for k, bm := c.First(); k != nil; k, bm = c.Next() {
+	for k, bm := cursor.First(); k != nil; k, bm = cursor.Next() {
 		if bm.IsEmpty() {
 			continue
 		}

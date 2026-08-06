@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -48,9 +47,8 @@ func columnarSortedKeys(values []string) [][]byte {
 
 func columnarBucketIndex(tb testing.TB, f *containsFixture) *columnar.ColumnarIndex {
 	tb.Helper()
-	bucket := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	idx, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), columnarTestLogger())
-	require.NoError(tb, err)
+	idx := f.bucket.ColumnarContainsIndex()
+	require.NotNil(tb, idx)
 	return idx
 }
 
@@ -103,15 +101,23 @@ func BenchmarkColumnarIndexPOC(b *testing.B) {
 }
 
 // BenchmarkColumnarIndexPOC_Build measures the one-time startup build cost over
-// the full corpus — the price paid once per property per shard on load.
+// the full corpus — the price paid once per property per shard on load. The
+// index is built when the bucket opens, so each iteration reopens it; the
+// "no_index" row is the same reopen without the index, and the gap between the
+// two is what the index costs at load.
 func BenchmarkColumnarIndexPOC_Build(b *testing.B) {
-	f := newContainsFixture(b, benchCorpusSize)
-	bucket := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := columnar.BuildFromBucket(bucket, uint64(f.numDocs+1), columnarTestLogger()); err != nil {
-			b.Fatal(err)
+	for _, withIndex := range []bool{false, true} {
+		name := "no_index"
+		if withIndex {
+			name = "index"
 		}
+		b.Run(name, func(b *testing.B) {
+			f := newContainsFixture(b, benchCorpusSize)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				f.reopenBucket(b, withIndex)
+			}
+		})
 	}
 }
