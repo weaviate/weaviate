@@ -378,7 +378,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 					"add missing class %s during update index: %w",
 					incomingClass.Class, err)
 			}
-			return nil
+			idx = m.db.GetIndex(schema.ClassName(incomingClass.Class))
 		}
 	}
 
@@ -439,17 +439,43 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 	idx *Index, incomingSS *sharding.State,
 ) error {
-	var toRemove []string
+	remove := map[string]struct{}{}
 
 	idx.ForEachShard(func(name string, _ ShardLike) error {
 		if _, ok := incomingSS.Physical[name]; !ok {
-			toRemove = append(toRemove, name)
+			remove[name] = struct{}{}
 		}
 		return nil
 	})
 
-	if len(toRemove) == 0 {
+	// ForEachShard sees loaded shards only, so a delete this node missed leaves
+	// the data on disk to be served again when the name is re-created. Absence
+	// from Physical marks a directory as garbage, not being unloaded — a COLD
+	// tenant still in the schema keeps its data.
+	orphans, err := idx.orphanedShardDirs(incomingSS.Physical)
+	if err != nil {
+		return fmt.Errorf("list on-disk tenants during update index: %w", err)
+	}
+	if len(orphans) > 0 {
+		// Only reachable when this node missed a delete, so make it visible.
+		m.logger.WithFields(logrus.Fields{
+			"action": "reconcile_tenant_dirs",
+			"class":  idx.Config.ClassName.String(),
+			"count":  len(orphans),
+			"sample": orphans[:min(len(orphans), 10)],
+		}).Warn("dropping tenant directories that are on disk but absent from the schema")
+	}
+	for _, name := range orphans {
+		remove[name] = struct{}{}
+	}
+
+	if len(remove) == 0 {
 		return nil
+	}
+
+	toRemove := make([]string, 0, len(remove))
+	for name := range remove {
+		toRemove = append(toRemove, name)
 	}
 
 	// the cloud delete runs even when the local drop fails, otherwise the
