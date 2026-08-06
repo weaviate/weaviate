@@ -21,6 +21,9 @@ type AggregatedHashTree interface {
 	AggregateLeafWith(i uint64, val []byte) error
 	Sync()
 	Root() Digest
+	// Level writes one digest per set discriminant bit into digests, densely
+	// from index 0 in ascending node order — the positional layout LevelDiff
+	// relies on. digests must hold at least discriminant.SetCount() entries.
 	Level(level int, discriminant *Bitset, digests []Digest) (n int, err error)
 	Reset()
 	Clone() AggregatedHashTree
@@ -71,6 +74,11 @@ func LevelDiff(l, height int, discriminant *Bitset, digests1, digests2 []Digest)
 	for j := 0; j < discriminant.Size(); j++ {
 		if !discriminant.IsSet(j) {
 			continue
+		}
+
+		// bound reads even if the cached set count understates the bits
+		if n == len(digests1) || n == len(digests2) {
+			return nil, 0, fmt.Errorf("%w: discriminant set count understates its set bits", ErrIllegalArguments)
 		}
 
 		if digests1[n] == digests2[n] {

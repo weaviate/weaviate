@@ -44,6 +44,12 @@ var unwiredGateWarnOnce sync.Once
 // install path; production HTTP gates on bootstrap completion so the
 // unwired window is unreachable by external traffic.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
+	if db.config.RuntimeReindexDisabled {
+		// Runtime reindex is off, so no new task can start. Return before
+		// consulting the lookup so the backup path makes no reindex check
+		// at all — the pre-gate behavior this restores.
+		return false
+	}
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
