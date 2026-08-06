@@ -141,10 +141,10 @@ func requireTenantEventually(t *testing.T, qualifiedClass, tenant, status string
 	}, 30*time.Second, 200*time.Millisecond, "tenant %q never reported %s", tenant, status)
 }
 
-// A suspended namespace must materialize no further shards. Tenant commands are
-// what reaches that decision on a running node: unlike a class create, they
-// carry no namespace gate at RAFT apply, so they run all the way down into the
-// shard registration the namespace guards.
+// A suspended namespace must materialize no further shards. A tenant create is
+// what reaches that decision on a running node: unlike a class create or a
+// tenant status change, it carries no namespace gate at RAFT apply, so it runs
+// all the way down into the shard registration the namespace guards.
 func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
@@ -177,12 +177,16 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 		requireShardAbsent(t, qualified, "added", presentShard{qualified, "warm"})
 	})
 
-	t.Run("activating a COLD tenant materializes no shard", func(t *testing.T) {
-		_ = updateTenantsAuth(t, qualified, []*models.Tenant{
+	// A status change is refused outright rather than applied without a shard.
+	// The node running it holds no shard for either a COLD or a HOT tenant here,
+	// so a freeze it started would abort against a status nothing can read back.
+	t.Run("a tenant status change is refused", func(t *testing.T) {
+		err := updateTenantsAuth(t, qualified, []*models.Tenant{
 			{Name: "chilled", ActivityStatus: models.TenantActivityStatusHOT},
 		}, adminKey)
+		require.Error(t, err)
 
-		requireTenantEventually(t, qualified, "chilled", models.TenantActivityStatusHOT)
+		requireTenantEventually(t, qualified, "chilled", models.TenantActivityStatusCOLD)
 		requireShardAbsent(t, qualified, "chilled", presentShard{qualified, "warm"})
 	})
 
