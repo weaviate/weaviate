@@ -310,15 +310,25 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-// LoadShardForReplication loads a shard for the apply that adds a replica to it.
-// The replication caller keeps a suspend or resume landing mid-movement from
-// failing that apply on the node gaining the replica.
+// LoadShardForReplication loads the target shard of a replica movement. The
+// replication caller keeps a suspend or resume landing mid-movement from failing
+// the apply on the node gaining the replica.
 func (m *Migrator) LoadShardForReplication(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
 	return idx.LoadLocalShardForReplication(ctx, shard)
+}
+
+// LoadShardForReplicaAdd loads a shard for the apply that adds a replica to it
+// with no replica movement under way.
+func (m *Migrator) LoadShardForReplicaAdd(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.LoadLocalShardForReplicaAdd(ctx, shard)
 }
 
 func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {

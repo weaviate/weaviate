@@ -503,6 +503,36 @@ func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *In
 	}
 }
 
+// namespaceLookupRefusals returns both fail-closed arms of the chokepoint: a
+// namespaced class with no lookup at all, and one whose namespace the lookup
+// does not hold. Every entry point owes them the same two errors.
+func namespaceLookupRefusals() []struct {
+	name    string
+	exister func(*testing.T) namespaces.Exister
+	wantErr error
+} {
+	return []struct {
+		name    string
+		exister func(*testing.T) namespaces.Exister
+		wantErr error
+	}{
+		{
+			name:    "a missing lookup",
+			exister: func(*testing.T) namespaces.Exister { return nil },
+			wantErr: errNoNamespaceLookup,
+		},
+		{
+			name: "a lookup miss",
+			exister: func(t *testing.T) namespaces.Exister {
+				e := namespaces.NewMockExister(t)
+				e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false).Maybe()
+				return e
+			},
+			wantErr: errNamespaceUnknownLocally,
+		},
+	}
+}
+
 func existerWithState(t *testing.T, state api.NamespaceState) namespaces.Exister {
 	t.Helper()
 	e := namespaces.NewMockExister(t)
@@ -646,7 +676,7 @@ func TestReplicationExempt(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		t.Run("at the replica-add apply, "+tc.name, func(t *testing.T) {
+		t.Run("at the movement's replica-add apply, "+tc.name, func(t *testing.T) {
 			db, idx := dbForReopen(t, class, existerWithState(t, tc.state))
 			seedShard(t, idx, tc.wantErr == nil, false)
 
@@ -659,30 +689,7 @@ func TestReplicationExempt(t *testing.T) {
 		})
 	}
 
-	// Both fail-closed arms of the chokepoint, at every entry point: a namespaced
-	// class with no lookup at all, and one whose namespace the lookup doesn't hold.
-	refusals := []struct {
-		name    string
-		exister func(*testing.T) namespaces.Exister
-		wantErr error
-	}{
-		{
-			name:    "a missing lookup",
-			exister: func(*testing.T) namespaces.Exister { return nil },
-			wantErr: errNoNamespaceLookup,
-		},
-		{
-			name: "a lookup miss",
-			exister: func(t *testing.T) namespaces.Exister {
-				e := namespaces.NewMockExister(t)
-				e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false).Maybe()
-				return e
-			},
-			wantErr: errNamespaceUnknownLocally,
-		},
-	}
-
-	for _, tc := range refusals {
+	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" is refused at the target load", func(t *testing.T) {
 			_, idx := dbForReopen(t, class, tc.exister(t))
 			seedShard(t, idx, false, false)
@@ -697,7 +704,7 @@ func TestReplicationExempt(t *testing.T) {
 			require.ErrorIs(t, idx.OverwriteObjectsFromChangeLog(ctx, "t1", replay), tc.wantErr)
 		})
 
-		t.Run(tc.name+" is refused at the replica-add apply", func(t *testing.T) {
+		t.Run(tc.name+" is refused at the movement's replica-add apply", func(t *testing.T) {
 			db, idx := dbForReopen(t, class, tc.exister(t))
 			seedShard(t, idx, false, false)
 
@@ -732,6 +739,96 @@ func TestReplicationExempt(t *testing.T) {
 
 		_, _, err := idx.getOrInitShard(ctx, "t1")
 		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	})
+}
+
+// The apply that adds a replica to a shard also runs without a movement behind
+// it — node removal replacing a lost replica, and the scale plan's empty-source
+// arm. Those get the shards-should-be-open check instead of the movement
+// exemption, and a namespace keeping its shards closed yields nil rather than an
+// error: the apply's schema half has already committed, so the replica is
+// recorded whichever this returns.
+//
+// The seeded shard's alloc checker fails every reservation, so
+// errInjectedMemoryPressure is what says the load was entered and nil is what
+// says it was skipped.
+func TestReplicaAddWithoutMovement(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	loadShard := func(t *testing.T, className string, e namespaces.Exister) error {
+		t.Helper()
+		db, idx := dbForReopen(t, className, e)
+		idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+		return NewMigrator(db, idx.logger, "node1").LoadShardForReplicaAdd(ctx, className, "t1")
+	}
+
+	tests := []struct {
+		name     string
+		state    api.NamespaceState
+		wantLoad bool
+	}{
+		{name: "an active namespace loads", state: api.NamespaceStateActive, wantLoad: true},
+		{name: "a resuming namespace loads", state: api.NamespaceStateResuming, wantLoad: true},
+		{name: "a suspended namespace loads nothing", state: api.NamespaceStateSuspended},
+		{name: "a deleting namespace loads nothing", state: api.NamespaceStateDeleting},
+		{name: "an unknown state loads nothing", state: api.NamespaceState("gone")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := loadShard(t, class, existerWithState(t, tc.state))
+			if tc.wantLoad {
+				require.ErrorIs(t, err, errInjectedMemoryPressure)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+
+	t.Run("an unqualified class name loads", func(t *testing.T) {
+		require.ErrorIs(t, loadShard(t, "Product", nil), errInjectedMemoryPressure)
+	})
+
+	// Nothing else records that a replica landed on this node without a shard.
+	t.Run("a skipped load is logged", func(t *testing.T) {
+		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		logger, hook := logrustest.NewNullLogger()
+		idx.logger = logger
+		idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+
+		require.NoError(t, NewMigrator(db, logger, "node1").LoadShardForReplicaAdd(ctx, class, "t1"))
+
+		entry := hook.LastEntry()
+		require.NotNil(t, entry, "a skipped load must be logged")
+		assert.Equal(t, logrus.InfoLevel, entry.Level)
+		assert.Contains(t, entry.Message, errShardNamespaceClosed.Error())
+	})
+
+	// A state that cannot be read is not a namespace keeping its shards closed,
+	// so it must not be swallowed along with one.
+	for _, tc := range namespaceLookupRefusals() {
+		t.Run(tc.name+" is an error, not a skipped load", func(t *testing.T) {
+			require.ErrorIs(t, loadShard(t, class, tc.exister(t)), tc.wantErr)
+		})
+	}
+
+	t.Run("a missing index is an error, not a silent success", func(t *testing.T) {
+		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateActive))
+
+		require.Error(t, NewMigrator(db, idx.logger, "node1").
+			LoadShardForReplicaAdd(ctx, "alpha:Other", "t1"))
+	})
+
+	// The split that goes red if the plain add is ever routed back through the
+	// movement exemption.
+	t.Run("a movement still loads the same suspended shard", func(t *testing.T) {
+		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+		migrator := NewMigrator(db, idx.logger, "node1")
+
+		require.NoError(t, migrator.LoadShardForReplicaAdd(ctx, class, "t1"))
+		require.ErrorIs(t, migrator.LoadShardForReplication(ctx, class, "t1"), errInjectedMemoryPressure)
 	})
 }
 

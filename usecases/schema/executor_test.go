@@ -123,6 +123,52 @@ func TestExecutor(t *testing.T) {
 		assert.Nil(t, x.AddProperty("A", req))
 	})
 
+	// The two replica-add entry points differ only in which load they drive, and
+	// the migrator fake panics on any call it has no expectation for, so driving
+	// the other one fails the row.
+	replicaAdds := []struct {
+		name       string
+		call       func(*executor) error
+		wantLoader string
+	}{
+		{
+			name:       "a plain replica add",
+			call:       func(x *executor) error { return x.AddReplicaToShard("A", "S", "N") },
+			wantLoader: "LoadShardForReplicaAdd",
+		},
+		{
+			name:       "a replica movement",
+			call:       func(x *executor) error { return x.AddReplicaToShardForMovement("A", "S", "N") },
+			wantLoader: "LoadShardForReplication",
+		},
+	}
+
+	for _, tc := range replicaAdds {
+		t.Run(tc.name+" drives "+tc.wantLoader, func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ShardReplicas", "A", "S").Return([]string{"N"}, nil)
+			migrator := &fakeMigrator{}
+			migrator.On(tc.wantLoader, Anything, "A", "S").Return(nil)
+
+			require.NoError(t, tc.call(newMockExecutor(migrator, store)))
+			migrator.AssertExpectations(t)
+		})
+
+		t.Run(tc.name+" loads nothing when the schema does not list the replica", func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ShardReplicas", "A", "S").Return([]string{"other"}, nil)
+
+			require.Error(t, tc.call(newMockExecutor(&fakeMigrator{}, store)))
+		})
+
+		t.Run(tc.name+" loads nothing when the replicas cannot be read", func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ShardReplicas", "A", "S").Return([]string(nil), ErrAny)
+
+			require.ErrorIs(t, tc.call(newMockExecutor(&fakeMigrator{}, store)), ErrAny)
+		})
+	}
+
 	tenants := []*api.Tenant{{Name: "T1"}, {Name: "T2"}}
 
 	t.Run("DeleteTenants", func(t *testing.T) {

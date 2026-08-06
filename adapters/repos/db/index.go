@@ -3155,6 +3155,23 @@ func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName stri
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplication)
 }
 
+// LoadLocalShardForReplicaAdd loads a shard for the apply that records this node
+// as a replica of it, with no replica movement to keep going. A namespace that
+// keeps no shards open loads none and returns nil rather than erroring: the
+// apply's schema half has already committed, so the replica is recorded either
+// way, and the shard is materialized by whatever next loads it. A state that
+// cannot be read still errors.
+func (i *Index) LoadLocalShardForReplicaAdd(ctx context.Context, shardName string) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplicaAdd)
+	if stderrors.Is(err, errShardNamespaceClosed) {
+		i.logger.WithFields(logrus.Fields{
+			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
+		}).Infof("replica added without loading the shard: %v", err)
+		return nil
+	}
+	return err
+}
+
 // DropLocalShard removes a single local shard and its on-disk files. It is the
 // local counterpart to LoadLocalShard. Idempotent: dropping an absent or
 // unloaded shard returns nil (dropShards falls back to os.RemoveAll).

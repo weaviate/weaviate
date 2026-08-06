@@ -36,8 +36,8 @@ var (
 	// lookup to consult, which only a lost wiring line can produce.
 	errNoNamespaceLookup = errors.New("no namespace lookup for a namespaced class")
 
-	// errShardNamespaceClosed is returned when the reopen path is asked for a
-	// shard whose namespace no longer keeps any open.
+	// errShardNamespaceClosed is returned when a caller asks to load a shard of a
+	// namespace that keeps none open.
 	errShardNamespaceClosed = errors.New("namespace keeps no shards open")
 
 	// errUnknownShardLoadCaller is returned for a caller the load decision has no
@@ -59,6 +59,10 @@ const (
 	// callerReplication is a replica movement loading its target shard.
 	// Suspending or resuming must not fail a movement already under way.
 	callerReplication
+	// callerReplicaAdd is the apply that records this node as a replica of a
+	// shard, with no movement under way. A namespace that keeps no shards open
+	// gets none opened for it.
+	callerReplicaAdd
 )
 
 // refuseShardDecision logs why a shard decision is being refused and returns
@@ -169,7 +173,7 @@ func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
 	switch caller {
 	case callerUserRequest:
 		return namespaces.RequireShardLoadable(state)
-	case callerResume:
+	case callerResume, callerReplicaAdd:
 		if !namespaces.ShardsShouldBeOpen(state) {
 			return errShardNamespaceClosed
 		}

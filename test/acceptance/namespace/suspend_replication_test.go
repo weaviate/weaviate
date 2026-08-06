@@ -125,6 +125,66 @@ func movementState(t *testing.T, opID strfmt.UUID) (string, []string, error) {
 	return details.Payload.Status.State, messages, nil
 }
 
+// A scale plan whose addition names no source node adds an empty replica, which
+// registers no replication op — there is nothing in flight for a suspend to
+// interrupt, so the target-side exemption a movement gets must not apply. The
+// apply still succeeds, because its schema half records the replica either way,
+// while the target materializes no shard for the suspended namespace.
+//
+// What this does NOT cover: the shard appearing on the target once the namespace
+// is back. Resuming reopens nothing on its own today — the same gap
+// suspend_shards_test.go pins — so there is no deterministic moment to assert.
+func TestNamespaces_SuspendKeepsEmptyReplicaAddClosed(t *testing.T) {
+	t.Parallel()
+
+	const (
+		// The namespace pins its shards to its home node, so the addition lands
+		// on a node that holds nothing of this class.
+		homeNode   = docker.Weaviate1
+		targetNode = docker.Weaviate0
+		class      = "EmptyReplicaShard"
+		planID     = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
+	)
+
+	ns := uniqueNS()
+	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+
+	userKey := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
+
+	setupClassInNs1(t, ns, class, userKey)
+	qualified := ns + ":" + class
+
+	// Read before the suspend: a suspended namespace reports no shards.
+	shardName := requireShardCountEventually(t, qualified, 1)[0]
+
+	helper.SuspendNamespace(t, ns, adminKey)
+	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
+
+	resp, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+		replication.NewApplyReplicationScalePlanParams().WithBody(&models.ReplicationScalePlan{
+			PlanID:     planID,
+			Collection: qualified,
+			ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{
+				shardName: {
+					AddNodes:    map[string]string{targetNode: ""},
+					RemoveNodes: []string{},
+				},
+			},
+		}),
+		helper.CreateAuth(adminKey),
+	)
+	require.NoError(t, err, "a suspended namespace must not fail the scale plan")
+	require.NotNil(t, resp.Payload)
+	require.Empty(t, resp.Payload.OperationIds,
+		"an addition with no source node registers no replication op")
+
+	t.Run("the target materializes no shard", func(t *testing.T) {
+		requireShardAbsentOnNode(t, qualified, shardName, targetNode)
+	})
+}
+
 // A replica movement started while its collection's namespace is suspended is
 // refused, and finishes once the namespace is back.
 //
