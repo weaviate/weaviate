@@ -282,7 +282,12 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// Handle error cases. Only err is consulted: ctx above is the fresh
 		// background context this defer uses for the meta write, so it can never
 		// carry the caller's cancellation.
-		if errors.Is(err, context.Canceled) {
+		//
+		// overlapRefused wins over that classification. The refusal is a
+		// deliberate failure and its cause may itself be a cancellation of some
+		// context that is not the caller's, which would otherwise publish the
+		// refusal as an operator abort.
+		if !overlapRefused && errors.Is(err, context.Canceled) {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
@@ -370,11 +375,13 @@ Loop:
 		// the cancellation rather than with an answer. Reporting that as an
 		// overlap would blame the abort on a migration that never ran, and would
 		// flip the observable status to FAILED behind the operator's back.
+		//
+		// Only this context answers that question. A cancellation the lookup
+		// carries from some other context — the RAFT client's own derived one,
+		// say — is not the operator's abort, it is the lookup failing to answer,
+		// which is what this check fails closed on.
 		if ctx.Err() != nil {
 			return contextChecker(ctx)
-		}
-		if errors.Is(err, context.Canceled) {
-			return err
 		}
 		overlapRefused = true
 		desc.Status = backup.Failed
