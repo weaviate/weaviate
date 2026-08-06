@@ -453,6 +453,21 @@ func DeleteClassWithoutAssert(t *testing.T, class, key string) {
 	_, _ = Client(t).Schema.SchemaObjectsDelete(params, auth)
 }
 
+// DeleteClassEventually retries the class delete until the schema no longer reports it, for teardowns that may race a node restart.
+func DeleteClassEventually(t *testing.T, class, uri string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		SetupClient(uri)
+		delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+		_, delErr := Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+		getParams := schema.NewSchemaObjectsGetParams().WithClassName(class)
+		_, getErr := Client(t).Schema.SchemaObjectsGet(getParams, nil)
+		var notFound *schema.SchemaObjectsGetNotFound
+		assert.True(ct, errors.As(getErr, &notFound),
+			"class %s still present (delete err: %v, get err: %v)", class, delErr, getErr)
+	}, 60*time.Second, time.Second)
+}
+
 // DeleteClassAuthWithReturn issues an authenticated class-delete and
 // returns the raw error so callers can assert on rejection (e.g. malformed
 // namespace prefix in the URL).
