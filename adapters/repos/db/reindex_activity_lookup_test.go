@@ -219,6 +219,10 @@ func TestReindexOverlapLookup(t *testing.T) {
 		since      time.Time
 		wantRefuse bool
 		wantMsg    string
+		// wantUndetermined separates the refusals that observed an overlap from
+		// the ones that only failed to rule one out. The backup publishes
+		// different text for each, and this sentinel is how it tells them apart.
+		wantUndetermined bool
 	}{
 		{
 			name:  "no tasks at all",
@@ -277,19 +281,21 @@ func TestReindexOverlapLookup(t *testing.T) {
 			wantRefuse: true,
 		},
 		{
-			name:       "backup outlived the retention window",
-			tasks:      nil,
-			ttl:        time.Minute,
-			since:      backupStart,
-			wantRefuse: true,
-			wantMsg:    "longer than the",
+			name:             "backup outlived the retention window",
+			tasks:            nil,
+			ttl:              time.Minute,
+			since:            backupStart,
+			wantRefuse:       true,
+			wantMsg:          "longer than the",
+			wantUndetermined: true,
 		},
 		{
-			name:       "task list unreadable",
-			listErr:    errors.New("DTM unreachable"),
-			since:      backupStart,
-			wantRefuse: true,
-			wantMsg:    "cannot rule out a runtime-reindex",
+			name:             "task list unreadable",
+			listErr:          errors.New("DTM unreachable"),
+			since:            backupStart,
+			wantRefuse:       true,
+			wantMsg:          "cannot rule out a runtime-reindex",
+			wantUndetermined: true,
 		},
 	}
 
@@ -320,6 +326,9 @@ func TestReindexOverlapLookup(t *testing.T) {
 			// cannot match the sentinel treats it as an unrelated failure.
 			assert.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
 				"the refusal must carry the overlap sentinel")
+			assert.Equal(t, tc.wantUndetermined,
+				errors.Is(err, entitiesbackup.ErrReindexOverlapUndetermined),
+				"a refusal that never observed an overlap must say so, and one that did must not")
 			assert.NotContains(t, err.Error(), "in flight",
 				"the migration has usually finished by now; do not send the operator after a live task")
 		})
@@ -546,7 +555,8 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 			listErr: raftErr,
 			cause:   raftErr,
 			leaked:  []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
-			wantMsg: "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried",
+			wantMsg: "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried; " +
+				"retry once it is reachable",
 			why:     "an unanswerable question is not an all-clear",
 		},
 		{
@@ -555,7 +565,8 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 				return unreadableTask(distributedtask.TaskStatusStarted, time.Time{})
 			},
 			leaked:  []string{"not json", "invalid character"},
-			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
+			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable; " +
+				"retry once every node runs the same server version, and report this to Weaviate if it persists",
 			why:     "nothing identifies what this task touches, so no collection can be declared clean",
 		},
 		{
@@ -647,6 +658,11 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 			// overlap refusal as an unrelated failure.
 			assert.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
 				"the refusal must stay classifiable through the redaction wrapper")
+			// Every refusal in this table comes from an input the check could
+			// not read, so none of them observed a migration. Saying one ran
+			// sends the operator after a task that may never have existed.
+			assert.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined,
+				"a refusal built on an unreadable input must not claim an overlap was seen")
 		})
 	}
 }

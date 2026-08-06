@@ -80,28 +80,32 @@ func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
 	db.anyReindexActivityLookup = lookup
 }
 
-// redactedErr keeps a sentinel and a cause reachable via errors.Is without
-// printing either. The cause names nodes and task internals that must not reach
-// an API response body, and the sentinel's own text would otherwise be printed
-// twice by %w wrapping. Without the sentinel in Unwrap, every caller
+// redactedErr keeps its sentinels and a cause reachable via errors.Is without
+// printing any of them. The cause names nodes and task internals that must not
+// reach an API response body, and a sentinel's own text would otherwise be
+// printed twice by %w wrapping. Without the sentinels in Unwrap, every caller
 // classifying the refusal sees a plain error and treats a fail-closed gate
 // refusal as an unrelated failure.
 //
+// More than one sentinel because a refusal can need classifying on two axes at
+// once: the overlap refusals carry both what they refuse and whether they
+// observed it.
+//
 // A nil cause is allowed: the retention-window refusal has nothing to hide,
-// only a message that must not be prefixed with the sentinel's text.
+// only a message that must not be prefixed with a sentinel's text.
 type redactedErr struct {
-	msg      string
-	sentinel error
-	cause    error
+	msg       string
+	sentinels []error
+	cause     error
 }
 
 func (e redactedErr) Error() string { return e.msg }
 
 func (e redactedErr) Unwrap() []error {
 	if e.cause == nil {
-		return []error{e.sentinel}
+		return e.sentinels
 	}
-	return []error{e.sentinel, e.cause}
+	return append(append([]error{}, e.sentinels...), e.cause)
 }
 
 // RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart of
@@ -163,8 +167,8 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 		return redactedErr{
 			msg: entitiesbackup.ErrReindexInFlight.Error() +
 				" (assumed): the cluster task manager could not be queried; retry once it is reachable",
-			sentinel: entitiesbackup.ErrReindexInFlight,
-			cause:    err,
+			sentinels: []error{entitiesbackup.ErrReindexInFlight},
+			cause:     err,
 		}
 	}
 	if !live {
@@ -192,7 +196,10 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 // see. Every caller of this lookup depends on that distinction.
 //
 // A non-nil error means either that one overlapped or that the question can no
-// longer be answered; callers fail closed on both.
+// longer be answered; callers fail closed on both. The two are told apart by
+// [entitiesbackup.ErrReindexOverlapUndetermined], which only the second kind
+// carries, because the operator-facing refusal must not claim a migration the
+// check never saw.
 //
 // Cancelled tasks are decided by unit state, not by timestamps: cancel only
 // applies to a task that had already STARTED, so a cancelled one may already
@@ -227,10 +234,21 @@ func (db *DB) SetReindexOverlapLookup(lookup ReindexOverlapLookup) {
 	db.reindexOverlapLookup = lookup
 }
 
-// redactedOverlapErr is [redactedErr] fixed to the overlap sentinel; every
-// refusal from the commit-time check carries it.
+// redactedOverlapErr builds the commit-time refusals that never saw an overlap
+// and only failed to rule one out. It carries [ErrBackupSpannedReindex] so the
+// refusal classifies like any other from this check, and
+// [ErrReindexOverlapUndetermined] so the caller can tell the operator which of
+// the two happened. The one refusal that did observe an overlap is built inline
+// with [ErrBackupSpannedReindex] alone.
 func redactedOverlapErr(msg string, cause error) error {
-	return redactedErr{msg: msg, sentinel: entitiesbackup.ErrBackupSpannedReindex, cause: cause}
+	return redactedErr{
+		msg: msg,
+		sentinels: []error{
+			entitiesbackup.ErrBackupSpannedReindex,
+			entitiesbackup.ErrReindexOverlapUndetermined,
+		},
+		cause: cause,
+	}
 }
 
 // ReindexTaskLister lists DTM tasks by namespace, narrowed from the cluster
@@ -248,7 +266,8 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
 			return redactedOverlapErr(fmt.Sprintf(
-				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for",
+				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for; "+
+					"retry the backup, and raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS if backups here routinely take that long",
 				completedTaskTTL), nil)
 		}
 		tasksByNamespace, err := list(ctx)
@@ -256,7 +275,8 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 			// The RAFT error names the nodes it could not reach, and this text
 			// is stored in the failure meta and served from the status API.
 			return redactedOverlapErr(
-				"cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried", err)
+				"cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried; "+
+					"retry once it is reachable", err)
 		}
 		wanted := lowercasedSet(collections)
 		for _, task := range tasksByNamespace[ReindexNamespace] {
@@ -330,7 +350,8 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 		// writing during the capture. Unbounded on purpose: declaring any
 		// collection clean here would be a guess.
 		return "", false, redactedOverlapErr(
-			"cannot rule out a runtime-reindex during this backup: a task payload is unreadable", decodeErr)
+			"cannot rule out a runtime-reindex during this backup: a task payload is unreadable; "+
+				"retry once every node runs the same server version, and report this to Weaviate if it persists", decodeErr)
 	}
 	if _, ok := wanted[strings.ToLower(collection)]; !ok {
 		return "", false, nil
