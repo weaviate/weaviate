@@ -132,7 +132,7 @@ func TestRollbackForABackupLeavesThatBackupAbleToComplete(t *testing.T) {
 		"the backup is mid-capture when the rollback's cancel applies; "+
 			"a task no worker ever claimed has nothing to protect")
 
-	j.provider.OnCancelApplied(j.task)
+	j.provider.OnTerminalApplied(j.task)
 	require.NoError(t, j.captureShard(),
 		"the cancel-apply gate must not refuse the backup the rollback was performed for")
 
@@ -160,7 +160,7 @@ func TestCancelOfAMigrationThatRanStillRefusesTheBackup(t *testing.T) {
 		map[string]*distributedtask.Unit{"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress}},
 		time.Now())
 
-	j.provider.OnCancelApplied(j.task)
+	j.provider.OnTerminalApplied(j.task)
 	require.Error(t, j.captureShard(),
 		"a worker claimed this unit, so the sidecars are still coming down")
 	require.Equal(t, ReindexHoldCleanup,

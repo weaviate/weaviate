@@ -101,7 +101,7 @@ func TestCancelApplyGateIsReleasedByTheTeardown(t *testing.T) {
 	task, payload := lifecycleTask(t, "task-lifecycle-1")
 	logger, _ := logrustest.NewNullLogger()
 
-	p.OnCancelApplied(task)
+	p.OnTerminalApplied(task)
 	require.True(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
 		"the apply must close the gate over the gap before the teardown starts")
 	require.Equal(t, ReindexHoldCleanup, p.HoldForShard(lifecycleCollection, "shard1"))
@@ -123,7 +123,7 @@ func TestCancelApplyGateIsReleasedWhenThereIsNothingToTearDown(t *testing.T) {
 	payload.Properties = nil
 	logger, _ := logrustest.NewNullLogger()
 
-	p.OnCancelApplied(task)
+	p.OnTerminalApplied(task)
 	require.True(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"))
 
 	p.autoCleanupAfterTerminal(task, payload, logger)
@@ -141,7 +141,7 @@ func TestCancelConfirmationOutlivesTheBlockingGate(t *testing.T) {
 	task, payload := lifecycleTask(t, "task-lifecycle-3")
 	logger, _ := logrustest.NewNullLogger()
 
-	p.OnCancelApplied(task)
+	p.OnTerminalApplied(task)
 	p.autoCleanupAfterTerminal(task, payload, logger)
 
 	require.False(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
@@ -186,7 +186,7 @@ func TestGateRefcountsBalanceOverManyCycles(t *testing.T) {
 		task, payload := lifecycleTask(t, "task-soak")
 		task.Version = uint64(i + 1)
 
-		p.OnCancelApplied(task)
+		p.OnTerminalApplied(task)
 		p.autoCleanupAfterTerminal(task, payload, logger)
 
 		releaseSubmit := p.MarkSubmitInProgress(lifecycleCollection)
@@ -219,7 +219,7 @@ func TestCancelApplyGateReleasesWhenTheTeardownRanFirst(t *testing.T) {
 
 	// Teardown first, apply second — the follower ordering.
 	p.autoCleanupAfterTerminal(task, payload, logger)
-	p.OnCancelApplied(task)
+	p.OnTerminalApplied(task)
 
 	require.False(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
 		"an apply that lost the race to its own teardown has no gap left to cover, "+
@@ -238,7 +238,7 @@ func TestBlockingHoldClearsWithTheTeardownNotTheConfirmationWindow(t *testing.T)
 	task, payload := lifecycleTask(t, "task-restore-gate")
 	logger, _ := logrustest.NewNullLogger()
 
-	p.OnCancelApplied(task)
+	p.OnTerminalApplied(task)
 	require.True(t, p.BlockingHoldForCollection(lifecycleCollection),
 		"the teardown is pending, so a restore must be refused")
 

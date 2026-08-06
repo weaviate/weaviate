@@ -120,7 +120,7 @@ func TestAnyCleanupInProgressLookupClearsWithTheTeardown(t *testing.T) {
 
 	lookup := anyCleanupInProgressLookup(provider)
 
-	provider.OnCancelApplied(task)
+	provider.OnTerminalApplied(task)
 	require.True(t, lookup([]string{"Movies"}),
 		"the teardown is pending, so a restore of this collection must be refused")
 

@@ -128,7 +128,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 			defer h.manager.Close()
 
 			var rec observerRecorder
-			h.manager.RegisterCancelObserver(ns, rec.record)
+			h.manager.RegisterTerminalObserver(ns, rec.record)
 
 			tc.drive(t, h)
 
@@ -167,7 +167,7 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 		version = uint64(10)
 	)
 
-	// Well past cancelObserverStaleAfter, and a literal so that widening the
+	// Well past terminalObserverStaleAfter, and a literal so that widening the
 	// constant does not quietly turn these cases green.
 	const unitsStoppedAgo = 2 * time.Minute
 
@@ -255,7 +255,7 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 			defer h.manager.Close()
 
 			var rec observerRecorder
-			h.manager.RegisterCancelObserver(ns, rec.record)
+			h.manager.RegisterTerminalObserver(ns, rec.record)
 
 			tc.stage(t, h)
 

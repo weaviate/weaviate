@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// cancelGateProvider builds the smallest ReindexProvider OnCancelApplied needs.
+// cancelGateProvider builds the smallest ReindexProvider OnTerminalApplied needs.
 func cancelGateProvider(serverCtx context.Context) *ReindexProvider {
 	logger, _ := logrustest.NewNullLogger()
 	return &ReindexProvider{
@@ -80,7 +80,7 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 
 		require.False(t, p.IsCleanupInProgress(collection, "shard1"))
 
-		p.OnCancelApplied(task)
+		p.OnTerminalApplied(task)
 
 		require.True(t, p.IsCleanupInProgress(collection, "shard1"),
 			"the cancel apply must close the gate without a scheduler tick")
@@ -96,7 +96,7 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 		defer cancelServer()
 		p := cancelGateProvider(serverCtx)
 
-		p.OnCancelApplied(cancelGateTask(t, &ReindexTaskPayload{Collection: collection}))
+		p.OnTerminalApplied(cancelGateTask(t, &ReindexTaskPayload{Collection: collection}))
 
 		require.True(t, p.IsCleanupInProgress(collection, "any-shard"),
 			"with no shard names the gate has to cover every shard of the collection")
@@ -112,7 +112,7 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 		defer cancelServer()
 		p := cancelGateProvider(serverCtx)
 
-		p.OnCancelApplied(&distributedtask.Task{
+		p.OnTerminalApplied(&distributedtask.Task{
 			TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-3", Version: 1},
 			Payload:        []byte(`{"collection":"Movies","unitToShard":"not-a-map"}`),
 		})
@@ -128,7 +128,7 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 		defer cancelServer()
 		p := cancelGateProvider(serverCtx)
 
-		p.OnCancelApplied(&distributedtask.Task{
+		p.OnTerminalApplied(&distributedtask.Task{
 			TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-2", Version: 1},
 			Payload:        []byte("not json"),
 		})
@@ -202,7 +202,7 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 				defer cancelServer()
 				p := cancelGateProvider(serverCtx)
 
-				p.OnCancelApplied(unclaimedTask(tc.status, tc.units))
+				p.OnTerminalApplied(unclaimedTask(tc.status, tc.units))
 
 				require.Equal(t, tc.gated, p.IsCleanupInProgress(collection, "shard1"), tc.why)
 				require.True(t, p.AnyCleanupInProgressForCollection(collection),
@@ -218,7 +218,7 @@ func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
 		serverCtx, cancelServer := context.WithCancel(context.Background())
 		p := cancelGateProvider(serverCtx)
 
-		p.OnCancelApplied(cancelGateTask(t, &ReindexTaskPayload{
+		p.OnTerminalApplied(cancelGateTask(t, &ReindexTaskPayload{
 			Collection:  collection,
 			UnitToShard: map[string]string{"u1": "shard1"},
 		}))
