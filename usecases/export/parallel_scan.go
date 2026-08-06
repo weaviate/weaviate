@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency/bufferedpipe"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -225,6 +226,8 @@ type rangeWriterConfig struct {
 	onFlush   func(int64) // called after each successful ParquetWriter flush
 }
 
+const defaultPipeBufferSize = 16 * 1024 * 1024 // 16 MB per range pipeline
+
 // rangePipeline bundles a per-range ParquetWriter, buffered pipe, and upload
 // goroutine. The buffered pipe decouples scan speed from upload speed so that
 // LSM cursors are not held open waiting on network I/O.
@@ -233,7 +236,7 @@ type rangeWriterConfig struct {
 // so empty ranges never instantiate a pipeline at all — there is no
 // CloseEmpty/abort path to worry about.
 type rangePipeline struct {
-	pw         *bufferedPipeWriter
+	pw         *bufferedpipe.Writer
 	writer     *ParquetWriter
 	uploadDone <-chan error
 }
@@ -275,7 +278,7 @@ func (rp *rangePipeline) Shutdown(scanErr error) error {
 // the upload goroutine so that the scan can run at disk speed without being
 // blocked by upload latency.
 func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex int) (*rangePipeline, error) {
-	pr, pw := newBufferedPipe(defaultPipeBufferSize)
+	pr, pw := bufferedpipe.New(defaultPipeBufferSize)
 
 	fileName := fmt.Sprintf("%s_%s_%04d.parquet", cfg.className, cfg.shardName, rangeIndex)
 

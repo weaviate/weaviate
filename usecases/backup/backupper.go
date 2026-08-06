@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type backupper struct {
@@ -33,11 +34,13 @@ type backupper struct {
 	rbacSourcer    fsm.Snapshotter
 	dynUserSourcer dynUserSnapshotter
 	backends       BackupBackendProvider
+	allocChecker   memwatch.AllocChecker
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
 func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
+	allocChecker memwatch.AllocChecker,
 ) *backupper {
 	return &backupper{
 		node:           node,
@@ -48,6 +51,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		allocChecker:   allocChecker,
 	}
 }
 
@@ -114,7 +118,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, store, req.ID, b.lastOp.set, b.logger, b.allocChecker).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)

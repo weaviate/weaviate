@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // classifyCanCommitErr maps a free-form canCommit error to a
@@ -194,6 +195,7 @@ func NewHandler(
 	backends BackupBackendProvider,
 	rbacSourcer fsm.Snapshotter,
 	dynUserSourcer dynUserSnapshotter,
+	allocChecker memwatch.AllocChecker,
 ) *Handler {
 	node := schema.NodeName()
 	m := &Handler{
@@ -203,7 +205,7 @@ func NewHandler(
 		backends:   backends,
 		backupper: newBackupper(node, logger, cfg,
 			sourcer, rbacSourcer, dynUserSourcer,
-			backends),
+			backends, allocChecker),
 		restorer: newRestorer(node, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends, schema.NamespacesEnabled(),

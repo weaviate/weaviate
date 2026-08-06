@@ -636,6 +636,9 @@ func backupWithSizes(
 		effectivePath = classDescs[0].StagingDir
 	}
 
+	// Any positive size works; the reader drains concurrently.
+	const pipeBufferSize = 1 << 20
+
 	var result backupChunkResult
 
 	for _, sd := range classDescs[0].Shards {
@@ -654,7 +657,7 @@ func backupWithSizes(
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := backupUC.NewZip(effectivePath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
+			z, rc, err := backupUC.NewZip(effectivePath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize, pipeBufferSize)
 			require.NoError(t, err)
 
 			type writeResult struct {

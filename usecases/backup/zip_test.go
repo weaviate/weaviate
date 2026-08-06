@@ -30,9 +30,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestZip(t *testing.T) {
@@ -53,7 +56,7 @@ func TestZip(t *testing.T) {
 
 			// compression writer
 			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0, 0)
+			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0, 0, maxPipeBufferSize)
 			require.NoError(t, err)
 			var zInputLen int64
 			fileList := newFileList(t, pathDest, sd.Files)
@@ -367,7 +370,7 @@ func TestNewZipClampsSplitFileSize(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFilesThreshold, tc.splitFileSize)
+			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFilesThreshold, tc.splitFileSize, maxPipeBufferSize)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedSplitFileSize, z.splitFileSizeBytes)
 			go func() { io.Copy(io.Discard, rc) }()
@@ -499,7 +502,7 @@ func TestWriteRegulars(t *testing.T) {
 				FileSizes: fileSizes,
 			}
 
-			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, tt.minIndividualSize, tt.splitFileSize)
+			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, tt.minIndividualSize, tt.splitFileSize, maxPipeBufferSize)
 			require.NoError(t, err)
 
 			preCompSize := &atomic.Int64{}
@@ -567,7 +570,7 @@ func TestWriteRegulars(t *testing.T) {
 		}
 
 		// Chunk 1: small files written, big file deferred.
-		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0, maxPipeBufferSize)
 		require.NoError(t, err)
 		preComp := &atomic.Int64{}
 		var writeErr error
@@ -585,7 +588,7 @@ func TestWriteRegulars(t *testing.T) {
 		require.Equal(t, 1, fileList.Len(), "only big file should remain")
 
 		// Chunk 2: big file is first and gets its own chunk.
-		z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500, 0, maxPipeBufferSize)
 		require.NoError(t, err)
 		preComp2 := &atomic.Int64{}
 		go func() {
@@ -636,7 +639,7 @@ func TestWriteRegulars(t *testing.T) {
 			FileSizes: map[string]int64{"shard/meta.db": 2000},
 		}
 
-		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0, maxPipeBufferSize)
 		require.NoError(t, err)
 		preComp := &atomic.Int64{}
 		var writeErr error
@@ -712,7 +715,7 @@ func TestWriteRegulars(t *testing.T) {
 // the pipe. Used to drive a split file across multiple chunks.
 func runZipChunk(t *testing.T, sourceDir string, write func(z *zip, pc *atomic.Int64)) {
 	t.Helper()
-	z, rc, err := NewZip(sourceDir, int(NoCompression), 1000, 1000, 1000)
+	z, rc, err := NewZip(sourceDir, int(NoCompression), 1000, 1000, 1000, maxPipeBufferSize)
 	require.NoError(t, err)
 	pc := &atomic.Int64{}
 	go func() {
@@ -836,7 +839,7 @@ func TestWriteShard(t *testing.T) {
 				FileSizes: fileSizes,
 			}
 
-			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, 0, 0)
+			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, 0, 0, maxPipeBufferSize)
 			require.NoError(t, err)
 
 			var splitFile *SplitFile
@@ -950,7 +953,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 			sd.PropLengthTracker = []byte("12345")
 
 			// start backup process
-			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0)
+			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0, maxPipeBufferSize)
 			require.NoError(t, err)
 			fileList := newFileList(t, dir, sd.Files)
 			// Use assert (not require) in goroutines: require calls t.FailNow() which
@@ -1057,7 +1060,7 @@ func TestSplitFileRoundTrip(t *testing.T) {
 
 			for {
 				var buf bytes.Buffer
-				z, rc, err := NewZip(sourceDir, int(compressionLevel), chunkSize, 0, splitFileSize)
+				z, rc, err := NewZip(sourceDir, int(compressionLevel), chunkSize, 0, splitFileSize, maxPipeBufferSize)
 				require.NoError(t, err)
 
 				type writeResult struct {
@@ -1162,7 +1165,7 @@ func TestSplitFileExactBoundary(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize, maxPipeBufferSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1264,7 +1267,7 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize, maxPipeBufferSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1371,7 +1374,7 @@ func TestSplitFirstFileInChunk(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize, maxPipeBufferSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1627,7 +1630,7 @@ func TestFirstFileBelowSplitThresholdWrittenWhole(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize, maxPipeBufferSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1733,7 +1736,7 @@ func TestMultipleSplitFilesInShard(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize, maxPipeBufferSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1866,7 +1869,7 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+			z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize, maxPipeBufferSize)
 			require.NoError(t, err)
 
 			type writeResult struct {
@@ -2008,3 +2011,240 @@ func newFileList(t *testing.T, sourceDir string, files []string) *backup.FileLis
 		FileSizes: fileSizes,
 	}
 }
+
+// The producer must be able to run ahead while the backend upload is still in
+// flight; an unbuffered pipe would block it on the first write instead.
+func TestZipProducerRunsAheadOfConsumer(t *testing.T) {
+	tests := []struct {
+		name        string
+		level       CompressionLevel
+		compression backup.CompressionType
+	}{
+		{name: "no compression", level: NoCompression, compression: backup.CompressionNone},
+		{name: "zstd", level: ZstdDefaultCompression, compression: backup.CompressionZSTD},
+		{name: "gzip", level: GzipBestSpeed, compression: backup.CompressionGZIP},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Small enough that the whole chunk fits the buffer, so the
+			// producer never has to wait for the consumer at all.
+			const fileSize = 1 << 20
+			require.Less(t, int64(fileSize), int64(maxPipeBufferSize))
+			data := incompressibleData(t, fileSize, 42)
+			dir, sd, fileList := newFileSource(t, data)
+
+			z, rc, err := NewZip(dir, int(tt.level), 0, 0, 0, maxPipeBufferSize)
+			require.NoError(t, err)
+
+			produced := make(chan error, 1)
+			go func() {
+				_, _, writeErr := z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+				produced <- errors.Join(writeErr, z.Close())
+			}()
+
+			// Nothing reads from rc until the producer reports it is done.
+			select {
+			case err := <-produced:
+				require.NoError(t, err)
+			case <-time.After(10 * time.Second):
+				t.Fatal("producer blocked waiting for the consumer to read")
+			}
+
+			out, err := io.ReadAll(rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+
+			tr := tar.NewReader(decompress(t, tt.compression, out))
+			hdr, err := tr.Next()
+			require.NoError(t, err)
+			require.Equal(t, "shard/a.db", hdr.Name)
+			got, err := io.ReadAll(tr)
+			require.NoError(t, err)
+			require.Equal(t, data, got)
+		})
+	}
+}
+
+// Every real chunk is larger than the pipe buffer, so the producer fills it,
+// waits for the consumer to drain, and resumes. The bytes must survive that.
+func TestZipStreamLargerThanPipeBuffer(t *testing.T) {
+	tests := []struct {
+		name        string
+		level       CompressionLevel
+		compression backup.CompressionType
+	}{
+		{name: "no compression", level: NoCompression, compression: backup.CompressionNone},
+		{name: "zstd", level: ZstdDefaultCompression, compression: backup.CompressionZSTD},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := incompressibleData(t, maxPipeBufferSize+(1<<20), 7)
+			dir, sd, fileList := newFileSource(t, data)
+
+			z, rc, err := NewZip(dir, int(tt.level), 0, 0, 0, maxPipeBufferSize)
+			require.NoError(t, err)
+
+			produced := make(chan error, 1)
+			go func() {
+				_, _, writeErr := z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+				produced <- errors.Join(writeErr, z.Close())
+			}()
+
+			out, err := io.ReadAll(rc)
+			require.NoError(t, err)
+			require.NoError(t, <-produced)
+			require.NoError(t, rc.Close())
+
+			tr := tar.NewReader(decompress(t, tt.compression, out))
+			hdr, err := tr.Next()
+			require.NoError(t, err)
+			require.Equal(t, "shard/a.db", hdr.Name)
+			got, err := io.ReadAll(tr)
+			require.NoError(t, err)
+			require.Equal(t, data, got)
+		})
+	}
+}
+
+func TestZipErrorPropagation(t *testing.T) {
+	t.Run("producer error reaches the consumer after buffered data", func(t *testing.T) {
+		dir, sd, fileList := newFileSource(t, makeTestData(4096, 1))
+
+		z, rc, err := NewZip(dir, int(NoCompression), 0, 0, 0, maxPipeBufferSize)
+		require.NoError(t, err)
+
+		_, _, err = z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+		require.NoError(t, err)
+
+		shardErr := errors.New("shard read failed")
+		require.NoError(t, z.CloseWithError(shardErr))
+
+		out, err := io.ReadAll(rc)
+		require.ErrorIs(t, err, shardErr)
+		require.NotEmpty(t, out, "buffered data must be delivered before the error")
+	})
+
+	t.Run("consumer error reaches the producer", func(t *testing.T) {
+		dir, sd, fileList := newFileSource(t, makeTestData(4096, 1))
+
+		z, rc, err := NewZip(dir, int(NoCompression), 0, 0, 0, maxPipeBufferSize)
+		require.NoError(t, err)
+
+		uploadErr := errors.New("upload failed")
+		require.NoError(t, rc.CloseWithError(uploadErr))
+
+		_, _, err = z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+		require.ErrorIs(t, err, uploadErr)
+	})
+
+	t.Run("consumer error reaches a producer blocked on a full buffer", func(t *testing.T) {
+		dir, sd, fileList := newFileSource(t, incompressibleData(t, maxPipeBufferSize+(1<<20), 9))
+
+		z, rc, err := NewZip(dir, int(NoCompression), 0, 0, 0, maxPipeBufferSize)
+		require.NoError(t, err)
+
+		produced := make(chan error, 1)
+		go func() {
+			_, _, writeErr := z.WriteRegulars(context.Background(), &sd, fileList, &atomic.Int64{}, "chunk")
+			produced <- writeErr
+		}()
+
+		// Give the producer time to fill the buffer and block on it.
+		time.Sleep(100 * time.Millisecond)
+		uploadErr := errors.New("upload failed")
+		require.NoError(t, rc.CloseWithError(uploadErr))
+
+		select {
+		case err := <-produced:
+			require.ErrorIs(t, err, uploadErr)
+		case <-time.After(10 * time.Second):
+			t.Fatal("producer did not fail after the consumer closed")
+		}
+	})
+}
+
+// newFileSource creates a source directory holding one shard file with the
+// given contents.
+func newFileSource(t *testing.T, data []byte) (string, backup.ShardDescriptor, *backup.FileList) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "source")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "a.db"), data, 0o644))
+	return dir, backup.ShardDescriptor{Name: "shard", Node: "node1"}, newFileList(t, dir, []string{"shard/a.db"})
+}
+
+// incompressibleData keeps every compression level pushing roughly size bytes
+// through the pipe.
+func incompressibleData(t *testing.T, size int, seed int64) []byte {
+	t.Helper()
+	data := make([]byte, size)
+	_, err := mathrand.New(mathrand.NewSource(seed)).Read(data)
+	require.NoError(t, err)
+	return data
+}
+
+func decompress(t *testing.T, compression backup.CompressionType, data []byte) io.Reader {
+	t.Helper()
+	switch compression {
+	case backup.CompressionNone:
+		return bytes.NewReader(data)
+	case backup.CompressionZSTD:
+		r, err := zstd.NewReader(bytes.NewReader(data))
+		require.NoError(t, err)
+		t.Cleanup(r.Close)
+		return r
+	case backup.CompressionGZIP:
+		r, err := gzip.NewReader(bytes.NewReader(data))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, r.Close()) })
+		return r
+	}
+	t.Fatalf("unsupported compression %v", compression)
+	return nil
+}
+
+func TestAffordablePipeBufferSize(t *testing.T) {
+	tests := []struct {
+		name    string
+		grantUp int64 // largest total approved; negative means no checker
+		workers int
+		want    int
+	}{
+		{name: "no checker keeps the full size", grantUp: -1, workers: 16, want: maxPipeBufferSize},
+		{name: "plenty of memory keeps the full size", grantUp: 1 << 40, workers: 16, want: maxPipeBufferSize},
+		{name: "one worker only needs its own share", grantUp: maxPipeBufferSize, workers: 1, want: maxPipeBufferSize},
+		{name: "one byte short of the full size drops one step", grantUp: (256 << 20) - 1, workers: 16, want: 8 << 20},
+		{name: "halves twice when a quarter fits", grantUp: 64 << 20, workers: 16, want: 4 << 20},
+		{name: "halves three times when an eighth fits", grantUp: 32 << 20, workers: 16, want: 2 << 20},
+		{name: "halves below a megabyte rather than overshooting", grantUp: 8 << 20, workers: 16, want: 512 << 10},
+		{name: "halves all the way down to the floor", grantUp: minPipeBufferSize * 16, workers: 16, want: minPipeBufferSize},
+		{name: "one byte short of the floor still uses the floor", grantUp: minPipeBufferSize*16 - 1, workers: 16, want: minPipeBufferSize},
+		{name: "no memory at all still uses the floor", grantUp: 0, workers: 16, want: minPipeBufferSize},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var checker memwatch.AllocChecker
+			if tt.grantUp >= 0 {
+				checker = fakeAllocChecker{limit: tt.grantUp}
+			}
+			require.Equal(t, tt.want, affordablePipeBufferSize(checker, tt.workers))
+		})
+	}
+}
+
+// fakeAllocChecker approves any allocation up to limit bytes.
+type fakeAllocChecker struct{ limit int64 }
+
+func (c fakeAllocChecker) CheckAlloc(sizeInBytes int64) error {
+	if sizeInBytes > c.limit {
+		return enterrors.ErrNotEnoughMemory
+	}
+	return nil
+}
+
+func (fakeAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
+
+func (fakeAllocChecker) Refresh(bool) {}

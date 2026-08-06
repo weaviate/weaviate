@@ -29,7 +29,9 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	entBackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency/bufferedpipe"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // CompressionLevel represents supported compression level
@@ -63,11 +65,36 @@ type compressor interface {
 	Close() error
 }
 
+// The pipe buffer lets the tar/compressor producer run ahead of the backend
+// upload so the two overlap. The max covers one GCS or S3 upload request;
+// Azure posts 40 MiB blocks, so it still stalls partway through each. The min
+// is about one compressor block, so it costs roughly what an unbuffered pipe
+// would.
+const (
+	maxPipeBufferSize = 16 * 1024 * 1024
+	minPipeBufferSize = 128 * 1024
+)
+
+// affordablePipeBufferSize halves down from maxPipeBufferSize until the alloc
+// checker approves size*workers. Falls back to minPipeBufferSize when even
+// that is rejected: one block per worker is not worth failing a backup over.
+func affordablePipeBufferSize(allocChecker memwatch.AllocChecker, workers int) int {
+	if allocChecker == nil {
+		return maxPipeBufferSize
+	}
+	for size := maxPipeBufferSize; size >= minPipeBufferSize; size /= 2 {
+		if allocChecker.CheckAlloc(int64(size)*int64(workers)) == nil {
+			return size
+		}
+	}
+	return minPipeBufferSize
+}
+
 type zip struct {
 	sourcePath          string
 	w                   *tar.Writer
 	compressorWriter    compressor
-	pipeWriter          *io.PipeWriter
+	pipeWriter          *bufferedpipe.Writer
 	maxChunkSizeInBytes int64
 	bigFilesThreshold   int64
 	splitFileSizeBytes  int64
@@ -122,9 +149,10 @@ func takeZstdEncoder(level CompressionLevel, w io.Writer) (*zstd.Encoder, *sync.
 //   - splitFileSize: files exceeding this size are split across multiple chunks.
 //     Must be >= bigFilesThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.
-func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
-	pr, pw := io.Pipe()
-	reader := &readCloser{src: pr, n: 0}
+//   - pipeBufferSize: how far the producer may run ahead of the consumer. Must be
+//     positive, or bufferedpipe.Unbounded to buffer without a limit.
+func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64, pipeBufferSize int) (zip, entBackup.ReadCloserWithError, error) {
+	reader, pw := bufferedpipe.New(pipeBufferSize)
 
 	var gzw compressor
 	var tarW *tar.Writer
@@ -189,7 +217,7 @@ func (z *zip) CloseWithError(err error) error {
 	if z.compressorWriter != nil {
 		err2 = z.compressorWriter.Close()
 	}
-	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil && !errors.Is(closeErr, io.ErrClosedPipe) {
+	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil {
 		err3 = closeErr
 	}
 	// A failed close leaves the encoder in an unknown state, so only a clean one
@@ -696,24 +724,6 @@ func (v vFileInfo) Mode() os.FileMode  { return 0o644 }
 func (v vFileInfo) ModTime() time.Time { return v.modTime }
 func (v vFileInfo) IsDir() bool        { return false }
 func (v vFileInfo) Sys() interface{}   { return nil }
-
-type readCloser struct {
-	src *io.PipeReader
-	n   int64
-}
-
-func (r *readCloser) Read(p []byte) (n int, err error) {
-	n, err = r.src.Read(p)
-	atomic.AddInt64(&r.n, int64(n))
-	return n, err
-}
-
-func (r *readCloser) Close() error { return r.src.Close() }
-
-// CloseWithError closes the reader and signals the given error to the producer.
-// If err is non-nil, the producer's write will return this error instead of
-// the generic "io: read/write on closed pipe".
-func (r *readCloser) CloseWithError(err error) error { return r.src.CloseWithError(err) }
 
 // ceilDiv returns ⌈a/b⌉ using integer arithmetic.
 func ceilDiv(a, b int64) int64 {
