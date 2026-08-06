@@ -1746,22 +1746,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // Errors are logged and swallowed; the next-restart audit catches anything
 // missed.
 //
-// Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
-// to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
-// teardown sees [IsLiveReindexTaskStatus]==false but the on-disk
-// __reindex / __ingest sidecars are still being torn out. Registering
-// every shard the task touched in [cleanupInProgress] before
-// CleanStalePartialReindexState fires (and unregistering after) makes
-// "cleanup is still happening on this shard" an explicit state the
-// gate consults — closing the cleanup-vs-status-visibility gap the
-// DTM-only lookup leaves open.
+// It closes the cleanup gate because [IsLiveReindexTaskStatus] flips to false
+// the moment the task goes terminal, while the __reindex / __ingest sidecars
+// are still being torn out. A backup landing in that gap would otherwise
+// capture half-removed dirs.
 //
-// The gate is closed before the drain, not after it: the task left DTM the
-// moment it went terminal, so the drain is itself a stretch where the shards
-// read free while the worker is still writing, and a drain that times out
-// would leave it unguarded entirely. Applicability is decided first, so a task
-// with nothing to tear down holds nothing. Same ordering DrainWithCleanupGate
-// uses on the REST cancel path.
+// The gate closes before the drain, not after: the drain is itself a stretch
+// where the shards read free while the worker is still writing, and a drain
+// that times out would leave it unguarded entirely. Applicability is decided
+// first, so a task with nothing to tear down holds nothing. Same ordering
+// DrainWithCleanupGate uses on the REST cancel path.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	// Claim the gate the cancel-apply parked, before anything can return: this
 	// teardown is what it was waiting for, and a task with nothing to tear down

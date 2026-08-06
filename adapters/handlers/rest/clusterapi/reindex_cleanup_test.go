@@ -15,10 +15,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -253,4 +257,71 @@ func TestInternalReindexCleanupActivityWiringIsRaceFree(t *testing.T) {
 	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode,
 		"the readers must observe the write, not a stale nil")
+}
+
+// The collection comes off the query string, so an unauthorized caller decides
+// its bytes. A newline in a logrus field ends the line and everything after it
+// reads as a second, fully forged entry; an unbounded one lets a single request
+// write as much of the log as it likes.
+func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T) {
+	tests := []struct {
+		name       string
+		collection string
+		wantLogged string
+	}{
+		{
+			name:       "ordinary name",
+			collection: "Movies",
+			wantLogged: `"Movies"`,
+		},
+		{
+			name:       "newline forging a second entry",
+			collection: "Movies\nlevel=error msg=forged",
+			wantLogged: `"Movies\nlevel=error msg=forged"`,
+		},
+		{
+			name:       "carriage return",
+			collection: "Movies\rmsg=forged",
+			wantLogged: `"Movies\rmsg=forged"`,
+		},
+		{
+			name:       "longer than the cap",
+			collection: strings.Repeat("A", 500),
+			wantLogged: `"` + strings.Repeat("A", 128) + `…(truncated)"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
+			prober := &stubCleanupProber{cleaningUp: true}
+			handler := clusterapi.NewReindexCleanup(
+				func() clusterapi.ReindexCleanupProber { return prober },
+				clusterapi.NewNoopAuthHandler(), logger)
+			server := httptest.NewServer(handler.Activity())
+			defer server.Close()
+
+			res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=" +
+				url.QueryEscape(tt.collection))
+			require.NoError(t, err)
+			defer res.Body.Close()
+			require.Equal(t, http.StatusOK, res.StatusCode)
+
+			require.Equal(t, tt.collection, prober.asked,
+				"the probe still has to be asked about the collection exactly as sent")
+
+			entry := hook.LastEntry()
+			require.NotNil(t, entry)
+			logged, ok := entry.Data["collection"].(string)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantLogged, logged)
+			assert.NotContains(t, logged, "\n",
+				"a raw newline ends the line and forges the next one")
+			assert.NotContains(t, logged, "\r")
+			assert.LessOrEqual(t, len(logged), 160,
+				"one request must not be able to write an unbounded log line")
+		})
+	}
 }

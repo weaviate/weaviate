@@ -519,19 +519,19 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 // survive the RPC boundary:
 //
 //   - [CanCommitErrInFlightReindex] (backup refused) carries
-//     [backup.ErrBackupBlockedByInFlightReindex], either by wrapping it or, when
-//     the participant's message already opens with the sentinel, as a
-//     [backup.ReindexBlockedError] that unwraps to it.
+//     [backup.ErrBackupBlockedByInFlightReindex], as a
+//     [backup.ReindexBlockedError] when the participant's message already opens
+//     with the sentinel.
 //   - [CanCommitErrRestoreBlockedByReindex] (restore refused) carries
-//     [backup.ErrReindexInFlight] and not [errCannotCommit]. A caller that maps
+//     [backup.ErrReindexInFlight] and NOT [errCannotCommit]: a caller that maps
 //     it to [errCannotCommit] answers 500 for what the scheduler answers 422.
 //   - every other kind, including the empty one older nodes send, keeps the
 //     legacy [errCannotCommit] wrapping so existing callers and tests match.
 //
-// Known partial-rollout gap, deliberately open: a participant from before the
-// shard-name redaction sets the same [CanCommitErrInFlightReindex] kind and
-// names the shard in its message, which this promotion republishes. Closing it
-// would cost a wire field whose only job is telling peer versions apart.
+// Deliberately open: a participant from before the shard-name redaction sets
+// the same [CanCommitErrInFlightReindex] kind and names the shard in its
+// message, which this republishes. Closing it would cost a wire field whose
+// only job is telling peer versions apart.
 func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	if resp == nil {
 		return errCannotCommit

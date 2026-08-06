@@ -52,32 +52,23 @@ const (
 // line. The count beside it is exact; this only bounds the sample.
 const reindexRefusalShardSample = 10
 
-// Backupable returns whether all given class can be backed up.
-// Refuses if any shard has an in-flight runtime-reindex; this runs in
-// the coordinator's canCommit phase so no staging dir is created on
-// rejection.
+// Backupable returns whether all given classes can be backed up. Refuses if any
+// shard has an in-flight runtime-reindex; runs in the coordinator's canCommit
+// phase, so a rejection creates no staging dir.
 //
-// Failures are accumulated rather than short-circuiting on the first one, so
-// that when several classes are blocked at once the operator sees the full list
-// in a single canCommit round instead of fixing one, retrying, fixing the next,
-// retrying, and so on. What gets returned depends on whether a gate refusal is
-// among them:
+// Failures accumulate rather than short-circuit: with several classes blocked
+// at once the operator sees the whole list in one canCommit round instead of
+// fixing and retrying one at a time.
 //
-//   - No gate refusal: every accumulated failure is joined and returned.
-//   - Any gate refusal: the gate refusals are joined and returned, and the rest
-//     go to the log via [DB.logReindexRefusals] only. The withheld ones name the
-//     local node, and this error becomes an API response body that a backup
-//     caller has no grant on node names for. The one exception is
-//     "class %v doesn't exist", which names no node and so rides along: the
-//     operator who typoed a class name would otherwise have to wait out the
-//     whole migration before the typo is reported.
+// When a gate refusal is among them, only the gate refusals are returned and
+// the rest go to the log via [DB.logReindexRefusals]. The withheld ones name
+// the local node, and this error becomes an API response body a backup caller
+// has no grant on node names for. "class %v doesn't exist" rides along anyway:
+// it names no node, and the operator who typoed a class name would otherwise
+// wait out the whole migration to hear about it.
 //
-// Either way the joined error satisfies errors.Is for any wrapped sentinel
-// (e.g. ErrBackupBlockedByInFlightReindex), because errors.Join preserves the
-// underlying error graph.
-//
-// Class-missing errors stop aggregation for that class but do not short
-// circuit the whole loop; other classes still get checked.
+// The joined error still satisfies errors.Is for any wrapped sentinel
+// (e.g. ErrBackupBlockedByInFlightReindex).
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
