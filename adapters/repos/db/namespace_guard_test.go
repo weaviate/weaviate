@@ -35,10 +35,13 @@ import (
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -499,6 +502,7 @@ func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *In
 		logger:                 logger,
 		shardCreateLocks:       esync.NewKeyRWLocker(),
 		replicaSnapshotOpLocks: esync.NewKeyRWLocker(),
+		backupLock:             esync.NewKeyRWLocker(),
 		closingCtx:             context.Background(),
 	}
 }
@@ -1156,6 +1160,116 @@ func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
 
 		err := idx.IncomingStartChangeCapture(ctx, shardName, opID)
 		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	})
+}
+
+// replicaResponseErrors reads the errors out of the response
+// [Index.CommitReplication] and [Index.AbortReplication] return as any.
+func replicaResponseErrors(t *testing.T, resp any) []replicaerrors.Error {
+	t.Helper()
+	simple, ok := resp.(replica.SimpleResponse)
+	require.True(t, ok, "expected a replica.SimpleResponse, got %T", resp)
+	return simple.Errors
+}
+
+// A replicated write prepares on one call and commits or aborts on another.
+// Only the prepare asks the namespace whether the write may proceed. Refusing
+// the second call leaves the prepared task in the shard's map with nothing to
+// remove it, which strands the write and blocks every later seal of that shard.
+func TestTwoPhaseCommitSkipsTheGuard(t *testing.T) {
+	const (
+		class     = "alpha:Product"
+		shardName = "t1"
+		requestID = "req-1"
+	)
+	ctx := context.Background()
+
+	// A commit needs the task it executes, so it reports an unloaded shard as a
+	// missing request. An abort has nothing to remove and is already done.
+	verbs := []struct {
+		name              string
+		nilOnMissingShard bool
+		expect            func(shard *MockShardLike)
+		call              func(idx *Index) any
+	}{
+		{
+			name:              "commit",
+			nilOnMissingShard: true,
+			expect: func(shard *MockShardLike) {
+				shard.On("commitReplication", mock.Anything, requestID).Return(replica.SimpleResponse{}).Once()
+			},
+			call: func(idx *Index) any { return idx.CommitReplication(ctx, shardName, requestID) },
+		},
+		{
+			name: "abort",
+			expect: func(shard *MockShardLike) {
+				shard.On("abortReplication", mock.Anything, requestID).Return(replica.SimpleResponse{}).Once()
+			},
+			call: func(idx *Index) any { return idx.AbortReplication(ctx, shardName, requestID) },
+		},
+	}
+
+	for _, tc := range verbs {
+		// An exister with no expectations fails the test on any lookup.
+		t.Run(tc.name+" takes no namespace lookup", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+			shard := NewMockShardLike(t)
+			shard.On("preventShutdown").Return(func() {}, nil).Once()
+			tc.expect(shard)
+			idx.shards.Store(shardName, shard)
+
+			assert.Empty(t, replicaResponseErrors(t, tc.call(idx)))
+		})
+
+		t.Run(tc.name+" is served while the namespace is suspended", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+			shard := NewMockShardLike(t)
+			shard.On("preventShutdown").Return(func() {}, nil).Once()
+			tc.expect(shard)
+			idx.shards.Store(shardName, shard)
+
+			assert.Empty(t, replicaResponseErrors(t, tc.call(idx)))
+		})
+
+		// Loading a zero-value LazyLoadShard panics, so passing proves nothing
+		// materialized a shard that can no longer hold the task.
+		t.Run(tc.name+" on an unloaded shard leaves it unloaded", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+			lazy := &LazyLoadShard{}
+			idx.shards.Store(shardName, lazy)
+
+			resp := tc.call(idx)
+			if tc.nilOnMissingShard {
+				// Both transports read a nil response as "request not found",
+				// which no typed commit response can decode as a success.
+				assert.Nil(t, resp)
+			} else {
+				assert.Empty(t, replicaResponseErrors(t, resp))
+			}
+			assert.False(t, lazy.isLoaded())
+		})
+
+		// A missing shard is what makes an abort already done. A failed lookup
+		// is not, so a closed index still reports failure.
+		t.Run(tc.name+" reports a closed index", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
+			idx.closed = true
+
+			errs := replicaResponseErrors(t, tc.call(idx))
+			require.Len(t, errs, 1)
+			assert.Equal(t, replicaerrors.StatusShardNotFound, errs[0].Code)
+			assert.ErrorIs(t, errs[0].Err, errAlreadyShutdown)
+		})
+	}
+
+	// The boundary the rows above are read against.
+	t.Run("preparing a write is refused while suspended", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.shards.Store(shardName, NewMockShardLike(t))
+
+		resp := idx.ReplicateObject(ctx, shardName, requestID, &storobj.Object{}, 0)
+		require.Len(t, resp.Errors, 1)
+		require.ErrorIs(t, resp.Errors[0].Err, namespaces.ErrNamespaceSuspended)
 	})
 }
 

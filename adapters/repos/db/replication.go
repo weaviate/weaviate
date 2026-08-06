@@ -400,8 +400,12 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 	return localShard.prepareAddReferences(ctx, requestID, refs)
 }
 
+// CommitReplication runs the task a prepare left on the shard. It reads the
+// loaded shard directly, since refusing a commit the namespace already admitted
+// at prepare would leave that task behind with nothing to remove it. A nil
+// return reports the task gone, as it does for an unknown request id.
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) any {
-	localShard, release, err := i.GetShard(ctx, shard)
+	localShard, release, err := i.getLoadedShard(shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err), Err: err},
@@ -409,10 +413,9 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	}
 	defer release()
 
+	// The task lives only in the loaded shard, so an unloaded one has lost it.
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
-		}}
+		return nil
 	}
 
 	i.backupLock.RLock(shard)
@@ -421,8 +424,11 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	return localShard.commitReplication(ctx, requestID)
 }
 
+// AbortReplication drops the task a prepare left on the shard, reading the
+// loaded shard directly for the same reason as [Index.CommitReplication]. An
+// unloaded shard holds no task, so the abort is already done.
 func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) any {
-	localShard, release, err := i.GetShard(ctx, shard)
+	localShard, release, err := i.getLoadedShard(shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err), Err: err},
@@ -431,9 +437,7 @@ func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) a
 	defer release()
 
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
-		}}
+		return replica.SimpleResponse{}
 	}
 
 	return localShard.abortReplication(ctx, requestID)
