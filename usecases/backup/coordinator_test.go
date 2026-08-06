@@ -246,8 +246,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.NotContains(t, err.Error(), nodes[1],
-			"the participant's node name belongs in the log, not the failure reason")
+		assert.Contains(t, err.Error(), nodes[1],
+			"a generic refusal must say which participant refused")
 	})
 
 	t.Run("NodeDown", func(t *testing.T) {
@@ -485,8 +485,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.NotContains(t, err.Error(), nodes[1],
-			"the participant's node name belongs in the log, not the failure reason")
+		assert.Contains(t, err.Error(), nodes[1],
+			"a generic refusal must say which participant refused")
 	})
 
 	t.Run("PutInitialMeta", func(t *testing.T) {
@@ -957,6 +957,11 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
+		// Only the reindex refusals are composed to name no node, so only they
+		// are safe to serve to a backup caller unprefixed. Every other refusal
+		// keeps the node name: it is an operator-facing failure whose first
+		// question is which node produced it.
+		expectNodeNamed bool
 	}{
 		{
 			name: "ErrKind=in_flight_reindex maps to typed sentinel",
@@ -979,6 +984,19 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			},
 			expectCanCommit: true,
 			expectContain:   "some other refusal",
+			expectNodeNamed: true,
+		},
+		{
+			name: "ErrKind=cannot_commit from a full disk names the node",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "init uploader: no space left on device",
+				ErrKind: CanCommitErrCannotCommit,
+			},
+			expectCanCommit: true,
+			expectContain:   "no space left on device",
+			expectNodeNamed: true,
 		},
 		{
 			name: "empty ErrKind (older node) falls back to errCannotCommit",
@@ -990,6 +1008,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				// returning a zero-value response.
 			},
 			expectCanCommit: true,
+			expectNodeNamed: true,
 		},
 	}
 
@@ -1036,13 +1055,52 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
 			}
-			// The offending node reaches the operator through the log; this
-			// error becomes the backup's failure reason, and a backup caller is
-			// granted nothing on node names.
-			assert.NotContains(t, err.Error(), nodes[1],
-				"the refusal leaked the participant's node name")
+			if tc.expectNodeNamed {
+				assert.Contains(t, err.Error(), nodes[1],
+					"a refusal that is not node-free by construction must say which node refused")
+			} else {
+				// The offending node reaches the operator through the log; this
+				// error becomes the backup's failure reason, and a backup caller
+				// is granted nothing on node names.
+				assert.NotContains(t, err.Error(), nodes[1],
+					"the refusal leaked the participant's node name")
+			}
 		})
 	}
+}
+
+// A participant that cannot be reached never produces a CanCommitResponse, so
+// there is no ErrKind to redact on. "connection refused" with no node name is
+// unactionable on a cluster of any size.
+func TestCoordinator_TransportErrorNamesTheNode(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		any         = mock.Anything
+		backupID    = "transport-err-test"
+		ctx         = context.Background()
+		nodes       = []string{"N1", "N2"}
+		classes     = []string{"Class-A"}
+		transport   = errors.New("connection refused")
+	)
+
+	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+	fc.client.On("CanCommit", any, nodes[0], any).
+		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil).Maybe()
+	fc.client.On("CanCommit", any, nodes[1], any).Return(&CanCommitResponse{}, transport)
+	fc.client.On("Abort", any, any, any).Return(nil).Maybe()
+	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+
+	coordinator := *fc.coordinator()
+	req := newReq(classes, backendName, backupID)
+	store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+	err := coordinator.Backup(ctx, store, &req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), nodes[1],
+		"an unreachable participant must be named; the operator cannot act on a bare transport error")
+	assert.Contains(t, err.Error(), transport.Error())
 }
 
 // TestErrInFlightReindex_IsShared pins that the in-flight-reindex sentinel
