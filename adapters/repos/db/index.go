@@ -3746,38 +3746,114 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return size, nil
 }
 
+// getShardsStatus returns status of the vector indexing pipeline for each shard
+// in the collection.
+// In a replicated setup, a shard's status is [storagestate.StatusReady] iff all
+// of its replicas report READY and [storagestate.StatusIndexing] otherwise.
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
+	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return nil, err
 	}
 
-	shardsStatus := make(map[string]string)
+	var mu sync.Mutex // guards shardsStatus
+	shardsStatus := make(map[string]string, len(shardNames))
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
 
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
 		}
-		var status string
-		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				status = shard.GetStatus().String()
+
+		eg.Go(func() error {
+			replicas, err := i.schemaReader.ShardReplicas(className, shardName)
+			if err != nil {
 				return nil
-			},
-			func() error {
-				var err error
-				status, err = i.remote.GetShardStatus(ctx, shardName)
-				return err
-			})
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
+			}
+
+			var shardStatus atomic.Value
+			for _, node := range replicas {
+				var nodeStatus storagestate.Status
+				if node == thisNode {
+					shard, release, err := i.getShardForDirectLocalOperation(
+						ctx,
+						shardName,
+						shardName,
+						localShardOperationRead,
+						0,
+					)
+					if err == nil && shard != nil {
+						nodeStatus = shard.GetStatus()
+					}
+					release()
+				} else {
+					if ss, err := i.remote.GetShardStatus(ctx, shardName); err == nil {
+						nodeStatus = storagestate.Status(ss)
+					}
+				}
+
+				// Assume all replicas are READY and search for any which are not.
+				// Fall back to StatusIndexing if we find two different non-ready statuses.
+				if nodeStatus != storagestate.StatusReady {
+					if old := shardStatus.Swap(nodeStatus); old != nil && old.(storagestate.Status) != nodeStatus {
+						shardStatus.Store(storagestate.StatusIndexing)
+						break
+					}
+				}
+			}
+
+			reconciled := storagestate.StatusReady
+			if ss := shardStatus.Load(); ss != nil {
+				reconciled = ss.(storagestate.Status)
+			}
+
+			mu.Lock()
+			shardsStatus[shardName] = reconciled.String()
+			mu.Unlock()
+			return nil
+		}, shardName)
+	}
+	return shardsStatus, nil
+}
+
+// reconcile aggregates counts with the appropriate statistic, such that
+// the returned values is always contained within the input set. If possible,
+// we try to calculate the mode.
+//
+// If we can't calculate the mode, we fallback to median. We can only calculate
+// the true median for an odd-numbered set. If a set has even number of elemets
+// of which none is a mode, then the median would be calculated as an average,
+// which is not contained in the set. In that case we pick the lower value of
+// the two "candidate" values.
+func reconcile(counts []int) int {
+	var mode int
+	var modeHits int
+	hits := make(map[int]int)
+
+	var median int
+	medianIdx := len(counts) / 2
+
+	slices.Sort(counts)
+	for i, count := range counts {
+		hits[count]++
+		if h := hits[count]; h > modeHits {
+			mode = count
+			modeHits = h
 		}
 
-		shardsStatus[shardName] = status
+		if i == medianIdx {
+			median = count
+		}
 	}
 
-	return shardsStatus, nil
+	if modeHits > 1 {
+		return mode
+	}
+	return median
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
