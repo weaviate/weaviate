@@ -51,6 +51,7 @@ var namespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
 	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
 	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
+	api.ApplyRequest_TYPE_UPDATE_TENANT:            {},
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
@@ -66,7 +67,6 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:                                       {},
 	api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:                                  {},
 	api.ApplyRequest_TYPE_ADD_TENANT:                                                 {},
-	api.ApplyRequest_TYPE_UPDATE_TENANT:                                              {},
 	api.ApplyRequest_TYPE_DELETE_TENANT:                                              {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
 	api.ApplyRequest_TYPE_DELETE_ALIAS:                                               {},
@@ -161,10 +161,10 @@ func TestSubjectNamespace(t *testing.T) {
 	}
 }
 
-// TestApplyGate_RejectsCreateLikeApplyTypes drives each schema/alias gate
-// through the live apply switch and asserts deleting/missing namespaces
+// TestApplyGate_RejectsGatedSchemaApplyTypes drives each schema/alias/tenant
+// gate through the live apply switch and asserts deleting/missing namespaces
 // are rejected. TYPE_UPSERT_USER is covered by the dynusers manager tests.
-func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
+func TestApplyGate_RejectsGatedSchemaApplyTypes(t *testing.T) {
 	cls := func(name string) *models.Class {
 		return &models.Class{
 			Class:              name,
@@ -200,6 +200,16 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 			name:    "TYPE_REPLACE_ALIAS",
 			cmdType: api.ApplyRequest_TYPE_REPLACE_ALIAS,
 			rpcSub:  &api.ReplaceAliasRequest{Collection: "alpha:Foo", Alias: "alpha:Bar"},
+		},
+		{
+			// A freeze started here would abort against a status no node can
+			// read back, silently activating or deactivating the tenant.
+			name:    "TYPE_UPDATE_TENANT",
+			cmdType: api.ApplyRequest_TYPE_UPDATE_TENANT,
+			rpcSub: &api.UpdateTenantsRequest{
+				Tenants:      []*api.Tenant{{Name: "T1", Status: models.TenantActivityStatusFROZEN}},
+				ClusterNodes: []string{"Node-1"},
+			},
 		},
 	}
 
@@ -265,9 +275,6 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 // TestApplyGate_PassesActiveNamespace asserts the gate doesn't reject when
 // the namespace is active.
 func TestApplyGate_PassesActiveNamespace(t *testing.T) {
-	ms, log := setupApplyTest(t)
-	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-
 	cls := &models.Class{
 		Class:              "alpha:Foo",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -275,14 +282,43 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 	ss := &sharding.State{Physical: map[string]sharding.Physical{
 		"T1": {Name: "T1", BelongsToNodes: []string{"Node-1"}, Status: "HOT"},
 	}}
-	log.Data = cmdAsBytes("alpha:Foo", api.ApplyRequest_TYPE_ADD_CLASS,
-		api.AddClassRequest{Class: cls, State: ss}, nil)
 
-	result := ms.store.Apply(log)
-	resp, ok := result.(Response)
-	require.True(t, ok)
-	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
-	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+	tests := []struct {
+		name    string
+		cmdType api.ApplyRequest_Type
+		jsonSub any
+		rpcSub  protoreflect.ProtoMessage
+	}{
+		{
+			name:    "TYPE_ADD_CLASS",
+			cmdType: api.ApplyRequest_TYPE_ADD_CLASS,
+			jsonSub: api.AddClassRequest{Class: cls, State: ss},
+		},
+		{
+			name:    "TYPE_UPDATE_TENANT",
+			cmdType: api.ApplyRequest_TYPE_UPDATE_TENANT,
+			rpcSub: &api.UpdateTenantsRequest{
+				Tenants:      []*api.Tenant{{Name: "T1", Status: models.TenantActivityStatusFROZEN}},
+				ClusterNodes: []string{"Node-1"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ms, log := setupApplyTest(t)
+			require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+
+			log.Data = cmdAsBytes("alpha:Foo", tc.cmdType, tc.jsonSub, tc.rpcSub)
+
+			result := ms.store.Apply(log)
+			resp, ok := result.(Response)
+			require.True(t, ok)
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceSuspended)
+		})
+	}
 }
 
 // TestApplyGate_RejectsRoleCreationIntoInactiveNamespace drives the role-

@@ -290,6 +290,13 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		f = func() {
+			// A namespace that is not active holds its shards closed, so the
+			// node executing a status change has no shard to act on and none to
+			// read the tenant's current status from either.
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
 		}
 
