@@ -23,7 +23,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -37,7 +36,7 @@ type restorer struct {
 	node              string // node name
 	logger            logrus.FieldLogger
 	sourcer           Sourcer
-	rbacSourcer       fsm.Snapshotter
+	rbacSourcer       RBACSnapshotter
 	dynUserSourcer    dynUserSnapshotter
 	backends          BackupBackendProvider
 	namespacesEnabled bool
@@ -51,7 +50,7 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter,
+	sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter,
 	backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
 	return &restorer{
@@ -179,7 +178,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	if r.rbacSourcer != nil && len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
-		if err := r.rbacSourcer.Restore(desc.RbacBackups); err != nil {
+		if err := r.rbacSourcer.Restore(desc.RbacBackups, stripNamespaces); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 		// Check for cancellation after RBAC restore
