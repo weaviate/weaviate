@@ -360,6 +360,25 @@ func TestReindexOverlapObserver(t *testing.T) {
 			wantRefuse: true,
 		},
 		{
+			name: "terminal task present at backup start but gone at commit",
+			obs: overlapObservations{
+				before: []*distributedtask.Task{finishedBefore},
+				after:  nil,
+			},
+			why: "it was terminal when the backup started, so its expiry from the task list is not evidence " +
+				"of anything; refusing here would fail backups that merely outlived an old task's retention",
+		},
+		{
+			name: "running task present at backup start but gone at commit",
+			obs: overlapObservations{
+				before: []*distributedtask.Task{running},
+				after:  nil,
+			},
+			wantRefuse: true,
+			why: "DTM also forgets a task when its collection is deleted, whatever its status, so vanishing " +
+				"is not proof it did nothing — and it was demonstrably running during the capture",
+		},
+		{
 			name: "a status this build does not recognize",
 			obs: overlapObservations{
 				before: []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatus("WARPING"), time.Time{})},

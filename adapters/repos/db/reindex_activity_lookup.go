@@ -242,6 +242,13 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 // baseline" sound in the other direction too: a task can only start AND finish
 // AND age out inside the window if the window is at least as long as the TTL,
 // which this refuses before looking at any task.
+//
+// A task present in the baseline but gone at commit splits on what it was doing
+// when the baseline was taken. Already terminal: ignored, since it cannot have
+// run during the capture, and treating its expiry as evidence would fail backups
+// that merely outlived some unrelated old task's retention. Still running:
+// refused, because dropping out of the list is not proof it did nothing — DTM
+// also forgets a task when its collection is deleted, whatever its status.
 func NewReindexOverlapObserver(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapObserver {
 	return func(ctx context.Context, collections []string) entitiesbackup.ReindexOverlapCheck {
 		wanted := lowercasedSet(collections)
@@ -273,6 +280,20 @@ func NewReindexOverlapObserver(list ReindexTaskLister, completedTaskTTL time.Dur
 				if collection, overlaps := reindexTaskOverlaps(descriptor, task, baseline); overlaps {
 					return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
 						entitiesbackup.ErrBackupSpannedReindex, collection)
+				}
+			}
+			// A task that was RUNNING when the backup started and is no longer
+			// listed at commit. Dropping out of the list is not proof it did
+			// nothing: DTM also forgets a task when its collection is deleted,
+			// which removes it whatever its status. It was live during the
+			// capture, so it overlapped.
+			for descriptor, was := range baseline {
+				if _, stillListed := current[descriptor]; stillListed {
+					continue
+				}
+				if IsLiveReindexTaskStatus(was.status) {
+					return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+						entitiesbackup.ErrBackupSpannedReindex, was.collection)
 				}
 			}
 			return nil
