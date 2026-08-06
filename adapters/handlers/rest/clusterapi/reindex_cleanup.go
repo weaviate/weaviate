@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 
 	"github.com/sirupsen/logrus"
 
@@ -86,22 +85,6 @@ func (rc *ReindexCleanup) Activity() http.Handler {
 	return rc.auth.handleFunc(rc.activityHandler())
 }
 
-// isNilProber reports whether the interface holds nothing callable, including
-// a nil pointer boxed into it — which a plain == nil misses, and which reaches
-// this route whenever a caller passes an unset field straight through.
-func isNilProber(prober ReindexCleanupProber) bool {
-	if prober == nil {
-		return true
-	}
-	v := reflect.ValueOf(prober)
-	switch v.Kind() {
-	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func:
-		return v.IsNil()
-	default:
-		return false
-	}
-}
-
 func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
@@ -123,7 +106,7 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 		if rc.resolve != nil {
 			prober = rc.resolve()
 		}
-		if isNilProber(prober) {
+		if prober == nil {
 			http.Error(w, "reindex cleanup probe is not wired on this node", http.StatusServiceUnavailable)
 			return
 		}
