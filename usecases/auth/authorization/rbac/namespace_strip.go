@@ -170,13 +170,22 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 			// from, so the path is tested out here. Collection, alias and role
 			// segments name no identity and must keep stripping unconditionally.
 			isUserResource := strings.HasPrefix(row[1], namespacing.UsersPrefix)
+			isRoleResource := strings.HasPrefix(row[1], namespacing.RolesPrefix)
 			resource, err := namespacing.RewriteNamespaceSegments(row[1], func(seg string) (string, error) {
 				if isUserResource {
 					if _, ok := staticUsers[seg]; ok {
 						return seg, nil
 					}
 				}
-				return stripSeg(seg), nil
+				stripped := stripSeg(seg)
+				// A roles resource names a role, so it goes through the same collision
+				// check role names do. Nothing stops a namespaced caller holding a
+				// permission on "<ns>:viewer": the built-in guard runs on role names at
+				// create time, and this path never sees one.
+				if isRoleResource {
+					track(roleSources, conv.PrefixRoleName(stripped), conv.PrefixRoleName(seg))
+				}
+				return stripped, nil
 			})
 			if err != nil {
 				return snapshot{}, fmt.Errorf("rewrite resource %q: %w", row[1], err)

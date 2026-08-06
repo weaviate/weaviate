@@ -510,6 +510,61 @@ func TestStripRBACSnapshot(t *testing.T) {
 		wantErr     []string // substrings; empty means the strip must succeed
 	}{
 		{
+			// The role acme:viewer cannot exist, because a built-in short name is
+			// rejected at create. A permission on it can: a confined caller submits
+			// "roles/viewer" and the server qualifies it. Stripping turns that inert
+			// permission into control of the real built-in.
+			name: "a roles resource stripping onto a built-in is refused",
+			in: snapshot{
+				Namespaces: []string{"acme"},
+				Policy: [][]string{
+					{"role:acme:manager", "roles/acme:viewer", "U", "roles"},
+				},
+			},
+			wantErr: []string{"strip to built-in role", `"viewer"`},
+		},
+		{
+			// The permission and the role it names strip together, so the resource
+			// still points at the same role and nothing collides.
+			name: "a roles resource beside the role it names does not collide",
+			in: snapshot{
+				Namespaces: []string{"acme"},
+				Policy: [][]string{
+					{"role:acme:manager", "roles/acme:helper", "U", "roles"},
+					{"role:acme:helper", "data/collections/acme:Movies/shards/*/objects/*", "R", "data"},
+				},
+			},
+			wantP: [][]string{
+				{"role:manager", "roles/helper", "U", "roles"},
+				{"role:helper", "data/collections/Movies/shards/*/objects/*", "R", "data"},
+			},
+		},
+		{
+			// "viewer" is a legal user name. A users resource names an identity, not
+			// a role, so it must stay out of the role collision check or this legal
+			// restore is refused.
+			name: "a users resource whose id matches a built-in role name is fine",
+			in: snapshot{
+				Namespaces: []string{"acme"},
+				Policy: [][]string{
+					{"role:acme:manager", "users/acme:viewer", "R", "users"},
+				},
+			},
+			wantP: [][]string{{"role:manager", "users/viewer", "R", "users"}},
+		},
+		{
+			// An unqualified roles resource names the built-in already. Nothing
+			// changed, so there is no takeover to report.
+			name: "an unqualified roles resource on a built-in is fine",
+			in: snapshot{
+				Namespaces: []string{"acme"},
+				Policy: [][]string{
+					{"role:acme:manager", "roles/viewer", "U", "roles"},
+				},
+			},
+			wantP: [][]string{{"role:manager", "roles/viewer", "U", "roles"}},
+		},
+		{
 			// No role name mentions customer1, so the fallback would miss it. The
 			// recorded list does not, and the resource loses the prefix the same way
 			// the matching db subject does.
