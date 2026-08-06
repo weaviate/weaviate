@@ -1314,6 +1314,44 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	if target == nil {
+		// A live task whose payload the full decoder rejects refuses every
+		// backup of this collection, and the refusal names this endpoint as
+		// the remedy. The property and index type it targets are inside the
+		// payload that will not decode, so the collection is all there is to
+		// match on. Answering NO_OP here would leave the operator with no way
+		// to clear the one task they were told to cancel.
+		//
+		// Runs only after the strict pass found nothing, so a decodable task
+		// still wins the exact (collection, property, indexType) match.
+		for _, task := range tasks[db.ReindexNamespace] {
+			if task.Status != distributedtask.TaskStatusStarted {
+				continue
+			}
+			var payload db.ReindexTaskPayload
+			if err := json.Unmarshal(task.Payload, &payload); err == nil {
+				continue
+			}
+			recovered := db.ReindexTaskCollection(task.Payload)
+			if recovered == "" || !strings.EqualFold(recovered, collection) {
+				continue
+			}
+			h.appState.Logger.WithFields(logrus.Fields{
+				"audit_event": "reindex_task_cancel_unreadable_payload",
+				"taskID":      task.ID,
+				"collection":  collection,
+				"property":    propertyName,
+				"index_type":  indexType,
+				"principal":   principalUsername(principal),
+			}).Info("cancel: task payload will not decode; cancelling it on the collection it names")
+			target = task
+			// Only the collection survived the decode, so this is all the
+			// drain and cleanup below get to work with.
+			targetPayload = db.ReindexTaskPayload{Collection: recovered}
+			break
+		}
+	}
+
+	if target == nil {
 		// Idempotent cancel: caller's (collection, property) is known to
 		// exist (updateIndex verified before dispatch). No task to cancel
 		// means the request is a no-op — surface that explicitly via
@@ -1618,12 +1656,21 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 type parsedReindexTask struct {
 	task    *distributedtask.Task
 	payload db.ReindexTaskPayload
+	// unreadable marks a live task the full decoder rejected. Only
+	// payload.Collection is populated, recovered by
+	// [db.ReindexTaskCollection]; every other field is zero.
+	unreadable bool
 }
 
-// parseReindexTasks unmarshals every reindex task's payload once. Tasks
-// with unparseable payloads are skipped — those are flagged elsewhere by
-// checkReindexConflict at submit time; for the read-side merge they're
-// the same as no task.
+// parseReindexTasks unmarshals every reindex task's payload once.
+//
+// A live task whose payload the full decoder rejects is kept, flagged
+// unreadable, with just the collection recovered. The backup gate refuses
+// that whole collection on exactly this payload and tells the operator to
+// poll here until every index reads "ready", so dropping the task would
+// answer "ready" for a collection backups keep refusing. A rolling upgrade
+// that retypes a payload field produces exactly that payload. A terminal
+// task is still dropped: it blocks nothing.
 //
 // FINISHED tasks are kept in the slice (they were dropped here historically,
 // but mergeReindexStatus now uses them to surface a brief "indexing@100%"
@@ -1635,6 +1682,15 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 	for _, task := range tasks {
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			collection := db.ReindexTaskCollection(task.Payload)
+			if collection == "" || !db.IsLiveReindexTaskStatus(task.Status) {
+				continue
+			}
+			parsed = append(parsed, parsedReindexTask{
+				task:       task,
+				payload:    db.ReindexTaskPayload{Collection: collection},
+				unreadable: true,
+			})
 			continue
 		}
 		parsed = append(parsed, parsedReindexTask{task: task, payload: payload})
@@ -1701,6 +1757,12 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		task := pt.task
 		payload := pt.payload
 
+		if pt.unreadable {
+			// Nothing but the collection decoded, so none of the matching
+			// below can be answered. Handled after the loop.
+			continue
+		}
+
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}
@@ -1739,6 +1801,21 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 
 	if best == nil {
+		// A live task whose payload will not decode holds this whole
+		// collection at the backup gate, and the refusal sends the operator
+		// here to poll until every index reads "ready". Reporting "ready"
+		// would send them back to a backup that keeps being refused.
+		//
+		// Every index of the collection carries it because the property and
+		// index type it targets are inside the payload that will not decode.
+		// That matches the gate, which blocks the collection for the same
+		// reason. Progress is left at zero: none was readable.
+		for _, pt := range parsedTasks {
+			if pt.unreadable && strings.EqualFold(pt.payload.Collection, collection) {
+				idx.Status = models.IndexStatusStatusPending
+				return
+			}
+		}
 		return
 	}
 
