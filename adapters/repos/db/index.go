@@ -1147,6 +1147,7 @@ type IndexConfig struct {
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	ColumnarContainsIndexes             map[string][]string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string

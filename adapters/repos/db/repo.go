@@ -454,6 +454,7 @@ type Config struct {
 	MaximumConcurrentBucketLoads        int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	ColumnarContainsIndexes             map[string][]string
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]

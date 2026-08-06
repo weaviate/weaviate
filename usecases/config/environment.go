@@ -264,6 +264,22 @@ func FromEnv(config *Config) error {
 		config.ReindexIndexesAtStartup = asClassesWithProps
 	}
 
+	// same "Class1:prop11,prop12;Class2:prop21" shape; the parser's tenant
+	// segment has no meaning here and is ignored. A collection named without
+	// properties enables every property it has.
+	if v := os.Getenv("ENABLE_COLUMNAR_CONTAINS"); v != "" {
+		cpts, err := cptParser.parse(v)
+		if err != nil {
+			return fmt.Errorf("parse ENABLE_COLUMNAR_CONTAINS as class with props: %w", err)
+		}
+
+		indexes := make(map[string][]string, len(cpts))
+		for _, cpt := range cpts {
+			indexes[cpt.Collection] = cpt.Props
+		}
+		config.Persistence.ColumnarContainsIndexes = indexes
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
