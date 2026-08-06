@@ -290,6 +290,36 @@ func TestCenteredRQ4DecodeAddsMeanBack(t *testing.T) {
 		"decoded vector should be a reasonable approximation of the original")
 }
 
+// An empty (abnormal) query must behave as the zero vector, exactly like the
+// uncentered path: every distance estimates dot(x, 0) ~ 0.
+func TestCenteredRQ4EmptyQueryBehavesAsZeroVector(t *testing.T) {
+	const (
+		dim  = 96
+		seed = 17
+	)
+	rng := rand.New(rand.NewPCG(seed, seed))
+	provider := distancer.NewDotProductProvider()
+	vectors := coneVectors(rng, 50, dim, 4, 1, false)
+	mean := compressionhelpers.MeanVector(vectors, dim)
+
+	centered, err := compressionhelpers.NewCenteredFourBitRotationalQuantizer(dim, seed, provider, mean)
+	require.NoError(t, err)
+	d := centered.NewDistancer(nil)
+	var sumDist, sumDmu float64
+	for _, v := range vectors {
+		dist, err := d.Distance(centered.Encode(v))
+		require.NoError(t, err)
+		var dmu float32
+		for i, m := range mean {
+			dmu += (v[i] - m) * m
+		}
+		sumDist += math.Abs(float64(dist))
+		sumDmu += math.Abs(float64(dmu))
+	}
+	require.Less(t, sumDist, 0.5*sumDmu,
+		"empty-query distances (sum %f) should be quantization noise, not the -dmu bias (sum %f)", sumDist, sumDmu)
+}
+
 func TestCenteredRQ4ConstructorValidation(t *testing.T) {
 	provider := distancer.NewDotProductProvider()
 	_, err := compressionhelpers.NewCenteredFourBitRotationalQuantizer(8, 1, provider, make([]float32, 4))

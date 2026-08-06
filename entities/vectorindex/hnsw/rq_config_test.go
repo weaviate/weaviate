@@ -124,6 +124,33 @@ func TestParseRQMapCentering(t *testing.T) {
 	}
 }
 
+func TestValidateCenteringMultivector(t *testing.T) {
+	base := func() UserConfig {
+		uc := UserConfig{}
+		uc.SetDefaults()
+		uc.RQ = RQConfig{Enabled: true, Bits: 4, Centering: true, TrainingLimit: DefaultRQTrainingLimit}
+		return uc
+	}
+
+	uc := base()
+	uc.Multivector.Enabled = true
+	if err := uc.validate(); err == nil {
+		t.Fatal("centering with plain multivector must be rejected")
+	}
+
+	uc = base()
+	uc.Multivector.Enabled = true
+	uc.Multivector.MuveraConfig.Enabled = true
+	if err := uc.validate(); err != nil {
+		t.Fatalf("centering with muvera should validate: %v", err)
+	}
+
+	uc = base()
+	if err := uc.validate(); err != nil {
+		t.Fatalf("centering on a single-vector index should validate: %v", err)
+	}
+}
+
 func TestGetRQBits(t *testing.T) {
 	tests := []struct {
 		name     string

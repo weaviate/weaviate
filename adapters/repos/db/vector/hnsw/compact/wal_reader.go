@@ -910,6 +910,12 @@ func (w *WALCommitReader) readAddRQCentered() (Commit, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The mean always has exactly InputDim entries; validating before the
+	// allocation stops a corrupted record from requesting an arbitrarily
+	// large slice (and surfaces the corruption here instead of at restore).
+	if meanLen != data.InputDim {
+		return nil, errors.Errorf("centered RQ mean length %d does not match input dimension %d", meanLen, data.InputDim)
+	}
 	mean := make([]float32, meanLen)
 	for i := range mean {
 		mean[i], err = readFloat32(w.r)

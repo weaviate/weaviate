@@ -280,6 +280,12 @@ func (r *SnapshotReader) readRQCenteredData(reader io.Reader, res *ent.Deseriali
 	if err := binary.Read(reader, binary.LittleEndian, &meanLen); err != nil {
 		return errors.Wrap(err, "read RQ mean length")
 	}
+	// The mean always has exactly InputDim entries; validating before the
+	// allocation stops a damaged snapshot from requesting an arbitrarily
+	// large slice.
+	if inputDim := res.CompressionRQData().InputDim; meanLen != inputDim {
+		return errors.Errorf("centered RQ mean length %d does not match input dimension %d", meanLen, inputDim)
+	}
 	mean := make([]float32, meanLen)
 	for i := range mean {
 		var bits uint32

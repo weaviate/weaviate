@@ -94,6 +94,49 @@ func TestWALRoundTrip_AddRQCentered(t *testing.T) {
 	}
 }
 
+// A corrupted mean length must be rejected before allocation: the mean
+// always has exactly InputDim entries, and a damaged record must not be able
+// to request an arbitrarily large slice.
+func TestWALRoundTrip_AddRQCenteredCorruptMeanLength(t *testing.T) {
+	mean := []float32{1, 2, 3, 4}
+	rqData := makeTestRQData(uint32(len(mean)), 4, 64, 2, mean)
+
+	var buf bytes.Buffer
+	require.NoError(t, NewWALWriter(&buf).WriteAddRQ(rqData))
+
+	// meanLen sits after the header (17B) + swaps + signs.
+	swapSize := int(rqData.Rotation.Rounds * (rqData.Rotation.OutputDim / 2) * 4)
+	signSize := int(rqData.Rotation.Rounds * rqData.Rotation.OutputDim * 4)
+	off := 17 + swapSize + signSize
+	raw := buf.Bytes()
+	raw[off], raw[off+1], raw[off+2], raw[off+3] = 0xff, 0xff, 0xff, 0x7f
+
+	_, err := NewWALCommitReader(bytes.NewReader(raw), testLogger()).ReadNextCommit()
+	require.ErrorContains(t, err, "mean length")
+}
+
+// Same guarantee for the snapshot encoding.
+func TestSnapshotRoundTrip_RQCenteredCorruptMeanLength(t *testing.T) {
+	mean := []float32{1, 2, 3, 4}
+	rqData := makeTestRQData(uint32(len(mean)), 4, 64, 2, mean)
+
+	var buf bytes.Buffer
+	w := &SnapshotWriter{rqData: rqData}
+	require.NoError(t, w.writeRQData(&buf))
+
+	// meanLen sits after the type byte (1B) + four uint32 header fields
+	// (16B) + swaps + signs.
+	swapSize := int(rqData.Rotation.Rounds * (rqData.Rotation.OutputDim / 2) * 4)
+	signSize := int(rqData.Rotation.Rounds * rqData.Rotation.OutputDim * 4)
+	off := 1 + 16 + swapSize + signSize
+	raw := buf.Bytes()
+	raw[off], raw[off+1], raw[off+2], raw[off+3] = 0xff, 0xff, 0xff, 0x7f
+
+	res := &ent.DeserializationResult{}
+	err := (&SnapshotReader{}).readCompressionData(bytes.NewReader(raw), res)
+	require.ErrorContains(t, err, "mean length")
+}
+
 // The snapshot format must carry the mean through its own (separate) binary
 // encoding, again without touching the uncentered layout.
 func TestSnapshotRoundTrip_RQCentered(t *testing.T) {

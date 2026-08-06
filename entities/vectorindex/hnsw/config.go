@@ -317,6 +317,10 @@ func (u *UserConfig) validate() error {
 		return err
 	}
 
+	if u.RQ.Enabled && u.RQ.Centering && u.Multivector.Enabled && !u.Multivector.MuveraConfig.Enabled {
+		return fmt.Errorf("invalid hnsw config: rq centering is not supported for multivector indexes")
+	}
+
 	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
 		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
 	}

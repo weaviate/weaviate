@@ -554,7 +554,7 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 	// d.query: DistanceToFloat must rescore against uncentered floats.
 	cq4 := q
 	var qMeanDot float32
-	if rq.mean != nil && len(q) > 0 {
+	if rq.mean != nil {
 		cq4, qMeanDot = centerInto(make([]float32, len(rq.mean)), q, rq.mean)
 		// centerInto returns dot(q-mean, mean); the estimator needs
 		// dot(mean, q) = dot(q-mean, mean) + dot(mean, mean).
