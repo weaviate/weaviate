@@ -16,6 +16,9 @@ package compressionhelpers_test
 import (
 	"fmt"
 	"math"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -105,6 +108,30 @@ func newPureRaBitQ4Adapter(dim int, seed uint64, m distancer.Provider) *datasetQ
 			codes = make([][]byte, len(vectors))
 			for i, v := range vectors {
 				codes[i] = rq.EncodePureRaBitQ4(v)
+			}
+		},
+		queryDist: func(q []float32) func(i int) float32 {
+			d := rq.NewDistancer(q)
+			return func(i int) float32 {
+				dist, _ := d.Distance(codes[i])
+				return dist
+			}
+		},
+		compressedSize: func() int { return len(codes[0]) },
+	}
+}
+
+func newRQ4CAdapter(dim int, seed uint64, m distancer.Provider) *datasetQuantizer {
+	var rq *compressionhelpers.FourBitRotationalQuantizer
+	var codes [][]byte
+	return &datasetQuantizer{
+		name: "rq4c",
+		encodeAll: func(vectors [][]float32) {
+			mean := compressionhelpers.MeanVector(vectors, dim)
+			rq, _ = compressionhelpers.NewCenteredFourBitRotationalQuantizer(dim, seed, m, mean)
+			codes = make([][]byte, len(vectors))
+			for i, v := range vectors {
+				codes[i] = rq.Encode(v)
 			}
 		},
 		queryDist: func(q []float32) func(i int) float32 {
@@ -279,7 +306,25 @@ func BenchmarkQuantizerDataset(b *testing.B) {
 		rescore = 50
 		seed    = 42
 	)
-	for _, cfg := range datasetConfigs {
+	configs := datasetConfigs
+	// QUANTIZER_BENCH_DATASET=subset:metric[:numQueries] appends a locally
+	// cached subset, e.g. a large dataset that should not be part of the
+	// default CI set. numQueries defaults to 100.
+	if extra := os.Getenv("QUANTIZER_BENCH_DATASET"); extra != "" {
+		parts := strings.SplitN(extra, ":", 3)
+		if len(parts) < 2 {
+			b.Fatalf("QUANTIZER_BENCH_DATASET must be subset:metric[:numQueries], got %q", extra)
+		}
+		nq := 100
+		if len(parts) == 3 {
+			var err error
+			if nq, err = strconv.Atoi(parts[2]); err != nil || nq < 1 {
+				b.Fatalf("bad numQueries in QUANTIZER_BENCH_DATASET %q: %v", extra, err)
+			}
+		}
+		configs = append(configs, datasetConfig{subset: parts[0], metric: parts[1], numQueries: nq})
+	}
+	for _, cfg := range configs {
 		hf := datasets.NewHubDataset("weaviate/ann-datasets", cfg.subset)
 		trainIds, vectors, err := hf.LoadTrainData()
 		if err != nil {
@@ -302,6 +347,7 @@ func BenchmarkQuantizerDataset(b *testing.B) {
 
 		quantizers := []*datasetQuantizer{
 			newRQ4Adapter(dim, seed, m),
+			newRQ4CAdapter(dim, seed, m),
 			newPureRaBitQ4Adapter(dim, seed, m),
 			newRQ4RAdapter(dim, seed, m),
 			newRQ8Adapter(dim, seed, m),
@@ -309,15 +355,24 @@ func BenchmarkQuantizerDataset(b *testing.B) {
 			newBQAdapter(m),
 		}
 		for _, quant := range quantizers {
+			encoded := false
 			b.Run(fmt.Sprintf("%s/%s/encode", cfg.subset, quant.name), func(b *testing.B) {
 				for b.Loop() {
 					quant.encodeAll(vectors)
 				}
+				encoded = true
 				b.ReportMetric(float64(b.N)*float64(len(vectors))/b.Elapsed().Seconds(), "vecs/sec")
 				b.ReportMetric(float64(quant.compressedSize()), "bytes/vec")
 			})
 
 			b.Run(fmt.Sprintf("%s/%s/recall", cfg.subset, quant.name), func(b *testing.B) {
+				// The encode subbench may have been filtered out via -bench;
+				// the codes must exist before distances can be computed.
+				if !encoded {
+					quant.encodeAll(vectors)
+					encoded = true
+					b.ResetTimer()
+				}
 				var recallSum, rescoreSum float64
 				for b.Loop() {
 					recallSum, rescoreSum = 0, 0

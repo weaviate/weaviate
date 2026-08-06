@@ -65,9 +65,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					RQ: hnsw.RQConfig{
-						Enabled:      hnsw.DefaultRQEnabled,
-						Bits:         hnsw.DefaultRQBits,
-						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+						Enabled:       hnsw.DefaultRQEnabled,
+						Bits:          hnsw.DefaultRQBits,
+						RescoreLimit:  hnsw.DefaultRQRescoreLimit,
+						TrainingLimit: hnsw.DefaultRQTrainingLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{
@@ -144,9 +145,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					RQ: hnsw.RQConfig{
-						Enabled:      hnsw.DefaultRQEnabled,
-						Bits:         hnsw.DefaultRQBits,
-						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+						Enabled:       hnsw.DefaultRQEnabled,
+						Bits:          hnsw.DefaultRQBits,
+						RescoreLimit:  hnsw.DefaultRQRescoreLimit,
+						TrainingLimit: hnsw.DefaultRQTrainingLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{
@@ -243,9 +245,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					RQ: hnsw.RQConfig{
-						Enabled:      hnsw.DefaultRQEnabled,
-						Bits:         hnsw.DefaultRQBits,
-						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+						Enabled:       hnsw.DefaultRQEnabled,
+						Bits:          hnsw.DefaultRQBits,
+						RescoreLimit:  hnsw.DefaultRQRescoreLimit,
+						TrainingLimit: hnsw.DefaultRQTrainingLimit,
 					},
 					FilterStrategy: hnsw.FilterStrategyAcorn,
 					Multivector: hnsw.MultivectorConfig{
@@ -342,9 +345,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					RQ: hnsw.RQConfig{
-						Enabled:      hnsw.DefaultRQEnabled,
-						Bits:         hnsw.DefaultRQBits,
-						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+						Enabled:       hnsw.DefaultRQEnabled,
+						Bits:          hnsw.DefaultRQBits,
+						RescoreLimit:  hnsw.DefaultRQRescoreLimit,
+						TrainingLimit: hnsw.DefaultRQTrainingLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{

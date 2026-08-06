@@ -285,6 +285,8 @@ func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
 		return w.readAddRQ()
 	case AddBRQ:
 		return w.readAddBRQ()
+	case AddRQCentered:
+		return w.readAddRQCentered()
 	default:
 		return nil, errors.Errorf("unrecognized commit type %d", ct)
 	}
@@ -896,6 +898,26 @@ func (w *WALCommitReader) readAddRQ() (Commit, error) {
 	if err != nil {
 		return nil, err
 	}
+	return &AddRQCommit{Data: data}, nil
+}
+
+func (w *WALCommitReader) readAddRQCentered() (Commit, error) {
+	data, err := readRQData(w.r)
+	if err != nil {
+		return nil, err
+	}
+	meanLen, err := readUint32(w.r)
+	if err != nil {
+		return nil, err
+	}
+	mean := make([]float32, meanLen)
+	for i := range mean {
+		mean[i], err = readFloat32(w.r)
+		if err != nil {
+			return nil, err
+		}
+	}
+	data.Mean = mean
 	return &AddRQCommit{Data: data}, nil
 }
 

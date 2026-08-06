@@ -114,9 +114,11 @@ func (u *UserConfig) SetDefaults() {
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
 	u.RQ = RQConfig{
-		Enabled:      DefaultRQEnabled,
-		Bits:         DefaultRQBits,
-		RescoreLimit: DefaultRQRescoreLimit,
+		Enabled:       DefaultRQEnabled,
+		Bits:          DefaultRQBits,
+		RescoreLimit:  DefaultRQRescoreLimit,
+		Centering:     DefaultRQCentering,
+		TrainingLimit: DefaultRQTrainingLimit,
 	}
 	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategySweeping {
 		u.FilterStrategy = FilterStrategySweeping

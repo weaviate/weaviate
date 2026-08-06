@@ -264,6 +264,7 @@ const (
 	AddMuvera
 	AddRQ
 	AddBRQ
+	AddRQCentered // AddRQ plus the centering mean vector
 )
 
 func (t HnswCommitType) String() string {
@@ -300,6 +301,8 @@ func (t HnswCommitType) String() string {
 		return "AddRotationalQuantizer"
 	case AddBRQ:
 		return "AddBRQCompression"
+	case AddRQCentered:
+		return "AddRQCentered"
 	}
 	return "unknown commit type"
 }

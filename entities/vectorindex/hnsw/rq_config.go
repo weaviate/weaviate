@@ -23,12 +23,24 @@ const (
 	DefaultRQBits          = 8
 	DefaultRQRescoreLimit  = 20
 	DefaultBRQRescoreLimit = 512
+	DefaultRQCentering     = false
+	// DefaultRQTrainingLimit is deliberately smaller than the PQ/SQ default
+	// (100k): centering only fits a coordinate-wise mean, which converges
+	// with far fewer samples, and a lower limit activates compression (and
+	// its memory savings) much earlier in an import.
+	DefaultRQTrainingLimit = 10000
 )
 
 type RQConfig struct {
 	Enabled      bool  `json:"enabled"`
 	Bits         int16 `json:"bits"`
 	RescoreLimit int   `json:"rescoreLimit"`
+	// Centering subtracts the dataset mean before quantization. It requires a
+	// training pass over TrainingLimit vectors to fit the mean, so compression
+	// activates like PQ/SQ (deferred) instead of on the first vector. Immutable
+	// once set.
+	Centering     bool `json:"centering"`
+	TrainingLimit int  `json:"trainingLimit"`
 }
 
 func ValidateRQConfig(cfg RQConfig) error {
@@ -37,6 +49,12 @@ func ValidateRQConfig(cfg RQConfig) error {
 	}
 	if cfg.Bits != 8 && cfg.Bits != 4 && cfg.Bits != 1 {
 		return errors.New("RQ bits must be 8, 4 or 1")
+	}
+	if cfg.Centering && cfg.Bits != 4 {
+		return errors.New("RQ centering requires bits=4")
+	}
+	if cfg.Centering && cfg.TrainingLimit <= 0 {
+		return errors.New("RQ trainingLimit must be positive when centering is enabled")
 	}
 
 	return nil
@@ -67,6 +85,18 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 
 	if err := common.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {
 		rq.RescoreLimit = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalBoolFromMap(rqConfigMap, "centering", func(v bool) {
+		rq.Centering = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(rqConfigMap, "trainingLimit", func(v int) {
+		rq.TrainingLimit = v
 	}); err != nil {
 		return err
 	}

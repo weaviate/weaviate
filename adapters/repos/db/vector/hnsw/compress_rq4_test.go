@@ -120,3 +120,111 @@ func Test_CompressRQ4RecallAfterCompression(t *testing.T) {
 	recall := float32(relevant) / float32(retrieved)
 	assert.Greater(t, recall, float32(0.8), "recall %f too low for 4-bit RQ with rescoring", recall)
 }
+
+func Test_CompressRQ4CenteredDeferredActivation(t *testing.T) {
+	ctx := context.Background()
+	dimensions := 128
+	vectorsSize := 1000
+	queriesSize := 20
+	trainingLimit := 500
+	k := 10
+
+	// Mean-dominated ("cone") data: the regime centering is designed for.
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
+	for _, v := range vectors {
+		for i := range v {
+			v[i] += 2.0
+		}
+	}
+	for _, q := range queries {
+		for i := range q {
+			q[i] += 2.0
+		}
+	}
+	provider := distancer.NewDotProductProvider()
+	logger, _ := test.NewNullLogger()
+
+	truths := make([][]uint64, queriesSize)
+	for i := range queries {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, func(x, y []float32) float32 {
+			dist, _ := provider.SingleDist(x, y)
+			return dist
+		})
+	}
+
+	uc := ent.UserConfig{}
+	uc.SetDefaults()
+	uc.MaxConnections = 32
+	uc.EFConstruction = 64
+	uc.EF = 100
+	uc.VectorCacheMaxObjects = 10e12
+	uc.RQ = ent.RQConfig{
+		Enabled:       true,
+		Bits:          4,
+		RescoreLimit:  ent.DefaultRQRescoreLimit,
+		Centering:     true,
+		TrainingLimit: trainingLimit,
+	}
+
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "rq4-centered-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      provider,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+			copy(container.Slice, vectors[int(id)])
+			return container.Slice, nil
+		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = index.Shutdown(context.Background())
+	})
+	index.PostStartup(ctx)
+
+	require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+		return index.Add(ctx, id, vectors[id])
+	}))
+
+	// Unlike uncentered RQ, inserting data must not have compressed the index.
+	require.False(t, index.Compressed(),
+		"centered RQ must not compress on insert; it needs the deferred training pass")
+
+	// The async-indexing queue drives activation through ShouldUpgrade.
+	shouldUpgrade, upgradeAt := index.ShouldUpgrade()
+	require.True(t, shouldUpgrade)
+	require.Equal(t, trainingLimit, upgradeAt)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	require.NoError(t, index.Upgrade(wg.Done))
+	wg.Wait()
+	require.True(t, index.Compressed(), "index should be compressed after the deferred upgrade")
+
+	stats := index.CompressionStats()
+	rq4Stats, ok := stats.(compressionhelpers.RQ4Stats)
+	require.True(t, ok, "expected RQ4Stats, got %T", stats)
+	assert.Equal(t, uint32(4), rq4Stats.Bits)
+	assert.True(t, rq4Stats.Centering, "stats must report centering")
+
+	var relevant, retrieved int
+	for i := range queries {
+		results, _, err := index.SearchByVector(ctx, queries[i], k, nil)
+		require.NoError(t, err)
+		retrieved += k
+		relevant += int(testinghelpers.MatchesInLists(truths[i], results))
+	}
+	recall := float32(relevant) / float32(retrieved)
+	assert.Greater(t, recall, float32(0.8), "recall %f too low for centered 4-bit RQ with rescoring", recall)
+}

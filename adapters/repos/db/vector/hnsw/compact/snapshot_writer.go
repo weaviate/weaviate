@@ -40,11 +40,12 @@ const (
 
 // Snapshot compression type constants (must match the hnsw package values)
 const (
-	SnapshotCompressionTypePQ  = 1
-	SnapshotCompressionTypeSQ  = 2
-	SnapshotEncoderTypeMuvera  = 3 // Note: Muvera is an encoder, not compression
-	SnapshotCompressionTypeRQ  = 4
-	SnapshotCompressionTypeBRQ = 5
+	SnapshotCompressionTypePQ         = 1
+	SnapshotCompressionTypeSQ         = 2
+	SnapshotEncoderTypeMuvera         = 3 // Note: Muvera is an encoder, not compression
+	SnapshotCompressionTypeRQ         = 4
+	SnapshotCompressionTypeBRQ        = 5
+	SnapshotCompressionTypeRQCentered = 6 // RQ plus the centering mean vector
 )
 
 // SnapshotWriter writes HNSW state to the V3 snapshot format.
@@ -399,10 +400,17 @@ func (s *SnapshotWriter) writeSQData(buf *bytes.Buffer) error {
 	return nil
 }
 
-// writeRQData writes Rotational Quantization data to the buffer.
+// writeRQData writes Rotational Quantization data to the buffer, using the
+// RQCentered compression type when the data carries a centering mean so
+// uncentered snapshots keep their existing format.
 func (s *SnapshotWriter) writeRQData(buf *bytes.Buffer) error {
 	data := s.rqData
-	_ = writeByte(buf, byte(SnapshotCompressionTypeRQ))
+	centered := len(data.Mean) > 0
+	if centered {
+		_ = writeByte(buf, byte(SnapshotCompressionTypeRQCentered))
+	} else {
+		_ = writeByte(buf, byte(SnapshotCompressionTypeRQ))
+	}
 	_ = writeUint32(buf, data.InputDim)
 	_ = writeUint32(buf, data.Bits)
 	_ = writeUint32(buf, data.Rotation.OutputDim)
@@ -418,6 +426,13 @@ func (s *SnapshotWriter) writeRQData(buf *bytes.Buffer) error {
 	for _, sign := range data.Rotation.Signs {
 		for _, dim := range sign {
 			_ = writeFloat32(buf, dim)
+		}
+	}
+
+	if centered {
+		_ = writeUint32(buf, uint32(len(data.Mean)))
+		for _, m := range data.Mean {
+			_ = writeFloat32(buf, m)
 		}
 	}
 	return nil

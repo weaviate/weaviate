@@ -35,9 +35,14 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	}()
 	data := h.cache.All()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if cfg.PQ.Enabled || cfg.SQ.Enabled {
+	rqCentered := cfg.RQ.Enabled && cfg.RQ.Centering
+	if cfg.PQ.Enabled || cfg.SQ.Enabled || rqCentered {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
+		}
+		trainingLimit := cfg.PQ.TrainingLimit
+		if rqCentered {
+			trainingLimit = cfg.RQ.TrainingLimit
 		}
 		cleanData := make([][]float32, 0, len(data))
 		sampler := common.NewSparseFisherYatesIterator(len(data))
@@ -67,11 +72,24 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 
 			cleanData = append(cleanData, p)
-			if len(cleanData) >= cfg.PQ.TrainingLimit {
+			if len(cleanData) >= trainingLimit {
 				break
 			}
 		}
-		if cfg.PQ.Enabled {
+		if rqCentered {
+			if !singleVector {
+				return errors.New("rq centering is not supported for multivector indexes")
+			}
+			dims := int(h.dims.Load())
+			mean := compressionhelpers.MeanVector(cleanData, dims)
+			var err error
+			h.compressor, err = compressionhelpers.NewCenteredRQ4Compressor(
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker,
+				h.makeBucketOptions, dims, mean, h.getTargetVector(), h.vectorForID)
+			if err != nil {
+				return fmt.Errorf("compressing vectors: %w", err)
+			}
+		} else if cfg.PQ.Enabled {
 			dims := int(h.dims.Load())
 
 			if cfg.PQ.Segments <= 0 {

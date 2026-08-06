@@ -264,9 +264,32 @@ func (r *SnapshotReader) readCompressionData(reader io.Reader, res *ent.Deserial
 		return r.readRQData(reader, res)
 	case SnapshotCompressionTypeBRQ:
 		return r.readBRQData(reader, res)
+	case SnapshotCompressionTypeRQCentered:
+		return r.readRQCenteredData(reader, res)
 	default:
 		return fmt.Errorf("unsupported compression type %d", compressionType)
 	}
+}
+
+// readRQCenteredData reads an RQ payload followed by the centering mean.
+func (r *SnapshotReader) readRQCenteredData(reader io.Reader, res *ent.DeserializationResult) error {
+	if err := r.readRQData(reader, res); err != nil {
+		return err
+	}
+	var meanLen uint32
+	if err := binary.Read(reader, binary.LittleEndian, &meanLen); err != nil {
+		return errors.Wrap(err, "read RQ mean length")
+	}
+	mean := make([]float32, meanLen)
+	for i := range mean {
+		var bits uint32
+		if err := binary.Read(reader, binary.LittleEndian, &bits); err != nil {
+			return errors.Wrap(err, "read RQ mean")
+		}
+		mean[i] = math.Float32frombits(bits)
+	}
+	res.CompressionRQData().Mean = mean
+	return nil
 }
 
 // readPQData reads Product Quantization data from the reader.
