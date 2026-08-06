@@ -699,7 +699,7 @@ func TestAutoCleanupAfterTerminalSkipsTheGateWhenNothingToClean(t *testing.T) {
 }
 
 // Every caller reads a true here as "leave it alone", so a status this build
-// does not recognise — a newer node's — has to answer true. Guessing "not live"
+// does not recognize — a newer node's — has to answer true. Guessing "not live"
 // admits a backup over a migration added after this build shipped.
 func TestIsLiveReindexTaskStatusFailsClosedOnUnknown(t *testing.T) {
 	tests := []struct {

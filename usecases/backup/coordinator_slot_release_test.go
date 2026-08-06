@@ -141,7 +141,7 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 // the other leaves half the invariant free to regress: reverting the backup
 // release to an unconditional reset left this whole package green.
 //
-// Same mechanism, and it is why the invariant is load-bearing on this branch: a
+// Same mechanism, and it is why the invariant is load-bearing: a
 // slot cleared by the wrong goroutine makes [NodeActivityProbe] report the node
 // idle while a backup is live, and the reindex submission gate reads that probe
 // — so it admits a migration on top of a running backup.

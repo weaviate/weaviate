@@ -272,11 +272,13 @@ const cancelCleanupRefusal = "a cancelled migration is still removing its tempor
 
 // createS3BackupAfterCancelCleanup retries that one refusal, and nothing else.
 //
-// A shard leaves the gate only after the cleanup routine's final unlink. That
-// order is deliberate — deregistering first would let a backup capture files
-// that are about to disappear — so an empty .migrations tree does not yet mean
-// the gate has reopened. The two are normally milliseconds apart; under load
-// the tail stretches into seconds, and a single-shot backup lands in the gap.
+// A shard leaves the gate when the cleanup routine returns, which is after its
+// last unlink attempt. Releasing earlier would let a backup capture files that
+// are about to disappear, so an empty .migrations tree does not yet mean the
+// gate has reopened. The two are normally milliseconds apart; under load the
+// tail stretches into seconds, and a single-shot backup lands in the gap. A
+// sweep that fails releases too, so the reverse does not hold either: an open
+// gate does not prove the shard is swept.
 //
 // Retrying proves what the test is actually about: the registration clears on
 // its own. A leaked one still fails, on the bound below. Any other failure,

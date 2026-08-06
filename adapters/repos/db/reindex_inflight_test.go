@@ -538,8 +538,8 @@ func TestWarnUnknownReindexHold_RateLimited(t *testing.T) {
 	require.Len(t, entries, 1, "the unknown-hold WARN must be rate limited, not repeated per shard checked")
 	assert.Equal(t, logrus.WarnLevel, entries[0].Level)
 	assert.Equal(t, "backup_reindex_gate", entries[0].Data["action"])
-	assert.Equal(t, int(unknownReindexHold), entries[0].Data["hold"], "the WARN must name the unrecognised value")
-	assert.Contains(t, entries[0].Message, "unrecognised ReindexHold value")
+	assert.Equal(t, int(unknownReindexHold), entries[0].Data["hold"], "the WARN must name the unrecognized value")
+	assert.Contains(t, entries[0].Message, "unrecognized ReindexHold value")
 }
 
 // The gate composes its refusal to name no node and no shard, and that property
@@ -585,11 +585,9 @@ func TestBackupableNeverJoinsTheGateRefusalWithANodeNamingError(t *testing.T) {
 		"a refusal the coordinator is allowed to republish must never carry a node name: %q", err.Error())
 }
 
-// After redaction every refusing shard produces the same sentence, so a
-// per-shard join returns one identical line per shard: a 60-shard node answered
-// with 60 copies, and the fixture sizes in this repo reach five figures. That is
-// the O(shards) growth that made the original per-shard log line a merge
-// blocker, now without the shard name that justified repeating it.
+// Every refusing shard produces the same sentence, because the text names no
+// shard. A per-shard join therefore returns one identical line per shard: 60
+// copies on a 60-shard node, and shard counts in this repo reach five figures.
 func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 	const (
 		collection = "WideClass"
@@ -620,11 +618,11 @@ func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 		"deduping must not change the sentence itself")
 }
 
-// The response body was consolidated to one line per reason, but the logs were
-// not: a per-shard WARN fired for every refusing shard, so a 60-shard refusal
-// produced 121 entries for a 1-line body — the O(shards) growth moved rather
-// than removed. The shard list carried in the aggregate line has the same
-// problem if it is uncapped, since this pass can cover five-figure shard counts.
+// The log has to consolidate the same way the response body does. A per-shard
+// WARN turns a 1-line body into 121 entries on a 60-shard refusal, which is the
+// same O(shards) growth one tier down. The shard list carried in the aggregate
+// line has the same problem if it is uncapped, since this pass can cover
+// five-figure shard counts.
 func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	const (
 		collection = "WideClass"

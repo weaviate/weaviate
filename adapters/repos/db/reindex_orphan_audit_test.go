@@ -781,7 +781,7 @@ func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 		{distributedtask.TaskStatusFinished, false},
 		{distributedtask.TaskStatusFailed, false},
 		{distributedtask.TaskStatusCancelled, false},
-		// A newer node's status is unrecognised here, and the audit reads live
+		// A newer node's status is unrecognized here, and the audit reads live
 		// as "leave the tracker dirs alone". Deleting them on a guess is the
 		// one outcome that cannot be undone.
 		{distributedtask.TaskStatus("UNKNOWN_FUTURE_STATE"), true},

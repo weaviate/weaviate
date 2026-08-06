@@ -2078,7 +2078,7 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 		distributedtask.TaskStatusFailed:
 		return false
 	}
-	// A status this build does not recognise comes from a newer node, and every
+	// A status this build does not recognize comes from a newer node, and every
 	// caller reads true as "leave it alone": refuse the backup, refuse the
 	// restore, keep the tracker dirs. Guessing "not live" would admit a backup
 	// over a migration whose status was added after this build shipped.

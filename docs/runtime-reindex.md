@@ -1234,9 +1234,11 @@ configuration:
   (`DB.RefuseIfReindexOverlapped`) and the reindex gate each allow the
   operation and emit a WARN, rate-limited to one line per hour so a
   persistent misconfiguration stays visible to whoever reads the log
-  next. Production does not serve HTTP until bootstrap completes, so no
-  external request can land in this window; a WARN in a production log
-  means the wiring itself is broken.
+  next. This window is reachable from outside: a request that arrives
+  early enough in startup is answered before the goroutine installs the
+  lookups, and has been observed doing so. So a WARN here is a real
+  signal — it names an operation that ran without its gate — and not
+  evidence that the wiring is broken.
   The cleanup half of the backup gate is skipped without a WARN when
   only the activity lookup is installed, which is the shape module-test
   fixtures use.

@@ -103,11 +103,9 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			if err == nil {
 				continue
 			}
-			// One line per distinct refusal, not per shard. Redaction made the
-			// per-shard text identical, so a wide collection returned thousands
-			// of byte-identical sentences — the same O(shards) growth that made
-			// the original per-shard log line a merge blocker, minus the shard
-			// name that justified repeating it.
+			// One line per distinct refusal, not per shard. The refusal text
+			// names no shard, so per-shard joining returns one byte-identical
+			// sentence per shard, and this pass covers five-figure shard counts.
 			gateErrs = appendUniqueGateErr(gateSeen, gateErrs, err)
 			blockedShards[c] = append(blockedShards[c], shardName)
 		}
@@ -139,32 +137,30 @@ func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]str
 	if db.logger == nil {
 		return
 	}
-	{
-		// One line per collection, not per shard, and the shard list is
-		// capped: this pass can cover five-figure shard counts, so an
-		// uncapped field just moves the O(shards) growth out of the body
-		// and into a log line. The count is exact; the names are a sample.
-		// Sorted so repeated refusals diff cleanly.
-		collections := make([]string, 0, len(blockedShards))
-		for c := range blockedShards {
-			collections = append(collections, c)
+	// One line per collection, not per shard, and the shard list is capped:
+	// this pass can cover five-figure shard counts, so an uncapped field just
+	// moves the O(shards) growth out of the body and into a log line. The count
+	// is exact; the names are a sample. Sorted so repeated refusals diff
+	// cleanly.
+	collections := make([]string, 0, len(blockedShards))
+	for c := range blockedShards {
+		collections = append(collections, c)
+	}
+	sort.Strings(collections)
+	for _, c := range collections {
+		shardNames := blockedShards[c]
+		sort.Strings(shardNames)
+		sample := shardNames
+		if len(sample) > reindexRefusalShardSample {
+			sample = sample[:reindexRefusalShardSample]
 		}
-		sort.Strings(collections)
-		for _, c := range collections {
-			shardNames := blockedShards[c]
-			sort.Strings(shardNames)
-			sample := shardNames
-			if len(sample) > reindexRefusalShardSample {
-				sample = sample[:reindexRefusalShardSample]
-			}
-			db.logger.WithField("action", "backup_reindex_gate").
-				WithField("collection", c).
-				WithField("node", nodeName).
-				WithField("blocked_shards", sample).
-				WithField("blocked_shard_count", len(shardNames)).
-				Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
-					"blocked_shards lists the first %d", len(shardNames), c, len(sample))
-		}
+		db.logger.WithField("action", "backup_reindex_gate").
+			WithField("collection", c).
+			WithField("node", nodeName).
+			WithField("blocked_shards", sample).
+			WithField("blocked_shard_count", len(shardNames)).
+			Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
+				"blocked_shards lists the first %d", len(shardNames), c, len(sample))
 	}
 	if len(errs) > 0 {
 		// Withheld from the response, not from the operator.

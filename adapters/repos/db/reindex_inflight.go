@@ -81,7 +81,7 @@ func warnUnwiredReindexGate(sampler *logrusext.Sampler, logger logrus.FieldLogge
 }
 
 // unknownHoldWarnSampler rate-limits the WARN for a [ReindexHold] value this
-// build does not recognise. See [reindexGateSamplerBudget] for why the line
+// build does not recognize. See [reindexGateSamplerBudget] for why the line
 // repeats hourly rather than firing once: the condition is a code defect that
 // persists until someone ships a fix, and it must not repeat per shard checked.
 var unknownHoldWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
@@ -95,7 +95,7 @@ func warnUnknownReindexHold(sampler *logrusext.Sampler, logger logrus.FieldLogge
 		}
 		l.WithField("action", "backup_reindex_gate").
 			WithField("hold", int(hold)).
-			Warn("backup-reindex gate: refusing — unrecognised ReindexHold value. " +
+			Warn("backup-reindex gate: refusing — unrecognized ReindexHold value. " +
 				"A hold kind was added to the enum without teaching the backup gate about it; " +
 				"add the missing case in reindexBlockReasonIn.")
 	})
@@ -129,8 +129,9 @@ const (
 // rate-limited WARN). The original conservative default (refuse) was
 // correct in isolation but broke every module-test fixture that
 // spins up Weaviate without going through the post-bootstrap
-// install path; production HTTP gates on bootstrap completion so the
-// unwired window is unreachable by external traffic.
+// install path. The window is short but externally reachable: HTTP can
+// answer before the install runs, so the WARN reports a backup that was
+// really admitted without a check, not a broken wiring.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return db.reindexBlockReason(collection, shardName) != reindexNotBlocked
 }
@@ -253,7 +254,7 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 		// classify; anything else means the enum grew a kind the gate was never
 		// taught, and guessing "not held" would admit a backup over a shard some
 		// other operation is actively holding. Same direction as
-		// [IsLiveReindexTaskStatus] on an unrecognised DTM status.
+		// [IsLiveReindexTaskStatus] on an unrecognized DTM status.
 		warnUnknownReindexHold(unknownHoldWarnSampler, db.logger, hold)
 		return reindexBlockedByUnknownHold
 	}

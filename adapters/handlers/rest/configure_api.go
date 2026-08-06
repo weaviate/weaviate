@@ -2562,8 +2562,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 // class rather than narrowing it.
 //
 // Scoped to these probes on purpose: whether cluster-internal traffic in general
-// should honour a proxy is a deployment-visible question this PR does not
-// settle.
+// should honor a proxy is a deployment-visible question, and is left as it is.
 func reindexGateProbeHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
 	return clusterHttpClient(authConfig, minimumInternalTimeout, nil)
 }

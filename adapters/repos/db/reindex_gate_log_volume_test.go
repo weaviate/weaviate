@@ -61,8 +61,12 @@ func multiCollectionBackupableFixture(t *testing.T, node string, byCollection ma
 }
 
 // TestReindexGateLogVolumeAcrossShardCounts measures the operator-facing log volume at
-// 1, 5 and 60 blocked shards. The aggregate line count must be flat in shard
-// count, the reported count exact, and the sample capped at a literal.
+// 1, 5, 60 and 1000 blocked shards. The aggregate line count must be flat in
+// shard count, the reported count exact, and the sample capped at a literal.
+//
+// "Operator-facing" is measured at INFO, which is what Weaviate runs at by
+// default, not at WARN: a per-shard line demoted to INFO is still one entry per
+// shard in every production log.
 func TestReindexGateLogVolumeAcrossShardCounts(t *testing.T) {
 	const (
 		collection = "WideClass"
@@ -91,35 +95,26 @@ func TestReindexGateLogVolumeAcrossShardCounts(t *testing.T) {
 			require.Error(t, err)
 
 			entries := hook.AllEntries()
-			var aggregate, aboveDebug, atDebug int
+			var aggregate, operatorVisible int
 			var sample []string
 			var reported int
+			var aggregateLevel logrus.Level
 			for _, e := range entries {
-				if e.Level <= logrus.WarnLevel {
-					aboveDebug++
-				} else {
-					atDebug++
+				if e.Level <= logrus.InfoLevel {
+					operatorVisible++
 				}
 				if strings.Contains(e.Message, "are held by the reindex gate") {
 					aggregate++
+					aggregateLevel = e.Level
 					sample, _ = e.Data["blocked_shards"].([]string)
 					reported, _ = e.Data["blocked_shard_count"].(int)
 				}
 			}
-			t.Logf("shards=%d totalEntries=%d warnOrAbove=%d debug=%d", shardCount, len(entries), aboveDebug, atDebug)
-			if aboveDebug != 1 {
-				byMsg := map[string]int{}
-				lvl := map[string]string{}
-				for _, e := range entries {
-					byMsg[e.Message]++
-					lvl[e.Message] = e.Level.String()
-				}
-				for m, n := range byMsg {
-					t.Logf("QAEVIDENCE shards=%d level=%s count=%d msg=%q", shardCount, lvl[m], n, m)
-				}
-			}
 			require.Equal(t, 1, aggregate, "exactly one aggregate operator line regardless of shard count")
-			require.Equal(t, 1, aboveDebug, "warn-and-above volume must be flat: got %d", aboveDebug)
+			require.LessOrEqual(t, aggregateLevel, logrus.WarnLevel,
+				"the aggregate line is the refusal an operator must see, so it stays at WARN or above")
+			require.Equal(t, 1, operatorVisible,
+				"volume at the default log level must be flat: got %d entries at INFO or above", operatorVisible)
 			require.Equal(t, shardCount, reported, "the count must be exact")
 			require.LessOrEqual(t, len(sample), wantSampleCap, "sample must be capped at %d", wantSampleCap)
 
@@ -226,13 +221,20 @@ func TestBackupableWithheldErrorsReachTheOperator(t *testing.T) {
 		"the gate refusal wins the body; the other error is withheld from it")
 
 	var found string
+	var foundLevel logrus.Level
 	for _, e := range hook.AllEntries() {
 		if strings.Contains(e.Message, "also hit") {
 			found = e.Message
+			foundLevel = e.Level
 		}
 	}
 	require.NotEmpty(t, found,
 		"withheld from the response, not from the operator: the displaced error must be logged")
+	// Level is part of the contract, not a detail: below INFO the line is
+	// absent from a default-configured production log, which is the same as
+	// withholding it from the operator.
+	require.LessOrEqual(t, foundLevel, logrus.InfoLevel,
+		"the displaced error must be logged at INFO or above, got %s", foundLevel)
 	require.Contains(t, found, "MissingClass", "the log must carry the withheld detail")
 	require.Contains(t, found, "1 other error(s)")
 }

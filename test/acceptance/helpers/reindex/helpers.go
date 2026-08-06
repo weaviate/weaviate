@@ -493,10 +493,9 @@ func WithEnv(
 // searchable path off, and a 1s scheduler tick so task transitions land inside
 // test timeouts.
 //
-// Take this rather than repeating the three lines. A suite that composes its own
-// cluster and pastes two of the three is how the flag went missing from the
-// backup-guard tests, which then passed locally and failed in CI once the flag
-// landed. Callers keep chaining their own env before Start.
+// Take this rather than repeating the three lines: a suite that composes its own
+// cluster and pastes only two of them still starts, and then tests nothing while
+// looking green. Callers keep chaining their own env before Start.
 func WithReindexEnv(c *docker.Compose) *docker.Compose {
 	return c.
 		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
