@@ -111,15 +111,24 @@ type memtable interface {
 
 type Memtable struct {
 	sync.RWMutex
-	key             *binarySearchTree
-	keyMulti        *binarySearchTreeMulti
-	keyMap          *binarySearchTreeMap
+	key      replaceIndex
+	keyMulti multiIndex
+	keyMap   mapIndex
+	// lockFreeReads is captured from useSkipListMemtable at construction: when
+	// set, key/keyMulti/keyMap/roaringSet are skip lists and point reads are
+	// served without the memtable RWMutex. Writes stay serialized under it.
+	lockFreeReads   bool
 	primaryIndex    *binarySearchTree
-	roaringSet      *roaringset.BinarySearchTree
+	roaringSet      roaringSetIndex
 	roaringSetRange *roaringsetrange.Memtable
 	commitlog       memtableCommitLogger
 	allocChecker    memwatch.AllocChecker
 	size            uint64
+	// indexOverhead accumulates what the skip-list indexes' value logs allocate
+	// on top of the logical bytes counted in size. Size() adds it so the flush
+	// trigger sees real memory; the skip lists' chunks are otherwise invisible
+	// to size. Always 0 for the red-black tree indexes.
+	indexOverhead uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
 	// top of the rest of the LSM tree. Whether a key already exists further
 	// down is unknown at write time: updates of flushed keys over-count,
@@ -194,12 +203,14 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		return nil, fmt.Errorf("init memtable metrics: %w", err)
 	}
 
+	lockFree := useSkipListMemtable // read the global once so all fields agree
 	m := &Memtable{
-		key:                          &binarySearchTree{},
-		keyMulti:                     &binarySearchTreeMulti{},
-		keyMap:                       &binarySearchTreeMap{},
+		key:                          newReplaceIndex(lockFree),
+		keyMulti:                     newMultiIndex(lockFree),
+		keyMap:                       newMapIndex(lockFree),
+		lockFreeReads:                lockFree,
 		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
-		roaringSet:                   &roaringset.BinarySearchTree{},
+		roaringSet:                   newRoaringSetIndex(lockFree),
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
 		commitlog:                    cl,
 		path:                         config.path,
@@ -222,7 +233,7 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		}
 	}
 
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 
 	if m.strategy == StrategyInverted {
 		m.tombstones = sroar.NewBitmap()
@@ -240,6 +251,12 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 		return nil, fmt.Errorf("Memtable::get(): %w", err)
 	}
 
+	// The skip-list indexes serve reads lock-free; the red-black trees need the
+	// memtable read lock to be safe against a concurrent insert.
+	if m.lockFreeReads {
+		return m.key.get(key)
+	}
+
 	m.RLock()
 	defer m.RUnlock()
 
@@ -251,6 +268,10 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 func (m *Memtable) exists(key []byte) error {
 	if err := m.checkStrategy(StrategyReplace); err != nil {
 		return fmt.Errorf("Memtable::exists(): %w", err)
+	}
+
+	if m.lockFreeReads {
+		return m.key.exists(key)
 	}
 
 	m.RLock()
@@ -314,7 +335,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	m.size += uint64(netAdditions)
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 	m.writesSinceLastSync = true
 
@@ -356,7 +377,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 	m.writesSinceLastSync = true
 
@@ -399,7 +420,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 	m.writesSinceLastSync = true
 
@@ -473,6 +494,10 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 		return nil, fmt.Errorf("Memtable::getCollection(): %w", err)
 	}
 
+	if m.lockFreeReads {
+		return m.keyMulti.get(key)
+	}
+
 	m.RLock()
 	defer m.RUnlock()
 
@@ -494,10 +519,15 @@ func (m *Memtable) getCollectionBytes(key []byte) ([][]byte, error) {
 			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
-	m.RLock()
-	defer m.RUnlock()
-
-	v, err := m.keyMulti.get(key)
+	var v []value
+	var err error
+	if m.lockFreeReads {
+		v, err = m.keyMulti.get(key)
+	} else {
+		m.RLock()
+		v, err = m.keyMulti.get(key)
+		m.RUnlock()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -515,6 +545,12 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 
 	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::getMap(): %w", err)
+	}
+
+	// The skip-list index serves reads lock-free; the red-black tree needs the
+	// memtable read lock to be safe against a concurrent insert.
+	if m.lockFreeReads {
+		return m.keyMap.get(key)
 	}
 
 	m.RLock()
@@ -547,12 +583,12 @@ func (m *Memtable) append(key []byte, values []value) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	m.keyMulti.insert(key, values)
+	m.indexOverhead += uint64(m.keyMulti.insert(key, values))
 	m.size += uint64(len(key))
 	for _, value := range values {
 		m.size += uint64(len(value.value))
 	}
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 
 	return nil
@@ -589,9 +625,9 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	m.keyMap.insert(key, pair)
+	m.indexOverhead += uint64(m.keyMap.insert(key, pair))
 	m.size += uint64(len(key) + len(valuesForCommitLog))
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 
 	if m.strategy == StrategyInverted && !pair.Tombstone {
@@ -614,7 +650,16 @@ func (m *Memtable) Size() uint64 {
 	m.RLock()
 	defer m.RUnlock()
 
-	return m.size
+	return m.sizeLocked()
+}
+
+// sizeLocked is the flush-accounting size: logical payload (size) plus the
+// skip-list value-log backing (indexOverhead, 0 for the red-black tree), so the
+// trigger budgets real memory, not just logical bytes. The flush threshold, the
+// size gauge, and Size() all read this one value so they can never disagree.
+// Caller must hold m's lock.
+func (m *Memtable) sizeLocked() uint64 {
+	return m.size + m.indexOverhead
 }
 
 func (m *Memtable) Path() string {
