@@ -1077,6 +1077,15 @@ func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivity
 		err      error
 	}
 	results := make([]result, len(nodes))
+	// Seed every slot with a failure so an unwritten one cannot read as a clear
+	// node. GoWrapper recovers a panicking prober, and the deferred wg.Done runs
+	// during that unwinding, so wg.Wait returns normally over a slot that was
+	// never assigned. Its zero value is {Busy: false, err: nil}, which matches
+	// none of the classifier arms below and falls through as "this node has no
+	// backup running". Overwritten by every probe that does report.
+	for i := range results {
+		results[i].err = errors.New("probe did not report")
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(len(nodes))

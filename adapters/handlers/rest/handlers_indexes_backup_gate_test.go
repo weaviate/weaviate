@@ -255,6 +255,80 @@ func TestBackupActivityResponder(t *testing.T) {
 	}
 }
 
+// panickingProber panics for the named nodes and reports idle for the rest.
+type panickingProber struct{ panicOn map[string]struct{} }
+
+func (p panickingProber) NodeActivity(_ context.Context, node string) (backup.NodeActivity, error) {
+	if _, ok := p.panicOn[node]; ok {
+		panic("prober blew up on " + node)
+	}
+	return backup.NodeActivity{}, nil
+}
+
+// A prober goroutine that panics is recovered by GoWrapper, and the deferred
+// wg.Done runs during the unwinding, so wg.Wait returns normally over a result
+// slot that was never written. An unwritten slot must not read as a node with
+// no backup running: the scan would report the whole cluster clear on evidence
+// it never got.
+func TestScanBackupActivityCountsAPanickingProbeAsUnreachable(t *testing.T) {
+	tests := []struct {
+		name            string
+		nodes           []string
+		panicOn         []string
+		wantUnreachable string
+	}{
+		{
+			name:            "one node's probe panics",
+			nodes:           []string{"n1", "n2", "n3"},
+			panicOn:         []string{"n2"},
+			wantUnreachable: "n2",
+		},
+		{
+			name:            "every probe panics",
+			nodes:           []string{"n1"},
+			panicOn:         []string{"n1"},
+			wantUnreachable: "n1",
+		},
+		{
+			name:            "the lowest-index panic wins, matching the unreachable rule",
+			nodes:           []string{"n1", "n2", "n3"},
+			panicOn:         []string{"n2", "n3"},
+			wantUnreachable: "n2",
+		},
+		{
+			name:    "no panic still reads as clear",
+			nodes:   []string{"n1", "n2"},
+			panicOn: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			panicOn := map[string]struct{}{}
+			for _, n := range tt.panicOn {
+				panicOn[n] = struct{}{}
+			}
+			logger, _ := test.NewNullLogger()
+
+			scan := scanBackupActivity(context.Background(), tt.nodes, panickingProber{panicOn: panicOn}, logger)
+
+			assert.Equal(t, tt.wantUnreachable, scan.UnreachableNode)
+			assert.Empty(t, scan.BusyNode)
+			if tt.wantUnreachable == "" {
+				assert.Nil(t, backupActivityResponder(&models.Principal{Username: "alice"}, scan))
+				return
+			}
+			require.Error(t, scan.UnreachableErr)
+			responder := backupActivityResponder(&models.Principal{Username: "alice"}, scan)
+			unavailable, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
+			require.Truef(t, ok, "a probe that never reported must answer 503, got %T", responder)
+			assert.Equal(t,
+				"reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers",
+				errorMessage(t, unavailable.Payload))
+		})
+	}
+}
+
 func errorMessage(t *testing.T, payload *models.ErrorResponse) string {
 	t.Helper()
 	require.NotNil(t, payload)
