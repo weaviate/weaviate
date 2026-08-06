@@ -58,9 +58,13 @@ func cancelGateTask(t *testing.T, payload *ReindexTaskPayload) *distributedtask.
 	}
 }
 
+// TestOnTerminalAppliedClosesCleanupGate covers the observer that fires on a
+// task reaching a terminal status — FAILED as well as CANCELLED, since both
+// tear down the same sidecars.
+//
 // The gate must be closed by the apply itself. This provider has no scheduler,
 // no DB and no running task, so nothing else could have closed it.
-func TestOnCancelAppliedClosesCleanupGate(t *testing.T) {
+func TestOnTerminalAppliedClosesCleanupGate(t *testing.T) {
 	const collection = "Movies"
 
 	t.Run("named shards are gated immediately", func(t *testing.T) {
