@@ -18,7 +18,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -166,6 +168,36 @@ func TestScanBackupActivity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// deadlineCapturingProber records the deadline the scan hands to each node probe.
+type deadlineCapturingProber struct {
+	mu          sync.Mutex
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (p *deadlineCapturingProber) NodeActivity(ctx context.Context, _ string) (backup.NodeActivity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.deadline, p.hasDeadline = ctx.Deadline()
+	return backup.NodeActivity{}, nil
+}
+
+// The PUT that runs this scan arrives on a request context with no deadline of
+// its own, so the bound the scan sets here is the only thing keeping one hung
+// node from hanging the request.
+func TestScanBackupActivityBoundsEachProbe(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	prober := &deadlineCapturingProber{}
+
+	start := time.Now()
+	scanBackupActivity(context.Background(), []string{"node1", "node2"}, prober, logger)
+
+	require.True(t, prober.hasDeadline,
+		"an unbounded probe context lets one hung node hang the PUT")
+	assert.InDelta(t, (5 * time.Second).Seconds(), prober.deadline.Sub(start).Seconds(), 0.5,
+		"the fan-out must be capped at 5s")
 }
 
 // TestScanBackupActivityDeterministic pins list order over answer order.

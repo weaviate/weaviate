@@ -36,6 +36,9 @@ type scriptedCleanupProber struct {
 	script  map[string][]cleanupAnswer
 	calls   map[string]int
 	queried []string
+
+	deadline    time.Time
+	hasDeadline bool
 }
 
 type cleanupAnswer struct {
@@ -43,9 +46,10 @@ type cleanupAnswer struct {
 	err error
 }
 
-func (p *scriptedCleanupProber) CleanupInProgress(_ context.Context, node, collection string) (bool, error) {
+func (p *scriptedCleanupProber) CleanupInProgress(ctx context.Context, node, collection string) (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.deadline, p.hasDeadline = ctx.Deadline()
 	if p.calls == nil {
 		p.calls = map[string]int{}
 	}
@@ -141,8 +145,11 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		start := time.Now()
 		h.awaitOwnerCleanupGates(ctx, payload, collection, "task-1")
 
-		assert.Less(t, time.Since(start), reindexOwnerGateTimeout,
-			"a cancel must never be blockable by an unreachable node")
+		// Bounds the fixture's own 300 ms context, not the handler's budget:
+		// what this pins is that the wait inherits the caller's cancellation.
+		// The handler's own budget is pinned below.
+		assert.Less(t, time.Since(start), time.Second,
+			"a cancelled caller must end the wait rather than be waited out")
 		entry := warned(hook, "could not confirm")
 		require.NotNil(t, entry, "the degraded path has to be visible to the operator")
 		assert.Equal(t, "reindex_cancel_gate_unconfirmed", entry.Data["audit_event"])
@@ -163,6 +170,24 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		assert.Less(t, time.Since(start), reindexOwnerGatePollInterval,
 			"the answer is known immediately")
 		require.NotNil(t, warned(hook, "could not confirm"))
+	})
+
+	// cancelReindexTask runs on a keep-alive request context that carries no
+	// deadline, so the budget this wait imposes on itself is the only thing
+	// stopping one silent owner from holding the cancel open indefinitely.
+	t.Run("each owner is probed under the handler's own budget", func(t *testing.T) {
+		prober := &scriptedCleanupProber{script: map[string][]cleanupAnswer{
+			owner: {{up: true}},
+		}}
+		h, _ := gateHandlers(prober, local, owner)
+
+		start := time.Now()
+		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1")
+
+		require.True(t, prober.hasDeadline,
+			"without its own deadline the wait is unbounded: the request context has none")
+		assert.InDelta(t, (5 * time.Second).Seconds(), prober.deadline.Sub(start).Seconds(), 0.5,
+			"one owner must not be able to hold a cancel open for longer than 5s")
 	})
 
 	t.Run("no remote owners means no probing", func(t *testing.T) {

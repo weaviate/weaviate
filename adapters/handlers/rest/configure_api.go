@@ -1085,38 +1085,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		type shardKey struct {
-			collection string
-			shardName  string
-		}
-		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if err != nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-				return func(string, string) bool { return true }
-			}
-			live := make(map[shardKey]bool)
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				if !db.IsLiveReindexTaskStatus(task.Status) {
-					continue
-				}
-				var payload db.ReindexTaskPayload
-				if err := json.Unmarshal(task.Payload, &payload); err != nil {
-					appState.Logger.WithField("action", "backup_reindex_gate").
-						WithField("task_id", task.ID).
-						Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-					continue
-				}
-				for _, shardName := range payload.UnitToShard {
-					live[shardKey{payload.Collection, shardName}] = true
-				}
-			}
-			return func(collection, shardName string) bool {
-				return live[shardKey{collection, shardName}]
-			}
-		}
-		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
+		repo.SetShardReindexActivityLookup(newShardReindexActivityBuilder(
+			auditCtx, appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// Cluster-wide: a class being restored has no local index yet, so a
 		// per-shard lookup would always say "free".
 		repo.SetAnyReindexActivityLookup(func(ctx context.Context) (bool, error) {
@@ -1150,6 +1120,52 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}, appState.Logger)
 
 	return appState
+}
+
+// newShardReindexActivityBuilder builds the backup gate's per-shard lookup. One
+// DTM snapshot is taken per admission pass; the answer is scoped to the exact
+// (collection, shard) tuples the live tasks name, so a migration elsewhere does
+// not block an unrelated backup and a migration on this shard is not missed
+// because a sibling shard is idle.
+//
+// A DTM it cannot reach refuses every backup: the gate must not read "free"
+// from a question it could not ask.
+func newShardReindexActivityBuilder(
+	ctx context.Context,
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
+	logger logrus.FieldLogger,
+) db.ShardReindexActivityLookupBuilder {
+	type shardKey struct {
+		collection string
+		shardName  string
+	}
+	return func() db.ShardReindexActivityLookup {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			logger.WithField("action", "backup_reindex_gate").
+				Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+			return func(string, string) bool { return true }
+		}
+		live := make(map[shardKey]bool)
+		for _, task := range tasksByNamespace[db.ReindexNamespace] {
+			if !db.IsLiveReindexTaskStatus(task.Status) {
+				continue
+			}
+			var payload db.ReindexTaskPayload
+			if err := json.Unmarshal(task.Payload, &payload); err != nil {
+				logger.WithField("action", "backup_reindex_gate").
+					WithField("task_id", task.ID).
+					Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+				continue
+			}
+			for _, shardName := range payload.UnitToShard {
+				live[shardKey{payload.Collection, shardName}] = true
+			}
+		}
+		return func(collection, shardName string) bool {
+			return live[shardKey{collection, shardName}]
+		}
+	}
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {

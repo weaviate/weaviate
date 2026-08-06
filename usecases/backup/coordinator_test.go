@@ -614,6 +614,9 @@ type fakeSelector struct {
 	// reindexCollections records what each gate call was scoped to, so an arm
 	// that passes the wrong class list cannot pass silently.
 	reindexCollections [][]string
+	// reindexInFlightFor, when set, answers per scope, which is what tells a
+	// cluster-wide question apart from one scoped to the caller's classes.
+	reindexInFlightFor func(collections []string) error
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
@@ -633,6 +636,9 @@ func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 
 func (s *fakeSelector) RefuseIfAnyReindexInFlight(_ context.Context, collections []string) error {
 	s.reindexCollections = append(s.reindexCollections, collections)
+	if s.reindexInFlightFor != nil {
+		return s.reindexInFlightFor(collections)
+	}
 	return s.reindexInFlightErr
 }
 

@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
 
 // A 404 is the only answer that lets a probe report a node as clear without
@@ -166,14 +168,37 @@ func jsonServer(t *testing.T, body string) *httptest.Server {
 	return server
 }
 
+// Both sizes are absolute, not derived from maxProbeResponseBytes: a payload
+// sized from the constant moves with it, so raising the limit could never red
+// this. As written, raising it past 128 KiB reds the refusal row and lowering
+// it below 32 KiB reds the accepted row.
 func TestNodeProbeBoundsTheResponseBody(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"cleaningUp":false,"pad":%q}`, strings.Repeat("x", maxProbeResponseBytes))
-	}))
-	defer server.Close()
+	tests := []struct {
+		name    string
+		padding int
+		wantErr bool
+	}{
+		{name: "a 32KiB answer is read", padding: 32 << 10},
+		{name: "a 128KiB answer is refused", padding: 128 << 10, wantErr: true},
+	}
 
-	client := NewClusterReindexCleanup(server.Client(), resolverFor(t, "node1", server.URL))
-	_, err := client.CleanupInProgress(context.Background(), "node1", "Movies")
-	require.ErrorContains(t, err, "response exceeds")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"probe":%q,"cleaningUp":false,"pad":%q}`,
+					clusterprobe.ReindexCleanupMarker, strings.Repeat("x", tt.padding))
+			}))
+			defer server.Close()
+
+			client := NewClusterReindexCleanup(server.Client(), resolverFor(t, "node1", server.URL))
+			cleaningUp, err := client.CleanupInProgress(context.Background(), "node1", "Movies")
+			if tt.wantErr {
+				require.ErrorContains(t, err, "response exceeds")
+				return
+			}
+			require.NoError(t, err, "a probe answer well under the bound must still be read")
+			require.False(t, cleaningUp)
+		})
+	}
 }
