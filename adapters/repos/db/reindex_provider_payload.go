@@ -22,12 +22,36 @@ const ReindexNamespace = "reindex"
 // cascades into reindex task GC (weaviate/0-weaviate-issues#231). Lives
 // next to [ReindexTaskPayload] so the payload format and its
 // scoping-decoder evolve together.
+//
+// Falls back to [ReindexTaskCollection] when the full payload will not decode.
+// Without that fallback the one task an operator most needs to delete — the
+// one no node can read — is the one deletion silently skips, leaving only the
+// completed-task TTL to clear it.
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	var p ReindexTaskPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
-		return "", false
+		collection := ReindexTaskCollection(payload)
+		return collection, collection != ""
 	}
 	return p.Collection, p.Collection != ""
+}
+
+// ReindexTaskCollection reads just the collection out of a task payload,
+// tolerating a payload the full [ReindexTaskPayload] decoder rejects — a field
+// retyped by a newer node during a rolling upgrade fails that decoder but
+// leaves the collection perfectly readable. Empty when even that fails.
+//
+// Every gate that fails closed on an undecodable payload consults this first,
+// so the refusal is scoped to the one collection the task names instead of
+// applying to all of them.
+func ReindexTaskCollection(raw []byte) string {
+	var probe struct {
+		Collection string `json:"collection"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return ""
+	}
+	return probe.Collection
 }
 
 // ReindexMigrationType identifies which migration strategy a reindex task uses.

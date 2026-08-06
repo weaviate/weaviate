@@ -2585,7 +2585,7 @@ func (p *ReindexProvider) OnCancelApplied(task *distributedtask.Task) {
 	// fully decode still gets a latch; without one the node handling the cancel
 	// burns its whole per-owner budget before answering unconfirmed. The
 	// blocking gate below genuinely needs the whole payload.
-	collection := cancelledTaskCollection(task.Payload)
+	collection := ReindexTaskCollection(task.Payload)
 	if err == nil && payload.Collection != "" {
 		collection = payload.Collection
 	}
@@ -2620,20 +2620,6 @@ func cancelledWithoutClaimedUnits(task *distributedtask.Task) bool {
 	return task != nil &&
 		task.Status == distributedtask.TaskStatusCancelled &&
 		!reindexTaskTouchedShards(task)
-}
-
-// cancelledTaskCollection reads just the collection out of a task payload,
-// tolerating a payload the full [ReindexTaskPayload] decoder rejects — a field
-// added or retyped by a newer node during a rolling upgrade fails that decoder
-// but leaves the collection perfectly readable. Empty when even that fails.
-func cancelledTaskCollection(raw []byte) string {
-	var probe struct {
-		Collection string `json:"collection"`
-	}
-	if err := json.Unmarshal(raw, &probe); err != nil {
-		return ""
-	}
-	return probe.Collection
 }
 
 // holdCancelSeen makes this node answer the cluster cleanup probe for
