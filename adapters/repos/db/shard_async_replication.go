@@ -584,9 +584,16 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	return nil
 }
 
+// hashtreeQuarantineSuffix moves an undeletable stale .ht out of trust scope; quarantined files are ignored by load and scrub and never reaped.
+// Not .deleteme: that suffix promises boot-time reaping, which never descends to this depth.
+const hashtreeQuarantineSuffix = ".quarantine"
+
+// removeHashtreeFile is a test seam: per-file unremovability has no portable filesystem simulation.
+var removeHashtreeFile = os.Remove
+
 // removeSnapshotFile removes one hashtree file: an unremovable .ht errors (a later load would trust it), an unremovable .tmp only warns.
 func (s *Shard) removeSnapshotFile(filename, ext string) (removed bool, err error) {
-	if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+	if err := removeHashtreeFile(filename); err != nil && !os.IsNotExist(err) {
 		if ext == ".ht" {
 			return false, err
 		}
@@ -677,7 +684,15 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		if attemptedNewest || ext != ".ht" {
 			removed, err := s.removeSnapshotFile(filename, ext)
 			if err != nil {
-				return nil, fmt.Errorf("deleting stale hashtree file %q: %w", filename, err)
+				// Quarantine instead of failing shard init: a renamed file is outside
+				// trust scope. Only an un-neutralizable stale .ht still fails the load.
+				quarantined := filename + hashtreeQuarantineSuffix
+				if renameErr := os.Rename(filename, quarantined); renameErr != nil {
+					return nil, fmt.Errorf("deleting stale hashtree file %q: %w (quarantine rename failed: %v)", filename, err, renameErr)
+				}
+				logger.Warnf("quarantined undeletable stale hashtree file as %q: %v", quarantined, err)
+				removedAny = true
+				continue
 			}
 			removedAny = removedAny || removed
 			continue
@@ -712,7 +727,7 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 
 		// The consumed file must not survive to be reloaded as "cached".
 		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-			return nil, err
+			return nil, fmt.Errorf("deleting consumed hashtree file %q: %w", filename, err)
 		}
 		removedAny = true
 	}
