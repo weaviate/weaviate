@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -46,6 +49,20 @@ func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32
 }
 
 func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
+	if h.muvera.Load() {
+		// A single vector inserted into a muvera index would initialize the
+		// index with the token dimensionality instead of the FDE
+		// dimensionality, corrupting every subsequent AddMulti.
+		// AddMulti encodes documents into FDEs and inserts them via add.
+		return errors.New("collection is configured as multi-vector: single vectors are not supported")
+	}
+	return h.add(ctx, id, vector)
+}
+
+// add inserts an already-encoded vector into the index. It is the shared
+// implementation behind Add (plain single-vector indexes) and AddMulti
+// (muvera-encoded FDEs).
+func (h *HFresh) add(ctx context.Context, id uint64, vector []float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -132,7 +149,7 @@ func (h *HFresh) initDimensions(vector []float32) error {
 }
 
 func (h *HFresh) normalizeVec(vec []float32) []float32 {
-	if h.config.DistanceProvider.Type() == "cosine-dot" {
+	if h.needsNormalization {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		return distancer.Normalize(vec)
@@ -251,7 +268,117 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	return true, nil
 }
 
+func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {
+	if !h.muvera.Load() {
+		return ErrMuveraNotEnabled
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(vectors) == 0 || len(vectors[0]) == 0 {
+		return errors.New("multi-vector cannot be empty")
+	}
+
+	// the muvera encoding must operate on normalized tokens for cosine so
+	// that the FDE dot product approximates the cosine-based MaxSim used
+	// during rescoring
+	vectors = h.normalizeMultiVec(vectors)
+
+	var initErr error
+	h.trackMuveraOnce.Do(func() {
+		h.muveraEncoder.InitEncoder(len(vectors[0]))
+		capture := &muveraDataCapture{}
+		if err := h.muveraEncoder.PersistMuvera(capture); err != nil {
+			initErr = errors.Wrap(err, "persist muvera data")
+			return
+		}
+		if err := h.IndexMetadata.SetMuveraData(capture.data); err != nil {
+			initErr = errors.Wrap(err, "store muvera data in index metadata")
+		}
+	})
+	if initErr != nil {
+		return initErr
+	}
+
+	encoded := h.muveraEncoder.EncodeDoc(vectors)
+
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, docID)
+	if err := h.store.Bucket(h.id+"_muvera_vectors").Put(idBytes, multivector.MuveraBytesFromFloat32(encoded)); err != nil {
+		return errors.Wrap(err, "put muvera vector into bucket")
+	}
+
+	return h.add(ctx, docID, encoded)
+}
+
+func (h *HFresh) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
+	if !h.muvera.Load() {
+		return ErrMuveraNotEnabled
+	}
+	if len(docIDs) != len(vectors) {
+		return errors.Errorf("ids and vectors sizes do not match")
+	}
+	if len(docIDs) == 0 {
+		return errors.Errorf("addMultiBatch called with empty lists")
+	}
+
+	for i, docID := range docIDs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := h.AddMulti(ctx, docID, vectors[i]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *HFresh) ValidateMultiBeforeInsert(vectors [][]float32) error {
+	if !h.muvera.Load() {
+		return errors.New("multi-vector not supported: muvera is not enabled")
+	}
+	if len(vectors) == 0 {
+		return errors.New("multi-vector cannot be empty")
+	}
+
+	firstDim := len(vectors[0])
+	if firstDim == 0 {
+		// mirror AddMulti: [[]] and friends have no valid encoding
+		return errors.New("multi-vector cannot be empty")
+	}
+	for i, v := range vectors[1:] {
+		if len(v) != firstDim {
+			return fmt.Errorf("multi-vector has inconsistent dimensions: vector[0] has %d but vector[%d] has %d",
+				firstDim, i+1, len(v))
+		}
+	}
+
+	if muveraDims := h.muveraEncoder.Dimensions(); muveraDims != 0 && firstDim != muveraDims {
+		return fmt.Errorf("new node has a multi-vector with dimension %d. "+
+			"Existing nodes have dimensions %d", firstDim, muveraDims)
+	}
+
+	return nil
+}
+
+// muveraDataCapture implements multivector.CommitLogger to capture muvera data
+// so it can be stored in the index metadata store.
+type muveraDataCapture struct {
+	data *compression.MuveraData
+}
+
+func (m *muveraDataCapture) AddMuvera(data compression.MuveraData) error {
+	m.data = &data
+	return nil
+}
+
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
+	if h.muvera.Load() {
+		// see Add: single vectors must never reach a muvera index
+		return errors.New("collection is configured as multi-vector: single vectors are not supported")
+	}
+
 	dims := atomic.LoadUint32(&h.dims)
 	if dims == 0 {
 		return nil
