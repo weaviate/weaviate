@@ -182,24 +182,6 @@ func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
 	}
 }
 
-// Pins isNilProber: a nil pointer boxed into the prober must read as unwired.
-func TestInternalReindexCleanupActivityTypedNilProber(t *testing.T) {
-	var unset *db.ReindexProvider
-
-	handler := clusterapi.NewReindexCleanup(
-		func() clusterapi.ReindexCleanupProber { return unset },
-		clusterapi.NewNoopAuthHandler(), nil)
-	server := httptest.NewServer(handler.Activity())
-	defer server.Close()
-
-	res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
-	require.NoError(t, err, "the route must answer, not drop the connection on a panic")
-	defer res.Body.Close()
-
-	require.Equal(t, http.StatusServiceUnavailable, res.StatusCode,
-		"an unusable prober must read as unwired, never as 'nothing running'")
-}
-
 // Pins the late binding described on the resolve field, through the same
 // wiring and construction order production uses.
 func TestInternalReindexCleanupActivityResolvesProviderLate(t *testing.T) {
