@@ -154,7 +154,7 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 		//
 		// Flag-off is "no reindex check anywhere", not "no reindex running";
 		// the residual that leaves is stated in full at
-		// [DB.RefuseIfReindexOverlapped].
+		// [DB.ObserveReindexOverlap].
 		return snap
 	}
 

@@ -138,7 +138,7 @@ type DB struct {
 	reindexAuditDeferredRequests       int
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
-	reindexOverlapLookup               ReindexOverlapLookup
+	reindexOverlapObserver             ReindexOverlapObserver
 	anyReindexActivityLookup           AnyReindexActivityLookup
 	anyCleanupInProgressLookup         AnyCleanupInProgressLookup
 
