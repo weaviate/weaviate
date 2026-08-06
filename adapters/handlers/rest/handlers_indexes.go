@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -975,7 +974,7 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reindexRollbackTimeout)
 	defer cancel()
 
-	delays := utils.NewExponentialBackoff(reindexRollbackRetryDelay, reindexRollbackTimeout)
+	delays := newRollbackRetryBackoff(reindexRollbackRetryDelay, reindexRollbackTimeout)
 
 	var lastErr error
 	for attempt := 1; attempt <= reindexRollbackAttempts; attempt++ {
@@ -994,6 +993,21 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 	h.appState.Logger.WithFields(fields).WithField("audit_event", "reindex_task_rollback_failed").Errorf(
 		"rollback: could not cancel the task in %d attempts: %v; it is still running while its submitter was told the "+
 			"submission was refused — cancel it by hand", reindexRollbackAttempts, lastErr)
+}
+
+// newRollbackRetryBackoff builds the rollback retry schedule.
+//
+// The options have to be passed to the constructor rather than assigned to the
+// returned struct: the constructor snapshots the initial interval into the
+// interval it will actually hand out, and a field assigned afterwards is only
+// picked up by a later Reset. This schedule is stepped directly by
+// waitBeforeRollbackRetry, so nothing calls Reset and a field assigned
+// afterwards would never be read.
+func newRollbackRetryBackoff(initialInterval, maxElapsedTime time.Duration) backoff.BackOff {
+	return backoff.NewExponentialBackOff(
+		backoff.WithInitialInterval(initialInterval),
+		backoff.WithMaxElapsedTime(maxElapsedTime),
+	)
 }
 
 // waitBeforeRollbackRetry waits out the next backoff step, reporting whether

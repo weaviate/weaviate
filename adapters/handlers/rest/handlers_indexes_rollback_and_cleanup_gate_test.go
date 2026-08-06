@@ -583,8 +583,10 @@ func TestRollbackRacedReindexTaskSucceedsOnRetry(t *testing.T) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 	require.Equal(t, 2, svc.cancelCalls, "the first cancel failed, so a second must have been made")
-	// The delay is jittered down to half the base, so half is the floor.
-	require.Greater(t, elapsed, reindexRollbackRetryDelay/2,
+	// The base delay is 500ms and the library jitters it down to half, so 250ms
+	// is the floor. Spelled out rather than derived from the constant, so that
+	// shrinking the constant fails here instead of moving the bar with it.
+	require.Greater(t, elapsed, 250*time.Millisecond,
 		"the second attempt must be spaced from the first, or the retry never outlives the transient it exists for")
 
 	entries := hook.AllEntries()
