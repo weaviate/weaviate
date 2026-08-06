@@ -458,6 +458,56 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return nil
 }
 
+// apiManagedBuiltInRoles are the built-in roles whose assignments are granted through
+// the API and therefore exist only in the policy store. Root and read-only are absent
+// on purpose: applyPredefinedRoles rebuilds their assignments from configuration on
+// every restore, so carrying them would be discarded work.
+var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
+
+// apiManagedBuiltInGroupings returns the admin and viewer assignments held by the
+// principals a role selection covers. A built-in role can never be selected, so
+// without this a filtered snapshot drops those grants and nothing restores them.
+//
+// Out-of-scope rows must stay behind. A db subject strips unconditionally, so
+// another namespace's admin would land on the restored cluster as a global identity
+// holding admin. Scope reads the cluster mode rather than testing whether the
+// namespace set came out empty: selecting only global roles derives none, and
+// treating that as "all in scope" is the same leak.
+func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
+	namespaces := make(map[string]struct{}, len(roles))
+	for _, name := range roles {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			namespaces[ns] = struct{}{}
+		}
+	}
+
+	inScope := func(subject string) bool {
+		if !m.namespacesEnabled {
+			return true
+		}
+		_, _, ns, err := conv.SubjectNamespace(subject)
+		if err != nil || ns == "" {
+			return false
+		}
+		_, ok := namespaces[ns]
+		return ok
+	}
+
+	var out [][]string
+	for _, role := range apiManagedBuiltInRoles {
+		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
+		if err != nil {
+			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+		}
+		for _, g := range gs {
+			if len(g) > 0 && inScope(g[0]) {
+				out = append(out, g)
+			}
+		}
+	}
+	return out, nil
+}
+
 // Snapshot is the RBAC state to be used for RAFT snapshots
 type snapshot struct {
 	Policy         [][]string `json:"roles_policies"`
@@ -469,7 +519,8 @@ type snapshot struct {
 // no roles it captures the whole store. Called with roles it keeps only those
 // roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
 // hold the role name, so the assignments and the db:wv_internal_empty placeholder
-// come along too.
+// come along too. A selection also carries the admin and viewer grants held by
+// the principals it covers, for the reason given on apiManagedBuiltInGroupings.
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
@@ -513,6 +564,11 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
+		gs, err := m.apiManagedBuiltInGroupings(roles)
+		if err != nil {
+			return nil, err
+		}
+		groupingPolicy = append(groupingPolicy, gs...)
 	}
 
 	// Use a buffer to stream the JSON encoding

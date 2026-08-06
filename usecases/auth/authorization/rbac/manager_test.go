@@ -247,6 +247,146 @@ func TestSnapshotRolesFilter(t *testing.T) {
 		assert.Empty(t, roleP(t, dst, "editor"))
 		assert.Empty(t, roleG(t, dst, "editor"))
 	})
+
+	t.Run("an api-granted admin survives a filtered backup", func(t *testing.T) {
+		src := seed(t)
+		_, err := src.casbin.AddRoleForUser(
+			conv.UserNameWithTypeFromId("ops-lead", authentication.AuthTypeDb),
+			conv.PrefixRoleName(authorization.Admin))
+		require.NoError(t, err)
+
+		blob, err := src.Snapshot("customAdmin")
+		require.NoError(t, err)
+
+		dst, err := setupTestManager(t, logger)
+		require.NoError(t, err)
+		require.NoError(t, dst.Restore(blob, false))
+
+		// Nothing on the restore side recreates an admin grant made through the API,
+		// so losing it here loses it permanently.
+		assert.Contains(t, subjectsOf(roleG(t, dst, authorization.Admin)), "db:ops-lead")
+	})
+
+	t.Run("root and read-only grants are left out", func(t *testing.T) {
+		src := seed(t)
+		for _, role := range []string{authorization.Root, authorization.ReadOnly} {
+			_, err := src.casbin.AddRoleForUser(
+				conv.UserNameWithTypeFromId("boot-user", authentication.AuthTypeDb),
+				conv.PrefixRoleName(role))
+			require.NoError(t, err)
+		}
+
+		blob, err := src.Snapshot("customAdmin")
+		require.NoError(t, err)
+
+		var s snapshot
+		require.NoError(t, json.Unmarshal(blob, &s))
+		// Both are rebuilt from configuration on restore, so a copy in the blob would
+		// be discarded.
+		assert.NotContains(t, rolesOf(s.GroupingPolicy), conv.PrefixRoleName(authorization.Root))
+		assert.NotContains(t, rolesOf(s.GroupingPolicy), conv.PrefixRoleName(authorization.ReadOnly))
+	})
+}
+
+// TestSnapshotBuiltInGrantScope covers which principals' admin and viewer grants a
+// filtered snapshot carries once namespaces are on. Carrying one from a namespace the
+// selection never named would hand that tenant's admin a role on the restored cluster,
+// because a db subject strips unconditionally and arrives global.
+func TestSnapshotBuiltInGrantScope(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	seedNS := func(t *testing.T) *Manager {
+		m, err := setupNSEnabledTestManager(t, logger)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns1:editor"), "collections/*", authorization.UPDATE, authorization.SchemaDomain)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("analytics"), "collections/*", authorization.READ, authorization.SchemaDomain)
+		require.NoError(t, err)
+		// One admin per namespace, plus a global one. Only ns1's is ever in scope.
+		for _, subject := range []string{"ns1:local-admin", "ns2:boss", "global-admin"} {
+			_, err = m.casbin.AddRoleForUser(
+				conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
+				conv.PrefixRoleName(authorization.Admin))
+			require.NoError(t, err)
+		}
+		return m
+	}
+
+	grantedAdmins := func(t *testing.T, blob []byte) []string {
+		var s snapshot
+		require.NoError(t, json.Unmarshal(blob, &s))
+		var subjects []string
+		for _, g := range s.GroupingPolicy {
+			if len(g) > 1 && g[1] == conv.PrefixRoleName(authorization.Admin) {
+				subjects = append(subjects, g[0])
+			}
+		}
+		return subjects
+	}
+
+	t.Run("only the selected namespace's admin comes along", func(t *testing.T) {
+		m := seedNS(t)
+		blob, err := m.Snapshot("ns1:editor")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"db:ns1:local-admin"}, grantedAdmins(t, blob))
+	})
+
+	t.Run("selecting only a global role carries no built-in grants", func(t *testing.T) {
+		m := seedNS(t)
+		blob, err := m.Snapshot("analytics")
+		require.NoError(t, err)
+		// A global role name yields no namespace. Reading that as "everything is in
+		// scope" would put every tenant's admin into the blob.
+		assert.Empty(t, grantedAdmins(t, blob))
+	})
+
+	t.Run("with namespaces off every principal is in scope", func(t *testing.T) {
+		m, err := setupTestManager(t, logger)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("editor"), "collections/*", authorization.UPDATE, authorization.SchemaDomain)
+		require.NoError(t, err)
+		for _, subject := range []string{"alice", "bob"} {
+			_, err = m.casbin.AddRoleForUser(
+				conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
+				conv.PrefixRoleName(authorization.Admin))
+			require.NoError(t, err)
+		}
+
+		blob, err := m.Snapshot("editor")
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"db:alice", "db:bob"}, grantedAdmins(t, blob))
+	})
+
+	t.Run("the whole-cluster snapshot is unaffected", func(t *testing.T) {
+		m := seedNS(t)
+		blob, err := m.Snapshot()
+		require.NoError(t, err)
+		// The no-args path must stay the verbatim store dump, so every admin is
+		// present exactly once and none is duplicated by the selection logic.
+		assert.ElementsMatch(t,
+			[]string{"db:ns1:local-admin", "db:ns2:boss", "db:global-admin"},
+			grantedAdmins(t, blob))
+	})
+}
+
+func subjectsOf(rows [][]string) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r) > 0 {
+			out = append(out, r[0])
+		}
+	}
+	return out
+}
+
+func rolesOf(rows [][]string) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r) > 1 {
+			out = append(out, r[1])
+		}
+	}
+	return out
 }
 
 // getPolicyDelta returns the policies that are in b but not in a
