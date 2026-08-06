@@ -55,17 +55,22 @@ func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger lo
 // NewReindexCleanupFromState is the wiring the internal server uses; see the
 // resolve field for why it binds late.
 func NewReindexCleanupFromState(appState *state.State, auth auth) *ReindexCleanup {
-	// Both fields below are concrete pointers and must be compared as such
-	// before they are boxed; see isNilProber.
 	var logger logrus.FieldLogger
 	if appState != nil && appState.Logger != nil {
 		logger = appState.Logger
 	}
 	return NewReindexCleanup(func() ReindexCleanupProber {
-		if appState == nil || appState.ReindexProvider == nil {
+		if appState == nil {
 			return nil
 		}
-		return appState.ReindexProvider
+		// Load gives a concrete pointer, which must be compared as one here:
+		// returning it unconditionally would box a nil into the interface,
+		// where it reads as non-nil to the handler's == nil check.
+		provider := appState.ReindexProvider.Load()
+		if provider == nil {
+			return nil
+		}
+		return provider
 	}, auth, logger)
 }
 

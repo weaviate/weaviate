@@ -311,7 +311,7 @@ func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 	}
 
 	h := submissionHandlers(t, svc, prober)
-	h.appState.ReindexProvider = provider
+	h.appState.ReindexProvider.Store(provider)
 
 	require.False(t, provider.AnyCleanupInProgressForCollection(collection))
 
@@ -632,7 +632,7 @@ func TestUpdateIndexRollbackRunsWithoutTheSubmitHolds(t *testing.T) {
 	h := submissionHandlers(t, svc, prober)
 
 	provider := &db.ReindexProvider{}
-	h.appState.ReindexProvider = provider
+	h.appState.ReindexProvider.Store(provider)
 
 	var (
 		rolledBack   atomic.Bool

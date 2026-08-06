@@ -684,8 +684,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// is not committed. Close the gate over it, per
 		// [db.ReindexProvider.MarkSubmitInProgress], and hold it until the
 		// handler returns so the deletion and the commit are one window.
-		if h.appState.ReindexProvider != nil {
-			releaseSubmitGate = sync.OnceFunc(h.appState.ReindexProvider.MarkSubmitInProgress(collection))
+		if provider := h.appState.ReindexProvider.Load(); provider != nil {
+			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
 		}
 		// Loop over every index type this migration touches. For
 		// single-index migrations the slice has one entry; for
@@ -1292,11 +1292,11 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			fmt.Sprintf("cancelling task: %v", err)))
 	}
 
-	if h.appState.ReindexProvider != nil {
+	if provider := h.appState.ReindexProvider.Load(); provider != nil {
 		// The gate is released once the handler answers, not once the cleanup
 		// ends: awaitOwnerCleanupGates below still reports on this node's
 		// teardown window.
-		if release := h.drainAndCleanupCancelledTask(ctx, h.appState.ReindexProvider,
+		if release := h.drainAndCleanupCancelledTask(ctx, provider,
 			target, &targetPayload, collection, propertyName, indexType); release != nil {
 			defer release()
 		}
