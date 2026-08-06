@@ -810,12 +810,12 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
-				err := s.schema.deleteTenants(cmd.Class, cmd.Version, req)
-				// In updateSchema so it also runs on schemaOnly applies; see
-				// deleteClass. It runs even when the schema mutation errored,
-				// because apply returns immediately on a non-partial error.
+				// In updateSchema so it also runs on schemaOnly applies; see deleteClass.
+				if err := s.schema.deleteTenants(cmd.Class, cmd.Version, req); err != nil {
+					return err
+				}
 				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
-				return err
+				return nil
 			},
 			updateStore: func() error {
 				return s.db.DeleteTenants(cmd.Class, tenants)
