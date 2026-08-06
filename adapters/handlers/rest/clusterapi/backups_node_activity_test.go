@@ -40,8 +40,8 @@ type fakeBackupSourcer struct{}
 func (fakeBackupSourcer) ReleaseBackup(context.Context, string, string) error        { return nil }
 func (fakeBackupSourcer) Backupable(context.Context, []string) error                 { return nil }
 func (fakeBackupSourcer) RefuseIfAnyReindexInFlight(context.Context, []string) error { return nil }
-func (fakeBackupSourcer) RefuseIfReindexOverlapped(context.Context, []string, time.Time) error {
-	return nil
+func (fakeBackupSourcer) ObserveReindexOverlap(context.Context, []string) entitiesbackup.ReindexOverlapCheck {
+	return func(context.Context) error { return nil }
 }
 
 func (fakeBackupSourcer) BackupDescriptors(context.Context, string, []string,

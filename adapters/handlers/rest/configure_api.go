@@ -1093,8 +1093,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			return false, nil
 		})
-		// Commit-time overlap check; see db.ReindexOverlapLookup.
-		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
+		// Commit-time overlap check; see db.ReindexOverlapObserver.
+		repo.SetReindexOverlapObserver(db.NewReindexOverlapObserver(
 			appState.ClusterService.ListDistributedTasks,
 			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 		))
