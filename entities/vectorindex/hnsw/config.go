@@ -319,6 +319,10 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
 	}
 
+	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim < 0 {
+		return fmt.Errorf("invalid hnsw config: ksim must not be negative")
+	}
+
 	return nil
 }
 

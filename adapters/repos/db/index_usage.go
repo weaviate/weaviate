@@ -350,9 +350,15 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		}
 		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
-		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
+		encodedDimensions := muveraEncodedDimensions(vectorIndexConfig)
+		scan, err := shard.DimensionsUsage(ctx, targetVector, encodedDimensions > 0)
 		if err != nil {
 			return err
+		}
+		// MUVERA multi-vectors report the encoded dimensionality (what is held in memory per object)
+		dimensionality := scan.Dimensionality
+		if encodedDimensions > 0 {
+			dimensionality = scan.MuveraDimensionality(encodedDimensions)
 		}
 
 		compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions)
@@ -425,11 +431,20 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 
 	// Get named vector data for cold shards from schema configuration
 	targetVectors := make([]string, 0, len(vectorConfigs))
-	for targetVector := range vectorConfigs {
+	muveraDimensions := make(map[string]int, len(vectorConfigs))
+	for targetVector, vectorConfig := range vectorConfigs {
 		targetVectors = append(targetVectors, targetVector)
+		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
+		}
+		if encodedDimensions := muveraEncodedDimensions(cfg); encodedDimensions > 0 {
+			muveraDimensions[targetVector] = encodedDimensions
+		}
 	}
-	// open the dimensions bucket once for all target vectors
-	dimensionalitiesAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors)
+	// open the dimensions bucket once for all target vectors; MUVERA target vectors also get
+	// the total object count from the same pass
+	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors, muveraDimensions)
 	if err != nil {
 		return nil, err
 	}
@@ -455,8 +470,14 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		}
 
-		dimensionalities := dimensionalitiesAll[targetVector]
-		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
+		scan := scansAll[targetVector]
+		// raw dimensions keep driving the disk accounting; MUVERA multi-vectors report the
+		// encoded dimensionality (what is held in memory per object)
+		uncompressedVectorSize += uint64(scan.Count) * uint64(scan.Dimensions) * 4
+		dimensionalities := scan.Dimensionality
+		if encodedDimensions, ok := muveraDimensions[targetVector]; ok {
+			dimensionalities = scan.MuveraDimensionality(encodedDimensions)
+		}
 		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
 		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
 		namedVectors = append(namedVectors, vectorUsage)
@@ -507,6 +528,15 @@ func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.Shard
 		ObjectsStorageBytes: 0,
 		VectorStorageBytes:  0,
 	}
+}
+
+// muveraEncodedDimensions returns the MUVERA-encoded dimensionality for multi-vector HNSW configs with MUVERA enabled, 0 otherwise
+func muveraEncodedDimensions(vectorConfig schemaConfig.VectorIndexConfig) int {
+	hnswConfig, ok := vectorConfig.(enthnsw.UserConfig)
+	if !ok || !hnswConfig.Multivector.Enabled || !hnswConfig.Multivector.MuveraConfig.Enabled {
+		return 0
+	}
+	return hnswConfig.Multivector.MuveraConfig.EncodedDimensions()
 }
 
 func multiVectorConfigFromConfig(vectorConfig schemaConfig.VectorIndexConfig) *types.MultiVectorConfig {
