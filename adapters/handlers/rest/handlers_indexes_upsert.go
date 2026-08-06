@@ -67,6 +67,10 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return resp
 	}
 
+	if resp := h.refuseIfReindexDisabled(principal); resp != nil {
+		return resp
+	}
+
 	// Lock EARLY (before class read + validation + RAFT submit) so a parallel
 	// DELETE can't drop the bucket mid-snapshot — see submitLock godoc.
 	propLock := h.submitLock(collection, params.PropertyName)
@@ -146,6 +150,10 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 
 	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName)
 	if resp != nil {
+		return resp
+	}
+
+	if resp := h.refuseIfReindexDisabled(principal); resp != nil {
 		return resp
 	}
 
@@ -229,6 +237,21 @@ func (h *indexesHandlers) cancelIndex(params schema.SchemaObjectsIndexCancelPara
 			"cluster service unavailable; cannot cancel reindex task"))
 	}
 	return h.cancelReindexTask(ctx, h.appState.ClusterService, collection, params.PropertyName, indexType, principal)
+}
+
+// refuseIfReindexDisabled returns a 400 responder while
+// RUNTIME_REINDEX_ENABLED is off, nil otherwise. It gates the two submit
+// entry points (upsert, rebuild); cancel and the status endpoint are
+// deliberately untouched, so a task that was already running stays
+// observable and stoppable. Callers place it after authorization, so an
+// unauthorized caller still gets its 401/403, and before the class read,
+// so a refusal costs no schema lookup.
+func (h *indexesHandlers) refuseIfReindexDisabled(principal *models.Principal) middleware.Responder {
+	if h.appState.ServerConfig.Config.RuntimeReindexEnabled {
+		return nil
+	}
+	return jsonResponder(http.StatusBadRequest, errorResponse(principal,
+		"runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true"))
 }
 
 // qualifyAndAuthorize resolves and authorizes UPDATE on the collection
