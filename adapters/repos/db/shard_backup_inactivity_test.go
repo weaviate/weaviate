@@ -65,14 +65,16 @@ func TestShard_HaltForTransferExtendsInactivityDeadline(t *testing.T) {
 	})
 	s := shd.(*Shard)
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	// Two distinct owners, so the second halt is the overlapping-consumer case the
+	// deadline push exists for.
+	require.NoError(t, s.HaltForTransfer(ctx, "test:opA", false, time.Hour))
 
 	// Stands in for a halt whose preparation outlasted the remaining budget.
 	s.haltForTransferMux.Lock()
 	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
 	s.haltForTransferMux.Unlock()
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, "test:opB", false, time.Hour))
 
 	s.haltForTransferMux.Lock()
 	deadline := s.haltForTransferInactivityDeadline
@@ -80,7 +82,10 @@ func TestShard_HaltForTransferExtendsInactivityDeadline(t *testing.T) {
 	require.True(t, deadline.After(time.Now()),
 		"an overlapping halt left the deadline in the past — the monitor will force-resume a shard two consumers still hold")
 
-	for s.haltForTransferCount > 0 {
-		require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	for _, owner := range []string{"test:opA", "test:opB"} {
+		require.NoError(t, s.resumeMaintenanceCycles(ctx, owner))
 	}
+	s.haltForTransferMux.Lock()
+	require.Zero(t, s.haltTotalLocked())
+	s.haltForTransferMux.Unlock()
 }

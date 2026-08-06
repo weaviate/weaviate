@@ -447,10 +447,11 @@ func TestShardNoopProvider_SlowUnit(t *testing.T) {
 func TestShardNoopProvider_ProcessingDelayOverride(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 
+	payload := ShardNoopProviderPayload{
+		ProcessingDelayMs: 10, // fast override
+	}
 	task := f.newTaskWithPayload(
-		ShardNoopProviderPayload{
-			ProcessingDelayMs: 10, // fast override
-		},
+		payload,
 		map[string]*Unit{
 			"u-1": {Status: UnitStatusPending},
 			"u-2": {Status: UnitStatusPending},
@@ -458,13 +459,15 @@ func TestShardNoopProvider_ProcessingDelayOverride(t *testing.T) {
 		},
 	)
 
-	start := time.Now()
+	// Prove the override maps to the applied per-unit delay directly. An upper
+	// wall-clock bound is load-sensitive: scheduler starvation under full-suite
+	// parallelism blows past it, and a looser bound can't distinguish the 10ms
+	// override from the 100ms default anyway.
+	assert.Equal(t, 10*time.Millisecond, f.provider.resolveProcessingDelay(payload),
+		"processing should use the fast delay override, not the 100ms default")
+
 	handle, completed := f.startAndAwaitCompleted(t, task, 3)
 	defer handle.Terminate()
-
-	elapsed := time.Since(start)
-	// With 10ms delay per unit, should be much faster than default 100ms * 3 = 300ms
-	assert.Less(t, elapsed, 200*time.Millisecond, "processing should use fast delay override")
 
 	assert.ElementsMatch(t, []string{"u-1", "u-2", "u-3"}, completed)
 }

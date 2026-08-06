@@ -27,6 +27,10 @@ import (
 
 const replicaStagingPrefix = ".replica-staging-"
 
+// errReplicaStagingNotRemoved marks a release whose staging-dir removal failed, so
+// the next create for the same op refuses instead of hardlinking into the survivor.
+var errReplicaStagingNotRemoved = errors.New("remove replica staging dir")
+
 func replicaStagingDir(rootPath, opID string, className schema.ClassName) string {
 	name := file.SafeStagingDirName(replicaStagingPrefix, opID, indexID(className))
 	return filepath.Join(rootPath, name)
@@ -54,9 +58,13 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	}
 
 	// On retry the prior snapshot may be stale relative to current shard contents.
-	if rerr := i.releaseReplicaSnapshot(ctx, opID, shard); rerr != nil {
-		return nil, fmt.Errorf("clean prior replica snapshot for op %q: %w", opID, rerr)
+	// Pass the pin we already hold: resolving the shard again here could lose to a
+	// concurrent teardown.
+	if err := i.clearPriorReplicaSnapshot(ctx, opID, shard); err != nil {
+		return nil, err
 	}
+
+	owner := replicaHaltOwner(opID)
 
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
@@ -64,7 +72,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	}
 
 	if file.ProbeHardlinkSupport(i.Config.RootPath) {
-		files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
+		files, err := shard.CreateReplicaSnapshot(ctx, owner, stagingRoot)
 		if err != nil {
 			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 			return nil, err
@@ -78,7 +86,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	// Halt-for-duration fallback: shard stays halted until Release; segments
 	// are served from the live shard root in this mode. The inactivity timeout
 	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
-	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
+	if err := shard.HaltForTransfer(ctx, owner, false, i.Config.TransferInactivityTimeout); err != nil {
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 		return nil, fmt.Errorf("halt shard %q for transfer: %w", shardName, err)
 	}
@@ -213,7 +221,7 @@ func containedPath(base, rel string) (string, error) {
 // silent failures here would leak a halted shard or staging dir.
 func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string, resumeShard bool, shard ShardLike) {
 	if resumeShard && shard != nil {
-		if rerr := shard.resumeMaintenanceCycles(context.Background()); rerr != nil {
+		if rerr := shard.resumeMaintenanceCycles(context.Background(), replicaHaltOwner(opID)); rerr != nil {
 			i.logger.WithField("op_id", opID).WithField("staging_dir", stagingRoot).
 				Error(fmt.Errorf("resume maintenance after failed replica snapshot: %w", rerr))
 		}
@@ -222,6 +230,24 @@ func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string, resumeSha
 		i.logger.WithField("op_id", opID).WithField("staging_dir", stagingRoot).
 			Error(fmt.Errorf("remove staging dir after failed replica snapshot: %w", rerr))
 	}
+}
+
+// errIfClosed reports errAlreadyShutdown once the index has been torn down.
+func (i *Index) errIfClosed() error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+	if i.closed {
+		return errAlreadyShutdown
+	}
+	return nil
+}
+
+// purgeReplicaSnapshots drops the whole registry at index teardown: the entries
+// describe shards this index owns, so none of them can outlive it.
+func (i *Index) purgeReplicaSnapshots() {
+	i.replicaSnapshotsMu.Lock()
+	defer i.replicaSnapshotsMu.Unlock()
+	i.replicaSnapshots = nil
 }
 
 func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
@@ -233,26 +259,49 @@ func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
 	i.replicaSnapshots[opID] = st
 }
 
-// releaseReplicaSnapshot reads the shard from the map so a namespace that is not
-// active cannot refuse the resume. A failed resume cannot be retried:
-// resumeMaintenanceCycles clears the halt count before the work that can fail,
-// so a later release finds nothing halted.
+// releaseReplicaSnapshot removes the staging dir and, in halt-for-duration mode,
+// resumes the shard. The registry entry is deleted LAST, so it doubles as the retry
+// handle: a release whose resume fails leaves the entry in place, and the next
+// attempt redoes the work instead of taking the unknown-op early return and
+// reporting success on a still-halted shard. Only the replica-snapshot paths read
+// this registry, never a halt gate. The shard records a failed physical resume as
+// pending, so the retry re-runs it even though the owner bookkeeping was cleared.
+//
+// A staging-removal failure alone does NOT retain the entry: the removal is derived
+// from opID and needs no registry state. It is retried at the top of every later
+// release for that opID and at the next create, which fails rather than hardlinking
+// into a dir it cannot remove. A dir that survives every attempt is reclaimed by the
+// startup staging sweep.
 //
 // held is the caller's already-pinned shard for this op, or nil when the caller
-// holds no pin — then the shard is resolved under the shutdown guard instead.
+// holds no pin — then the shard is resolved under the shutdown guard instead, so a
+// namespace that is not active cannot refuse the resume.
 func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string, held ShardLike) error {
 	i.replicaSnapshotsMu.Lock()
 	st, ok := i.replicaSnapshots[opID]
-	delete(i.replicaSnapshots, opID)
 	i.replicaSnapshotsMu.Unlock()
 
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
 	var removeErr error
 	if rerr := os.RemoveAll(stagingRoot); rerr != nil {
-		removeErr = fmt.Errorf("remove replica staging dir: %w", rerr)
+		removeErr = fmt.Errorf("%w %q: %w", errReplicaStagingNotRemoved, stagingRoot, rerr)
 	}
 	// Return early if the snapshot isn't local anymore or if it was a hardlink snapshot (already resumed at create time).
 	if !ok || st.isSnapshot {
+		i.deleteReplicaSnapshot(opID)
+		if !ok {
+			// An unknown op on a LIVE index is a genuine no-op: the release already
+			// ran. On a closed index it is ambiguous, because teardown purges the
+			// registry, so the entry may have been dropped from under this caller.
+			// Report the shutdown rather than claim a release that may never have
+			// happened.
+			if err := i.errIfClosed(); err != nil {
+				if removeErr != nil {
+					return fmt.Errorf("%w; replica snapshot release: %w", removeErr, err)
+				}
+				return fmt.Errorf("replica snapshot release: %w", err)
+			}
+		}
 		return removeErr
 	}
 
@@ -273,12 +322,44 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string, held Sh
 
 	// A shard that is not loaded has nothing halted.
 	if shard != nil {
-		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+		if err := shard.resumeMaintenanceCycles(ctx, replicaHaltOwner(opID)); err != nil {
 			if removeErr != nil {
 				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
 			}
 			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
 		}
 	}
+	i.deleteReplicaSnapshot(opID)
 	return removeErr
+}
+
+// clearPriorReplicaSnapshot drops any prior snapshot for opID. A resume-machinery
+// failure is logged, not returned: this create is the retry that replaces the prior
+// snapshot, it has already re-acquired the shard, and recordReplicaSnapshot
+// overwrites the entry. resumeOwnerLocked removes the owner before the fallible
+// completeResumeLocked runs, so the re-halt cannot double-count.
+//
+// A staging-removal failure IS returned and fails the create: the caller would
+// otherwise hardlink into the surviving directory and die on EEXIST with an error
+// that names a file rather than the stale dir that caused it.
+//
+// held is the caller's pin, so the clear cannot lose the shard to a concurrent
+// teardown.
+func (i *Index) clearPriorReplicaSnapshot(ctx context.Context, opID string, held ShardLike) error {
+	err := i.releaseReplicaSnapshot(ctx, opID, held)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, errReplicaStagingNotRemoved) {
+		return fmt.Errorf("clean prior replica snapshot before re-create: %w", err)
+	}
+	i.logger.WithField("op_id", opID).
+		Warnf("clean prior replica snapshot before re-create: %v", err)
+	return nil
+}
+
+func (i *Index) deleteReplicaSnapshot(opID string) {
+	i.replicaSnapshotsMu.Lock()
+	defer i.replicaSnapshotsMu.Unlock()
+	delete(i.replicaSnapshots, opID)
 }

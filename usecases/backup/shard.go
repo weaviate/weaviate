@@ -96,6 +96,11 @@ type shardSyncChan struct {
 	//  coordChan used to communicate with the coordinator
 	coordChan chan interface{}
 
+	// log reports coordChan sends that had to be dropped. Named apart from the
+	// embedders' own logger field, which would otherwise shadow it. Nil for the
+	// coordinator, which embeds a zero shardSyncChan and never sends.
+	log logrus.FieldLogger
+
 	// lastAsyncError used for debugging when no metadata is created
 	lastAsyncError error
 }
@@ -174,7 +179,16 @@ func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error 
 func (c *shardSyncChan) OnAbort(_ context.Context, req *AbortRequest) error {
 	st := c.lastOp.get()
 	if st.ID == req.ID {
-		c.coordChan <- *req
+		select {
+		case c.coordChan <- *req:
+		default:
+			if c.log != nil {
+				c.log.WithFields(logrus.Fields{
+					"action":    "on_abort",
+					"backup_id": req.ID,
+				}).Debug("coordination channel full and unattended; dropping abort request")
+			}
+		}
 		return nil
 	}
 	// No active operation with this ID - this is not an error, the operation may have

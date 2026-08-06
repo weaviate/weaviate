@@ -771,6 +771,9 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
+// ForEachLoadedShard visits every shard that is currently loaded, skipping cold
+// lazy wrappers. Unlike ForEachShard it does NOT gate on closingCtx, so callers that
+// mutate shard state must take closeLock and check i.closed themselves.
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
 		// Skip lazy loaded shard which are not loaded
@@ -1678,20 +1681,63 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 }
 
 // resumeAfterAbortedOffload reverses an aborted offloading HaltForTransfer: resume maintenance and rebuild async replication from a full scan so the shard cannot silently diverge. No-op when not loaded.
+// ctx must outlive the aborted operation: callers on the abort path pass a
+// detached ctx, because the operation ctx is often already canceled there.
 func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {
 		return nil
 	}
 
+	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
+	// Scoped to the offload's own owner key: a co-resident backup or replica
+	// transfer holding this shard must keep its halt.
+	if err := shard.resumeMaintenanceCycles(ctx, offloadHaltOwner(shardName)); err != nil {
+		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
+	}
+
+	// Unconditional: the not-halted case is a HaltForTransfer that failed after
+	// stopAsyncReplication and self-resumed, so async is off with no halt held.
+	return i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard)
+}
+
+// resumeOffloadHaltAfterAbortedFreeze lifts an offload halt this node placed for a
+// freeze the cluster later aborted, and repairs the async replication that halt
+// stopped. offloadHaltOwner is deterministic, so this caller can name a halt its own
+// instance never placed. No-op when the shard is not loaded or holds no offload
+// halt, so a routine tenant activation pays one mutex acquisition and no rescan.
+func (i *Index) resumeOffloadHaltAfterAbortedFreeze(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	resumer, ok := shard.(offloadHaltResumer)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement offloadHaltResumer", shardName)
+	}
+
+	wasHeld, err := resumer.resumeHaltOwner(ctx, offloadHaltOwner(shardName))
+	if err != nil {
+		return fmt.Errorf("resume offload halt on shard %q: %w", shardName, err)
+	}
+	if !wasHeld {
+		return nil
+	}
+
+	return i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard)
+}
+
+// rebuildAsyncReplicationAfterOffloadHalt restores shardName's async replication
+// after an offloading halt stopped it. Only a full scan can restore it: the halt
+// nils the hashtree and deliberately persists no snapshot, so there is nothing to
+// reload. The rebuild runs even when a co-resident backup or replica halt still
+// holds the shard (the maintenance resume returns early there): deferring it
+// would leave async replication stopped with no later trigger.
+func (i *Index) rebuildAsyncReplicationAfterOffloadHalt(ctx context.Context, shardName string, shard ShardLike) error {
 	ctrl, ok := shard.(asyncReplicationController)
 	if !ok {
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
-	}
-
-	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
-	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
-		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
 	}
 
 	i.replicationConfigLock.Lock()
@@ -3289,6 +3335,10 @@ func (i *Index) drop() error {
 
 	i.closingCancel()
 
+	// The registry describes shards this index owns, so every exit path from here
+	// on must purge it.
+	defer i.purgeReplicaSnapshots()
+
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
 	lastBackup := i.lastBackup.Load()
@@ -3526,6 +3576,10 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	i.closed = true
 
 	i.closingCancel()
+
+	// The registry describes shards this index owns, so every exit path from here
+	// on must purge it.
+	defer i.purgeReplicaSnapshots()
 
 	ec := errorcompounder.NewSafe()
 

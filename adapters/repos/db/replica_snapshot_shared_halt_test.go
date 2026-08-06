@@ -41,7 +41,7 @@ import (
 )
 
 // Pins the shared-halt lost-write bug: when a second transfer consumer halts a
-// shard that is already halted (haltForTransferCount>1), HaltForTransfer used to
+// shard that is already halted (haltTotalLocked>1), HaltForTransfer used to
 // early-return without re-sealing. A write that landed after the first
 // consumer's flush lived only in the active memtable/WAL — excluded from
 // ListBackupFiles — so the second consumer's snapshot silently dropped it.
@@ -71,6 +71,12 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.forceNoHardlink {
 				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			} else if os.Getenv("WEAVIATE_TEST_FORCE_NO_HARDLINK") == "true" {
+				// Same literal check as file.ProbeHardlinkSupport, so the skip fires
+				// exactly when the probe would force the fallback.
+				// This row asserts on the hardlink staging tree, which a forced
+				// fallback never populates.
+				t.Skip("hardlink mode is meaningless with WEAVIATE_TEST_FORCE_NO_HARDLINK enabled")
 			}
 
 			index, shard := newSharedHaltTestShard(t)
@@ -80,8 +86,8 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 			putSharedHaltObject(t, index, obj1, 0)
 
 			// op A: first halt, never resumed — count stays 1, holds the shard.
-			require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
-			defer func() { _ = shard.resumeMaintenanceCycles(ctx) }()
+			require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
+			defer func() { _ = shard.resumeMaintenanceCycles(ctx, "test:opA") }()
 
 			var openOps []string
 			defer func() {
@@ -130,46 +136,98 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	ctx := context.Background()
 
 	// op A holds the shard.
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
 
-	// op B's second halt seals with an already-cancelled context; at count>1 the
-	// pause steps are gated out, so only the seal steps run and FlushMemtables
-	// (cyclemanager Deactivate) returns ctx.Err() deterministically.
+	// op B's second halt (distinct owner) seals with an already-cancelled context;
+	// at total>1 the pause steps are gated out, so only the seal steps run and
+	// FlushMemtables (cyclemanager Deactivate) returns ctx.Err() deterministically.
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	require.Error(t, shard.HaltForTransfer(cancelledCtx, false, 0))
+	require.Error(t, shard.HaltForTransfer(cancelledCtx, "test:opB", false, 0))
 
 	shard.haltForTransferMux.Lock()
-	require.Equal(t, 1, shard.haltForTransferCount,
-		"failed count>1 halt must roll back 2->1, leaving op A's hold intact")
+	require.Equal(t, 1, shard.haltTotalLocked(),
+		"failed total>1 halt must roll back its own owner, leaving op A's hold intact")
+	require.Equal(t, 1, shard.haltForTransferOwners["test:opA"],
+		"op A's halt must survive op B's failed halt")
 	shard.haltForTransferMux.Unlock()
 
 	// op A's halt is intact and resumes cleanly to fully unhalted.
-	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
 	shard.haltForTransferMux.Lock()
-	require.Equal(t, 0, shard.haltForTransferCount)
+	require.Equal(t, 0, shard.haltTotalLocked())
 	shard.haltForTransferMux.Unlock()
 }
 
-// Documents current behaviour, not the behaviour we want. mayForceResumeMaintenanceCycles
-// clears the halt count and stops the inactivity monitor before the errgroup that can
-// fail, and restores neither, so a failed resume leaves a zero count while the cycles it
-// could not restart stay paused — and every later resume returns early on that count.
+// The owner bookkeeping is cleared ahead of the errgroup that can fail, so a failed
+// resume drops the halt count while the cycles it could not restart stay paused. The
+// shard therefore records the failure as a pending physical resume: the count alone
+// can no longer drive a retry.
 func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
 	_, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
 
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
 
 	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
 	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
-	require.Error(t, shard.resumeMaintenanceCycles(ctx))
+	require.Error(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
 
 	shard.haltForTransferMux.Lock()
-	haltCount := shard.haltForTransferCount
+	haltCount := shard.haltTotalLocked()
+	pending := shard.maintenanceResumePending
 	shard.haltForTransferMux.Unlock()
 	require.Zero(t, haltCount,
 		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
+	require.True(t, pending,
+		"the failed physical resume must be recorded so a later resume re-runs it")
+}
+
+// Once the failing leg is healthy again, a later resume must re-run the physical
+// resume and clear the pending flag. Without that re-run in resumeOwnerLocked's
+// zero-total branch, the second resume early-returns on the already-zero halt count
+// and reports success on a shard whose maintenance never restarted.
+func TestResumeRetriesAfterFailedLegRecovers(t *testing.T) {
+	_, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+
+	require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
+
+	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+	require.Error(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
+
+	shard.haltForTransferMux.Lock()
+	require.True(t, shard.maintenanceResumePending, "pre-condition: the failure must be recorded")
+	require.Zero(t, shard.haltTotalLocked(), "pre-condition: the owner bookkeeping is already cleared")
+	shard.haltForTransferMux.Unlock()
+
+	// Heal the leg that failed, then retry under the same owner. The owner is gone,
+	// so only the pending flag can drive this resume.
+	rebindVectorCallbacksCtrl(t, shard)
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
+
+	shard.haltForTransferMux.Lock()
+	defer shard.haltForTransferMux.Unlock()
+	require.False(t, shard.maintenanceResumePending,
+		"a successful retry must clear the pending resume")
+	require.True(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(),
+		"the retry must actually re-run the physical resume, not just clear the flag")
+}
+
+// rebindVectorCallbacksCtrl re-registers the vector callback controls that
+// Unregister tore down, so a subsequent Activate can succeed. It mirrors the
+// registration in shard_cyclecallbacks.go, reusing the shard's own callback groups.
+func rebindVectorCallbacksCtrl(t *testing.T, s *Shard) {
+	t.Helper()
+	commitLogger := s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
+		"rebound-vector-commit-logger", s.cycleCallbacks.vectorCommitLoggerCallbacks.CycleCallback)
+	tombstoneCleanup := s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
+		"rebound-vector-tombstone-cleanup", s.cycleCallbacks.vectorTombstoneCleanupCallbacks.CycleCallback)
+	s.cycleCallbacks.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(
+		2, s.index.logger, commitLogger, tombstoneCleanup)
+	// Deactivated so the retry's Activate is an observable state change.
+	require.NoError(t, s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(context.Background()))
 }
 
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire

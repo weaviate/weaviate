@@ -62,7 +62,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		dynUserSourcer:    dynUserSourcer,
 		backends:          backends,
 		namespacesEnabled: namespacesEnabled,
-		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5), log: logger},
 	}
 }
 

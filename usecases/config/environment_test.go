@@ -487,6 +487,42 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	}
 }
 
+// TRANSFER_INACTIVITY_TIMEOUT arms the transfer inactivity watchdog. A non-positive
+// value disables it, which is a deployed configuration; only an unparseable value
+// fails startup.
+func TestTransferInactivityTimeoutValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{name: "default", expected: DefaultTransferInactivityTimeout},
+		{name: "configured", value: "30m", expected: 30 * time.Minute},
+		{name: "zero", value: "0", expected: 0},
+		{name: "zero seconds", value: "0s", expected: 0},
+		{name: "negative", value: "-1s", expected: 0},
+		{name: "invalid", value: "not-a-duration", expectedErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TRANSFER_INACTIVITY_TIMEOUT", tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, conf.TransferInactivityTimeout)
+		})
+	}
+}
+
 func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
 	tests := []struct {
 		name        string

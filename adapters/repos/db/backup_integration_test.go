@@ -53,6 +53,7 @@ func TestBackup_DBLevel(t *testing.T) {
 		dirName := t.TempDir()
 		className := "DBLevelBackupClass"
 		backupID := "backup1"
+		op := entBackup.NewOp(backupID)
 		now := time.Now()
 
 		db := setupTestDB(t, dirName, makeTestClass(className))
@@ -112,7 +113,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 
-			ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+			ch := db.BackupDescriptors(ctx, op, classes, nil)
 
 			for d := range ch {
 				assert.Equal(t, className, d.Name)
@@ -138,7 +139,7 @@ func TestBackup_DBLevel(t *testing.T) {
 
 		t.Run("release backup", func(t *testing.T) {
 			for _, class := range classes {
-				err := db.ReleaseBackup(ctx, backupID, class)
+				err := db.ReleaseBackup(ctx, op, class)
 				assert.Nil(t, err)
 			}
 		})
@@ -193,7 +194,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
 			defer cancel()
 
-			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil)
+			ch := db.BackupDescriptors(timeoutCtx, entBackup.NewOp(backupID), classes, nil)
 			for d := range ch {
 				require.NotNil(t, d.Error)
 				assert.Contains(t, d.Error.Error(), "context deadline exceeded")
@@ -563,6 +564,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	dirName := t.TempDir()
 	className := "SplitFileBackupClass"
 	backupID := "backup-split"
+	op := entBackup.NewOp(backupID)
 	now := time.Now()
 
 	db := setupTestDB(t, dirName, makeTestClass(className))
@@ -587,7 +589,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs []entBackup.ClassDescriptor
-	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	ch := db.BackupDescriptors(ctx, op, classes, nil)
 	for d := range ch {
 		require.Nil(t, d.Error)
 		classDescs = append(classDescs, d)
@@ -608,7 +610,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	restoreAndVerify(t, sourceDataPath, classDescs, result.chunks)
 
 	for _, class := range classes {
-		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
+		require.Nil(t, db.ReleaseBackup(ctx, op, class))
 	}
 }
 
@@ -765,6 +767,8 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	dirName := t.TempDir()
 	className := "SplitSizeChunkClass"
 	backupID := "backup-split-size"
+	op1 := entBackup.NewOp(backupID)
+	op2 := entBackup.NewOp(backupID + "-2")
 	now := time.Now()
 
 	db := setupTestDB(t, dirName, makeTestClass(className))
@@ -789,7 +793,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs []entBackup.ClassDescriptor
-	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	ch := db.BackupDescriptors(ctx, op1, classes, nil)
 	for d := range ch {
 		require.Nil(t, d.Error)
 		classDescs = append(classDescs, d)
@@ -827,12 +831,12 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	// --- Pass 2: backup with the reduced split file size ---
 	// Release pass 1 backup and re-acquire so we can create a new descriptor.
 	for _, class := range classes {
-		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
+		require.Nil(t, db.ReleaseBackup(ctx, op1, class))
 	}
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs2 []entBackup.ClassDescriptor
-	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil)
+	ch2 := db.BackupDescriptors(ctx, op2, classes, nil)
 	for d := range ch2 {
 		require.Nil(t, d.Error)
 		classDescs2 = append(classDescs2, d)
@@ -851,7 +855,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 
 	// Release pass 2 backup hold (pass 1 was already released above).
 	for _, class := range classes {
-		require.Nil(t, db.ReleaseBackup(ctx, backupID+"-2", class))
+		require.Nil(t, db.ReleaseBackup(ctx, op2, class))
 	}
 }
 

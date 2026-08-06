@@ -171,14 +171,20 @@ func FromEnv(config *Config) error {
 		config.ForceFullReplicasSearch = true
 	}
 
+	// Not routed through parsePositiveDuration: a non-positive value disables the
+	// transfer inactivity watchdog, which is a deployed configuration. Rejecting it
+	// would crash-loop those deployments on a patch upgrade.
+	config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
 	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
-		timeout, err := time.ParseDuration(v)
+		d, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
 		}
-		config.TransferInactivityTimeout = timeout
-	} else {
-		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+		if d <= 0 {
+			// i.e., disable the watchdog
+			d = 0
+		}
+		config.TransferInactivityTimeout = d
 	}
 
 	err := parsePositiveDuration(

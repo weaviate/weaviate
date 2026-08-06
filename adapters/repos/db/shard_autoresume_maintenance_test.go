@@ -80,12 +80,12 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	t.Run("halt for transfer", func(t *testing.T) {
 		inactivityTimeout := 100 * time.Millisecond
 
-		err := shd.HaltForTransfer(ctx, false, inactivityTimeout)
+		err := shd.HaltForTransfer(ctx, "test:transfer", false, inactivityTimeout)
 		require.NoError(t, err)
 	})
 
 	t.Run("resume maintenance tasks", func(t *testing.T) {
-		err := shd.resumeMaintenanceCycles(ctx)
+		err := shd.resumeMaintenanceCycles(ctx, "test:transfer")
 		require.NoError(t, err)
 	})
 
@@ -107,7 +107,7 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	t.Run("halt for transfer and wait for inactivity timeout", func(t *testing.T) {
 		inactivityTimeout := 10 * time.Millisecond
 
-		err := shd.HaltForTransfer(ctx, false, inactivityTimeout)
+		err := shd.HaltForTransfer(ctx, "test:transfer", false, inactivityTimeout)
 		require.NoError(t, err)
 
 		time.Sleep(inactivityTimeout * 10) // wait for inactivity timeout to elapse
@@ -162,7 +162,7 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 	t.Run("halt for transfer", func(t *testing.T) {
 		inactivityTimeout := 100 * time.Millisecond
 
-		err := shd.HaltForTransfer(ctx, false, inactivityTimeout)
+		err := shd.HaltForTransfer(ctx, "test:transfer", false, inactivityTimeout)
 		require.NoError(t, err)
 	})
 
@@ -185,7 +185,7 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 	})
 
 	t.Run("resume maintenance tasks", func(t *testing.T) {
-		err := shd.resumeMaintenanceCycles(ctx)
+		err := shd.resumeMaintenanceCycles(ctx, "test:transfer")
 		require.NoError(t, err)
 	})
 
@@ -206,10 +206,10 @@ func TestShard_HaltForTransferZeroPreparationTimeout(t *testing.T) {
 	obj := testObject(className)
 	require.NoError(t, shd.PutObject(ctx, obj))
 
-	err := shd.HaltForTransfer(ctx, false, 0)
+	err := shd.HaltForTransfer(ctx, "test:transfer", false, 0)
 	require.NoError(t, err)
 
-	require.NoError(t, shd.resumeMaintenanceCycles(ctx))
+	require.NoError(t, shd.resumeMaintenanceCycles(ctx, "test:transfer"))
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
@@ -263,7 +263,7 @@ func TestShard_HaltForTransferTimeoutBoundsGeoQueuePreparation(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- shd.HaltForTransfer(outerCtx, false, 0)
+		done <- shd.HaltForTransfer(outerCtx, "test:transfer", false, 0)
 	}()
 
 	select {
@@ -308,7 +308,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	t.Run("halt for transfer", func(t *testing.T) {
 		inactivityTimeout := 100 * time.Millisecond
 
-		err := shd.HaltForTransfer(ctx, false, inactivityTimeout)
+		err := shd.HaltForTransfer(ctx, "test:transfer", false, inactivityTimeout)
 		require.NoError(t, err)
 	})
 
@@ -327,7 +327,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	t.Run("halt for transfer with already paused maintenance tasks should succed", func(t *testing.T) {
 		inactivityTimeout := 150 * time.Millisecond
 
-		err := shd.HaltForTransfer(ctx, false, inactivityTimeout)
+		err := shd.HaltForTransfer(ctx, "test:transfer", false, inactivityTimeout)
 		require.NoError(t, err)
 	})
 
@@ -337,7 +337,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	})
 
 	t.Run("resume maintenance tasks", func(t *testing.T) {
-		err := shd.resumeMaintenanceCycles(ctx)
+		err := shd.resumeMaintenanceCycles(ctx, "test:transfer")
 		require.NoError(t, err)
 	})
 
@@ -347,7 +347,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 	})
 
 	t.Run("resume maintenance tasks", func(t *testing.T) {
-		err := shd.resumeMaintenanceCycles(ctx)
+		err := shd.resumeMaintenanceCycles(ctx, "test:transfer")
 		require.NoError(t, err)
 	})
 
@@ -382,7 +382,7 @@ func (s *Shard) haltForTransferForTest(ctx context.Context, inject func() error,
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	s.haltForTransferCount++
+	s.haltAddOwnerLocked("test:transfer")
 
 	if err := s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
@@ -533,7 +533,7 @@ func TestShard_BackupPostFlushWritesAreLostWithoutLateFlush(t *testing.T) {
 
 		hits := countSSTsWithMarker(t, shard, files)
 
-		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx, "test:transfer"))
 		return hits
 	}
 
@@ -604,7 +604,7 @@ func TestShard_ListBackupFilesExtendsInactivityDeadline(t *testing.T) {
 
 	s := shd.(*Shard)
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, "test:transfer", false, time.Hour))
 
 	s.haltForTransferMux.Lock()
 	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
@@ -619,7 +619,7 @@ func TestShard_ListBackupFilesExtendsInactivityDeadline(t *testing.T) {
 
 	require.True(t, deadline.After(time.Now()))
 
-	require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
@@ -638,7 +638,7 @@ func TestShard_InactivityFireResumesWhenIdle(t *testing.T) {
 
 	s := shd.(*Shard)
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, "test:transfer", false, time.Hour))
 
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
@@ -650,7 +650,7 @@ func TestShard_InactivityFireResumesWhenIdle(t *testing.T) {
 	keepWatching := s.handleInactivityFire(context.Background(), timer)
 
 	s.haltForTransferMux.Lock()
-	countAfterFire := s.haltForTransferCount
+	countAfterFire := s.haltTotalLocked()
 	cancelAfterFire := s.haltForTransferCtxCancel
 	s.haltForTransferMux.Unlock()
 
@@ -674,16 +674,16 @@ func TestShard_ResumeClearsInactivityMonitorSentinel(t *testing.T) {
 		}
 	}(shd.Index().Config.RootPath)
 
-	err := shd.HaltForTransfer(ctx, false, time.Hour)
+	err := shd.HaltForTransfer(ctx, "test:transfer", false, time.Hour)
 	require.NoError(t, err)
 
 	s := shd.(*Shard)
 
 	s.haltForTransferMux.Lock()
 	cancelBeforeResume := s.haltForTransferCtxCancel
-	resumeErr := s.mayForceResumeMaintenanceCycles(ctx, true)
+	resumeErr := s.forceResumeArmedLocked(ctx)
 	cancelAfterResume := s.haltForTransferCtxCancel
-	countAfterResume := s.haltForTransferCount
+	countAfterResume := s.haltTotalLocked()
 	s.haltForTransferMux.Unlock()
 
 	require.NotNil(t, cancelBeforeResume)
@@ -695,58 +695,170 @@ func TestShard_ResumeClearsInactivityMonitorSentinel(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
-func TestShard_DropClearsInactivityMonitorSentinel(t *testing.T) {
-	ctx := testCtx()
-	className := "TestClass"
-	shd, _ := testShard(t, ctx, className)
+// Teardown must clear the whole halt-for-transfer state, not just the monitor
+// sentinel: a shard whose store is closed must stop answering "paused for transfer",
+// and must not leave an armed owner set that no resume can ever clean up.
+func TestTeardownClearsHaltState(t *testing.T) {
+	tests := []struct {
+		name     string
+		teardown func(t *testing.T, ctx context.Context, s *Shard)
+	}{
+		{
+			name: "Shutdown",
+			teardown: func(t *testing.T, ctx context.Context, s *Shard) {
+				require.NoError(t, s.Shutdown(ctx))
+			},
+		},
+		{
+			name: "drop",
+			teardown: func(t *testing.T, ctx context.Context, s *Shard) {
+				require.NoError(t, s.drop(false))
+			},
+		},
+	}
 
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}(shd.Index().Config.RootPath)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "TestClass"
+			shd, _ := testShard(t, ctx, className)
 
-	s := shd.(*Shard)
+			defer func(path string) {
+				err := os.RemoveAll(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(shd.Index().Config.RootPath)
 
-	err := s.HaltForTransfer(ctx, false, time.Hour)
-	require.NoError(t, err)
+			s := shd.(*Shard)
 
-	err = s.drop(false)
-	require.NoError(t, err)
+			require.NoError(t, s.HaltForTransfer(ctx, "test:transfer", false, time.Hour))
+			s.haltForTransferMux.Lock()
+			s.maintenanceResumePending = true
+			s.haltForTransferMux.Unlock()
 
-	s.haltForTransferMux.Lock()
-	cancelAfterDrop := s.haltForTransferCtxCancel
-	s.haltForTransferMux.Unlock()
+			tt.teardown(t, ctx, s)
 
-	require.Nil(t, cancelAfterDrop)
+			s.haltForTransferMux.Lock()
+			defer s.haltForTransferMux.Unlock()
+			require.Empty(t, s.haltForTransferOwners, "halt owners must be cleared at teardown")
+			require.Empty(t, s.haltForTransferInactivityOwners, "armed owners must be cleared at teardown")
+			require.Zero(t, s.haltForTransferInactivityTimeout)
+			require.True(t, s.haltForTransferInactivityDeadline.IsZero())
+			require.False(t, s.maintenanceResumePending, "a torn-down shard must not claim outstanding work")
+			require.Nil(t, s.haltForTransferCtxCancel)
+			require.Zero(t, s.haltTotalLocked(), "a torn-down shard must not report a live halt")
+		})
+	}
 }
 
-func TestShard_ShutdownClearsInactivityMonitorSentinel(t *testing.T) {
+// LazyLoadShard.Shutdown clears l.loaded but leaves l.shard non-nil, so a shard-nil
+// guard would reach a shut-down shard.
+func TestLazyShardResetTimerIgnoresUnloadedShard(t *testing.T) {
 	ctx := testCtx()
-	className := "TestClass"
-	shd, _ := testShard(t, ctx, className)
+	_, lazy := newLazyTestShard(t, ctx, "LazyResetTimerAfterShutdown")
 
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}(shd.Index().Config.RootPath)
+	require.NoError(t, lazy.Load(ctx))
+	require.NoError(t, lazy.Shutdown(ctx))
+	require.False(t, lazy.isLoaded(), "precondition: the wrapper must report unloaded after Shutdown")
 
-	s := shd.(*Shard)
+	underlying := lazy.shard
+	deadline := time.Now().Add(time.Hour)
+	underlying.haltForTransferMux.Lock()
+	underlying.haltForTransferInactivityTimeout = time.Hour
+	underlying.haltForTransferInactivityDeadline = deadline
+	underlying.haltForTransferMux.Unlock()
 
-	err := s.HaltForTransfer(ctx, false, time.Hour)
-	require.NoError(t, err)
+	lazy.MayResetTransferInactivityTimer()
 
-	err = s.Shutdown(ctx)
-	require.NoError(t, err)
+	underlying.haltForTransferMux.Lock()
+	defer underlying.haltForTransferMux.Unlock()
+	require.Equal(t, deadline, underlying.haltForTransferInactivityDeadline,
+		"the reset must not reach a shut-down shard")
+}
 
-	s.haltForTransferMux.Lock()
-	cancelAfterShutdown := s.haltForTransferCtxCancel
-	s.haltForTransferMux.Unlock()
+// resumeOwnerLocked's zero-total branch is the only place a failed physical resume
+// can be retried from: the owner bookkeeping is cleared BEFORE the fallible
+// completeResumeLocked runs, so without the pending flag every later attempt
+// early-returns and reports success on a shard still in backup mode.
+//
+// This test drives the flag directly and covers the branch's three shapes: flag
+// clear, flag set, and a fresh halt on top of a set flag.
+// TestResumeRetriesAfterFailedLegRecovers is the end-to-end companion.
+func TestResumeRetriesPendingMaintenanceResume(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(t *testing.T, ctx context.Context, s *Shard)
+	}{
+		{
+			name: "no pending resume",
+			run: func(t *testing.T, ctx context.Context, s *Shard) {
+				require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
 
-	require.Nil(t, cancelAfterShutdown)
+				s.haltForTransferMux.Lock()
+				defer s.haltForTransferMux.Unlock()
+				require.False(t, s.maintenanceResumePending)
+				require.Zero(t, s.haltTotalLocked())
+			},
+		},
+		{
+			name: "pending resume",
+			run: func(t *testing.T, ctx context.Context, s *Shard) {
+				s.haltForTransferMux.Lock()
+				s.maintenanceResumePending = true
+				s.haltForTransferMux.Unlock()
+
+				require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
+
+				s.haltForTransferMux.Lock()
+				defer s.haltForTransferMux.Unlock()
+				require.False(t, s.maintenanceResumePending,
+					"a successful retry must clear the pending flag")
+			},
+		},
+		{
+			name: "fresh halt heals the flag",
+			run: func(t *testing.T, ctx context.Context, s *Shard) {
+				s.haltForTransferMux.Lock()
+				s.maintenanceResumePending = true
+				s.haltForTransferMux.Unlock()
+
+				// The failed resume did remove its owner, so this is newTotal==1 and
+				// runs the pause steps itself — the pending flag must not distort it.
+				require.NoError(t, s.HaltForTransfer(ctx, "test:transfer2", false, 0))
+				require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer2"))
+
+				s.haltForTransferMux.Lock()
+				require.False(t, s.maintenanceResumePending)
+				require.Zero(t, s.haltTotalLocked())
+				s.haltForTransferMux.Unlock()
+
+				_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+				require.ErrorContains(t, err, "not paused for transfer")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "TestClass"
+			shd, idx := testShard(t, ctx, className)
+
+			s := shd.(*Shard)
+			require.NoError(t, s.PutObject(ctx, testObject(className)))
+
+			// Halt then resume so the shard reaches the zero-total branch the retry
+			// lives in, exactly as a failed release leaves it.
+			require.NoError(t, s.HaltForTransfer(ctx, "test:transfer", false, 0))
+			require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
+
+			tt.run(t, ctx, s)
+
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		})
+	}
 }
 
 func TestShard_StaleMonitorFireIsDropped(t *testing.T) {
@@ -763,7 +875,7 @@ func TestShard_StaleMonitorFireIsDropped(t *testing.T) {
 
 	s := shd.(*Shard)
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, "test:transfer", false, time.Hour))
 
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
@@ -778,13 +890,13 @@ func TestShard_StaleMonitorFireIsDropped(t *testing.T) {
 	keepWatching := s.handleInactivityFire(staleCtx, timer)
 
 	s.haltForTransferMux.Lock()
-	countAfterStaleFire := s.haltForTransferCount
+	countAfterStaleFire := s.haltTotalLocked()
 	s.haltForTransferMux.Unlock()
 
 	require.False(t, keepWatching)
 	require.Equal(t, 1, countAfterStaleFire)
 
-	require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
@@ -803,7 +915,7 @@ func TestShard_FutureDeadlinePreventsResumeOnFire(t *testing.T) {
 
 	s := shd.(*Shard)
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, "test:transfer", false, time.Hour))
 
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
@@ -815,13 +927,13 @@ func TestShard_FutureDeadlinePreventsResumeOnFire(t *testing.T) {
 	keepWatching := s.handleInactivityFire(context.Background(), timer)
 
 	s.haltForTransferMux.Lock()
-	countAfterFire := s.haltForTransferCount
+	countAfterFire := s.haltTotalLocked()
 	s.haltForTransferMux.Unlock()
 
 	require.True(t, keepWatching)
 	require.Equal(t, 1, countAfterFire)
 
-	require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
@@ -840,10 +952,10 @@ func TestShard_FullResumeResetsInactivityTimeout(t *testing.T) {
 
 	s := shd.(*Shard)
 
-	err := s.HaltForTransfer(ctx, false, 10*time.Millisecond)
+	err := s.HaltForTransfer(ctx, "test:transfer", false, 10*time.Millisecond)
 	require.NoError(t, err)
 
-	err = s.resumeMaintenanceCycles(ctx)
+	err = s.resumeMaintenanceCycles(ctx, "test:transfer")
 	require.NoError(t, err)
 
 	s.haltForTransferMux.Lock()
@@ -853,6 +965,52 @@ func TestShard_FullResumeResetsInactivityTimeout(t *testing.T) {
 
 	require.Zero(t, timeoutAfterResume)
 	require.True(t, deadlineAfterResume.IsZero())
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+// On a metrics-wired real shard, a forced resume must lift only the armed transfer's
+// halt and spare a non-armed backup co-holder.
+func TestShard_ForcedResumeReleasesArmedOwnerOnly(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	s := shd.(*Shard)
+	require.NoError(t, s.PutObject(ctx, testObject(className)))
+
+	require.NoError(t, s.HaltForTransfer(ctx, "replica:t1", false, time.Hour))
+	require.NoError(t, s.HaltForTransfer(ctx, "backup:b:g0", false, 0))
+
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+	s.haltForTransferMux.Lock()
+	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
+	s.haltForTransferMux.Unlock()
+
+	require.False(t, s.handleInactivityFire(context.Background(), timer))
+
+	s.haltForTransferMux.Lock()
+	_, armedPresent := s.haltForTransferOwners["replica:t1"]
+	backupHalts := s.haltForTransferOwners["backup:b:g0"]
+	total := s.haltTotalLocked()
+	s.haltForTransferMux.Unlock()
+
+	require.False(t, armedPresent, "the armed transfer must be force-resumed")
+	require.Equal(t, 1, backupHalts, "the non-armed backup co-holder must survive")
+	require.Equal(t, 1, total)
+
+	_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+	require.NoError(t, err, "the surviving backup's halt must still list files")
+	require.NoError(t, s.resumeMaintenanceCycles(ctx, "backup:b:g0"))
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))

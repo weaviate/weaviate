@@ -2098,3 +2098,83 @@ func TestUpdateReplicationConfigDisablesWhenNoActiveOverrides(t *testing.T) {
 		return ht == nil && !ok
 	}, 10*time.Second, 10*time.Millisecond, "shard must be disabled and deregistered after config-disable with no override")
 }
+
+// A persisted hashtree is accepted as authoritative on the next load after a
+// height-only check, which is sound only when the shard serves no further writes.
+// The tenant-offload halt is exactly the case where it does: the tenant still takes
+// internal replica writes during the halt, and an aborted freeze returns it to HOT.
+func TestHashtreePersistenceByStopKind(t *testing.T) {
+	tests := []struct {
+		name string
+		// act runs after the fixture is seeded and the hashtree is initialized.
+		act        func(t *testing.T, ctx context.Context, idx *Index, sl ShardLike, s *Shard, class string)
+		wantHTFile bool
+	}{
+		{
+			name: "offload halt",
+			act: func(t *testing.T, ctx context.Context, _ *Index, _ ShardLike, s *Shard, _ string) {
+				require.NoError(t, s.HaltForTransfer(ctx, offloadHaltOwner(s.name), true, 0))
+
+				s.asyncReplicationRWMux.RLock()
+				defer s.asyncReplicationRWMux.RUnlock()
+				require.Nil(t, s.hashtree, "the halt must still tear the in-memory hashtree down")
+			},
+			wantHTFile: false,
+		},
+		{
+			name: "offload halt then unload",
+			act: func(t *testing.T, ctx context.Context, idx *Index, sl ShardLike, s *Shard, class string) {
+				require.NoError(t, s.HaltForTransfer(ctx, offloadHaltOwner(s.name), true, 0))
+
+				// Writes that land after the halt must not be shadowed by a snapshot
+				// taken before them; with no .ht on disk the next activation rescans.
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidMid, tsFarPast)))
+				flushShard(t, ctx, sl)
+
+				_, ok := idx.shards.LoadAndDelete(s.name)
+				require.True(t, ok)
+				require.NoError(t, sl.Shutdown(ctx))
+			},
+			wantHTFile: false,
+		},
+		{
+			name: "plain shutdown",
+			act: func(t *testing.T, ctx context.Context, idx *Index, sl ShardLike, s *Shard, _ string) {
+				_, ok := idx.shards.LoadAndDelete(s.name)
+				require.True(t, ok)
+				require.NoError(t, sl.Shutdown(ctx))
+			},
+			wantHTFile: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			const class = "HashtreePersistenceByStopKind"
+
+			sl, idx := testShard(t, ctx, class, withAsyncScheduler(t))
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+			flushShard(t, ctx, sl)
+
+			require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+			awaitHashtreeInitialized(t, s)
+
+			htPath := s.pathHashTree()
+			require.Empty(t, htFilesInDir(t, htPath), "precondition: no .ht yet")
+
+			tt.act(t, ctx, idx, sl, s, class)
+
+			if tt.wantHTFile {
+				require.Len(t, htFilesInDir(t, htPath), 1,
+					"the shutdown-grade stop must persist the hashtree")
+			} else {
+				require.Empty(t, htFilesInDir(t, htPath),
+					"a halt the shard survives must not persist a hashtree")
+			}
+		})
+	}
+}

@@ -32,7 +32,7 @@ func TestReleaseReplicaSnapshotFencedByUnload(t *testing.T) {
 	index, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
 
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, replicaHaltOwner(releaseGuardOpID), false, 0))
 	index.recordReplicaSnapshot(releaseGuardOpID, replicaSnapshotState{shardName: "shard1"})
 
 	// Stand in for the window UnloadLocalShard holds this lock across.
@@ -60,14 +60,14 @@ func TestReleaseReplicaSnapshotFencedByUnload(t *testing.T) {
 		"release must not put a shard back after the unload removed it")
 }
 
-// performShutdown leaves haltForTransferCount set, so a release landing after
-// Index.Shutdown finds a shard that looks halted and resumes it on callbacks
-// that are already unregistered. It must report the shutdown instead.
+// A release landing after Index.Shutdown must report the shutdown rather than
+// claim success: index teardown purges the replica-snapshot registry, so an
+// unknown op on a closed index is ambiguous, not a completed release.
 func TestReleaseReplicaSnapshotAfterIndexShutdown(t *testing.T) {
 	index, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
 
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, replicaHaltOwner(releaseGuardOpID), false, 0))
 	index.recordReplicaSnapshot(releaseGuardOpID, replicaSnapshotState{shardName: "shard1"})
 
 	require.NoError(t, index.Shutdown(ctx))

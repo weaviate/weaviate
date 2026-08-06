@@ -76,9 +76,9 @@ type zip struct {
 }
 
 // One pool per compression level; only the zstd levels take one. Building an
-// encoder allocates about twice the chunk size. Backups run one at a time, but a
-// pooled encoder outlives one by up to two GC cycles, so a shared pool would give
-// the next backup encoders built for the previous one's level.
+// encoder allocates about twice the chunk size. A pooled encoder outlives its backup
+// by up to two GC cycles, so a shared pool would hand the next backup encoders built
+// for the previous one's level.
 var zstdEncoderPools [NoCompression + 1]sync.Pool
 
 func zstdEncoderLevel(level CompressionLevel) (zstd.EncoderLevel, error) {

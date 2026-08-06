@@ -39,7 +39,7 @@ import (
 
 // Pins the fallback-mode bug: read RPCs never reset the watchdog, so long
 // transfers force-resumed mid-stream and compaction could race the source.
-// Active reads must keep haltForTransferCount > 0; once they stop, the
+// Active reads must keep haltTotalLocked > 0; once they stop, the
 // watchdog should still fire (sanity post-check that the mechanism is sound).
 func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
@@ -123,7 +123,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 
 	// Sanity: the test must actually be exercising fallback mode.
 	shard.haltForTransferMux.Lock()
-	require.Greater(t, shard.haltForTransferCount, 0,
+	require.Greater(t, shard.haltTotalLocked(), 0,
 		"shard must be halted in fallback mode after IncomingCreateReplicaSnapshot")
 	shard.haltForTransferMux.Unlock()
 
@@ -148,14 +148,14 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 	time.Sleep(activeWindow)
 
 	shard.haltForTransferMux.Lock()
-	haltCount := shard.haltForTransferCount
+	haltCount := shard.haltTotalLocked()
 	shard.haltForTransferMux.Unlock()
 
 	close(stop)
 	require.Eventually(t, done.Load, 200*time.Millisecond, 10*time.Millisecond)
 
 	require.Greaterf(t, haltCount, 0,
-		"haltForTransferCount fell to 0 during active transfer — the watchdog fired "+
+		"the live-halt total fell to 0 during active transfer — the watchdog fired "+
 			"because the read RPCs did not reset the timer")
 
 	// Once activity stops, the watchdog must still fire — otherwise the
@@ -163,7 +163,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 	require.Eventually(t, func() bool {
 		shard.haltForTransferMux.Lock()
 		defer shard.haltForTransferMux.Unlock()
-		return shard.haltForTransferCount == 0
+		return shard.haltTotalLocked() == 0
 	}, 3*inactivityTimeout, 20*time.Millisecond,
 		"watchdog never fired after activity stopped — test mechanism is broken")
 }

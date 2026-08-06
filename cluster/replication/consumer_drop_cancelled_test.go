@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -238,8 +239,9 @@ func TestDropCancelledOpTargetShard(t *testing.T) {
 // silently outlive its op), and a successful drop lets the removal proceed.
 func TestProcessCancelledOpDropGatesRemoval(t *testing.T) {
 	const (
-		self  = "node2"
-		other = "node1"
+		self   = "node2"
+		other  = "node1"
+		opUUID = strfmt.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 	)
 
 	cases := []struct {
@@ -256,7 +258,9 @@ func TestProcessCancelledOpDropGatesRemoval(t *testing.T) {
 
 			mockCopier := types.NewMockReplicaCopier(t)
 			mockCopier.EXPECT().StopChangeCapture(mock.Anything, other, "TestCollection", "shard1", "1").Return(nil)
-			mockCopier.EXPECT().ReleaseReplicaSnapshot(mock.Anything, other, "TestCollection", "1").Return(nil)
+			// The release key is the op UUID the create path registered, never the
+			// numeric ID.
+			mockCopier.EXPECT().ReleaseReplicaSnapshot(mock.Anything, other, "TestCollection", string(opUUID)).Return(nil)
 			mockCopier.EXPECT().DropLocalShard(mock.Anything, "TestCollection", "shard1").Return(tc.dropErr)
 
 			// Strict mock: on drop failure no removal expectation is registered, so
@@ -275,6 +279,7 @@ func TestProcessCancelledOpDropGatesRemoval(t *testing.T) {
 			}
 
 			op := NewShardReplicationOp(1, other, self, "TestCollection", "shard1", api.COPY)
+			op.UUID = opUUID
 			status := NewShardReplicationStatus(api.CANCELLED)
 			status.TriggerDeletion()
 

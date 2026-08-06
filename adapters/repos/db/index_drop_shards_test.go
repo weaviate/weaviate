@@ -399,7 +399,7 @@ func TestIndexDropReportsFailures(t *testing.T) {
 			require.NoError(t, os.MkdirAll(shardPath(idx.path(), shardName), 0o755))
 
 			if tt.keepFiles {
-				idx.lastBackup.Store(&BackupState{BackupID: "backup1", InProgress: true})
+				idx.lastBackup.Store(&BackupState{Op: backup.NewOp("backup1"), InProgress: true})
 			}
 
 			if !tt.noShards {

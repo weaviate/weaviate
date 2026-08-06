@@ -42,6 +42,14 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
+	// descriptorJoinBudget is the default uploader.joinBudget: how long the uploader
+	// waits for the NEXT descriptor (or the channel close) before releasing anyway and
+	// handing the join to a detached goroutine. Each descriptor received re-arms it, so
+	// it bounds a producer that has STOPPED making progress, not the total join. Expiry
+	// is an ordinary operational event: the producer takes backupLock.Lock per shard,
+	// and a concurrent tenant freeze holds the read side across an entire cloud upload.
+	descriptorJoinBudget = 5 * time.Minute
+
 	// maxCPUPercentage max CPU percentage can be consumed by the file writer
 	maxCPUPercentage = 80
 
@@ -209,12 +217,15 @@ type uploader struct {
 	rbacSourcer    fsm.Snapshotter
 	dynUserSourcer dynUserSnapshotter
 	// Resolved includeUsers ids; empty → whole-cluster snapshot.
-	users    []string
-	backend  nodeStore
-	backupID string
+	users   []string
+	backend nodeStore
+	op      backup.Op
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
+	// joinBudget bounds a stalled descriptor producer; see descriptorJoinBudget,
+	// which is the production value. Tests shorten it.
+	joinBudget time.Duration
 }
 
 func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
@@ -227,13 +238,14 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 		dynUserSourcer: dynUserSourcer,
 		users:          users,
 		backend:        backend,
-		backupID:       backupID,
+		op:             backup.NewOp(backupID),
 		zipConfig: newZipConfig(Compression{
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setStatus: setstatus,
-		log:       l,
+		setStatus:  setstatus,
+		log:        l,
+		joinBudget: descriptorJoinBudget,
 	}
 }
 
@@ -246,14 +258,42 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = backup.Transferring
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
+	// The producer runs detached; cancelling descCtx is what stops it admitting
+	// further classes once this operation is over.
+	descCtx, cancelDesc := context.WithCancel(ctx)
+	defer cancelDesc()
+	ch := u.sourcer.BackupDescriptors(descCtx, u.op, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
 	defer func() {
-		//  release indexes under all conditions
-		u.releaseIndexes(classes, desc.ID)
+		cancelDesc()
+
+		// Read the operation ctx here, before the metadata upload below shadows ctx
+		// with context.Background().
+		cancelled := err != nil &&
+			(errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled))
+
+		if cancelled {
+			// A cancelled operation must not hold its admission gate while a wedged
+			// producer finishes: the participant's lastOp is reset only after this
+			// function returns, and until then a same-ID retry is refused at CanCommit.
+			// The detached join re-releases when the producer finishes, so no class it
+			// admits afterwards is left without a releaser.
+			u.detachDescriptorProducer(ch, classes)
+		} else {
+			// Join the producer before releasing: a class admitted after its release has
+			// no releaser left, so its admission gate — and, on the non-hardlink path, a
+			// per-shard write lock — would leak for the life of the process.
+			u.joinDescriptorProducer(ch, classes)
+		}
+
+		//  release indexes under all conditions. This is the only whole-operation
+		//  release, so on the success path it runs after the RBAC and dynamic-user
+		//  snapshots; both are in-memory FSM reads with no per-shard work, so the extra
+		//  pause window on the non-hardlink path is bounded.
+		u.releaseIndexes(classes)
 
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
@@ -272,7 +312,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		desc.Error = err.Error()
 
 		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		if cancelled {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
@@ -293,7 +333,6 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if ctxerr != nil {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
-			u.releaseIndexes(classes, desc.ID)
 		}
 		return ctxerr
 	}
@@ -303,14 +342,20 @@ Loop:
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
-				u.releaseIndexes(classes, desc.ID)
+				// The producer closes the channel on every outcome, a recovered panic
+				// included, so only counting distinguishes a short stream from success.
+				// A "successful" backup with fewer classes than requested loses data.
+				if len(desc.Classes) != len(classes) {
+					return fmt.Errorf("backup descriptor stream ended early: got %d of %d classes, missing %v",
+						len(desc.Classes), len(classes), missingClasses(classes, desc.Classes))
+				}
 				break Loop // we are done
 			}
 			if cdesc.Error != nil {
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			preCompressionSize, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
+			preCompressionSize, err := u.class(ctx, &cdesc, overrideBucket, overridePath)
 			if err != nil {
 				return err
 			}
@@ -355,14 +400,72 @@ Loop:
 	return nil
 }
 
-func (u *uploader) releaseIndexes(classes []string, bakID string) {
+// joinDescriptorProducer waits until the detached descriptor producer has closed
+// its channel, so that no class can still be admitted when the caller releases.
+// On budget expiry it detaches instead.
+func (u *uploader) joinDescriptorProducer(ch <-chan backup.ClassDescriptor, classes []string) {
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-time.After(u.joinBudget):
+			u.log.Errorf("descriptor producer did not finish within %s; releasing now and "+
+				"re-releasing when it does", u.joinBudget)
+			u.detachDescriptorProducer(ch, classes)
+			return
+		}
+	}
+}
+
+// detachDescriptorProducer hands the join to a goroutine that drains the producer
+// and re-releases once it finishes, so the caller can release immediately. A producer
+// that never finishes costs one parked goroutine, against an index wedged by a halt
+// with no releaser.
+//
+// The late re-release carries u.op, so against a same-ID successor it is fenced on
+// three of the four release steps: the staging directory embeds op.Fence, the
+// admission gate CAS compares the full Op, and the maintenance resume names
+// op.HaltOwner(), which embeds the fence.
+//
+// The fourth step is not fenced: the non-hardlink protection sweep claims and
+// releases every entry in backupProtectedShards regardless of which operation added
+// it, so a late re-release can drop a successor's protection there. That is a
+// declared residual of the deprecated no-hardlink path (see the PR's deferred item
+// 11), not an invariant this function provides. The sweep does claim each entry
+// atomically, so concurrent releases of the SAME operation are safe.
+func (u *uploader) detachDescriptorProducer(ch <-chan backup.ClassDescriptor, classes []string) {
+	enterrors.GoWrapper(func() {
+		for range ch { //nolint:revive // drain: the producer always closes (deferred close)
+		}
+		u.releaseIndexes(classes)
+	}, u.log)
+}
+
+// missingClasses reports which requested classes never produced a descriptor.
+func missingClasses(requested []string, got []backup.ClassDescriptor) []string {
+	seen := make(map[string]struct{}, len(got))
+	for _, c := range got {
+		seen[c.Name] = struct{}{}
+	}
+	var missing []string
+	for _, c := range requested {
+		if _, ok := seen[c]; !ok {
+			missing = append(missing, c)
+		}
+	}
+	return missing
+}
+
+func (u *uploader) releaseIndexes(classes []string) {
 	for _, class := range classes {
 		className := class
 		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), bakID, className); err != nil {
+			if err := u.sourcer.ReleaseBackup(context.Background(), u.op, className); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    className,
-					"backupID": bakID,
+					"backupID": u.op.ID,
 				}).Error("failed to release backup")
 			}
 		}, u.log)
@@ -371,7 +474,7 @@ func (u *uploader) releaseIndexes(classes []string, bakID string) {
 
 // class uploads one class
 // Returns the number of bytes written for this class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
+func (u *uploader) class(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
 	var err error
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -385,10 +488,10 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	defer func() {
 		// backups need to be released anyway
 		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), id, desc.Name); err != nil {
+			if err := u.sourcer.ReleaseBackup(context.Background(), u.op, desc.Name); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    desc.Name,
-					"backupID": id,
+					"backupID": u.op.ID,
 				}).Error("failed to release backup")
 			}
 		}, u.log)

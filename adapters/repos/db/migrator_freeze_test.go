@@ -28,12 +28,19 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// failingOffloadCloud is an OffloadCloud whose Upload always fails.
-type failingOffloadCloud struct{ uploadErr error }
+// failingOffloadCloud is an OffloadCloud whose Upload panics with uploadPanic when that
+// field is set, and otherwise always fails with uploadErr.
+type failingOffloadCloud struct {
+	uploadErr   error
+	uploadPanic string
+}
 
 func (f *failingOffloadCloud) VerifyBucket(context.Context) error { return nil }
 
 func (f *failingOffloadCloud) Upload(context.Context, string, string, string) error {
+	if f.uploadPanic != "" {
+		panic(f.uploadPanic)
+	}
 	return f.uploadErr
 }
 
@@ -133,4 +140,49 @@ func TestFreezeAbortReportsPreFreezeStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFreezeAbortOnPanicReportsPreFreezeStatus: the abort a recovered panic synthesises
+// fills the same slot as the reporting paths above, so it must read the same pre-freeze
+// status. Reporting a hardcoded HOT here would reactivate a COLD tenant.
+func TestFreezeAbortOnPanicReportsPreFreezeStatus(t *testing.T) {
+	// The synthesised abort exists only on the recovered-panic path, the production
+	// posture. The CI suite exports DISABLE_RECOVERY_ON_PANIC=true globally
+	// (test/integration/run.sh) and the error-group wrapper reads it at recover time,
+	// so without this pin the injected panic kills the whole test binary.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	logger, _ := test.NewNullLogger()
+	// no shard is stored, so the panic is the only thing that can fill the slot
+	idx := &Index{
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+	}
+
+	m := NewMigrator(nil, logger, "node1")
+	m.SetNode("node1")
+	proc := &recordingProcessor{}
+	m.SetCluster(proc)
+	m.cloud = &failingOffloadCloud{uploadPanic: "simulated upload panic"}
+
+	ec := errorcompounder.NewSafe()
+	m.freeze(context.Background(), idx, "FreezeAbortPanicStatus", []*schemaUC.UpdateTenantPayload{
+		{Name: "t1", PreFreezeStatus: models.TenantActivityStatusCOLD},
+	}, ec)
+	require.ErrorContains(t, ec.ToError(), "panic occurred",
+		"the discarded group error is what made this silent")
+
+	require.Eventually(t, func() bool {
+		proc.mu.Lock()
+		defer proc.mu.Unlock()
+		return proc.req != nil
+	}, 5*time.Second, 10*time.Millisecond, "a panicking freeze must report the abort")
+
+	proc.mu.Lock()
+	defer proc.mu.Unlock()
+	require.Len(t, proc.req.TenantsProcesses, 1)
+	tp := proc.req.TenantsProcesses[0]
+	require.Equal(t, command.TenantsProcess_OP_ABORT, tp.Op)
+	require.Equal(t, models.TenantActivityStatusCOLD, tp.Tenant.Status)
 }

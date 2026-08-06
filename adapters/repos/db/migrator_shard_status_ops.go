@@ -128,12 +128,14 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
+			owner := offloadHaltOwner(name)
+
 			// restoreAfterAbort reverses an already-run offloading HaltForTransfer.
 			restoreAfterAbort := func() {
 				if shard == nil {
 					return // no local shard was halted
 				}
-				if err := idx.resumeAfterAbortedOffload(ctx, name); err != nil {
+				if err := idx.resumeAfterAbortedOffload(context.Background(), name); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "resume_after_aborted_offload",
 						"name":   class,
@@ -143,8 +145,27 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				}
 			}
 
+			// A goroutine that dies before assigning its pre-sized slot leaves nil there.
+			// Every node's FSM skips a nil slot, leaving the pre-recorded OP_START
+			// standing: the tenant stays FREEZING forever and this node's halt leaks with
+			// no watchdog armed. A slot the normal paths already filled has also already
+			// run its own restoreAfterAbort, so the nil check is the only guard needed.
+			defer func() {
+				if cmd.TenantsProcesses[uidx] != nil {
+					return
+				}
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name:   name,
+						Status: originalStatus,
+					},
+					Op: command.TenantsProcess_OP_ABORT,
+				}
+				restoreAfterAbort()
+			}()
+
 			if shard != nil {
-				if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
+				if err := shard.HaltForTransfer(ctx, owner, true, 0); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "halt_for_transfer",
 						"error":  err,
@@ -160,7 +181,9 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 					}
 					ec.Add(err)
 					restoreAfterAbort()
-					return fmt.Errorf("attempt to mark begin offloading: %w", err)
+					// Reported via ec, like every other failure here, so the group's own
+					// error stays reserved for what nothing else reports: a panic.
+					return nil
 				}
 			}
 
@@ -194,7 +217,9 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			return nil
 		})
 	}
-	eg.Wait()
+	// Nothing else reports a recovered panic: the wrapper turns it into the group's
+	// error and the workers above report their own failures through ec directly.
+	ec.Add(eg.Wait())
 
 	if len(cmd.TenantsProcesses) == 0 {
 		m.logger.WithFields(logrus.Fields{
