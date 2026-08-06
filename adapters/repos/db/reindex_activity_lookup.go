@@ -287,28 +287,60 @@ func lowercasedSet(collections []string) map[string]struct{} {
 //
 // A non-nil error means the task payload could not be read, so overlap can no
 // longer be ruled out; the caller fails closed on it.
+//
+// That fail-closed is scoped, because its blast radius is the whole point: the
+// caller loops every reindex task in the cluster, so a single payload no node
+// can decode would otherwise refuse EVERY backup of EVERY collection until the
+// completed-task TTL drops the task days later — and DTM cannot evict it in the
+// meantime for the same reason. A rolling upgrade that retypes a payload field
+// produces exactly that payload, so this is reachable in normal operation.
+// Refusing one collection's backup is cheap and visible; refusing all of them
+// with no operator remedy is a self-inflicted outage.
+//
+// Two things bound it. The status and FinishedAt rules read task state, not the
+// payload, so a task that was already over when the capture began is cleared
+// whatever its payload says. And [ReindexTaskCollection] recovers the collection
+// from payloads the full decoder rejects, which scopes the rest to the one
+// collection the task names.
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
 	var payload ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+	decodeErr := json.Unmarshal(task.Payload, &payload)
+	collection := payload.Collection
+	if decodeErr != nil {
+		collection = ReindexTaskCollection(task.Payload)
+	}
+
+	if !IsLiveReindexTaskStatus(task.Status) {
+		if task.Status == distributedtask.TaskStatusCancelled && !reindexTaskTouchedShards(task) {
+			// A cancelled task that never claimed a unit wrote nothing, so it
+			// cannot have spanned this backup. One is produced on purpose by
+			// the submit path's post-commit rollback.
+			return "", false, nil
+		}
+		if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
+			return "", false, nil
+		}
+	}
+
+	if decodeErr != nil && collection == "" {
+		// Nothing names what this task touched, and it could still have been
+		// writing during the capture. Unbounded on purpose: declaring any
+		// collection clean here would be a guess.
 		return "", false, redactedOverlapErr(
-			"cannot rule out a runtime-reindex during this backup: a task payload is unreadable", err)
+			"cannot rule out a runtime-reindex during this backup: a task payload is unreadable", decodeErr)
 	}
-	if _, ok := wanted[strings.ToLower(payload.Collection)]; !ok {
+	if _, ok := wanted[strings.ToLower(collection)]; !ok {
 		return "", false, nil
 	}
-	if IsLiveReindexTaskStatus(task.Status) {
-		return payload.Collection, true, nil
+	if decodeErr != nil {
+		// The collection is inside this backup and its task cannot be read, so
+		// this backup fails — and only this one. The collection is named
+		// because the caller already supplied it.
+		return "", false, redactedOverlapErr(fmt.Sprintf(
+			"cannot rule out a runtime-reindex of collection %q during this backup: its task payload is unreadable",
+			collection), decodeErr)
 	}
-	if task.Status == distributedtask.TaskStatusCancelled && !reindexTaskTouchedShards(task) {
-		// A cancelled task that never claimed a unit wrote nothing, so it
-		// cannot have spanned this backup. One is produced on purpose by the
-		// submit path's post-commit rollback.
-		return "", false, nil
-	}
-	if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
-		return "", false, nil
-	}
-	return payload.Collection, true, nil
+	return collection, true, nil
 }
 
 // reindexTaskTouchedShards reports whether any unit of the task ever left
