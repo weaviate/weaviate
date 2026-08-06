@@ -1209,8 +1209,8 @@ each refuses to start while another is running:
 | Submitted | Refused when | Where |
 | --- | --- | --- |
 | Backup | A live DTM reindex task targets the shard, or a cancelled task is still removing its sidecars | `Index.refuseIfReindexInFlight` |
-| Restore | Any reindex task is live in the cluster, or a cancelled one is still removing sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, checked in `validateRestoreRequest` and in each participant's `OnCanCommit` |
-| Reindex | Any node reports a backup or restore slot held | `indexesHandlers.refuseIfBackupInFlight`, over `GET /backups/node-activity` |
+| Restore | Any reindex task is live in the cluster, or a cancelled one is still removing sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the three `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and in each participant's `OnCanCommit` |
+| Reindex | Any node reports a backup or restore slot held | `indexesHandlers.probeBackupActivity`, over `GET /backups/node-activity` |
 
 These rows describe behavior with `RUNTIME_REINDEX_ENABLED=true`. The flag is
 off by default, and with it off these gates return before checking anything —
@@ -1234,7 +1234,7 @@ configuration:
 - *Lookup not yet installed.* The lookups are wired from a
   post-bootstrap goroutine in `configure_api.go`. Until it runs, the
   backup gate, the restore gate, the commit-time overlap check
-  (`DB.RefuseIfReindexOverlapped`) and the reindex gate each allow the
+  (`DB.ObserveReindexOverlap`) and the reindex gate each allow the
   operation and emit a WARN, rate-limited to one line per hour so a
   persistent misconfiguration stays visible to whoever reads the log
   next. This window is reachable from outside: a request that arrives
