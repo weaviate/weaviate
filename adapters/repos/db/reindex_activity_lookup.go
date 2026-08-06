@@ -337,7 +337,7 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 		// this backup fails — and only this one. The collection is named
 		// because the caller already supplied it.
 		return "", false, redactedOverlapErr(fmt.Sprintf(
-			"cannot rule out a runtime-reindex of collection %q during this backup: its task payload is unreadable",
+			"cannot rule out a runtime-reindex of collection %q during this backup: its task payload is unreadable; retry once every node runs the same server version, and report this to Weaviate if it persists",
 			collection), decodeErr)
 	}
 	return collection, true, nil
