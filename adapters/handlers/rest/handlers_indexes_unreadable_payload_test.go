@@ -116,6 +116,66 @@ func TestIndexStatusPrefersADecodableTaskOverTheFallback(t *testing.T) {
 	require.Equal(t, models.IndexStatusStatusIndexing, idx.Status)
 }
 
+// A decodable task that leaves the entry at "ready" must not swallow the
+// fallback. FINISHED tasks live for DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS
+// (5 days by default), so any collection reindexed in the last week has one
+// sitting next to the live task the backup gate is refusing on.
+func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
+	finished := func(finishedAt time.Time) *distributedtask.Task {
+		task := buildTask(t, "t-finished", distributedtask.TaskStatusFinished, db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeRepairFilterable,
+			Collection:    "Movies",
+			Properties:    []string{"title"},
+		}, map[string]*distributedtask.Unit{
+			"u1": {Status: distributedtask.UnitStatusCompleted},
+		})
+		task.FinishedAt = finishedAt
+		return task
+	}
+
+	unknownStatus := buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeRepairFilterable,
+		Collection:    "Movies",
+		Properties:    []string{"title"},
+	}, nil)
+
+	tests := []struct {
+		name    string
+		matched *distributedtask.Task
+		flagOn  bool
+	}{
+		{
+			name:    "finished, schema flag already caught up",
+			matched: finished(time.Now()),
+			flagOn:  true,
+		},
+		{
+			name:    "finished a day ago, outside the finalize window",
+			matched: finished(time.Now().Add(-24 * time.Hour)),
+			flagOn:  false,
+		},
+		{
+			name:    "a status this build does not know",
+			matched: unknownStatus,
+			flagOn:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "Movies", "title", "filterable", tc.flagOn,
+				tasksMap(tc.matched, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)),
+				time.Hour, nil)
+
+			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
+				"the live unreadable task still holds the collection at the backup gate, and the "+
+					"refusal sends the operator here to poll until every index reads ready")
+			require.Zero(t, idx.Progress, "no progress was readable")
+		})
+	}
+}
+
 // The same refusal tells the operator to cancel the task. A cancel that
 // answers NO_OP leaves them with no remedy at all: the payload is unreadable
 // on every node, so a restart does not help either.
