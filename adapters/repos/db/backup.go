@@ -67,7 +67,10 @@ const reindexRefusalShardSample = 10
 //   - Any gate refusal: the gate refusals are joined and returned, and the rest
 //     go to the log via [DB.logReindexRefusals] only. The withheld ones name the
 //     local node, and this error becomes an API response body that a backup
-//     caller has no grant on node names for.
+//     caller has no grant on node names for. The one exception is
+//     "class %v doesn't exist", which names no node and so rides along: the
+//     operator who typoed a class name would otherwise have to wait out the
+//     whole migration before the typo is reported.
 //
 // Either way the joined error satisfies errors.Is for any wrapped sentinel
 // (e.g. ErrBackupBlockedByInFlightReindex), because errors.Join preserves the
@@ -85,7 +88,12 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	// node still satisfies errors.Is for the gate sentinel, so the join reads as
 	// a gate refusal to every caller that classifies it — and carries the node
 	// name into the body behind that classification.
-	var errs, gateErrs []error
+	//
+	// missingClassErrs are the one thing that rides along with a gate refusal
+	// rather than being withheld: they name no node, and withholding them makes
+	// an operator who typoed a class name in a multi-class backup wait out the
+	// whole migration before the typo is reported.
+	var errs, gateErrs, missingClassErrs []error
 	gateSeen := map[string]struct{}{}
 	blockedShards := map[string][]string{}
 	for _, c := range classes {
@@ -96,7 +104,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			// class, and the integration test casing-permutation case
 			// pins the bare wording so the coordinator's class-missing
 			// detection works the same as it did pre-Wave-2.
-			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
+			missingClassErrs = append(missingClassErrs, fmt.Errorf("class %v doesn't exist", c))
 			continue
 		}
 		shards, _, err := idx.readSchema()
@@ -119,8 +127,9 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	}
 	if len(gateErrs) > 0 {
 		db.logReindexRefusals(nodeName, blockedShards, errs)
-		return stderrors.Join(gateErrs...)
+		return stderrors.Join(append(gateErrs, missingClassErrs...)...)
 	}
+	errs = append(errs, missingClassErrs...)
 	if len(errs) > 0 {
 		return stderrors.Join(errs...)
 	}

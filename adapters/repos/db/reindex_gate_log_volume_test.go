@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -214,10 +216,15 @@ func TestBackupableWithheldErrorsReachTheOperator(t *testing.T) {
 		return func(string, string) ReindexHold { return ReindexHoldNone }
 	})
 
-	// "MissingClass" has no index, so it contributes a non-gate error.
-	err := db.Backupable(context.Background(), []string{blocked, "MissingClass"})
+	// "BrokenClass" fails its shard enumeration, so it contributes a non-gate
+	// error — and that one names the local node, which is why it is withheld.
+	addBrokenSchemaIndex(t, db, node, "BrokenClass")
+
+	err := db.Backupable(context.Background(), []string{blocked, "BrokenClass"})
 	require.Error(t, err)
-	require.NotContains(t, err.Error(), "MissingClass",
+	require.NotContains(t, err.Error(), node,
+		"the gate refusal wins the body; a node-naming error is withheld from it")
+	require.NotContains(t, err.Error(), "BrokenClass",
 		"the gate refusal wins the body; the other error is withheld from it")
 
 	var found string
@@ -235,6 +242,52 @@ func TestBackupableWithheldErrorsReachTheOperator(t *testing.T) {
 	// withholding it from the operator.
 	require.LessOrEqual(t, foundLevel, logrus.InfoLevel,
 		"the displaced error must be logged at INFO or above, got %s", foundLevel)
-	require.Contains(t, found, "MissingClass", "the log must carry the withheld detail")
+	require.Contains(t, found, "BrokenClass", "the log must carry the withheld detail")
 	require.Contains(t, found, "1 other error(s)")
+}
+
+// addBrokenSchemaIndex registers an index whose shard enumeration fails, which
+// is the non-gate error that names the local node.
+func addBrokenSchemaIndex(t *testing.T, db *DB, node, collection string) {
+	t.Helper()
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.On("Read", collection, true, mock.Anything).Return(errors.New("schema read failed"))
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.On("NodeName").Return(node).Maybe()
+	db.indices[indexID(schema.ClassName(collection))] = &Index{
+		db:           db,
+		Config:       IndexConfig{ClassName: schema.ClassName(collection)},
+		schemaReader: reader,
+		getSchema:    getter,
+	}
+}
+
+// A backup of ["Movies", "Movis"] submitted during a migration must report the
+// typo now. Withholding it means the operator waits out the whole migration,
+// retries, and only then learns the class name was wrong. The class-missing
+// error names no node, so it can ride along in the response body.
+func TestBackupableSurfacesMissingClassAlongsideGateRefusal(t *testing.T) {
+	const (
+		blocked = "BlockedClass"
+		node    = "weaviate-0"
+	)
+	logger, _ := logrustest.NewNullLogger()
+	db := multiCollectionBackupableFixture(t, node, map[string][]string{blocked: {"s1"}})
+	db.logger = logger
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return func(string, string) ReindexHold { return ReindexHoldNone }
+	})
+
+	err := db.Backupable(context.Background(), []string{blocked, "Movis"})
+	require.Error(t, err)
+
+	require.Contains(t, err.Error(), "class Movis doesn't exist",
+		"the typo must be reported in the same round as the gate refusal")
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"riding along must not break the gate classification: the caller still answers 422")
+	require.NotContains(t, err.Error(), node,
+		"the ride-along error names no node; nothing may carry one into the body")
 }
