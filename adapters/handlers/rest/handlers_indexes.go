@@ -220,6 +220,15 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
+	// Refuse to START a reindex while the feature is off. Cancel and the
+	// status endpoint are deliberately untouched, so a task that was
+	// already running stays observable and stoppable. Placed after authz
+	// so an unauthorized caller still gets its 401/403.
+	if !h.appState.ServerConfig.Config.RuntimeReindexEnabled && !requestsCancel(params.Body) {
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
+			"runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true"))
+	}
+
 	// Acquire the per-(collection, property) submit lock EARLY — before
 	// reading the class or running any validation — so a parallel DELETE
 	// on /properties/{prop}/index/{name} cannot mutate the schema (drop
@@ -657,6 +666,16 @@ func principalUsername(principal *models.Principal) string {
 // "filterable", "searchable", or "rangeable". Returns ("", false)
 // otherwise. validateBodyExclusivity has already guaranteed at most one
 // cancel field is set across the body.
+// requestsCancel is the nil-safe form of [requestedCancel], used by the
+// RUNTIME_REINDEX_ENABLED check before the body has been validated.
+func requestsCancel(body *models.IndexUpdateRequest) bool {
+	if body == nil {
+		return false
+	}
+	_, cancelling := requestedCancel(body)
+	return cancelling
+}
+
 func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	switch {
 	case body.Searchable != nil && body.Searchable.Cancel:
