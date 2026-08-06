@@ -218,8 +218,14 @@ func localBackupSnapshot(t *testing.T, backend, backupID string) func() (backupS
 	}
 }
 
-// awaitBackupTerminal polls until the backup can no longer change, returning
-// the last snapshot read either way.
+// awaitBackupTerminal polls until the backup can no longer change AND the node
+// has released its slot, returning the last snapshot read either way.
+//
+// Both conditions are needed. While the slot is held the status is served from
+// memory with neither a completion time nor a failure reason; only once it is
+// released does the endpoint read them off the backup's meta file. Settling on
+// the first terminal read would therefore hand the caller a snapshot whose
+// window has no end and whose failure has no reason.
 func awaitBackupTerminal(snapshotOf func() (backupSnapshot, bool), last backupSnapshot, deadline time.Duration) backupSnapshot {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -228,7 +234,7 @@ func awaitBackupTerminal(snapshotOf func() (backupSnapshot, bool), last backupSn
 	for time.Now().Before(end) {
 		if snap, ok := snapshotOf(); ok {
 			last = snap
-			if snap.terminal() {
+			if snap.terminal() && !snap.completedAt.IsZero() {
 				return snap
 			}
 		}

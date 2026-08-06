@@ -212,8 +212,12 @@ func testReindexRefusedForTheWholeCaptureWindow(t *testing.T, restURI string) {
 	// DeleteClass runs into the mutation guard.
 	if admittedTask != "" {
 		defer cancelReindexAndDrain(t, restURI, className, propName, admittedTask)
-		last = awaitBackupTerminal(snapshotOf, last, 5*time.Minute)
 	}
+
+	// The loop stops at the first terminal read, which the node can still serve
+	// out of memory without a completion time or a failure reason. Settle on the
+	// snapshot that has both before judging anything against them.
+	last = awaitBackupTerminal(snapshotOf, last, 5*time.Minute)
 
 	for i, p := range probes {
 		if p.httpStatus == http.StatusAccepted {
