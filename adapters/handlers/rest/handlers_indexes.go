@@ -1428,10 +1428,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"index_type":  indexType,
 				"principal":   principalUsername(principal),
 			}).Info("cancel: the task has left STARTED, so DTM will not cancel it; refusing instead of NO_OP")
-			return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-				"cancel refused: the migration has finished building and is committing its result; "+
-					"it can no longer be cancelled. Poll GET /v1/schema/<class>/indexes until every "+
-					"index reports status=\"ready\"."))
+			return reindexCancelPastCancellationPoint(principal)
 		}
 
 		// Idempotent cancel: caller's (collection, property) is known to
@@ -1454,6 +1451,10 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	if err := h.tasks.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
+		if resp := h.refuseCancelThatRacedTheCommit(ctx, err, collection,
+			propertyName, indexType, target, principal); resp != nil {
+			return resp
+		}
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 			fmt.Sprintf("cancelling task: %v", err)))
 	}
@@ -1659,6 +1660,68 @@ func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 		return task
 	}
 	return nil
+}
+
+// reindexCancelPastCancellationPoint is the refusal both cancel paths answer
+// with. Two paths reach the same state: the pre-cancel check sees the task
+// already past STARTED, and the post-cancel error path learns it from DTM
+// after the task moved between the listing and the cancel. One function so
+// the operator cannot get two different wordings for one state.
+func reindexCancelPastCancellationPoint(principal *models.Principal) middleware.Responder {
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		"cancel refused: the migration has finished building and is committing its result; "+
+			"it can no longer be cancelled. Poll GET /v1/schema/<class>/indexes until every "+
+			"index reports status=\"ready\"."))
+}
+
+// refuseCancelThatRacedTheCommit answers the cancel that DTM refused because
+// the task left STARTED between [distributedtask.TaskLister.ListDistributedTasks]
+// and the cancel itself. Returns nil when the caller should keep its 500.
+//
+// The pre-cancel check already refuses a task that is live to the backup gate
+// but past STARTED. It cannot cover the window after it runs, and without this
+// the same state answers 409 or 500 depending only on which side of the window
+// the task's transition landed on.
+//
+// [distributedtask.ErrTaskNotRunning] is the sole error CancelTask returns for
+// "not STARTED", and it survives the RAFT/gRPC round trip (see
+// RehydratePermanentRejection). It says nothing about the status the task
+// reached, so a fresh listing decides: only a task the backup gate still counts
+// as live earns the 409, because only for that task is "poll until every index
+// is ready" the accurate instruction. Everything else keeps the 500 — a
+// version mismatch, an unreachable leader, a timeout, or a listing that fails
+// and leaves the new status unknown.
+func (h *indexesHandlers) refuseCancelThatRacedTheCommit(ctx context.Context, cancelErr error,
+	collection, propertyName, indexType string, target *distributedtask.Task,
+	principal *models.Principal,
+) middleware.Responder {
+	if !errors.Is(cancelErr, distributedtask.ErrTaskNotRunning) {
+		return nil
+	}
+	fresh, err := h.tasks.ListDistributedTasks(ctx)
+	if err != nil {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"taskID":     target.ID,
+			"collection": collection,
+			"property":   propertyName,
+			"index_type": indexType,
+		}).Warnf("cancel: DTM refused the cancel and the re-listing failed, so the task's status is unknown: %v", err)
+		return nil
+	}
+	held := h.uncancellableLiveTask(fresh[db.ReindexNamespace], collection, propertyName, indexType)
+	if held == nil {
+		return nil
+	}
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_past_cancellation_point",
+		"taskID":      held.ID,
+		"task_status": string(held.Status),
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"principal":   principalUsername(principal),
+	}).Infof("cancel: the task left STARTED before the cancel landed, so DTM refused it; refusing instead of failing: %v", cancelErr)
+	return reindexCancelPastCancellationPoint(principal)
 }
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
