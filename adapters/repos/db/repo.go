@@ -65,7 +65,6 @@ type DB struct {
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	startupComplete           atomic.Bool
-	startupProgress           atomic.Pointer[StartupProgressSnapshot]
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -179,9 +178,6 @@ func (db *DB) GetScheduler() *queue.Scheduler {
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
-	stop := db.trackStartupProgress(ctx)
-	defer stop()
-
 	err := db.init(ctx)
 	if err != nil {
 		return err
@@ -195,54 +191,25 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
-const startupProgressUpdateInterval = 5 * time.Second
-
 // StartupProgressSnapshot is a consistent reading of eager shard-loading progress
 type StartupProgressSnapshot struct {
 	Loaded int64
 	Total  int64
 }
 
-// StartupLoadingProgress reports the most recently computed eager shard-loading
-// progress: how many eagerly-loaded local shards have finished loading (loaded)
-// against how many are expected to load eagerly (total).
+// StartupLoadingProgress reports eager shard-loading progress: how many
+// eagerly-loaded local shards have finished loading (loaded) against how many
+// are expected to load eagerly (total). Calling it also publishes the pair to
+// the startup gauges.
+//
+// Safe to call while the DB is still loading.
 func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
-	return db.startupProgress.Load()
+	loaded, total := db.scanStartupProgress(db.startupClassNames())
+	db.promMetrics.SetStartupShardProgress(loaded, total)
+	return &StartupProgressSnapshot{Loaded: loaded, Total: total}
 }
 
-// trackStartupProgress recomputes eager shard-loading progress on a ticker and
-// caches it. It returns a stop function that halts the ticker and pins the
-// final value; callers should defer it. The goroutine also exits if ctx is done.
-func (db *DB) trackStartupProgress(ctx context.Context) func() {
-	classNames := db.startupClassNames()
-
-	// Publish immediately so a value is available before the first log tick.
-	db.updateStartupProgress(classNames)
-
-	done := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		ticker := time.NewTicker(startupProgressUpdateInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				db.updateStartupProgress(classNames)
-			}
-		}
-	}, db.logger)
-
-	return func() {
-		close(done)
-		// Pin the final value now that loading has finished.
-		db.updateStartupProgress(classNames)
-	}
-}
-
-// startupClassNames snapshots the current class names for the startup progress scan
+// startupClassNames returns the current class names for the startup progress scan
 func (db *DB) startupClassNames() []string {
 	s := db.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
@@ -253,14 +220,6 @@ func (db *DB) startupClassNames() []string {
 		names = append(names, class.Class)
 	}
 	return names
-}
-
-// updateStartupProgress recomputes progress once and publishes it to the cached
-// snapshot and the Prometheus gauges.
-func (db *DB) updateStartupProgress(classNames []string) {
-	loaded, total := db.scanStartupProgress(classNames)
-	db.startupProgress.Store(&StartupProgressSnapshot{Loaded: loaded, Total: total})
-	db.promMetrics.SetStartupShardProgress(loaded, total)
 }
 
 // scanStartupProgress computes eager shard-loading progress from scratch for the

@@ -1435,6 +1435,22 @@ func TestStoreDBLoadProgressFields(t *testing.T) {
 	}
 }
 
+// TestStoreDBLoadProgressFieldsRecomputesPerCall pins that each call re-reads
+// the progress source. The schema arrives from RAFT while the shards are still
+// loading, so a value read once would describe the pre-schema state for the
+// whole load.
+func TestStoreDBLoadProgressFieldsRecomputesPerCall(t *testing.T) {
+	var calls int64
+	st := &Store{cfg: Config{DBLoadProgress: func() *db.StartupProgressSnapshot {
+		calls++
+		return &db.StartupProgressSnapshot{Loaded: calls, Total: 10}
+	}}}
+
+	assert.Equal(t, "10%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, "20%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, int64(2), calls)
+}
+
 type MockStore struct {
 	indexer        *fakes.MockSchemaExecutor
 	parser         *fakes.MockParser

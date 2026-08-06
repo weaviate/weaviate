@@ -234,6 +234,12 @@ type Store struct {
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
 
+	// stopDBLoadProgress halts the shard-loading progress tracker started by
+	// Open. The tracker also stops on its own once dbLoaded is set, so this
+	// only matters for a node whose DB never finishes loading. Close calls it,
+	// and Close runs at most once because it clears open.
+	stopDBLoadProgress func()
+
 	// raft implementation from external library
 	raft          *raft.Raft
 	raftResolver  types.RaftResolver
@@ -489,6 +495,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.lastAppliedIndexToDB.Store(li)
 	st.metrics.fsmStartupAppliedIndex.Set(float64(li))
 
+	// Shard loading starts below and can finish anywhere between raft.NewRaft
+	// (restoring from a snapshot) and the bootstrap that follows Open (catching
+	// up from the log), so the tracker outlives Open and stops itself once the
+	// DB is loaded.
+	st.stopDBLoadProgress = st.trackDBLoadProgress()
+
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
 
@@ -642,6 +654,10 @@ func (st *Store) Close(ctx context.Context) error {
 		return nil
 	}
 
+	if st.stopDBLoadProgress != nil {
+		st.stopDBLoadProgress()
+	}
+
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
 	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
@@ -700,10 +716,9 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 	if st.dbLoaded.Load() {
 		return nil
 	}
+
 	t := time.NewTicker(period)
 	defer t.Stop()
-	const logInterval = time.Minute
-	var lastLog time.Time
 	for {
 		select {
 		case <-close:
@@ -714,16 +729,54 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 			if st.dbLoaded.Load() {
 				return nil
 			}
-			if time.Since(lastLog) >= logInterval {
-				st.log.WithFields(st.dbLoadProgressFields()).Info("waiting for database to be restored")
-				lastLog = time.Now()
-			}
 		}
 	}
 }
 
-// dbLoadProgressFields returns log fields describing shard-loading progress, or
-// nil when no progress source is configured or there are no shards to load.
+const (
+	// dbLoadProgressInterval is how often shard-loading progress is recomputed
+	// and published to the startup gauges while the DB is being restored.
+	dbLoadProgressInterval = 5 * time.Second
+	// dbLoadProgressLogInterval is how often that progress is written to the log.
+	dbLoadProgressLogInterval = time.Minute
+)
+
+// trackDBLoadProgress republishes local shard-loading progress every
+// dbLoadProgressInterval and logs it every dbLoadProgressLogInterval. It runs
+// until the DB is loaded, or until the returned stop function is called.
+func (st *Store) trackDBLoadProgress() func() {
+	done := make(chan struct{})
+
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(dbLoadProgressInterval)
+		defer t.Stop()
+		var lastLog time.Time
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if st.dbLoaded.Load() {
+					return
+				}
+				fields := st.dbLoadProgressFields()
+				if fields == nil {
+					continue
+				}
+				if time.Since(lastLog) >= dbLoadProgressLogInterval {
+					st.log.WithFields(fields).Info("waiting for database to be restored")
+					lastLog = time.Now()
+				}
+			}
+		}
+	}, st.log)
+
+	return func() { close(done) }
+}
+
+// dbLoadProgressFields recomputes shard-loading progress, which also refreshes
+// the startup gauges, and returns it as log fields. It returns nil when no
+// progress source is configured or there are no shards to load.
 func (st *Store) dbLoadProgressFields() logrus.Fields {
 	if st.cfg.DBLoadProgress == nil {
 		return nil
@@ -963,7 +1016,11 @@ func (st *Store) reloadDBFromSchema() {
 	} else {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
-	st.dbLoaded.Store(true)
+	// The progress tracker stops once the DB is loaded, so its last sample
+	// would otherwise leave the gauges up to one interval short of the total.
+	if !st.dbLoaded.Swap(true) {
+		st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
+	}
 
 	// in this path it means it was called from Apply()
 	// or forced Restore()
