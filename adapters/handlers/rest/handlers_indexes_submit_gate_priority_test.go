@@ -14,12 +14,12 @@ package rest
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/usecases/backup"
 )
@@ -66,15 +66,31 @@ func (p *gateObservingProber) observed() []db.ReindexHold {
 	return out
 }
 
-// localSlotProbe answers the in-process read of this node's own slots.
+// localSlotProbe answers the in-process read of this node's own slots, and
+// records what the collection's backup gate says at that instant. That is the
+// only place the ordering is observable: once the pre-check refuses, nothing
+// else in the handler runs, so no later observer exists to ask.
 type localSlotProbe struct {
 	activity backup.NodeActivity
-	calls    atomic.Int64
+	provider *db.ReindexProvider
+
+	mu    sync.Mutex
+	holds []db.ReindexHold
 }
 
 func (p *localSlotProbe) Activity() backup.NodeActivity {
-	p.calls.Add(1)
+	p.mu.Lock()
+	p.holds = append(p.holds, p.provider.HoldForShard("Movies", "shard1"))
+	p.mu.Unlock()
 	return p.activity
+}
+
+func (p *localSlotProbe) observed() []db.ReindexHold {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]db.ReindexHold, len(p.holds))
+	copy(out, p.holds)
+	return out
 }
 
 // gatePriorityHandlers wires a real provider onto the submission fixture so the
@@ -99,7 +115,7 @@ func TestUpdateIndexRefusedByLocalBackupLeavesTheBackupGateOpen(t *testing.T) {
 
 	prober := &gateObservingProber{provider: provider, busyNodes: map[string]bool{fixtureNode: true}}
 	h.backupActivity = prober
-	local := &localSlotProbe{activity: backup.NodeActivity{
+	local := &localSlotProbe{provider: provider, activity: backup.NodeActivity{
 		Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1",
 	}}
 	h.localBackupActivity = local
@@ -112,18 +128,35 @@ func TestUpdateIndexRefusedByLocalBackupLeavesTheBackupGateOpen(t *testing.T) {
 		"reindex blocked: a backup is running in the cluster; retry after it finishes",
 		errorMessage(t, conflict.Payload))
 
-	for i, hold := range prober.observed() {
-		require.Equalf(t, db.ReindexHoldNone, hold,
-			"probe %d saw the collection's backup gate closed by the submit hold; the backup that is "+
-				"already capturing fails its per-shard check while that hold is up, so this refused "+
-				"submission destroyed it", i)
-	}
+	// This is the whole property, and it has to be stated as an exact slice:
+	// one read, and the gate open at it. A "for range observations" loop would
+	// pass with zero observations, which is what deleting the pre-check
+	// produces. The hold is what the capture that is already running reads on
+	// every shard it writes; anything but ReindexHoldNone fails it.
+	require.Equal(t, []db.ReindexHold{db.ReindexHoldNone}, local.observed(),
+		"the local slots must be read exactly once, with the collection's backup gate still open; "+
+			"a submission that is refused anyway must never close the gate on a running capture")
 	require.Emptyf(t, prober.observed(),
 		"the local slots already settled the answer, so the fan-out must not run at all; "+
 			"reaching it means the gate was taken for a submission that was never going to be admitted")
-	require.EqualValues(t, 1, local.calls.Load(),
-		"the local slots must be read before the gate, or there is nothing to refuse on")
 	require.Zero(t, svc.adds, "a refused submission must write no task")
+}
+
+// The two tests above set localBackupActivity themselves, so neither notices
+// production leaving it unwired — and unwired means the pre-check is skipped
+// and the priority inversion is back for every real deployment.
+func TestIndexesHandlersWireTheLocalBackupProbe(t *testing.T) {
+	probe := backup.NewNodeActivityProbe(nil)
+
+	h := newIndexesHandlers(&state.State{BackupActivity: probe})
+	require.NotNil(t, h.localBackupActivity,
+		"unwired, the submit gate is taken before anything reads this node's own backup slots, "+
+			"and the priority inversion is back for every real deployment")
+	require.Same(t, probe, h.localBackupActivity, "it must be this node's own probe")
+
+	h = newIndexesHandlers(&state.State{})
+	require.Nil(t, h.localBackupActivity,
+		"a node with no backup manager has no slots to read; the fan-out probe is the only check")
 }
 
 // Pins the corruption protection the gate exists for: the gate must still be
@@ -140,7 +173,8 @@ func TestUpdateIndexHoldsTheBackupGateAcrossTheFanOutProbe(t *testing.T) {
 	h.cluster = fixedMembership{fixtureNode, "node2"}
 	prober := &gateObservingProber{provider: provider, busyNodes: map[string]bool{"node2": true}}
 	h.backupActivity = prober
-	h.localBackupActivity = &localSlotProbe{}
+	local := &localSlotProbe{provider: provider}
+	h.localBackupActivity = local
 
 	responder := submitReindex(h)
 
@@ -149,6 +183,9 @@ func TestUpdateIndexHoldsTheBackupGateAcrossTheFanOutProbe(t *testing.T) {
 	require.Equal(t,
 		"reindex blocked: a backup is running in the cluster; retry after it finishes",
 		errorMessage(t, conflict.Payload))
+
+	require.Equal(t, []db.ReindexHold{db.ReindexHoldNone}, local.observed(),
+		"the local slots are read once, ahead of the gate, whether or not they refuse")
 
 	holds := prober.observed()
 	require.NotEmpty(t, holds, "the fan-out must run when this node's own slots are idle")
