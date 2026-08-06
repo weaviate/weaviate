@@ -41,23 +41,27 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// CancelObserver is called on every node shortly after a CANCEL applies,
-// usually before the scheduler has looked at the task. Register via
-// [Manager.RegisterCancelObserver].
+// CancelObserver is called on every node shortly after a task goes terminal —
+// CANCELLED or FAILED — usually before the scheduler has looked at it. Register
+// via [Manager.RegisterCancelObserver].
 //
-// It exists so a namespace can make "this node has seen the cancel" observable
-// to peers without waiting for the scheduler tick; the reindex namespace's
-// OnCancelApplied documents what that buys.
+// It exists so a namespace can make "this node has seen the task end"
+// observable to peers without waiting for the scheduler tick; the reindex
+// namespace's OnCancelApplied documents what that buys. Both statuses run the
+// same local teardown, so both need the same window covered: a FAILED task
+// stops reading live the moment the apply lands, while its partial on-disk
+// state survives until the teardown the next scheduler tick starts.
 //
 // Runs on the Manager's drainer goroutine, not on the RAFT-apply path, so it
 // may take locks and do work. It gets a clone of the task and must not mutate
 // RAFT-replicated state. Three guarantees it does NOT have: it may run after
 // the scheduler has already acted on the cancel, under queue overflow two
 // events may run concurrently, and past [cancelDispatchOverflowLimit] an event
-// is dropped rather than delivered — see [Manager.dispatchCancelWithLock].
+// is dropped rather than delivered — see [Manager.dispatchTerminalWithLock].
 //
-// Cancels older than [cancelObserverStaleAfter] when they apply are skipped, so
-// a node replaying the RAFT log does not pay for cancels nobody is waiting on.
+// Transitions older than [cancelObserverStaleAfter] when they apply are
+// skipped, so a node replaying the RAFT log does not pay for endings nobody is
+// waiting on.
 type CancelObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.

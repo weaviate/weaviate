@@ -185,7 +185,7 @@ func TestManagerCancelObserver(t *testing.T) {
 		}
 		h.manager.mu.Lock()
 		for range total {
-			h.manager.dispatchCancelWithLock(task)
+			h.manager.dispatchTerminalWithLock(task, task.FinishedAt)
 		}
 		h.manager.mu.Unlock()
 
@@ -243,11 +243,11 @@ func TestManagerCancelObserver(t *testing.T) {
 		// this is the only way to ask whether such a registration is reachable
 		// at all.
 		h.manager.mu.Lock()
-		h.manager.dispatchCancelWithLock(&Task{
+		h.manager.dispatchTerminalWithLock(&Task{
 			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
 			Status:         TaskStatusCancelled,
 			FinishedAt:     h.clock.Now(),
-		})
+		}, h.clock.Now())
 		h.manager.mu.Unlock()
 
 		require.Never(t, func() bool { return empty.count() > 0 },
@@ -341,7 +341,7 @@ func TestCancelDispatchOverflowIsBounded(t *testing.T) {
 
 	m.mu.Lock()
 	for range maxDelivered + pastTheBound {
-		m.dispatchCancelWithLock(cancelDispatchTask(m))
+		m.dispatchTerminalWithLock(cancelDispatchTask(m), m.clock.Now())
 	}
 	m.mu.Unlock()
 
@@ -384,7 +384,7 @@ func TestCancelDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 	close(m.cancelDispatchDone)
 
 	m.mu.Lock()
-	m.dispatchCancelWithLock(cancelDispatchTask(m))
+	m.dispatchTerminalWithLock(cancelDispatchTask(m), m.clock.Now())
 	m.mu.Unlock()
 
 	require.Never(t, func() bool { return rec.count() > 0 },
