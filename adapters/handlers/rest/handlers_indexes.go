@@ -1027,12 +1027,26 @@ func (h *indexesHandlers) tryRollbackRacedReindexTask(
 			continue
 		}
 		if err := h.tasks.CancelDistributedTask(ctx, task.Namespace, task.ID, task.Version); err != nil {
+			if errors.Is(err, distributedtask.ErrPermanentRejection) {
+				// The FSM refused because the task is no longer cancellable —
+				// it already reached a terminal status. That is the state the
+				// rollback wanted, so retrying it would only produce an Error
+				// line telling the operator to cancel a task by hand that is
+				// not running.
+				h.appState.Logger.WithFields(fields).Infof(
+					"rollback: the reindex task that raced a backup claim was already settled: %v", err)
+				return true, nil
+			}
 			return false, fmt.Errorf("cancelling: %w", err)
 		}
 		h.appState.Logger.WithFields(fields).Info("rollback: cancelled a reindex task that raced a backup claim")
 		return true, nil
 	}
-	h.appState.Logger.WithFields(fields).Warn("rollback: the task was already gone")
+	// Nothing was rolled back here: the task is absent from the listing, so
+	// there is nothing left to cancel. The audit label says so rather than
+	// claiming a rollback that did not happen.
+	h.appState.Logger.WithFields(fields).WithField("audit_event", "reindex_task_rollback_not_needed").
+		Warn("rollback: the task was already gone")
 	return true, nil
 }
 

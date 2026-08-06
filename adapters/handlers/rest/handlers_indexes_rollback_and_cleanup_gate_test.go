@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -212,7 +213,36 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedCancelCalls: 0,
 			expectedLevel:       logrus.WarnLevel,
 			expectedMessage:     "rollback: the task was already gone",
+			expectedAudit:       "reindex_task_rollback_not_needed",
+		},
+		{
+			// A cancel the FSM permanently rejects because the task already
+			// reached a terminal status is the rollback's own goal, not a
+			// failure: escalating it sends the operator after a task that is
+			// not running.
+			name: "the cancel is permanently rejected because the task is no longer running",
+			svc: &scriptedRollbackService{
+				tasks:     liveTask,
+				cancelErr: fmt.Errorf("task is not running: %w", distributedtask.ErrPermanentRejection),
+			},
+			expectedListCalls:   1,
+			expectedCancelCalls: 1,
+			expectedLevel:       logrus.InfoLevel,
+			expectedMessage:     "rollback: the reindex task that raced a backup claim was already settled",
 			expectedAudit:       "reindex_task_rolled_back",
+		},
+		{
+			// A retryable RAFT failure must still escalate.
+			name: "the cancel fails without a permanent rejection",
+			svc: &scriptedRollbackService{
+				tasks:     liveTask,
+				cancelErr: errors.New("raft: leader election in progress"),
+			},
+			expectedListCalls:   reindexRollbackAttempts,
+			expectedCancelCalls: reindexRollbackAttempts,
+			expectedLevel:       logrus.ErrorLevel,
+			expectedMessage:     "rollback: could not cancel the task in",
+			expectedAudit:       "reindex_task_rollback_failed",
 		},
 		{
 			name:                "the task is cancelled",
