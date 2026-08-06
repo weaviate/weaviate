@@ -20,36 +20,38 @@ import (
 	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
-// reindexGateSamplerBudget rate-limits each operator-facing "lookup not
-// installed" WARN to one line per hour. Production gates HTTP serving on
-// bootstrap completion, so under normal startup the unwired window is
-// unreachable by an external request. If a WARN does fire it means either
-// startup ordering is broken or a non-HTTP path reached a gate before the
-// lookup installed. Both are persistent misconfigurations, so the line has to
-// keep reappearing for an operator who starts reading the logs later — but not
-// once per shard checked.
+// reindexGateSamplerBudget rate-limits each operator-facing gate WARN to one
+// line per hour. The conditions they report (a gate reached before its lookup
+// was installed, a hold kind this build cannot classify) persist until someone
+// fixes the wiring or ships a fix, so the line has to keep reappearing for an
+// operator who starts reading the logs later — but not once per shard checked.
 const reindexGateSamplerBudget = time.Hour
 
 // reindexGateSamplers holds one budget per fail-open gate.
 //
-// Built per [DB], not per process. The budget describes the node that is
-// failing open, and a package-level one would also make every test after the
-// first in a package see an exhausted budget — which is why the package could
-// not be run with -count=2.
+// Built per [DB], not per process: the budget describes the node that is
+// failing open, and a package-level one leaves every test after the first with
+// an exhausted budget, which is what stopped this package from running with
+// -count=2.
 type reindexGateSamplers struct {
 	unwiredGate        *logrusext.Sampler
 	unwiredRestoreGate *logrusext.Sampler
 	unwiredOverlap     *logrusext.Sampler
+	unknownHold        *logrusext.Sampler
 }
 
 func newReindexGateSamplers(logger logrus.FieldLogger) *reindexGateSamplers {
 	if logger == nil {
 		logger = logrus.StandardLogger()
 	}
+	newSampler := func() *logrusext.Sampler {
+		return logrusext.NewSampler(logger, 1, reindexGateSamplerBudget)
+	}
 	return &reindexGateSamplers{
-		unwiredGate:        logrusext.NewSampler(logger, 1, reindexGateSamplerBudget),
-		unwiredRestoreGate: logrusext.NewSampler(logger, 1, reindexGateSamplerBudget),
-		unwiredOverlap:     logrusext.NewSampler(logger, 1, reindexGateSamplerBudget),
+		unwiredGate:        newSampler(),
+		unwiredRestoreGate: newSampler(),
+		unwiredOverlap:     newSampler(),
+		unknownHold:        newSampler(),
 	}
 }
 
@@ -65,34 +67,24 @@ func (db *DB) gateSamplers() *reindexGateSamplers {
 	return db.reindexGateSamplers
 }
 
-// warnUnwiredReindexGate emits the fail-open WARN through sampler, which
-// production supplies from [DB.gateSamplers]. Taking the sampler as an
-// argument keeps the rate limiting exercisable without mutating package
-// state under a race detector.
-func warnUnwiredReindexGate(sampler *logrusext.Sampler, logger logrus.FieldLogger) {
+// warnUnwiredGate emits a fail-open gate WARN through sampler, which callers
+// take from [DB.gateSamplers]. The sampler already carries the DB's logger.
+func warnUnwiredGate(sampler *logrusext.Sampler, action, msg string) {
 	sampler.WithSampling(func(l logrus.FieldLogger) {
-		if logger != nil {
-			l = logger
-		}
-		l.WithField("action", "backup_reindex_gate").
-			Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
-				"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
+		l.WithField("action", action).Warn(msg)
 	})
 }
 
-// unknownHoldWarnSampler rate-limits the WARN for a [ReindexHold] value this
-// build does not recognize. See [reindexGateSamplerBudget] for why the line
-// repeats hourly rather than firing once: the condition is a code defect that
-// persists until someone ships a fix, and it must not repeat per shard checked.
-var unknownHoldWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
+// warnUnwiredReindexGate is [warnUnwiredGate] for the per-shard backup gate.
+func (db *DB) warnUnwiredReindexGate() {
+	warnUnwiredGate(db.gateSamplers().unwiredGate, "backup_reindex_gate",
+		"backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. "+
+			"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
+}
 
-// warnUnknownReindexHold reports a hold kind the gate cannot classify. Takes
-// the sampler as an argument for the same reason [warnUnwiredReindexGate] does.
-func warnUnknownReindexHold(sampler *logrusext.Sampler, logger logrus.FieldLogger, hold ReindexHold) {
-	sampler.WithSampling(func(l logrus.FieldLogger) {
-		if logger != nil {
-			l = logger
-		}
+// warnUnknownReindexHold reports a hold kind the gate cannot classify.
+func (db *DB) warnUnknownReindexHold(hold ReindexHold) {
+	db.gateSamplers().unknownHold.WithSampling(func(l logrus.FieldLogger) {
 		l.WithField("action", "backup_reindex_gate").
 			WithField("hold", int(hold)).
 			Warn("backup-reindex gate: refusing — unrecognized ReindexHold value. " +
@@ -185,7 +177,7 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	db.reindexAuditMu.RUnlock()
 
 	if activityBuilder == nil {
-		warnUnwiredReindexGate(db.gateSamplers().unwiredGate, db.logger)
+		db.warnUnwiredReindexGate()
 		return snap
 	}
 	snap.activity = activityBuilder()
@@ -256,7 +248,7 @@ func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardNa
 		// taught, and guessing "not held" would admit a backup over a shard some
 		// other operation is actively holding. Same direction as
 		// [IsLiveReindexTaskStatus] on an unrecognized DTM status.
-		warnUnknownReindexHold(unknownHoldWarnSampler, db.logger, hold)
+		db.warnUnknownReindexHold(hold)
 		return reindexBlockedByUnknownHold
 	}
 }
