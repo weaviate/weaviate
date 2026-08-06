@@ -3777,7 +3777,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 
 			var shardStatus atomic.Value
 			for _, nodeName := range replicas {
-				nodeStatus := storagestate.StatusIndexing
+				var nodeStatus storagestate.Status
 				if nodeName == thisNode {
 					shard, release, err := i.getShardForDirectLocalOperation(
 						ctx,
@@ -3791,7 +3791,8 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 					}
 					release()
 				} else {
-					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
+					nodeStatus = storagestate.StatusIndexing
+					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil && ss != "" {
 						nodeStatus = storagestate.Status(ss)
 					}
 				}

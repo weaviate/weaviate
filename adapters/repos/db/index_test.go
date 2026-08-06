@@ -273,10 +273,11 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	clusterNodes := []string{"node-0", "node-1", "node-2"}
 	targetNode := clusterNodes[0]
 	shardReplicas := map[string][]string{
-		"all_ready":     clusterNodes,
-		"one_not_ready": clusterNodes,
-		"two_not_ready": clusterNodes,
-		"all_shutdown":  clusterNodes,
+		"all_ready":         clusterNodes,
+		"one_not_ready":     clusterNodes,
+		"two_not_ready":     clusterNodes,
+		"all_shutdown":      clusterNodes,
+		"one_not_reachable": clusterNodes,
 	}
 	shardStatus := map[string]map[string]string{
 		"all_ready": {
@@ -299,12 +300,18 @@ func TestIndex_getShardsStatus(t *testing.T) {
 			"node-1": storagestate.StatusShutdown.String(),
 			"node-2": storagestate.StatusShutdown.String(),
 		},
+		"one_not_reachable": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusReady.String(),
+			"node-2": "", // Remote replica failed to report status.
+		},
 	}
 	want := map[string]string{
-		"all_ready":     storagestate.StatusReady.String(),
-		"one_not_ready": storagestate.StatusLazyLoading.String(),
-		"two_not_ready": storagestate.StatusIndexing.String(),
-		"all_shutdown":  storagestate.StatusShutdown.String(),
+		"all_ready":         storagestate.StatusReady.String(),
+		"one_not_ready":     storagestate.StatusLazyLoading.String(),
+		"two_not_ready":     storagestate.StatusIndexing.String(),
+		"all_shutdown":      storagestate.StatusShutdown.String(),
+		"one_not_reachable": storagestate.StatusIndexing.String(),
 	}
 
 	var replicas []types.Replica
