@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -594,6 +595,14 @@ func TestRollbackRacedReindexTaskSucceedsOnRetry(t *testing.T) {
 	require.Contains(t, entries[0].Message, "rollback: cancelled a reindex task that raced a backup claim")
 	require.Equal(t, logrus.InfoLevel, entries[0].Level,
 		"a rollback that succeeded on retry is not an operator problem")
+}
+
+// An exhausted backoff means stop, not "wait zero": backoff.Stop is a negative
+// duration, and a timer built from it fires at once, turning the give-up into an
+// immediate retry.
+func TestWaitBeforeRollbackRetryStopsOnExhaustedBackoff(t *testing.T) {
+	require.False(t, waitBeforeRollbackRetry(context.Background(), &backoff.StopBackOff{}),
+		"a backoff that has nothing left to give must end the retry loop")
 }
 
 // countingProber records whether the gate probed the cluster at all.
