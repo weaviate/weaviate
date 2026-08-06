@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package columnar
+package keydoccolumn
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ import (
 
 // prefixCorpus builds a segment whose keys are uniform width and share a leading
 // prefix, so buildKeyColumn selects prefixKeyColumn: key_000..key_0NN, docID i.
-func prefixCorpus(t *testing.T, n int) *columnarSegment {
+func prefixCorpus(t *testing.T, n int) *segment {
 	t.Helper()
 	keys := make([][]byte, n)
 	docs := make([]uint64, n)

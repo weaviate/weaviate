@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// POC benchmark for the FIXED-WIDTH columnar key backing. The shared text
+// POC benchmark for the FIXED-WIDTH key backing. The shared text
 // fixture exercises blobKeyColumn (variable-length); this builds a standalone
 // int64 roaringset corpus so the build selects fixedKeyColumn (8-byte
 // LexicographicallySortableInt64 keys) and we can measure the fixed path and
@@ -38,7 +38,7 @@ import (
 //
 // Run:
 //
-//	go test -tags integrationTest -run '^$' -bench 'ColumnarIndexNumericPOC' \
+//	go test -tags integrationTest -run '^$' -bench 'KeyDocColumnNumericPOC' \
 //	    -benchmem -benchtime 20x -count 3 ./adapters/repos/db/inverted/
 
 type numericFixture struct {
@@ -86,7 +86,7 @@ func newNumericFixture(tb testing.TB, numDocs int) *numericFixture {
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), name,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithBitmapBufPool(bufPool),
-		lsmkv.WithColumnarContainsIndex(true),
+		lsmkv.WithKeyDocColumn(true),
 		lsmkv.WithMaxIdGetter(func() uint64 { return uint64(numDocs + 1) }),
 	))
 	bucket = store.Bucket(name)
@@ -132,13 +132,13 @@ func numericPointLookup(ctx context.Context, b *lsmkv.Bucket, keys [][]byte) *sr
 	return acc.Bitmap()
 }
 
-// TestColumnarIndexNumericPOC_Correctness confirms the fixed-width backing is
+// TestKeyDocColumnNumericPOC_Correctness confirms the fixed-width backing is
 // selected and that it resolves the same docIDs as point lookups.
-func TestColumnarIndexNumericPOC_Correctness(t *testing.T) {
+func TestKeyDocColumnNumericPOC_Correctness(t *testing.T) {
 	f := newNumericFixture(t, 20_000)
 	ctx := context.Background()
 
-	idx := f.bucket.ColumnarContainsIndex()
+	idx := f.bucket.KeyDocColumn()
 	require.NotNil(t, idx)
 	require.Equal(t, 8, idx.Info().KeyWidth, "int64 corpus must select the fixed 8-byte key backing")
 
@@ -146,30 +146,30 @@ func TestColumnarIndexNumericPOC_Correctness(t *testing.T) {
 		keys, want := f.sampleKeys(t, size)
 
 		got := idx.ResolvePerKey(keys).Bitmap().ToArray()
-		require.Equal(t, want, got, "columnar vs sampled docIDs at N=%d", size)
+		require.Equal(t, want, got, "key/doc column vs sampled docIDs at N=%d", size)
 
 		point := numericPointLookup(ctx, f.bucket, keys).ToArray()
 		sort.Slice(point, func(i, j int) bool { return point[i] < point[j] })
-		require.Equal(t, point, got, "columnar vs point lookups at N=%d", size)
+		require.Equal(t, point, got, "key/doc column vs point lookups at N=%d", size)
 	}
 }
 
-// BenchmarkColumnarIndexNumericPOC A/Bs the fixed-width columnar resolve against
+// BenchmarkKeyDocColumnNumericPOC A/Bs the fixed-width resolve against
 // roaringset point lookups on the shared 300K int64 corpus.
-func BenchmarkColumnarIndexNumericPOC(b *testing.B) {
+func BenchmarkKeyDocColumnNumericPOC(b *testing.B) {
 	f := newNumericFixture(b, benchCorpusSize)
 	ctx := context.Background()
 
-	idx := f.bucket.ColumnarContainsIndex()
+	idx := f.bucket.KeyDocColumn()
 	require.NotNil(b, idx)
 	info := idx.Info()
 	require.Equal(b, 8, info.KeyWidth)
-	b.Logf("numeric columnar index built: %d keys, width=%d", info.Keys, info.KeyWidth)
+	b.Logf("numeric key/doc column built: %d keys, width=%d", info.Keys, info.KeyWidth)
 
 	for _, size := range []int{1_000, 10_000, 100_000} {
 		keys, _ := f.sampleKeys(b, size)
 
-		b.Run(fmt.Sprintf("columnar/N=%d", size), func(b *testing.B) {
+		b.Run(fmt.Sprintf("keydoccolumn/N=%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				idx.ResolvePerKey(keys).Bitmap()

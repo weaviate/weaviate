@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package columnar
+package keydoccolumn
 
 import (
 	"fmt"
@@ -25,8 +25,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// segFromPairs builds a columnarSegment from sorted (key, docID) pairs.
-func segFromPairs(keys [][]byte, docs []uint64) *columnarSegment {
+// segFromPairs builds a segment from sorted (key, docID) pairs.
+func segFromPairs(keys [][]byte, docs []uint64) *segment {
 	offsets := []uint32{0}
 	var blob []byte
 	dc := &docIDColumn{w: 8}
@@ -41,7 +41,7 @@ func segFromPairs(keys [][]byte, docs []uint64) *columnarSegment {
 			uniformWidth = -2
 		}
 	}
-	return &columnarSegment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: dc}
+	return &segment{keys: buildKeyColumn(blob, offsets, uniformWidth), docs: dc}
 }
 
 // mockCursor is a roaringset.InnerCursor over fixed sorted entries, for testing
@@ -83,22 +83,22 @@ func (c *mockCursor) Seek([]byte) ([]byte, roaringset.BitmapLayer, error) {
 
 // newTestIndex builds an index over base with a logger attached, which the
 // background fold needs.
-func newTestIndex(base *columnarSegment) *ColumnarIndex {
+func newTestIndex(base *segment) *Index {
 	logger, _ := test.NewNullLogger()
-	idx := &ColumnarIndex{logger: logger}
+	idx := &Index{logger: logger}
 	idx.state.Store(&indexState{base: base})
 	return idx
 }
 
 // waitForFold blocks until no background fold is in flight.
-func waitForFold(t *testing.T, idx *ColumnarIndex) {
+func waitForFold(t *testing.T, idx *Index) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return !idx.folding.Load()
 	}, 5*time.Second, time.Millisecond, "background fold must finish")
 }
 
-func resolveSorted(idx *ColumnarIndex, keys ...string) []uint64 {
+func resolveSorted(idx *Index, keys ...string) []uint64 {
 	q := make([][]byte, len(keys))
 	for i, k := range keys {
 		q[i] = []byte(k)

@@ -772,7 +772,7 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 	// Before the overlay goes live, so there is no window where a property is
 	// being retokenized while an index built for the old tokenization is
 	// still serving.
-	s.detachColumnarContainsIndex(propName)
+	s.detachKeyDocColumn(propName)
 	s.tokenizationOverlayMu.Lock()
 	defer s.tokenizationOverlayMu.Unlock()
 	if s.tokenizationOverlay == nil {
@@ -795,7 +795,7 @@ func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 	// Outside the critical section: the contract above forbids reaching into
 	// bucket lifecycle while holding tokenizationOverlayMu, and detaching early
 	// only ever costs a fallback to the fold.
-	s.detachColumnarContainsIndex(propName)
+	s.detachKeyDocColumn(propName)
 	s.tokenizationOverlayMu.Lock()
 	defer s.tokenizationOverlayMu.Unlock()
 

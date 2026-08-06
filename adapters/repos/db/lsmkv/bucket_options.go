@@ -301,12 +301,12 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	}
 }
 
-// WithColumnarContainsIndex builds a resident columnar ContainsAny index over
-// this bucket at open. Requires [WithMaxIdGetter]; without one the bucket cannot
+// WithKeyDocColumn builds a resident key/doc column over this bucket at
+// open. Requires [WithMaxIdGetter]; without one the bucket cannot
 // size the index and declines to build it.
-func WithColumnarContainsIndex(enabled bool) BucketOption {
+func WithKeyDocColumn(enabled bool) BucketOption {
 	return func(b *Bucket) error {
-		b.columnarContainsIndex = enabled
+		b.keyDocColumn = enabled
 		return nil
 	}
 }

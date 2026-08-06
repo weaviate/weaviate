@@ -149,7 +149,7 @@ func (db *DB) init(ctx context.Context) error {
 				SeparateObjectsCompactions:     db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:     db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:         db.config.IndexRangeableInMemory,
-				ColumnarContainsIndexes:        db.config.ColumnarContainsIndexes,
+				IndexFilterableKeyDocColumn:    db.config.IndexFilterableKeyDocColumn,
 				ObjectsTTLBatchSize:            db.config.ObjectsTTLBatchSize,
 				ObjectsTTLPauseEveryNoBatches:  db.config.ObjectsTTLPauseEveryNoBatches,
 				ObjectsTTLPauseDuration:        db.config.ObjectsTTLPauseDuration,

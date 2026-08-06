@@ -17,24 +17,24 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 )
 
-// TestColumnarIndexPOC_ResidentSize reports the process-lifetime heap footprint
+// TestKeyDocColumnPOC_ResidentSize reports the process-lifetime heap footprint
 // of the built index for the numeric (fixed-width) and text (variable-length)
 // corpora, so we can reason about memory cost per key.
-func TestColumnarIndexPOC_ResidentSize(t *testing.T) {
+func TestKeyDocColumnPOC_ResidentSize(t *testing.T) {
 	const n = benchCorpusSize
 
 	numeric := newNumericFixture(t, n)
-	numIdx := numeric.bucket.ColumnarContainsIndex()
+	numIdx := numeric.bucket.KeyDocColumn()
 	require.NotNil(t, numIdx)
 
 	textF := newContainsFixture(t, n)
-	textIdx := textF.bucket.ColumnarContainsIndex()
+	textIdx := textF.bucket.KeyDocColumn()
 	require.NotNil(t, textIdx)
 
-	report := func(name string, idx *columnar.ColumnarIndex) {
+	report := func(name string, idx *keydoccolumn.Index) {
 		info := idx.Info()
 		t.Logf("%s: keys=%d keyWidth=%d prefix=%d docWidth=%d resident=%.2f MB (%.1f bytes/key)",
 			name, info.Keys, info.KeyWidth, info.KeyPrefix, info.DocIDWidth,

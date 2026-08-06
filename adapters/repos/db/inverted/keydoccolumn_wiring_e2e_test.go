@@ -36,10 +36,10 @@ import (
 
 // newUniqueTextSearcher builds a Searcher over a STRICTLY unique text roaringset
 // property (val_%08d -> docID i, 1:1, no shared values), flushed to disk — the
-// conditions under which the columnar index is eligible to serve. Returns
+// conditions under which the key/doc column is eligible to serve. Returns
 // the searcher and its store.
 // newUniqueTextSearcher builds a searcher whose property bucket carries the
-// columnar index. Use newUniqueTextSearcherNoIndex for the same corpus without
+// key/doc column. Use newUniqueTextSearcherNoIndex for the same corpus without
 // one — configuration decides whether a bucket has an index, so comparing the
 // two paths means comparing two buckets rather than toggling a switch.
 func newUniqueTextSearcher(tb testing.TB, numDocs int) (*Searcher, *lsmkv.Store) {
@@ -97,7 +97,7 @@ func newUniqueTextSearcherOpt(tb testing.TB, numDocs int, withIndex bool) (*Sear
 	}
 	if withIndex {
 		reopenOpts = append(reopenOpts,
-			lsmkv.WithColumnarContainsIndex(true),
+			lsmkv.WithKeyDocColumn(true),
 			lsmkv.WithMaxIdGetter(func() uint64 { return uint64(numDocs + 1) }))
 	}
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), name, reopenOpts...))
@@ -111,7 +111,7 @@ func newUniqueTextSearcherOpt(tb testing.TB, numDocs int, withIndex bool) (*Sear
 	return searcher, store
 }
 
-// pairedSearchers builds the same corpus twice, once with the columnar index and
+// pairedSearchers builds the same corpus twice, once with the key/doc column and
 // once without, so a test can compare the two paths over identical data.
 func pairedSearchers(tb testing.TB, numDocs int) (indexed, plain *Searcher,
 	indexedBucket, plainBucket *lsmkv.Bucket,
@@ -142,15 +142,15 @@ func sampleUniqueValues(numDocs, size int) []string {
 	return vals
 }
 
-// BenchmarkColumnarLayers measures ContainsAny resolution cost as index tiers are
+// BenchmarkKeyDocColumnLayers measures ContainsAny resolution cost as index tiers are
 // added: base (on disk) → base + a populated active memtable → base + several
 // flushed runs + a populated active memtable. Each variant runs the SAME query
 // (drawn from the base), so the delta is the pure overhead of scanning/overlaying
 // the extra tiers, not different match counts. Run:
 //
-//	go test -tags integrationTest -run '^$' -bench 'ColumnarLayers' \
+//	go test -tags integrationTest -run '^$' -bench 'KeyDocColumnLayers' \
 //	    -benchmem -benchtime 20x -count 3 ./adapters/repos/db/inverted/
-func BenchmarkColumnarLayers(b *testing.B) {
+func BenchmarkKeyDocColumnLayers(b *testing.B) {
 	const (
 		baseDocs   = 300_000
 		runDocs    = 10_000 // keys per flushed run
@@ -217,11 +217,11 @@ func BenchmarkColumnarLayers(b *testing.B) {
 	}
 }
 
-// BenchmarkColumnarWiring_DocIDs measures the full Searcher.DocIDs path for
+// BenchmarkKeyDocColumnWiring_DocIDs measures the full Searcher.DocIDs path for
 // ContainsAny on a strictly-unique text property, comparing the standard fold
-// (flag off) against the resident columnar index (flag on). This is the
+// (flag off) against the resident key/doc column (flag on). This is the
 // end-to-end number: extraction + resolution + allowlist, through the real API.
-func BenchmarkColumnarWiring_DocIDs(b *testing.B) {
+func BenchmarkKeyDocColumnWiring_DocIDs(b *testing.B) {
 	indexed, _ := newUniqueTextSearcher(b, benchCorpusSize)
 	plain, _ := newUniqueTextSearcherNoIndex(b, benchCorpusSize)
 	ctx := context.Background()
@@ -229,7 +229,7 @@ func BenchmarkColumnarWiring_DocIDs(b *testing.B) {
 	modes := []struct {
 		name     string
 		searcher *Searcher
-	}{{"fold", plain}, {"columnar", indexed}}
+	}{{"fold", plain}, {"keydoccolumn", indexed}}
 	for _, size := range []int{1_000, 10_000, 100_000} {
 		values := sampleUniqueValues(benchCorpusSize, size)
 		filter := containsFilter(filters.ContainsAny, values)
@@ -254,12 +254,12 @@ func BenchmarkColumnarWiring_DocIDs(b *testing.B) {
 	}
 }
 
-// TestColumnarWiring_DocIDsMatchesFold drives the real Searcher.DocIDs path and
-// pins that ContainsAny resolved via the columnar index (flag on) returns
+// TestKeyDocColumnWiring_DocIDsMatchesFold drives the real Searcher.DocIDs path and
+// pins that ContainsAny resolved via the key/doc column (flag on) returns
 // exactly the same doc IDs as the standard fold (flag off), and that the
 // index actually served (was cached on the bucket), not silently fell
 // back.
-func TestColumnarWiring_DocIDsMatchesFold(t *testing.T) {
+func TestKeyDocColumnWiring_DocIDsMatchesFold(t *testing.T) {
 	const numDocs = 20_000
 	indexed, store := newUniqueTextSearcher(t, numDocs)
 	plain, _ := newUniqueTextSearcherNoIndex(t, numDocs)
@@ -288,7 +288,7 @@ func TestColumnarWiring_DocIDsMatchesFold(t *testing.T) {
 	requireMatchesFold := func(t *testing.T, values []string) {
 		t.Helper()
 		require.Equal(t, run(plain, values), run(indexed, values),
-			"the columnar index must answer exactly as the standard fold does")
+			"the key/doc column must answer exactly as the standard fold does")
 	}
 
 	// The filter's value order is the user's, and the index requires its
@@ -339,18 +339,18 @@ func TestColumnarWiring_DocIDsMatchesFold(t *testing.T) {
 	// prove the index actually served: it is attached at open and kept
 	// live across the flush (via AbsorbFlush), so it is present on the bucket.
 	bkt := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	require.NotNil(t, bkt.ColumnarContainsIndex(),
-		"columnar index must be attached and serving")
+	require.NotNil(t, bkt.KeyDocColumn(),
+		"key/doc column must be attached and serving")
 }
 
-// TestColumnarWiring_MultiKeyDocDeletion covers a document that sits under more
+// TestKeyDocColumnWiring_MultiKeyDocDeletion covers a document that sits under more
 // than one key losing one of them. roaringset records that as a deletion under
 // that key alone, and the document must keep matching the keys it still holds.
 //
 // The eligibility gate keeps such properties off the index in production,
 // so this exercises the resolution algorithm directly through the test factory:
 // correctness here does not depend on the gate being right.
-func TestColumnarWiring_MultiKeyDocDeletion(t *testing.T) {
+func TestKeyDocColumnWiring_MultiKeyDocDeletion(t *testing.T) {
 	tests := []struct {
 		name    string
 		flush   bool // flush the removal, so it is absorbed as a run rather than left in the memtable
@@ -409,12 +409,12 @@ func TestColumnarWiring_MultiKeyDocDeletion(t *testing.T) {
 	}
 }
 
-// TestColumnarWiring_UnflushedNonUniqueKey covers an unflushed memtable putting
+// TestKeyDocColumnWiring_UnflushedNonUniqueKey covers an unflushed memtable putting
 // a second document under a key the flushed tiers already hold one for — a
 // collision the build-time check cannot have seen. Both documents must come
 // back: the memtable's addition adds to the key rather than replacing what it
 // held, and the extra is carried alongside the scalar column.
-func TestColumnarWiring_UnflushedNonUniqueKey(t *testing.T) {
+func TestKeyDocColumnWiring_UnflushedNonUniqueKey(t *testing.T) {
 	const numDocs = 2_000
 	indexed, plain, bucket, plainBucket := pairedSearchers(t, numDocs)
 	ctx := context.Background()
@@ -440,10 +440,10 @@ func TestColumnarWiring_UnflushedNonUniqueKey(t *testing.T) {
 		"a key holding two documents must resolve to both, not one")
 }
 
-// TestColumnarWiring_UnflushedWrites pins that the index serves correctly
+// TestKeyDocColumnWiring_UnflushedWrites pins that the index serves correctly
 // when there are unflushed writes in the active memtable — new keys and a delete
 // — via the memtable overlay, matching the fold, without falling back.
-func TestColumnarWiring_UnflushedWrites(t *testing.T) {
+func TestKeyDocColumnWiring_UnflushedWrites(t *testing.T) {
 	const numDocs = 5_000
 	indexed, plain, bucket, plainBucket := pairedSearchers(t, numDocs)
 	ctx := context.Background()
@@ -474,18 +474,18 @@ func TestColumnarWiring_UnflushedWrites(t *testing.T) {
 	fold := run(plain)
 	col := run(indexed)
 
-	require.Equal(t, fold, col, "columnar + memtable overlay must match the fold with unflushed writes")
+	require.Equal(t, fold, col, "key/doc column + memtable overlay must match the fold with unflushed writes")
 	require.Equal(t, []uint64{1, uint64(numDocs), uint64(numDocs + 1)}, col,
 		"flushed(1) kept, deleted(5) gone, unflushed new keys present")
-	require.NotNil(t, bucket.ColumnarContainsIndex(),
+	require.NotNil(t, bucket.KeyDocColumn(),
 		"unflushed writes must not detach the index")
 }
 
-// TestColumnarWiring_ManyFlushes drives more flushes than the fold threshold, so
+// TestKeyDocColumnWiring_ManyFlushes drives more flushes than the fold threshold, so
 // the accumulated runs are folded into the base (through real memtable cursors),
 // and pins that ContainsAny still matches the fold across base + fold + recent
 // runs, with adds and deletes.
-func TestColumnarWiring_ManyFlushes(t *testing.T) {
+func TestKeyDocColumnWiring_ManyFlushes(t *testing.T) {
 	const numDocs = 1_000
 	indexed, plain, bucket, plainBucket := pairedSearchers(t, numDocs) // base holds 0..999
 	ctx := context.Background()
@@ -517,17 +517,17 @@ func TestColumnarWiring_ManyFlushes(t *testing.T) {
 
 	fold := run(plain)
 	col := run(indexed)
-	require.Equal(t, fold, col, "columnar must match the fold across many flushes + a base fold")
+	require.Equal(t, fold, col, "key/doc column must match the fold across many flushes + a base fold")
 	require.Equal(t, []uint64{500, uint64(numDocs), uint64(numDocs + 9)}, col)
-	require.NotNil(t, bucket.ColumnarContainsIndex())
+	require.NotNil(t, bucket.KeyDocColumn())
 }
 
-// TestColumnarWiring_ServesNonUniqueValues pins that a property whose values are
+// TestKeyDocColumnWiring_ServesNonUniqueValues pins that a property whose values are
 // not unique — a key holding several documents — keeps being served and returns
 // every one of them. The index is configured on the understanding that values
 // are unique; when that turns out to be wrong the operator gets a warning, not
 // missing documents.
-func TestColumnarWiring_ServesNonUniqueValues(t *testing.T) {
+func TestKeyDocColumnWiring_ServesNonUniqueValues(t *testing.T) {
 	// The shared benchmark fixture seeds shared_a/b/c -> {11,17}.
 	f := newContainsFixture(t, 5_000)
 	plain := newContainsFixtureNoIndex(t, 5_000)
@@ -549,6 +549,6 @@ func TestColumnarWiring_ServesNonUniqueValues(t *testing.T) {
 		"a key holding several documents must resolve to all of them")
 
 	bkt := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
-	require.NotNil(t, bkt.ColumnarContainsIndex(),
+	require.NotNil(t, bkt.KeyDocColumn(),
 		"a handful of duplicates is warned about, not a reason to stop serving")
 }

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package columnar
+package keydoccolumn
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ import (
 
 // segmentPairs reads a segment back out as key → its documents, sorted, for
 // comparing a merged base against an independently computed expectation.
-func segmentPairs(seg *columnarSegment) map[string][]uint64 {
+func segmentPairs(seg *segment) map[string][]uint64 {
 	out := make(map[string][]uint64, seg.keys.len())
 	for i := 0; i < seg.keys.len(); i++ {
 		docs := seg.appendDocs(i, nil)

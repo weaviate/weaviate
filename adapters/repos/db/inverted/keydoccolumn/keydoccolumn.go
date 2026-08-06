@@ -9,15 +9,16 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package columnar is a POC of a resident in-memory index that accelerates
+// Package keydoccolumn is a POC of a resident in-memory index that accelerates
 // ContainsAny/Equal resolution on a filterable (roaringset) property.
 //
+// The name is the layout: the property's key→docID mapping is held as two
+// positionally-matched columns — a sorted key column and a parallel docID
+// column — where a key's entry is one document rather than a posting list.
 // Instead of N per-key roaringset lookups (each an LSM segment-index search +
-// bloom check + bitmap-container decode), it holds the property's key→docID
-// mapping as two positionally-matched columns — a sorted key column and a
-// parallel docID column — and resolves a batch of query values with a single
-// merge-scan (dense queries) or binary-search sweep (sparse queries), emitting
-// docIDs into a slice and building exactly one bitmap at the end.
+// bloom check + bitmap-container decode), a batch of query values resolves with
+// a single merge-scan (dense queries) or binary-search sweep (sparse queries),
+// emitting docIDs into a slice and building exactly one bitmap at the end.
 //
 // The index is built for a property whose values are unique: each key's docID
 // column entry is a single fixed-width slot, which is what makes rank access and
@@ -37,7 +38,7 @@
 // Lifting the remaining requirement would mean per-key posting lists — a docID
 // list per key instead of a scalar — which is a different layout, not a tweak to
 // this one.
-package columnar
+package keydoccolumn
 
 import (
 	"bytes"
@@ -58,7 +59,7 @@ import (
 // Package var for tuning/tests.
 var foldRunsThreshold = 8
 
-// keyColumn abstracts sorted key storage so the columnar core is
+// keyColumn abstracts sorted key storage so the core is
 // datatype-agnostic. Query keys are always the lexicographically-sortable
 // []byte encoding Weaviate's extraction produces; each backing compares its
 // stored entry against that. Two backings ship:
@@ -274,10 +275,10 @@ func bytesForMax(max uint64) int {
 	return (bits.Len64(max) + 7) / 8
 }
 
-// columnarSegment is one immutable columnar unit: two positionally-matched
+// segment is one immutable unit: two positionally-matched
 // columns. keys is sorted ascending; docs.at(i) is the sole docID for keys[i]
 // (the 1-doc-per-key POC assumption). Search keys → position i → docs.at(i).
-type columnarSegment struct {
+type segment struct {
 	keys keyColumn
 	docs *docIDColumn
 	// overflow holds the documents beyond the first for a key that has several,
@@ -293,19 +294,19 @@ type columnarSegment struct {
 
 // appendDocs appends every document row i holds — its column entry and any
 // overflow — to dst.
-func (seg *columnarSegment) appendDocs(i int, dst []uint64) []uint64 {
+func (seg *segment) appendDocs(i int, dst []uint64) []uint64 {
 	dst = append(dst, seg.docs.at(i))
 	return append(dst, seg.overflow[uint32(i)]...)
 }
 
-// run is one flushed memtable copied into columnar form: the keys that got an
+// run is one flushed memtable copied into column form: the keys that got an
 // addition (key → added docID) as an adds segment, and the keys that got a
 // deletion (key → removed docID) as a dels segment. Unlike adds, the dels
 // segment may repeat a key — one flush can retire several docIDs from the same
 // key — so it is a plain sorted (key, docID) pair list, not a lookup table.
 type run struct {
-	adds *columnarSegment
-	dels *columnarSegment
+	adds *segment
+	dels *segment
 }
 
 // indexState is the tier set a query resolves against: an immutable base plus
@@ -313,11 +314,11 @@ type run struct {
 // once published, so a reader that loads a state can work from it for as long as
 // it likes while writers publish newer ones.
 type indexState struct {
-	base *columnarSegment
+	base *segment
 	runs []*run
 }
 
-// ColumnarIndex is the resident index for one property: an immutable base
+// Index is the resident index for one property: an immutable base
 // (built from disk segments at startup) plus a list of runs, one per flushed
 // memtable absorbed since. Resolution folds the runs over the base, newest last.
 // Live active/flushing memtables are layered by the caller, not held here.
@@ -326,7 +327,7 @@ type indexState struct {
 // a flush, folding runs into a fresh base) publish a whole new state by
 // compare-and-swap, so a reader never observes a half-applied change and never
 // contends with a writer.
-type ColumnarIndex struct {
+type Index struct {
 	state   atomic.Pointer[indexState]
 	folding atomic.Bool // a fold is in flight; see foldRunsIntoBase
 	logger  logrus.FieldLogger
@@ -365,7 +366,7 @@ type MergedCursor interface {
 // Past overflowLimit the build fails instead, leaving ContainsAny on the fold.
 func BuildFromCursor(cursor MergedCursor, maxDocID uint64,
 	logger logrus.FieldLogger,
-) (*ColumnarIndex, error) {
+) (*Index, error) {
 	builder := newSegmentBuilder()
 	builder.docs.w = bytesForMax(maxDocID)
 
@@ -381,23 +382,23 @@ func BuildFromCursor(cursor MergedCursor, maxDocID uint64,
 
 	if keys, extras, limit := builder.overflowReport(); extras > 0 {
 		if keys > limit {
-			return nil, fmt.Errorf("columnar index wants unique values: %d keys hold more than "+
+			return nil, fmt.Errorf("key/doc column wants unique values: %d keys hold more than "+
 				"one document (%d extra between them), past the %d such keys worth building "+
 				"this structure for", keys, extras, limit)
 		}
-		logger.WithField("action", "columnar_build").
-			Warnf("columnar index built over values that are not unique: %d keys hold %d extra "+
+		logger.WithField("action", "keydoccolumn_build").
+			Warnf("key/doc column built over values that are not unique: %d keys hold %d extra "+
 				"documents between them; results stay correct, but the index is sized and tuned "+
 				"for one document per value", keys, extras)
 	}
 
-	idx := &ColumnarIndex{logger: logger}
+	idx := &Index{logger: logger}
 	idx.state.Store(&indexState{base: builder.segment()})
 	return idx, nil
 }
 
 // segmentBuilder accumulates (key, docID) pairs in the order they arrive and
-// packs them into a columnarSegment. Keys must arrive sorted — every producer
+// packs them into a segment. Keys must arrive sorted — every producer
 // walks either a roaringset cursor or an already-sorted column — and may repeat
 // when the segment records deletions rather than a key→doc lookup table.
 type segmentBuilder struct {
@@ -492,8 +493,8 @@ func (b *segmentBuilder) overflowReport() (keys, extras, limit int) {
 	return len(b.overflow), b.numOverflow, overflowLimit(b.rows())
 }
 
-func (b *segmentBuilder) segment() *columnarSegment {
-	return &columnarSegment{
+func (b *segmentBuilder) segment() *segment {
+	return &segment{
 		keys:     buildKeyColumn(b.blob, b.offsets, b.uniformWidth),
 		docs:     b.docs,
 		overflow: b.overflow,
@@ -594,7 +595,7 @@ type Info struct {
 // Info returns a description of the current base tier. One state load, so every
 // field describes the same generation even if a fold publishes a new base
 // mid-report.
-func (idx *ColumnarIndex) Info() Info {
+func (idx *Index) Info() Info {
 	base := idx.state.Load().base
 	keys := base.keys.info()
 	return Info{
@@ -616,7 +617,7 @@ func (idx *ColumnarIndex) Info() Info {
 // retiring a docID some later flush already replaced does nothing. The caller
 // gets the per-key state rather than a bitmap so it can layer unflushed
 // memtables on the same terms before materializing once.
-func (idx *ColumnarIndex) ResolvePerKey(sortedKeys [][]byte) *Resolution {
+func (idx *Index) ResolvePerKey(sortedKeys [][]byte) *Resolution {
 	state := idx.state.Load()
 	res := newResolution(len(sortedKeys))
 
@@ -638,7 +639,7 @@ func (idx *ColumnarIndex) ResolvePerKey(sortedKeys [][]byte) *Resolution {
 // Adaptive merge-scan vs binary-search, no bitmap ops, and no per-hit
 // bookkeeping: matches are applied where they are found. Shared by the base and
 // by each run's adds and dels segments.
-func (seg *columnarSegment) applyHits(sortedKeys [][]byte, res *Resolution, adds bool) {
+func (seg *segment) applyHits(sortedKeys [][]byte, res *Resolution, adds bool) {
 	n := seg.keys.len()
 	if n == 0 {
 		return
@@ -675,7 +676,7 @@ func (seg *columnarSegment) applyHits(sortedKeys [][]byte, res *Resolution, adds
 }
 
 // applyRow applies row i's documents to query position qi.
-func (seg *columnarSegment) applyRow(i, qi int, res *Resolution, adds, overflowed bool) {
+func (seg *segment) applyRow(i, qi int, res *Resolution, adds, overflowed bool) {
 	if adds {
 		res.insert(qi, seg.docs.at(i))
 	} else {
@@ -700,7 +701,7 @@ func (seg *columnarSegment) applyRow(i, qi int, res *Resolution, adds, overflowe
 // cursor's key order leaves both segments sorted. The docID columns are
 // full-width (runs are small; sizing them narrow would need the current
 // maxDocID, which may have grown past the base's).
-func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
+func (idx *Index) AbsorbFlush(cursor roaringset.InnerCursor) error {
 	addCol := newSegmentBuilder()
 	delCol := newSegmentBuilder()
 
@@ -726,11 +727,11 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 
 	if keys, extras, limit := addCol.overflowReport(); extras > 0 {
 		if keys > limit {
-			return fmt.Errorf("columnar index wants unique values: a flush brought %d keys "+
+			return fmt.Errorf("key/doc column wants unique values: a flush brought %d keys "+
 				"holding more than one document (%d extra between them), past the %d such "+
 				"keys worth maintaining this structure for", keys, extras, limit)
 		}
-		idx.logger.WithField("action", "columnar_absorb_flush").
+		idx.logger.WithField("action", "keydoccolumn_absorb_flush").
 			Warnf("flush carried values that are not unique: %d keys hold %d extra documents "+
 				"between them; results stay correct, but the index is sized and tuned for one "+
 				"document per value", keys, extras)
@@ -776,7 +777,7 @@ func (idx *ColumnarIndex) AbsorbFlush(cursor roaringset.InnerCursor) error {
 // Runs on its own goroutine, one at a time: the run window it consumes is fixed
 // at entry, so a second concurrent fold would compute a base from the same runs
 // and then drop that many again, discarding whatever was absorbed in between.
-func (idx *ColumnarIndex) foldRunsIntoBase() {
+func (idx *Index) foldRunsIntoBase() {
 	defer idx.folding.Store(false)
 
 	state := idx.state.Load()
@@ -820,7 +821,7 @@ func keyBytesOf(c keyColumn) int {
 // tierCursor walks one segment's (key, docID) entries in key order, keeping the
 // current key materialized in a buffer it reuses.
 type tierCursor struct {
-	seg *columnarSegment
+	seg *segment
 	i   int
 	key []byte
 }
@@ -896,7 +897,7 @@ func (c *tierCursor) next() {
 // key and then proposes its own addition. Deletions compare against the docID
 // currently held, so a flush retiring a docID that some later flush already
 // replaced correctly does nothing.
-func mergeTiers(base *columnarSegment, runs []*run) *columnarSegment {
+func mergeTiers(base *segment, runs []*run) *segment {
 	// cursor 0 is the base; cursor i+1 is run i's additions.
 	adds := make([]tierCursor, len(runs)+1)
 	dels := make([]tierCursor, len(runs))

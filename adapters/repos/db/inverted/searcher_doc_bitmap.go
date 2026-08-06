@@ -286,13 +286,13 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	isDenyList := pv.operator == filters.ContainsNone
 	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	// Serve ContainsAny from the resident columnar index when the property was
+	// Serve ContainsAny from the resident key/doc column when the property was
 	// configured for one; a property that was not simply has no index attached.
 	// Any miss — no index, a build that declined, a flush that detached it, or a
 	// non-*lsmkv.Bucket — falls through to the standard fold below, which returns
 	// the same documents either way.
 	if pv.operator == filters.ContainsAny {
-		if dbm, ok := s.resolveContainsColumnar(b, view, pv); ok {
+		if dbm, ok := s.resolveContainsKeyDocColumn(b, view, pv); ok {
 			return dbm, nil
 		}
 	}
@@ -325,19 +325,19 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
 }
 
-// resolveContainsColumnar serves a ContainsAny query from the bucket's resident
-// columnar index. It returns (result, true) when the index served the query, or
+// resolveContainsKeyDocColumn serves a ContainsAny query from the bucket's resident
+// key/doc column. It returns (result, true) when the index served the query, or
 // (_, false) when the caller must fall back to the standard fold — the bucket is
 // not an *lsmkv.Bucket, or it has no index because the property was not
 // configured for one, the build declined, or a flush detached it.
-func (s *Searcher) resolveContainsColumnar(b containsBatchBucket,
+func (s *Searcher) resolveContainsKeyDocColumn(b containsBatchBucket,
 	view lsmkv.BucketConsistentView, pv *propValuePair,
 ) (docBitmap, bool) {
 	bkt, ok := b.(*lsmkv.Bucket)
 	if !ok {
 		return docBitmap{}, false
 	}
-	idx := bkt.ColumnarContainsIndex()
+	idx := bkt.KeyDocColumn()
 	if idx == nil {
 		return docBitmap{}, false // not configured, declined at build, or detached
 	}

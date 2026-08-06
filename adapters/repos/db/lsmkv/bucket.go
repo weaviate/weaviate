@@ -40,7 +40,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -92,11 +92,11 @@ type Bucket struct {
 	disk           *SegmentGroup
 	logger         logrus.FieldLogger
 
-	// columnarContainsIndex requests a resident ContainsAny index over this
-	// bucket's segments; the segment group owns it, as with the rangeable
-	// in-memory representation.
-	columnarContainsIndex bool
-	maxIdGetter           roaringset.MaxIdGetterFunc
+	// keyDocColumn requests a resident key/doc column over this bucket's
+	// segments; the segment group owns it, as with the rangeable in-memory
+	// representation.
+	keyDocColumn bool
+	maxIdGetter  roaringset.MaxIdGetterFunc
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -390,7 +390,7 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			cleanupInterval:              b.segmentsCleanupInterval,
 			enableChecksumValidation:     b.enableChecksumValidation,
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
-			columnarContainsIndex:        b.columnarContainsIndex,
+			keyDocColumn:                 b.keyDocColumn,
 			maxIdGetter:                  b.maxIdGetter,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
@@ -451,19 +451,19 @@ func (b *Bucket) GetSecondaryIndices() uint16 {
 	return b.secondaryIndices
 }
 
-// ColumnarContainsIndex returns the resident ContainsAny index over this
-// bucket's data, or nil if it has none — not configured, a build that declined,
-// or a flush that detached it. Lock-free. See segment_group_columnar_contains.go.
-func (b *Bucket) ColumnarContainsIndex() *columnar.ColumnarIndex {
-	return b.disk.columnarContainsIndex.Load()
+// KeyDocColumn returns the resident key/doc column over this bucket's
+// data, or nil if it has none — not configured, a build that declined,
+// or a flush that detached it. Lock-free. See segment_group_key_doc_column.go.
+func (b *Bucket) KeyDocColumn() *keydoccolumn.Index {
+	return b.disk.keyDocColumn.Load()
 }
 
-// DetachColumnarContainsIndex drops that index, sending ContainsAny back to the
+// DetachKeyDocColumn drops that index, sending ContainsAny back to the
 // standard fold from here on. Callers use this when something the index was
 // built over stops holding — a property whose values are being retokenized, or
 // segments spliced in behind it.
-func (b *Bucket) DetachColumnarContainsIndex() {
-	b.disk.columnarContainsIndex.Store(nil)
+func (b *Bucket) DetachKeyDocColumn() {
+	b.disk.keyDocColumn.Store(nil)
 }
 
 func (b *Bucket) GetStatus() storagestate.Status {
@@ -2177,12 +2177,12 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSet:
-		// Copy the flushed memtable into the columnar ContainsAny index in the
-		// same critical section that stops the memtable being visible, so a query
+		// Copy the flushed memtable into the key/doc column in the same
+		// critical section that stops the memtable being visible, so a query
 		// sees the data as one or the other and never as neither.
-		if err := b.disk.absorbFlushIntoColumnarIndex(flushing); err != nil {
-			b.logger.WithField("action", "columnar_absorb_flush").
-				Warnf("columnar ContainsAny index detached, it could not absorb a flush: %v", err)
+		if err := b.disk.absorbFlushIntoKeyDocColumn(flushing); err != nil {
+			b.logger.WithField("action", "keydoccolumn_absorb_flush").
+				Warnf("key/doc column detached, it could not absorb a flush: %v", err)
 		}
 
 	case StrategyRoaringSetRange:

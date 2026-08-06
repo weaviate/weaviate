@@ -60,7 +60,7 @@ var ErrPrependWouldDesyncInMemoryRep = errors.New(
 //	Replace                          -> rejected (countNetAdditions)
 //	Inverted                         -> maintained (avgPropertyLengths, below)
 //	RoaringSetRange                  -> guarded (in-memory rep can't be spliced)
-//	RoaringSet                       -> guarded (the ContainsAny index is
+//	RoaringSet                       -> guarded (the key/doc column is
 //	                                    detached, below)
 //	SetCollection/MapCollection      -> no derived state to maintain
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
@@ -81,12 +81,12 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 		return fmt.Errorf("%w (bucket=%s)", ErrPrependWouldDesyncInMemoryRep, filepath.Base(sg.dir))
 	}
 
-	// The columnar ContainsAny index was read from the segments this group held
+	// The key/doc column was read from the segments this group held
 	// at the time, and nothing rebuilds it for segments spliced in later — it
 	// would answer without the prepended documents. Unlike the rangeable
 	// representation this need not refuse the prepend: detaching sends
 	// ContainsAny back to the standard fold, which is slower and right.
-	sg.columnarContainsIndex.Store(nil)
+	sg.keyDocColumn.Store(nil)
 
 	// Step 2: Discover source segments (.db files).
 	srcDBFiles, err := discoverDBFiles(srcDir)

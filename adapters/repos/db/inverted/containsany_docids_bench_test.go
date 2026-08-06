@@ -70,7 +70,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	return newContainsFixtureOpt(tb, numDocs, true)
 }
 
-// newContainsFixtureNoIndex builds the same corpus without a columnar index, for
+// newContainsFixtureNoIndex builds the same corpus without a key/doc column, for
 // comparing the two query paths over identical data.
 func newContainsFixtureNoIndex(tb testing.TB, numDocs int) *containsFixture {
 	return newContainsFixtureOpt(tb, numDocs, false)
@@ -173,7 +173,7 @@ func newContainsFixtureOpt(tb testing.TB, numDocs int, withIndex bool) *contains
 }
 
 // reopenBucket closes the value bucket and opens it again, optionally asking for
-// a columnar ContainsAny index. Opening is where that index is built, so this is
+// a key/doc column. Opening is where that index is built, so this is
 // also how the load-time build cost is measured.
 func (f *containsFixture) reopenBucket(tb testing.TB, withIndex bool) {
 	tb.Helper()
@@ -187,7 +187,7 @@ func (f *containsFixture) reopenBucket(tb testing.TB, withIndex bool) {
 	}
 	if withIndex {
 		opts = append(opts,
-			lsmkv.WithColumnarContainsIndex(true),
+			lsmkv.WithKeyDocColumn(true),
 			lsmkv.WithMaxIdGetter(func() uint64 { return uint64(f.numDocs + 1) }))
 	}
 	require.NoError(tb, f.store.CreateOrLoadBucket(ctx, name, opts...))

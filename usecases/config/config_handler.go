@@ -946,10 +946,10 @@ type Persistence struct {
 	LSMSkipWriteClassNameEnabled        bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
-	// ColumnarContainsIndexes names the properties whose filterable buckets get a
-	// resident columnar ContainsAny index, as collection -> properties. An entry
-	// with no properties covers every property of that collection.
-	ColumnarContainsIndexes                      map[string][]string `json:"columnarContainsIndexes" yaml:"columnarContainsIndexes"`
+	// IndexFilterableKeyDocColumn names the properties whose filterable buckets
+	// get a resident key/doc column, as collection -> properties. An entry with
+	// no properties covers every property of that collection.
+	IndexFilterableKeyDocColumn                  map[string][]string `json:"indexFilterableKeyDocColumn" yaml:"indexFilterableKeyDocColumn"`
 	MinMMapSize                                  int64               `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled                         bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	SegmentInfoIntoFileNameEnabled               bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`

@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/columnar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
@@ -53,13 +53,13 @@ func (b *Bucket) MemtableReaders(view BucketConsistentView) []roaringset.LayerRe
 	return readers
 }
 
-// initColumnarContainsIndex builds and attaches the index, once, while the
+// initKeyDocColumn builds and attaches the index, once, while the
 // segment group is being constructed — before the bucket exists, so before any
 // flush, which leaves the flush hook a target from the start.
 //
 // It reads the disk segments alone: the memtables are empty at this point, and
 // what is unflushed at query time is layered on then instead.
-func (sg *SegmentGroup) initColumnarContainsIndex(maxIdGetter roaringset.MaxIdGetterFunc) error {
+func (sg *SegmentGroup) initKeyDocColumn(maxIdGetter roaringset.MaxIdGetterFunc) error {
 	if maxIdGetter == nil {
 		return errors.New("no max ID getter given")
 	}
@@ -69,26 +69,26 @@ func (sg *SegmentGroup) initColumnarContainsIndex(maxIdGetter roaringset.MaxIdGe
 	defer release()
 
 	merged := roaringset.NewCombinedCursor(cursors, false, concurrency.SROAR_MERGE)
-	idx, err := columnar.BuildFromCursor(merged, maxIdGetter(), sg.logger)
+	idx, err := keydoccolumn.BuildFromCursor(merged, maxIdGetter(), sg.logger)
 	if err != nil {
 		return err
 	}
 
-	sg.columnarContainsIndex.Store(idx)
+	sg.keyDocColumn.Store(idx)
 	info := idx.Info()
 	sg.logger.WithFields(logrus.Fields{
-		"action":      "columnar_build",
+		"action":      "keydoccolumn_build",
 		"bucket":      filepath.Base(sg.dir),
 		"took":        time.Since(before).String(),
 		"keys":        info.Keys,
 		"key_width":   info.KeyWidth,
 		"docid_width": info.DocIDWidth,
 		"size_mb":     fmt.Sprintf("%.3f", float64(info.SizeBytes)/1024/1024),
-	}).Debug("columnar ContainsAny index built")
+	}).Debug("key/doc column built")
 	return nil
 }
 
-// absorbFlushIntoColumnarIndex feeds a just-flushed memtable to the index, from
+// absorbFlushIntoKeyDocColumn feeds a just-flushed memtable to the index, from
 // the segment swap that removes it — so the flush becomes visible as a segment
 // and as index state in one critical section, and no query falls between the two.
 //
@@ -103,8 +103,8 @@ func (sg *SegmentGroup) initColumnarContainsIndex(maxIdGetter roaringset.MaxIdGe
 // flushed documents — and once the swap lands, those documents live in the new
 // segment alone, which the index never reads. Keeping it would mean answering
 // ContainsAny with silently missing results.
-func (sg *SegmentGroup) absorbFlushIntoColumnarIndex(flushing memtable) error {
-	idx := sg.columnarContainsIndex.Load()
+func (sg *SegmentGroup) absorbFlushIntoKeyDocColumn(flushing memtable) error {
+	idx := sg.keyDocColumn.Load()
 	if idx == nil {
 		return nil
 	}
@@ -114,7 +114,7 @@ func (sg *SegmentGroup) absorbFlushIntoColumnarIndex(flushing memtable) error {
 	// sealed: the memtable is durable, out of active use and its writers have
 	// drained, so the index reads it without paying for a copy it cannot use
 	if err := idx.AbsorbFlush(flushing.newSealedRoaringSetCursor()); err != nil {
-		sg.columnarContainsIndex.Store(nil)
+		sg.keyDocColumn.Store(nil)
 		return err
 	}
 	return nil
