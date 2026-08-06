@@ -75,3 +75,51 @@ func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testin
 	}
 	require.True(t, sawFailed, "the refused backup has to end up observably FAILED")
 }
+
+// An operator abort cancels the same context the commit-time overlap lookup
+// runs on, so the lookup comes back with the cancellation instead of an answer.
+// That must stay a cancellation: reporting FAILED with "a runtime-reindex
+// overlapped this backup" names a migration that never happened, and leaves the
+// status API disagreeing with the stored descriptor.
+func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
+	const backupID = "1"
+	any := mock.Anything
+
+	backend := newFakeBackend()
+	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
+	sourcer.reindexOverlapFn = func(context.Context) error {
+		// The abort lands while the lookup's RAFT query is in flight, so the
+		// query fails with the cancellation and the lookup reports it as
+		// "cannot rule out a runtime-reindex".
+		cancel()
+		return fmt.Errorf("cannot rule out a runtime-reindex during this backup: "+
+			"the cluster task manager could not be queried: %w", context.Canceled)
+	}
+
+	var observed []backup.Status
+	setStatus := func(st backup.Status) { observed = append(observed, st) }
+
+	logger, _ := test.NewNullLogger()
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, store, backupID, setStatus, logger)
+
+	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
+	err := uploader.all(ctx, nil, &desc, nil, "", "")
+	require.ErrorIs(t, err, context.Canceled)
+
+	storedStatus, storedReason := backend.getMetaStatus()
+	require.Equal(t, backup.Cancelled, storedStatus)
+	require.NotContains(t, storedReason, "reindex",
+		"an aborted backup must not be blamed on a migration that never ran")
+
+	require.NotContains(t, observed, backup.Failed,
+		"the status API must not report FAILED for a backup the operator aborted")
+	require.Equal(t, backup.Cancelled, observed[len(observed)-1],
+		"the last status an operator can poll has to be the cancellation they caused")
+}

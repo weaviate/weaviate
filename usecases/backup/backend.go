@@ -279,8 +279,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// The caller has already logged the full chain, shard id and all.
 		desc.Error = publishableErrMsg(err)
 
-		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		// Handle error cases. Only err is consulted: ctx above is the fresh
+		// background context this defer uses for the meta write, so it can never
+		// carry the caller's cancellation.
+		if errors.Is(err, context.Canceled) {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
@@ -364,6 +366,16 @@ Loop:
 	// admitted during capture was invisible to them. Failing the backup beats a
 	// SUCCESS that silently spans a migration.
 	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
+		// An operator abort cancels this same context, so the lookup fails with
+		// the cancellation rather than with an answer. Reporting that as an
+		// overlap would blame the abort on a migration that never ran, and would
+		// flip the observable status to FAILED behind the operator's back.
+		if ctx.Err() != nil {
+			return contextChecker(ctx)
+		}
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
 		overlapRefused = true
 		desc.Status = backup.Failed
 		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)
