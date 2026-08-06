@@ -120,6 +120,16 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 		if vouched {
 			continue
 		}
+		// A terminal round may also vouch, but only on the one proof that a
+		// stale record cannot fabricate: it covers every shard that still
+		// exists AND it recorded owing a shard that has since been deleted.
+		// Re-cleaning that collection would rewrite already-stripped shards for
+		// work that no longer has anywhere to happen. A record that owed
+		// nothing stays refused — that is the closed-epoch residue shape, where
+		// full coverage says nothing about the current marker's data.
+		if p.deletionResolvedDropVoucher(className, targetVector, shards, existingTasks) {
+			continue
+		}
 		if coversVec {
 			// Count only in the error: it reaches the HTTP body of a caller
 			// holding just collection-update rights, and on an MT collection the
@@ -169,6 +179,37 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, targetVector s
 			return true
 		})
 	return vouched, coversVec, uncovered
+}
+
+// deletionResolvedDropVoucher reports whether a terminal round of this drop
+// proves the cleanup is done for the collection as it now stands: it covers
+// every current shard, and it recorded owing a shard that no longer exists.
+//
+// This is the one case where a non-SWAPPING record may remove a marker. It is
+// safe where a bare FINISHED voucher is not, because a finalized drop's residue
+// owes nothing — it covered everything before it finalized — so it can never
+// satisfy the deleted-shard half. Terminal-with-partial-work rounds count too:
+// a round that failed after completing its units still recorded what it owed.
+//
+// Mirrors the enqueuer, which finalizes on the same proof
+// (EpochAndInheritedCoverage); the two must agree or the enqueuer would
+// propose removals this apply refuses.
+func (p *DropVectorIndexProvider) deletionResolvedDropVoucher(className, targetVector string,
+	shards []string, existingTasks []*distributedtask.Task,
+) bool {
+	terminal := func(s distributedtask.TaskStatus) bool {
+		return s.IsCompleted() || s == distributedtask.TaskStatusFailed || s == distributedtask.TaskStatusCancelled
+	}
+	var vouched bool
+	p.eachDropCovering(className, targetVector, existingTasks, terminal,
+		func(task *distributedtask.Task, existP *DropVectorIndexTaskPayload) bool {
+			if existP.ResolvedByShardDeletion(shards) {
+				vouched = true
+				return false // done
+			}
+			return true
+		})
+	return vouched
 }
 
 // stillStrippingStatus matches pre-SWAPPING tasks; they block removal.

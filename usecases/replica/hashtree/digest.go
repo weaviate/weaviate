@@ -60,3 +60,11 @@ func (d *Digest) UnmarshalJSON(b []byte) error {
 
 	return d.UnmarshalBinary(bs)
 }
+
+// SizeDigests resizes buf to hold n digests, reallocating only when capacity is insufficient.
+func SizeDigests(buf []Digest, n int) []Digest {
+	if cap(buf) < n {
+		return make([]Digest, n)
+	}
+	return buf[:n]
+}

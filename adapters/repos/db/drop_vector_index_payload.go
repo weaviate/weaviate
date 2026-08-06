@@ -35,7 +35,12 @@ const DropVectorIndexNamespace = "drop-vector-index"
 type DropVectorIndexTaskPayload struct {
 	Collection string   `json:"collection"`
 	Targets    []string `json:"targets"`
-	OpID       string   `json:"opId"`
+	// OpID keys the per-shard edit-ops bookkeeping. OpID equals DropEpochID:
+	// every round of one drop re-arms the SAME op and resumes its recorded
+	// progress. Records written by older versions carry a per-round uuid
+	// here instead — treat the field as opaque on decode, never assume the
+	// equality.
+	OpID string `json:"opId"`
 
 	// UnitToNode maps a unit ID to the node that owns it; UnitToShard maps the
 	// same unit ID to the shard it covers. One unit per (shard, node).
@@ -61,6 +66,60 @@ type DropVectorIndexTaskPayload struct {
 	// bounded by maxShardsPerDropRound). Capping it would break the
 	// single-task invariant above and with it finalize.
 	CleanedShards []string `json:"cleanedShards,omitempty"`
+
+	// DeferredShards are shards that existed at this round's enqueue and that
+	// the round did NOT cover — inactive tenants, or shards past the per-round
+	// cap. It records the work the drop still OWED at that point, which is what
+	// distinguishes the two ways a chain can end up spanning every current
+	// shard:
+	//
+	//   - the round did the work, or a later round of the epoch did (nothing
+	//     was owed, or what was owed got covered);
+	//   - the work ceased to exist because the tenant holding it was DELETED.
+	//
+	// Only the second may finalize on the recorded coverage: the first is also
+	// the shape of a previous drop's residue next to a re-created name's marker,
+	// where the recorded coverage says nothing about the new drop's data.
+	//
+	// Empty on payloads from older nodes, which is indistinguishable from
+	// "owed nothing" — the conservative reading, and the one that keeps the
+	// closed-epoch fence.
+	//
+	// Size: mirrors CleanedShards (one name per shard, no per-replica blowup);
+	// a drop on a 100k-tenant collection with most tenants cold carries the
+	// complement of CleanedShards here.
+	DeferredShards []string `json:"deferredShards,omitempty"`
+}
+
+// ResolvedByShardDeletion reports whether p's recorded coverage spans every
+// shard in shards while a shard p still OWED has since disappeared — i.e. the
+// drop's outstanding work did not get done, it ceased to exist along with its
+// tenant. Such a chain is complete for the collection as it now stands, so the
+// marker can be removed without re-stripping shards that are already clean.
+//
+// A payload that owed nothing returns false even with full coverage: that is
+// the closed-epoch residue shape (a finalized drop's records beside a
+// re-created name's marker), and it must keep re-cleaning.
+//
+// Deterministic over its inputs: the enqueuer and the FSM removal gate both
+// call it so the enqueuer never attempts a removal the gate would refuse.
+func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(shards []string) bool {
+	if len(p.DeferredShards) == 0 {
+		return false
+	}
+	if len(ShardsNotCovered(shards, p.CoveredShards())) > 0 {
+		return false
+	}
+	current := make(map[string]struct{}, len(shards))
+	for _, shard := range shards {
+		current[shard] = struct{}{}
+	}
+	for _, owed := range p.DeferredShards {
+		if _, stillThere := current[owed]; !stillThere {
+			return true
+		}
+	}
+	return false
 }
 
 // SameTargetSet reports whether two target lists contain the same names with
@@ -197,9 +256,7 @@ func EpochCoveredShards(tasks []*distributedtask.Task, collection string, target
 		if err != nil {
 			continue
 		}
-		if !strings.EqualFold(p.Collection, collection) ||
-			!SameTargetSet(p.Targets, targets) ||
-			p.DropEpochID != epoch {
+		if !SameDrop(p, collection, targets) || p.DropEpochID != epoch {
 			continue
 		}
 		if terminalWithPartialWork(task.Status) {
@@ -213,6 +270,17 @@ func EpochCoveredShards(tasks []*distributedtask.Task, collection string, target
 		}
 	}
 	return covered
+}
+
+// SameDrop reports whether a record's payload belongs to the drop identified
+// by (collection, targets): the collection matches case-insensitively, the
+// targets as an exact set (case-sensitive identifiers). THE single matching
+// rule shared by epoch inheritance, the coverage union, and the retainer's
+// newest-record anchor — if these ever used different rules, a record one of
+// them counts could be invisible to another, silently breaking resume or
+// coverage.
+func SameDrop(p *DropVectorIndexTaskPayload, collection string, targets []string) bool {
+	return strings.EqualFold(p.Collection, collection) && SameTargetSet(p.Targets, targets)
 }
 
 // terminalWithPartialWork matches the two terminal states a round can reach
@@ -245,7 +313,7 @@ func terminalWithPartialWork(s distributedtask.TaskStatus) bool {
 // composed here with the same implementation.
 func EpochAndInheritedCoverage(collection string, targets []string, state *sharding.State,
 	tasks map[string][]*distributedtask.Task, logger logrus.FieldLogger,
-) (epoch string, cleaned []string) {
+) (epoch string, cleaned []string, finalizeNow bool) {
 	// The newest matching task (raft-assigned Version: monotonic and
 	// deterministic, unlike node wall clocks) names the candidate epoch.
 	var newest *DropVectorIndexTaskPayload
@@ -259,7 +327,7 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 			}
 			continue
 		}
-		if !strings.EqualFold(p.Collection, collection) || !SameTargetSet(p.Targets, targets) {
+		if !SameDrop(p, collection, targets) {
 			continue
 		}
 		if newest == nil || task.Version > newestVersion {
@@ -267,7 +335,7 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 		}
 	}
 	if newest == nil || newest.DropEpochID == "" {
-		return uuid.NewString(), nil
+		return uuid.NewString(), nil, false
 	}
 	// Completed tasks vouch their full CoveredShards; a FAILED or CANCELLED
 	// round vouches only its COMPLETED units — a deactivated tenant fails a
@@ -292,10 +360,42 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 		remaining[shard] = struct{}{}
 	}
 	if len(ShardsNotCovered(shardNames, remaining)) == 0 {
-		// Complete chain next to a marker — closed-epoch residue. See above.
-		return uuid.NewString(), nil
+		// The chain spans every current shard while the marker still stands.
+		// Either the shards it still owed were DELETED — the work is genuinely
+		// done for the collection as it now stands, so finalize rather than
+		// re-strip shards that are already clean — or the chain owed nothing,
+		// which is closed-epoch residue (see above) and must re-clean.
+		if resolvedByDeletion(tasks[DropVectorIndexNamespace], collection, targets,
+			newest.DropEpochID, shardNames) {
+			return newest.DropEpochID, cleaned, true
+		}
+		return uuid.NewString(), nil, false
 	}
-	return newest.DropEpochID, cleaned
+	return newest.DropEpochID, cleaned, false
+}
+
+// resolvedByDeletion reports whether some task of the epoch proves the drop's
+// remaining work vanished with a deleted shard. Scoped to the epoch for the
+// same reason coverage is: another drop's records say nothing about this one.
+func resolvedByDeletion(tasks []*distributedtask.Task, collection string, targets []string,
+	epoch string, shardNames []string,
+) bool {
+	for _, task := range tasks {
+		if !task.Status.IsCompleted() && !terminalWithPartialWork(task.Status) {
+			continue
+		}
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			continue
+		}
+		if !SameDrop(p, collection, targets) || p.DropEpochID != epoch {
+			continue
+		}
+		if p.ResolvedByShardDeletion(shardNames) {
+			return true
+		}
+	}
+	return false
 }
 
 // ShardsNotCovered returns the shards absent from covered, sorted.

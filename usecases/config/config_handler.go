@@ -245,6 +245,11 @@ type Config struct {
 
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 
+	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
+	// off by default. With it off, new reindex submissions are refused and
+	// the backup path performs no reindex check.
+	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
+
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
 	// interaction with a tenant leads to a log line. However, this may
 	// temporarily be desired, e.g. for analysis or debugging purposes. In this
