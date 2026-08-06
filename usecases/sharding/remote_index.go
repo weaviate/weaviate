@@ -392,15 +392,10 @@ func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) 
 	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
 }
 
-func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
-	if err != nil {
-		return "", fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
+func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName, nodeName string) (string, error) {
+	host, ok := ri.nodeResolver.NodeHostname(nodeName)
 	if !ok {
-		return "", fmt.Errorf("resolve node name %q to host", owner)
+		return "", fmt.Errorf("resolve node name %q to host", nodeName)
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)

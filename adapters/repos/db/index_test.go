@@ -29,7 +29,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/assert"
+	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -38,10 +39,13 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -262,6 +266,143 @@ func (f *fakeRouter) GetWriteReplicasLocation(collection, tenant, shard string) 
 func (f *fakeRouter) NodeHostname(nodeName string) (string, bool) {
 	host, ok := f.hostnames[nodeName]
 	return host, ok
+}
+
+func TestIndex_getShardsStatus(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	clusterNodes := []string{"node-0", "node-1", "node-2"}
+	targetNode := clusterNodes[0]
+	shardReplicas := map[string][]string{
+		"all_ready":     clusterNodes,
+		"one_not_ready": clusterNodes,
+		"two_not_ready": clusterNodes,
+		"all_shutdown":  clusterNodes,
+	}
+	shardStatus := map[string]map[string]string{
+		"all_ready": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusReady.String(),
+			"node-2": storagestate.StatusReady.String(),
+		},
+		"one_not_ready": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusLazyLoading.String(),
+			"node-2": storagestate.StatusReady.String(),
+		},
+		"two_not_ready": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusLazyLoading.String(),
+			"node-2": storagestate.StatusReadOnly.String(),
+		},
+		"all_shutdown": {
+			"node-0": storagestate.StatusShutdown.String(),
+			"node-1": storagestate.StatusShutdown.String(),
+			"node-2": storagestate.StatusShutdown.String(),
+		},
+	}
+	want := map[string]string{
+		"all_ready":     storagestate.StatusReady.String(),
+		"one_not_ready": storagestate.StatusLazyLoading.String(),
+		"two_not_ready": storagestate.StatusIndexing.String(),
+		"all_shutdown":  storagestate.StatusShutdown.String(),
+	}
+
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"all_ready":     {BelongsToNodes: clusterNodes},
+			"one_not_ready": {BelongsToNodes: clusterNodes},
+			"two_not_ready": {BelongsToNodes: clusterNodes},
+			"all_shutdown":  {BelongsToNodes: clusterNodes},
+		},
+	}
+
+	var replicas []types.Replica
+	for shard, nodes := range shardReplicas {
+		for _, node := range nodes {
+			replicas = append(replicas, types.Replica{
+				ShardName: shard,
+				NodeName:  node,
+				HostAddr:  node,
+			})
+		}
+	}
+
+	router := &fakeRouter{
+		readSet: types.ReadReplicaSet{
+			Replicas: replicas,
+		},
+	}
+
+	replicator := &replica.Replicator{
+		Finder: replica.NewFinder(
+			"Songs", nil, nil,
+			targetNode, nil, nil,
+			logger, nil,
+		),
+	}
+
+	// Arrange
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		Shards("Songs").
+		RunAndReturn(func(collectionName string) (shards []string, _ error) {
+			for s := range shardReplicas {
+				shards = append(shards, s)
+			}
+			return
+		}).Maybe()
+	schemaReader.EXPECT().
+		ShardReplicas("Songs", mock.Anything).
+		RunAndReturn(func(collectionName, shardName string) ([]string, error) {
+			assert.Contains(t, shardReplicas, shardName)
+			return shardReplicas[shardName], nil
+		}).Maybe()
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().
+		NodeHostname(mock.Anything).
+		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
+
+	index := Index{
+		Config: IndexConfig{ClassName: schema.ClassName("Songs")},
+		getSchema: &fakeSchemaGetter{
+			nodeName:   targetNode,
+			shardState: shardingState,
+		},
+		schemaReader:     schemaReader,
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		router:           router,
+		replicator:       replicator,
+		logger:           logger,
+	}
+
+	index.remote = sharding.NewRemoteIndex(
+		"Songs",
+		index.getSchema,
+		nodeResolver,
+		&FakeRemoteClient{shardStatus: shardStatus},
+	)
+
+	for shardName, statusByNode := range shardStatus {
+		mockShard := NewMockShardLike(t)
+		mockShard.EXPECT().
+			preventShutdown().
+			Return(func() {}, nil).Maybe()
+		mockShard.EXPECT().
+			Name().
+			Return(shardName).Maybe()
+		mockShard.EXPECT().
+			GetStatus().
+			Return(storagestate.Status(statusByNode[targetNode])).Maybe()
+		index.shards.Store(shardName, mockShard)
+	}
+
+	// Act
+	got, err := index.getShardsStatus(t.Context(), "")
+
+	// Assert
+	assert.NoError(t, err)
+	require.Equal(t, want, got)
 }
 
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the
