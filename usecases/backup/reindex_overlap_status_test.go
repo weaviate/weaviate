@@ -124,6 +124,53 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 		"the last status an operator can poll has to be the cancellation they caused")
 }
 
+// A cancellation that is not the caller's is not an abort. The lookup is a
+// leader-forwarded RAFT query, and a client that gives up on its own derived
+// context hands back an error carrying context.Canceled while this backup's
+// context is still live. That is the lookup failing to answer, which is what
+// the check fails closed on, so it has to publish as FAILED with the refusal
+// text — not as an operator cancellation.
+func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.T) {
+	const backupID = "1"
+	any := mock.Anything
+
+	backend := newFakeBackend()
+	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
+	sourcer.reindexOverlapFn = func(context.Context) error {
+		// The backup's own context is untouched; the cancellation belongs to
+		// whatever the RAFT client ran the query on.
+		return fmt.Errorf("cannot rule out a runtime-reindex during this backup: "+
+			"the cluster task manager could not be queried: %w", context.Canceled)
+	}
+
+	var observed []backup.Status
+	setStatus := func(st backup.Status) { observed = append(observed, st) }
+
+	logger, _ := test.NewNullLogger()
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
+
+	ctx := context.Background()
+	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
+	err := uploader.all(ctx, nil, &desc, nil, "", "")
+	require.Error(t, err)
+	require.NoError(t, ctx.Err(), "the backup's own context was never cancelled")
+
+	storedStatus, storedReason := backend.getMetaStatus()
+	require.Equal(t, backup.Failed, storedStatus,
+		"a refusal published as CANCELLED reads as an operator abort that never happened")
+	require.Contains(t, storedReason, "a runtime-reindex overlapped this backup",
+		"the refusal must keep the text that says why the backup was failed")
+
+	require.NotContains(t, observed, backup.Cancelled,
+		"nobody cancelled this backup")
+	require.Equal(t, backup.Failed, observed[len(observed)-1],
+		"the last status an operator can poll has to be the failure")
+}
+
 // The check is a backstop only because it is asked about the whole capture
 // window. Handed the commit instant instead, it would ask "is a reindex running
 // right now" — the question the pre-capture gates already answered — and a
