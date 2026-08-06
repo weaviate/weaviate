@@ -1481,6 +1481,68 @@ func TestStoreDBLoadProgressFields(t *testing.T) {
 	}
 }
 
+// TestStoreDBLoadProgressFieldsRecomputesPerCall pins that each call re-reads
+// the progress source. The schema arrives from RAFT while the shards are still
+// loading, so a value read once would describe the pre-schema state for the
+// whole load.
+func TestStoreDBLoadProgressFieldsRecomputesPerCall(t *testing.T) {
+	var calls int64
+	st := &Store{cfg: Config{DBLoadProgress: func() *db.StartupProgressSnapshot {
+		calls++
+		return &db.StartupProgressSnapshot{Loaded: calls, Total: 10}
+	}}}
+
+	assert.Equal(t, "10%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, "20%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, int64(2), calls)
+}
+
+// TestStoreReloadDBFromSchemaReportsProgressDuringReload pins that the reload is
+// bracketed by the progress tracker. The snapshot-path reload runs inside
+// raft.NewRaft, before WaitToRestoreDB starts its heartbeat, so a tracker
+// started any later reports nothing for that whole phase.
+func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), 9092)
+	logHook := logrustest.NewLocal(ms.logger)
+	logged := func(msg string) bool {
+		for _, e := range logHook.AllEntries() {
+			if e.Message == msg {
+				return true
+			}
+		}
+		return false
+	}
+
+	ms.store.cfg.DBLoadProgress = func() *db.StartupProgressSnapshot {
+		return &db.StartupProgressSnapshot{Loaded: 3, Total: 10}
+	}
+
+	st := ms.Store(func(m *MockStore) {
+		// TriggerSchemaUpdateCallbacks runs inside the reload. Holding it open
+		// until the tracker has logged proves the sampling happens while the
+		// reload is in flight, not after.
+		m.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+			if !tryNTimesWithWait(3000, 10*time.Millisecond, func() bool {
+				return logged("loading local DB from schema")
+			}) {
+				t.Error("no progress logged while the reload was in flight")
+			}
+		}).Return()
+	})
+
+	st.reloadDBFromSchema()
+
+	require.True(t, st.dbLoaded.Load())
+	require.True(t, logged("local DB loaded from schema"))
+	for _, e := range logHook.AllEntries() {
+		if e.Message == "local DB loaded from schema" {
+			assert.Equal(t, "30%", e.Data["progress"])
+		}
+	}
+}
+
 type MockStore struct {
 	indexer        *fakes.MockSchemaExecutor
 	parser         *fakes.MockParser
