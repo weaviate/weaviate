@@ -204,6 +204,41 @@ func TestProvider_BatchUpdateVector(t *testing.T) {
 			assert.Contains(t, obj.Vectors, "live", "object %d missing the live vector", i)
 		}
 	})
+
+	t.Run("last remaining vector mid-drop is a no-op, not an error", func(t *testing.T) {
+		// Filtering the only named vector leaves modConfigs empty, which must
+		// take the vector-less short-circuit (class.Vectorizer is "" for
+		// named-vector classes), not the "no vectorizer configs" error.
+		ctx := context.Background()
+		modName := "some-vzr"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"dropped": {
+					Vectorizer:      map[string]interface{}{modName: map[string]interface{}{}},
+					VectorIndexType: "none",
+				},
+			},
+		}
+		sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider(logger, config.Config{})
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		objs := []*models.Object{{Class: className, ID: newUUID()}}
+		vecErrs, err := p.BatchUpdateVector(ctx, class, objs, (&fakeObjectsRepo{}).Object, logger)
+		require.NoError(t, err)
+		require.Empty(t, vecErrs)
+		assert.Empty(t, objs[0].Vectors)
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		require.NoError(t, p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger))
+		assert.Empty(t, obj.Vectors)
+	})
 }
 
 func TestProvider_UpdateVector(t *testing.T) {
