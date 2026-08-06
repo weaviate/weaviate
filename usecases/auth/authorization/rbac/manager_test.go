@@ -248,7 +248,7 @@ func TestSnapshotRolesFilter(t *testing.T) {
 		assert.Empty(t, roleG(t, dst, "editor"))
 	})
 
-	t.Run("an api-granted admin survives a filtered backup", func(t *testing.T) {
+	t.Run("a selection naming no namespace carries no admin grants", func(t *testing.T) {
 		src := seed(t)
 		_, err := src.casbin.AddRoleForUser(
 			conv.UserNameWithTypeFromId("ops-lead", authentication.AuthTypeDb),
@@ -258,13 +258,13 @@ func TestSnapshotRolesFilter(t *testing.T) {
 		blob, err := src.Snapshot("customAdmin")
 		require.NoError(t, err)
 
-		dst, err := setupTestManager(t, logger)
-		require.NoError(t, err)
-		require.NoError(t, dst.Restore(blob, false))
-
-		// Nothing on the restore side recreates an admin grant made through the API,
-		// so losing it here loses it permanently.
-		assert.Contains(t, subjectsOf(roleG(t, dst, authorization.Admin)), "db:ops-lead")
+		// The caller asked for one role. Shipping the cluster's admin roster with it
+		// would put those principals on any target. This grant is still lost by the
+		// restore, along with every other role the selection left out, which is the
+		// replace semantics rather than a gap here.
+		var s snapshot
+		require.NoError(t, json.Unmarshal(blob, &s))
+		assert.NotContains(t, rolesOf(s.GroupingPolicy), conv.PrefixRoleName(authorization.Admin))
 	})
 
 	t.Run("root and read-only grants are left out", func(t *testing.T) {
@@ -340,21 +340,16 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 		assert.Empty(t, grantedAdmins(t, blob))
 	})
 
-	t.Run("with namespaces off every principal is in scope", func(t *testing.T) {
-		m, err := setupTestManager(t, logger)
+	t.Run("a global or group subject is never carried", func(t *testing.T) {
+		m := seedNS(t)
+		_, err := m.casbin.AddRoleForUser(conv.PrefixGroupName("ops"), conv.PrefixRoleName(authorization.Admin))
 		require.NoError(t, err)
-		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("editor"), "collections/*", authorization.UPDATE, authorization.SchemaDomain)
-		require.NoError(t, err)
-		for _, subject := range []string{"alice", "bob"} {
-			_, err = m.casbin.AddRoleForUser(
-				conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
-				conv.PrefixRoleName(authorization.Admin))
-			require.NoError(t, err)
-		}
 
-		blob, err := m.Snapshot("editor")
+		blob, err := m.Snapshot("ns1:editor")
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"db:alice", "db:bob"}, grantedAdmins(t, blob))
+		// db:global-admin and group:ops belong to the source cluster, not to ns1, so
+		// neither travels with the namespace being moved.
+		assert.Equal(t, []string{"db:ns1:local-admin"}, grantedAdmins(t, blob))
 	})
 
 	t.Run("the whole-cluster snapshot is unaffected", func(t *testing.T) {
@@ -457,16 +452,6 @@ func TestSnapshotRecordsNamespaces(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, recorded(t, blob))
 	})
-}
-
-func subjectsOf(rows [][]string) []string {
-	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		if len(r) > 0 {
-			out = append(out, r[0])
-		}
-	}
-	return out
 }
 
 func rolesOf(rows [][]string) []string {

@@ -474,15 +474,15 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 // every restore, so carrying them would be discarded work.
 var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
 
-// apiManagedBuiltInGroupings returns the admin and viewer assignments held by the
-// principals a role selection covers. A built-in role can never be selected, so
-// without this a filtered snapshot drops those grants and nothing restores them.
+// apiManagedBuiltInGroupings returns the admin and viewer assignments held by subjects
+// qualified with a namespace the selection named. A built-in role can never be selected,
+// so without these rows a namespace's own admin is absent from the snapshot and a fresh
+// cluster has nothing to rebuild it from.
 //
-// Out-of-scope rows must stay behind. A db subject strips unconditionally, so
-// another namespace's admin would land on the restored cluster as a global identity
-// holding admin. Scope reads the cluster mode rather than testing whether the
-// namespace set came out empty: selecting only global roles derives none, and
-// treating that as "all in scope" is the same leak.
+// Anything outside that namespace stays behind. A db subject strips unconditionally, so
+// another namespace's admin would arrive on the restored cluster as a global identity
+// holding admin. A global or group subject belongs to the source cluster rather than to
+// the namespace being moved.
 func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
 	namespaces := make(map[string]struct{}, len(roles))
 	for _, name := range roles {
@@ -490,11 +490,11 @@ func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error)
 			namespaces[ns] = struct{}{}
 		}
 	}
+	if len(namespaces) == 0 {
+		return nil, nil
+	}
 
 	inScope := func(subject string) bool {
-		if !m.namespacesEnabled {
-			return true
-		}
 		_, _, ns, err := conv.SubjectNamespace(subject)
 		if err != nil || ns == "" {
 			return false
