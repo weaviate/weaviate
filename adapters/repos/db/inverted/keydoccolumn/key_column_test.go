@@ -114,7 +114,7 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 				"test case must exercise the branch it claims")
 
 			res := newResolution(len(tt.keys))
-			seg.applyHits(tt.keys, res, true)
+			seg.scanInto(tt.keys, res, true)
 
 			var got []uint64
 			for _, held := range res.docs {

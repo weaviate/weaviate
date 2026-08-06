@@ -55,7 +55,7 @@ func newResolution(numKeys int) *Resolution {
 	return &Resolution{docs: docs}
 }
 
-// insert records that the key at qi holds doc. Adding, not replacing: a tier
+// insert records that the key at qi holds doc. Adding, not replacing: a layer
 // that supersedes an earlier document does so by deleting it, which is how
 // roaringset layers express an update.
 func (r *Resolution) insert(qi int, doc uint64) {
@@ -85,16 +85,16 @@ func (r *Resolution) delete(qi int, doc uint64) {
 	}
 }
 
-// LayerUnflushed applies the bucket's unflushed tiers over a resolution of the
+// ApplyMemtables applies the bucket's unflushed layers over a resolution of the
 // flushed ones, so a query sees writes that have not reached a segment yet.
 //
-// Each key is carried independently: a tier's deletions retire documents from
+// Each key is carried independently: a layer's deletions retire documents from
 // that key alone, then its additions are added to it. Deletions therefore reach
 // only the key they were issued under, which is what stops a document that also
 // sits under another key from vanishing from both. Readers arrive oldest first,
-// so replaying them in order settles a document added by one tier and deleted by
+// so replaying them in order settles a document added by one layer and deleted by
 // a later one as deleted.
-func (r *Resolution) LayerUnflushed(readers []roaringset.LayerReader, keys [][]byte) error {
+func (r *Resolution) ApplyMemtables(readers []roaringset.LayerReader, keys [][]byte) error {
 	for _, reader := range readers {
 		for i, key := range keys {
 			layer, err := reader.Get(key)
@@ -108,9 +108,9 @@ func (r *Resolution) LayerUnflushed(readers []roaringset.LayerReader, keys [][]b
 	return nil
 }
 
-// applyLayerBitmap folds one tier's documents for a key into the working set.
+// applyLayerBitmap applies one layer's documents for a key into the working set.
 //
-// A tier almost always names a single document per key, so that case is read
+// A layer almost always names a single document per key, so that case is read
 // without materializing the bitmap. Walking it with an iterator would read
 // better but costs an allocation per call — here one per key per query.
 func (r *Resolution) applyLayerBitmap(bm *sroar.Bitmap, qi int, adds bool) {

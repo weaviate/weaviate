@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -213,8 +214,15 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 // else implements it in production. It exists so tests can record which keys
 // the fold reads and inject read errors and cancellation. Releasing is absent
 // deliberately: the caller owns the reader's lifetime.
+//
+// KeyDocColumn and MemtableReaders are the same view seen a second way: the
+// resident index covers what was flushed when it was built, the memtable
+// readers cover what the view holds unflushed, and together they answer the
+// same rows Get would.
 type containsBatchReader interface {
 	Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error)
+	KeyDocColumn() *keydoccolumn.Index
+	MemtableReaders() []roaringset.LayerReader
 }
 
 // mergeAllowlistBitmaps folds b into a under op (ContainsAny -> union,
@@ -288,11 +296,11 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 
 	// Serve ContainsAny from the resident key/doc column when the property was
 	// configured for one; a property that was not simply has no index attached.
-	// Any miss — no index, a build that declined, a flush that detached it, or a
-	// non-*lsmkv.Bucket — falls through to the standard fold below, which returns
-	// the same documents either way.
+	// Any miss — no index, a build that declined, a flush that detached it —
+	// falls through to the standard fold below, which returns the same documents
+	// either way.
 	if pv.operator == filters.ContainsAny {
-		if dbm, ok := s.resolveContainsKeyDocColumn(b, view, pv); ok {
+		if dbm, ok := s.resolveContainsKeyDocColumn(reader, pv); ok {
 			return dbm, nil
 		}
 	}
@@ -325,27 +333,23 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
 }
 
-// resolveContainsKeyDocColumn serves a ContainsAny query from the bucket's resident
-// key/doc column. It returns (result, true) when the index served the query, or
-// (_, false) when the caller must fall back to the standard fold — the bucket is
-// not an *lsmkv.Bucket, or it has no index because the property was not
-// configured for one, the build declined, or a flush detached it.
-func (s *Searcher) resolveContainsKeyDocColumn(b containsBatchBucket,
-	view lsmkv.BucketConsistentView, pv *propValuePair,
+// resolveContainsKeyDocColumn serves a ContainsAny query from the resident
+// key/doc column over the bucket the reader holds a view of. It returns
+// (result, true) when the index served the query, or (_, false) when the caller
+// must fall back to the standard fold, which the bucket carrying no index is the
+// only reason for.
+func (s *Searcher) resolveContainsKeyDocColumn(reader containsBatchReader,
+	pv *propValuePair,
 ) (docBitmap, bool) {
-	bkt, ok := b.(*lsmkv.Bucket)
-	if !ok {
-		return docBitmap{}, false
-	}
-	idx := bkt.KeyDocColumn()
+	idx := reader.KeyDocColumn()
 	if idx == nil {
 		return docBitmap{}, false // not configured, declined at build, or detached
 	}
 
-	// Resolve the flushed tiers per key, layer the unflushed ones on the same
+	// Resolve the flushed layers per key, apply the unflushed ones on the same
 	// per-key terms, then materialize once.
-	res := idx.ResolvePerKey(pv.containsValues)
-	if err := res.LayerUnflushed(bkt.MemtableReaders(view), pv.containsValues); err != nil {
+	res := idx.Resolve(pv.containsValues)
+	if err := res.ApplyMemtables(reader.MemtableReaders(), pv.containsValues); err != nil {
 		return docBitmap{}, false
 	}
 	return docBitmap{docIDs: res.Bitmap(), release: noopRelease, isDenyList: false}, true

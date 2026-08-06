@@ -64,7 +64,7 @@ func TestKeyDocColumnPOC_Correctness(t *testing.T) {
 		values, wantSampled := f.sampleValues(size)
 		keys := keyDocColumnSortedKeys(values)
 
-		got := idx.ResolvePerKey(keys).Bitmap().ToArray()
+		got := idx.Resolve(keys).Bitmap().ToArray()
 
 		// against the known sampled docIDs
 		require.Equal(t, wantSampled, got, "key/doc column vs sampled docIDs at N=%d", size)
@@ -94,7 +94,7 @@ func BenchmarkKeyDocColumnPOC(b *testing.B) {
 		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				idx.ResolvePerKey(keys).Bitmap()
+				idx.Resolve(keys).Bitmap()
 			}
 		})
 	}

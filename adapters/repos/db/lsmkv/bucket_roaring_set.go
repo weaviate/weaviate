@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -216,6 +217,20 @@ func (r *RoaringSetBatchReader) Get(key []byte, mergeConc int) (*sroar.Bitmap, f
 		return nil, noopRelease, ErrReaderReleased
 	}
 	return r.view.Bucket.roaringSetGetFromConsistentView(r.view, key, mergeConc)
+}
+
+// KeyDocColumn returns the resident key/doc column over the bucket this reader
+// holds a view of, or nil if it carries none. Reading it and reading rows
+// through Get answer the same question two ways; which one a caller picks is a
+// cost decision, not a correctness one.
+func (r *RoaringSetBatchReader) KeyDocColumn() *keydoccolumn.Index {
+	return r.view.Bucket.KeyDocColumn()
+}
+
+// MemtableReaders returns readers over the unflushed layers of the held view,
+// for a caller resolving against an index that covers only what was flushed.
+func (r *RoaringSetBatchReader) MemtableReaders() []roaringset.LayerReader {
+	return r.view.MemtableReaders()
 }
 
 // Release releases the held view. Later calls are no-ops: a second decRef could

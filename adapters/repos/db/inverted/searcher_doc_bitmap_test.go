@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -63,6 +64,14 @@ func (s *containsBatchFixture) reader(t *testing.T) *spyContainsBatchReader {
 type spyContainsBatchReader struct {
 	reader  *lsmkv.RoaringSetBatchReader
 	fixture *containsBatchFixture
+}
+
+func (r *spyContainsBatchReader) KeyDocColumn() *keydoccolumn.Index {
+	return r.reader.KeyDocColumn()
+}
+
+func (r *spyContainsBatchReader) MemtableReaders() []roaringset.LayerReader {
+	return r.reader.MemtableReaders()
 }
 
 func (r *spyContainsBatchReader) Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error) {

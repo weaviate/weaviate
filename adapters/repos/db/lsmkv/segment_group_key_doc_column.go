@@ -21,37 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
-
-type memtableLayerReader struct{ mt memtable }
-
-func (r memtableLayerReader) Get(key []byte) (roaringset.BitmapLayer, error) {
-	layer, err := r.mt.roaringSetGet(key)
-	if err != nil && errors.Is(err, entlsmkv.NotFound) {
-		return roaringset.BitmapLayer{}, nil
-	}
-	return layer, err
-}
-
-// MemtableReaders returns readers over the tiers this bucket has not flushed
-// yet, oldest first — flushing before active, so a caller replaying them in
-// order sees a document added while flushing and deleted in the active memtable
-// as deleted. Empty tiers are left out.
-//
-// Exists because resolving a query against an index that covers only flushed
-// data has to consult these too, and memtables and their accessors are not
-// reachable from outside this package.
-func (b *Bucket) MemtableReaders(view BucketConsistentView) []roaringset.LayerReader {
-	var readers []roaringset.LayerReader
-	for _, mt := range []memtable{view.Flushing, view.Active} {
-		if mt == nil || mt.Size() == 0 {
-			continue
-		}
-		readers = append(readers, memtableLayerReader{mt: mt})
-	}
-	return readers
-}
 
 // initKeyDocColumn builds and attaches the index, once, while the
 // segment group is being constructed — before the bucket exists, so before any
@@ -88,7 +58,7 @@ func (sg *SegmentGroup) initKeyDocColumn(maxIdGetter roaringset.MaxIdGetterFunc)
 	return nil
 }
 
-// absorbFlushIntoKeyDocColumn feeds a just-flushed memtable to the index, from
+// mergeMemtableIntoKeyDocColumn feeds a just-flushed memtable to the index, from
 // the segment swap that removes it — so the flush becomes visible as a segment
 // and as index state in one critical section, and no query falls between the two.
 //
@@ -98,12 +68,12 @@ func (sg *SegmentGroup) initKeyDocColumn(maxIdGetter roaringset.MaxIdGetterFunc)
 // makes for readers of a live one. That copy dominated the read, and skipping it
 // leaves work of the same order as this switch's other arms.
 //
-// If the index declines the flush, it is detached. The run is appended only
+// If the index declines the flush, it is detached. The layer is appended only
 // after every check that can fail, so a failure leaves the index without the
 // flushed documents — and once the swap lands, those documents live in the new
 // segment alone, which the index never reads. Keeping it would mean answering
 // ContainsAny with silently missing results.
-func (sg *SegmentGroup) absorbFlushIntoKeyDocColumn(flushing memtable) error {
+func (sg *SegmentGroup) mergeMemtableIntoKeyDocColumn(flushing memtable) error {
 	idx := sg.keyDocColumn.Load()
 	if idx == nil {
 		return nil
@@ -113,7 +83,7 @@ func (sg *SegmentGroup) absorbFlushIntoKeyDocColumn(flushing memtable) error {
 	}
 	// sealed: the memtable is durable, out of active use and its writers have
 	// drained, so the index reads it without paying for a copy it cannot use
-	if err := idx.AbsorbFlush(flushing.newSealedRoaringSetCursor()); err != nil {
+	if err := idx.MergeMemtableByCursor(flushing.newSealedRoaringSetCursor()); err != nil {
 		sg.keyDocColumn.Store(nil)
 		return err
 	}

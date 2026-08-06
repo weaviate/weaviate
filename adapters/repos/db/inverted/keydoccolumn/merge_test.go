@@ -20,12 +20,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// segmentDocs reads every document row i holds — its column entry and any
+// overflow — in stored order. Production reads a row through applyRow or
+// segmentCursor, both of which apply deletions on the way; this is for tests that
+// want to see a segment exactly as it was built.
+func segmentDocs(seg *segment, i int) []uint64 {
+	return append([]uint64{seg.docs.at(i)}, seg.overflow[uint32(i)]...)
+}
+
 // segmentPairs reads a segment back out as key → its documents, sorted, for
 // comparing a merged base against an independently computed expectation.
 func segmentPairs(seg *segment) map[string][]uint64 {
 	out := make(map[string][]uint64, seg.keys.len())
 	for i := 0; i < seg.keys.len(); i++ {
-		docs := seg.appendDocs(i, nil)
+		docs := segmentDocs(seg, i)
 		sort.Slice(docs, func(a, b int) bool { return docs[a] < docs[b] })
 		out[string(seg.keys.appendKey(i, nil))] = docs
 	}
@@ -55,15 +63,15 @@ func modelPairs(model map[string]docSet) map[string][]uint64 {
 	return out
 }
 
-// TestMergeTiersMatchesReplay drives randomized base+run layouts through the
-// merge and compares against a map replaying the same tiers in the same order.
+// TestFlattenMatchesReplay drives randomized base+layer layouts through the
+// merge and compares against a map replaying the same layers in the same order.
 // The oracle is deliberately the naive formulation the merge replaced: apply
-// each run's deletions to whatever docID the key currently holds, then its
+// each layer's deletions to whatever docID the key currently holds, then its
 // addition.
-func TestMergeTiersMatchesReplay(t *testing.T) {
+func TestFlattenMatchesReplay(t *testing.T) {
 	const (
-		universe = 200
-		numRuns  = 6
+		universe  = 200
+		numLayers = 6
 	)
 	keyOf := func(i int) string { return fmt.Sprintf("key_%04d", i) }
 
@@ -86,7 +94,7 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 			idx := newTestIndex(segFromPairs(baseKeys, baseDocs))
 
 			nextDoc := uint64(universe + 1)
-			for r := 0; r < numRuns; r++ {
+			for r := 0; r < numLayers; r++ {
 				cursor := newMockCursor()
 				// walk the universe in order so the cursor's keys stay sorted
 				for i := 0; i < universe; i++ {
@@ -97,7 +105,7 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 					case 0: // delete whatever the key currently holds
 						dels = model[k].sorted()
 					case 1: // stale delete: a docID this key does not hold, sometimes one
-						// another key does. Both resolution and the fold apply a
+						// another key does. Both resolution and a flattening apply a
 						// deletion only to the key it was issued under, so neither is
 						// allowed to disturb the owning key.
 						dels = []uint64{uint64(rnd.Intn(universe) + 1)}
@@ -126,11 +134,11 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 						model[k][a] = true
 					}
 				}
-				require.NoError(t, idx.AbsorbFlush(cursor))
+				require.NoError(t, idx.MergeMemtableByCursor(cursor))
 			}
 
 			state := idx.state.Load()
-			merged := mergeTiers(state.base, state.runs)
+			merged := flatten(state.base, state.layers)
 			require.Equal(t, modelPairs(model), segmentPairs(merged),
 				"merged base must equal the replayed net state")
 
@@ -141,23 +149,23 @@ func TestMergeTiersMatchesReplay(t *testing.T) {
 				require.Less(t, prev, cur, "merged keys must be strictly ascending")
 			}
 
-			// and the merged base must answer queries identically to the tiers it replaced
+			// and the merged base must answer queries identically to the layers it replaced
 			all := make([]string, 0, universe)
 			for i := 0; i < universe; i++ {
 				all = append(all, keyOf(i))
 			}
 			before := resolveSorted(idx, all...)
-			idx.foldRunsIntoBase()
+			idx.flattenIntoBase()
 			require.Equal(t, before, resolveSorted(idx, all...),
-				"folding must not change what the index resolves")
+				"flattening must not change what the index resolves")
 		})
 	}
 }
 
-// TestMergeTiersEdgeCases covers the shapes the randomized run reaches rarely or
-// never: nothing in the base, nothing in a run, and a key whose only mention is
+// TestFlattenEdgeCases covers the shapes the randomized layer reaches rarely or
+// never: nothing in the base, nothing in a layer, and a key whose only mention is
 // a deletion.
-func TestMergeTiersEdgeCases(t *testing.T) {
+func TestFlattenEdgeCases(t *testing.T) {
 	tests := []struct {
 		name  string
 		base  [][2]any // key, docID
@@ -169,7 +177,7 @@ func TestMergeTiersEdgeCases(t *testing.T) {
 		want map[string][]uint64
 	}{
 		{
-			name: "empty base, run adds",
+			name: "empty base, layer adds",
 			flush: []struct {
 				key  string
 				adds []uint64
@@ -223,18 +231,18 @@ func TestMergeTiersEdgeCases(t *testing.T) {
 			for _, f := range tt.flush {
 				cursor.add([]byte(f.key), f.adds, f.dels)
 			}
-			require.NoError(t, idx.AbsorbFlush(cursor))
+			require.NoError(t, idx.MergeMemtableByCursor(cursor))
 
 			state := idx.state.Load()
-			require.Equal(t, tt.want, segmentPairs(mergeTiers(state.base, state.runs)))
+			require.Equal(t, tt.want, segmentPairs(flatten(state.base, state.layers)))
 		})
 	}
 }
 
-// TestMergeTiersAcrossKeyBackings runs the merge over each key backing, since
+// TestFlattenAcrossKeyBackings runs the merge over each key backing, since
 // the merge compares keys through appendKey and the prefix backing reconstructs
 // them from an elided prefix.
-func TestMergeTiersAcrossKeyBackings(t *testing.T) {
+func TestFlattenAcrossKeyBackings(t *testing.T) {
 	tests := []struct {
 		name    string
 		keyOf   func(i int) string
@@ -279,10 +287,10 @@ func TestMergeTiersAcrossKeyBackings(t *testing.T) {
 				cursor.add([]byte(n), []uint64{uint64(1000 + i)}, []uint64{uint64(i + 1)})
 				model[n] = []uint64{uint64(1000 + i)}
 			}
-			require.NoError(t, idx.AbsorbFlush(cursor))
+			require.NoError(t, idx.MergeMemtableByCursor(cursor))
 
 			state := idx.state.Load()
-			require.Equal(t, model, segmentPairs(mergeTiers(state.base, state.runs)))
+			require.Equal(t, model, segmentPairs(flatten(state.base, state.layers)))
 		})
 	}
 }

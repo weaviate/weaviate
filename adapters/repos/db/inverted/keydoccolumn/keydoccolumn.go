@@ -32,7 +32,7 @@
 // The reverse does not hold: a document may sit under as many keys as it likes.
 // An array-valued property puts one document under one key per element, and a
 // tokenized text property under one key per term; both are fine, because every
-// tier is applied per key. A deletion reaches only the key it was issued under,
+// layer is applied per key. A deletion reaches only the key it was issued under,
 // so a document losing one of its values keeps matching the rest.
 //
 // Lifting the remaining requirement would mean per-key posting lists — a docID
@@ -54,10 +54,11 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// foldRunsThreshold is the number of accumulated runs at which AbsorbFlush folds
-// base+runs into a fresh base, so reads stay at a bounded number of tiers.
+// flattenLayersThreshold is the number of accumulated layers at which
+// MergeMemtableByCursor flattens base+layers into a fresh base, so reads stay at
+// a bounded number of layers.
 // Package var for tuning/tests.
-var foldRunsThreshold = 8
+var flattenLayersThreshold = 8
 
 // keyColumn abstracts sorted key storage so the core is
 // datatype-agnostic. Query keys are always the lexicographically-sortable
@@ -89,7 +90,7 @@ type keyColumn interface {
 	// Fold.
 
 	// appendKey appends the full key bytes at position i to dst, returning the
-	// extended slice. Append rather than return-a-view so the fold can write
+	// extended slice. Append rather than return-a-view so a flattening can write
 	// straight into the blob it is building, and so reconstructing a
 	// prefix-elided key costs no allocation.
 	appendKey(i int, dst []byte) []byte
@@ -292,53 +293,47 @@ type segment struct {
 	maxDoc uint64
 }
 
-// appendDocs appends every document row i holds — its column entry and any
-// overflow — to dst.
-func (seg *segment) appendDocs(i int, dst []uint64) []uint64 {
-	dst = append(dst, seg.docs.at(i))
-	return append(dst, seg.overflow[uint32(i)]...)
-}
-
-// run is one flushed memtable copied into column form: the keys that got an
+// layer is one flushed memtable copied into column form: the keys that got an
 // addition (key → added docID) as an adds segment, and the keys that got a
 // deletion (key → removed docID) as a dels segment. Unlike adds, the dels
 // segment may repeat a key — one flush can retire several docIDs from the same
 // key — so it is a plain sorted (key, docID) pair list, not a lookup table.
-type run struct {
+type layer struct {
 	adds *segment
 	dels *segment
 }
 
-// indexState is the tier set a query resolves against: an immutable base plus
-// the runs absorbed since it was built, oldest first. Every field is immutable
+// indexState is the layer set a query resolves against: an immutable base plus
+// the layers merged in since it was built, oldest first. Every field is immutable
 // once published, so a reader that loads a state can work from it for as long as
 // it likes while writers publish newer ones.
 type indexState struct {
-	base *segment
-	runs []*run
+	base   *segment
+	layers []*layer
 }
 
 // Index is the resident index for one property: an immutable base
-// (built from disk segments at startup) plus a list of runs, one per flushed
-// memtable absorbed since. Resolution folds the runs over the base, newest last.
+// (built from disk segments at startup) plus a list of layers, one per flushed
+// memtable merged in since. Resolution flattens the layers over the base,
+// newest last.
 // Live active/flushing memtables are layered by the caller, not held here.
 //
-// Reads are lock-free: one atomic load of the current state. Writers (absorbing
-// a flush, folding runs into a fresh base) publish a whole new state by
+// Reads are lock-free: one atomic load of the current state. Writers (merging
+// a flush, flattening layers into a fresh base) publish a whole new state by
 // compare-and-swap, so a reader never observes a half-applied change and never
 // contends with a writer.
 type Index struct {
-	state   atomic.Pointer[indexState]
-	folding atomic.Bool // a fold is in flight; see foldRunsIntoBase
-	logger  logrus.FieldLogger
+	state      atomic.Pointer[indexState]
+	flattening atomic.Bool // a flattening is in flight; see flattenIntoBase
+	logger     logrus.FieldLogger
 }
 
 // MergedCursor walks keys in order, yielding each key's net document set with
-// deletions already applied and newer tiers already winning over older ones —
-// what [roaringset.CombinedCursor] produces over a set of tier cursors.
+// deletions already applied and newer layers already winning over older ones —
+// what [roaringset.CombinedCursor] produces over a set of segment cursors.
 //
 // Taking the merged form rather than raw layers leaves the merge policy with the
-// tiers it belongs to, and means this package never learns how many there were.
+// layers it belongs to, and means this package never learns how many there were.
 type MergedCursor interface {
 	First() ([]byte, *sroar.Bitmap)
 	Next() ([]byte, *sroar.Bitmap)
@@ -419,7 +414,7 @@ func newSegmentBuilder() *segmentBuilder {
 
 // newSegmentBuilderSized presizes to upper bounds on the entry count and key
 // bytes, and packs docIDs at docWidth. Producers that know all three — the
-// startup build and the tier merge — write their whole output without a single
+// startup build and the layer merge — write their whole output without a single
 // array regrowth.
 func newSegmentBuilderSized(numKeys, keyBytes, docWidth int) *segmentBuilder {
 	return &segmentBuilder{
@@ -576,24 +571,24 @@ func commonPrefixLen(a, b []byte) int {
 // costs, and how much it holds. Reporting only — nothing on the query path
 // reads it.
 type Info struct {
-	// Keys is the number of keys held by the base tier.
+	// Keys is the number of keys held by the base.
 	Keys int
-	// KeyWidth is the fixed key byte width the base tier resolved to, or -1 if
+	// KeyWidth is the fixed key byte width the base resolved to, or -1 if
 	// keys are variable-length. Confirms which backing the corpus selected.
 	KeyWidth int
 	// KeyPrefix is how many leading bytes were elided as a prefix shared by
-	// every key in the base tier, or 0 if none.
+	// every key in the base, or 0 if none.
 	KeyPrefix int
 	// DocIDWidth is the byte width the docID column packs each docID at.
 	DocIDWidth int
-	// SizeBytes is the resident heap held by the base tier's backing arrays (key
+	// SizeBytes is the resident heap held by the base's backing arrays (key
 	// column + docID column), by capacity. This is the process-lifetime
 	// footprint the index costs per property per shard.
 	SizeBytes int
 }
 
-// Info returns a description of the current base tier. One state load, so every
-// field describes the same generation even if a fold publishes a new base
+// Info returns a description of the current base. One state load, so every
+// field describes the same generation even if a flattening publishes a new base
 // mid-report.
 func (idx *Index) Info() Info {
 	base := idx.state.Load().base
@@ -607,29 +602,29 @@ func (idx *Index) Info() Info {
 	}
 }
 
-// ResolvePerKey resolves each query key independently across the index's tiers,
+// Resolve resolves each query key independently across the index's layers,
 // returning a docID and a liveness flag per position in sortedKeys. sortedKeys
 // must be the encoded query values, sorted ascending (bytes.Compare order).
 //
 // Deletions are applied to the key they were issued under rather than to the
-// result as a whole: a key's tiers are replayed oldest to newest, so a flush
+// result as a whole: a key's layers are replayed oldest to newest, so a flush
 // that retired a docID only affects the key it retired it from, and a flush
 // retiring a docID some later flush already replaced does nothing. The caller
 // gets the per-key state rather than a bitmap so it can layer unflushed
 // memtables on the same terms before materializing once.
-func (idx *Index) ResolvePerKey(sortedKeys [][]byte) *Resolution {
+func (idx *Index) Resolve(sortedKeys [][]byte) *Resolution {
 	state := idx.state.Load()
 	res := newResolution(len(sortedKeys))
 
-	state.base.applyHits(sortedKeys, res, true)
-	for _, r := range state.runs {
-		r.dels.applyHits(sortedKeys, res, false)
-		r.adds.applyHits(sortedKeys, res, true)
+	state.base.scanInto(sortedKeys, res, true)
+	for _, r := range state.layers {
+		r.dels.scanInto(sortedKeys, res, false)
+		r.adds.scanInto(sortedKeys, res, true)
 	}
 	return res
 }
 
-// applyHits folds this segment's matches for sortedKeys into a per-query-key
+// scanInto records this segment's matches for sortedKeys into a per-query-key
 // working set, indexed by position in sortedKeys.
 //
 // With adds set, a match records its documents as held by that key. Without it,
@@ -638,8 +633,8 @@ func (idx *Index) ResolvePerKey(sortedKeys [][]byte) *Resolution {
 //
 // Adaptive merge-scan vs binary-search, no bitmap ops, and no per-hit
 // bookkeeping: matches are applied where they are found. Shared by the base and
-// by each run's adds and dels segments.
-func (seg *segment) applyHits(sortedKeys [][]byte, res *Resolution, adds bool) {
+// by each layer's adds and dels segments.
+func (seg *segment) scanInto(sortedKeys [][]byte, res *Resolution, adds bool) {
 	n := seg.keys.len()
 	if n == 0 {
 		return
@@ -694,35 +689,35 @@ func (seg *segment) applyRow(i, qi int, res *Resolution, adds, overflowed bool) 
 	}
 }
 
-// AbsorbFlush copies a flushed memtable — iterated via its roaringset cursor —
-// into a new run appended to the index. A key's additions become a row in the
-// run's adds segment, its deletions a row in the dels segment, in both cases
-// with everything past the first document going to that row's overflow. The
-// cursor's key order leaves both segments sorted. The docID columns are
-// full-width (runs are small; sizing them narrow would need the current
-// maxDocID, which may have grown past the base's).
-func (idx *Index) AbsorbFlush(cursor roaringset.InnerCursor) error {
+// MergeMemtableByCursor copies a flushed memtable — iterated via its roaringset
+// cursor — into a new layer appended to the index. A key's additions become a
+// row in the layer's adds segment, its deletions a row in the dels segment, in
+// both cases with everything past the first document going to that row's
+// overflow. The cursor's key order leaves both segments sorted. The docID
+// columns are full-width (layers are small; sizing them narrow would need the
+// current maxDocID, which may have grown past the base's).
+func (idx *Index) MergeMemtableByCursor(cursor roaringset.InnerCursor) error {
 	addCol := newSegmentBuilder()
 	delCol := newSegmentBuilder()
 
-	for k, layer, err := cursor.First(); ; k, layer, err = cursor.Next() {
+	for k, bl, err := cursor.First(); ; k, bl, err = cursor.Next() {
 		if err != nil {
 			return err
 		}
 		if k == nil {
 			break
 		}
-		// deletions keep the key they were issued under, which is what lets the
-		// fold and resolution retire a document from that key alone rather than
-		// from the whole result. Several deletions under one key is ordinary
+		// deletions keep the key they were issued under, which is what lets a
+		// flatten and a resolution retire a document from that key alone rather
+		// than from the whole result. Several deletions under one key is ordinary
 		// history rather than a data problem, so this never warns.
-		if !layer.Deletions.IsEmpty() {
-			delCol.appendBitmap(k, layer.Deletions)
+		if !bl.Deletions.IsEmpty() {
+			delCol.appendBitmap(k, bl.Deletions)
 		}
-		if layer.Additions.IsEmpty() {
+		if bl.Additions.IsEmpty() {
 			continue
 		}
-		addCol.appendBitmap(k, layer.Additions)
+		addCol.appendBitmap(k, bl.Additions)
 	}
 
 	if keys, extras, limit := addCol.overflowReport(); extras > 0 {
@@ -731,76 +726,78 @@ func (idx *Index) AbsorbFlush(cursor roaringset.InnerCursor) error {
 				"holding more than one document (%d extra between them), past the %d such "+
 				"keys worth maintaining this structure for", keys, extras, limit)
 		}
-		idx.logger.WithField("action", "keydoccolumn_absorb_flush").
+		idx.logger.WithField("action", "keydoccolumn_merge_memtable").
 			Warnf("flush carried values that are not unique: %d keys hold %d extra documents "+
 				"between them; results stay correct, but the index is sized and tuned for one "+
 				"document per value", keys, extras)
 	}
 
-	r := &run{
+	l := &layer{
 		adds: addCol.segment(),
 		dels: delCol.segment(),
 	}
-	// Publish a state carrying the new run. The runs slice is copied rather than
-	// appended in place so a reader holding the previous state keeps a slice no
-	// writer can touch.
-	var numRuns int
+	// Publish a state carrying the new layer. The layers slice is copied rather
+	// than appended in place so a reader holding the previous state keeps a slice
+	// no writer can touch.
+	var numLayers int
 	for {
 		cur := idx.state.Load()
-		runs := make([]*run, len(cur.runs)+1)
-		copy(runs, cur.runs)
-		runs[len(cur.runs)] = r
-		if idx.state.CompareAndSwap(cur, &indexState{base: cur.base, runs: runs}) {
-			numRuns = len(runs)
+		layers := make([]*layer, len(cur.layers)+1)
+		copy(layers, cur.layers)
+		layers[len(cur.layers)] = l
+		if idx.state.CompareAndSwap(cur, &indexState{base: cur.base, layers: layers}) {
+			numLayers = len(layers)
 			break
 		}
 	}
 
-	// Single-flight: a fold already in flight will consume every run appended so
-	// far, and two concurrent folds would each drop the runs the other consumed.
-	if numRuns >= foldRunsThreshold && idx.folding.CompareAndSwap(false, true) {
-		// Off the flush path: a fold rebuilds the whole base, which is orders of
-		// magnitude slower than absorbing one memtable, and the flush must not
+	// Single-flight: a flattening already in flight will consume every layer
+	// appended so far, and two concurrent flattenings would each drop the layers
+	// the other consumed.
+	if numLayers >= flattenLayersThreshold && idx.flattening.CompareAndSwap(false, true) {
+		// Off the flush path: a flattening rebuilds the whole base, which is orders
+		// of magnitude slower than merging one memtable, and the flush must not
 		// wait for it. Reads stay correct throughout — they resolve against the
-		// pre-fold base plus every run until the swap publishes the new base.
-		enterrors.GoWrapper(idx.foldRunsIntoBase, idx.logger)
+		// pre-flatten base plus every layer until the swap publishes the new base.
+		enterrors.GoWrapper(idx.flattenIntoBase, idx.logger)
 	}
 	return nil
 }
 
-// foldRunsIntoBase merges the base and all currently-accumulated runs into a
-// fresh base (newest-wins, deletions applied), then drops those runs — bounding
-// the number of read tiers. Runs appended during the fold are preserved and
-// fold over the new base. The base is immutable and swapped by pointer, so
-// in-flight readers keep the version they snapshotted.
+// flattenIntoBase merges the base and all currently-accumulated layers into a
+// fresh base (newest-wins, deletions applied), then drops those layers —
+// bounding the number of read layers. Layers appended while it runs are preserved
+// and flatten over the new base. The base is immutable and swapped by pointer,
+// so in-flight readers keep the version they snapshotted.
 //
-// Runs on its own goroutine, one at a time: the run window it consumes is fixed
-// at entry, so a second concurrent fold would compute a base from the same runs
-// and then drop that many again, discarding whatever was absorbed in between.
-func (idx *Index) foldRunsIntoBase() {
-	defer idx.folding.Store(false)
+// Runs on its own goroutine, one at a time: the layer window it consumes is
+// fixed at entry, so a second concurrent flattening would compute a base from
+// the same layers and then drop that many again, discarding whatever arrived in
+// between.
+func (idx *Index) flattenIntoBase() {
+	defer idx.flattening.Store(false)
 
 	state := idx.state.Load()
-	base, runs := state.base, state.runs
-	if len(runs) == 0 {
+	base, layers := state.base, state.layers
+	if len(layers) == 0 {
 		return
 	}
 
-	newBase := mergeTiers(base, runs)
+	newBase := flatten(base, layers)
 
-	// Publish the new base, dropping exactly the runs this fold consumed. Those
-	// are a prefix of whatever the current state holds — absorbs only ever append,
-	// and single-flight means no other fold removed anything meanwhile — so runs
-	// absorbed during the fold survive and layer over the new base.
-	consumed := len(runs)
+	// Publish the new base, dropping exactly the layers this flattening consumed.
+	// Those are a prefix of whatever the current state holds — merges only ever
+	// append, and single-flight means no other flattening removed anything
+	// meanwhile — so layers added while it ran survive and stack over the new base.
+	consumed := len(layers)
 	for {
 		cur := idx.state.Load()
-		var remaining []*run
-		if n := len(cur.runs) - consumed; n > 0 {
-			remaining = make([]*run, n)
-			copy(remaining, cur.runs[consumed:])
+		var remaining []*layer
+		if n := len(cur.layers) - consumed; n > 0 {
+			remaining = make([]*layer, n)
+			copy(remaining, cur.layers[consumed:])
 		}
-		if idx.state.CompareAndSwap(cur, &indexState{base: newBase, runs: remaining}) {
+		if idx.state.CompareAndSwap(cur, &indexState{base: newBase, layers: remaining}) {
 			return
 		}
 	}
@@ -818,32 +815,32 @@ func keyBytesOf(c keyColumn) int {
 	return c.info().sizeBytes
 }
 
-// tierCursor walks one segment's (key, docID) entries in key order, keeping the
+// segmentCursor walks one segment's (key, docID) entries in key order, keeping the
 // current key materialized in a buffer it reuses.
-type tierCursor struct {
+type segmentCursor struct {
 	seg *segment
 	i   int
 	key []byte
 }
 
-func (c *tierCursor) valid() bool { return c.i < c.seg.keys.len() }
+func (c *segmentCursor) valid() bool { return c.i < c.seg.keys.len() }
 
-func (c *tierCursor) load() {
+func (c *segmentCursor) load() {
 	if c.valid() {
 		c.key = c.seg.keys.appendKey(c.i, c.key[:0])
 	}
 }
 
-func (c *tierCursor) at(key []byte) bool { return c.valid() && bytes.Equal(c.key, key) }
+func (c *segmentCursor) at(key []byte) bool { return c.valid() && bytes.Equal(c.key, key) }
 
 // appendDocs adds every document the current row holds to dst, skipping any it
-// already contains — tiers add to a key's set rather than replacing it.
+// already contains — layers add to a key's set rather than replacing it.
 //
 // The row's own document is handled without gathering the row first, so a
 // segment with no overflow — every segment over unique values — touches only
 // the column. The membership scans are linear because dst holds one document
 // for every key such a segment has.
-func (c *tierCursor) appendDocs(dst []uint64) []uint64 {
+func (c *segmentCursor) appendDocs(dst []uint64) []uint64 {
 	if d := c.seg.docs.at(c.i); !slices.Contains(dst, d) {
 		dst = append(dst, d)
 	}
@@ -861,7 +858,7 @@ func (c *tierCursor) appendDocs(dst []uint64) []uint64 {
 // removeDocs drops every document the current row names from dst. Naming one
 // the key no longer holds is a no-op, which is what makes a deletion left behind
 // by an already-superseded document harmless.
-func (c *tierCursor) removeDocs(dst []uint64) []uint64 {
+func (c *segmentCursor) removeDocs(dst []uint64) []uint64 {
 	dst = removeDoc(dst, c.seg.docs.at(c.i))
 	if len(c.seg.overflow) == 0 {
 		return dst
@@ -879,33 +876,33 @@ func removeDoc(docs []uint64, doc uint64) []uint64 {
 	return docs
 }
 
-func (c *tierCursor) next() {
+func (c *segmentCursor) next() {
 	c.i++
 	c.load()
 }
 
-// mergeTiers rebuilds the base by merging it with the runs layered over it.
+// flatten rebuilds the base by merging it with the layers layered over it.
 //
 // Every input is already sorted by key — the base because it was built that way,
-// each run because a memtable cursor yields keys in order — so the net state
+// each layer because a memtable cursor yields keys in order — so the net state
 // comes out of a k-way merge in one pass, in sorted order, with no intermediate
 // map and no re-sort. Output arrays are sized to upper bounds known before the
 // merge starts, so nothing regrows.
 //
-// A key's fate is decided by replaying its tiers oldest to newest: the base
-// proposes a docID, then each run first retires the docIDs it deleted under that
+// A key's fate is decided by replaying its layers oldest to newest: the base
+// proposes a docID, then each layer first retires the docIDs it deleted under that
 // key and then proposes its own addition. Deletions compare against the docID
 // currently held, so a flush retiring a docID that some later flush already
 // replaced correctly does nothing.
-func mergeTiers(base *segment, runs []*run) *segment {
-	// cursor 0 is the base; cursor i+1 is run i's additions.
-	adds := make([]tierCursor, len(runs)+1)
-	dels := make([]tierCursor, len(runs))
-	adds[0] = tierCursor{seg: base}
+func flatten(base *segment, layers []*layer) *segment {
+	// cursor 0 is the base; cursor i+1 is layer i's additions.
+	adds := make([]segmentCursor, len(layers)+1)
+	dels := make([]segmentCursor, len(layers))
+	adds[0] = segmentCursor{seg: base}
 	numKeys, keyBytes, maxDoc := base.keys.len(), keyBytesOf(base.keys), base.maxDoc
-	for i, r := range runs {
-		adds[i+1] = tierCursor{seg: r.adds}
-		dels[i] = tierCursor{seg: r.dels}
+	for i, r := range layers {
+		adds[i+1] = segmentCursor{seg: r.adds}
+		dels[i] = segmentCursor{seg: r.dels}
 		numKeys += r.adds.keys.len()
 		keyBytes += keyBytesOf(r.adds.keys)
 		if r.adds.maxDoc > maxDoc {
@@ -944,14 +941,14 @@ func mergeTiers(base *segment, runs []*run) *segment {
 		// copy: advancing a cursor overwrites the buffer min points into
 		key = append(key[:0], min...)
 
-		// The key's documents, replayed oldest tier to newest. Almost always one,
+		// The key's documents, replayed oldest layer to newest. Almost always one,
 		// so the slice is reused across keys rather than allocated per key.
 		held = held[:0]
 		if adds[0].at(key) {
 			held = adds[0].appendDocs(held)
 			adds[0].next()
 		}
-		for i := range runs {
+		for i := range layers {
 			if dels[i].at(key) {
 				held = dels[i].removeDocs(held)
 				dels[i].next()
@@ -971,7 +968,7 @@ func mergeTiers(base *segment, runs []*run) *segment {
 	return out.segment()
 }
 
-// mergeScanCheaper picks the fold strategy: merge-scan streams the corpus (cost
+// mergeScanCheaper picks the scan strategy: merge-scan streams the corpus (cost
 // ~ corpus), binary-search costs ~ numKeys·log2(corpus). Merge-scan wins once
 // the query is dense enough that numKeys·log2(corpus) >= corpus.
 func mergeScanCheaper(numKeys, corpus int) bool {

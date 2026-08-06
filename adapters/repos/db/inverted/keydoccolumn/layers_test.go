@@ -45,7 +45,7 @@ func segFromPairs(keys [][]byte, docs []uint64) *segment {
 }
 
 // mockCursor is a roaringset.InnerCursor over fixed sorted entries, for testing
-// AbsorbFlush without a real memtable.
+// MergeMemtableByCursor without a real memtable.
 type mockCursor struct {
 	keys   [][]byte
 	layers []roaringset.BitmapLayer
@@ -82,7 +82,7 @@ func (c *mockCursor) Seek([]byte) ([]byte, roaringset.BitmapLayer, error) {
 }
 
 // newTestIndex builds an index over base with a logger attached, which the
-// background fold needs.
+// background flattening needs.
 func newTestIndex(base *segment) *Index {
 	logger, _ := test.NewNullLogger()
 	idx := &Index{logger: logger}
@@ -90,12 +90,12 @@ func newTestIndex(base *segment) *Index {
 	return idx
 }
 
-// waitForFold blocks until no background fold is in flight.
-func waitForFold(t *testing.T, idx *Index) {
+// waitForFlatten blocks until no background flattening is in flight.
+func waitForFlatten(t *testing.T, idx *Index) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		return !idx.folding.Load()
-	}, 5*time.Second, time.Millisecond, "background fold must finish")
+		return !idx.flattening.Load()
+	}, 5*time.Second, time.Millisecond, "background flattening must finish")
 }
 
 func resolveSorted(idx *Index, keys ...string) []uint64 {
@@ -104,12 +104,12 @@ func resolveSorted(idx *Index, keys ...string) []uint64 {
 		q[i] = []byte(k)
 	}
 	sort.Slice(q, func(i, j int) bool { return string(q[i]) < string(q[j]) })
-	arr := idx.ResolvePerKey(q).Bitmap().ToArray()
+	arr := idx.Resolve(q).Bitmap().ToArray()
 	sort.Slice(arr, func(i, j int) bool { return arr[i] < arr[j] })
 	return arr
 }
 
-func TestRunsFold(t *testing.T) {
+func TestLayersFlatten(t *testing.T) {
 	// base: a→1, b→2, c→3
 	base := segFromPairs([][]byte{[]byte("a"), []byte("b"), []byte("c")}, []uint64{1, 2, 3})
 	idx := newTestIndex(base)
@@ -117,10 +117,10 @@ func TestRunsFold(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3}, resolveSorted(idx, "a", "b", "c"), "base only")
 
 	// flush 1: add d→4 (new key), delete docID 2 (b's doc removed)
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 		add([]byte("d"), []uint64{4}, nil)))
 	// deletion of b's doc lives under key b in the same flush
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 		add([]byte("b"), nil, []uint64{2})))
 
 	require.Equal(t, []uint64{1, 3, 4}, resolveSorted(idx, "a", "b", "c", "d"),
@@ -128,61 +128,61 @@ func TestRunsFold(t *testing.T) {
 	require.Equal(t, []uint64{}, resolveSorted(idx, "b"), "b resolves to nothing after delete")
 
 	// flush 3: b re-added with a new doc (5) — newest-wins over the earlier delete
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 		add([]byte("b"), []uint64{5}, nil)))
 
 	require.Equal(t, []uint64{5}, resolveSorted(idx, "b"), "b re-added wins over delete")
 	require.Equal(t, []uint64{1, 3, 4, 5}, resolveSorted(idx, "a", "b", "c", "d"))
 }
 
-func TestRunsUpdateInSingleFlush(t *testing.T) {
+func TestLayersUpdateInSingleFlush(t *testing.T) {
 	// base: x→10
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("x")}, []uint64{10}))
 
 	// one flush both deletes x's old doc (10) and adds the new one (20)
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 		add([]byte("x"), []uint64{20}, []uint64{10})))
 
 	require.Equal(t, []uint64{20}, resolveSorted(idx, "x"), "update: new doc replaces old")
 }
 
-func TestRunsFoldIntoBase(t *testing.T) {
-	old := foldRunsThreshold
-	foldRunsThreshold = 3
-	defer func() { foldRunsThreshold = old }()
+func TestFlattenIntoBase(t *testing.T) {
+	old := flattenLayersThreshold
+	flattenLayersThreshold = 3
+	defer func() { flattenLayersThreshold = old }()
 
 	// base: a→1, b→2, c→3
 	idx := newTestIndex(segFromPairs(
 		[][]byte{[]byte("a"), []byte("b"), []byte("c")}, []uint64{1, 2, 3}))
 
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("d"), []uint64{4}, nil))) // add d
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{2}))) // delete b
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("e"), []uint64{5}, nil))) // add e → folds
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("d"), []uint64{4}, nil))) // add d
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), nil, []uint64{2}))) // delete b
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("e"), []uint64{5}, nil))) // add e → flattens
 
-	waitForFold(t, idx)
+	waitForFlatten(t, idx)
 
 	state := idx.state.Load()
-	require.Empty(t, state.runs, "runs must be folded into base at the threshold")
-	require.Equal(t, 4, state.base.keys.len(), "base absorbed the net state (a,c,d,e; b deleted)")
+	require.Empty(t, state.layers, "layers must be flattened into the base at the threshold")
+	require.Equal(t, 4, state.base.keys.len(), "base holds the net state (a,c,d,e; b deleted)")
 
 	require.Equal(t, []uint64{1, 3, 4, 5}, resolveSorted(idx, "a", "b", "c", "d", "e"),
-		"net state after fold: b deleted, d/e added")
+		"net state after flattening: b deleted, d/e added")
 	require.Equal(t, []uint64{}, resolveSorted(idx, "b"))
 
-	// keeps working after the fold: re-add b over the folded base
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{6}, nil)))
+	// keeps working after the flattening: re-add b over the flattened base
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), []uint64{6}, nil)))
 	require.Equal(t, []uint64{6}, resolveSorted(idx, "b"))
 	require.Equal(t, []uint64{1, 3, 4, 5, 6}, resolveSorted(idx, "a", "b", "c", "d", "e"))
 }
 
-// TestRunsFoldDoesNotDropConcurrentFlushes pins the single-flight guard: folds
-// run in the background while flushes keep arriving, and each fold drops exactly
-// the runs it consumed. Without the guard two overlapping folds each drop the
-// same count, discarding whatever was absorbed in between.
-func TestRunsFoldDoesNotDropConcurrentFlushes(t *testing.T) {
-	old := foldRunsThreshold
-	foldRunsThreshold = 2
-	defer func() { foldRunsThreshold = old }()
+// TestFlattenDoesNotDropConcurrentFlushes pins the single-flight guard: flattenings
+// run in the background while flushes keep arriving, and each flattening drops exactly
+// the layers it consumed. Without the guard two overlapping flattenings each drop the
+// same count, discarding whatever arrived in between.
+func TestFlattenDoesNotDropConcurrentFlushes(t *testing.T) {
+	old := flattenLayersThreshold
+	flattenLayersThreshold = 2
+	defer func() { flattenLayersThreshold = old }()
 
 	const numFlushes = 200
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("base")}, []uint64{1}))
@@ -193,27 +193,27 @@ func TestRunsFoldDoesNotDropConcurrentFlushes(t *testing.T) {
 	want = append(want, 1)
 	for i := 0; i < numFlushes; i++ {
 		key := fmt.Sprintf("key_%04d", i)
-		require.NoError(t, idx.AbsorbFlush(newMockCursor().
+		require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 			add([]byte(key), []uint64{uint64(100 + i)}, nil)))
 		keys = append(keys, key)
 		want = append(want, uint64(100+i))
 	}
 
-	waitForFold(t, idx)
+	waitForFlatten(t, idx)
 	require.Equal(t, want, resolveSorted(idx, keys...),
-		"every flushed key must survive the folds that ran alongside them")
+		"every flushed key must survive the flattenings that ran alongside them")
 }
 
-// TestRunsConcurrentReadsDuringFolds resolves from many goroutines while
-// flushes are absorbed and folds publish new bases underneath them. Readers work
+// TestConcurrentReadsDuringFlatten resolves from many goroutines while flushes
+// are merged in and flattenings publish new bases underneath them. Readers work
 // from a state they loaded once, so a state swapped mid-resolve must not change
 // what they see: a key present in the base stays resolvable throughout, and a
-// key absorbed before a resolve started never disappears. Run with -race, this
+// key merged in before a resolve started never disappears. Run with -race, this
 // is what pins the lock-free publication.
-func TestRunsConcurrentReadsDuringFolds(t *testing.T) {
-	old := foldRunsThreshold
-	foldRunsThreshold = 2
-	defer func() { foldRunsThreshold = old }()
+func TestConcurrentReadsDuringFlatten(t *testing.T) {
+	old := flattenLayersThreshold
+	flattenLayersThreshold = 2
+	defer func() { flattenLayersThreshold = old }()
 
 	const (
 		numFlushes = 300
@@ -243,7 +243,7 @@ func TestRunsConcurrentReadsDuringFolds(t *testing.T) {
 	want := []uint64{1}
 	for i := 0; i < numFlushes; i++ {
 		key := fmt.Sprintf("key_%04d", i)
-		require.NoError(t, idx.AbsorbFlush(newMockCursor().
+		require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 			add([]byte(key), []uint64{uint64(100 + i)}, nil)))
 		keys = append(keys, key)
 		want = append(want, uint64(100+i))
@@ -251,31 +251,31 @@ func TestRunsConcurrentReadsDuringFolds(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	waitForFold(t, idx)
+	waitForFlatten(t, idx)
 	require.Equal(t, want, resolveSorted(idx, keys...),
-		"every flushed key must survive folds that ran under concurrent readers")
+		"every flushed key must survive flattenings that ran under concurrent readers")
 }
 
-// TestAbsorbFlushKeepsDeletionsKeyed pins that a flush records which key each
+// TestMergeMemtableByCursorKeepsDeletionsKeyed pins that a flush records which key each
 // deleted docID belonged to, not just the set of docIDs. Resolution still
-// applies them result-wide, but the fold — and per-key deletion after it —
+// applies them result-wide, but a flattening — and per-key deletion after it —
 // needs the association.
-func TestAbsorbFlushKeepsDeletionsKeyed(t *testing.T) {
+func TestMergeMemtableByCursorKeepsDeletionsKeyed(t *testing.T) {
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
 
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 		add([]byte("a"), nil, []uint64{3, 7}). // one key retiring two docIDs
 		add([]byte("b"), nil, []uint64{5}).
 		add([]byte("c"), []uint64{9}, nil)))
 
-	runs := idx.state.Load().runs
-	require.Len(t, runs, 1)
-	r := runs[0]
+	layers := idx.state.Load().layers
+	require.Len(t, layers, 1)
+	r := layers[0]
 
 	gotDels := map[string][]uint64{}
 	for i := 0; i < r.dels.keys.len(); i++ {
 		k := string(r.dels.keys.appendKey(i, nil))
-		gotDels[k] = r.dels.appendDocs(i, nil)
+		gotDels[k] = segmentDocs(r.dels, i)
 	}
 	require.Equal(t, map[string][]uint64{"a": {3, 7}, "b": {5}}, gotDels,
 		"every deletion keeps the key it was issued under")
@@ -291,19 +291,19 @@ func TestAbsorbFlushKeepsDeletionsKeyed(t *testing.T) {
 // and a violation must cost the operator a warning, not a document.
 func TestFlushedKeyWithSeveralDocumentsKeepsBoth(t *testing.T) {
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{5, 9}, nil)))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), []uint64{5, 9}, nil)))
 
 	require.Equal(t, []uint64{5, 9}, resolveSorted(idx, "b"),
 		"both documents under the key must resolve")
 	require.Equal(t, []uint64{1, 5, 9}, resolveSorted(idx, "a", "b"))
 
-	// and they survive a fold
-	idx.foldRunsIntoBase()
+	// and they survive a flattening
+	idx.flattenIntoBase()
 	require.Equal(t, []uint64{1, 5, 9}, resolveSorted(idx, "a", "b"),
-		"folding must not lose the extra document")
+		"flattening must not lose the extra document")
 
 	// deleting one leaves the other
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{5})))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), nil, []uint64{5})))
 	require.Equal(t, []uint64{9}, resolveSorted(idx, "b"),
 		"a deletion retires one document, not the key")
 }
@@ -319,7 +319,7 @@ func TestOverflowBoundCountsKeysNotDocuments(t *testing.T) {
 
 	t.Run("one key with many documents is allowed", func(t *testing.T) {
 		idx := newTestIndex(segFromPairs([][]byte{[]byte("a")}, []uint64{1}))
-		require.NoError(t, idx.AbsorbFlush(newMockCursor().
+		require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().
 			add([]byte("b"), []uint64{5, 6, 7, 8, 9, 10, 11, 12}, nil)))
 		require.Equal(t, []uint64{5, 6, 7, 8, 9, 10, 11, 12}, resolveSorted(idx, "b"))
 	})
@@ -330,7 +330,7 @@ func TestOverflowBoundCountsKeysNotDocuments(t *testing.T) {
 		for _, k := range []string{"b", "c", "d"} { // past the floor of 1
 			cursor.add([]byte(k), []uint64{5, 6}, nil)
 		}
-		err := idx.AbsorbFlush(cursor)
+		err := idx.MergeMemtableByCursor(cursor)
 		require.Error(t, err, "past the bound the structure is the wrong one for this data")
 		require.Contains(t, err.Error(), "unique values")
 	})
@@ -343,17 +343,17 @@ func TestResolutionCarriesSeveralDocumentsPerKey(t *testing.T) {
 	base := segFromPairs([][]byte{[]byte("a"), []byte("b")}, []uint64{1, 2})
 	idx := newTestIndex(base)
 	// b gains two more documents, so its key holds three
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), []uint64{7, 9}, nil)))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), []uint64{7, 9}, nil)))
 
 	require.Equal(t, []uint64{2, 7, 9}, resolveSorted(idx, "b"), "all three resolve")
 	require.Equal(t, []uint64{1, 2, 7, 9}, resolveSorted(idx, "a", "b"))
 
 	// retire the one in the slot: the extras survive
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{2})))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), nil, []uint64{2})))
 	require.Equal(t, []uint64{7, 9}, resolveSorted(idx, "b"))
 
 	// retire one of the extras: the other survives
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("b"), nil, []uint64{7})))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), nil, []uint64{7})))
 	require.Equal(t, []uint64{9}, resolveSorted(idx, "b"))
 
 	// document 0 is ordinary; nothing about it reads as an empty slot
@@ -361,8 +361,8 @@ func TestResolutionCarriesSeveralDocumentsPerKey(t *testing.T) {
 	require.Equal(t, []uint64{0}, resolveSorted(idx0, "z"))
 }
 
-func TestRunsDeleteOnlyFlush(t *testing.T) {
+func TestLayersDeleteOnlyFlush(t *testing.T) {
 	idx := newTestIndex(segFromPairs([][]byte{[]byte("k")}, []uint64{7}))
-	require.NoError(t, idx.AbsorbFlush(newMockCursor().add([]byte("k"), nil, []uint64{7})))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("k"), nil, []uint64{7})))
 	require.Equal(t, []uint64{}, resolveSorted(idx, "k"), "delete-only flush removes the doc")
 }

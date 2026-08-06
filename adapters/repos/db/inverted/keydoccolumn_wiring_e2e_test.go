@@ -87,7 +87,7 @@ func newUniqueTextSearcherOpt(tb testing.TB, numDocs int, withIndex bool) (*Sear
 
 	// Phase 2: reopen — the segment group now builds its base from the
 	// flushed disk segments (like a server restart), so the base carries the
-	// corpus rather than it all arriving as a run. This is the realistic
+	// corpus rather than it all arriving as a layer. This is the realistic
 	// always-on shape.
 	store := newStore()
 	tb.Cleanup(func() { store.Shutdown(context.Background()) })
@@ -142,29 +142,29 @@ func sampleUniqueValues(numDocs, size int) []string {
 	return vals
 }
 
-// BenchmarkKeyDocColumnLayers measures ContainsAny resolution cost as index tiers are
-// added: base (on disk) → base + a populated active memtable → base + several
-// flushed runs + a populated active memtable. Each variant runs the SAME query
-// (drawn from the base), so the delta is the pure overhead of scanning/overlaying
-// the extra tiers, not different match counts. Run:
+// BenchmarkKeyDocColumnLayers measures ContainsAny resolution cost as index
+// layers are added: base (on disk) → base + a populated active memtable → base +
+// several flushed layers + a populated active memtable. Each variant runs the
+// SAME query (drawn from the base), so the delta is the pure overhead of
+// scanning/overlaying the extra layers, not different match counts. Run:
 //
 //	go test -tags integrationTest -run '^$' -bench 'KeyDocColumnLayers' \
 //	    -benchmem -benchtime 20x -count 3 ./adapters/repos/db/inverted/
 func BenchmarkKeyDocColumnLayers(b *testing.B) {
 	const (
 		baseDocs   = 300_000
-		runDocs    = 10_000 // keys per flushed run
+		layerDocs  = 10_000 // keys per flushed layer
 		activeDocs = 10_000 // unflushed keys in the active memtable
-		numRuns    = 3      // below foldRunsThreshold, so they stay as runs
+		numLayers  = 3      // below flattenLayersThreshold, so they stay as layers
 	)
 
-	// populate adds `runs` flushed runs then an unflushed active memtable to the
-	// searcher's bucket, using docIDs past the base so they don't collide.
-	populate := func(store *lsmkv.Store, runs int) {
+	// populate adds `layers` flushed layers then an unflushed active memtable to
+	// the searcher's bucket, using docIDs past the base so they don't collide.
+	populate := func(store *lsmkv.Store, layers int) {
 		bkt := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
 		next := baseDocs
-		for r := 0; r < runs; r++ {
-			for i := 0; i < runDocs; i++ {
+		for r := 0; r < layers; r++ {
+			for i := 0; i < layerDocs; i++ {
 				require.NoError(b, bkt.RoaringSetAddList([]byte(benchValue(next)), []uint64{uint64(next)}))
 				next++
 			}
@@ -182,7 +182,7 @@ func BenchmarkKeyDocColumnLayers(b *testing.B) {
 	populate(activeStore, 0) // active memtable only
 
 	layered, layeredStore := newUniqueTextSearcher(b, baseDocs)
-	populate(layeredStore, numRuns) // runs + active
+	populate(layeredStore, numLayers) // layers + active
 
 	variants := []struct {
 		name string
@@ -190,7 +190,7 @@ func BenchmarkKeyDocColumnLayers(b *testing.B) {
 	}{
 		{"base", baseOnly},
 		{"base+active", withActive},
-		{"base+3runs+active", layered},
+		{"base+3layers+active", layered},
 	}
 
 	ctx := context.Background()
@@ -337,7 +337,7 @@ func TestKeyDocColumnWiring_DocIDsMatchesFold(t *testing.T) {
 	})
 
 	// prove the index actually served: it is attached at open and kept
-	// live across the flush (via AbsorbFlush), so it is present on the bucket.
+	// live across the flush (via MergeMemtableByCursor), so it is present on the bucket.
 	bkt := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
 	require.NotNil(t, bkt.KeyDocColumn(),
 		"key/doc column must be attached and serving")
@@ -353,7 +353,7 @@ func TestKeyDocColumnWiring_DocIDsMatchesFold(t *testing.T) {
 func TestKeyDocColumnWiring_MultiKeyDocDeletion(t *testing.T) {
 	tests := []struct {
 		name    string
-		flush   bool // flush the removal, so it is absorbed as a run rather than left in the memtable
+		flush   bool // flush the removal, so it lands as a layer rather than in the memtable
 		queried []string
 	}{
 		{name: "flushed removal, kept key queried", flush: true, queried: []string{"kept"}},
@@ -410,7 +410,7 @@ func TestKeyDocColumnWiring_MultiKeyDocDeletion(t *testing.T) {
 }
 
 // TestKeyDocColumnWiring_UnflushedNonUniqueKey covers an unflushed memtable putting
-// a second document under a key the flushed tiers already hold one for — a
+// a second document under a key the flushed layers already hold one for — a
 // collision the build-time check cannot have seen. Both documents must come
 // back: the memtable's addition adds to the key rather than replacing what it
 // held, and the extra is carried alongside the scalar column.

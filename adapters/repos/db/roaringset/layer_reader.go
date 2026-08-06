@@ -11,10 +11,10 @@
 
 package roaringset
 
-// LayerReader reads one tier's view of a single key.
+// LayerReader reads one layer's view of a single key.
 //
-// A tier that never touched the key reports an empty layer rather than an
-// error, so a caller replaying several tiers in order need not distinguish
+// A layer that never touched the key reports an empty one rather than an error,
+// so a caller replaying several layers in order need not distinguish
 // "absent here" from "failed".
 type LayerReader interface {
 	Get(key []byte) (BitmapLayer, error)

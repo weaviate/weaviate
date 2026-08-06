@@ -677,6 +677,35 @@ func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
 }
 
+type memtableLayerReader struct{ mt memtable }
+
+func (r memtableLayerReader) Get(key []byte) (roaringset.BitmapLayer, error) {
+	layer, err := r.mt.roaringSetGet(key)
+	if err != nil && errors.Is(err, lsmkv.NotFound) {
+		return roaringset.BitmapLayer{}, nil
+	}
+	return layer, err
+}
+
+// MemtableReaders returns readers over the layers this view holds that are not
+// flushed yet, oldest first — flushing before active, so a caller replaying them
+// in order sees a document added while flushing and deleted in the active
+// memtable as deleted. Empty memtables are left out.
+//
+// Exists because resolving a query against an index that covers only flushed
+// data has to consult these too, and memtables and their accessors are not
+// reachable from outside this package.
+func (cv BucketConsistentView) MemtableReaders() []roaringset.LayerReader {
+	var readers []roaringset.LayerReader
+	for _, mt := range []memtable{cv.Flushing, cv.Active} {
+		if mt == nil || mt.Size() == 0 {
+			continue
+		}
+		readers = append(readers, memtableLayerReader{mt: mt})
+	}
+	return readers
+}
+
 // GetConsistentView returns a consistent view of the bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
 // call ReleaseView() on the returned view when done to avoid blocking compactions.
@@ -2180,8 +2209,8 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		// Copy the flushed memtable into the key/doc column in the same
 		// critical section that stops the memtable being visible, so a query
 		// sees the data as one or the other and never as neither.
-		if err := b.disk.absorbFlushIntoKeyDocColumn(flushing); err != nil {
-			b.logger.WithField("action", "keydoccolumn_absorb_flush").
+		if err := b.disk.mergeMemtableIntoKeyDocColumn(flushing); err != nil {
+			b.logger.WithField("action", "keydoccolumn_merge_memtable").
 				Warnf("key/doc column detached, it could not absorb a flush: %v", err)
 		}
 

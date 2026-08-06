@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -95,7 +96,7 @@ func newNumericFixture(tb testing.TB, numDocs int) *numericFixture {
 }
 
 // sampleKeys picks `size` int values spread across the corpus, returns their
-// encoded keys (sorted ascending, as ResolvePerKey requires) and the
+// encoded keys (sorted ascending, as Resolve requires) and the
 // docIDs they resolve to.
 func (f *numericFixture) sampleKeys(tb testing.TB, size int) (keys [][]byte, docIDs []uint64) {
 	tb.Helper()
@@ -115,14 +116,19 @@ func (f *numericFixture) sampleKeys(tb testing.TB, size int) (keys [][]byte, doc
 	return keys, docIDs
 }
 
-// numericPointLookup mirrors the production fold's fetch shape: one consistent
-// view, N per-key RoaringSetGetFromView lookups, unioned via an accumulator.
+// numericPointLookup mirrors the production fold's fetch shape: one batch
+// reader held across N per-key lookups, unioned via an accumulator.
 func numericPointLookup(ctx context.Context, b *lsmkv.Bucket, keys [][]byte) *sroar.Bitmap {
-	view := b.GetConsistentView()
-	defer view.ReleaseView()
+	reader, err := b.NewRoaringSetBatchReader()
+	if err != nil {
+		panic(err)
+	}
+	defer reader.Release()
+
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	acc := sroar.NewAccumulator()
 	for _, k := range keys {
-		bm, release, err := b.RoaringSetGetFromView(ctx, view, k)
+		bm, release, err := reader.Get(k, mergeConc)
 		if err != nil {
 			panic(err)
 		}
@@ -145,7 +151,7 @@ func TestKeyDocColumnNumericPOC_Correctness(t *testing.T) {
 	for _, size := range []int{1, 100, 1_000, 10_000} {
 		keys, want := f.sampleKeys(t, size)
 
-		got := idx.ResolvePerKey(keys).Bitmap().ToArray()
+		got := idx.Resolve(keys).Bitmap().ToArray()
 		require.Equal(t, want, got, "key/doc column vs sampled docIDs at N=%d", size)
 
 		point := numericPointLookup(ctx, f.bucket, keys).ToArray()
@@ -172,7 +178,7 @@ func BenchmarkKeyDocColumnNumericPOC(b *testing.B) {
 		b.Run(fmt.Sprintf("keydoccolumn/N=%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				idx.ResolvePerKey(keys).Bitmap()
+				idx.Resolve(keys).Bitmap()
 			}
 		})
 		b.Run(fmt.Sprintf("roaringset_point/N=%d", size), func(b *testing.B) {
