@@ -18,9 +18,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,10 +36,182 @@ import (
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	ucfg "github.com/weaviate/weaviate/usecases/config"
 )
+
+// connPoolOptionType is the concrete type google.golang.org/api/option gives
+// the connection-pool option; the option carries no exported accessor.
+const connPoolOptionType = "option.withGRPCConnectionPool"
+
+func TestStorageOptionsTransport(t *testing.T) {
+	tests := []struct {
+		name         string
+		transport    ucfg.BackupGCS
+		wantOptions  []string
+		wantConnPool int
+	}{
+		{
+			name:        "http adds no transport options",
+			transport:   ucfg.BackupGCS{},
+			wantOptions: []string{"option.withoutAuthentication"},
+		},
+		{
+			name:         "grpc sizes the connection pool and turns client metrics off",
+			transport:    ucfg.BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+			wantOptions:  []string{"option.withoutAuthentication", connPoolOptionType, "*storage.withDisabledClientMetrics"},
+			wantConnPool: 8,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BACKUP_GCS_USE_AUTH", "false")
+			t.Setenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT", "")
+
+			opts, err := storageOptions(context.Background(), discardLogger(), tt.transport)
+			require.NoError(t, err)
+
+			types := make([]string, 0, len(opts))
+			for _, opt := range opts {
+				types = append(types, fmt.Sprintf("%T", opt))
+			}
+			assert.Equal(t, tt.wantOptions, types)
+			assert.Equal(t, tt.wantConnPool, grpcConnPoolOption(opts))
+		})
+	}
+}
+
+// The SDK leaves a chunk request unbounded and gives all its retries only 32s.
+// Both defaults are wrong for backup uploads, which stream for hours under a
+// context that allows 24.
+func TestChunkWriterTuning(t *testing.T) {
+	client, err := storage.NewClient(context.Background(), option.WithoutAuthentication())
+	require.NoError(t, err)
+	defer client.Close()
+
+	writer := newChunkWriter(context.Background(), client.Bucket("b").Object("o"), "backup-1")
+
+	assert.Equal(t, chunkRetryDeadline, writer.ChunkRetryDeadline, "retry deadline")
+	assert.Equal(t, chunkTransferTimeout, writer.ChunkTransferTimeout, "transfer timeout")
+	assert.Equal(t, "application/octet-stream", writer.ContentType)
+	assert.Equal(t, map[string]string{"backup-id": "backup-1"}, writer.Metadata)
+
+	// A transfer timeout only buys a retry if the deadline outlasts several of
+	// them; equal values would spend the whole budget on one stalled request.
+	assert.LessOrEqual(t, 3*chunkTransferTimeout, chunkRetryDeadline,
+		"retry deadline must fit at least three transfer timeouts")
+}
+
+// TestNewClientTransport routes one request through a local fake of each API, so
+// the assertion is which wire the client actually used.
+func TestNewClientTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport ucfg.BackupGCS
+		wantCalls []string
+	}{
+		{
+			name:      "default speaks the json api over http",
+			transport: ucfg.BackupGCS{},
+			wantCalls: []string{"/storage/v1/b/my-bucket"},
+		},
+		{
+			name:      "grpc speaks the storage grpc api",
+			transport: ucfg.BackupGCS{UseGRPC: true, GRPCConnPool: ucfg.DefaultBackupGCSGRPCConnPool},
+			wantCalls: []string{"/google.storage.v2.Storage/GetBucket"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Both fakes share one recorder, so the untaken transport is
+			// asserted to have received nothing.
+			calls := &callRecorder{}
+			t.Setenv("BACKUP_GCS_USE_AUTH", "false")
+			t.Setenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT", "")
+			// The SDK reads a separate variable per transport.
+			t.Setenv("STORAGE_EMULATOR_HOST", startFakeGCSOverHTTP(t, calls))
+			t.Setenv("STORAGE_EMULATOR_HOST_GRPC", startFakeGCSOverGRPC(t, calls))
+
+			config := &clientConfig{Bucket: "my-bucket", Transport: tt.transport}
+			c, err := newClient(context.Background(), config, t.TempDir(), discardLogger())
+			require.NoError(t, err)
+			defer c.client.Close()
+
+			_, err = c.findBucket(context.Background(), "")
+			require.ErrorIs(t, err, storage.ErrBucketNotExist)
+			assert.Equal(t, tt.wantCalls, calls.recorded())
+		})
+	}
+}
+
+type callRecorder struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (r *callRecorder) record(method string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, method)
+}
+
+func (r *callRecorder) recorded() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.calls)
+}
+
+// startFakeGCSOverHTTP answers every request with a not-found bucket, which the
+// retry policy does not retry, so one call reaches the recorder.
+func startFakeGCSOverHTTP(t *testing.T, calls *callRecorder) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.record(r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"error":{"code":404,"message":"no such bucket"}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func startFakeGCSOverGRPC(t *testing.T, calls *callRecorder) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	srv := grpc.NewServer(grpc.UnknownServiceHandler(func(_ any, stream grpc.ServerStream) error {
+		method, _ := grpc.MethodFromServerStream(stream)
+		calls.record(method)
+		return status.Error(codes.NotFound, "no such bucket")
+	}))
+	enterrors.GoWrapper(func() { _ = srv.Serve(listener) }, discardLogger())
+	t.Cleanup(srv.Stop)
+	return listener.Addr().String()
+}
+
+func grpcConnPoolOption(opts []option.ClientOption) int {
+	for _, opt := range opts {
+		if v := reflect.ValueOf(opt); v.Type().String() == connPoolOptionType && v.Kind() == reflect.Int {
+			return int(v.Int())
+		}
+	}
+	return 0
+}
+
+func discardLogger() logrus.FieldLogger {
+	logger := logrus.New()
+	logger.Out = io.Discard
+	return logger
+}
 
 func TestInitialize_SkipAccessCheck(t *testing.T) {
 	// Validation runs before the SkipAccessCheck short-circuit: a valid bucket
@@ -110,6 +285,60 @@ func TestFindBucket_EmptyBucket(t *testing.T) {
 		})
 	}
 }
+
+// A restore against a bucket that is gone must be reported as not-found, so the
+// backup coordinator can tell it apart from an internal failure.
+func TestMissingBucketReportsNotFound(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*gcsClient, context.Context) error
+	}{
+		{
+			name: "Read",
+			call: func(g *gcsClient, ctx context.Context) error {
+				_, err := g.Read(ctx, "backup-1", "shard.db", "", "", discardWriteCloser{})
+				return err
+			},
+		},
+		{
+			name: "GetObject",
+			call: func(g *gcsClient, ctx context.Context) error {
+				_, err := g.GetObject(ctx, "backup-1", "shard.db", "", "")
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, `{"error":{"code":404,"message":"no such bucket"}}`)
+			}))
+			defer srv.Close()
+
+			ctx := context.Background()
+			gcs, err := storage.NewClient(ctx, option.WithoutAuthentication(), option.WithEndpoint(srv.URL))
+			require.NoError(t, err)
+			defer gcs.Close()
+			gcs.SetRetry(storage.WithPolicy(storage.RetryNever))
+
+			g := &gcsClient{client: gcs, config: clientConfig{Bucket: "gone-bucket"}, logger: discardLogger()}
+
+			err = tt.call(g, ctx)
+			require.Error(t, err)
+			var notFound backup.ErrNotFound
+			assert.ErrorAs(t, err, &notFound)
+		})
+	}
+}
+
+type discardWriteCloser struct{}
+
+func (discardWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+
+func (discardWriteCloser) Close() error { return nil }
 
 func TestAllBackupsSkipsMissingDescriptors(t *testing.T) {
 	const bucketName = "test-bucket"
