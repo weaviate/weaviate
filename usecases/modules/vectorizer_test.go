@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,24 +153,42 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 	})
 }
 
+// moduleVectorEntry builds a named-vector config backed by the modName
+// vectorizer; a dropped entry carries the mid-drop marker (VectorIndexType
+// "none", no index config).
+func moduleVectorEntry(modName string, dropped bool) models.VectorConfig {
+	entry := models.VectorConfig{
+		Vectorizer:      map[string]interface{}{modName: map[string]interface{}{}},
+		VectorIndexType: "none",
+	}
+	if !dropped {
+		entry.VectorIndexType = "hnsw"
+		entry.VectorIndexConfig = hnsw.UserConfig{}
+	}
+	return entry
+}
+
 // droppedAndLiveVectorClass builds a class whose "dropped" named vector is
-// mid-drop (VectorIndexType "none") while "live" still has its index, both
-// backed by the same vectorizer module.
+// mid-drop while "live" still has its index, both backed by the same module.
 func droppedAndLiveVectorClass(className, modName string) *models.Class {
 	return &models.Class{
 		Class: className,
 		VectorConfig: map[string]models.VectorConfig{
-			"dropped": {
-				Vectorizer:      map[string]interface{}{modName: map[string]interface{}{}},
-				VectorIndexType: "none",
-			},
-			"live": {
-				Vectorizer:        map[string]interface{}{modName: map[string]interface{}{}},
-				VectorIndexType:   "hnsw",
-				VectorIndexConfig: hnsw.UserConfig{},
-			},
+			"dropped": moduleVectorEntry(modName, true),
+			"live":    moduleVectorEntry(modName, false),
 		},
 	}
+}
+
+// dropVectorTestProvider serves class through the schema getter with a dummy
+// text2vec module registered under modName.
+func dropVectorTestProvider(class *models.Class, modName string) (*Provider, *logrus.Logger) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+	p.Register(newDummyModule(modName, modulecapabilities.Text2Vec))
+	sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	p.SetSchemaGetter(&fakeSchemaGetter{sch})
+	return p, logger
 }
 
 func TestProvider_BatchUpdateVector(t *testing.T) {
@@ -179,23 +198,14 @@ func TestProvider_BatchUpdateVector(t *testing.T) {
 		// and the shard put rejects any object carrying the dropped vector.
 		// Computing it here would therefore fail every write to the collection
 		// until the drop finalizes. Single-object twin in TestProvider_UpdateVector.
-		ctx := context.Background()
-		modName := "some-vzr"
-		className := "SomeClass"
-		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
-		class := droppedAndLiveVectorClass(className, modName)
-		sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
-		logger, _ := test.NewNullLogger()
-
-		p := NewProvider(logger, config.Config{})
-		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		class := droppedAndLiveVectorClass("SomeClass", "some-vzr")
+		p, logger := dropVectorTestProvider(class, "some-vzr")
 
 		objs := []*models.Object{
-			{Class: className, ID: newUUID()},
-			{Class: className, ID: newUUID()},
+			{Class: class.Class, ID: newUUID()},
+			{Class: class.Class, ID: newUUID()},
 		}
-		vecErrs, err := p.BatchUpdateVector(ctx, class, objs, (&fakeObjectsRepo{}).Object, logger)
+		vecErrs, err := p.BatchUpdateVector(context.Background(), class, objs, (&fakeObjectsRepo{}).Object, logger)
 		require.NoError(t, err)
 		require.Empty(t, vecErrs)
 		for i, obj := range objs {
@@ -209,34 +219,22 @@ func TestProvider_BatchUpdateVector(t *testing.T) {
 		// Filtering the only named vector leaves modConfigs empty, which must
 		// take the vector-less short-circuit (class.Vectorizer is "" for
 		// named-vector classes), not the "no vectorizer configs" error.
-		ctx := context.Background()
-		modName := "some-vzr"
-		className := "SomeClass"
-		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
 		class := &models.Class{
-			Class: className,
+			Class: "SomeClass",
 			VectorConfig: map[string]models.VectorConfig{
-				"dropped": {
-					Vectorizer:      map[string]interface{}{modName: map[string]interface{}{}},
-					VectorIndexType: "none",
-				},
+				"dropped": moduleVectorEntry("some-vzr", true),
 			},
 		}
-		sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
-		logger, _ := test.NewNullLogger()
+		p, logger := dropVectorTestProvider(class, "some-vzr")
 
-		p := NewProvider(logger, config.Config{})
-		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
-
-		objs := []*models.Object{{Class: className, ID: newUUID()}}
-		vecErrs, err := p.BatchUpdateVector(ctx, class, objs, (&fakeObjectsRepo{}).Object, logger)
+		objs := []*models.Object{{Class: class.Class, ID: newUUID()}}
+		vecErrs, err := p.BatchUpdateVector(context.Background(), class, objs, (&fakeObjectsRepo{}).Object, logger)
 		require.NoError(t, err)
 		require.Empty(t, vecErrs)
 		assert.Empty(t, objs[0].Vectors)
 
-		obj := &models.Object{Class: className, ID: newUUID()}
-		require.NoError(t, p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger))
+		obj := &models.Object{Class: class.Class, ID: newUUID()}
+		require.NoError(t, p.UpdateVector(context.Background(), obj, class, (&fakeObjectsRepo{}).Object, logger))
 		assert.Empty(t, obj.Vectors)
 	})
 }
@@ -365,20 +363,11 @@ func TestProvider_UpdateVector(t *testing.T) {
 	t.Run("module vectorizer skips a mid-drop named vector", func(t *testing.T) {
 		// Regression for weaviate/0-weaviate-issues#481 — see
 		// TestProvider_BatchUpdateVector for the batch twin.
-		ctx := context.Background()
-		modName := "some-vzr"
-		className := "SomeClass"
-		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
-		class := droppedAndLiveVectorClass(className, modName)
-		sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
-		logger, _ := test.NewNullLogger()
+		class := droppedAndLiveVectorClass("SomeClass", "some-vzr")
+		p, logger := dropVectorTestProvider(class, "some-vzr")
 
-		p := NewProvider(logger, config.Config{})
-		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
-
-		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
+		obj := &models.Object{Class: class.Class, ID: newUUID()}
+		err := p.UpdateVector(context.Background(), obj, class, (&fakeObjectsRepo{}).Object, logger)
 		require.NoError(t, err)
 		assert.NotContains(t, obj.Vectors, "dropped",
 			"mid-drop target must not be vectorized — the write path rejects objects carrying it")
