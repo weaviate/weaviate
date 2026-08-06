@@ -1415,6 +1415,20 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 		return nil
 	}
 
+	// The gate reaches the caller through the return value below, so a panic in
+	// the sweep would unwind past it and leave the caller nothing to defer —
+	// backups and restores of this collection stay refused until the process is
+	// restarted. Release it here on the way out and re-panic. OnceFunc so the
+	// caller's own defer over the same function stays a no-op; the release is
+	// refcounted and a second call would open a gate somebody else holds.
+	release := sync.OnceFunc(releaseGate)
+	defer func() {
+		if r := recover(); r != nil {
+			release()
+			panic(r)
+		}
+	}()
+
 	h.appState.Logger.WithFields(fields).Info("cancel: drain complete, running on-disk cleanup")
 	// Wipe the sidecars and migration directories for every indexType this
 	// migration touches — change-tokenization spawns both a searchable and a
@@ -1452,7 +1466,7 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	} else {
 		h.appState.Logger.WithFields(fields).Info("cancel: on-disk cleanup complete")
 	}
-	return releaseGate
+	return release
 }
 
 // reindexCancelCleanupTimeout bounds the on-disk sweep once it is detached from

@@ -14,6 +14,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -164,6 +166,47 @@ func TestCancelDrainTimeoutHandsTheGateToTheWorkerExitWatcher(t *testing.T) {
 
 	provider.handedOff()
 	require.True(t, provider.released.Load(), "the watcher must have been handed the real release")
+}
+
+// panicOnMessageHook panics from a log line, which is how this test injects a
+// panic into the window between the drain and the return. Which panic it is
+// does not matter — what is under test is the unwind.
+type panicOnMessageHook struct{ substr string }
+
+func (h panicOnMessageHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h panicOnMessageHook) Fire(entry *logrus.Entry) error {
+	if strings.Contains(entry.Message, h.substr) {
+		panic("injected panic inside the guarded region")
+	}
+	return nil
+}
+
+// The gate release is handed to the caller by the return value, so a panic
+// between the drain and that return leaves the caller with nothing to defer.
+// net/http recovers and the process survives, but the collection's backups and
+// restores stay refused until it is restarted.
+func TestCancelReleasesTheCleanupGateWhenTheCleanupPanics(t *testing.T) {
+	h, _ := cancelFixture(t, &scriptedCleanupProber{})
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	logger.AddHook(panicOnMessageHook{substr: "cancel: drain complete"})
+	h.appState.Logger = logger
+
+	provider := &stubCleanupGateProvider{}
+
+	require.Panics(t, func() {
+		h.drainAndCleanupCancelledTask(context.Background(), provider,
+			&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
+			&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
+			"Movies", "title", "filterable")
+	})
+
+	require.True(t, provider.released.Load(),
+		"a panic past the return leaks the gate: the caller never receives the release, "+
+			"so every backup and restore of this collection is refused for the rest of the process")
+	require.Zero(t, provider.handoffs,
+		"the drain succeeded, so the gate is not the worker-exit watcher's to release")
 }
 
 // The drain is detached from the request, so nothing upstream bounds it. Its own
