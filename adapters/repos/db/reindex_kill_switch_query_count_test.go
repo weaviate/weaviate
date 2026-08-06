@@ -16,11 +16,10 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-
-	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
 // Every gate the feature adds is backed by a leader-forwarded task query, so the
@@ -52,14 +51,9 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 			queries.Add(1)
 			return true, nil
 		})
-		// Two queries by design: the backstop compares the task list at backup
-		// start against the task list at commit.
-		db.SetReindexOverlapObserver(func(context.Context, []string) entitiesbackup.ReindexOverlapCheck {
+		db.SetReindexOverlapLookup(func(context.Context, []string, time.Time) error {
 			queries.Add(1)
-			return func(context.Context) error {
-				queries.Add(1)
-				return errors.New("overlap")
-			}
+			return errors.New("overlap")
 		})
 		return db
 	}
@@ -72,7 +66,7 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 		// backstop — the three places the feature can query the leader.
 		require.False(t, db.AnyLiveReindexForShard(collection, "shard1"))
 		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{collection}))
-		require.NoError(t, db.ObserveReindexOverlap(context.Background(), []string{collection})(context.Background()))
+		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{collection}, time.Now()))
 
 		require.Zero(t, queries.Load(),
 			"with the feature off the backup path must not ask the leader anything; "+
@@ -85,10 +79,9 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 
 		require.True(t, db.AnyLiveReindexForShard(collection, "shard1"))
 		require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{collection}))
-		require.Error(t, db.ObserveReindexOverlap(context.Background(), []string{collection})(context.Background()))
+		require.Error(t, db.RefuseIfReindexOverlapped(context.Background(), []string{collection}, time.Now()))
 
-		require.Equal(t, int64(4), queries.Load(),
-			"with the feature on the per-shard and restore gates ask once each, and the commit-time "+
-				"backstop asks twice: once for the backup-start baseline, once at commit")
+		require.Equal(t, int64(3), queries.Load(),
+			"with the feature on each of the three gates asks exactly once")
 	})
 }

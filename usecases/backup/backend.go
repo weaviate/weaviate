@@ -244,10 +244,6 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
-	// Baseline for the commit-time backstop below, taken before anything is
-	// halted or copied so the window it covers is the whole capture.
-	overlapCheck := u.sourcer.ObserveReindexOverlap(ctx, classes)
-
 	u.setStatus(backup.Transferring)
 	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
@@ -363,7 +359,7 @@ Loop:
 	// Commit-time backstop: per-shard checks ran before capture, so a reindex
 	// admitted during capture was invisible to them. Failing the backup beats a
 	// SUCCESS that silently spans a migration.
-	if err := overlapCheck(ctx); err != nil {
+	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
 		overlapRefused = true
 		desc.Status = backup.Failed
 		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)

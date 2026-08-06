@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 
@@ -69,10 +70,10 @@ func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context, []string) erro
 	return s.reindexInFlightErr
 }
 
-// reindexOverlapErr backs the commit-time overlap check as a plain field so a
-// test can distinguish "live at commit" from "overlapped and already finished".
-func (s *fakeSourcer) ObserveReindexOverlap(context.Context, []string) backup.ReindexOverlapCheck {
-	return func(context.Context) error { return s.reindexOverlapErr }
+// reindexOverlapErr backs RefuseIfReindexOverlapped as a plain field so a test
+// can distinguish "live at commit" from "overlapped and already finished".
+func (s *fakeSourcer) RefuseIfReindexOverlapped(_ context.Context, _ []string, _ time.Time) error {
+	return s.reindexOverlapErr
 }
 
 func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {

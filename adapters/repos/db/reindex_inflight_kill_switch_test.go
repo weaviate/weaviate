@@ -16,11 +16,10 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-
-	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
 // TestAnyLiveReindexForShard_RuntimeReindexDisabled pins the backup half
@@ -120,7 +119,7 @@ func TestRefuseIfAnyReindexInFlight_RuntimeReindexDisabled(t *testing.T) {
 // The call counter is the oracle, not the return value: a version that returns
 // nil but still queries the leader keeps exactly the operator-visible cost this
 // pins down.
-func TestObserveReindexOverlap_RuntimeReindexDisabled(t *testing.T) {
+func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
 	overlapErr := errors.New("cannot rule out a runtime-reindex during this backup")
 
 	tests := []struct {
@@ -137,15 +136,12 @@ func TestObserveReindexOverlap_RuntimeReindexDisabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var lookups atomic.Int64
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
-			db.SetReindexOverlapObserver(func(context.Context, []string) entitiesbackup.ReindexOverlapCheck {
+			db.SetReindexOverlapLookup(func(context.Context, []string, time.Time) error {
 				lookups.Add(1)
-				return func(context.Context) error {
-					lookups.Add(1)
-					return overlapErr
-				}
+				return overlapErr
 			})
 
-			err := db.ObserveReindexOverlap(context.Background(), []string{"MyClass"})(context.Background())
+			err := db.RefuseIfReindexOverlapped(context.Background(), []string{"MyClass"}, time.Now())
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr,
 					"with the feature on the refusal must reach the caller unchanged")

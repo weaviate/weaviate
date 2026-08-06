@@ -12,7 +12,6 @@
 package backup
 
 import (
-	"context"
 	"errors"
 	"io"
 )
@@ -38,16 +37,6 @@ var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-rein
 // the migration has usually finished by the time this is raised, and calling it
 // in-flight sends the operator after a task that is gone.
 var ErrBackupSpannedReindex = errors.New("backup spanned a runtime-reindex")
-
-// ReindexOverlapCheck is the commit-time half of the backup's overlap
-// backstop. It is produced at backup start, holding whatever the storage layer
-// observed then, and called once the files are captured; a non-nil error means
-// a runtime-reindex overlapped the capture, or that the question can no longer
-// be answered. Callers fail the backup on both.
-//
-// Declared here so the Sourcer interface (usecases/backup) and its
-// implementation (adapters/repos/db) can name it without an import cycle.
-type ReindexOverlapCheck func(ctx context.Context) error
 
 // ReindexBlockedError is the API-safe form of a backup refused by the reindex
 // gate. Wrappers on the way out add the shard and node an operator wants and a

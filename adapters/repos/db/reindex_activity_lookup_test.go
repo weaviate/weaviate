@@ -192,9 +192,6 @@ func TestRefuseIfAnyReindexInFlight_LookupFailureRedactsNodeNames(t *testing.T) 
 	assert.True(t, logged, "the detail must still reach the operator through the log")
 }
 
-// overlapTask builds a reindex task as DTM would report it. finishedAt is the
-// stamp the proposing node wrote; the overlap backstop never reads it, and
-// TestReindexOverlapVerdictIsInvariantUnderClockSkew is what holds that true.
 func overlapTask(collection string, status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
 	raw, _ := json.Marshal(ReindexTaskPayload{Collection: collection})
 	return &distributedtask.Task{
@@ -206,218 +203,79 @@ func overlapTask(collection string, status distributedtask.TaskStatus, finishedA
 	}
 }
 
-// overlapObservations is one run of the two-observation backstop: before is
-// what the cluster reported when the backup started, after what it reported at
-// commit time.
-type overlapObservations struct {
-	collections []string
-	ttl         time.Duration
-	// capture is how long the backup spends copying files between the two
-	// observations. Only the retention-window row needs a non-zero one.
-	capture   time.Duration
-	before    []*distributedtask.Task
-	after     []*distributedtask.Task
-	beforeErr error
-	afterErr  error
-}
-
-// run drives the observer and its commit-time check the way a backup does.
-func (o overlapObservations) run(t *testing.T) error {
-	t.Helper()
-
-	collections := o.collections
-	if collections == nil {
-		collections = []string{"Movies"}
-	}
-	ttl := o.ttl
-	if ttl == 0 {
-		ttl = time.Hour
-	}
-
-	calls := 0
-	observer := NewReindexOverlapObserver(func(context.Context) (map[string][]*distributedtask.Task, error) {
-		calls++
-		if calls == 1 {
-			if o.beforeErr != nil {
-				return nil, o.beforeErr
-			}
-			return map[string][]*distributedtask.Task{ReindexNamespace: o.before}, nil
-		}
-		if o.afterErr != nil {
-			return nil, o.afterErr
-		}
-		return map[string][]*distributedtask.Task{ReindexNamespace: o.after}, nil
-	}, ttl)
-
-	check := observer(context.Background(), collections)
-	time.Sleep(o.capture)
-	return check(context.Background())
-}
-
 // The check is overlap, not liveness: a task that ran entirely inside the
-// backup window must still refuse it, and nothing is left running by the time
-// the question is asked.
-func TestReindexOverlapObserver(t *testing.T) {
-	finishedBefore := overlapTask("Movies", distributedtask.TaskStatusFinished, time.Now().Add(-time.Hour))
-	failedBefore := overlapTask("Movies", distributedtask.TaskStatusFailed, time.Time{})
-	running := overlapTask("Movies", distributedtask.TaskStatusStarted, time.Time{})
+// backup window must still refuse it.
+func TestReindexOverlapLookup(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+	const ttl = time.Hour
 
 	tests := []struct {
 		name       string
-		obs        overlapObservations
+		tasks      []*distributedtask.Task
+		listErr    error
+		ttl        time.Duration
+		since      time.Time
 		wantRefuse bool
 		wantMsg    string
-		why        string
 	}{
 		{
-			name: "no tasks at all",
-			obs:  overlapObservations{},
+			name:  "no tasks at all",
+			since: backupStart,
 		},
 		{
-			name: "task was already finished when the backup started and has not moved",
-			obs: overlapObservations{
-				before: []*distributedtask.Task{finishedBefore},
-				after:  []*distributedtask.Task{finishedBefore},
-			},
-			why: "the post-migration backup contract; an unconditional blackout here would be a usability regression",
+			name:  "task finished before the backup started",
+			tasks: []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))},
+			since: backupStart,
 		},
 		{
-			name: "task appeared while the backup was being captured",
-			obs: overlapObservations{
-				before: nil,
-				after: []*distributedtask.Task{
-					overlapTask("Movies", distributedtask.TaskStatusFinished, time.Now()),
-				},
-			},
+			// Ran and finished entirely inside the window.
+			name:       "task finished after the backup started",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
+			since:      backupStart,
 			wantRefuse: true,
 			wantMsg:    "was migrated while this backup was being captured",
-			why:        "it ran and finished inside the window, so liveness at commit sees nothing",
 		},
 		{
-			name: "task was running when the backup started and finished during it",
-			obs: overlapObservations{
-				before: []*distributedtask.Task{running},
-				after: []*distributedtask.Task{
-					overlapTask("Movies", distributedtask.TaskStatusFinished, time.Now()),
-				},
-			},
-			wantRefuse: true,
-			why:        "the capture began while it was rebuilding buckets",
-		},
-		{
-			name: "task still running at commit",
-			obs: overlapObservations{
-				before: []*distributedtask.Task{running},
-				after:  []*distributedtask.Task{running},
-			},
+			name:       "task finished exactly when the backup started",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart)},
+			since:      backupStart,
 			wantRefuse: true,
 		},
 		{
-			name: "task started running after the backup started",
-			obs: overlapObservations{
-				before: nil,
-				after:  []*distributedtask.Task{running},
-			},
+			name:       "task still running",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusStarted, time.Time{})},
+			since:      backupStart,
 			wantRefuse: true,
 		},
 		{
-			name: "task had already failed when the backup started and has not moved",
-			obs: overlapObservations{
-				before: []*distributedtask.Task{failedBefore},
-				after:  []*distributedtask.Task{failedBefore},
-			},
-			why: "terminal before the capture began, so it cannot have written during it — and it is admitted " +
-				"even though it carries no finish stamp at all, which the timestamp rule could not do",
-		},
-		{
-			name: "task failed while the backup was being captured",
-			obs: overlapObservations{
-				before: nil,
-				after:  []*distributedtask.Task{failedBefore},
-			},
-			wantRefuse: true,
-			why:        "a failed migration may have written before it failed",
-		},
-		{
-			name: "task on a collection this backup does not cover",
-			obs: overlapObservations{
-				collections: []string{"Movies"},
-				before:      nil,
-				after: []*distributedtask.Task{
-					overlapTask("Actors", distributedtask.TaskStatusFinished, time.Now()),
-				},
-			},
-		},
-		{
-			name: "collection match ignores case",
-			obs: overlapObservations{
-				collections: []string{"Movies"},
-				before:      nil,
-				after: []*distributedtask.Task{
-					overlapTask("movies", distributedtask.TaskStatusFinished, time.Now()),
-				},
-			},
+			name:       "terminal task with no finish time is treated as overlapping",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFailed, time.Time{})},
+			since:      backupStart,
 			wantRefuse: true,
 		},
 		{
-			name: "terminal task present at backup start but gone at commit",
-			obs: overlapObservations{
-				before: []*distributedtask.Task{finishedBefore},
-				after:  nil,
-			},
-			why: "it was terminal when the backup started, so its expiry from the task list is not evidence " +
-				"of anything; refusing here would fail backups that merely outlived an old task's retention",
+			name:  "task on a collection this backup does not cover",
+			tasks: []*distributedtask.Task{overlapTask("Actors", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
+			since: backupStart,
 		},
 		{
-			name: "running task present at backup start but gone at commit",
-			obs: overlapObservations{
-				before: []*distributedtask.Task{running},
-				after:  nil,
-			},
+			name:       "collection match ignores case",
+			tasks:      []*distributedtask.Task{overlapTask("movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
+			since:      backupStart,
 			wantRefuse: true,
-			why: "DTM also forgets a task when its collection is deleted, whatever its status, so vanishing " +
-				"is not proof it did nothing — and it was demonstrably running during the capture",
 		},
 		{
-			name: "a status this build does not recognize",
-			obs: overlapObservations{
-				before: []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatus("WARPING"), time.Time{})},
-				after:  []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatus("WARPING"), time.Time{})},
-			},
-			wantRefuse: true,
-			why:        "it comes from a newer node, and guessing 'not live' admits a backup over a live migration",
-		},
-		{
-			name: "backup outlived the retention window",
-			obs: overlapObservations{
-				// A capture that outlasts the window, so the check refuses
-				// before reading a single task.
-				ttl:     time.Millisecond,
-				capture: 5 * time.Millisecond,
-				before:  nil,
-				after:   nil,
-			},
+			name:       "backup outlived the retention window",
+			tasks:      nil,
+			ttl:        time.Minute,
+			since:      backupStart,
 			wantRefuse: true,
 			wantMsg:    "longer than the",
-			why: "past the retention window an unchanged list stops being evidence: a task could have " +
-				"started, finished, and aged out entirely inside the backup",
 		},
 		{
-			name: "task list unreadable when the backup started",
-			obs: overlapObservations{
-				beforeErr: errors.New("DTM unreachable"),
-				after:     nil,
-			},
-			wantRefuse: true,
-			wantMsg:    "cannot rule out a runtime-reindex",
-			why:        "no baseline means no comparison, so nothing can be ruled out",
-		},
-		{
-			name: "task list unreadable at commit",
-			obs: overlapObservations{
-				before:   nil,
-				afterErr: errors.New("DTM unreachable"),
-			},
+			name:       "task list unreadable",
+			listErr:    errors.New("DTM unreachable"),
+			since:      backupStart,
 			wantRefuse: true,
 			wantMsg:    "cannot rule out a runtime-reindex",
 		},
@@ -425,16 +283,27 @@ func TestReindexOverlapObserver(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.obs.run(t)
+			taskTTL := ttl
+			if tc.ttl != 0 {
+				taskTTL = tc.ttl
+			}
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				if tc.listErr != nil {
+					return nil, tc.listErr
+				}
+				return map[string][]*distributedtask.Task{ReindexNamespace: tc.tasks}, nil
+			}, taskTTL)
+
+			err := lookup(context.Background(), []string{"Movies"}, tc.since)
 			if !tc.wantRefuse {
-				require.NoError(t, err, tc.why)
+				require.NoError(t, err)
 				return
 			}
-			require.Error(t, err, tc.why)
+			require.Error(t, err)
 			if tc.wantMsg != "" {
 				assert.ErrorContains(t, err, tc.wantMsg)
 			}
-			// Every refusal this backstop produces, including the
+			// Every refusal this lookup produces, including the
 			// retention-window one, has to be classifiable: a caller that
 			// cannot match the sentinel treats it as an unrelated failure.
 			assert.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
@@ -445,84 +314,88 @@ func TestReindexOverlapObserver(t *testing.T) {
 	}
 }
 
-// A task's timestamps are stamped by whichever node proposed it, so the
-// mechanism this replaces compared two machines' clocks. The verdict now comes
-// from RAFT-ordered state alone, which makes the proposer's offset irrelevant
-// by construction — so the property to hold is invariance, not tolerance.
-//
-// Asserted that way on purpose: a tolerance table has a size, and a size can be
-// derived from the very constant it is supposed to bite, leaving a table that
-// stays green however wrong the constant is. Invariance has no size to get
-// wrong, and the offsets below are absolute literals far beyond anything a real
-// cluster drifts, so no allowance could satisfy them by accident.
-func TestReindexOverlapVerdictIsInvariantUnderClockSkew(t *testing.T) {
-	skews := []time.Duration{
-		-876000 * time.Hour, // a century behind
-		-24 * time.Hour,
-		-31 * time.Second, // just outside the allowance the old mechanism used
-		-29 * time.Second, // just inside it
-		-time.Second,
-		0,
-		time.Second,
-		29 * time.Second,
-		31 * time.Second,
-		24 * time.Hour,
-		876000 * time.Hour, // a century ahead
-	}
+// The two timestamps the overlap rule compares are stamped on different
+// machines: since comes from the backup participant, FinishedAt from the RAFT
+// proposer. Every other case in this file derives both from one time.Now(),
+// which assumes a single clock and hides the skew entirely. Here the ground
+// truth is fixed in participant time and the proposer's stamp is offset
+// independently, so both skew directions are visible.
+func TestReindexOverlapLookupToleratesClockSkew(t *testing.T) {
+	// Backup start, on the participant's clock. This is the `since` argument.
+	backupStart := time.Now().Add(-2 * time.Minute)
 
-	scenarios := []struct {
+	tests := []struct {
 		name string
-		// stamped is where the proposer claims the migration finished.
-		build      func(stamped time.Time) (before, after []*distributedtask.Task)
-		wantRefuse bool
-		why        string
+		// Where the migration really finished, in participant time.
+		finishedInParticipantTime time.Duration
+		// How far the proposer's clock is off the participant's.
+		proposerSkew time.Duration
+		wantRefuse   bool
+		why          string
 	}{
 		{
-			name: "migration ran entirely inside the backup window",
-			build: func(stamped time.Time) ([]*distributedtask.Task, []*distributedtask.Task) {
-				return nil, []*distributedtask.Task{
-					overlapTask("Movies", distributedtask.TaskStatusFinished, stamped),
-				}
-			},
-			wantRefuse: true,
-			why: "the original fail-open: a proposer running behind stamps a finish that predates the backup " +
-				"start it really followed, and the torn backup is published as clean",
+			name:                      "real overlap, proposer clock behind",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              -5 * time.Second,
+			wantRefuse:                true,
+			why:                       "a slow proposer stamps a finish that predates the backup start it really followed; clearing it publishes a torn backup",
 		},
 		{
-			name: "migration was live when the backup started and finished during it",
-			build: func(stamped time.Time) ([]*distributedtask.Task, []*distributedtask.Task) {
-				return []*distributedtask.Task{
-						overlapTask("Movies", distributedtask.TaskStatusStarted, time.Time{}),
-					}, []*distributedtask.Task{
-						overlapTask("Movies", distributedtask.TaskStatusFinished, stamped),
-					}
-			},
-			wantRefuse: true,
+			name:                      "real overlap, proposer clock ahead",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              5 * time.Second,
+			wantRefuse:                true,
 		},
 		{
-			name: "migration finished before the backup started",
-			build: func(stamped time.Time) ([]*distributedtask.Task, []*distributedtask.Task) {
-				done := overlapTask("Movies", distributedtask.TaskStatusFinished, stamped)
-				return []*distributedtask.Task{done}, []*distributedtask.Task{done}
-			},
-			wantRefuse: false,
-			why: "a skew allowance turns this into a post-migration backup blackout, which every deployment " +
-				"pays for on every backup taken after a migration",
+			name:                      "real overlap, clocks agree",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              0,
+			wantRefuse:                true,
+		},
+		{
+			name:                      "real overlap at the far edge of the allowance, proposer behind",
+			finishedInParticipantTime: time.Second,
+			proposerSkew:              -(reindexOverlapClockSkewAllowance - 2*time.Second),
+			wantRefuse:                true,
+		},
+		{
+			name:                      "no overlap, proposer clock behind",
+			finishedInParticipantTime: -10 * time.Minute,
+			proposerSkew:              -5 * time.Second,
+			wantRefuse:                false,
+			why:                       "a migration that finished long before the backup stays cleared under skew",
+		},
+		{
+			name:                      "no overlap, proposer clock ahead",
+			finishedInParticipantTime: -10 * time.Minute,
+			proposerSkew:              5 * time.Second,
+			wantRefuse:                false,
+		},
+		{
+			name:                      "no overlap, clocks agree",
+			finishedInParticipantTime: -10 * time.Minute,
+			proposerSkew:              0,
+			wantRefuse:                false,
+			why:                       "the allowance must not swallow every past migration",
 		},
 	}
 
-	for _, sc := range scenarios {
-		t.Run(sc.name, func(t *testing.T) {
-			for _, skew := range skews {
-				before, after := sc.build(time.Now().Add(skew))
-				err := overlapObservations{before: before, after: after}.run(t)
-				if sc.wantRefuse {
-					require.Errorf(t, err, "proposer skew %s: %s", skew, sc.why)
-					require.ErrorIsf(t, err, entitiesbackup.ErrBackupSpannedReindex, "proposer skew %s", skew)
-					continue
-				}
-				require.NoErrorf(t, err, "proposer skew %s: %s", skew, sc.why)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stamped := backupStart.Add(tc.finishedInParticipantTime).Add(tc.proposerSkew)
+			task := overlapTask("Movies", distributedtask.TaskStatusFinished, stamped)
+
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {task}}, nil
+			}, time.Hour)
+
+			err := lookup(context.Background(), []string{"Movies"}, backupStart)
+			if tc.wantRefuse {
+				require.Error(t, err, tc.why)
+				assert.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex, tc.why)
+				return
 			}
+			require.NoError(t, err, tc.why)
 		})
 	}
 }
@@ -540,64 +413,49 @@ func overlapTaskWithUnits(collection string, status distributedtask.TaskStatus, 
 // the boundary has to be exact in three directions at once: too strict fails
 // the backup that won the race, too loose passes a backup that spans a real
 // migration.
-func TestReindexOverlapObserverCountsTheRightTerminalTasks(t *testing.T) {
-	stamp := time.Now()
+func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+	insideWindow := backupStart.Add(time.Minute)
 
 	tests := []struct {
 		name       string
-		obs        overlapObservations
+		task       *distributedtask.Task
 		wantRefuse bool
 		why        string
 	}{
 		{
 			name: "cancelled before completing, after a backup claimed first",
-			obs: overlapObservations{
-				after: []*distributedtask.Task{
-					overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled, stamp,
-						map[string]*distributedtask.Unit{
-							"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
-						}),
-				},
-			},
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled, insideWindow,
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+				}),
 			wantRefuse: false,
 			why:        "the backup won the race; failing it would punish the winner",
 		},
 		{
 			name: "migration ran to completion inside the window",
-			obs: overlapObservations{
-				after: []*distributedtask.Task{
-					overlapTaskWithUnits("Movies", distributedtask.TaskStatusFinished, stamp,
-						map[string]*distributedtask.Unit{
-							"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
-						}),
-				},
-			},
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFinished, insideWindow,
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
+				}),
 			wantRefuse: true,
 			why:        "nothing is running at commit, which is exactly why liveness is the wrong question",
 		},
 		{
 			name: "migration still live at commit",
-			obs: overlapObservations{
-				after: []*distributedtask.Task{
-					overlapTaskWithUnits("Movies", distributedtask.TaskStatusStarted, time.Time{},
-						map[string]*distributedtask.Unit{
-							"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
-						}),
-				},
-			},
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusStarted, time.Time{},
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
+				}),
 			wantRefuse: true,
 			why:        "the capture and the migration are concurrent",
 		},
 		{
 			name: "migration that failed inside the window",
-			obs: overlapObservations{
-				after: []*distributedtask.Task{
-					overlapTaskWithUnits("Movies", distributedtask.TaskStatusFailed, stamp,
-						map[string]*distributedtask.Unit{
-							"u1": {ID: "u1", Status: distributedtask.UnitStatusFailed},
-						}),
-				},
-			},
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFailed, insideWindow,
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusFailed},
+				}),
 			wantRefuse: true,
 			why:        "a failed migration may have written before it failed",
 		},
@@ -606,25 +464,21 @@ func TestReindexOverlapObserverCountsTheRightTerminalTasks(t *testing.T) {
 			// cancelled-and-untouched rule would exempt this row too, and
 			// either rule alone would keep it green.
 			name: "cancelled after writing, but before this backup started",
-			obs: func() overlapObservations {
-				task := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled, stamp,
-					map[string]*distributedtask.Unit{
-						"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
-					})
-				return overlapObservations{before: []*distributedtask.Task{task}, after: []*distributedtask.Task{task}}
-			}(),
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
+				backupStart.Add(-time.Minute),
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
+				}),
 			wantRefuse: false,
 			why:        "it wrote, but it was over before the capture began",
 		},
 		{
 			name: "finished before this backup started",
-			obs: func() overlapObservations {
-				task := overlapTaskWithUnits("Movies", distributedtask.TaskStatusFinished, stamp,
-					map[string]*distributedtask.Unit{
-						"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
-					})
-				return overlapObservations{before: []*distributedtask.Task{task}, after: []*distributedtask.Task{task}}
-			}(),
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFinished,
+				backupStart.Add(-time.Minute),
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted},
+				}),
 			wantRefuse: false,
 			why:        "no overlap at all",
 		},
@@ -632,7 +486,11 @@ func TestReindexOverlapObserverCountsTheRightTerminalTasks(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.obs.run(t)
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {tc.task}}, nil
+			}, time.Hour)
+
+			err := lookup(context.Background(), []string{"Movies"}, backupStart)
 			if tc.wantRefuse {
 				require.Error(t, err, tc.why)
 				return
@@ -646,7 +504,9 @@ func TestReindexOverlapObserverCountsTheRightTerminalTasks(t *testing.T) {
 // rebuilt buckets. Whether it did is what decides the backup, and unit state is
 // the evidence: skipping every cancelled task let the submit path's own
 // post-commit rollback manufacture the one state this backstop ignores.
-func TestReindexOverlapObserverCountsCancelledTasksThatRan(t *testing.T) {
+func TestReindexOverlapLookupCountsCancelledTasksThatRan(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+
 	tests := []struct {
 		name       string
 		units      map[string]*distributedtask.Unit
@@ -681,10 +541,14 @@ func TestReindexOverlapObserverCountsCancelledTasksThatRan(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Submitted and cancelled while the backup ran: absent from the
-			// baseline, present at commit.
-			task := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled, time.Now(), tc.units)
-			err := overlapObservations{after: []*distributedtask.Task{task}}.run(t)
+			task := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
+				backupStart.Add(time.Minute), tc.units)
+
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {task}}, nil
+			}, time.Hour)
+
+			err := lookup(context.Background(), []string{"Movies"}, backupStart)
 			if tc.wantRefuse {
 				require.Error(t, err, tc.why)
 				require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex, tc.why)
@@ -698,45 +562,33 @@ func TestReindexOverlapObserverCountsCancelledTasksThatRan(t *testing.T) {
 // The overlap refusal is stored in the backup's failure meta and served from
 // GET /v1/backups/{backend}/{id}. Its causes are RAFT and decoding errors that
 // name nodes and task internals, which a backup caller is granted nothing on.
-func TestReindexOverlapObserverRedactsItsCauses(t *testing.T) {
+func TestReindexOverlapLookupRedactsItsCauses(t *testing.T) {
 	raftErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
-	unreadable := []*distributedtask.Task{{
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 1},
-		Namespace:      ReindexNamespace,
-		Status:         distributedtask.TaskStatusStarted,
-		Payload:        []byte("{not json"),
-	}}
 
 	tests := []struct {
 		name    string
-		obs     overlapObservations
+		list    ReindexTaskLister
 		cause   error
 		leaked  []string
 		wantMsg string
 	}{
 		{
-			name:    "task manager unreachable at backup start",
-			obs:     overlapObservations{beforeErr: raftErr},
+			name:    "task manager unreachable",
+			list:    func(context.Context) (map[string][]*distributedtask.Task, error) { return nil, raftErr },
 			cause:   raftErr,
 			leaked:  []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
 			wantMsg: "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried",
 		},
 		{
-			name:    "task manager unreachable at commit",
-			obs:     overlapObservations{afterErr: raftErr},
-			cause:   raftErr,
-			leaked:  []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
-			wantMsg: "cannot rule out a runtime-reindex during this backup: the cluster task manager could not be queried",
-		},
-		{
-			name:    "task payload unreadable at backup start",
-			obs:     overlapObservations{before: unreadable},
-			leaked:  []string{"not json", "invalid character"},
-			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
-		},
-		{
-			name:    "task payload unreadable at commit",
-			obs:     overlapObservations{after: unreadable},
+			name: "task payload unreadable",
+			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 1},
+					Namespace:      ReindexNamespace,
+					Status:         distributedtask.TaskStatusStarted,
+					Payload:        []byte("{not json"),
+				}}}, nil
+			},
 			leaked:  []string{"not json", "invalid character"},
 			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable",
 		},
@@ -744,7 +596,8 @@ func TestReindexOverlapObserverRedactsItsCauses(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.obs.run(t)
+			lookup := NewReindexOverlapLookup(tc.list, time.Hour)
+			err := lookup(context.Background(), []string{"Movies"}, time.Now().Add(-time.Minute))
 			require.Error(t, err)
 
 			assert.Equal(t, tc.wantMsg, err.Error())
@@ -763,18 +616,18 @@ func TestReindexOverlapObserverRedactsItsCauses(t *testing.T) {
 	}
 }
 
-// TestObserveReindexOverlap_Unwired pins the startup-window default: allow + warn once.
-func TestObserveReindexOverlap_Unwired(t *testing.T) {
+// TestRefuseIfReindexOverlapped_Unwired pins the startup-window default: allow + warn once.
+func TestRefuseIfReindexOverlapped_Unwired(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
 
-	require.NoError(t, db.ObserveReindexOverlap(context.Background(), []string{"Movies"})(context.Background()))
-	require.NoError(t, db.ObserveReindexOverlap(context.Background(), []string{"Movies"})(context.Background()))
+	require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, time.Now()))
+	require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, time.Now()))
 
 	warnings := 0
 	for _, entry := range hook.AllEntries() {
 		if entry.Level == logrus.WarnLevel &&
-			strings.Contains(entry.Message, "observer not yet installed") {
+			strings.Contains(entry.Message, "lookup not yet installed") {
 			warnings++
 		}
 	}
@@ -785,8 +638,9 @@ func TestObserveReindexOverlap_Unwired(t *testing.T) {
 // The commit-time question is asked per backup, and a backup covers anywhere
 // from zero to every collection in the cluster. A task outside that set must not
 // fail the backup, and one anywhere inside it must.
-func TestObserveReindexOverlapCollectionScope(t *testing.T) {
-	migrated := overlapTask("Actors", distributedtask.TaskStatusFinished, time.Now())
+func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+	migrated := overlapTask("Actors", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))
 
 	tests := []struct {
 		name        string
@@ -824,18 +678,12 @@ func TestObserveReindexOverlapCollectionScope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			db := &DB{logger: logger}
-			calls := 0
-			db.SetReindexOverlapObserver(NewReindexOverlapObserver(
+			db.SetReindexOverlapLookup(NewReindexOverlapLookup(
 				func(context.Context) (map[string][]*distributedtask.Task, error) {
-					calls++
-					if calls == 1 {
-						// The migration was submitted after the backup started.
-						return map[string][]*distributedtask.Task{ReindexNamespace: nil}, nil
-					}
 					return map[string][]*distributedtask.Task{ReindexNamespace: {migrated}}, nil
 				}, time.Hour))
 
-			err := db.ObserveReindexOverlap(context.Background(), tc.collections)(context.Background())
+			err := db.RefuseIfReindexOverlapped(context.Background(), tc.collections, backupStart)
 			if !tc.wantRefuse {
 				require.NoError(t, err)
 				return
@@ -858,13 +706,19 @@ func TestObserveReindexOverlapCollectionScope(t *testing.T) {
 // longer rolls back without a positive "busy" (see probeBackupActivity), and
 // this side no longer ignores a cancelled task that ran.
 func TestOverlapBackstopCatchesARolledBackMigrationThatRan(t *testing.T) {
+	backupStart := time.Now().Add(-2 * time.Minute)
+
 	rolledBackAfterWriting := overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
-		time.Now(),
+		backupStart.Add(30*time.Second),
 		map[string]*distributedtask.Unit{
 			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress, Progress: 0.6},
 		})
 
-	err := overlapObservations{after: []*distributedtask.Task{rolledBackAfterWriting}}.run(t)
+	lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+		return map[string][]*distributedtask.Task{ReindexNamespace: {rolledBackAfterWriting}}, nil
+	}, time.Hour)
+
+	err := lookup(context.Background(), []string{"Movies"}, backupStart)
 	require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
 		"a backup spanning a migration that ran must never be published as SUCCESS, "+
 			"however that migration ended")
