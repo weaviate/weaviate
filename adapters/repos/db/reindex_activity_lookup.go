@@ -191,27 +191,28 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 // A non-nil error means either that one overlapped or that the question can no
 // longer be answered; callers fail closed on both.
 //
-// One case is decided by unit state rather than by timestamps: a cancelled
-// task. Cancel only applies to a task that had already STARTED, so a cancelled
-// one may already have rebuilt buckets, and it counts as an overlap whenever
-// any of its units left PENDING. Only a cancelled task where no unit was ever
-// claimed is exempt, because no worker could have written. That carve-out
-// exists for a state the submit path manufactures on purpose: its post-commit
-// rollback withdraws a task when a backup claims first, and counting that would
-// fail the backup that won the race.
+// Cancelled tasks are decided by unit state, not by timestamps: cancel only
+// applies to a task that had already STARTED, so a cancelled one may already
+// have rebuilt buckets. It counts as an overlap whenever any unit left PENDING.
+// The exemption for one where nothing was claimed exists because the submit
+// path manufactures exactly that state: its post-commit rollback withdraws a
+// task when a backup claims first, and counting it would fail the backup that
+// won the race.
 //
-// The residual it leaves is a cancelled task whose units all still read PENDING
-// at commit while a worker had in fact begun writing. Pinned by
+// The exemption leaves no residual. A worker's first action is a progress
+// report of 0.0, and 0.0 still flips the unit out of PENDING even though it is
+// not greater than the stored 0.0 — the status flip is unconditional, only the
+// stored value is monotonic. That report is a synchronous leader apply, so
+// every write a worker does is strictly downstream of a unit already reading
+// IN_PROGRESS on the leader this lookup queries. Pinned by
 // TestReindexOverlapLookupCountsCancelledTasksThatRan.
 //
-// The comparison against since is between two machines' clocks: the backup's
-// start time is stamped on the capturing node, a task's FinishedAt by whichever
-// node proposed it. Skewed far enough apart, a migration that really did finish
-// inside the window reads as having finished before it and the backup is
-// published as clean. Accepted, not worked around: backup state is not held in
-// RAFT, so no cluster-consistent ordering exists to compare against, and
-// building one here would only paper over that boundary. See
-// docs/runtime-reindex.md.
+// since is compared across two machines' clocks: the backup stamps its start
+// time on the capturing node, a task's FinishedAt on whichever node proposed
+// it. Skewed far enough apart, a migration that did finish inside the window
+// reads as having finished before it. Accepted, not worked around: backup state
+// is not in RAFT, so there is no cluster-consistent ordering to compare
+// against. See docs/runtime-reindex.md.
 type ReindexOverlapLookup func(ctx context.Context, collections []string, since time.Time) error
 
 // SetReindexOverlapLookup installs the lookup consulted by
@@ -285,23 +286,22 @@ func lowercasedSet(collections []string) map[string]struct{} {
 // overlap. The returned collection name is the payload's, for the refusal
 // message; it is only meaningful when overlaps is true.
 //
-// A non-nil error means the task payload could not be read, so overlap can no
-// longer be ruled out; the caller fails closed on it.
+// A non-nil error means the payload could not be read, so overlap can no longer
+// be ruled out and the caller fails closed.
 //
 // That fail-closed is scoped, because its blast radius is the whole point: the
-// caller loops every reindex task in the cluster, so a single payload no node
-// can decode would otherwise refuse EVERY backup of EVERY collection until the
-// completed-task TTL drops the task days later — and DTM cannot evict it in the
-// meantime for the same reason. A rolling upgrade that retypes a payload field
-// produces exactly that payload, so this is reachable in normal operation.
-// Refusing one collection's backup is cheap and visible; refusing all of them
-// with no operator remedy is a self-inflicted outage.
+// caller loops every reindex task in the cluster, so one payload no node can
+// decode would otherwise refuse EVERY backup of EVERY collection until the
+// completed-task TTL drops it days later. A rolling upgrade that retypes a
+// payload field produces exactly that payload, so this is reachable in normal
+// operation, and refusing every backup with no remedy is a self-inflicted
+// outage.
 //
-// Two things bound it. The status and FinishedAt rules read task state, not the
-// payload, so a task that was already over when the capture began is cleared
-// whatever its payload says. And [ReindexTaskCollection] recovers the collection
-// from payloads the full decoder rejects, which scopes the rest to the one
-// collection the task names.
+// Two things bound it: status and FinishedAt are read off the task rather than
+// the payload, so one already over when the capture began is cleared whatever
+// its payload says, and [ReindexTaskCollection] recovers the collection from
+// payloads the full decoder rejects, holding the rest to the collection the
+// task names.
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
 	var payload ReindexTaskPayload
 	decodeErr := json.Unmarshal(task.Payload, &payload)
@@ -372,17 +372,14 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []strin
 		// Same contract as the other two gates: RUNTIME_REINDEX_ENABLED=false
 		// means no reindex check anywhere. Returning here also skips the lookup
 		// itself, a leader-forwarded RAFT query that could fail a backup for
-		// reasons needing no reindex to exist (an unreachable leader, or a
-		// backup outliving the completed-task retention window).
+		// reasons needing no reindex to exist (unreachable leader, or a backup
+		// outliving the completed-task retention window).
 		//
 		// Residual, at its true width: "no new task can start" is not "no task
-		// is running". A reindex is still live with the flag off if
-		//
-		//  1. it was already running when the flag was turned off;
-		//  2. the node BOOTED with the flag off and resumed a STARTED task from
-		//     DTM — the flag gates submission, not recovery;
-		//  3. a cancel is tearing down, which stays allowed with the flag off.
-		//
+		// is running". A reindex is still live with the flag off if it was
+		// already running when the flag was turned off, if the node BOOTED with
+		// the flag off and resumed a STARTED task from DTM (the flag gates
+		// submission, not recovery), or if a cancel is still tearing down.
 		// Accepted: the flag is the escape hatch for the whole feature, so it
 		// cannot itself fail backups.
 		return nil

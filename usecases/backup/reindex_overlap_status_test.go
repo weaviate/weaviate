@@ -173,8 +173,8 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 
 // The check is a backstop only because it is asked about the whole capture
 // window. Handed the commit instant instead, it would ask "is a reindex running
-// right now" — the question the pre-capture gates already answered — and a
-// migration that started and finished inside the window would read as clean.
+// right now", which is the question the pre-capture gates already answered, and
+// a migration that started and finished inside the window would read as clean.
 func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.T) {
 	const backupID = "1"
 	any := mock.Anything

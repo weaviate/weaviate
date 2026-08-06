@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/sirupsen/logrus"
 
@@ -77,6 +78,22 @@ func (rc *ReindexCleanup) Activity() http.Handler {
 	return rc.auth.handleFunc(rc.activityHandler())
 }
 
+// loggedCollectionLimit caps the query-string value this handler logs. A
+// collection name is far shorter; the cap exists for the value an unauthorized
+// caller can send, not for the one a peer sends.
+const loggedCollectionLimit = 128
+
+// loggableCollection makes an attacker-supplied query value safe to put in a
+// logrus field: quoting escapes the newline that would otherwise split one log
+// line into two forgeable ones, and the cap stops a megabyte of query string
+// from being written per request.
+func loggableCollection(collection string) string {
+	if len(collection) > loggedCollectionLimit {
+		collection = collection[:loggedCollectionLimit] + "…(truncated)"
+	}
+	return strconv.Quote(collection)
+}
+
 func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
@@ -108,7 +125,7 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			// The cancelling node waits on this answer, so an operator tracing a
 			// slow cancel needs to see that the question arrived and what it got.
 			rc.logger.WithField("action", "reindex_cleanup_probe").
-				WithField("collection", collection).
+				WithField("collection", loggableCollection(collection)).
 				WithField("cleaning_up", cleaningUp).
 				Debug("reindex cleanup probe answered")
 		}

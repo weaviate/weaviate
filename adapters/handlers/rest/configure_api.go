@@ -1123,27 +1123,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 }
 
 // newShardReindexActivityBuilder builds the backup gate's per-shard lookup. One
-// DTM snapshot is taken per admission pass; the answer is scoped to the exact
-// (collection, shard) tuples the live tasks name, so a migration elsewhere does
-// not block an unrelated backup and a migration on this shard is not missed
-// because a sibling shard is idle.
+// DTM snapshot per admission pass, scoped to the exact (collection, shard)
+// tuples the live tasks name, so a migration elsewhere blocks no unrelated
+// backup and a migration on this shard is not missed because a sibling is idle.
 //
 // A DTM it cannot reach refuses every backup: the gate must not read "free"
 // from a question it could not ask. A live task whose payload will not decode
-// is the same uncertainty in a smaller shape — the shards it holds cannot be
-// named, so none of them may read free.
+// is the same uncertainty in a smaller shape.
 //
-// How wide that refusal goes is decided by how much of the payload survives.
-// [db.ReindexTaskCollection] reads the collection out of payloads the full
-// decoder rejects, which is the state a rolling upgrade produces, and the
-// refusal is then held to that collection's shards. Only a payload naming no
-// collection at all refuses every backup in the cluster, because nothing says
-// which shards it could have been holding.
+// How wide that refusal goes depends on how much of the payload survives.
+// [db.ReindexTaskCollection] recovers the collection from payloads the full
+// decoder rejects, which is what a rolling upgrade produces, and the refusal is
+// held to that collection's shards. Only a payload naming no collection at all
+// refuses every backup in the cluster, because nothing says which shards it
+// could have been holding.
 //
 // The commit-time backstop ([db.ReindexOverlapLookup]) draws the same line, and
-// the two gates have to agree on what unreadable means: a gap between them
-// either admits a capture the commit will reject after all the upload work, or
-// refuses at admission what the commit would have allowed.
+// the two have to agree on what unreadable means: a gap either admits a capture
+// the commit will reject after all the upload work, or refuses at admission
+// what the commit would have allowed.
 func newShardReindexActivityBuilder(
 	ctx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -2591,13 +2589,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 //
 // The probes ask a named peer a question only that peer can answer, and read a
 // 404 as "this build predates the route". A proxy answering in the peer's stead
-// 404s everything, and the gate would read that as "no backups anywhere".
-//
-// The probe corroborates a 404 against the shape this server's own mux emits, so
-// an ordinary proxy error page is rejected. That still leaves a proxy whose 404
-// is byte-identical to Go's stdlib one, which anything fronted by a Go default
-// mux produces; not routing these probes through a proxy removes the class
-// rather than narrowing it.
+// 404s everything, which the gate would read as "no backups anywhere". The
+// probe corroborates a 404 against this server's own mux shape, but anything
+// fronted by a Go default mux emits a byte-identical one; bypassing the proxy
+// removes the class rather than narrowing it.
 //
 // Scoped to these probes on purpose: whether cluster-internal traffic in general
 // should honor a proxy is a deployment-visible question, and is left as it is.
