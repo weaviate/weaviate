@@ -1222,14 +1222,22 @@ func (m *Manager) Restore(bytes []byte) error {
 				m.tasks[namespace] = make(map[string]*Task)
 			}
 
-			// The snapshot is the one door a terminal task with no finish time
-			// enters through; repairing it here is what lets it age out again.
+			// The snapshot is the one door a terminal task with a missing or
+			// stale finish time enters through; repairing it here is what lets
+			// it age out again and keeps the backup overlap backstop honest.
 			if task.repairTerminalStamp() {
 				m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
-					Warnf("task %s/%s/%d was restored %s but carried no finish time; stamping it %s, "+
-						"the newest moment the task records. Expected after a rolling upgrade past "+
-						"a build that did not stamp the terminal transition",
+					Warnf("task %s/%s/%d was restored %s carrying a finish time older than the task's own "+
+						"last recorded moment; stamping it %s. Expected after a rolling upgrade past a "+
+						"build that stamped the terminal transition differently or not at all",
 						namespace, task.ID, task.Version, task.Status, task.FinishedAt)
+			}
+			if task.clearNonTerminalStamp() {
+				m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
+					Warnf("task %s/%s/%d was restored %s carrying a finish time; clearing it, since the "+
+						"task is still running. Expected after a rolling upgrade past a build that "+
+						"stamped the moment the task's units stopped",
+						namespace, task.ID, task.Version, task.Status)
 			}
 
 			m.tasks[namespace][task.ID] = task

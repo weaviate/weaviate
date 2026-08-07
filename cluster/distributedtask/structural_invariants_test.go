@@ -266,6 +266,36 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskWithNoStamp(t *te
 			"the stamp must be identical on every node applying this snapshot")
 	})
 
+	t.Run("a task that failed on a unit report takes the stamp from the unit", func(t *testing.T) {
+		// No acks at all: a task that failed on a unit report never reaches the
+		// swap barrier, so the unit's finish is the newest moment it carries.
+		// Without the unit arm of the max the stamp falls back to StartedAt,
+		// which is early enough for the backup overlap backstop to waive a
+		// capture the failed migration may already have torn.
+		failedBytes, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+			"ns": {{
+				Namespace:      "ns",
+				TaskDescriptor: TaskDescriptor{ID: "failed-no-acks", Version: 1},
+				Status:         TaskStatusFailed,
+				StartedAt:      started,
+				Units: map[string]*Unit{
+					"u1": {ID: "u1", Status: UnitStatusCompleted, FinishedAt: started.Add(time.Minute)},
+					"u2": {ID: "u2", Status: UnitStatusFailed, FinishedAt: unitsStopped},
+				},
+			}},
+		}})
+		require.NoError(t, err)
+
+		m := NewManager(ManagerParameters{
+			Clock: clockwork.NewFakeClockAt(unitsStopped), CompletedTaskTTL: time.Hour, Logger: nullLogger,
+		})
+		t.Cleanup(m.Close)
+		require.NoError(t, m.Restore(failedBytes))
+
+		require.True(t, restoredTask(t, m).FinishedAt.Equal(unitsStopped),
+			"the stamp must be the last unit to stop, the newest moment on a task with no acks")
+	})
+
 	t.Run("deletable once the TTL has run from the repaired stamp", func(t *testing.T) {
 		clock := clockwork.NewFakeClockAt(lastAck.Add(30 * time.Minute))
 		m := restoreInto(t, clock)
@@ -456,20 +486,58 @@ func TestStructuralInvariant_FinishedAtIffTerminal(t *testing.T) {
 			h := newTestHarness(t).init(t)
 			defer h.manager.Close()
 
-			for _, s := range path {
-				s.apply(t, h)
-				h.clock.Advance(time.Second)
-
+			requireInvariant := func(after string) {
 				tasks, err := h.manager.ListDistributedTasks(context.Background())
 				require.NoError(t, err)
 				require.Len(t, tasks[ns], 1)
 				task := tasks[ns][0]
 				require.Equal(t, !task.Status.IsTerminal(), task.FinishedAt.IsZero(),
-					"after %q the task is %s with FinishedAt %v", s.name, task.Status, task.FinishedAt)
+					"after %q the task is %s with FinishedAt %v", after, task.Status, task.FinishedAt)
+			}
+
+			for _, s := range path {
+				s.apply(t, h)
+				h.clock.Advance(time.Second)
+				requireInvariant(s.name)
+
+				// Round-trip through the snapshot an older binary wrote: every
+				// task stamped when its units stopped, terminal or not. Restore
+				// has to normalize both directions or a rolling upgrade breaks
+				// the invariant cluster-wide until every task turns over.
+				snap, err := h.manager.Snapshot()
+				require.NoError(t, err)
+				require.NoError(t, h.manager.Restore(preUpgradeStamps(t, snap)))
+				requireInvariant(s.name + " → restore of a pre-upgrade snapshot")
 			}
 
 			require.True(t, onlyTask(t, h, ns).Status.IsTerminal(),
 				"sanity: every path ends terminal, so the ⟸ direction is exercised")
 		})
 	}
+}
+
+// preUpgradeStamps rewrites a snapshot the way builds before the FinishedAt
+// invariant wrote it: every task carries a finish time whatever its status. The
+// value is deliberately ancient so a terminal task's stamp is one the repair
+// has to advance rather than one it can leave alone.
+func preUpgradeStamps(t *testing.T, raw []byte) []byte {
+	t.Helper()
+
+	var decoded struct {
+		Tasks map[string][]map[string]any `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+
+	rewritten := 0
+	for _, tasks := range decoded.Tasks {
+		for _, task := range tasks {
+			task["finishedAt"] = time.Unix(1, 0).UTC()
+			rewritten++
+		}
+	}
+	require.NotZero(t, rewritten, "sanity: the snapshot must carry a task to rewrite")
+
+	out, err := json.Marshal(decoded)
+	require.NoError(t, err)
+	return out
 }
