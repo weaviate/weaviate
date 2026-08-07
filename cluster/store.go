@@ -230,9 +230,6 @@ type Store struct {
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
 
-	// dbLoadInProgress mutes WaitToRestoreDB's logging while reloadDBFromSchema reports the same load.
-	dbLoadInProgress atomic.Bool
-
 	// raft implementation from external library
 	raft          *raft.Raft
 	raftResolver  types.RaftResolver
@@ -694,8 +691,9 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 	}
 	t := time.NewTicker(period)
 	defer t.Stop()
-	const logInterval = time.Minute
-	var lastLog time.Time
+	// The wait is a phase, not a heartbeat: say so once and leave the rest of
+	// the startup log to trackDBLoadProgress.
+	var announced bool
 	for {
 		select {
 		case <-close:
@@ -706,13 +704,9 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 			if st.dbLoaded.Load() {
 				return nil
 			}
-
-			if st.dbLoadInProgress.Load() {
-				continue
-			}
-			if time.Since(lastLog) >= logInterval {
+			if !announced {
 				st.log.Info("waiting for database to be restored")
-				lastLog = time.Now()
+				announced = true
 			}
 		}
 	}
@@ -755,12 +749,9 @@ const (
 // returned stop function is called.
 //
 // This is the authoritative signal: it covers every path the load takes, while
-// WaitToRestoreDB only reports when it happens to be waiting — never on a single
-// node, where the bootstrap join is serialised behind the load. It therefore
-// mutes WaitToRestoreDB via dbLoadInProgress, which on a restart into a live
-// cluster is waiting throughout and would otherwise log the same counters again.
+// WaitToRestoreDB only announces that it is waiting — never on a single node,
+// where the bootstrap join is serialised behind the load.
 func (st *Store) trackDBLoadProgress() func() {
-	st.dbLoadInProgress.Store(true)
 	done := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		t := time.NewTicker(dbLoadProgressInterval)
@@ -782,10 +773,7 @@ func (st *Store) trackDBLoadProgress() func() {
 			}
 		}
 	}, st.log)
-	return func() {
-		close(done)
-		st.dbLoadInProgress.Store(false)
-	}
+	return func() { close(done) }
 }
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node

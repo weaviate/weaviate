@@ -1646,19 +1646,16 @@ func cmdAsBytes(class string,
 	return data
 }
 
-// TestStoreWaitToRestoreDBIsMutedWhileLoading pins that only one progress
-// reporter speaks at a time. On a restart into a live cluster the reload runs on
-// the Apply catch-up path, so WaitToRestoreDB is still waiting while
-// trackDBLoadProgress reports the same counters.
-func TestStoreWaitToRestoreDBIsMutedWhileLoading(t *testing.T) {
+// TestStoreWaitToRestoreDBAnnouncesOnce pins that the wait is reported as a
+// phase, not a heartbeat. Progress belongs to trackDBLoadProgress: on a restart
+// into a live cluster the waiter is still waiting while the load runs, so a
+// per-tick line here would report the same startup twice.
+func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	t.Parallel()
 
 	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
 	logHook := logrustest.NewLocal(ms.logger)
 	st := ms.store
-	st.cfg.DBLoadProgress = func() *db.StartupProgressSnapshot {
-		return &db.StartupProgressSnapshot{Loaded: 1, Total: 10}
-	}
 
 	countMsg := func(msg string) int {
 		n := 0
@@ -1670,18 +1667,20 @@ func TestStoreWaitToRestoreDBIsMutedWhileLoading(t *testing.T) {
 		return n
 	}
 
-	st.dbLoadInProgress.Store(true)
-
 	done := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		defer close(done)
-		// lastLog starts at the zero time, so an unmuted waiter logs on tick one.
 		_ = st.WaitToRestoreDB(context.Background(), 10*time.Millisecond, make(chan struct{}))
 	}, ms.logger)
 
-	time.Sleep(200 * time.Millisecond)
-	require.Equal(t, 0, countMsg("waiting for database to be restored"),
-		"the waiter must stay quiet while trackDBLoadProgress is reporting")
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, func() bool {
+		return countMsg("waiting for database to be restored") > 0
+	}), "the waiter must announce itself while the DB is not loaded")
+
+	// Many further ticks pass at 10ms; none of them may add another line.
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, 1, countMsg("waiting for database to be restored"),
+		"announced once, not once per tick")
 
 	st.dbLoaded.Store(true)
 	select {
@@ -1689,19 +1688,4 @@ func TestStoreWaitToRestoreDBIsMutedWhileLoading(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
 	}
-
-	// Muting must not cost it its purpose: with nothing loading it still reports.
-	st.dbLoaded.Store(false)
-	st.dbLoadInProgress.Store(false)
-	done2 := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		defer close(done2)
-		_ = st.WaitToRestoreDB(context.Background(), 10*time.Millisecond, make(chan struct{}))
-	}, ms.logger)
-
-	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, func() bool {
-		return countMsg("waiting for database to be restored") > 0
-	}), "with no load in flight the waiter must still report")
-	st.dbLoaded.Store(true)
-	<-done2
 }
