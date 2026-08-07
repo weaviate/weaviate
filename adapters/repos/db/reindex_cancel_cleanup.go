@@ -63,26 +63,6 @@ func (db *DB) CleanStalePartialReindexState(
 // caller's answer is "unknown from here on" and not "these shards failed".
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
-// ErrCleanupCollectionDropped marks a sweep that ran while the collection was
-// being deleted. Nothing was swept and nothing needs to be: the sidecar state
-// lives under the collection's directory and goes away with it, so there is no
-// later sweep to retry either.
-var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is being deleted")
-
-// reportCloseCause tags a walk that a close cut short, so the caller can tell
-// the two ends apart: a deleted collection leaves nothing behind, anything else
-// leaves every shard unswept.
-func reportCloseCause(err error) error {
-	switch {
-	case errors.Is(err, errIndexDropped):
-		return fmt.Errorf("%w: %w", ErrCleanupCollectionDropped, err)
-	case errors.Is(err, errIndexShutdown), errors.Is(err, errIndexClosed):
-		return fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
-	default:
-		return err
-	}
-}
-
 // CleanStalePartialReindexState iterates every local shard of this index
 // and calls the per-shard cleanup. Per-shard errors are collected and
 // returned together so the caller can decide whether to refuse the submit
@@ -94,7 +74,9 @@ func reportCloseCause(err error) error {
 // future submit. Context cancellation DOES stop it: both call sites hold the
 // collection's backup and restore gate closed for the whole sweep, so the work
 // left after the deadline has to end rather than continue as a run of failed
-// loads.
+// loads. That abort is joined into the returned error and tagged with
+// [ErrCleanupSweepTruncated], because a caller that sees only the shard
+// failures reads a bounded problem where the truth is that the sweep stopped.
 //
 // A shard that is not loaded is loaded only if it has on-disk state this sweep
 // would remove. Unwrapping every cold shard of a large multi-tenant collection
@@ -104,10 +86,10 @@ func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 ) error {
-	var firstErr error
-	if err := i.ForEachShard(func(name string, shardLike ShardLike) error {
+	var shardErrs error
+	walkErr := i.ForEachShard(func(name string, shardLike ShardLike) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("partial-reindex cleanup stopped before shard %q: %w", name, ctxErr)
+			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}
 		shard, ok := shardLike.(*Shard)
 		if !ok {
@@ -133,10 +115,8 @@ func (i *Index) CleanStalePartialReindexState(
 			shardErrs = errors.Join(shardErrs, fmt.Errorf("shard %q: %w", name, err))
 		}
 		return nil
-	}); err != nil && firstErr == nil {
-		firstErr = err
-	}
-	return firstErr
+	})
+	return errors.Join(shardErrs, walkErr)
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath has
