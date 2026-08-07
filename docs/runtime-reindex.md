@@ -199,8 +199,10 @@ Two things about it changed with the `finishedAt` work:
   so the value moved later by however long those took — seconds to
   minutes on a large collection. The completed-task TTL measures from
   it, so at an unchanged `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
-  tasks now linger by that same amount. An in-flight task renders
-  `0001-01-01T00:00:00.000Z`, not an absent or empty field.
+  tasks now linger by that same amount. A task that has not ended omits
+  `finishedAt` entirely, so a client sorting on the field no longer sees
+  every running migration dated year 1. The same applies to each unit's
+  `finishedAt`.
 
 ## 3. End-to-end lifecycle
 
