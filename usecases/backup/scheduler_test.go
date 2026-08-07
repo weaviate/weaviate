@@ -1088,16 +1088,17 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 }
 
 // TestSchedulerRestoreRefusedDuringInFlightReindex pins that Restore refuses
-// before the backend is touched (it carries no expectations here).
+// once the class list is resolved, and before any of the backup's data is read.
+//
+// The gate sits after the coordinator meta read because that read is what turns
+// a wildcard include into class names; everything past it — the per-node
+// descriptors, the schema, the participant fan-out — must stay untouched.
 func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	fs := newFakeScheduler(nil)
+	fs := restoreMetaFixture(ctx, "1", "Class1")
 	fs.selector.reindexInFlightErr = gateRefusal()
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
-	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
-	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
 	_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
 		Backend: "s3",
@@ -1106,7 +1107,7 @@ func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	}, false)
 
 	require.Error(t, err)
-	fs.backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
+	fs.backend.AssertNotCalled(t, "GetObject", ctx, "1/Node-A", BackupFile)
 	// ErrUnprocessable doesn't unwrap, so check the sentinel via its text.
 	assert.IsType(t, backup.ErrUnprocessable{}, err)
 	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+

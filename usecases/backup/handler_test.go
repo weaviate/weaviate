@@ -360,3 +360,25 @@ func TestOnCanCommitRestore_WordingSurvivesRoundTrip(t *testing.T) {
 	assert.NotContains(t, got, "this shard",
 		"the gate is cluster-wide; no shard is involved")
 }
+
+// TestOnCanCommitRestoreGatesOnTheRequestedClasses pins the participant half of
+// the restore gate to the class list the coordinator resolved. Asking it about
+// anything else — a wildcard pattern, an empty list — makes the check answer a
+// question nobody asked.
+func TestOnCanCommitRestoreGatesOnTheRequestedClasses(t *testing.T) {
+	// The gate is shut so OnCanCommit returns on it, before the validation that
+	// would need a populated backend.
+	sourcer := &fakeSourcer{reindexInFlightErr: gateRefusal()}
+	classes := []string{"Movies", "Actors"}
+
+	createManager(sourcer, nil, newFakeBackend(), nil).OnCanCommit(context.Background(), &Request{
+		Method:   OpRestore,
+		ID:       "1",
+		Classes:  classes,
+		Backend:  "s3",
+		Duration: time.Millisecond * 20,
+	})
+
+	require.Equal(t, [][]string{classes}, sourcer.reindexInFlightCollections(),
+		"the participant must ask about exactly the classes the restore names")
+}

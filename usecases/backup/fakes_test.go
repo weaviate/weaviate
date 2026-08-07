@@ -65,10 +65,11 @@ type fakeSourcer struct {
 
 	// overlapMu guards the recorded arguments below: the participant backup
 	// runs the commit-time check on its own goroutine.
-	overlapMu      sync.Mutex
-	overlapClasses []string
-	overlapSince   time.Time
-	overlapCalls   int
+	overlapMu          sync.Mutex
+	overlapClasses     []string
+	overlapSince       time.Time
+	overlapCalls       int
+	inFlightCollection [][]string
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
@@ -76,8 +77,23 @@ func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error
 	return args.Error(0)
 }
 
-func (s *fakeSourcer) RefuseIfAnyReindexInFlight(context.Context, []string) error {
+// The collections are recorded for the same reason the overlap check's are
+// (below): the answer alone says nothing about which collections the gate was
+// asked about, and asking about a wildcard pattern rather than a resolved class
+// name is a silent way for this half of the gate to stop gating.
+func (s *fakeSourcer) RefuseIfAnyReindexInFlight(_ context.Context, collections []string) error {
+	s.overlapMu.Lock()
+	s.inFlightCollection = append(s.inFlightCollection, collections)
+	s.overlapMu.Unlock()
 	return s.reindexInFlightErr
+}
+
+// reindexInFlightCollections returns what each participant-side gate call was
+// scoped to.
+func (s *fakeSourcer) reindexInFlightCollections() [][]string {
+	s.overlapMu.Lock()
+	defer s.overlapMu.Unlock()
+	return append([][]string(nil), s.inFlightCollection...)
 }
 
 // reindexOverlapErr backs RefuseIfReindexOverlapped as a plain field so a test
