@@ -652,6 +652,10 @@ function run_aof_group() {
     extra_flags+=(-skip "$AOF_GROUP_SKIP")
   fi
 
+  # Go's per-package timeout fires as a hard panic, so a group whose tests can
+  # legitimately run longer than the default needs its own budget.
+  local group_timeout="${AOF_GROUP_TIMEOUT:-20m}"
+
   local testFailed=0
   for path in "${package_paths[@]}"; do
     for pkg in $(go list "./$path" 2>/dev/null || true); do
@@ -664,7 +668,7 @@ function run_aof_group() {
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
+        if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -1031,11 +1035,16 @@ function run_acceptance_reindex_backup() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup (single-node)"
   # The package's multi-node test runs separately in -backup-cluster (below);
-  # it alone can eat the whole 20m budget this group shares. Filter matches by
+  # it alone can eat the whole budget this group shares. Filter matches by
   # exact name: a typo here silently runs zero tests.
   # TestCIAllowlistCoversEveryTestInThisPackage guards these two lists against
   # the silent-skip described above; it has to be listed to be able to run.
-  AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage)$' \
+  # 35m, not the 20m default: these tests wait on backups and reindexes with
+  # their own multi-minute deadlines, and the four here sum to about that in the
+  # worst case. Typical runs finish in seconds. Stays under the job's 45m so a
+  # hang still panics with stacks instead of being killed by the runner.
+  AOF_GROUP_TIMEOUT=35m \
+    AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage)$' \
     run_aof_group "reindex-backup" test/acceptance/reindex_backup
 }
 
@@ -1043,8 +1052,9 @@ function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
   # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. See the sibling
-  # above for why it gets its own 20m budget.
-  AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
+  # above for why it gets its own budget; its two backup waits allow 10m each.
+  AOF_GROUP_TIMEOUT=35m \
+    AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
 }
 
