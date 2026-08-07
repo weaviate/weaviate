@@ -123,6 +123,14 @@ type Scheduler struct {
 	logger        logrus.FieldLogger
 	sampledLogger *logrusext.Sampler
 
+	// unstampedLogger keeps the zero-stamp warn off sampledLogger's budget.
+	// The tasks it reports are never cleaned up, so the sweep meets them again
+	// on every tick for as long as the rolling upgrade that produced them
+	// lasts; sharing one budget would let them crowd out a genuine error.
+	// Its own budget is one line an hour, since nothing about the state
+	// changes in between.
+	unstampedLogger *logrusext.Sampler
+
 	tasksRunning *prometheus.GaugeVec
 
 	// perTaskState holds all per-scheduler-instance per-task state for
@@ -213,8 +221,9 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		completedTaskTTL: params.CompletedTaskTTL,
 		tickInterval:     params.TickInterval,
 
-		logger:        params.Logger,
-		sampledLogger: logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		logger:          params.Logger,
+		sampledLogger:   logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		unstampedLogger: logrusext.NewSampler(params.Logger, 1, time.Hour),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -629,19 +638,12 @@ func (s *Scheduler) tick() {
 		// upgrade — see [Task.repairTerminalStamp] for where the state comes
 		// from.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
-			if task.Status.IsActive() {
-				return false
-			}
-			if task.FinishedAt.IsZero() {
-				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-					s.loggerWithTask(namespace, task.TaskDescriptor).
-						Warnf("task is %s but carries no finish time; keeping it rather than "+
-							"cleaning it up, since its age cannot be established", task.Status)
-				})
+			if task.Status.IsActive() || task.FinishedAt.IsZero() {
 				return false
 			}
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
+		s.warnAboutUnstampedTasks(namespace, tasks)
 		for _, task := range cleanableTasks {
 			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
 			if err != nil {
@@ -678,6 +680,37 @@ func (s *Scheduler) tick() {
 			}
 		}
 	}
+}
+
+// warnAboutUnstampedTasks reports the terminal tasks the sweep keeps because
+// their age cannot be established: a zero finish time reads as roughly two
+// thousand years old and would clear any TTL. Nothing removes them, so the
+// sweep meets the same set on every tick until the rolling upgrade that
+// produced it ends. One line an hour off a budget of its own, counting them
+// and naming the lowest ID as the handle to start from.
+func (s *Scheduler) warnAboutUnstampedTasks(namespace string, tasks map[TaskDescriptor]*Task) {
+	var (
+		count   int
+		example TaskDescriptor
+	)
+	for desc, task := range tasks {
+		if task.Status.IsActive() || !task.FinishedAt.IsZero() {
+			continue
+		}
+		if count == 0 || desc.ID < example.ID {
+			example = desc
+		}
+		count++
+	}
+	if count == 0 {
+		return
+	}
+
+	s.unstampedLogger.WithSampling(func(l logrus.FieldLogger) {
+		s.loggerWithTask(namespace, example).
+			Warnf("%d terminal task(s) in this namespace carry no finish time; keeping them "+
+				"rather than cleaning them up, since their age cannot be established", count)
+	})
 }
 
 // reconcileRunningTasks owns the start/terminate decisions for a single

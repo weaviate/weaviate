@@ -180,6 +180,25 @@ func TestUpdateIndexAuthorization(t *testing.T) {
 		require.Equal(t, [][]string{authorization.Collections("Movies")}, f.authz.resources,
 			"the check must be scoped to the collection being reindexed")
 	})
+
+	// Every arm above names a collection the fixture registers, so a handler
+	// that answered 404 first would still refuse them with 403. This one names
+	// a collection that does not exist: under the check-after-lookup ordering
+	// it comes back 404, which tells an unauthorized caller which collections
+	// are real, and it takes the per-property submit lock on the way there.
+	t.Run("a refused caller cannot tell an absent collection from a present one", func(t *testing.T) {
+		forbidden := authzerrors.NewForbidden(principal, authorization.UPDATE,
+			authorization.Collections("Absent")...)
+		f := newAuthzSubmitFixture(t, forbidden)
+
+		responder := submitReindexForClass(f.handlers, context.Background(), "Absent")
+
+		f.requireNothingBehindTheCheckRan(t)
+		_, ok := responder.(*schema.SchemaObjectsIndexesUpdateForbidden)
+		require.Truef(t, ok,
+			"authorization must run before the collection lookup, so both answers are 403, got %T",
+			responder)
+	})
 }
 
 // getIndexesResponder drives GET /v1/schema/Movies/indexes and hands back the
@@ -187,11 +206,16 @@ func TestUpdateIndexAuthorization(t *testing.T) {
 // that only exists when the read was allowed.
 func getIndexesResponder(t *testing.T, h *indexesHandlers, principal *models.Principal) middleware.Responder {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, "/v1/schema/Movies/indexes", nil)
+	return getIndexesResponderFor(t, h, principal, "Movies")
+}
+
+func getIndexesResponderFor(t *testing.T, h *indexesHandlers, principal *models.Principal, collection string) middleware.Responder {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "/v1/schema/"+collection+"/indexes", nil)
 	require.NoError(t, err)
 	return h.getIndexes(schema.SchemaObjectsIndexesGetParams{
 		HTTPRequest: req,
-		ClassName:   "Movies",
+		ClassName:   collection,
 	}, principal)
 }
 
@@ -259,5 +283,23 @@ func TestGetIndexesAuthorization(t *testing.T) {
 		require.Equal(t, []string{authorization.READ}, authz.verbs)
 		require.Equal(t, [][]string{authorization.CollectionsMetadata("Movies")}, authz.resources,
 			"the check must be scoped to the collection whose index state is exposed")
+	})
+
+	// Every arm above names a collection the fixture registers, so a handler
+	// that answered 404 first would still refuse them with 403. This one names
+	// a collection that does not exist: under the check-after-lookup ordering
+	// it comes back 404, which tells an unauthorized caller which collections
+	// are real.
+	t.Run("a refused caller cannot tell an absent collection from a present one", func(t *testing.T) {
+		forbidden := authzerrors.NewForbidden(principal, authorization.READ,
+			authorization.CollectionsMetadata("Absent")...)
+		h, _, _ := newFixture(t, forbidden)
+
+		responder := getIndexesResponderFor(t, h, principal, "Absent")
+
+		_, ok := responder.(*schema.SchemaObjectsIndexesGetForbidden)
+		require.Truef(t, ok,
+			"authorization must run before the collection lookup, so both answers are 403, got %T",
+			responder)
 	})
 }
