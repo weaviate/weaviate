@@ -47,7 +47,7 @@ func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 		db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 			return func(string, string) ReindexHold { return ReindexHoldNone }
 		})
-		db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) {
+		db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) {
 			queries.Add(1)
 			return true, nil
 		})

@@ -1107,20 +1107,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// cannot see.
 		repo.SetShardReindexActivityLookup(newShardReindexActivityBuilder(
 			auditCtx, appState.ClusterService.ListDistributedTasks, appState.Logger))
-		// Cluster-wide: a class being restored has no local index yet, so a
-		// per-shard lookup would always say "free".
-		repo.SetAnyReindexActivityLookup(func(ctx context.Context) (bool, error) {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
-			if err != nil {
-				return false, fmt.Errorf("ListDistributedTasks: %w", err)
-			}
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				if db.IsLiveReindexTaskStatus(task.Status) {
-					return true, nil
-				}
-			}
-			return false, nil
-		})
+		// Asks the cluster rather than this node: a class being restored has no
+		// local index yet, so a per-shard lookup would always say "free".
+		repo.SetAnyReindexActivityLookup(newAnyReindexActivityLookup(
+			appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// Commit-time overlap check; see db.ReindexOverlapLookup.
 		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
 			appState.ClusterService.ListDistributedTasks,
@@ -1199,6 +1189,58 @@ func newShardReindexActivityBuilder(
 		return func(collection, shardName string) bool {
 			return blocked[strings.ToLower(collection)] || live[shardKey{collection, shardName}]
 		}
+	}
+}
+
+// newAnyReindexActivityLookup builds the restore gate's cluster-wide lookup. It
+// answers for the collections being restored only: a migration can run for
+// days, and answering blind would refuse every restore in the cluster for its
+// whole duration.
+//
+// A DTM it cannot reach returns the error, which the gate turns into a refusal
+// — the same "do not read free from a question you could not ask" rule the
+// backup half follows. A live task whose payload will not decode is that
+// uncertainty in a smaller shape, and how wide the refusal goes depends on how
+// much of the payload survives: [db.DecodeReindexTaskPayload] recovers the
+// collection from payloads it will not otherwise read, so the refusal is held
+// to that collection. Only a payload naming no collection at all refuses every
+// restore, because nothing says what it could have been holding.
+func newAnyReindexActivityLookup(
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
+	logger logrus.FieldLogger,
+) db.AnyReindexActivityLookup {
+	return func(ctx context.Context, collections []string) (bool, error) {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			return false, fmt.Errorf("ListDistributedTasks: %w", err)
+		}
+		wanted := make(map[string]bool, len(collections))
+		for _, c := range collections {
+			wanted[strings.ToLower(c)] = true
+		}
+		for _, task := range tasksByNamespace[db.ReindexNamespace] {
+			if !db.IsLiveReindexTaskStatus(task.Status) {
+				continue
+			}
+			_, collection, decodeErr := db.DecodeReindexTaskPayload(task.Payload)
+			if collection == "" {
+				logger.WithField("action", "restore_reindex_gate").
+					WithField("task_id", task.ID).
+					Warnf("restore-reindex gate: cannot read task payload and it names no collection; refusing all restores until it is readable or evicted: %v", decodeErr)
+				return true, nil
+			}
+			if len(wanted) > 0 && !wanted[strings.ToLower(collection)] {
+				continue
+			}
+			if decodeErr != nil {
+				logger.WithField("action", "restore_reindex_gate").
+					WithField("task_id", task.ID).
+					WithField("collection", collection).
+					Warnf("restore-reindex gate: cannot read task payload; refusing restores of this collection until it is readable or evicted: %v", decodeErr)
+			}
+			return true, nil
+		}
+		return false, nil
 	}
 }
 
