@@ -325,9 +325,14 @@ func TestStaleFanOutCannotClobberNewerConfig(t *testing.T) {
 	go func() {
 		updateDone <- index.updateReplicationConfig(ctx, &models.ReplicationConfig{Factor: 1})
 	}()
-	// Give the newer apply time to either queue behind the parked fan-out
-	// (serialized) or overtake it (the regression this test pins).
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the updater to publish the new factor: its fan-out is then at or
+	// behind the apply lock (serialized) or already past it (the regression this
+	// test pins) — no wall-clock guessing.
+	require.Eventually(t, func() bool {
+		index.replicationConfigLock.RLock()
+		defer index.replicationConfigLock.RUnlock()
+		return index.Config.ReplicationFactor == 1
+	}, deadlockSyncTimeout, time.Millisecond, "updateReplicationConfig never published the new factor")
 
 	close(probe.release)
 	require.NoError(t, <-reconcileDone)
