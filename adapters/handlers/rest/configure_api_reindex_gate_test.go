@@ -222,3 +222,134 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 		})
 	}
 }
+
+// The restore gate's selectivity: a migration can run for days, so answering
+// blind would refuse every restore in the cluster for its whole duration. The
+// db-side test can only reach this through an injected lookup, so it is pinned
+// here, against the closure production actually installs.
+func TestAnyReindexActivityLookupScopesByCollection(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	tasks := map[string][]*distributedtask.Task{
+		db.ReindexNamespace: {
+			reindexGateTask(t, "t1", distributedtask.TaskStatusStarted, "Logs",
+				map[string]string{"u1": "shard1"}),
+			reindexGateTask(t, "t2", distributedtask.TaskStatusFinished, "Archive",
+				map[string]string{"u1": "shard7"}),
+		},
+	}
+	lookup := newAnyReindexActivityLookup(
+		func(context.Context) (map[string][]*distributedtask.Task, error) {
+			return tasks, nil
+		}, logger)
+
+	tests := []struct {
+		name        string
+		collections []string
+		wantLive    bool
+	}{
+		{
+			name:        "a restore of an unrelated collection",
+			collections: []string{"Docs"},
+			wantLive:    false,
+		},
+		{
+			name:        "a restore of the migrating collection",
+			collections: []string{"Logs"},
+			wantLive:    true,
+		},
+		{
+			name:        "a restore that includes the migrating collection",
+			collections: []string{"Docs", "Logs"},
+			wantLive:    true,
+		},
+		{
+			name:        "case-folded, matching the rest of the reindex gates",
+			collections: []string{"lOgS"},
+			wantLive:    true,
+		},
+		{
+			name:        "no class list yet, so the question is cluster-wide",
+			collections: nil,
+			wantLive:    true,
+		},
+		{
+			name:        "a terminal task holds nothing",
+			collections: []string{"Archive"},
+			wantLive:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			live, err := lookup(context.Background(), tt.collections)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantLive, live)
+		})
+	}
+}
+
+// Same rule the backup half applies, on the same decoder: the refusal is held
+// to the collection a broken payload still names, and only a payload naming no
+// collection at all refuses every restore.
+func TestAnyReindexActivityLookupScopesUndecodablePayloads(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		// probes maps a restore's collection list to whether it must be refused.
+		probes map[string]bool
+	}{
+		{
+			name:    "a field retyped by a newer node",
+			payload: []byte(`{"collection":"Logs","unitToShard":"a-newer-node-changed-this-shape"}`),
+			probes:  map[string]bool{"Logs": true, "logs": true, "Docs": false},
+		},
+		{
+			name:    "the collection field renamed by a newer node",
+			payload: []byte(`{"collektion":"Logs","unitToShard":{"u1":"shard1"}}`),
+			probes:  map[string]bool{"Logs": true, "Docs": true},
+		},
+		{
+			name:    "nothing readable at all",
+			payload: []byte("{not json"),
+			probes:  map[string]bool{"Logs": true, "Docs": true},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			broken := reindexGateTask(t, "t1", distributedtask.TaskStatusStarted, "Logs",
+				map[string]string{"u1": "shard1"})
+			broken.Payload = tc.payload
+			lookup := newAnyReindexActivityLookup(
+				func(context.Context) (map[string][]*distributedtask.Task, error) {
+					return map[string][]*distributedtask.Task{db.ReindexNamespace: {broken}}, nil
+				}, logger)
+
+			for collection, want := range tc.probes {
+				live, err := lookup(context.Background(), []string{collection})
+				require.NoError(t, err)
+				assert.Equalf(t, want, live, "restore of %q", collection)
+			}
+			live, err := lookup(context.Background(), nil)
+			require.NoError(t, err)
+			assert.True(t, live, "a restore with no class list yet must still be refused")
+			require.NotEmpty(t, hook.AllEntries(),
+				"the operator has to be told which restores are being refused and why")
+		})
+	}
+}
+
+// A DTM the lookup cannot reach must not read as "no migration anywhere": the
+// error is what the gate turns into a refusal.
+func TestAnyReindexActivityLookupFailsOnUnreachableDTM(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	lookup := newAnyReindexActivityLookup(
+		func(context.Context) (map[string][]*distributedtask.Task, error) {
+			return nil, errors.New("raft: not leader")
+		}, logger)
+
+	live, err := lookup(context.Background(), []string{"Docs"})
+	require.Error(t, err)
+	assert.False(t, live, "the refusal must come from the error, not from a made-up live task")
+}

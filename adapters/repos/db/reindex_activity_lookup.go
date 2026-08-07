@@ -47,9 +47,20 @@ func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBu
 	db.shardReindexActivityLookupBuilder = builder
 }
 
-// AnyReindexActivityLookup reports whether any runtime-reindex task is live in
-// the cluster. A non-nil error means the answer could not be determined.
-type AnyReindexActivityLookup func(ctx context.Context) (bool, error)
+// AnyReindexActivityLookup reports whether a runtime-reindex task on any of the
+// given collections is live in the cluster. An empty list asks about every
+// collection, which the restore path has to do when it does not yet know its
+// class list. A non-nil error means the answer could not be determined.
+//
+// Scoped by collection for the same reason [AnyCleanupInProgressLookup] is, and
+// with more at stake: a migration can run for days, and a blind answer would
+// refuse restores of every OTHER collection for that whole time. Comparison is
+// case-insensitive, matching the rest of the reindex gates.
+//
+// A live task whose payload names no collection ([DecodeReindexTaskPayload])
+// still answers yes for every collection: nothing says what it holds, so the
+// only honest answer is cluster-wide.
+type AnyReindexActivityLookup func(ctx context.Context, collections []string) (bool, error)
 
 // AnyCleanupInProgressLookup reports whether this node is still tearing reindex
 // sidecar dirs for a task that has already reached a terminal status on any of
@@ -107,11 +118,14 @@ func (e redactedErr) Unwrap() []error {
 	return append(append([]error{}, e.sentinels...), e.cause)
 }
 
-// RefuseIfAnyReindexInFlight is the restore-side, cluster-wide counterpart of
-// the per-shard backup gate: a restoring class has no local index yet, so a
-// per-class lookup could never see a live task. Fails closed on a live task
-// or a lookup error; an unwired lookup allows the restore with a rate-limited
-// WARN, matching [DB.AnyLiveReindexForShard].
+// RefuseIfAnyReindexInFlight is the restore-side counterpart of the per-shard
+// backup gate. It asks the cluster rather than this node because a restoring
+// class has no local index yet, so a per-SHARD lookup could never see a live
+// task — but the question is still scoped to the collections being restored,
+// which the task list can answer without any index (see
+// [AnyReindexActivityLookup]). Fails closed on a live task or a lookup error;
+// an unwired lookup allows the restore with a rate-limited WARN, matching
+// [DB.AnyLiveReindexForShard].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error {
 	if db.config.RuntimeReindexDisabled {
 		// Same contract the backup half honors: with RUNTIME_REINDEX_ENABLED
@@ -154,7 +168,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 		return nil
 	}
 
-	live, err := lookup(ctx)
+	live, err := lookup(ctx, collections)
 	if err != nil {
 		// The RAFT error may name nodes; restoring grants no access to node names,
 		// so the detail stays in the log only.

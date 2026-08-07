@@ -61,18 +61,18 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	}{
 		{
 			name:   "no live task admits the restore",
-			lookup: func(context.Context) (bool, error) { return false, nil },
+			lookup: func(context.Context, []string) (bool, error) { return false, nil },
 		},
 		{
 			name:    "no live task and no cleanup admits the restore",
-			lookup:  func(context.Context) (bool, error) { return false, nil },
+			lookup:  func(context.Context, []string) (bool, error) { return false, nil },
 			cleanup: func([]string) bool { return false },
 		},
 		{
 			// The lookup cannot say whether the hold is a teardown or a
 			// submission sweep, so the text must not claim either one.
 			name:         "a node-local reindex hold refuses the restore",
-			lookup:       func(context.Context) (bool, error) { return false, nil },
+			lookup:       func(context.Context, []string) (bool, error) { return false, nil },
 			cleanup:      func([]string) bool { return true },
 			wantRefusal:  true,
 			wantContains: "holding temporary index files on this node",
@@ -80,13 +80,13 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		},
 		{
 			name:         "live task refuses the restore",
-			lookup:       func(context.Context) (bool, error) { return true, nil },
+			lookup:       func(context.Context, []string) (bool, error) { return true, nil },
 			wantRefusal:  true,
 			wantContains: "retry after the migration finishes",
 		},
 		{
 			name:         "lookup failure fails closed",
-			lookup:       func(context.Context) (bool, error) { return false, lookupErr },
+			lookup:       func(context.Context, []string) (bool, error) { return false, lookupErr },
 			wantRefusal:  true,
 			wantContains: "the cluster task manager could not be queried",
 			wantCause:    lookupErr,
@@ -132,7 +132,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 func TestRefuseIfAnyReindexInFlight_Wording(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
-	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) { return true, nil })
+	db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) { return true, nil })
 
 	err := db.RefuseIfAnyReindexInFlight(context.Background(), nil)
 	require.Error(t, err)
@@ -152,7 +152,7 @@ func TestRefuseIfAnyReindexInFlight_PropagatesContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	db.SetAnyReindexActivityLookup(func(ctx context.Context) (bool, error) {
+	db.SetAnyReindexActivityLookup(func(ctx context.Context, _ []string) (bool, error) {
 		return false, ctx.Err()
 	})
 
@@ -168,7 +168,7 @@ func TestRefuseIfAnyReindexInFlight_LookupFailureRedactsNodeNames(t *testing.T) 
 
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
-	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) { return false, raftErr })
+	db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) { return false, raftErr })
 
 	err := db.RefuseIfAnyReindexInFlight(context.Background(), nil)
 	require.Error(t, err)
@@ -849,7 +849,7 @@ func TestOverlapBackstopCatchesARolledBackMigrationThatRan(t *testing.T) {
 func TestRefuseIfAnyReindexInFlightScopesTheCleanupCheckByCollection(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
-	db.SetAnyReindexActivityLookup(func(context.Context) (bool, error) { return false, nil })
+	db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) { return false, nil })
 	db.SetAnyCleanupInProgressLookup(func(collections []string) bool {
 		for _, c := range collections {
 			if c == "Stuck" {
@@ -865,4 +865,31 @@ func TestRefuseIfAnyReindexInFlightScopesTheCleanupCheckByCollection(t *testing.
 		"an unrelated collection must not be refused by another collection's wedged teardown")
 	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), nil),
 		"with no class list yet the check has to stay blind, so it still refuses")
+}
+
+// A migration can run for days. The gate has to hand its class list to the
+// cluster-wide lookup too, or one collection's migration refuses every restore
+// in the cluster for that whole time.
+func TestRefuseIfAnyReindexInFlightScopesTheClusterCheckByCollection(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{logger: logger}
+	var asked [][]string
+	db.SetAnyReindexActivityLookup(func(_ context.Context, collections []string) (bool, error) {
+		asked = append(asked, collections)
+		for _, c := range collections {
+			if c == "Logs" {
+				return true, nil
+			}
+		}
+		return len(collections) == 0, nil
+	})
+
+	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Docs"}),
+		"a restore of a collection no migration touches must be admitted")
+	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Docs", "Logs"}),
+		"a restore that includes the migrating collection must be refused")
+	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), nil),
+		"with no class list yet the question stays cluster-wide")
+	require.Equal(t, [][]string{{"Docs"}, {"Docs", "Logs"}, nil}, asked,
+		"the gate must forward the restore's class list unchanged")
 }
