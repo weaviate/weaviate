@@ -99,23 +99,32 @@ type indexesHandlers struct {
 	reindexCleanup reindexCleanupProber
 
 	// Per-handler, not per-process: a package-level budget would leave every
-	// test after the first exhausted.
-	gateWarnOnce    sync.Once
-	gateWarnSampler *logrusext.Sampler
+	// test after the first exhausted. Keyed per site so one gate cannot spend
+	// another's hourly slot.
+	gateWarnMu       sync.Mutex
+	gateWarnSamplers map[string]*logrusext.Sampler
 }
 
-// backupActivityGateWarn rate-limits the fail-open WARN to one line per hour,
-// since the condition it reports is a persistent misconfiguration, not a
-// one-off. Built lazily since fixtures construct the handler directly.
-func (h *indexesHandlers) backupActivityGateWarn() *logrusext.Sampler {
-	h.gateWarnOnce.Do(func() {
-		logger := logrus.FieldLogger(logrus.StandardLogger())
-		if h.appState != nil && h.appState.Logger != nil {
-			logger = h.appState.Logger
-		}
-		h.gateWarnSampler = logrusext.NewSampler(logger, 1, time.Hour)
-	})
-	return h.gateWarnSampler
+// gateWarn rate-limits one fail-open site's WARN to a line per hour, since what
+// each reports is a persistent misconfiguration, not a one-off. Built lazily
+// since fixtures construct the handler directly and set the logger after.
+func (h *indexesHandlers) gateWarn(site string) *logrusext.Sampler {
+	h.gateWarnMu.Lock()
+	defer h.gateWarnMu.Unlock()
+
+	if sampler, ok := h.gateWarnSamplers[site]; ok {
+		return sampler
+	}
+	logger := logrus.FieldLogger(logrus.StandardLogger())
+	if h.appState != nil && h.appState.Logger != nil {
+		logger = h.appState.Logger
+	}
+	if h.gateWarnSamplers == nil {
+		h.gateWarnSamplers = map[string]*logrusext.Sampler{}
+	}
+	sampler := logrusext.NewSampler(logger, 1, time.Hour)
+	h.gateWarnSamplers[site] = sampler
+	return sampler
 }
 
 // clusterMembership is the slice of the cluster state the backup gate needs.
@@ -212,7 +221,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// and the flags below are read from this node.
 	var activeTasks map[string][]*distributedtask.Task
 	if h.tasks == nil {
-		h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+		h.gateWarn("index_status").WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("action", "reindex_index_status").
 				WithField("collection", collection).
 				Warn("distributed task service is not wired; answering with no tasks, which renders " +
@@ -221,7 +230,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		})
 	} else {
 		var err error
-		activeTasks, err = h.tasks.ListDistributedTasksLocal(context.Background())
+		activeTasks, err = h.tasks.ListDistributedTasksLocal(params.HTTPRequest.Context())
 		if err != nil {
 			return schema.NewSchemaObjectsIndexesGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
@@ -229,8 +238,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	}
 
 	// Pre-parse the reindex task payloads once per request so the per-property
-	// merge below doesn't re-unmarshal each task N times.
-	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
+	// merge below doesn't re-unmarshal each task N times, and drop the ones
+	// naming another collection so the merge doesn't rescan them per property.
+	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace], collection)
 
 	// UsingBlockMaxWAND flips cluster-wide only after every searchable
 	// bucket on every shard is blockmax; mid-flight, targetAlgorithm
@@ -716,7 +726,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		if provider := h.appState.ReindexProvider.Load(); provider != nil {
 			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
 		} else {
-			h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+			h.gateWarn("submit_gate").WithSampling(func(l logrus.FieldLogger) {
 				l.WithField("action", "reindex_backup_gate").
 					WithField("collection", collection).
 					Warn("reindex provider is not wired; submitting without the submit gate, so a backup can " +
@@ -1230,7 +1240,7 @@ func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *mo
 	}
 
 	if h.backupActivity == nil || len(nodes) == 0 {
-		h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+		h.gateWarn("cancel_gate").WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("action", "reindex_backup_gate").
 				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
 					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")
@@ -2018,18 +2028,25 @@ type parsedReindexTask struct {
 	unreadable bool
 }
 
-// parseReindexTasks unmarshals every reindex task's payload once.
+// parseReindexTasks unmarshals every reindex task's payload once. A non-empty
+// `wanted` keeps only the tasks naming that collection, so the per-property
+// merge does not rescan the rest; the empty string keeps everything.
 //
 // A live task whose payload [db.DecodeReindexTaskPayload] cannot read is kept,
 // flagged unreadable, with just the collection recovered — the backup gate
 // refuses that whole collection on the same unreadable payload, so dropping
 // the task here would answer "ready" for a collection backups keep refusing.
-// Terminal tasks with an unreadable payload are still dropped: they block
-// nothing.
-func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
+// Terminal tasks with an unreadable payload are dropped here even though the
+// backup gate refuses on them too, for the full completed-task TTL. Rendering
+// them would need a status this endpoint has no vocabulary for; the refusal
+// carries its own explanation.
+func parseReindexTasks(tasks []*distributedtask.Task, wanted string) []parsedReindexTask {
 	parsed := make([]parsedReindexTask, 0, len(tasks))
 	for _, task := range tasks {
 		payload, collection, err := db.DecodeReindexTaskPayload(task.Payload)
+		if wanted != "" && !strings.EqualFold(collection, wanted) {
+			continue
+		}
 		if err != nil {
 			if collection == "" || !db.IsLiveReindexTaskStatus(task.Status) {
 				continue

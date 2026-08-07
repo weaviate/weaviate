@@ -624,12 +624,10 @@ func (s *Scheduler) tick() {
 
 		// TTL-cleanup of finished tasks. Both guards exist because the age
 		// check reads a zero FinishedAt as ~2000 years old, which clears any
-		// TTL: a live task is excluded by IsActive(), and a terminal task
-		// that somehow carries no stamp is excluded outright rather than
-		// deleted on the first tick. Deleting it would also erase it from the
-		// backup overlap backstop, which refuses a capture on exactly that
-		// state. [Task.repairTerminalStamp] stamps such a task on the next
-		// restore, so this guard only covers the window before it.
+		// TTL. This list is the leader's, which [Manager.Restore]'s repair
+		// never touches, so the zero-stamp guard is live for a whole rolling
+		// upgrade — see [Task.repairTerminalStamp] for where the state comes
+		// from.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
 				return false

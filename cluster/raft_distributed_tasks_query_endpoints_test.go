@@ -31,9 +31,9 @@ import (
 //
 // The node here has never joined a cluster: it has FSM state but no raft, so
 // nothing can answer at the leader. A local read still answers; a read routed
-// to the leader cannot. That asymmetry is what makes the seam observable
-// without a second node — leader and local hold identical state on one node,
-// so state alone could never tell the two reads apart.
+// to the leader cannot. That asymmetry is what makes the two reads observable
+// without a second node — on one node they hold identical state, so state
+// alone could never tell them apart.
 func TestRaft_ListDistributedTasksLocal_AnswersFromThisNodesFSM(t *testing.T) {
 	ctx := context.Background()
 

@@ -470,6 +470,10 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 			removed = append(removed, task.TaskDescriptor)
 		}
 	}
+
+	// The scheduler still holds a handle for every task removed here; waking it
+	// terminates them on the next cycle instead of at the next tick.
+	m.notifySchedulerWithLock()
 	return removed
 }
 
@@ -700,8 +704,8 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest, catchingUp bool) 
 		AckedAt: ackedAt,
 	}
 
-	// Any failure flips the task to FAILED immediately; later acks are
-	// still recorded for forensic value.
+	// Any failure flips the task to FAILED immediately. Acks arriving after
+	// that are dropped by the terminal arm of the switch above.
 	if !r.Success && task.Status == TaskStatusSwapping {
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
@@ -1044,12 +1048,11 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	}
 
 	// A terminal task without a stamp has no age, so the TTL check below would
-	// delete it on the first attempt. Refuse instead: deleting it also hides
-	// it from the backup overlap backstop, which refuses a capture on exactly
-	// this state. The refusal is a property of the task alone, so every node
-	// applying this entry reaches it, whatever its own clock says.
-	// [Task.repairTerminalStamp] stamps such a task on the next restore, so
-	// this guard only covers the window before it.
+	// delete it on the first attempt, hiding it from the backup overlap
+	// backstop. Refuse instead — a property of the task alone, so every node
+	// applying this entry reaches it whatever its own clock says. Reachable
+	// only until the next restore, which repairs the local map; see
+	// [Task.repairTerminalStamp].
 	if task.FinishedAt.IsZero() {
 		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
 			Warnf("refusing to clean up task %s/%s/%d: it is %s but carries no finish time",
@@ -1117,20 +1120,24 @@ func sortTasksForDisplay(tasks []*Task) {
 			return iStarted
 		}
 
-		iWhen := tasks[i].FinishedAt
-		if iWhen.IsZero() {
-			iWhen = tasks[i].StartedAt
-		}
-		jWhen := tasks[j].FinishedAt
-		if jWhen.IsZero() {
-			jWhen = tasks[j].StartedAt
-		}
+		iWhen := displayTime(tasks[i])
+		jWhen := displayTime(tasks[j])
 		if !iWhen.Equal(jWhen) {
 			return iWhen.After(jWhen)
 		}
 
 		return tasks[i].ID < tasks[j].ID
 	})
+}
+
+// displayTime is the moment the sort ranks a task by: when it ended, or when
+// it started if it has not. Reads the status rather than testing FinishedAt for
+// zero, so the two halves of the sort split on the same predicate.
+func displayTime(task *Task) time.Time {
+	if task.Status.IsTerminal() {
+		return task.FinishedAt
+	}
+	return task.StartedAt
 }
 
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {
@@ -1244,5 +1251,9 @@ func (m *Manager) Restore(bytes []byte) error {
 		}
 	}
 
+	// The snapshot replaced the task map, so the scheduler may be holding
+	// handles for tasks that no longer exist. Wake it to terminate them now
+	// rather than at the next tick.
+	m.notifySchedulerWithLock()
 	return nil
 }

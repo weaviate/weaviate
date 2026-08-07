@@ -113,17 +113,14 @@ func TestIndexStatusPrefersADecodableTaskOverTheFallback(t *testing.T) {
 // (5 days by default), so any collection reindexed in the last week has one
 // sitting next to the live task the backup gate is refusing on.
 func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
-	finished := func(finishedAt time.Time) *distributedtask.Task {
-		task := buildTask(t, "t-finished", distributedtask.TaskStatusFinished, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeRepairFilterable,
-			Collection:    "Movies",
-			Properties:    []string{"title"},
-		}, map[string]*distributedtask.Unit{
-			"u1": {Status: distributedtask.UnitStatusCompleted},
-		})
-		task.FinishedAt = finishedAt
-		return task
-	}
+	finished := buildTask(t, "t-finished", distributedtask.TaskStatusFinished, db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeRepairFilterable,
+		Collection:    "Movies",
+		Properties:    []string{"title"},
+	}, map[string]*distributedtask.Unit{
+		"u1": {Status: distributedtask.UnitStatusCompleted},
+	})
+	finished.FinishedAt = time.Now()
 
 	unknownStatus := buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeRepairFilterable,
@@ -136,12 +133,10 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 		matched *distributedtask.Task
 	}{
 		{
-			name:    "finished just now",
-			matched: finished(time.Now()),
-		},
-		{
-			name:    "finished a day ago",
-			matched: finished(time.Now().Add(-24 * time.Hour)),
+			// How long ago it finished no longer changes anything: the
+			// wall-clock finalize window that used to read it is gone.
+			name:    "a finished task",
+			matched: finished,
 		},
 		{
 			name:    "a status this build does not know",

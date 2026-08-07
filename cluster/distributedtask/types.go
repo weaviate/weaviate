@@ -503,10 +503,11 @@ type Task struct {
 	// never from the applying node's clock, so every node computes the same
 	// state from the same log entry.
 	//
-	// When the task's units stopped is [Unit.FinishedAt], per unit. The task
-	// has no copy of that moment: between it and FinishedAt sit the PREP
-	// barrier and the bucket swap, which is what the task's PREPARING and
-	// SWAPPING statuses report.
+	// When the task's units stopped is [Unit.FinishedAt], per unit. On the
+	// success path the two differ: between them sit the PREP barrier and the
+	// bucket swap, which the PREPARING and SWAPPING statuses report. A task
+	// that fails on a unit report ends right there, so its FinishedAt is that
+	// unit's.
 	//
 	// Also used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`
@@ -553,8 +554,8 @@ type PostCompletionAck struct {
 	// Error captures the aggregated error message when Success==false.
 	// Empty when Success==true.
 	Error string `json:"error,omitempty"`
-	// AckedAt is the wall-clock time the ack was applied on the FSM
-	// (set on the apply path, not from the scheduler). Useful for
+	// AckedAt is the wall-clock time the acking node stamped on its RAFT
+	// request, not a clock read on the applying node. Useful for
 	// forensics — the gap between the last unit's FinishedAt and the last
 	// AckedAt is the SWAPPING window's wall-clock duration on this cluster.
 	// On the failing ack of a PREP or SWAP barrier it is also the task's own

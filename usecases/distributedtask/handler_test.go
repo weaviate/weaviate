@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -108,4 +109,53 @@ type taskListerStub struct {
 
 func (t taskListerStub) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return t.items, nil
+}
+
+// countingTaskLister records whether the handler got as far as reading the
+// cluster's task list, which a status-code assertion cannot tell apart from a
+// denial issued after the read.
+type countingTaskLister struct {
+	calls int
+}
+
+func (l *countingTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+	l.calls++
+	return map[string][]*distributedtask.Task{}, nil
+}
+
+// GET /v1/tasks exposes every namespace's task list cluster-wide, payloads
+// included. Making this handler ignore its denial leaves the rest of the
+// package green, so these arms are the only pin on the check.
+func TestHandler_ListTasks_Authorization(t *testing.T) {
+	t.Run("a denied caller gets the denial and no task read", func(t *testing.T) {
+		denied := errors.New("forbidden")
+		authorizer := authorization.NewMockAuthorizer(t)
+		authorizer.EXPECT().
+			Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).
+			Return(denied)
+		lister := &countingTaskLister{}
+
+		tasks, err := NewHandler(authorizer, lister).ListTasks(context.Background(), &models.Principal{})
+
+		require.Zero(t, lister.calls,
+			"a denied caller made the handler read the cluster's task list")
+		require.ErrorIs(t, err, denied)
+		require.Nil(t, tasks)
+	})
+
+	// The allow arm is what makes the deny arm discriminate: it proves the read
+	// does happen when the check passes.
+	t.Run("an allowed caller reaches the task read", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		authorizer.EXPECT().
+			Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).
+			Return(nil)
+		lister := &countingTaskLister{}
+
+		_, err := NewHandler(authorizer, lister).ListTasks(context.Background(), &models.Principal{})
+
+		require.NoError(t, err)
+		require.Equal(t, 1, lister.calls,
+			"this is the observation the deny arm requires to be absent")
+	})
 }

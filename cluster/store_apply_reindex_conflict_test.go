@@ -28,7 +28,7 @@ import (
 // AddTask apply. The tier matters because Store.Apply runs the command body
 // through enterrors.GoWrapper, so anything the check panics on is recovered and
 // the response carries no error — the submit reports success and the task is
-// simply absent from this node's FSM.
+// absent from this node's FSM.
 //
 // Every declared migration type is exercised as the in-flight one, so a type
 // missing from either bucket-touch switch shows up here as a refusal that never

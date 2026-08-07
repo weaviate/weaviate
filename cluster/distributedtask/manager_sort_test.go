@@ -56,8 +56,8 @@ func TestSortTasksForDisplay(t *testing.T) {
 	})
 
 	t.Run("PREPARING and SWAPPING rank with STARTED, not with terminal", func(t *testing.T) {
-		// Breaking change #5: the first sort key is "in flight", which is
-		// every non-terminal status, not STARTED alone. A task whose units
+		// The first sort key is "in flight", which is every non-terminal
+		// status, not STARTED alone. A task whose units
 		// are done but whose barrier or bucket swap is still outstanding is
 		// what the operator is waiting on, so it has to outrank a task that
 		// ended more recently.

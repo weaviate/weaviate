@@ -319,9 +319,10 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 		}
 		// A terminal task carries a finish time, so a zero one means the
 		// invariant broke and the comparison below would waive every backup.
-		// Reachable during a rolling upgrade: an old binary finalizes a task
-		// a new node left zero-stamped mid-swap, and the state comes back to
-		// a new node by snapshot. Refuse rather than publish a torn backup.
+		// Reachable during a rolling upgrade: an old binary finalizes a task a
+		// new node left zero-stamped mid-swap. This lookup reads the leader's
+		// list, which the restore repair never touches, so the guard is live
+		// for the whole upgrade. Refuse rather than publish a torn backup.
 		if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
 			return "", false, nil
 		}

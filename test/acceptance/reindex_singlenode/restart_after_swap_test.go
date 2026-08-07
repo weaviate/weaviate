@@ -29,11 +29,12 @@ import (
 
 // TestRestartAfterSwapCompletes SIGKILLs the node the moment a migration is
 // reported FINISHED, then writes and queries. FINISHED lands strictly after
-// every node has acked its bucket swap (MarkTaskFinalized is proposed only
-// then, pinned by TestSingleNode_FinishedStatusRaceWithSchemaFlag), so the kill
-// point is the completion boundary and the write below lands in the new bucket.
+// every node has acked its bucket swap — [Manager.MarkTaskFinalized] refuses
+// from any status but SWAPPING and the FSM only reaches SWAPPING once every
+// expected ack landed — so the kill point is the completion boundary and the
+// write below lands in the new bucket.
 //
-// SCOPE: this is not the swap-recovery window. That window — restart after the
+// This is not the swap-recovery window. That window — restart after the
 // units are COMPLETED but before OnGroupCompleted fires — cannot be reached
 // from outside the process. The FSM wakes the scheduler on the unit-completion
 // apply instead of waiting for the next tick, so PREPARING and SWAPPING pass in
@@ -111,7 +112,7 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 		}
 	}()
 
-	const className = "RestartDuringSwapTest"
+	const className = "RestartAfterSwapTest"
 
 	// Step 1: create collection with word tokenization.
 	class := &models.Class{
@@ -171,7 +172,7 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 	// Step 7: write the NEW object as soon as the container is ready. The swap
 	// is already done, so this write has to survive on its own merits — it is
 	// the post-restart write path being exercised, not a race.
-	const marker = "uniquemarkerxyz12345restartduringswap"
+	const marker = "uniquemarkerxyz12345restartafterswap"
 	newObj := &models.Object{Class: className, Properties: map[string]interface{}{
 		"description": marker,
 	}}
@@ -212,21 +213,21 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 	// the kill, so the write above belongs in the new bucket and both queries
 	// must find it.
 	t.Run("PostRestartWriteIsQueryableInTheNewBucket", func(t *testing.T) {
-		bm25IDs := restartSwapBM25Query(t, className, "description", marker)
+		bm25IDs := restartAfterSwapBM25Query(t, className, "description", marker)
 		assert.NotEmpty(t, bm25IDs,
 			"post-restart BM25(%q) returned no results — the write did not land in the new bucket",
 			marker)
-		equalIDs := restartSwapFilterQuery(t, className, "description", "Equal", marker)
+		equalIDs := restartAfterSwapFilterQuery(t, className, "description", "Equal", marker)
 		assert.NotEmpty(t, equalIDs,
 			"post-restart Equal(description, %q) returned no results — the write did not land in the new bucket",
 			marker)
 	})
 }
 
-// restartSwapBM25Query runs a BM25 query against an arbitrary class. The
+// restartAfterSwapBM25Query runs a BM25 query against an arbitrary class. The
 // existing retokenizeBM25Query helper hardcodes the retokenize class name; we
 // need our own.
-func restartSwapBM25Query(t *testing.T, className, property, query string) []string {
+func restartAfterSwapBM25Query(t *testing.T, className, property, query string) []string {
 	t.Helper()
 	gqlQuery := fmt.Sprintf(`{
 		Get {
@@ -241,7 +242,7 @@ func restartSwapBM25Query(t *testing.T, className, property, query string) []str
 	return ids
 }
 
-func restartSwapFilterQuery(t *testing.T, className, property, operator, value string) []string {
+func restartAfterSwapFilterQuery(t *testing.T, className, property, operator, value string) []string {
 	t.Helper()
 	gqlQuery := fmt.Sprintf(`{
 		Get {
