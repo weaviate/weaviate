@@ -1472,16 +1472,21 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 				return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
 			}
 
+			segEnd := pos + uint64(targetVectorsSegmentLength)
+			if segEnd > uint64(len(rw.Buffer)) {
+				return nil, fmt.Errorf("target vectors segment length %d exceeds buffer", targetVectorsSegmentLength)
+			}
+
 			targetVectors := map[string][]float32{}
 			for name, offset := range tvOffsets {
-				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
-				vecLen := rw.ReadUint16()
-				vec := make([]float32, vecLen)
-				byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
+				vec, err := readTargetVectorAt(rw, pos, segEnd, name, offset, nil)
+				if err != nil {
+					return nil, err
+				}
 				targetVectors[name] = vec
 			}
 
-			rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+			rw.MoveBufferToAbsolutePosition(segEnd)
 			return targetVectors, nil
 		}
 	}
@@ -1509,25 +1514,52 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 		return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
 	}
 
+	segEnd := pos + uint64(targetVectorsSegmentLength)
+	if segEnd > uint64(len(rw.Buffer)) {
+		return nil, fmt.Errorf("target vectors segment length %d exceeds buffer", targetVectorsSegmentLength)
+	}
+
 	offset, ok := tvOffsets[targetVector]
 	if !ok {
-		rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+		rw.MoveBufferToAbsolutePosition(segEnd)
 		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 
-	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
-	vecLen := rw.ReadUint16()
+	out, err := readTargetVectorAt(rw, pos, segEnd, targetVector, offset, buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	rw.MoveBufferToAbsolutePosition(segEnd)
+	return out, nil
+}
+
+// readTargetVectorAt decodes the length-prefixed vector at pos+offset, bounding
+// every read by segEnd. Offsets come from the on-disk offsets map: a corrupt
+// entry must fail here rather than decode bytes of a neighbouring section as a
+// vector, or slice past the buffer.
+func readTargetVectorAt(rw *byteops.ReadWriter, pos, segEnd uint64, name string, offset uint32, buffer []float32) ([]float32, error) {
+	vecStart := pos + uint64(offset)
+	if vecStart+byteops.Uint16Len > segEnd {
+		return nil, fmt.Errorf("target vector %q offset %d out of segment bounds", name, offset)
+	}
+	rw.MoveBufferToAbsolutePosition(vecStart)
+	vecLen := uint64(rw.ReadUint16())
+	if vecStart+byteops.Uint16Len+vecLen*byteops.Uint32Len > segEnd {
+		return nil, fmt.Errorf("target vector %q length %d exceeds segment", name, vecLen)
+	}
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
+	// a nil buffer must allocate even for a zero-length vector: buffer[:0] on nil
+	// yields nil, which callers holding the result in a map would see as an absent
+	// vector rather than an empty one
+	if buffer != nil && cap(buffer) >= int(vecLen) {
 		out = buffer[:vecLen]
 	} else {
 		out = make([]float32, vecLen)
 	}
 
-	byteops.CopyBytesToSlice(out, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
-
-	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+	byteops.CopyBytesToSlice(out, rw.ReadBytesFromBuffer(vecLen*byteops.Uint32Len))
 	return out, nil
 }
 
@@ -1551,6 +1583,11 @@ func unmarshalMultiVectors(
 				return nil, fmt.Errorf("could not unmarshal multi vectors offset: %w", err)
 			}
 
+			segEnd := pos + uint64(multiVectorsSegmentLength)
+			if segEnd > uint64(len(rw.Buffer)) {
+				return nil, fmt.Errorf("multi vectors segment length %d exceeds buffer", multiVectorsSegmentLength)
+			}
+
 			// NOTE if you sort mvOffsets by offset, you may be able to speed this up via
 			// sequential reads, haven't tried this yet
 			multiVectors := map[string][][]float32{}
@@ -1562,19 +1599,31 @@ func unmarshalMultiVectors(
 						continue
 					}
 				}
-				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+				// bound every read by segEnd: a corrupt offsets entry must fail
+				// instead of decoding a neighbouring section or slicing past the buffer
+				vecStart := pos + uint64(offset)
+				if vecStart+byteops.Uint32Len > segEnd {
+					return nil, fmt.Errorf("multi vector %q offset %d out of segment bounds", name, offset)
+				}
+				rw.MoveBufferToAbsolutePosition(vecStart)
 				numVecs := rw.ReadUint32()
 				vecs := make([][]float32, 0)
 				for i := 0; i < int(numVecs); i++ {
-					vecLen := rw.ReadUint16()
+					if rw.Position+byteops.Uint16Len > segEnd {
+						return nil, fmt.Errorf("multi vector %q truncated at document %d", name, i)
+					}
+					vecLen := uint64(rw.ReadUint16())
+					if rw.Position+vecLen*byteops.Uint32Len > segEnd {
+						return nil, fmt.Errorf("multi vector %q document %d length %d exceeds segment", name, i, vecLen)
+					}
 					vec := make([]float32, vecLen)
-					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
+					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(vecLen*byteops.Uint32Len))
 					vecs = append(vecs, vec)
 				}
 				multiVectors[name] = vecs
 			}
 
-			rw.MoveBufferToAbsolutePosition(pos + uint64(multiVectorsSegmentLength))
+			rw.MoveBufferToAbsolutePosition(segEnd)
 			return multiVectors, nil
 		}
 	}
@@ -1613,27 +1662,46 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		return unmarshalSingleTargetVector(&rw, targetVector, buffer)
 	}
 
-	// since we know the version and know that the blob is not len(0), we can
-	// assume that we can directly access the vector length field. The only
-	// situation where this is not accessible would be on corrupted data - where
-	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	vecStart, vecEnd, vecLen, err := legacyVectorBounds(in)
+	if err != nil {
+		return nil, err
+	}
 	if vecLen == 0 {
 		return nil, fmt.Errorf("vector length is 0")
 	}
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
+	if cap(buffer) >= vecLen {
 		out = buffer[:vecLen]
 	} else {
 		out = make([]float32, vecLen)
 	}
-	vecStart := 44
-	vecEnd := vecStart + int(vecLen*4)
 
 	byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 
 	return out, nil
+}
+
+// legacyVectorBounds locates the legacy vector's byte range and dimension count.
+// The dimension count is widened before scaling: the on-disk field is a uint16 and
+// the writer permits maxVectorLength (65535) dimensions, so a uint16 multiplication
+// wraps from 16384 dimensions upwards. in is also frequently a subslice of an
+// mmapped segment whose capacity runs past the value, so an unchecked end reads the
+// neighbouring object's bytes rather than panicking.
+func legacyVectorBounds(in []byte) (start, end, dims int, err error) {
+	if len(in) < marshallerV1HeaderLen+2 {
+		return 0, 0, 0, fmt.Errorf("object of %d bytes is too short to hold a vector length", len(in))
+	}
+
+	dims = int(binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2]))
+	start = marshallerV1HeaderLen + 2
+	end = start + dims*byteops.Uint32Len
+
+	if end > len(in) {
+		return 0, 0, 0, fmt.Errorf("legacy vector of %d dimensions exceeds the %d byte object",
+			dims, len(in))
+	}
+	return start, end, dims, nil
 }
 
 func incrementPos(in []byte, pos int, size int) int {
@@ -1662,18 +1730,14 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 		return nil, errors.Errorf("unsupported marshaller version %d", version)
 	}
 
-	// since we know the version and know that the blob is not len(0), we can
-	// assume that we can directly access the vector length field. The only
-	// situation where this is not accessible would be on corrupted data - where
-	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	vecStart, vecEnd, vecLen, err := legacyVectorBounds(in)
+	if err != nil {
+		return nil, err
+	}
 
 	var out []float32
-	vecStart := 44
-	vecEnd := vecStart + int(vecLen*4)
-
 	if vecLen > 0 {
-		if cap(buffer) >= int(vecLen) {
+		if cap(buffer) >= vecLen {
 			out = buffer[:vecLen]
 		} else {
 			out = make([]float32, vecLen)

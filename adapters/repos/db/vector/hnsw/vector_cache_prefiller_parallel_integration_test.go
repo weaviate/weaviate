@@ -61,10 +61,10 @@ func newPrefillRoutingIndex(t *testing.T, id string, uc ent.UserConfig, store *l
 }
 
 // TestUseParallelPrefillRoutingRealIndex builds real indexes (objects bucket present,
-// sync prefill, unbounded cache) and confirms the config→atomic→gate wiring routes
-// each index type to the right prefill path: only a plain single-vector index takes
-// the parallel objects-bucket scan; multivector and muvera stay on the serial path
-// because their caches are not sourced from the objects bucket.
+// unbounded cache) and confirms the config→atomic→gate wiring routes each index type
+// to the right prefill path: a plain single-vector index takes the parallel
+// objects-bucket scan, muvera takes the parallel muvera-bucket scan, and multivector
+// stays on the serial path because its cache is per-passage.
 // prefillRoutingUserConfig is the baseline single-vector config that satisfies the
 // parallel-prefill gate (unbounded cache); tests layer Multivector/Muvera on top to
 // flip the expected routing.
@@ -82,9 +82,10 @@ func muveraUserConfig() ent.UserConfig {
 }
 
 func TestUseParallelPrefillRoutingRealIndex(t *testing.T) {
-	t.Run("single-vector uncompressed is eligible", func(t *testing.T) {
+	t.Run("single-vector uncompressed takes the objects scan", func(t *testing.T) {
 		idx := newPrefillRoutingIndex(t, "single", prefillRoutingUserConfig(), storeWithObjectsBucket(t))
 		require.True(t, idx.useParallelPrefill())
+		require.False(t, idx.useMuveraParallelPrefill())
 	})
 
 	t.Run("true multivector keeps serial path", func(t *testing.T) {
@@ -92,20 +93,65 @@ func TestUseParallelPrefillRoutingRealIndex(t *testing.T) {
 		uc.Multivector = ent.MultivectorConfig{Enabled: true}
 		idx := newPrefillRoutingIndex(t, "multivector", uc, storeWithObjectsBucket(t))
 		require.False(t, idx.useParallelPrefill())
+		require.False(t, idx.useMuveraParallelPrefill())
 	})
 
-	t.Run("muvera keeps serial path", func(t *testing.T) {
+	t.Run("muvera takes the muvera-bucket scan", func(t *testing.T) {
 		idx := newPrefillRoutingIndex(t, "muvera", muveraUserConfig(), storeWithObjectsBucket(t))
 		require.False(t, idx.useParallelPrefill())
+		require.True(t, idx.useMuveraParallelPrefill())
 	})
 }
 
-// TestMuveraSerialPrefillPopulatesCacheRealIndex is the end-to-end guard for the bug
-// the parallel path introduced: a muvera index's float32 cache is loaded from the
-// dedicated _muvera_vectors bucket, not the objects bucket. After clearing the cache
-// (cold-restart shape), the serial prefiller muvera routes to must repopulate it
-// fully with the correct muvera-encoded vectors — the parallel path would have left
-// it empty while marking it prefilled.
+// muveraPrefillGroundTruth reads the expected cache contents straight from the
+// encoder/bucket, so a prefill that loads wrong or missing vectors fails loudly.
+func muveraPrefillGroundTruth(t *testing.T, idx *hnsw) map[uint64][]float32 {
+	t.Helper()
+	expected := make(map[uint64][]float32, len(multiVectors))
+	for i := range multiVectors {
+		v, err := idx.muveraEncoder.GetMuveraVectorForID(uint64(i), idx.id+"_muvera_vectors")
+		require.NoError(t, err)
+		expected[uint64(i)] = v
+	}
+	return expected
+}
+
+func requireMuveraCacheMatches(t *testing.T, idx *hnsw, expected map[uint64][]float32) {
+	t.Helper()
+	require.Equal(t, int64(len(expected)), idx.cache.CountVectors())
+	for id, want := range expected {
+		got, err := idx.cache.Get(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	}
+}
+
+// TestMuveraParallelPrefillPopulatesCacheRealIndex: cold-restart shape against a real
+// muvera index — the parallel scan of the _muvera_vectors bucket must fully repopulate
+// the float32 cache with the encoded vectors.
+func TestMuveraParallelPrefillPopulatesCacheRealIndex(t *testing.T) {
+	ctx := context.Background()
+	store := storeWithObjectsBucket(t)
+
+	idx := newPrefillRoutingIndex(t, "muvera-prefill-parallel", muveraUserConfig(), store)
+
+	for i, vec := range multiVectors {
+		require.NoError(t, idx.AddMulti(ctx, uint64(i), vec))
+	}
+
+	require.True(t, idx.useMuveraParallelPrefill())
+	expected := muveraPrefillGroundTruth(t, idx)
+
+	idx.cache.Drop()
+	require.Equal(t, int64(0), idx.cache.CountVectors())
+
+	require.NoError(t, idx.prefillMuveraCacheParallel(ctx))
+	requireMuveraCacheMatches(t, idx, expected)
+}
+
+// TestMuveraSerialPrefillPopulatesCacheRealIndex guards the serial by-id fallback
+// muvera still uses when the parallel gate fails (e.g. bounded cache): it must load
+// from the dedicated _muvera_vectors bucket, not the objects bucket.
 func TestMuveraSerialPrefillPopulatesCacheRealIndex(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -118,26 +164,13 @@ func TestMuveraSerialPrefillPopulatesCacheRealIndex(t *testing.T) {
 	}
 
 	require.False(t, idx.useParallelPrefill(),
-		"muvera must route to the serial prefiller, not the objects-bucket scan")
+		"muvera must never take the objects-bucket scan")
 
-	expected := make(map[uint64][]float32, len(multiVectors))
-	for i := range multiVectors {
-		v, err := idx.muveraEncoder.GetMuveraVectorForID(uint64(i), idx.id+"_muvera_vectors")
-		require.NoError(t, err)
-		expected[uint64(i)] = v
-	}
+	expected := muveraPrefillGroundTruth(t, idx)
 
-	// Cold-restart shape: drop the cache, then run the serial prefiller muvera is
-	// routed to and confirm full, correct repopulation.
 	idx.cache.Drop()
 	require.Equal(t, int64(0), idx.cache.CountVectors())
 
 	require.NoError(t, newVectorCachePrefiller(idx.cache, idx, logger).Prefill(ctx, int(idx.cache.CopyMaxSize())))
-
-	require.Equal(t, int64(len(multiVectors)), idx.cache.CountVectors())
-	for id, want := range expected {
-		got, err := idx.cache.Get(ctx, id)
-		require.NoError(t, err)
-		require.Equal(t, want, got)
-	}
+	requireMuveraCacheMatches(t, idx, expected)
 }

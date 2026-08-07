@@ -537,29 +537,43 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
+	// Registered here rather than inside the goroutine below: stopPrefill must be
+	// able to observe this prefill the moment prefillCache returns. See stopPrefill.
+	prefillCtx, cancel := context.WithCancel(ctx)
+	h.prefillCancel.Store(&cancel)
+	h.prefillWG.Add(1)
+
 	prefillCacheFunc := func() {
-		h.logger.WithFields(logrus.Fields{
-			"action":   "prefill_cache",
-			"duration": 60 * time.Minute,
-		}).Debug("context.WithTimeout")
+		defer h.prefillWG.Done()
+		defer cancel()
 
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor.PrefillCache(ctx)
+				h.compressor.PrefillCache(prefillCtx)
 			} else {
-				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
+				h.compressor.PrefillMultiCache(prefillCtx, h.docIDVectors)
 			}
+		} else if h.useMuveraParallelPrefill() {
+			// Unbounded muvera cache: scan the compact muvera vectors bucket with a
+			// parallel cursor instead of looking up every vector by id.
+			err = h.prefillMuveraCacheParallel(prefillCtx)
 		} else if h.useParallelPrefill() {
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
-			err = h.prefillCacheParallel(ctx)
+			err = h.prefillCacheParallel(prefillCtx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
 		}
 
 		if err != nil {
-			h.logger.WithError(err).Error("prefill vector cache")
+			if errors.Is(err, context.Canceled) {
+				// routine on shard shutdown mid-prefill (async runs under shutCtx)
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").
+					Debug("vector cache prefill stopped: context canceled")
+			} else {
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").Error(err)
+			}
 		}
 
 		h.cachePrefilled.Store(true)
