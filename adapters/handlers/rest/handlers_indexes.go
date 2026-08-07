@@ -791,10 +791,11 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		for _, indexTypeForCleanup := range indexTypesForCleanup {
 			if err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, indexTypeForCleanup); err != nil {
 				h.appState.Logger.WithFields(logrus.Fields{
-					"collection":     collection,
-					"property":       propertyName,
-					"migration_type": migrationType,
-					"index_type":     indexTypeForCleanup,
+					"collection":      collection,
+					"property":        propertyName,
+					"migration_type":  migrationType,
+					"index_type":      indexTypeForCleanup,
+					"sweep_truncated": errors.Is(err, db.ErrCleanupSweepTruncated),
 				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
 			}
 		}
@@ -1737,15 +1738,29 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	defer cancelCleanup()
 
 	var cleanupErrs []error
+	truncated := false
 	for _, it := range indexTypesToClean {
 		if err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, it); err != nil {
 			cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
+			truncated = truncated || errors.Is(err, db.ErrCleanupSweepTruncated)
 		}
 	}
 	if len(cleanupErrs) > 0 {
-		h.appState.Logger.WithFields(fields).WithField("strategies", indexTypesToClean).Errorf(
-			"cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry",
-			len(cleanupErrs), cleanupErrs)
+		entry := h.appState.Logger.WithFields(fields).
+			WithField("strategies", indexTypesToClean).
+			WithField("sweep_truncated", truncated)
+		if truncated {
+			// Naming only the shards that failed would understate it: the sweep
+			// ran out of time part-way through the shard list, so every shard
+			// after that point was never looked at.
+			entry.Errorf("cancel: the on-disk cleanup ran out of time before it had visited every shard, "+
+				"so an unknown number of shards were not swept at all: %v; next submit's defense-in-depth "+
+				"cleanup will retry", cleanupErrs)
+		} else {
+			entry.Errorf(
+				"cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry",
+				len(cleanupErrs), cleanupErrs)
+		}
 	} else if payloadReadable {
 		h.appState.Logger.WithFields(fields).Info("cancel: on-disk cleanup complete")
 	} else {
