@@ -779,3 +779,95 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		}
 	}
 }
+
+// TestTouchesTables_CoverEveryMigrationType is what makes the exhaustive
+// switches in TouchesSearchable/TouchesFilterable safe to rely on: the tables
+// are checked against allKnownMigrationTypes(), so a newly declared type reds
+// this test instead of panicking whichever request reaches the switch first.
+// Both switch defaults panic, and one of the two call sites is the RAFT
+// AddTask apply, where a panic is recovered and the entry silently dropped.
+func TestTouchesTables_CoverEveryMigrationType(t *testing.T) {
+	searchable := map[ReindexMigrationType]bool{
+		ReindexTypeChangeAlgorithm:              true,
+		ReindexTypeChangeTokenization:           true,
+		ReindexTypeEnableSearchable:             true,
+		ReindexTypeRebuildSearchable:            true,
+		ReindexTypeRepairFilterable:             false,
+		ReindexTypeChangeTokenizationFilterable: false,
+		ReindexTypeEnableFilterable:             false,
+		ReindexTypeEnableRangeable:              false,
+		ReindexTypeRepairRangeable:              false,
+	}
+	filterable := map[ReindexMigrationType]bool{
+		ReindexTypeRepairFilterable:             true,
+		ReindexTypeChangeTokenization:           true,
+		ReindexTypeChangeTokenizationFilterable: true,
+		ReindexTypeEnableFilterable:             true,
+		ReindexTypeChangeAlgorithm:              false,
+		ReindexTypeEnableSearchable:             false,
+		ReindexTypeRebuildSearchable:            false,
+		ReindexTypeEnableRangeable:              false,
+		ReindexTypeRepairRangeable:              false,
+	}
+
+	known := allKnownMigrationTypes()
+	require.Len(t, searchable, len(known), "every declared migration type needs a searchable row")
+	require.Len(t, filterable, len(known), "every declared migration type needs a filterable row")
+
+	for _, mt := range known {
+		t.Run(string(mt), func(t *testing.T) {
+			want, ok := searchable[mt]
+			require.True(t, ok, "no searchable row for %q", mt)
+			require.Equal(t, want, TouchesSearchable(mt))
+
+			want, ok = filterable[mt]
+			require.True(t, ok, "no filterable row for %q", mt)
+			require.Equal(t, want, TouchesFilterable(mt))
+		})
+	}
+}
+
+func TestTouchesTables_PanicOnUnknownType(t *testing.T) {
+	require.PanicsWithValue(t,
+		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { TouchesSearchable(ReindexMigrationType("phantom")) })
+	require.PanicsWithValue(t,
+		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { TouchesFilterable(ReindexMigrationType("phantom")) })
+}
+
+// TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty runs the
+// conflict check at the tier it actually runs at — the RAFT AddTask apply,
+// where a panic is swallowed by the apply wrapper and the submit reports
+// success with no task in the FSM. Every declared type is exercised as the
+// in-flight one, so a type missing from either touch switch fails here as a
+// refusal that never arrives rather than as a lost apply in production.
+func TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty(t *testing.T) {
+	provider := &ReindexProvider{}
+
+	newPayload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeAlgorithm,
+		Properties:    []string{"prop"},
+	})
+	require.NoError(t, err)
+
+	for _, mt := range allKnownMigrationTypes() {
+		t.Run(string(mt), func(t *testing.T) {
+			existPayload, err := json.Marshal(ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: mt,
+				Properties:    []string{"prop"},
+			})
+			require.NoError(t, err)
+
+			err = provider.CheckConflict(newPayload, []*distributedtask.Task{{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+				Status:         distributedtask.TaskStatusStarted,
+				Payload:        existPayload,
+			}})
+			require.Error(t, err, "a live %s on the same property must refuse the submit", mt)
+			require.Contains(t, err.Error(), "conflicts")
+		})
+	}
+}
