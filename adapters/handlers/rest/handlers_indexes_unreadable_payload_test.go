@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // unreadableTaskPayload defeats the full ReindexTaskPayload decoder while
@@ -280,6 +281,8 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 	tests := []struct {
 		name  string
 		tasks func(t *testing.T) []*distributedtask.Task
+		// authorizer is nil for a caller with every grant.
+		authorizer authorization.Authorizer
 		// wantCancelledID is empty when nothing may be cancelled in DTM.
 		wantCancelledID string
 		wantStatus      string
@@ -355,6 +358,30 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			},
 			wantConflict: true,
 		},
+		{
+			// Cancelling it stops a migration on some other collection and
+			// answers with a task id naming that collection, so the URL's own
+			// grant is not enough. The answer is the one a caller would get if
+			// this pass did not exist, so a denial discloses nothing.
+			name: "UPDATE on the URL's collection alone cannot reach a task that names none",
+			tasks: func(*testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusStarted)}
+			},
+			authorizer: grantUpdateOn(collection),
+			wantStatus: reindexCancelStatusNoOp,
+		},
+		{
+			name: "the same caller still cancels the decodable task next to it",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					unattributableTask("orphan", distributedtask.TaskStatusStarted),
+					decodableOnMovies(t),
+				}
+			},
+			authorizer:      grantUpdateOn(collection),
+			wantCancelledID: "t-decodable",
+			wantStatus:      "CANCELLED",
+		},
 	}
 
 	for _, tc := range tests {
@@ -362,6 +389,9 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			svc := &raceTaskService{tasks: tc.tasks(t)}
 			var busy atomic.Bool
 			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+			if tc.authorizer != nil {
+				h.appState.Authorizer = tc.authorizer
+			}
 			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
 				func() int { return 1 }, context.Background()))
 
@@ -382,6 +412,8 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 
 			if tc.wantCancelledID == "" {
 				require.Empty(t, svc.cancelled, "nothing was holding the gate")
+				require.Empty(t, accepted.Payload.TaskID,
+					"a NO_OP must name no task, or it discloses one the caller may not reach")
 				return
 			}
 			require.Len(t, svc.cancelled, 1)

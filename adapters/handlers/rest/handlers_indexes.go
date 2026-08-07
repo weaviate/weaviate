@@ -1400,12 +1400,26 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"index_type": indexType,
 				"principal":  principalUsername(principal),
 			}
-			if err := h.appState.Authorizer.Authorize(ctx, principal, authorization.UPDATE,
+			// Silent: this is a capability probe, not something the caller
+			// asked for. The auditing variant would file an ERROR-level
+			// "authorization denied" against an ordinary cancel that merely
+			// coincides with such a task and still answers 202. The handler
+			// files its own event below either way.
+			if err := h.appState.Authorizer.AuthorizeSilent(ctx, principal, authorization.UPDATE,
 				authorization.Collections()...); err != nil {
-				h.appState.Logger.WithFields(fields).
-					WithField("audit_event", "reindex_task_cancel_unattributable_denied").
-					Infof("cancel: a task naming no collection is live, but cancelling it needs UPDATE on every "+
+				entry := h.appState.Logger.WithFields(fields).
+					WithField("audit_event", "reindex_task_cancel_unattributable_denied")
+				var forbidden authzerrors.Forbidden
+				if errors.As(err, &forbidden) {
+					entry.Infof("cancel: a task naming no collection is live, but cancelling it needs UPDATE on every "+
 						"collection and the caller only has it on this one: %v", err)
+				} else {
+					// Not a denial: the authorizer could not answer, so the
+					// operator's only remedy for this task is unavailable. The
+					// response stays non-disclosing and cannot say so.
+					entry.Errorf("cancel: a task naming no collection is live, but the authorizer could not say "+
+						"whether the caller may cancel it, so it was left running: %v", err)
+				}
 			} else {
 				h.appState.Logger.WithFields(fields).
 					WithField("audit_event", "reindex_task_cancel_unattributable_payload").

@@ -13,10 +13,13 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -71,66 +74,72 @@ func (a *scopedAuthorizer) FilterAuthorizedResources(ctx context.Context, princi
 	return allowed, nil
 }
 
-// Cancelling a task that names no collection is a cluster-wide act: it stops a
-// migration on some other collection and answers with a task id that spells
-// that collection and the migrated property out. The URL's own collection is
-// the only thing updateIndex authorized, so this pass has to ask for more.
-func TestCancelOfATaskThatNamesNoCollectionNeedsClusterWideUpdate(t *testing.T) {
+// auditingAuthorizer records denials the way the RBAC authorizer does: the
+// auditing entry point files an ERROR-level "authorization denied", the silent
+// one files nothing. Which of the two a call site picks is visible only here.
+type auditingAuthorizer struct {
+	*scopedAuthorizer
+	logger logrus.FieldLogger
+}
+
+func (a auditingAuthorizer) Authorize(ctx context.Context, principal *models.Principal,
+	verb string, resources ...string,
+) error {
+	err := a.scopedAuthorizer.Authorize(ctx, principal, verb, resources...)
+	if err != nil {
+		a.logger.WithField("resource", resources).Error("authorization denied")
+	}
+	return err
+}
+
+// The cluster-wide check on the unattributable-task pass is a capability probe,
+// not something the caller asked for: an ordinary single-collection cancel that
+// merely coincides with such a task is answered 202 and must not leave a
+// security-alert-shaped record behind for a request that succeeded.
+func TestCancelCapabilityProbeFilesNoAuthorizationDenial(t *testing.T) {
 	const (
 		collection = "Movies"
 		foreignID  = "Reviews:change_tokenization:body:ab3f"
 	)
 
-	tests := []struct {
-		name          string
-		authorizer    authorization.Authorizer
-		wantStatus    string
-		wantCancelled bool
-	}{
-		{
-			name:          "UPDATE on every collection cancels it",
-			authorizer:    grantUpdateOn(),
-			wantStatus:    "CANCELLED",
-			wantCancelled: true,
-		},
-		{
-			name:       "UPDATE on the URL's collection alone is not enough",
-			authorizer: grantUpdateOn(collection),
-			// The same answer the caller would get if this pass did not exist,
-			// so a denied caller cannot tell the foreign task apart from none.
-			wantStatus: reindexCancelStatusNoOp,
-		},
+	svc := &raceTaskService{tasks: []*distributedtask.Task{
+		unattributableTask(foreignID, distributedtask.TaskStatusStarted),
+	}}
+	var busy atomic.Bool
+	h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+
+	logger, hook := logrustest.NewNullLogger()
+	h.appState.Logger = logger
+	h.appState.Authorizer = auditingAuthorizer{scopedAuthorizer: grantUpdateOn(collection), logger: logger}
+	h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
+		func() int { return 1 }, context.Background()))
+
+	responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
+		&models.Principal{Username: "u1"})
+
+	accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+	require.Truef(t, ok, "cancel must be accepted, got %T", responder)
+	require.Equal(t, reindexCancelStatusNoOp, accepted.Payload.Status)
+
+	for _, entry := range hook.AllEntries() {
+		require.NotEqualf(t, logrus.ErrorLevel, entry.Level,
+			"a request answered %q must not file an error-level audit record: %q",
+			accepted.Payload.Status, entry.Message)
 	}
+	require.Contains(t, entryMessages(hook), "reindex_task_cancel_unattributable_denied",
+		"the handler still has to record the denial itself, at its own level")
+}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			svc := &raceTaskService{tasks: []*distributedtask.Task{
-				unattributableTask(foreignID, distributedtask.TaskStatusStarted),
-			}}
-			var busy atomic.Bool
-			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-			h.appState.Authorizer = tc.authorizer
-			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
-				func() int { return 1 }, context.Background()))
-
-			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
-				&models.Principal{Username: "u1"})
-
-			accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
-			require.Truef(t, ok, "cancel must be accepted, got %T", responder)
-			require.Equal(t, tc.wantStatus, accepted.Payload.Status)
-
-			if !tc.wantCancelled {
-				require.Empty(t, svc.cancelled,
-					"a caller without cluster-wide UPDATE must not stop a migration it has no grant for")
-				require.NotContains(t, strings.ToLower(accepted.Payload.TaskID), "reviews",
-					"the response must not name the foreign collection")
-				return
-			}
-			require.Len(t, svc.cancelled, 1)
-			require.Equal(t, foreignID, svc.cancelled[0].ID)
-			require.Equal(t, foreignID, accepted.Payload.TaskID,
-				"a cluster-privileged caller gets the full id, which is the handle on the task")
-		})
+// entryMessages joins each entry's message with its audit_event field, so a
+// test can assert on either without knowing which carries the text.
+func entryMessages(hook *logrustest.Hook) string {
+	var b strings.Builder
+	for _, entry := range hook.AllEntries() {
+		b.WriteString(entry.Message)
+		if event, ok := entry.Data["audit_event"]; ok {
+			fmt.Fprint(&b, " ", event)
+		}
+		b.WriteString("\n")
 	}
+	return b.String()
 }
