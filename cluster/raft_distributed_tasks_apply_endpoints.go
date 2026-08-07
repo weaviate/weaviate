@@ -151,11 +151,17 @@ func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace,
 	})
 }
 
+// CleanUpDistributedTask removes a terminal task from the cluster list. Its one
+// caller is the scheduler's TTL sweep, which has already measured the task's
+// age, so the request carries that verdict (TtlElapsed) and the apply obeys it.
+// A caller that has not made the age decision must not use this method: the
+// apply no longer re-derives it.
 func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP, &cmd.CleanUpDistributedTaskRequest{
-		Namespace: namespace,
-		Id:        taskID,
-		Version:   taskVersion,
+		Namespace:  namespace,
+		Id:         taskID,
+		Version:    taskVersion,
+		TtlElapsed: true,
 	})
 }
 

@@ -1598,10 +1598,16 @@ func (x *CancelDistributedTaskRequest) GetCancelledAtUnixMillis() int64 {
 }
 
 type CleanUpDistributedTaskRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Version       uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id        string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version   uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	// The proposer's verdict that the task is past its completed-task TTL.
+	// Carried on the wire so every node applies the same decision instead of
+	// re-measuring the age against its own wall clock. A request from a binary
+	// that predates this field decodes to false, which makes the apply fall
+	// back to the local age check that binary's proposer expected.
+	TtlElapsed    bool `protobuf:"varint,4,opt,name=ttl_elapsed,json=ttlElapsed,proto3" json:"ttl_elapsed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1655,6 +1661,13 @@ func (x *CleanUpDistributedTaskRequest) GetVersion() uint64 {
 		return x.Version
 	}
 	return 0
+}
+
+func (x *CleanUpDistributedTaskRequest) GetTtlElapsed() bool {
+	if x != nil {
+		return x.TtlElapsed
+	}
+	return false
 }
 
 type SyncShardRequest struct {
@@ -2637,11 +2650,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x127\n" +
-	"\x18cancelled_at_unix_millis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"g\n" +
+	"\x18cancelled_at_unix_millis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"\x88\x01\n" +
 	"\x1dCleanUpDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\x04R\aversion\"a\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
+	"\vttl_elapsed\x18\x04 \x01(\bR\n" +
+	"ttlElapsed\"a\n" +
 	"\x10SyncShardRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +

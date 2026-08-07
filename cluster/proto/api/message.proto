@@ -254,6 +254,12 @@ message CleanUpDistributedTaskRequest {
   string namespace = 1;
   string id = 2;
   uint64 version = 3;
+  // The proposer's verdict that the task is past its completed-task TTL.
+  // Carried on the wire so every node applies the same decision instead of
+  // re-measuring the age against its own wall clock. A request from a binary
+  // that predates this field decodes to false, which makes the apply fall
+  // back to the local age check that binary's proposer expected.
+  bool ttl_elapsed = 4;
 }
 
 message SyncShardRequest {

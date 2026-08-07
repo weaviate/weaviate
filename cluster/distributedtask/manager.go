@@ -1061,7 +1061,19 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 			r.Namespace, r.Id, task.Version, task.Status)
 	}
 
-	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
+	// Age is the proposer's call, not this node's. The scheduler sweep that
+	// issues this command measures the task against the TTL once; re-deriving
+	// it here would read the applying node's wall clock against the applying
+	// node's stored stamp, so two nodes fork on whether the entry deletes.
+	// Skewed clocks do that, and so does a rolling upgrade, where the same
+	// task carries stamps a whole prep-plus-swap window apart by binary
+	// version. GET /v1/schema/{class}/indexes reads locally, so the fork is
+	// visible to the caller.
+	//
+	// A proposer that predates CleanUpDistributedTaskRequest.TtlElapsed sends
+	// no decision, and the field decodes to false: fall back to the local
+	// check, which is the behavior that binary's sweep expects.
+	if !r.TtlElapsed && m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
 		return fmt.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
 	}
 
