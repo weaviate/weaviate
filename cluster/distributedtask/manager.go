@@ -1195,6 +1195,12 @@ func (m *Manager) Restore(bytes []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Drop the pre-restore state instead of merging into it. A snapshot is the
+	// whole FSM state, so a task or namespace it does not carry no longer
+	// exists; keeping one would resurrect a task the cluster has already
+	// cleaned up.
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
+
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {

@@ -151,13 +151,8 @@ func structuralInvariantClockHasWaiter(
 // (b) unrelated namespace, (c) intersection (correctly overwritten —
 // positive control).
 //
-// Supplementary to PR #11416's canonical fix
-// (`m.tasks = make(...)` before populating).
 // weaviate/0-weaviate-issues#245.
 func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) {
-	t.Skip("KNOWN-RED until PR #11416 lands — Manager.Restore merges instead of " +
-		"replaces. See test docstring + weaviate/0-weaviate-issues#245. Un-skip when " +
-		"#11416 merges and this branch rebases past it.")
 	now := time.Now().Truncate(time.Millisecond)
 
 	nullLogger, _ := logrustest.NewNullLogger()
