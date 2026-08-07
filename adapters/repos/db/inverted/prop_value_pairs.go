@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -49,7 +51,7 @@ type propValuePair struct {
 	// containsValues holds pre-encoded on-disk keys for a flat, single-property
 	// Contains(Any|All|None) filter. When non-nil, resolveDocIDs routes to
 	// fetchContainsBatch instead of the children-based dispatch below.
-	containsValues [][]byte
+	containsValues entsInverted.Keys
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -64,7 +66,7 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		return nil, err
 	}
 
-	if pv.containsValues != nil {
+	if pv.containsValues.Len() > 0 {
 		if !pv.operator.IsContains() {
 			return nil, fmt.Errorf("pre-encoded contains keys with non-contains operator %q", pv.operator.Name())
 		}
@@ -373,7 +375,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	// batch below that, and every path errors rather than dropping a value. Zero
 	// keys is therefore a caller bug, and answering it here would mean inventing
 	// a result for each operator; the fold rejects it for the same reason.
-	if len(pv.containsValues) == 0 {
+	if pv.containsValues.Len() == 0 {
 		return nil, fmt.Errorf("contains filter on prop %q carries no keys", pv.prop)
 	}
 
@@ -391,7 +393,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 				"count":          dbm.count(),
 				"failed":         err != nil,
 				"strategy":       lsmkv.StrategyRoaringSet,
-				"batched_values": len(pv.containsValues),
+				"batched_values": pv.containsValues.Len(),
 			}
 		})
 	}()

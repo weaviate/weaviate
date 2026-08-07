@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ent "github.com/weaviate/weaviate/entities/inverted"
 )
 
 // TestExtractBoolValue pins the filter-side bool encoding byte-for-byte and
@@ -57,11 +58,11 @@ func TestEncodeKeys(t *testing.T) {
 
 	// assertKeysMatch checks each slab key against the single-value encoder and
 	// that its capacity is capped to keyLen (the three-index sub-slice).
-	assertKeysMatch := func(t *testing.T, keys [][]byte, keyLen int, want func(i int) []byte) {
+	assertKeysMatch := func(t *testing.T, keys ent.Keys, keyLen int, want func(i int) []byte) {
 		t.Helper()
-		for i := range keys {
-			assert.Equalf(t, want(i), keys[i], "key %d bytes", i)
-			assert.Equalf(t, keyLen, cap(keys[i]), "key %d capacity must be capped to its own %d-byte end", i, keyLen)
+		for i, key := range keys.All() {
+			assert.Equalf(t, want(i), key, "key %d bytes", i)
+			assert.Equalf(t, keyLen, cap(key), "key %d capacity must be capped to its own %d-byte end", i, keyLen)
 		}
 	}
 
@@ -126,21 +127,21 @@ func TestEncodeKeys(t *testing.T) {
 	t.Run("keys are independent", func(t *testing.T) {
 		keys, err := encodeIntKeys([]int{1, 2, 3})
 		require.NoError(t, err)
-		neighbor := append([]byte(nil), keys[1]...)
-		// no spare capacity, so this reallocates and cannot reach keys[1]
-		grown := append(keys[0], 0xff, 0xff, 0xff, 0xff)
-		require.Len(t, grown, len(keys[0])+4)
-		assert.Equal(t, neighbor, keys[1], "append to one key must not clobber the next")
+		neighbor := append([]byte(nil), keys.At(1)...)
+		// no spare capacity, so this reallocates and cannot reach key 1
+		grown := append(keys.At(0), 0xff, 0xff, 0xff, 0xff)
+		require.Len(t, grown, len(keys.At(0))+4)
+		assert.Equal(t, neighbor, keys.At(1), "append to one key must not clobber the next")
 	})
 
 	t.Run("empty and single", func(t *testing.T) {
 		empty, err := encodeIntKeys(nil)
 		require.NoError(t, err)
-		assert.Empty(t, empty)
+		assert.Zero(t, empty.Len())
 
 		one, err := encodeIntKeys([]int{7})
 		require.NoError(t, err)
-		require.Len(t, one, 1)
+		require.Equal(t, 1, one.Len())
 	})
 
 	t.Run("encode error reports the failing index", func(t *testing.T) {

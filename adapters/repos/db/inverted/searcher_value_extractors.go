@@ -78,50 +78,47 @@ func putUUIDKey(dst []byte, v string) error {
 // caller can report which element was malformed. The three-index sub-slices
 // cap each key's capacity at its own end, so an append to one key cannot
 // clobber the next.
-func encodeFixedWidthKeys[T any](values []T, keyLen int, encode func(dst []byte, v T) error) ([][]byte, error) {
-	keys := make([][]byte, len(values))
-	slab := make([]byte, len(values)*keyLen)
+func encodeFixedWidthKeys[T any](values []T, keyLen int, encode func(dst []byte, v T) error) (ent.Keys, error) {
+	kb := ent.NewFixedKeyBuilder(len(values), keyLen)
 	for i := range values {
-		dst := slab[i*keyLen : (i+1)*keyLen : (i+1)*keyLen]
-		if err := encode(dst, values[i]); err != nil {
-			return nil, fmt.Errorf("value %d: %w", i, err)
+		if err := encode(kb.AppendBuf(), values[i]); err != nil {
+			return ent.Keys{}, fmt.Errorf("value %d: %w", i, err)
 		}
-		keys[i] = dst
 	}
-	return keys, nil
+	return kb.Build(), nil
 }
 
 // encode*Keys below are the slice counterparts of the extract*Value
 // methods: one key per value, all keys backed by one shared slab.
 
-func encodeIntKeys(values []int) ([][]byte, error) {
+func encodeIntKeys(values []int) (ent.Keys, error) {
 	return encodeFixedWidthKeys(values, 8, func(dst []byte, v int) error {
 		putIntKey(dst, v)
 		return nil
 	})
 }
 
-func encodeNumberKeys(values []float64) ([][]byte, error) {
+func encodeNumberKeys(values []float64) (ent.Keys, error) {
 	return encodeFixedWidthKeys(values, 8, func(dst []byte, v float64) error {
 		putNumberKey(dst, v)
 		return nil
 	})
 }
 
-func encodeBoolKeys(values []bool) ([][]byte, error) {
+func encodeBoolKeys(values []bool) (ent.Keys, error) {
 	return encodeFixedWidthKeys(values, 1, func(dst []byte, v bool) error {
 		putBoolKey(dst, v)
 		return nil
 	})
 }
 
-func encodeDateKeys(values []string) ([][]byte, error) {
+func encodeDateKeys(values []string) (ent.Keys, error) {
 	return encodeFixedWidthKeys(values, 8, func(dst []byte, v string) error {
 		return putDateKey(dst, v)
 	})
 }
 
-func encodeUUIDKeys(values []string) ([][]byte, error) {
+func encodeUUIDKeys(values []string) (ent.Keys, error) {
 	return encodeFixedWidthKeys(values, 16, func(dst []byte, v string) error {
 		return putUUIDKey(dst, v)
 	})

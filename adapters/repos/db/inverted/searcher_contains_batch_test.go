@@ -15,6 +15,8 @@ import (
 	"context"
 	"testing"
 
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
@@ -195,9 +197,9 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Equal(t, tt.operator, pv.operator)
 			require.Equal(t, tt.prop, pv.prop)
 			require.True(t, pv.hasFilterableIndex)
-			require.Len(t, pv.containsValues, tt.numVals)
+			require.Equal(t, tt.numVals, pv.containsValues.Len())
 			for i := 0; i < tt.numVals; i++ {
-				require.Equal(t, tt.wantKey(t, i), pv.containsValues[i], "key %d", i)
+				require.Equal(t, tt.wantKey(t, i), pv.containsValues.At(i), "key %d", i)
 			}
 		})
 	}
@@ -369,7 +371,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, pv)
-			require.Nil(t, pv.containsValues, "shape must not resolve through the batched path")
+			require.Zero(t, pv.containsValues.Len(), "shape must not resolve through the batched path")
 		})
 	}
 }
@@ -421,7 +423,7 @@ func TestExtractContains_FallsThroughToPerValuePath(t *testing.T) {
 	pv, err := s.extractContains(ctx, path, schema.DataTypeText, []string{"hello world", "goodbye"},
 		filters.ContainsAny, f.class)
 	require.NoError(t, err)
-	require.Nil(t, pv.containsValues)
+	require.Zero(t, pv.containsValues.Len())
 	require.NotEmpty(t, pv.children)
 }
 
@@ -438,7 +440,7 @@ func TestExtractContains_UsesBatchedPathWhenEligible(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pv)
 	require.Nil(t, pv.children)
-	require.Len(t, pv.containsValues, 3)
+	require.Equal(t, 3, pv.containsValues.Len())
 }
 
 // TestExtractContainsBatch_OptInGate pins that the batched resolution is
@@ -460,7 +462,7 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
 		pv, err := extract(ctx)
 		require.NoError(t, err)
-		require.Nil(t, pv.containsValues)
+		require.Zero(t, pv.containsValues.Len())
 		require.NotEmpty(t, pv.children, "with the gate unwired, Contains must desugar per value")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 	})
@@ -472,20 +474,20 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
 		pv, err := extract(ctx)
 		require.NoError(t, err)
-		require.Nil(t, pv.containsValues)
+		require.Zero(t, pv.containsValues.Len())
 		require.NotEmpty(t, pv.children, "with the gate off, Contains must desugar per value")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 
 		require.NoError(t, gate.SetValue(true))
 		pv, err = extract(context.Background())
 		require.NoError(t, err)
-		require.Len(t, pv.containsValues, 3, "gate flipped on at runtime must batch")
+		require.Equal(t, 3, pv.containsValues.Len(), "gate flipped on at runtime must batch")
 
 		require.NoError(t, gate.SetValue(false))
 		ctx = helpers.InitSlowQueryDetails(context.Background())
 		pv, err = extract(ctx)
 		require.NoError(t, err)
-		require.Nil(t, pv.containsValues, "gate flipped off at runtime must desugar again")
+		require.Zero(t, pv.containsValues.Len(), "gate flipped off at runtime must desugar again")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 	})
 }
@@ -504,7 +506,7 @@ func TestFetchContainsBatch_EmptyKeySet(t *testing.T) {
 			pv := &propValuePair{
 				prop:               "prop-int",
 				operator:           op,
-				containsValues:     [][]byte{},
+				containsValues:     keysOf(),
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}
@@ -537,7 +539,7 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 			pv := &propValuePair{
 				prop:               tc.prop,
 				operator:           filters.ContainsAny,
-				containsValues:     [][]byte{[]byte("a")},
+				containsValues:     keysOf([]byte("a")),
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}
@@ -578,13 +580,13 @@ func TestFetchContainsBatch_ReadsRows(t *testing.T) {
 	tests := []struct {
 		name         string
 		operator     filters.Operator
-		keys         [][]byte
+		keys         entsInverted.Keys
 		wantDocIDs   []uint64
 		wantDenyList bool
 	}{
-		{"ContainsAny reaches the rows", filters.ContainsAny, [][]byte{[]byte("a"), []byte("b")}, []uint64{1, 2, 3, 4}, false},
+		{"ContainsAny reaches the rows", filters.ContainsAny, keysOf([]byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, false},
 		// ContainsNone additionally proves the fold's deny flag reaches the caller
-		{"ContainsNone denies", filters.ContainsNone, [][]byte{[]byte("a"), []byte("b")}, []uint64{1, 2, 3, 4}, true},
+		{"ContainsNone denies", filters.ContainsNone, keysOf([]byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -616,7 +618,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	writeContainsRows(t, f, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
 
-	newPV := func(keys [][]byte) *propValuePair {
+	newPV := func(keys entsInverted.Keys) *propValuePair {
 		return &propValuePair{
 			prop:               "prop-int",
 			operator:           filters.ContainsAny,
@@ -628,7 +630,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 
 	t.Run("a batched read is annotated", func(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
-		dbm, err := newPV([][]byte{[]byte("a"), []byte("b")}).fetchContainsBatch(ctx, f.searcher)
+		dbm, err := newPV(keysOf([]byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -650,7 +652,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		pv := &propValuePair{
 			prop:               "prop-nonroaringset",
 			operator:           filters.ContainsAny,
-			containsValues:     [][]byte{[]byte("a"), []byte("b")},
+			containsValues:     keysOf([]byte("a"), []byte("b")),
 			hasFilterableIndex: true,
 			Class:              f.class,
 		}
@@ -673,7 +675,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		ctx, cancel := context.WithCancel(helpers.InitSlowQueryDetails(context.Background()))
 		cancel()
 
-		_, err := newPV([][]byte{[]byte("a"), []byte("b")}).fetchContainsBatch(ctx, f.searcher)
+		_, err := newPV(keysOf([]byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
 		require.ErrorIs(t, err, context.Canceled)
 
 		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
@@ -689,10 +691,10 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		prop string
-		keys [][]byte
+		keys entsInverted.Keys
 	}{
-		{name: "an empty key set is not annotated", prop: "prop-int", keys: nil},
-		{name: "a missing bucket is not annotated", prop: "prop-no-bucket", keys: [][]byte{[]byte("a")}},
+		{name: "an empty key set is not annotated", prop: "prop-int"},
+		{name: "a missing bucket is not annotated", prop: "prop-no-bucket", keys: keysOf([]byte("a"))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := helpers.InitSlowQueryDetails(context.Background())

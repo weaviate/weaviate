@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
@@ -275,7 +277,7 @@ var containsAnyAccumulatorMinKeys = 256
 func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBatchReader,
 	pv *propValuePair,
 ) (docBitmap, error) {
-	if len(pv.containsValues) == 0 {
+	if pv.containsValues.Len() == 0 {
 		// defensive: the folds adopt their first row as the accumulator, so zero
 		// keys yields a nil bitmap rather than an empty one
 		return docBitmap{}, fmt.Errorf("contains fold on prop %q carries no keys", pv.prop)
@@ -295,7 +297,7 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 		// applied to the result, not the fold. Below
 		// containsAnyAccumulatorMinKeys keys the Accumulator's staging setup
 		// and finalize scan are not worth it — union incrementally instead.
-		if len(pv.containsValues) < containsAnyAccumulatorMinKeys {
+		if pv.containsValues.Len() < containsAnyAccumulatorMinKeys {
 			acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsValues, filters.ContainsAny, mergeConc)
 		} else {
 			acc, accRelease, err = foldContainsAnyAccumulator(ctx, reader, pv.containsValues,
@@ -322,13 +324,13 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 // staging blocks (proportional to the doc-ID spread of the result, not to
 // the number of keys) plus a single row in flight.
 func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
-	keys [][]byte, pool roaringset.BitmapBufPool, mergeConc int,
+	keys entsInverted.Keys, pool roaringset.BitmapBufPool, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	// TODO aliszka:gh12242 wire mergeConc into the accumulator's Or once sroar
 	// supports concurrent deposits; today it bounds only the per-row disk merge
 	// and the deposits themselves are single-threaded.
 	acc := sroar.NewAccumulator()
-	for _, key := range keys {
+	for _, key := range keys.All() {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
@@ -358,11 +360,11 @@ func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
 // batch-read grouping can beat — hence ContainsAll deliberately has no
 // accumulator path.
 func foldContainsIncremental(ctx context.Context, reader containsBatchReader,
-	keys [][]byte, op filters.Operator, mergeConc int,
+	keys entsInverted.Keys, op filters.Operator, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	var acc *sroar.Bitmap
 	accRelease := noopRelease
-	for _, key := range keys {
+	for _, key := range keys.All() {
 		if err := ctx.Err(); err != nil {
 			accRelease()
 			return nil, nil, err
