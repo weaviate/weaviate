@@ -1398,27 +1398,42 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"index_type": indexType,
 				"principal":  principalUsername(principal),
 			}
-			// Silent: this is a capability probe, not something the caller
-			// asked for. The auditing variant would file an ERROR-level
-			// "authorization denied" against an ordinary cancel that merely
-			// coincides with such a task and still answers 202. The handler
-			// files its own event below either way.
-			if err := h.appState.Authorizer.AuthorizeSilent(ctx, principal, authorization.UPDATE,
-				authorization.Collections()...); err != nil {
-				entry := h.appState.Logger.WithFields(fields).
-					WithField("audit_event", "reindex_task_cancel_unattributable_denied")
+			// AuthorizeSilent, not Authorize: this check is a capability probe
+			// the caller never asked for, and the auditing variant would file
+			// an ERROR-level "authorization denied" against a cancel that
+			// answers 202.
+			probeErr := h.appState.Authorizer.AuthorizeSilent(ctx, principal, authorization.UPDATE,
+				authorization.Collections()...)
+			switch {
+			case probeErr != nil:
 				var forbidden authzerrors.Forbidden
-				if errors.As(err, &forbidden) {
-					entry.Infof("cancel: a task naming no collection is live, but cancelling it needs UPDATE on every "+
-						"collection and the caller only has it on this one: %v", err)
-				} else {
-					// Not a denial: the authorizer could not answer, so the
-					// operator's only remedy for this task is unavailable. The
-					// response stays non-disclosing and cannot say so.
-					entry.Errorf("cancel: a task naming no collection is live, but the authorizer could not say "+
-						"whether the caller may cancel it, so it was left running: %v", err)
+				if errors.As(probeErr, &forbidden) {
+					h.appState.Logger.WithFields(fields).
+						WithField("audit_event", "reindex_task_cancel_unattributable_denied").
+						Infof("cancel: a task naming no collection is live, but cancelling it needs UPDATE on every "+
+							"collection and the caller only has it on this one: %v", probeErr)
+					break
 				}
-			} else {
+				// Not a denial: the authorizer could not answer, so the
+				// operator's only remedy for this task is unavailable. The
+				// response stays non-disclosing and cannot say so.
+				h.appState.Logger.WithFields(fields).
+					WithField("audit_event", "reindex_task_cancel_unattributable_authorizer_unavailable").
+					Errorf("cancel: a task naming no collection is live, but the authorizer could not say "+
+						"whether the caller may cancel it, so it was left running: %v", probeErr)
+			default:
+				// The probe passed, so this request is about to use cluster-wide
+				// UPDATE. Authorize audibly once, on the path that actually
+				// cancels, or the one privileged act this pass gates leaves no
+				// record in the audit stream.
+				if grantErr := h.appState.Authorizer.Authorize(ctx, principal, authorization.UPDATE,
+					authorization.Collections()...); grantErr != nil {
+					h.appState.Logger.WithFields(fields).
+						WithField("audit_event", "reindex_task_cancel_unattributable_authorizer_unavailable").
+						Errorf("cancel: the caller's cluster-wide grant did not survive being recorded, "+
+							"so the task naming no collection was left running: %v", grantErr)
+					break
+				}
 				h.appState.Logger.WithFields(fields).
 					WithField("audit_event", "reindex_task_cancel_unattributable_payload").
 					Info("cancel: task payload will not decode and names no collection; cancelling it because it refuses every backup in the cluster")
