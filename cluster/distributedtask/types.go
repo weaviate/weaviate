@@ -583,6 +583,50 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 	t.FinishedAt = at
 }
 
+// repairTerminalStamp gives a terminal task that carries no finish time the
+// latest moment it does carry, and reports whether it changed anything. It is
+// the only writer of [Task.FinishedAt] besides [Task.markTerminal], and it runs
+// on one path only: [Manager.Restore].
+//
+// A terminal task with a zero stamp arrives when an older binary finalizes a
+// task this build left unstamped and the state comes back by snapshot. Left
+// alone it never ages out (the TTL has nothing to measure) and the backup
+// overlap backstop refuses every capture of its collection for good.
+//
+// The value is the newest timestamp on the task itself — no node clock, no map
+// order — so every node restoring the same snapshot computes the same one and
+// the FSM stays identical across the cluster.
+//
+// Newest, not oldest, is what keeps the backstop fail-closed: it waives a
+// capture when FinishedAt is before the capture start, so an earlier stamp
+// waives more. The remaining gap is the RAFT round trip between the last ack
+// and the finalize that was never stamped.
+func (t *Task) repairTerminalStamp() bool {
+	if !t.Status.IsTerminal() || !t.FinishedAt.IsZero() {
+		return false
+	}
+
+	at := t.StartedAt
+	for _, unit := range t.Units {
+		if unit != nil && unit.FinishedAt.After(at) {
+			at = unit.FinishedAt
+		}
+	}
+	for _, acks := range []map[string]PostCompletionAck{t.PreparationCompletionAcks, t.PostCompletionAcks} {
+		for _, ack := range acks {
+			if ack.AckedAt.After(at) {
+				at = ack.AckedAt
+			}
+		}
+	}
+
+	if at.IsZero() {
+		return false
+	}
+	t.FinishedAt = at
+	return true
+}
+
 // Clone deep-copies the maps a caller could otherwise mutate under the
 // Manager's lock. [Task.Payload] is shared, not copied: callers outside the
 // FSM read it and must not write to it.

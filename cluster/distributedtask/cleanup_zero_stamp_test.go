@@ -13,7 +13,6 @@ package distributedtask
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -30,24 +29,27 @@ import (
 //
 // The state itself is only reachable across server versions: a node old enough
 // to end a task without stamping it, applying against state a newer node
-// produced. The tests below install it the way it actually arrives, by RAFT
-// snapshot restore.
+// produced. It reaches this build by RAFT snapshot restore, where
+// [Task.repairTerminalStamp] now stamps it — so these two guards are what
+// still holds if the state ever reaches the task map unrepaired. The tests
+// below therefore seed the map directly rather than through Restore.
 
-// restoreTerminalTaskWithoutAStamp installs a single FINISHED task carrying no
-// finish time, through the snapshot path a mixed-version cluster uses.
-func restoreTerminalTaskWithoutAStamp(t *testing.T, m *Manager, namespace, taskID string, version uint64) {
+// seedTerminalTaskWithoutAStamp installs a single FINISHED task carrying no
+// finish time straight into the task map.
+func seedTerminalTaskWithoutAStamp(t *testing.T, m *Manager, namespace, taskID string, version uint64) {
 	t.Helper()
-	bytes, err := json.Marshal(snapshot{Tasks: map[string][]*Task{
-		namespace: {{
-			Namespace:      namespace,
-			TaskDescriptor: TaskDescriptor{ID: taskID, Version: version},
-			Status:         TaskStatusFinished,
-			StartedAt:      m.clock.Now().Add(-time.Hour),
-			Units:          map[string]*Unit{"u": {ID: "u", Status: UnitStatusCompleted, Progress: 1}},
-		}},
-	}})
-	require.NoError(t, err)
-	require.NoError(t, m.Restore(bytes))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.tasks[namespace]; !ok {
+		m.tasks[namespace] = map[string]*Task{}
+	}
+	m.tasks[namespace][taskID] = &Task{
+		Namespace:      namespace,
+		TaskDescriptor: TaskDescriptor{ID: taskID, Version: version},
+		Status:         TaskStatusFinished,
+		StartedAt:      m.clock.Now().Add(-time.Hour),
+		Units:          map[string]*Unit{"u": {ID: "u", Status: UnitStatusCompleted, Progress: 1}},
+	}
 }
 
 func TestManager_CleanUpTask_RefusesATerminalTaskWithoutAFinishTime(t *testing.T) {
@@ -72,7 +74,7 @@ func TestManager_CleanUpTask_RefusesATerminalTaskWithoutAFinishTime(t *testing.T
 			h := newTestHarness(t).init(t)
 			defer h.manager.Close()
 
-			restoreTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
+			seedTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
 			h.clock.Advance(tc.advance)
 
 			err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
@@ -101,7 +103,7 @@ func TestManager_CleanUpTask_StillDeletesAStampedExpiredTask(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	defer h.manager.Close()
 
-	restoreTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
+	seedTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
 	h.manager.mu.Lock()
 	h.manager.tasks[ns][taskID].FinishedAt = h.clock.Now()
 	h.manager.mu.Unlock()
@@ -125,7 +127,7 @@ func TestScheduler_Sweep_KeepsATerminalTaskWithoutAFinishTime(t *testing.T) {
 	h.init(t)
 	defer h.Close()
 
-	restoreTerminalTaskWithoutAStamp(t, h.manager, h.tasksNamespace, "unstamped", 7)
+	seedTerminalTaskWithoutAStamp(t, h.manager, h.tasksNamespace, "unstamped", 7)
 
 	h.startScheduler(t)
 	// Well past the TTL, and several ticks, so a sweep that read the zero
