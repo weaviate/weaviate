@@ -123,3 +123,7 @@ func TestDeleteClassPropertyIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) 
 	require.Equal(t, []string{"customer1:Movies/title"}, rec.keys,
 		"submit lock must be keyed on the qualified class so callers using the short vs qualified name share it")
 }
+
+func (f fakeReindexTaskLister) ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return f.tasks, nil
+}
