@@ -170,6 +170,14 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
+//
+// Answers at LOCAL consistency: both the schema flags and the task list come
+// from this node's FSM, which is what makes them apply-ordered with respect to
+// each other. The submit path and the backup commit-time gate answer at the
+// leader, so a lagging node can report an index `ready` and then refuse the
+// operator's follow-up write. Still a fail-closed improvement over the leader
+// query this replaced, which degraded to "no active tasks" on error and so
+// reported every index ready.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
@@ -261,7 +269,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = searchableAlgorithm
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, h.appState.Logger)
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
 			// Flag on → always emit. Flag off → emit only when a reindex
 			// task carries actionable signal (in-flight or terminal
 			// failure/cancellation).
@@ -2039,10 +2047,6 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
 //
-// `flagOn` is the caller's view of whether the corresponding schema flag
-// (IndexFilterable / IndexSearchable / IndexRangeFilters, depending on
-// indexType) is currently true.
-//
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
 // The REST handler always populates Properties with exactly one entry;
@@ -2056,7 +2060,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -2161,7 +2165,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusPreparing, distributedtask.TaskStatusSwapping:
 		// Units done; cross-replica PREP barrier or per-node swap still in
-		// flight. Surface as "indexing at 100%" until FINISHED + flagOn.
+		// flight. Surface as "indexing at 100%" until FINISHED.
 		idx.Status = "indexing"
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true

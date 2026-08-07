@@ -82,8 +82,7 @@ func TestIndexStatusSurfacesATaskWhosePayloadWillNotDecode(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, tc.collection, "title", "filterable", true,
-				tasksMap(tc.task), nil)
+			mergeReindexStatus(idx, tc.collection, "title", "filterable", tasksMap(tc.task), nil)
 			require.Equal(t, tc.wantStatus, idx.Status,
 				"the status endpoint is the remedy the backup refusal names")
 			require.Zero(t, idx.Progress, "no progress was readable")
@@ -104,8 +103,7 @@ func TestIndexStatusPrefersADecodableTaskOverTheFallback(t *testing.T) {
 	})
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "Movies", "title", "filterable", true,
-		tasksMap(live, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)), nil)
+	mergeReindexStatus(idx, "Movies", "title", "filterable", tasksMap(live, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)), nil)
 
 	require.Equal(t, models.IndexStatusStatusIndexing, idx.Status)
 }
@@ -127,23 +125,34 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 		return task
 	}
 
+	unknownStatus := buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeRepairFilterable,
+		Collection:    "Movies",
+		Properties:    []string{"title"},
+	}, nil)
+
 	tests := []struct {
 		name    string
 		matched *distributedtask.Task
-		flagOn  bool
 	}{
 		{
-			name:    "finished, schema flag already caught up",
+			name:    "finished just now",
 			matched: finished(time.Now()),
-			flagOn:  true,
+		},
+		{
+			name:    "finished a day ago",
+			matched: finished(time.Now().Add(-24 * time.Hour)),
+		},
+		{
+			name:    "a status this build does not know",
+			matched: unknownStatus,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "Movies", "title", "filterable", tc.flagOn,
-				tasksMap(tc.matched, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)), nil)
+			mergeReindexStatus(idx, "Movies", "title", "filterable", tasksMap(tc.matched, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)), nil)
 
 			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
 				"the live unreadable task still holds the collection at the backup gate, and the "+
@@ -386,8 +395,7 @@ func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "Movies", "title", "filterable", true,
-				tasksMap(tc.tasks(t)...), nil)
+			mergeReindexStatus(idx, "Movies", "title", "filterable", tasksMap(tc.tasks(t)...), nil)
 
 			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
 				"the task still holds this collection at the backup gate")

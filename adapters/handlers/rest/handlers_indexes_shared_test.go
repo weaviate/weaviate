@@ -190,24 +190,29 @@ func errorMessage(t *testing.T, payload *models.ErrorResponse) string {
 
 func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActivityProber) *indexesHandlers {
 	t.Helper()
+	indexFilterable := true
+	return submissionHandlersForClass(t, tasks, prober, &models.Class{
+		Class: "Movies",
+		Properties: []*models.Property{{
+			Name:            "title",
+			DataType:        []string{"text"},
+			IndexFilterable: &indexFilterable,
+		}},
+	})
+}
+
+// submissionHandlersForClass is submissionHandlers over a caller-supplied
+// class, for tests whose subject is how the schema flags themselves render.
+func submissionHandlersForClass(t *testing.T, tasks reindexTaskService, prober nodeActivityProber, class *models.Class) *indexesHandlers {
+	t.Helper()
 	const (
 		collection = "Movies"
-		property   = "title"
 		node       = fixtureNode
 	)
 
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
-	indexFilterable := true
-	class := &models.Class{
-		Class: collection,
-		Properties: []*models.Property{{
-			Name:            property,
-			DataType:        []string{"text"},
-			IndexFilterable: &indexFilterable,
-		}},
-	}
 	shardState := &sharding.State{
 		IndexID:  collection,
 		Physical: map[string]sharding.Physical{"shard1": {Name: "shard1", BelongsToNodes: []string{node}}},
