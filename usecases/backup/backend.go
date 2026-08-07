@@ -299,7 +299,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
-		} else if overlapRefused {
+		}
+		// After the meta write either way: a refusal that stayed at Transferring
+		// reads as still running, and the operation is over.
+		if overlapRefused {
 			u.setStatus(backup.Failed)
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
