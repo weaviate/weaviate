@@ -153,6 +153,16 @@ render as `indexing@100%`. FINISHED with the flag off means the flag
 was turned back off since (an index DELETE), i.e. a stale task, and
 produces no entry — this is weaviate/weaviate#10675.
 
+This endpoint answers at **local** consistency while `POST`/`PUT`
+submits and the backup commit-time gate answer at the leader, so the
+advised "poll until ready, then act" loop can read `ready` on a node
+whose apply loop is behind and then have the follow-up write refused
+with a 409 or `ErrBackupSpannedReindex`. Normally tens to hundreds of
+milliseconds; unbounded on a node with a stalled apply loop. It is
+still an improvement over the leader query it replaced, which degraded
+to "no active tasks" whenever the query failed and so rendered every
+index `ready` — a worse answer than a stale one.
+
 Read-access is gated on `READ` of `CollectionsMetadata`; `PUT`/`DELETE`
 require the stronger `UPDATE` on `Collections`.
 

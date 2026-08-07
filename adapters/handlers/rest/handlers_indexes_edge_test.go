@@ -80,7 +80,7 @@ func TestMergeReindexStatus_UnitInProgressZeroProgress_ShowsIndexing(t *testing.
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status,
 		"unit IN_PROGRESS without a checkpoint must surface as 'indexing', not 'pending' — work has started")
@@ -109,7 +109,7 @@ func TestMergeReindexStatus_OneUnitInProgressAmongPending_ShowsIndexing(t *testi
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status)
 }
@@ -134,7 +134,7 @@ func TestMergeReindexStatus_StartedNoProgress_ShowsPending(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "pending", idx.Status, "STARTED task with zero progress should show pending")
 	require.Equal(t, float32(0), idx.Progress)
@@ -163,7 +163,7 @@ func TestMergeReindexStatus_StaleStartedTask_StillShowsPending(t *testing.T) {
 	task.StartedAt = staleTime
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	// A 72h-old STARTED task that has not made a byte of progress is
 	// reported as "pending" — same as a brand-new task. There is no
@@ -189,7 +189,7 @@ func TestMergeReindexStatus_StaleIndexing_StillShowsIndexing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status)
 	require.InDelta(t, 0.4, idx.Progress, 0.0001)
@@ -212,7 +212,7 @@ func TestMergeReindexStatus_FailedTask_ShowsFailedEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "failed", idx.Status,
 		"FAILED task must surface as the 'failed' synthetic status; "+
@@ -236,7 +236,7 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "cancelled", idx.Status,
 		"CANCELLED task must surface as the 'cancelled' synthetic status")
@@ -277,32 +277,23 @@ func TestMergeReindexStatus_FinishedNeverSurfacesASyntheticEntry(t *testing.T) {
 		name         string
 		status       distributedtask.TaskStatus
 		finishedAt   time.Time
-		flagOn       bool
 		wantStatus   string
 		wantProgress float32
 		why          string
 	}{
 		{
-			name:       "FINISHED just now, flag off",
+			name:       "FINISHED just now",
 			status:     distributedtask.TaskStatusFinished,
 			finishedAt: time.Now(),
 			wantStatus: "ready",
-			why:        "the flip precedes FINISHED in the log, so flag-off means a later DELETE turned it back off",
+			why:        "the flip precedes FINISHED in the log, so the base entry is already the truth",
 		},
 		{
-			name:       "FINISHED an hour ago, flag off",
+			name:       "FINISHED an hour ago",
 			status:     distributedtask.TaskStatusFinished,
 			finishedAt: time.Now().Add(-time.Hour),
 			wantStatus: "ready",
 			why:        "the post-DELETE bleed, which used to be merely time-bounded",
-		},
-		{
-			name:       "FINISHED, flag on",
-			status:     distributedtask.TaskStatusFinished,
-			finishedAt: time.Now(),
-			flagOn:     true,
-			wantStatus: "ready",
-			why:        "the migration landed; the base entry is the truth",
 		},
 		{
 			name:         "SWAPPING",
@@ -323,8 +314,7 @@ func TestMergeReindexStatus_FinishedNeverSurfacesASyntheticEntry(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", tc.flagOn,
-				tasksMap(mkTask(tc.status, tc.finishedAt)), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(mkTask(tc.status, tc.finishedAt)), nil)
 
 			require.Equal(t, tc.wantStatus, idx.Status, tc.why)
 			require.InDelta(t, tc.wantProgress, idx.Progress, 0.0001, tc.why)
@@ -386,8 +376,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order.tasks), nil)
 
 			require.InDelta(t, 0.9, idx.Progress, 0.0001,
 				"newest STARTED task (change-tokenization) must win regardless of slice order")
@@ -440,8 +429,7 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order.tasks), nil)
 
 			require.Equal(t, "indexing", idx.Status,
 				"STARTED retry must beat older FAILED attempt regardless of slice order")
@@ -493,8 +481,7 @@ func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order.tasks), nil)
 
 			require.Equal(t, "failed", idx.Status)
 			require.InDelta(t, 0.7, idx.Progress, 0.0001,
@@ -532,7 +519,7 @@ func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "anyprop", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "C", "anyprop", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "ready", idx.Status,
 		"empty Properties is treated uniformly as 'match nothing'")
@@ -555,7 +542,7 @@ func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.
 	// Previously repair-* matched every property in the collection.
 	for _, propName := range []string{"alpha", "beta", "gamma"} {
 		idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-		mergeReindexStatus(idx, "C", propName, "searchable", false, tasksMap(task), nil)
+		mergeReindexStatus(idx, "C", propName, "searchable", tasksMap(task), nil)
 		require.Equal(t, "ready", idx.Status,
 			"empty Properties + repair-searchable must match no property (here: %s)", propName)
 		require.Equal(t, float32(0), idx.Progress)
@@ -579,7 +566,7 @@ func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "myclass", "foo", "filterable", false, tasksMap(task), nil)
+	mergeReindexStatus(idx, "myclass", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status, "collection name match is case-insensitive")
 }
@@ -659,7 +646,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 			)
 
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "searchable", false, tasksMap(task), nil)
+			mergeReindexStatus(idx, "C", "foo", "searchable", tasksMap(task), nil)
 
 			require.Equal(t, tt.expectStatus, idx.Status)
 			require.InDelta(t, tt.expectProgress, idx.Progress, 0.0001)
@@ -706,7 +693,7 @@ func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testin
 			)
 
 			idx := &models.IndexStatus{Type: tt.indexType, Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", tt.indexType, false, tasksMap(task), nil)
+			mergeReindexStatus(idx, "C", "foo", tt.indexType, tasksMap(task), nil)
 
 			require.Empty(t, idx.TargetAlgorithm,
 				"%s must not set TargetAlgorithm — algorithm is a searchable-only concept", tt.migrationType)
@@ -753,7 +740,7 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 			)
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 			require.Equal(t, "indexing", idx.Status,
 				"%s must surface as 'indexing' — the cluster-wide post-completion barrier is still gating the schema flip", tt.name)
