@@ -137,10 +137,8 @@ type ReindexProvider struct {
 	// [reindexTimings].
 	timings reindexTimings
 
-	// cancelTeardownSettled records tasks whose teardown has already run here,
-	// so an apply that lands after it releases at once instead of waiting out
-	// the cap. See [ReindexProvider.OnTerminalApplied] for why either order
-	// happens.
+	// cancelTeardownSettled records tasks whose teardown already ran here, so
+	// a later-arriving apply releases at once instead of waiting out the cap.
 	cancelTeardownSettled map[distributedtask.TaskDescriptor]time.Time
 
 	// submitInProgress mirrors [cleanupInProgress] for the sweep a NEW
@@ -1696,11 +1694,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
 			}
 		} else {
-			// The teardown is addressed by the shards the payload names, so a
-			// payload nothing can read cannot be torn down at all. Say so:
-			// this is the only trace that sidecar dirs may be left for the next
-			// restart's orphan audit, and it is what the commit-time backstop's
-			// refusal of this task ([reindexTaskOverlaps]) is protecting.
+			// Payload names no shards to tear down; log so this is the only
+			// trace of possibly-orphaned sidecar dirs before the restart audit.
 			logger.Warnf("reindex provider: task-completion: payload is unreadable, so no sidecar teardown can run for it; "+
 				"stale __reindex / __ingest dirs may remain until the next restart's orphan audit, and backups stay refused "+
 				"until this task ages out: %v", payloadErr)
@@ -1759,28 +1754,20 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // missed.
 //
 // It closes the cleanup gate because [IsLiveReindexTaskStatus] flips to false
-// the moment the task goes terminal, while the __reindex / __ingest sidecars
-// are still being torn out. A backup landing in that gap would otherwise
-// capture half-removed dirs.
-//
-// The gate closes before the drain, not after: the drain is itself a stretch
-// where the shards read free while the worker is still writing, and a drain
-// that times out would leave it unguarded entirely. Applicability is decided
-// first, so a task with nothing to tear down holds nothing. Same ordering
-// DrainWithCleanupGate uses on the REST cancel path.
+// the moment the task goes terminal, while the sidecars are still being torn
+// out — a backup landing in that gap would otherwise capture half-removed
+// dirs. The gate closes before the drain (which can itself time out and
+// leave the shards unguarded), same ordering as DrainWithCleanupGate on the
+// REST cancel path.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
-	// Claim the gate the cancel-apply parked, before anything can return: this
-	// teardown is what it was waiting for, and a task with nothing to tear down
-	// must not leave it held. See [ReindexProvider.OnTerminalApplied].
+	// Claim the gate the cancel-apply parked; this teardown is what it was
+	// waiting for. See [ReindexProvider.OnTerminalApplied].
 	if applyGate := p.adoptCancelApplyGate(task.TaskDescriptor); applyGate != nil {
 		defer applyGate()
 	}
 
 	if cancelledWithoutClaimedUnits(task) {
-		// No worker ever claimed a unit, so no sidecar state exists to tear
-		// down and holding the gate would only refuse the backup this task was
-		// withdrawn for. See [cancelledWithoutClaimedUnits].
-		return
+		return // see [cancelledWithoutClaimedUnits]
 	}
 
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
@@ -1864,15 +1851,10 @@ func (p *ReindexProvider) AnyCleanupInProgress() bool {
 
 // AnyCleanupInProgressForCollection reports whether this node has seen a cancel
 // for the collection or is tearing down its sidecars. Asked over the cluster by
-// a node handling a cancel; see awaitOwnerCleanupGates in the REST handlers for
-// why it has to wait on the answer.
-//
-// This is the confirmation signal, so it also answers yes for the window after
-// an apply during which no teardown is running; [ReindexProvider.OnTerminalApplied]
-// explains why that window cannot come from the blocking gate. It gates nothing
-// itself: the backup gate reads [ReindexProvider.IsCleanupInProgress] and the
-// restore gate [ReindexProvider.BlockingHoldForCollection], falling back to
-// [ReindexProvider.AnyCleanupInProgress] when it has no class list to ask about.
+// a node handling a cancel (see awaitOwnerCleanupGates in the REST handlers).
+// This is the confirmation signal, so it stays true for a fixed window after
+// an apply even once teardown has finished — see [ReindexProvider.OnTerminalApplied].
+// It gates nothing itself.
 func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) bool {
 	folded := strings.ToLower(collection)
 
@@ -1885,15 +1867,10 @@ func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) b
 	return p.BlockingHoldForCollection(collection)
 }
 
-// BlockingHoldForCollection reports whether a teardown or a submission sweep is
-// actually holding any shard of the collection. This is what a gate reads: it
-// tracks the work, so it clears when the work does.
-//
-// Distinct from [ReindexProvider.AnyCleanupInProgressForCollection], which adds
-// the fixed confirmation window on top and therefore stays true long after the
-// teardown has finished. Refusing on that window would hold a restore for the
-// whole of it, and tell the caller that files are still being removed when they
-// are not.
+// BlockingHoldForCollection reports whether a teardown or submission sweep is
+// actually holding any shard of the collection — tracks the work, clears when
+// it does. Distinct from [ReindexProvider.AnyCleanupInProgressForCollection],
+// which stays true through the fixed confirmation window after teardown ends.
 func (p *ReindexProvider) BlockingHoldForCollection(collection string) bool {
 	folded := strings.ToLower(collection)
 
@@ -2548,40 +2525,28 @@ const reindexCancelConfirmWindow = 15 * time.Second
 // means a gate was leaking, so it is logged at Error.
 const reindexCancelApplyGateCap = time.Minute
 
-// OnTerminalApplied runs on every node shortly after a task goes terminal —
-// CANCELLED or FAILED — off the apply path. Both statuses keep the cleanup
-// gate: a failed task stops reading live the moment the apply lands, while its
-// partial sidecar state survives until the teardown removes it. The only
-// exemption is [cancelledWithoutClaimedUnits], which is cancelled-only.
+// OnTerminalApplied runs on every node shortly after a task goes terminal
+// (CANCELLED or FAILED) off the apply path, and raises two separate signals:
 //
-// It raises two separate signals, and the separation is the point.
+//   - The cleanup gate, closed to cover the gap between the task going
+//     terminal in DTM and teardown starting (sidecar dirs still on disk, a
+//     backup could capture them). Handed to the teardown as soon as it
+//     starts; not held for a fixed window since teardown is usually
+//     sub-second.
+//   - Confirmation ([ReindexProvider.cancelSeen]), a level-triggered latch
+//     held for a fixed observable window so the cluster cancel probe can
+//     poll it — teardown itself can close and reopen the gate in
+//     microseconds, too fast for polling to reliably observe.
 //
-// The cleanup gate is closed to cover the gap between the task going terminal in
-// DTM and the teardown starting: in that gap the task no longer reads live, but
-// its sidecar dirs are still on disk and a backup would capture them. The gate is
-// handed to the teardown as soon as it starts, so it costs nothing beyond that
-// gap. It must NOT be held for a fixed window: teardown routinely finishes in
-// about a second, and callers back up immediately afterwards.
+// This and the teardown can arrive in either order (raft apply vs.
+// leader-forwarded scheduler query); whichever is second releases the gate
+// via the settled set below. reindexCancelApplyGateCap only covers a
+// teardown that never runs here at all.
 //
-// Confirmation is the other half. A node handling a cancel learns that no
-// backup can start into a half-torn-down shard by polling the owners for a few
-// seconds. Only the cancel path reads it, but a FAILED task raises it too: the
-// latch names a collection, and the two cannot be told apart from the probe.
-// Teardown is a level, not an edge: a shard with nothing to remove closes and
-// reopens its gate in microseconds, so no polling budget is guaranteed to see it.
-// That is why the probe answers from [ReindexProvider.cancelSeen], held for a
-// fixed, observable window and blocking nothing. Making the blocking gate carry
-// that window instead would refuse every backup for the whole of it.
+// The only exemption from holding the cleanup gate is
+// [cancelledWithoutClaimedUnits].
 //
-// This and the teardown arrive in either order, so neither may assume it runs
-// first: this side parks the gate from the local raft apply, while the scheduler
-// driving the teardown reads task state through a leader-forwarded query, so on
-// a follower whose apply lags the leader's the teardown runs before anything is
-// parked. Whichever side is second releases, via the settled set below; the cap
-// only covers a teardown that never runs here at all.
-//
-// Registered via [distributedtask.Manager.RegisterTerminalObserver], whose
-// [distributedtask.TerminalObserver] godoc carries the apply-path contract.
+// Registered via [distributedtask.Manager.RegisterTerminalObserver].
 func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
 	payload, err := p.loadPayload(task)
 
@@ -2608,15 +2573,10 @@ func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
 }
 
 // cancelledWithoutClaimedUnits reports whether the task is a cancelled one no
-// worker ever claimed a unit of. It is the same waiver the backup's commit-time
-// backstop applies in reindexTaskOverlaps, and the two have to agree: the
-// submit path manufactures exactly this task when a backup claims the slot
-// first and it rolls itself back. Holding the cleanup gate over such a task's
-// shards fails the backup the rollback exists to let win, and there is nothing
-// to protect either way, since no worker wrote.
-//
-// Cancelled only. A FAILED task, or one whose units the caller has not
-// populated, keeps the gate.
+// worker ever claimed a unit of. Same waiver the backup's commit-time
+// backstop applies in reindexTaskOverlaps — the two must agree, since the
+// submit path manufactures exactly this task when a backup wins the race and
+// it rolls itself back. Cancelled only; a FAILED task keeps the gate.
 func cancelledWithoutClaimedUnits(task *distributedtask.Task) bool {
 	return task != nil &&
 		task.Status == distributedtask.TaskStatusCancelled &&

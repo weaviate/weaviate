@@ -25,20 +25,11 @@ import (
 
 // TestRestoreRefusedDuringInFlightReindex pins both halves of the restore
 // gate's contract while a migration is live: a restore that INCLUDES the
-// migrating collection is refused synchronously with 422, and a restore of
-// any OTHER collection is admitted and completes.
-//
-// The check is cluster-wide but scoped by collection. Cluster-wide because a
-// restoring class has no local index, so no per-shard lookup could ever see
-// the task; scoped because a migration can run for days, and answering blind
-// would refuse every restore of every collection for that whole time.
-//
-// Both arms are load-bearing. Without the second one, dropping the scoping
-// again would leave this test green.
-//
-// The contract's third arm — a live task whose payload names no collection at
-// all refuses every restore — needs a payload no API can write, so it stays at
-// the unit tier in TestAnyReindexActivityLookupScopesUndecodablePayloads.
+// migrating collection is refused synchronously with 422, while a restore of
+// any OTHER collection is admitted and completes — the cluster-wide check
+// must stay scoped by collection. A third arm (undecodable payload refuses
+// every restore) is covered at the unit tier instead; it needs a payload no
+// API can write.
 func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	ctx := context.Background()
 

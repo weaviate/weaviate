@@ -137,21 +137,10 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	}
 }
 
-// TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot is the backup-side mirror of
-// the test above. Both goroutines release the same way, so pinning one and not
-// the other leaves half the invariant free to regress: reverting the backup
-// release to an unconditional reset left this whole package green.
-//
-// Same mechanism, and it is why the invariant is load-bearing: a
-// slot cleared by the wrong goroutine makes [NodeActivityProbe] report the node
-// idle while a backup is live, and the reindex submission gate reads that probe
-// — so it admits a migration on top of a running backup.
-//
-// The takeover is staged from inside the participant Status call, which runs on
-// the backup goroutine itself, before its deferred release. That is the same
-// interleaving as the restore case (cancel frees the slot, a newer operation
-// claims it, the old goroutine then returns) without depending on how many
-// times the coordinator happens to write its meta file.
+// TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot is the backup-side mirror
+// of the test above: a slot cleared by the wrong goroutine makes
+// [NodeActivityProbe] report the node idle while a backup is live, letting
+// the reindex gate admit a migration on top of it.
 func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (

@@ -317,12 +317,9 @@ func (m *Manager) startTerminalDrainerWithLock() {
 			case <-done:
 				return
 			case task := <-queue:
-				// A select with two ready cases picks between them at random,
-				// so with a closed done AND a queued event this loop would
-				// sometimes still deliver after Close — to observers whose
-				// dependencies the shutdown has already torn down. Close's
-				// "anything still queued is dropped" only holds if the drop is
-				// decided here.
+				// A select with two ready cases picks randomly, so without this
+				// re-check a closed done plus a queued event could still deliver
+				// to a torn-down observer after Close.
 				select {
 				case <-done:
 					return
@@ -359,12 +356,10 @@ func (m *Manager) dispatchLogger() logrus.FieldLogger {
 	return m.logger
 }
 
-// runTerminalObserver reads the observer under its own lock instead of carrying
-// one over from the apply path, which would hold the apply lock across observer
-// code. Re-reading also picks the current registration: last write wins, and a
-// namespace re-registered between queueing and running gets the event. The nil
-// check is defensive — an event is only queued while an observer is registered,
-// and registration never installs a nil one.
+// runTerminalObserver reads the observer under its own lock rather than
+// carrying one over from the apply path, which would hold the apply lock
+// across observer code. Also picks up the latest registration if the
+// namespace was re-registered between queueing and running.
 func (m *Manager) runTerminalObserver(task *Task) {
 	m.mu.RLock()
 	observer := m.terminalObservers[task.Namespace]
@@ -378,38 +373,21 @@ func (m *Manager) runTerminalObserver(task *Task) {
 // dispatchTerminalWithLock hands a task that has just gone terminal to the
 // drainer. Caller holds m.mu.
 //
-// catchingUp is the FSM's own replay flag. Observers exist to make a
-// JUST-applied ending observable to a request waiting on it; a node replaying
-// its RAFT log at startup applies endings that finished long ago, and each one
-// signalled would raise a cleanup gate nothing can release except its own
-// timeout. Keying the skip on the flag rather than on how old the transition
-// looks is what makes it immune to clock skew: every timestamp on the request
-// is stamped by the PROPOSING node, so an age-based bound read every live
-// ending on a node a minute out of step as replayed, and dropped the blocking
-// gate along with it.
+// catchingUp is the FSM's own replay flag: a node replaying its RAFT log at
+// startup applies endings that finished long ago, and signalling those would
+// raise a cleanup gate nothing can release except its own timeout. Keyed on
+// the flag rather than transition age, so it's immune to clock skew between
+// nodes. The flag is node-local and only ever decides this side effect, never
+// FSM state, so it cannot make two nodes diverge.
 //
-// A node that fell behind while running is not catching up in this sense and
-// still gets its dispatches. That is correct: it never ran the teardown for
-// those endings either, so the gate covering the window until it does is
-// exactly what it needs.
-//
-// The flag is node-local and only ever decides a side effect, never any state
-// the FSM stores, so it cannot make two nodes diverge.
-//
-// Observers run off the apply path, never inline: they take their own locks,
-// which the admission path and HTTP handlers also take, and a RAFT apply that
-// waits on any of those stalls every FSM behind it. Moving them off also
-// removes the temptation to read the apply as happening first — a follower's
-// scheduler learns the task is terminal through a leader-forwarded query and
-// routinely acts on it before the local apply lands, which was a real bug.
-//
-// The task is cloned because it stays in m.tasks and later applies mutate it.
+// Observers run off the apply path, never inline: they take their own locks
+// (also taken by the admission path and HTTP handlers), and a RAFT apply
+// blocking on any of those stalls every FSM behind it. The task is cloned
+// because it stays in m.tasks and later applies mutate it.
 func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 	if m.terminalDispatchClosed {
-		// The drainer has been told to exit and drops whatever it still finds
-		// on the queue, so nothing handed over from here can be delivered.
-		// Applies keep arriving on the way down; without this they would fill a
-		// 256-deep queue that no one is left to empty.
+		// The drainer is gone; without this, applies still arriving on the
+		// way down would fill the queue with nothing left to empty it.
 		return
 	}
 	observer := m.terminalObservers[task.Namespace]
@@ -429,11 +407,8 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 	case m.terminalDispatch <- clone:
 	default:
 		// A missing event does not fail the cancel open: the node handling it
-		// keeps polling this node's gate and answers "unconfirmed" when its
-		// budget runs out. That whole budget, on every owner that lost an
-		// event, is worth a few goroutines to avoid. The price is ordering,
-		// which only matters between two cancels of the same task and which
-		// the observers already tolerate.
+		// polls this node's gate and answers "unconfirmed" once its budget
+		// runs out, which is worth a few extra goroutines to avoid.
 		logger := m.dispatchLogger()
 		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
 		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {

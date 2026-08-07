@@ -540,15 +540,8 @@ func (p *backupDuringScanProber) result() (int, []string) {
 	return p.probes, append([]string(nil), p.admitted...)
 }
 
-// The submit gate has to close before the probe, not after it. The probe is a
-// cluster-wide fan-out, so the whole scan is a window: a backup that claims its
-// slot anywhere in it is admitted, and then has its sidecar dirs and its
-// .migrations tracker removed underneath it by the sweep the probe was
-// authorizing.
-//
-// The post-commit rollback is not a repair for this. It produces a cancelled
-// task no unit was ever claimed on, which the commit-time backstop waives on
-// purpose, so a backup admitted here is published as clean.
+// Pins: the submit gate must close before the cluster-wide probe runs, or a
+// backup admitted mid-scan gets its sidecars removed by the sweep underneath it.
 func TestSubmitGateIsClosedBeforeTheClusterWideProbe(t *testing.T) {
 	const collection = "Movies"
 

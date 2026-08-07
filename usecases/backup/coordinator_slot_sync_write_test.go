@@ -25,16 +25,10 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// coordinator.Restore's synchronous error returns run on the caller's
-// goroutine, after the slot may already have changed hands: a cancel frees the
-// slot (resetIfCancelled), a newer restore claims it (renew), and only then does
-// the older restore's canCommit or initial PutMeta fail. Writing the slot
-// unconditionally there clears or restamps the newer restore's claim, and
-// [NodeActivityProbe] then reports the node idle over a live restore — which is
-// what the reindex submission gate reads, so it admits a migration on top of it.
-//
-// The takeover is staged from inside the CanCommit mock, which runs on the
-// Restore goroutine itself, immediately before the writes under test.
+// Pins: coordinator.Restore's synchronous error returns run on the caller's
+// goroutine after the slot may have changed hands (cancel frees it, a newer
+// restore claims it), so writing it unconditionally would clobber the newer
+// restore's claim and let the reindex gate admit a migration over it.
 func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 	t.Parallel()
 	const (
@@ -129,15 +123,10 @@ func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 	}
 }
 
-// The same rule for the writes the restore goroutine makes after commit: the
-// slot can change hands mid-flight (the release is already ownership-checked),
-// but the status writes on the way there were not, so a finished restore
-// restamped whatever the newer one holds. commit() reads Cancelled on the slot
-// as "cancelled externally", so a stale Cancelled write aborts a restore nobody
-// cancelled.
-//
-// The takeover is staged from inside the participant Status call, which runs on
-// the restore goroutine before any of those writes.
+// Same rule for the status writes the restore goroutine makes after commit
+// (the release is already ownership-checked, but these weren't): a finished
+// restore could restamp whatever the newer one holds, and a stale Cancelled
+// write makes commit() abort a restore nobody cancelled.
 func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 	t.Parallel()
 	const (

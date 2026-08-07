@@ -550,17 +550,10 @@ func renamedFieldTask(t *testing.T, status distributedtask.TaskStatus) *distribu
 	}
 }
 
-// The refusal is stored in the backup's failure meta and served from
-// GET /v1/backups/{backend}/{id}, so it must not carry the RAFT and decoding
-// internals its causes name. It must also stay scoped: a payload no node can
-// decode has to fail the backups of the collection it names and no others,
-// because refusing all of them is a self-inflicted outage whose only exit is
-// the completed-task TTL days later.
-//
-// wantMsg is exact on purpose. A refusal that merely happens is not enough:
-// "collection X was migrated" would be a claim this check cannot make about a
-// payload it could not read, and asserting only that an error came back cannot
-// tell the two apart. An empty wantMsg means the backup must be allowed.
+// Pins: the API-facing refusal message must not leak RAFT/decoding
+// internals, and an unreadable payload must scope the refusal to the
+// collection it names, not fail every backup. wantMsg is exact so a false
+// "was migrated" claim can't slip past an assertion that only checks err != nil.
 func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 	raftErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
 	backupStart := time.Now().Add(-2 * time.Minute)
@@ -814,16 +807,10 @@ func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
 	}
 }
 
-// The two halves compose into a forbidden outcome, so pin the composition and
-// not just the halves.
-//
-// A client disconnect makes every post-commit probe fail. If that verdict is
-// allowed to roll a committed migration back, and the backstop then skips every
-// cancelled task, a backup captured across a migration that had already started
-// rebuilding buckets is published as SUCCESS. Each half is defensible alone;
-// together they publish a corrupt backup as a good one. The submit side no
-// longer rolls back without a positive "busy" (see probeBackupActivity), and
-// this side no longer ignores a cancelled task that ran.
+// Pins the composition, not just each half: a client disconnect that rolls
+// back a committed migration, combined with the overlap backstop skipping
+// every cancelled task, would publish a backup spanning real bucket writes
+// as SUCCESS.
 func TestOverlapBackstopCatchesARolledBackMigrationThatRan(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
 

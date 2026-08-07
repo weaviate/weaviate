@@ -49,10 +49,9 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
 }
 
-// newIndexesHandlers wires the collaborators every gate in this file consults.
-// A collaborator left nil here disables the gate that reads it, so the wiring
-// is behavior and is tested as such. It is split out of setupIndexesHandlers
-// so a test can build the handlers without a swagger API.
+// newIndexesHandlers wires the collaborators the gates in this file consult.
+// A nil collaborator disables its gate; split out so tests can build the
+// handlers without a swagger API.
 func newIndexesHandlers(appState *state.State) *indexesHandlers {
 	h := &indexesHandlers{appState: appState}
 	if appState.Cluster != nil {
@@ -97,19 +96,15 @@ type indexesHandlers struct {
 	// answers without confirming remote gates.
 	reindexCleanup reindexCleanupProber
 
-	// Per-handler, not per-process: a package-level budget leaves every test
-	// after the first with an exhausted one. See [backupActivityGateWarn].
+	// Per-handler, not per-process: a package-level budget would leave every
+	// test after the first exhausted.
 	gateWarnOnce    sync.Once
 	gateWarnSampler *logrusext.Sampler
 }
 
-// backupActivityGateWarn rate-limits the fail-open WARN to one line per hour.
-// The condition it reports — no probe wired, or an empty node list — is a
-// persistent misconfiguration, so a once-per-process line would leave every
-// later submission silent for an operator who starts reading the logs after the
-// first one. Built on first use because fixtures construct the handler directly.
-// Built over the handler's own logger, which is where every emission goes: a
-// sampler over a different logger budgets lines nobody reads.
+// backupActivityGateWarn rate-limits the fail-open WARN to one line per hour,
+// since the condition it reports is a persistent misconfiguration, not a
+// one-off. Built lazily since fixtures construct the handler directly.
 func (h *indexesHandlers) backupActivityGateWarn() *logrusext.Sampler {
 	h.gateWarnOnce.Do(func() {
 		logger := logrus.FieldLogger(logrus.StandardLogger())
@@ -139,11 +134,9 @@ type reindexCleanupProber interface {
 	CleanupInProgress(ctx context.Context, nodeName, collection string) (bool, error)
 }
 
-// reindexTaskService is a narrow port over the four cluster-service methods the
-// reindex admission path uses; it exists because submission has to interleave
-// task writes with cluster-wide backup probes to settle the admission race
-// between the two, and neither that ordering nor the call sites around it can
-// be covered against a live RAFT node.
+// reindexTaskService is a narrow port over the cluster-service methods the
+// reindex admission path uses, so the submit/probe interleaving can be tested
+// without a live RAFT node.
 type reindexTaskService interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
@@ -361,21 +354,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Key on the qualified class (the reindex-task key) so short- and qualified-name
 	// callers for the same collection share the DeleteClassPropertyIndex lock.
 	//
-	// Worst case the lock is held ~130s: two 5s backup probes against an
-	// unreachable node, plus the pre-submit sweep, which runs inside this lock
-	// under its own 2-minute budget (reindexCancelCleanupTimeout) and is
-	// detached from the request, so a client disconnect no longer cuts it
-	// short. A DELETE on the same property waits for all of it, and
-	// MarkSubmitInProgress refuses the collection's backups for the same
-	// window. The probes
-	// are not hoisted out of the lock even though they read no schema state:
-	// outside it they would run before the 404, conflict and cap checks, so every
-	// request that fails locally would pay a cluster-wide fan-out first, and a
-	// submit for a collection that does not exist would answer 409 instead of 404.
+	// Worst case the lock is held ~130s (two 5s backup probes plus the
+	// detached 2-minute pre-submit sweep); a concurrent DELETE on the same
+	// property waits for all of it. The probes stay inside the lock so a
+	// request that fails the 404/conflict/cap checks never pays the
+	// cluster-wide fan-out first.
 	//
-	// Released through a OnceFunc rather than a bare deferred Unlock so the
-	// rollback path can hand it back early and this defer still covers every
-	// other return.
+	// Released via OnceFunc, not a bare deferred Unlock, so the rollback path
+	// below can hand it back early.
 	propLock := h.submitLock(collection, propertyName)
 	propLock.Lock()
 	releaseSubmitLock := sync.OnceFunc(propLock.Unlock)
@@ -698,35 +684,19 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	// Refuse from this node's own slots before the gate below is taken. The gate
-	// closes the backup gate on the whole collection, so a submission that is
-	// certain to be refused anyway would otherwise fail a capture that is already
-	// running — the lowest-priority operation killing a higher-priority one while
-	// being denied. Reading the local slots is an in-memory map lookup, so it
-	// costs nothing to do first.
-	//
-	// This does not replace the probe below: a backup held only by another node
-	// is invisible here, still takes the gate, and is still refused by the
-	// fan-out. It removes the single-node case, which is the one a retrying
-	// caller can loop on.
+	// Refuse from this node's own slots before the gate below is taken, so a
+	// submission that is certain to be refused anyway cannot kill an
+	// already-running capture on this node. Cheap in-memory check; does not
+	// replace the fan-out probe, which also catches backups held elsewhere.
 	if responder := h.refuseOnLocalBackupActivity(principal); responder != nil {
 		return responder
 	}
 
-	// Taken BEFORE the probe, not after it. The probe fans out over every node
-	// in the cluster, so a backup can claim its slot on a node that was already
-	// answered while the scan is still running: it sees no submission, gets
-	// admitted, and then has its sidecar dirs and .migrations tracker removed
-	// underneath it by the sweep below. Closing the gate first makes the probe
-	// and everything after it one window, so whichever side closes first is the
-	// one the other sees.
-	//
-	// The post-commit rollback cannot repair this. It manufactures a cancelled
-	// task no unit was ever claimed on, which the commit-time backstop waives
-	// on purpose — see [db.ReindexProvider] and reindexTaskOverlaps.
-	//
-	// Set when the gate is taken; the rollback path releases it early, so it
-	// cannot be a plain deferred call.
+	// Taken BEFORE the probe: otherwise a backup could claim its slot on an
+	// already-scanned node, get admitted, and have its sidecars removed by the
+	// sweep below. Closing the gate first makes the probe and everything after
+	// it one window. Set only when actually taken; the rollback path releases
+	// it early, so it can't be a plain deferred call.
 	releaseSubmitGate := func() {}
 	defer func() { releaseSubmitGate() }()
 
@@ -735,8 +705,6 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		if provider := h.appState.ReindexProvider.Load(); provider != nil {
 			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
 		} else {
-			// Every sibling gate says so when it fails open; this one used to
-			// leave the sweep and the commit below ungated in silence.
 			h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
 				l.WithField("action", "reindex_backup_gate").
 					WithField("collection", collection).
@@ -747,7 +715,6 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	// Runs after the free local checks; this one costs a cluster-wide round trip.
 	if _, responder := h.probeBackupActivity(ctx, principal); responder != nil {
 		return responder
 	}
@@ -769,8 +736,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Safe to call even when no stale state exists: missing buckets and
 	// missing directories are silently skipped by the per-shard helper.
 	//
-	// The gate covering this deletion was taken above the probe; it is held
-	// until the handler returns so the deletion and the commit are one window.
+	// The submit gate above is held until the handler returns, so this
+	// deletion and the commit below are one window.
 	if indexTypeKnown {
 		// Loop over every index type this migration touches. For
 		// single-index migrations the slice has one entry; for
@@ -779,12 +746,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
 		//
-		// Detached from the request like the cancel handler's sweep: this one is
-		// the retry for state an earlier run left behind, so failing it for a
-		// reason we control just defers the work again. It only matters while
-		// sidecar buckets are still loaded (the shape a crash leaves), which is
-		// the sole point the sweep consults its context — see
-		// [Shard.CleanStalePartialReindexState].
+		// Detached from the request, like the cancel handler's sweep, since
+		// this is a retry for state an earlier run left behind.
 		cleanupCtx, cancelCleanup := context.WithTimeout(
 			context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 		defer cancelCleanup()
@@ -831,37 +794,22 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// side committed second sees the other. We roll back; the backup can't.
 	scan, responder := h.probeBackupActivity(ctx, principal)
 	if responder != nil {
-		// Only a node that positively reports a backup is evidence one claimed
-		// the slot. "Nobody answered" is not: a client disconnect cancels this
-		// context, which makes every probe fail, and rolling back on that would
-		// destroy a cleanly committed migration precisely when the caller is no
-		// longer there to resubmit it.
-		//
-		// A positive report is not weakened by the same disconnect: the node
-		// answered before the context died, and the migration would otherwise
-		// run against a backup that is known to hold the slot. That is why
-		// rollbackRacedReindexTask detaches from this context.
+		// Only a positive report is evidence a backup claimed the slot.
+		// "Nobody answered" can just mean the client disconnected and killed
+		// every probe — rolling back on that would destroy a cleanly
+		// committed migration nobody is left to resubmit. A positive report
+		// survives the same disconnect since the node answered before the
+		// context died; rollbackRacedReindexTask detaches from it for that
+		// reason.
 		if scan.BusyNode != "" {
-			// Hand back the submit lock and gate (in acquisition-inverse order)
-			// before rolling back. Both exist to keep the schema read, the
-			// sidecar sweep and the task-add one window, and the task is now
-			// committed. Holding them across a rollback of up to
-			// reindexRollbackTimeout would make a disconnected client — whose
-			// request nobody is waiting for — block an unrelated DELETE on this
-			// property and every backup of this collection for those 10s.
-			//
-			// The rollback stays on this goroutine: the caller, if still there,
-			// must not be told the submission was refused before the rollback
-			// was attempted.
+			// Release the lock/gate before rolling back: holding them across
+			// a rollback (up to reindexRollbackTimeout) would block an
+			// unrelated DELETE and every backup of this collection.
 			releaseSubmitGate()
 			releaseSubmitLock()
 			if !h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName) {
-				// Same state the unconfirmed-probe arm below answers: the
-				// migration is committed and running. Answering with the plain
-				// refusal would send the caller into a retry that
-				// checkReindexConflict answers 409, for a task they were never
-				// told about — and here they also need the id to cancel the
-				// migration the rollback failed to stop.
+				// The migration is committed and running; give the caller the
+				// task id since they were never told about it otherwise.
 				return reindexTaskRollbackFailedResponder(principal, scan.Activity,
 					namespacing.StripOwnNamespace(principal, taskID))
 			}
@@ -904,12 +852,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 // reindexOwnerGateTimeout bounds the wait for ONE remote owner to close its
 // cleanup gate. A cancel must never become unanswerable because a node is
-// unreachable, so this is short and the handler proceeds either way. Owners are
-// probed concurrently, so it also bounds the whole wait.
-//
-// The owners close their gates as the cancel applies rather than when the
-// scheduler next ticks, which is what makes this budget meetable at all; see
-// [db.ReindexProvider.OnTerminalApplied].
+// unreachable, so this is short; owners are probed concurrently so it also
+// bounds the whole wait.
 const reindexOwnerGateTimeout = 5 * time.Second
 
 // reindexOwnerGatePollInterval is how often each owner is re-asked.
@@ -917,19 +861,10 @@ const reindexOwnerGatePollInterval = 100 * time.Millisecond
 
 // awaitOwnerCleanupGates blocks until every other node owning a unit of the
 // cancelled task reports its reindex-cleanup gate closed, or until the bound
-// elapses.
-//
-// The node handling a cancel may own none of the collection's shards, so it has
-// nothing of its own to tear down and would answer while the owners are still a
-// DTM hook away from closing theirs — a window in which a backup can start into
-// a teardown the caller was told had been ordered.
-//
-// It never fails the cancel: the task is already cancelled, and a caller who
-// cannot cancel at all is worse off than one told about a smaller window.
-// ownersKnown is false when the task's payload could not be read: the payload
-// is where the owners are, so there is nothing to probe and the answer confirms
-// nothing. Without it that degraded case is indistinguishable from the
-// legitimate one where this node owns everything.
+// elapses. Never fails the cancel: the task is already cancelled, and a
+// caller who cannot cancel at all is worse off than one told about a smaller
+// window. ownersKnown is false when the task's payload could not be read, so
+// there is nothing to probe.
 func (h *indexesHandlers) awaitOwnerCleanupGates(ctx context.Context, payload *db.ReindexTaskPayload,
 	collection, taskID string, ownersKnown bool,
 ) {
@@ -1041,28 +976,11 @@ const reindexRollbackAttempts = 3
 const reindexRollbackRetryDelay = 500 * time.Millisecond
 
 // rollbackRacedReindexTask cancels a task committed into a backup that
-// claimed the same slot.
-//
-// It runs before the 409 is answered: a rollback that never lands leaves a
-// migration running that its submitter believes was refused. A final failure is
-// logged at Error under its own audit event so the state is findable; leaving
-// the task is safer than a blind second cancel, and the backup side's
-// commit-time overlap check still refuses to publish a backup that spans it.
-//
-// It deliberately does not run on the request context. A client disconnect is
-// itself one of the inputs that makes the second probe report every node
-// unreachable, so the very condition that decides a rollback is needed would
-// also kill it, leaving the task STARTED against a live backup.
-//
-// Each rollback leaves a CANCELLED task in DTM until the retention window drops
-// it, and those are not inert: the commit-time overlap check reads them and
-// classifies them by unit state — see reindexTaskTouchedShards, whose waiver
-// exists precisely so a rollback that never claimed a unit stays harmless.
-// Bounding the accumulation would mean deleting records that backstop needs;
-// the retention window is the intended bound and is operator-tunable.
-// Reports whether the task is gone. A false answer means the migration is still
-// running and the caller has to name it, which is the whole reason for the
-// return value: only the server log knows the id otherwise.
+// claimed the same slot. It deliberately does not run on the request context:
+// a client disconnect is one of the inputs that makes the second probe report
+// every node unreachable, so the condition that decides a rollback is needed
+// would also kill it. Reports whether the task is gone; false means the
+// caller must name it, since only the server log knows the id otherwise.
 func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) bool {
 	fields := logrus.Fields{
 		"audit_event": "reindex_task_rolled_back",
@@ -1097,14 +1015,8 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 }
 
 // reindexTaskRollbackFailedResponder answers the submit whose post-commit
-// rollback never landed. 409 like the refusal it replaces — a backup or restore
-// really does hold the slot, so retrying after it finishes is still the advice
-// — but it names the task, because that task is running and only its id makes
-// the cancel the caller now needs possible.
-//
-// It names the operation the probe actually saw, like [backupBusyResponder]:
-// "wait for the backup" is the wrong thing to watch when a restore is what
-// blocked.
+// rollback never landed. Same 409 as the refusal it replaces, but names the
+// task id, since the caller now needs it to cancel the still-running migration.
 func reindexTaskRollbackFailedResponder(principal *models.Principal,
 	activity backup.NodeActivity, taskID string,
 ) middleware.Responder {
@@ -1114,14 +1026,9 @@ func reindexTaskRollbackFailedResponder(principal *models.Principal,
 			"retry after the %s finishes.", activity.Kind, taskID, activity.Kind)))
 }
 
-// newRollbackRetryBackoff builds the rollback retry schedule.
-//
-// The options have to be passed to the constructor rather than assigned to the
-// returned struct: the constructor snapshots the initial interval into the
-// interval it will actually hand out, and a field assigned afterwards is only
-// picked up by a later Reset. This schedule is stepped directly by
-// waitBeforeRollbackRetry, so nothing calls Reset and a field assigned
-// afterwards would never be read.
+// newRollbackRetryBackoff builds the rollback retry schedule. Options must be
+// passed to the constructor, not assigned afterwards: the constructor
+// snapshots them, and nothing here calls Reset to pick up a later assignment.
 func newRollbackRetryBackoff(initialInterval, maxElapsedTime time.Duration) backoff.BackOff {
 	return backoff.NewExponentialBackOff(
 		backoff.WithInitialInterval(initialInterval),
@@ -1160,15 +1067,10 @@ func (h *indexesHandlers) tryRollbackRacedReindexTask(
 			continue
 		}
 		if task.Status.IsTerminal() {
-			// The rollback wants the task not running, and it already is not.
-			// Read from the observed status rather than from the cancel's
-			// error: the FSM answers a PREPARING or SWAPPING task, and a
-			// version that moved under a STARTED one, with the same permanent
-			// rejection, and those tasks are still live. Treating the error as
-			// proof of a terminal status would declare a running migration
-			// settled and skip the Error line telling the operator to cancel it
-			// by hand. A task that goes terminal between this listing and the
-			// cancel below is caught by the next attempt's listing.
+			// Read from the observed status, not the cancel's error: the FSM
+			// gives the same permanent-rejection error for a still-live
+			// PREPARING/SWAPPING task, and treating that as terminal would
+			// declare a running migration settled.
 			h.appState.Logger.WithFields(fields).
 				WithField("audit_event", "reindex_task_rollback_already_terminal").
 				WithField("task_status", task.Status.String()).
@@ -1181,9 +1083,7 @@ func (h *indexesHandlers) tryRollbackRacedReindexTask(
 		h.appState.Logger.WithFields(fields).Info("rollback: cancelled a reindex task that raced a backup claim")
 		return true, nil
 	}
-	// Nothing was rolled back here: the task is absent from the listing, so
-	// there is nothing left to cancel. The audit label says so rather than
-	// claiming a rollback that did not happen.
+	// Task absent from the listing: nothing left to cancel.
 	h.appState.Logger.WithFields(fields).WithField("audit_event", "reindex_task_rollback_not_needed").
 		Warn("rollback: the task was already gone")
 	return true, nil
@@ -1216,12 +1116,8 @@ func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivity
 		err      error
 	}
 	results := make([]result, len(nodes))
-	// Seed every slot with a failure so an unwritten one cannot read as a clear
-	// node. GoWrapper recovers a panicking prober, and the deferred wg.Done runs
-	// during that unwinding, so wg.Wait returns normally over a slot that was
-	// never assigned. Its zero value is {Busy: false, err: nil}, which matches
-	// none of the classifier arms below and falls through as "this node has no
-	// backup running". Overwritten by every probe that does report.
+	// Seed every slot with a failure so a slot a panicking prober never wrote
+	// (its zero value reads as "no backup running") is not mistaken for clear.
 	for i := range results {
 		results[i].err = errors.New("probe did not report")
 	}
@@ -1274,11 +1170,10 @@ func backupActivityResponder(principal *models.Principal, scan backupActivitySca
 	return nil
 }
 
-// reindexTaskKeptResponder is the refusal for a migration that is committed and
-// running while the post-commit probe could not confirm the cluster is free of
-// backups. Same 503 as [backupActivityResponder]'s unreachable verdict, plus the
-// task id: the caller is being refused for a migration that did start, and the
-// id is the only handle it has on it.
+// reindexTaskKeptResponder is the refusal for a migration that committed and
+// is running while the post-commit probe could not confirm the cluster is
+// free of backups. Same 503 as [backupActivityResponder]'s unreachable
+// verdict, plus the task id, the caller's only handle on it.
 func reindexTaskKeptResponder(principal *models.Principal, taskID string) middleware.Responder {
 	return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 		fmt.Sprintf("reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers. "+
@@ -1454,14 +1349,10 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 
 	if target == nil {
 		// A live task whose payload cannot be read ([db.DecodeReindexTaskPayload])
-		// refuses every backup of this collection, and the refusal names this endpoint as
-		// the remedy. The property and index type it targets are inside the
-		// payload that will not decode, so the collection is all there is to
-		// match on. Answering NO_OP here would leave the operator with no way
-		// to clear the one task they were told to cancel.
-		//
-		// Runs only after the strict pass found nothing, so a decodable task
-		// still wins the exact (collection, property, indexType) match.
+		// still refuses every backup of this collection, and this endpoint is the
+		// named remedy — so match on collection alone (the property and index
+		// type are inside the payload that won't decode). Runs only after the
+		// strict pass above, so a decodable task still wins the exact match.
 		for _, task := range tasks[db.ReindexNamespace] {
 			if task.Status != distributedtask.TaskStatusStarted {
 				continue
@@ -1491,25 +1382,16 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 
 	if target == nil {
 		// A live task whose payload names no collection at all refuses every
-		// backup and every restore in the whole cluster, because nothing in it
-		// says which shards it could be holding — see
-		// newShardReindexActivityBuilder. It cannot be matched to a collection,
-		// so accepting it from any collection's cancel endpoint is the only
-		// remedy an operator has short of the RUNTIME_REINDEX_ENABLED kill
-		// switch; restarting does not help, the task lives in RAFT.
+		// backup and restore in the whole cluster (see
+		// newShardReindexActivityBuilder), and cannot be matched to any one
+		// collection — so it can be cancelled from any collection's endpoint.
+		// Runs only after both passes above, so an attributable task is never
+		// cancelled from an unrelated one.
 		//
-		// Runs after both passes above, so a task that can be attributed to a
-		// collection is never cancelled from an unrelated one.
-		//
-		// Cancelling from anywhere means the privilege has to come from
-		// everywhere: [indexesHandlers.updateIndex] authorized UPDATE on the
-		// URL's collection alone, and this pass stops a migration on some other
-		// collection and answers with a task id that spells that collection and
-		// the migrated property out. So it demands UPDATE on every collection,
-		// which is what the operator who legitimately has to clear such a task
-		// holds anyway. A caller without it falls through to the checks below
-		// and gets the answer it would get if this pass did not exist, so the
-		// refusal does not disclose that the task is there.
+		// Since this crosses collection boundaries, it requires UPDATE on every
+		// collection rather than just the URL's; a caller without it falls
+		// through to the checks below and sees the same answer as if this pass
+		// did not exist.
 		if candidate := firstUnattributableStartedTask(tasks[db.ReindexNamespace]); candidate != nil {
 			fields := logrus.Fields{
 				"taskID":     candidate.ID,
@@ -1645,27 +1527,16 @@ type reindexCleanupGateProvider interface {
 
 // drainAndCleanupCancelledTask drains the local reindex goroutine and then
 // wipes the partial on-disk state the cancelled task left behind, with the
-// backup and restore gates closed across both.
+// backup and restore gates closed across both. The drain must come first: the
+// worker is still writing to the __reindex/__ingest buckets, and
+// ShutdownBucket would tear them out from under it and corrupt the store.
+// Both halves are detached from the request and bounded by their own
+// timeouts.
 //
-// payloadReadable false means the (property, index type) it sweeps is the URL's
-// and not the task's, because the task's payload would not decode; the
-// completion log says so rather than claiming an authoritative clean.
-//
-// The drain has to come first: the worker is still writing to the __reindex /
-// __ingest buckets, and ShutdownBucket would tear them out from under it and
-// corrupt the store. It is bounded so a stuck goroutine cannot turn the cancel
-// into an open-ended hang; a cancel that times out still answers 202 and the
-// next submit's cleanup picks the work up.
-//
-// Both halves run detached from the request and bounded by their own timeouts,
-// so a client that disconnects after sending the cancel does not decide how far
-// either half gets.
-//
-// It returns the gate release for the caller to defer, or nil when the drain
-// timed out: the worker is then still writing, which is the case the gate
-// exists for, so it is handed to
-// [db.ReindexProvider.ReleaseCleanupGateOnWorkerExit] to outlive this request
-// rather than dropped at its return.
+// Returns the gate release for the caller to defer, or nil when the drain
+// timed out — the worker is then still writing, so the gate is instead handed
+// to [db.ReindexProvider.ReleaseCleanupGateOnWorkerExit] to outlive this
+// request.
 func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	ctx context.Context,
 	provider reindexCleanupGateProvider,
@@ -1682,12 +1553,9 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	}
 	h.appState.Logger.WithFields(fields).Info("cancel: starting drain+cleanup for cancelled reindex task")
 
-	// Detached from the request, and this is the wider of the two detaches on
-	// this path: a disconnect here fails the drain, the handler returns before
-	// the sweep, and the gate goes to the worker-exit watcher — so the sweep
-	// never runs at all. What it would have healed then survives until a later
-	// submit on this same node sweeps it, which may be never; the healing is
-	// node-local. Its own timeout still bounds the wait.
+	// Detached from the request: a disconnect must not fail the drain, since
+	// that would skip the sweep entirely and leave the gate to the
+	// worker-exit watcher.
 	drainCtx, drainCancel := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelDrainTimeout)
 	releaseGate, drainErr := provider.DrainWithCleanupGate(drainCtx, payload, target.TaskDescriptor)
@@ -1699,12 +1567,9 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 		return nil
 	}
 
-	// The gate reaches the caller through the return value below, so a panic in
-	// the sweep would unwind past it and leave the caller nothing to defer —
-	// backups and restores of this collection stay refused until the process is
-	// restarted. Release it here on the way out and re-panic. OnceFunc so the
-	// caller's own defer over the same function stays a no-op; the release is
-	// refcounted and a second call would open a gate somebody else holds.
+	// A panic in the sweep would unwind past the return value below, leaving
+	// the gate unreleased forever; release it here on the way out and
+	// re-panic. OnceFunc so the caller's own deferred release stays a no-op.
 	release := sync.OnceFunc(releaseGate)
 	defer func() {
 		if r := recover(); r != nil {
@@ -1714,25 +1579,19 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	}()
 
 	h.appState.Logger.WithFields(fields).Info("cancel: drain complete, running on-disk cleanup")
-	// Wipe the sidecars and migration directories for every indexType this
+	// Wipe sidecars and migration directories for every indexType this
 	// migration touches — change-tokenization spawns both a searchable and a
-	// filterable strategy under one task, so cleaning only the URL's indexType
-	// leaves the sibling orphaned. Errors are logged; submit-time pre-cleanup
-	// will retry.
+	// filterable strategy under one task, so cleaning only the URL's
+	// indexType leaves the sibling orphaned.
 	indexTypesToClean, known := indexTypesFromMigrationType(payload.MigrationType)
 	if !known || len(indexTypesToClean) == 0 {
 		indexTypesToClean = []string{indexType}
 	}
-	// Detached from the request: this sweep is the only trigger we control for
-	// state nothing else clears, so aborting it because the client went away
-	// just defers the work to a later submit that may never come, and a
-	// disconnect part-way through leaves the sidecar buckets deregistered with
-	// started.mig still on disk. The timeout below keeps it bounded.
-	//
-	// The gate released below does NOT mean "the disk is clean": it reports
-	// cleanup-in-progress, and a failed sweep is logged with the gate released
-	// anyway. Recovery is the next submit's pre-cleanup and the restart audit.
-	// See weaviate/0-weaviate-issues#352.
+	// Detached from the request: this is the only trigger we control for
+	// state nothing else clears, so a disconnect must not abort it.
+	// The gate released below does NOT mean the disk is clean; a failed
+	// sweep still releases it and relies on the next submit's pre-cleanup
+	// (weaviate/0-weaviate-issues#352).
 	cleanupCtx, cancelCleanup := context.WithTimeout(
 		context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 	defer cancelCleanup()
@@ -1750,9 +1609,8 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 			WithField("strategies", indexTypesToClean).
 			WithField("sweep_truncated", truncated)
 		if truncated {
-			// Naming only the shards that failed would understate it: the sweep
-			// ran out of time part-way through the shard list, so every shard
-			// after that point was never looked at.
+			// The sweep ran out of time mid-list; shards past that point were
+			// never looked at, not just the ones that errored.
 			entry.Errorf("cancel: the on-disk cleanup ran out of time before it had visited every shard, "+
 				"so an unknown number of shards were not swept at all: %v; next submit's defense-in-depth "+
 				"cleanup will retry", cleanupErrs)
@@ -1764,11 +1622,8 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	} else if payloadReadable {
 		h.appState.Logger.WithFields(fields).Info("cancel: on-disk cleanup complete")
 	} else {
-		// The property and index type came from the URL because the task's own
-		// payload would not decode, so this swept the tuple the caller asked
-		// about, not necessarily the one the task holds. Reporting it as done
-		// would tell an operator the disk is clean when the task's real
-		// sidecars may be untouched.
+		// Payload didn't decode, so this swept the URL's tuple, not
+		// necessarily the one the task actually holds.
 		h.appState.Logger.WithFields(fields).WithField("strategies", indexTypesToClean).Info(
 			"cancel: on-disk cleanup complete for the property and index type in the request URL; " +
 				"the task's own payload would not decode, so what it actually holds may differ and " +
@@ -1798,26 +1653,16 @@ func firstUnattributableStartedTask(tasks []*distributedtask.Task) *distributedt
 	return nil
 }
 
-// uncancellableLiveTask finds a task that the backup gate and the status
-// endpoint both count as live ([db.IsLiveReindexTaskStatus]) but that
-// [distributedtask.Manager.CancelTask] will not accept, because it has left
-// STARTED. PREPARING and SWAPPING are those states, and so is any status a
-// newer node introduced.
+// uncancellableLiveTask finds a task that the backup gate and status endpoint
+// both count as live ([db.IsLiveReindexTaskStatus]) but that
+// [distributedtask.Manager.CancelTask] will not accept because it has left
+// STARTED (PREPARING, SWAPPING, or an unknown newer status). Without this,
+// the caller is told to cancel and then told there is nothing to cancel while
+// the backup gate stays closed.
 //
-// Three predicates used to disagree about one task: the gate refused backups of
-// its collection, the status endpoint reported it running, and cancel answered
-// NO_OP. The operator was told to cancel and then told there was nothing to
-// cancel, with the backup still refused. Widening the cancel filter is not the
-// fix — DTM rejects a cancel in these states, so that only turns the NO_OP into
-// a 500. What is wrong is the answer, so this exists to give the caller a
-// refusal that matches the gate.
-//
-// Matching mirrors the three passes above: an exact (collection, property,
-// index type) match where the payload decodes, a collection-only match where it
-// does not (the property is inside the payload that will not decode), and a
-// match on any collection for a payload that names none, which holds the gate
-// everywhere. attributable is false for that last kind, because none of the
-// per-collection advice applies to it.
+// Matching mirrors the three passes above it. attributable is false only for
+// a payload naming no collection, since none of the per-collection advice
+// applies to it.
 func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 	collection, propertyName, indexType string,
 ) (task *distributedtask.Task, attributable bool) {
@@ -1830,8 +1675,7 @@ func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 		payload, recovered, err := db.DecodeReindexTaskPayload(task.Payload)
 		if err != nil {
 			if recovered == "" {
-				// Kept as the fallback: a task naming this collection is the
-				// better answer, so only report it once the loop finds none.
+				// Fallback only: a task naming this collection is preferred.
 				if unattributable == nil {
 					unattributable = task
 				}
@@ -1860,16 +1704,10 @@ func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 }
 
 // reindexCancelPastCancellationPoint is the refusal both cancel paths answer
-// with. Two paths reach the same state: the pre-cancel check sees the task
-// already past STARTED, and the post-cancel error path learns it from DTM
-// after the task moved between the listing and the cancel. One function so
-// the operator cannot get two different wordings for one state.
-//
-// It does not tell the operator to poll until the migration reports ready:
-// PREPARING/SWAPPING is not always transient. A node that owned part of the
-// task leaving the cluster leaves it there for good, still holding every backup
-// and restore refusal, so the text names the kill switch as the way out
-// instead of a completion that may never arrive.
+// with (pre-cancel check and post-cancel error path), so the operator never
+// gets two different wordings for one state. It does not tell the caller to
+// poll until ready: a node that owned part of the task leaving the cluster
+// can wedge it here for good, so the kill switch is named as the way out.
 func reindexCancelPastCancellationPoint(principal *models.Principal) middleware.Responder {
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
 		"cancel refused: the migration has finished building and is committing its result; cancel "+
@@ -1895,36 +1733,16 @@ func reindexCancelUnattributablePastCancellationPoint(principal *models.Principa
 }
 
 // answerCancelThatRacedTheCommit answers the cancel that DTM refused because
-// the task left STARTED between [distributedtask.TaskLister.ListDistributedTasks]
-// and the cancel itself. Returns nil when the caller should keep its 500.
+// the task left STARTED between the pre-cancel listing and the cancel itself.
+// Returns nil when the caller should keep its 500. A fresh listing decides,
+// mirroring the pre-cancel checks:
 //
-// The two checks before the cancel already answer this state: a task that is
-// live to the backup gate but past STARTED gets a 409, and a task that is
-// terminal or absent gets a 202 NO_OP. Neither can cover the window after they
-// run, so without this the answer depends only on which side of that window
-// the task's transition landed on.
+//   - live but past STARTED → the same 409 (still committing)
+//   - FINISHED, FAILED or CANCELLED → the same 202 NO_OP (stopped on its own)
 //
-// [distributedtask.ErrTaskNotRunning] is the sole error CancelTask returns for
-// "not STARTED", and it survives the RAFT/gRPC round trip (see
-// RehydratePermanentRejection). It says nothing about the status the task
-// reached, so a fresh listing decides, in the same order the pre-cancel checks
-// run:
-//
-//   - live but past STARTED → the same 409, because "poll until every index is
-//     ready" is only true for a migration that is still committing.
-//   - FINISHED, FAILED or CANCELLED → the same 202 NO_OP, because the caller
-//     asked for no reindex to be running on this property and none is. The
-//     three are not distinguished: each means the task stopped on its own and
-//     nothing is left to cancel. Only these three, matched by name — a status
-//     a newer node introduced is live per [db.IsLiveReindexTaskStatus] and is
-//     caught above, and inferring "terminal" from "not live" would answer
-//     NO_OP for any status this build has yet to learn about.
-//
-// Everything else keeps the 500: an unreachable leader, a timeout, a version
-// mismatch, a rejection this build cannot name, a listing that fails, a task
-// that is gone from the listing entirely, and a task the listing still reports
-// as STARTED. In each of those the task's state is unknown or contradicts the
-// rejection, and both a refusal and a NO_OP would be a guess.
+// Only these named statuses are matched; anything else (unreachable leader,
+// version mismatch, unrecognized status, still STARTED) keeps the 500, since
+// the task's state there is unknown and a refusal or NO_OP would be a guess.
 func (h *indexesHandlers) answerCancelThatRacedTheCommit(ctx context.Context, cancelErr error,
 	collection, propertyName, indexType string, target *distributedtask.Task,
 	principal *models.Principal,
@@ -2132,18 +1950,15 @@ type parsedReindexTask struct {
 // parseReindexTasks unmarshals every reindex task's payload once.
 //
 // A live task whose payload [db.DecodeReindexTaskPayload] cannot read is kept,
-// flagged unreadable, with just the collection recovered. The backup gate refuses
-// that whole collection on exactly this payload and tells the operator to
-// poll here until every index reads "ready", so dropping the task would
-// answer "ready" for a collection backups keep refusing. A rolling upgrade
-// that retypes a payload field produces exactly that payload. A terminal
-// task is still dropped: it blocks nothing.
+// flagged unreadable, with just the collection recovered — the backup gate
+// refuses that whole collection on the same unreadable payload, so dropping
+// the task here would answer "ready" for a collection backups keep refusing.
+// Terminal tasks with an unreadable payload are still dropped: they block
+// nothing.
 //
-// FINISHED tasks are kept in the slice (they were dropped here historically,
-// but mergeReindexStatus now uses them to surface a brief "indexing@100%"
-// SWAPPING-window entry while OnGroupCompleted's swap propagates to the
-// schema — without that, the GET response goes empty for a few ms between
-// FINISHED and the schema flip, which renders as "None" in the UI).
+// FINISHED tasks are kept too, so mergeReindexStatus can surface a brief
+// "indexing@100%" entry while OnGroupCompleted's swap propagates to the
+// schema (otherwise the GET response renders "None" for a few ms).
 func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 	parsed := make([]parsedReindexTask, 0, len(tasks))
 	for _, task := range tasks {
@@ -2351,23 +2166,16 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			surfaceSyntheticFields = true
 		}
 	default:
-		// A status a newer node introduced is live to the backup gate, and the
-		// refusal sends the operator here to poll until every index reads
-		// "ready". Leaving it at "ready" makes that a loop. No progress is
-		// claimed and no synthetic field painted: the phase is exactly what
-		// this build does not know.
+		// A status a newer node introduced is still live to the backup gate;
+		// leaving it "ready" would make the operator's advised poll a loop.
 		if db.IsLiveReindexTaskStatus(best.Status) {
 			idx.Status = models.IndexStatusStatusPending
 			idx.Progress = 0
 		}
 	}
 
-	// A matching task that leaves the entry at "ready" answers nothing the
-	// unreadable payload has not already invalidated, so the fallback still
-	// applies. The switch above reaches "ready" for a FINISHED task the
-	// schema has caught up with, and for a status this build does not know.
-	// A FINISHED task survives for DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS
-	// (5 days by default), so this is not a narrow window.
+	// A matching task that leaves the entry at "ready" doesn't override an
+	// unreadable payload elsewhere for this collection.
 	if idx.Status == models.IndexStatusStatusReady &&
 		markUnreadablePayload(idx, collection, parsedTasks) {
 		return
@@ -2408,15 +2216,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 
 // markUnreadablePayload paints the entry as pending when a live task whose
 // payload will not decode names this collection, and reports whether it did.
-//
-// Such a task holds the whole collection at the backup gate, and the refusal
-// sends the operator here to poll until every index reads "ready". Reporting
-// "ready" would send them back to a backup that keeps being refused.
-//
-// Every index of the collection carries it because the property and index type
-// it targets are inside the payload that will not decode. That matches the
-// gate, which blocks the collection for the same reason. Progress is left at
-// zero: none was readable.
+// Every index of the collection carries it, matching the backup gate, which
+// blocks the whole collection for the same reason.
 func markUnreadablePayload(idx *models.IndexStatus, collection string, parsedTasks []parsedReindexTask) bool {
 	for _, pt := range parsedTasks {
 		if pt.unreadable && strings.EqualFold(pt.payload.Collection, collection) {
@@ -2453,10 +2254,7 @@ func taskStatusPriority(task *distributedtask.Task) int {
 		distributedtask.TaskStatusFinished:
 		return 1
 	default:
-		// A status a newer node introduced is live to the backup gate, so it
-		// outranks a terminal attempt whose outcome the operator has already
-		// seen. Delegated rather than assumed, so the two predicates cannot
-		// drift apart.
+		// A status a newer node introduced still outranks a terminal attempt.
 		if db.IsLiveReindexTaskStatus(task.Status) {
 			return 2
 		}

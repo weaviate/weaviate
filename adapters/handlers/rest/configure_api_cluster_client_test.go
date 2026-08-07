@@ -20,37 +20,25 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
-// The gate's probes ask a named peer a question only that peer can answer, and
-// read a 404 as "this build predates the route". The 404-shape check rejects an
-// ordinary proxy error page, which leaves the measured hole this closes: a proxy
-// answering these routes with a 404 byte-identical to Go's stdlib one. Against
-// that, a reindex submission is admitted over a live backup while the operator
-// is told a rolling upgrade is in progress.
-//
-// Asserted on the transport rather than on the built client because the tracing
-// wrapper in front of it exposes no way back to its base, and adding one purely
-// so a test can look would be a seam in production code.
+// Pins: the reindex gate probe transport must never honor HTTP_PROXY, or a
+// proxy answering with a byte-identical 404 could admit a reindex over a live
+// backup. Asserted on the transport, not the built client, since the tracing
+// wrapper in front of it exposes no way back to its base.
 func TestReindexGateProbeTransportIgnoresProxyEnv(t *testing.T) {
 	probe := clusterHttpTransport(time.Second, nil)
 	require.Nil(t, probe.Proxy,
 		"the gate's probes must reach the peer itself, never an HTTP_PROXY that can answer in its stead")
 
-	// Pins the scope of that decision: whether cluster-internal traffic at large
-	// should honor a proxy is a deployment-visible question left open, so the
-	// shared client keeps the behavior it has always had.
+	// The shared client keeps its pre-existing proxy behavior.
 	shared := clusterHttpTransport(time.Second, http.ProxyFromEnvironment)
 	require.NotNil(t, shared.Proxy,
 		"the shared cluster client's proxy behavior is pre-existing and must not change here")
 }
 
-// Status alone is not the oracle, and neither is the transport builder: the
-// builder takes the resolver as an argument, so asserting on it says nothing
-// about which resolver the probe CONSTRUCTOR chose. This drives the real client.
-//
-// A live server cannot decide it either — Go bypasses proxies for loopback, so
-// an httptest peer is reached directly whichever client is used. Instead both
-// clients are pointed at an unresolvable cluster-shaped peer, and the connection
-// error names whichever host was actually dialled.
+// Drives the real client rather than asserting on the transport builder,
+// since that takes the resolver as an argument and says nothing about which
+// resolver the probe constructor chose. Both clients are pointed at an
+// unresolvable peer and the connection error names whichever host was dialled.
 func TestReindexGateProbeClientDialsThePeerNotTheProxy(t *testing.T) {
 	const (
 		peerURL   = "http://weaviate-2.invalid:7101/backups/node-activity"
@@ -64,9 +52,7 @@ func TestReindexGateProbeClientDialsThePeerNotTheProxy(t *testing.T) {
 	require.Contains(t, probeErr, "weaviate-2.invalid",
 		"the probe must have tried the peer itself")
 
-	// The other half of the scope decision: the shared client is untouched and
-	// still routes through the proxy. If this fails, the environment was already
-	// resolved before the test set it, and the assertion above proved nothing.
+	// Control: the shared client still routes through the proxy.
 	sharedErr := dialErr(t, reasonableHttpClient(cluster.AuthConfig{}, time.Second), peerURL)
 	require.Contains(t, sharedErr, proxyHost,
 		"pre-existing behavior of the shared cluster client must be unchanged")

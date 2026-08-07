@@ -58,15 +58,10 @@ func (a *recordingSubmitAuthorizer) FilterAuthorizedResources(_ context.Context,
 	return resources, nil
 }
 
-// authzSubmitFixture wires the submission handler so that every collaborator
-// sitting BEHIND the authorization check records that it ran.
-//
-// The order behind the check is: read this node's own backup slots, close the
-// collection's backup gate, fan out the cluster-wide probe, sweep stale
-// on-disk reindex state, then write the task. The sweep runs against the
-// concrete *db.DB, which has no seam a fixture can stand in for; it is covered
-// here by the fan-out probe, which strictly precedes it under the same gate —
-// a probe that never ran means a sweep that never ran.
+// authzSubmitFixture wires the submission handler so every collaborator
+// behind the authorization check records that it ran. The on-disk sweep has
+// no fixture seam, so it's covered by the fan-out probe, which strictly
+// precedes it under the same gate.
 type authzSubmitFixture struct {
 	handlers *indexesHandlers
 	authz    *recordingSubmitAuthorizer

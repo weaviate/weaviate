@@ -22,14 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Every gate the feature adds is backed by a leader-forwarded task query, so the
-// kill switch is only real if it stops the QUERIES, not merely the refusals. A
-// gate that returns "allowed" after asking the leader still fails backups when
-// the leader is unreachable, which is the failure the switch exists to remove.
-//
-// Counted rather than reasoned about: whether a gate skips its query depends on
-// where the flag check sits relative to the lookup, which reading the call site
-// alone does not settle.
+// Pins: the kill switch must stop the leader-forwarded queries themselves,
+// not just the refusals — an "allowed" answer that still queried the leader
+// would fail backups whenever the leader is unreachable.
 func TestKillSwitchDrivesNoLeaderQueriesOnAnyGate(t *testing.T) {
 	const collection = "Movies"
 

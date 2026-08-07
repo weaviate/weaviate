@@ -23,26 +23,23 @@ const ReindexNamespace = "reindex"
 // a payload the decoder accepted but that names no collection.
 var ErrReindexPayloadNamesNoCollection = errors.New("reindex task payload names no collection")
 
-// DecodeReindexTaskPayload is the one place that decides whether a reindex task
-// payload can be acted on. Every gate, status view and cancel pass reads it
-// through here so they cannot disagree.
+// DecodeReindexTaskPayload is the one place that decides whether a reindex
+// task payload can be acted on. Every gate, status view and cancel pass reads
+// it through here so they cannot disagree.
 //
-// Unreadable keys on the collection being absent, not on the decoder having
-// complained. A newer node that RENAMES the collection field produces JSON this
-// build unmarshals without error into an empty collection, because Go ignores
-// unknown fields. A site that trusts the decoder's silence then registers a
-// live task under a key no caller can match and reports the shard free, while
-// the commit-time backstop refuses the same capture after all the upload work.
+// "Unreadable" keys on the collection being absent, not on the decoder
+// erroring: a renamed field on a newer node's payload unmarshals silently
+// into an empty collection (Go ignores unknown fields), which a naive
+// decoder would then register as a free shard.
 //
 // The returned collection is the best name anything can recover, "" when
-// nothing can. Three shapes follow from it:
+// nothing can:
 //
 //   - err == nil: act on the payload.
 //   - err != nil, collection != "": scope the refusal to that collection.
 //   - err != nil, collection == "": nothing says what the task holds, so the
-//     only honest answer is cluster-wide. A live task in this shape is
-//     cancellable from any collection's cancel endpoint, which is the
-//     operator's remedy.
+//     only honest answer is cluster-wide, cancellable from any collection's
+//     cancel endpoint.
 func DecodeReindexTaskPayload(raw []byte) (ReindexTaskPayload, string, error) {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {

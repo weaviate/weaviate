@@ -25,15 +25,9 @@ import (
 )
 
 // Three predicates answer questions about one task, and they used to disagree.
-// The backup gate and the status endpoint both call [db.IsLiveReindexTaskStatus],
-// which counts PREPARING, SWAPPING and any status a newer node introduced as
-// live. Cancel matched STARTED only, so for those states the gate refused the
-// backup, the refusal named cancel as the remedy, and cancel answered NO_OP.
-//
-// Widening the cancel filter is not the fix: [distributedtask.Manager.CancelTask]
-// itself rejects anything but STARTED, so a wider filter only turns the NO_OP
-// into a 500. These states genuinely cannot be cancelled, so cancel now says
-// that, and must never reach DTM with one.
+// Pins: for a task in PREPARING/SWAPPING (live to the backup gate but past
+// STARTED, which is all CancelTask accepts), cancel must refuse with a clear
+// message rather than reach DTM and surface its rejection as NO_OP or a 500.
 func TestCancelRefusesATaskThatHasPassedThePointOfCancellation(t *testing.T) {
 	const collection = "Movies"
 

@@ -41,12 +41,11 @@ type nodeProbe struct {
 // getJSON GETs path on nodeName and decodes the body into out; what names the
 // route in errors, e.g. "node activity".
 //
-// A 404 that carries the shape of a node's own catch-all answer returns
-// notFound unwrapped, so callers can tell a build that does not serve the route
-// (rolling upgrade) from a transport failure — every probe's admission decision
-// turns on that. Any other 404 is an error instead: an intermediary answering
-// in a node's stead (a transparent proxy, a misrouted ingress) that 404s
-// everything would otherwise report every node in the cluster as clear.
+// A 404 shaped like a node's own catch-all answer returns notFound unwrapped,
+// so callers can tell an older build that doesn't serve the route (rolling
+// upgrade) from a transport failure. Any other 404 is an error, since an
+// intermediary answering in a node's stead (proxy, misrouted ingress) would
+// otherwise 404 everything and report every node as clear.
 func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	query url.Values, notFound error, what string, out any,
 ) error {

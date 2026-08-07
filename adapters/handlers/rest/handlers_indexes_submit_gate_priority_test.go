@@ -28,15 +28,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// The submit gate closes the backup gate on a whole collection. Two properties
-// have to hold at once, and they pull in opposite directions:
-//
-//   - A capture already running must not be failed by a submission that is
-//     going to be refused anyway.
-//   - A capture admitted while the fan-out scan is still running must not have
-//     its sidecars swept out from under it.
-//
-// The tests below pin one each, so a change that trades one for the other reds.
+// Pins two properties of the submit gate that pull in opposite directions: a
+// capture already running must not be failed by a submission that will be
+// refused anyway, and a capture admitted mid-scan must not have its sidecars
+// swept out from under it.
 
 // gateObservingProber stands in for the nodes a backup can be running on. Every
 // probe records what the collection's backup gate says at that instant, which

@@ -289,14 +289,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// The caller has already logged the full chain, shard id and all.
 		desc.Error = publishableErrMsg(err)
 
-		// Handle error cases. Only err is consulted: ctx above is the fresh
-		// background context this defer uses for the meta write, so it can never
-		// carry the caller's cancellation.
-		//
-		// overlapRefused wins over that classification. The refusal is a
-		// deliberate failure and its cause may itself be a cancellation of some
-		// context that is not the caller's, which would otherwise publish the
-		// refusal as an operator abort.
+		// overlapRefused wins over the cancellation classification: the refusal's
+		// own cause may itself wrap a cancellation from an unrelated context,
+		// which would otherwise get published as an operator abort.
 		if !overlapRefused && errors.Is(err, context.Canceled) {
 			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
@@ -310,10 +305,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
-		// After the meta write either way: a refusal that stayed at Transferring
-		// reads as still running, and the operation is over. The reason rides
-		// along because the meta write is exactly what may have just failed, and
-		// then this slot is the only place the reason exists.
+		// After the meta write either way, since it's the operation that may
+		// have just failed and the reason must survive it.
 		if overlapRefused {
 			u.slot.setFailed(desc.Error)
 		}
@@ -386,27 +379,18 @@ Loop:
 	// admitted during capture was invisible to them. Failing the backup beats a
 	// SUCCESS that silently spans a migration.
 	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
-		// An operator abort cancels this same context, so the lookup fails with
-		// the cancellation rather than with an answer. Reporting that as an
-		// overlap would blame the abort on a migration that never ran, and would
-		// flip the observable status to FAILED behind the operator's back.
-		//
-		// Only this context answers that question. A cancellation the lookup
-		// carries from some other context — the RAFT client's own derived one,
-		// say — is not the operator's abort, it is the lookup failing to answer,
-		// which is what this check fails closed on.
+		// If this context itself is cancelled, that's an operator abort, not
+		// an overlap — reporting it as one would flip the status to FAILED
+		// behind the operator's back for a migration that never ran.
 		if ctx.Err() != nil {
 			return contextChecker(ctx)
 		}
 		overlapRefused = true
 		desc.Status = backup.Failed
 		if errors.Is(err, backup.ErrReindexOverlapUndetermined) {
-			// The check could not answer, so it did not observe a migration. Its
-			// own text already opens with "cannot rule out a runtime-reindex
-			// during this backup" and carries the remedy for the reason it could
-			// not answer; prefixing it here would assert the overlap the same
-			// sentence disclaims, and send the operator hunting for a task that
-			// may never have existed.
+			// The check's own text already states it couldn't answer and
+			// carries the remedy; prefixing "overlapped" here would assert a
+			// migration that may never have existed.
 			return err
 		}
 		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)

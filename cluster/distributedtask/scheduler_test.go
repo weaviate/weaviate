@@ -1728,17 +1728,11 @@ func (f *failingFinalizer) MarkDistributedTaskFailed(context.Context, string, st
 	return nil
 }
 
-// A failed finalize write has to leave OnTaskCompleted able to run again.
-//
-// The provider's OnTaskCompleted is what collects the gate the cancel apply
-// parked; nothing else does. So a finalize failure that leaves the fired mark
-// set does not merely delay the FINISHED flip: the parked gate is never
-// collected and stays closed until its cap expires, refusing backups on those
-// shards for the whole of it.
-//
-// Driven phase by phase rather than through ticks: the retry is one tick apart
-// in production, and this asks only whether the second tick is allowed to fire
-// the callback at all.
+// Pins: a failed finalize write must leave OnTaskCompleted able to run
+// again, since it's the only thing that collects the gate a cancel apply
+// parked — leaving the fired mark set would keep that gate closed until its
+// cap expires. Driven phase by phase rather than through ticks: this only
+// asks whether the second tick is allowed to fire the callback at all.
 func TestFinalizeFailureLetsTheCompletedCallbackRunAgain(t *testing.T) {
 	const ns = "ns"
 	desc := TaskDescriptor{ID: "swapping-task", Version: 3}

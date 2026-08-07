@@ -124,32 +124,16 @@ func TestBackupVsReindexSuite(t *testing.T) {
 }
 
 // testReindexRefusedForTheWholeCaptureWindow submits a reindex over and over
-// for as long as a slow backup is capturing, and asserts the two are never both
-// allowed to complete over the same collection.
+// for as long as a slow backup is capturing, and asserts the property under
+// test — mutual exclusion, not "every submission is refused" — since a
+// submission and a capture can tie and either side may lose the race.
+// Asserts:
 //
-// The property under test is mutual exclusion, not "every submission is
-// refused". Those are not the same thing, and only the first one is guaranteed.
-// The gate refuses for as long as a node holds a backup slot, so in the common
-// case every probe is refused — but a submission and a capture can also tie,
-// each passing its own pre-check before seeing the other. The loser is decided
-// by whichever commits second, and it may be either side: the submission rolls
-// its committed task back and answers 409, or the backup ends FAILED naming the
-// migration. Requiring every probe to be refused asserts that the reindex
-// always loses, which the design does not promise, so it reds a run in which
-// nothing went wrong.
-//
-// What is asserted instead:
-//
-//   - Every refusal is the backup gate's own 409, not an unrelated conflict.
-//   - If nothing was admitted, the whole window was covered — the original
-//     property, in the case where it does hold.
+//   - Every refusal is the backup gate's own 409.
+//   - If nothing was admitted, the whole window was covered.
 //   - If a submission was admitted, the backup must not be published spanning
-//     it: either it ends FAILED naming the migration, or the admitted task
-//     started only after the capture window had already closed.
-//
-// The window boundary is read from the server's own timestamps rather than
-// measured on the test's clock, so a migration admitted just after the last
-// capture is told apart from one admitted inside it exactly, not by a margin.
+//     it: either FAILED naming the migration, or admitted only after the
+//     capture window closed (per the server's own timestamps).
 func testReindexRefusedForTheWholeCaptureWindow(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_WholeWindowGuard"
