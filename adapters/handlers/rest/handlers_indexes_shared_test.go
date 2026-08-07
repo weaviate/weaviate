@@ -308,6 +308,6 @@ func audited(hook *logrustest.Hook, auditEvent string) *logrus.Entry {
 
 // The status endpoint reads the local FSM; these fakes have one view, so it
 // answers the same as the leader query.
-func (s *raceTaskService) ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+func (s *raceTaskService) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return s.ListDistributedTasks(ctx)
 }

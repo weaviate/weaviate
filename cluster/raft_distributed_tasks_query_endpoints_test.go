@@ -34,7 +34,7 @@ import (
 // to the leader cannot. That asymmetry is what makes the two reads observable
 // without a second node — on one node they hold identical state, so state
 // alone could never tell them apart.
-func TestRaft_ListDistributedTasksLocal_AnswersFromThisNodesFSM(t *testing.T) {
+func TestRaft_ListDistributedTasksAtLocalConsistency_AnswersFromThisNodesFSM(t *testing.T) {
 	ctx := context.Background()
 
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
@@ -52,7 +52,7 @@ func TestRaft_ListDistributedTasksLocal_AnswersFromThisNodesFSM(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, m.store.distributedTasksManager.Restore(snap))
 
-	got, err := srv.ListDistributedTasksLocal(ctx)
+	got, err := srv.ListDistributedTasksAtLocalConsistency(ctx)
 	require.NoError(t, err)
 	require.Len(t, got["reindex"], 1)
 	require.Equal(t, "local-only", got["reindex"][0].ID)

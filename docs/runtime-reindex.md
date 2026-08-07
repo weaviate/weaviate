@@ -1329,6 +1329,14 @@ configuration:
   invisible to the reindex gate. The commit-time overlap check is the
   backstop on the backup side: a backup whose capture window overlapped
   a reindex fails at commit rather than being stored as good.
+- *Old node stamping a task during a rolling upgrade.* A leader that
+  predates this feature stamps `FinishedAt` when the task's units stop,
+  not at the terminal transition — so the stamp predates the bucket swap
+  that ran after it. It is non-zero, so the zero-stamp guard lets it
+  through, and `FinishedAt.Before(backupStart)` then clears a capture
+  whose window contained that swap. Restoring the RAFT snapshot repairs
+  the stamp on the restoring node, but the gate reads the leader's list,
+  so the window lasts as long as an old node holds leadership.
 - *`RUNTIME_REINDEX_ENABLED=false`, the default.* Every gate returns
   before it looks at anything, so no gate refuses and none of them logs:
   this window is silent by design, and it is the shipped default. It is

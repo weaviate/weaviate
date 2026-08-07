@@ -73,7 +73,7 @@ func TestRaft_CleanUpDistributedTask_CarriesTheProposersTTLVerdict(t *testing.T)
 		"the apply must obey the proposer's TTL verdict; without it on the request the "+
 			"node re-measures the age itself and refuses this task as too fresh")
 
-	got, err := srv.ListDistributedTasksLocal(ctx)
+	got, err := srv.ListDistributedTasksAtLocalConsistency(ctx)
 	require.NoError(t, err)
 	require.Empty(t, got["reindex"], "the cleaned-up task must be gone")
 }
