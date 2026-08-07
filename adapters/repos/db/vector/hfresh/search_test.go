@@ -390,6 +390,7 @@ func TestSearchByMultiVectorSelfRecallCosine(t *testing.T) {
 		docs[i] = randomMultiVector(rng, tokens, dim)
 		addMultiVectorToIndex(t, &tf, uint64(i), docs[i])
 	}
+	tf.Index.waitForMaintenance(t)
 
 	sampleRng := rand.New(rand.NewSource(13))
 	const samples = 50
