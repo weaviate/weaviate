@@ -40,11 +40,18 @@ type BinaryRotationalQuantizer struct {
 	l2          float32
 	cos         float32
 
-	// Centering (bench-only, see RQOptions on the 8-bit quantizer). When
-	// active, codes quantize the signs of R(x-mean), carry <mean, x> in an
-	// extra metadata word, and the distance paths add the correction terms
-	// <mean,x> + <mean,q> - |mean|². Centered codes have fieldWords == 2
-	// metadata words instead of 1, so the layouts are incompatible.
+	// Truncation and centering (bench-only, see RQOptions on the 8-bit
+	// quantizer). codeDim rotated dimensions are kept per code; the retained
+	// prefix is scaled by scale = sqrt(OutputDim/codeDim), which leaves the
+	// sign bits unchanged and folds entirely into the stored step and norm,
+	// so code-code and query-code dot estimates stay unbiased estimates of
+	// the full-width dot product. When centering is active, codes quantize
+	// the signs of R(x-mean), carry <mean, x> in an extra metadata word, and
+	// the distance paths add the correction terms <mean,x> + <mean,q> -
+	// |mean|². Centered codes have fieldWords == 2 metadata words instead of
+	// 1, so the layouts are incompatible.
+	codeDim    uint32
+	scale      float32
 	mean       []float32
 	meanRot    []float32
 	mu2        float32
@@ -95,22 +102,32 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 		rounding:    rounding,
 		l2:          l2,
 		cos:         cos,
+		codeDim:     rotation.OutputDim,
+		scale:       1,
 		fieldWords:  oneBitFieldWords,
 	}
 	return rq, nil
 }
 
 // NewBinaryRotationalQuantizerWithOptions is NewBinaryRotationalQuantizer
-// plus the bench-only centering knob. Truncation is not supported for 1-bit
-// codes. Zero-valued options yield a quantizer identical to
-// NewBinaryRotationalQuantizer.
+// plus the bench-only truncation and centering knobs. Zero-valued options
+// yield a quantizer identical to NewBinaryRotationalQuantizer.
 func NewBinaryRotationalQuantizerWithOptions(inputDim int, seed uint64, distancer distancer.Provider, opts RQOptions) (*BinaryRotationalQuantizer, error) {
-	if opts.TruncatedDims != 0 {
-		return nil, errors.New("truncation is not supported for the 1-bit quantizer")
-	}
 	rq, err := NewBinaryRotationalQuantizer(inputDim, seed, distancer)
 	if err != nil {
 		return nil, err
+	}
+	if opts.TruncatedDims != 0 {
+		if opts.TruncatedDims < 0 || opts.TruncatedDims > int(rq.rotation.OutputDim) {
+			return nil, errors.Errorf("truncated dims %d outside [1, %d]",
+				opts.TruncatedDims, rq.rotation.OutputDim)
+		}
+		if opts.TruncatedDims%64 != 0 {
+			return nil, errors.Errorf("truncated dims %d must be a multiple of 64 for 1-bit codes",
+				opts.TruncatedDims)
+		}
+		rq.codeDim = uint32(opts.TruncatedDims)
+		rq.scale = float32(math.Sqrt(float64(rq.rotation.OutputDim) / float64(opts.TruncatedDims)))
 	}
 	if opts.Mean != nil {
 		if len(opts.Mean) != inputDim {
@@ -148,6 +165,9 @@ func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, s
 		rounding:    rounding,
 		cos:         cos,
 		l2:          l2,
+		codeDim:     uint32(outputDim),
+		scale:       1,
+		fieldWords:  oneBitFieldWords,
 	}
 	return rq, nil
 }
@@ -240,10 +260,15 @@ func (rq *BinaryRotationalQuantizer) codeMuX(c []uint64) float32 {
 }
 
 func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
-	rx := rq.rotation.Rotate(x)
+	rx := rq.rotation.Rotate(x)[:rq.codeDim]
 	if rq.cent != 0 {
 		for i := range rx {
 			rx[i] -= rq.meanRot[i]
+		}
+	}
+	if rq.scale != 1 {
+		for i := range rx {
+			rx[i] *= rq.scale
 		}
 	}
 	d := len(rx)
@@ -280,12 +305,25 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
 	restored := rq.Restore(compressed)
-	if rq.cent != 0 {
-		// Restore approximates the CENTERED rotated vector; add the rotated
-		// mean back before undoing the rotation.
-		for i := range restored {
-			restored[i] += rq.meanRot[i]
+	if rq.scale != 1 || rq.cent != 0 {
+		// Undo the truncation scaling and centering in rotated space. The
+		// dropped tail is reconstructed as the rotated mean (its expectation
+		// under centering, zero otherwise).
+		full := make([]float32, rq.rotation.OutputDim)
+		inv := 1 / rq.scale
+		for i, v := range restored {
+			full[i] = v * inv
 		}
+		if rq.cent != 0 {
+			for i := range full {
+				if i < len(restored) {
+					full[i] += rq.meanRot[i]
+				} else {
+					full[i] = rq.meanRot[i]
+				}
+			}
+		}
+		restored = full
 	}
 	unrotated := rq.rotation.UnRotateInPlace(restored)
 	return unrotated[:rq.originalDim]
@@ -356,10 +394,15 @@ func maxAbs(rx []float32) float32 {
 
 // TODO: Handle corner cases as we do for 8-bit RQ.
 func (rq *BinaryRotationalQuantizer) encodeQuery(x []float32) RQMultiBitCode {
-	rx := rq.rotation.Rotate(x)
+	rx := rq.rotation.Rotate(x)[:rq.codeDim]
 	if rq.cent != 0 {
 		for i := range rx {
 			rx[i] -= rq.meanRot[i]
+		}
+	}
+	if rq.scale != 1 {
+		for i := range rx {
+			rx[i] *= rq.scale
 		}
 	}
 	abs := maxAbs(rx)

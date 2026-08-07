@@ -130,10 +130,80 @@ func TestBRQOptionsZeroValueIsIdentical(t *testing.T) {
 
 func TestBRQOptionsValidation(t *testing.T) {
 	cos := distancer.NewCosineDistanceProvider()
-	_, err := NewBinaryRotationalQuantizerWithOptions(512, 42, cos, RQOptions{TruncatedDims: 256})
-	assert.Error(t, err, "truncation is unsupported for 1-bit codes")
+	_, err := NewBinaryRotationalQuantizerWithOptions(512, 42, cos, RQOptions{TruncatedDims: 100})
+	assert.Error(t, err, "1-bit truncation must be a multiple of 64")
+	_, err = NewBinaryRotationalQuantizerWithOptions(512, 42, cos, RQOptions{TruncatedDims: 576})
+	assert.Error(t, err, "truncation beyond output dim must be rejected")
 	_, err = NewBinaryRotationalQuantizerWithOptions(512, 42, distancer.NewL2SquaredProvider(), RQOptions{Mean: make([]float32, 512)})
 	assert.Error(t, err)
+}
+
+// TestBRQTruncatedLayoutAndEstimates pins the truncated 1-bit layout — a
+// centered 384-dim code is exactly 64 bytes: 2 metadata words + 6 bit words
+// — and checks the truncated estimator (query-data and code-code) against
+// exact cosine distances, centered and uncentered.
+func TestBRQTruncatedLayoutAndEstimates(t *testing.T) {
+	dim := 768
+	n := 300
+	vecs, mean := rqTestData(n, dim, 19)
+	cos := distancer.NewCosineDistanceProvider()
+
+	for _, tc := range []struct {
+		name      string
+		trunc     int
+		center    bool
+		wantWords int
+	}{
+		{name: "384-centered", trunc: 384, center: true, wantWords: 2 + 384/64},
+		{name: "384-uncentered", trunc: 384, center: false, wantWords: 1 + 384/64},
+		{name: "256-centered", trunc: 256, center: true, wantWords: 2 + 256/64},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := RQOptions{TruncatedDims: tc.trunc}
+			if tc.center {
+				opts.Mean = mean
+			}
+			rq, err := NewBinaryRotationalQuantizerWithOptions(dim, 42, cos, opts)
+			require.NoError(t, err)
+
+			code := rq.Encode(vecs[0])
+			assert.Equal(t, tc.wantWords, len(code), "unexpected code length in words")
+
+			var bias, absErr float64
+			var count int
+			for i := 0; i < 20; i++ {
+				d := rq.NewDistancer(vecs[i])
+				for j := 20; j < n; j++ {
+					est, err := d.Distance(rq.Encode(vecs[j]))
+					require.NoError(t, err)
+					exact := cosineDistance(vecs[i], vecs[j])
+					bias += float64(est - exact)
+					absErr += math.Abs(float64(est - exact))
+					count++
+				}
+			}
+			bias /= float64(count)
+			absErr /= float64(count)
+			t.Logf("bias=%v absErr=%v", bias, absErr)
+			// Centered truncated 1-bit stays nearly unbiased; uncentered
+			// truncated carries the intrinsic rotation-fixed bias of the
+			// shared-mean component (see the 8-bit tests), so only bound its
+			// magnitude loosely.
+			if tc.center {
+				assert.Less(t, math.Abs(bias), 0.05, "centered bias: %v", bias)
+			} else {
+				assert.Less(t, math.Abs(bias), 0.3, "uncentered bias: %v", bias)
+			}
+			assert.Less(t, absErr, 0.2, "error: %v", absErr)
+
+			cc, err := rq.DistanceBetweenCompressedVectors(rq.Encode(vecs[0]), rq.Encode(vecs[1]))
+			require.NoError(t, err)
+			assert.InDelta(t, cosineDistance(vecs[0], vecs[1]), cc, 0.35)
+
+			dec := rq.Decode(rq.Encode(vecs[0]))
+			require.Equal(t, dim, len(dec))
+		})
+	}
 }
 
 // TestBRQCenteredLayout pins the centered code layout: one extra metadata

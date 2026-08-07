@@ -114,16 +114,10 @@ func runRQHNSW(base []float32, dims, n int, queries []float32, gt []int32, gtCol
 	uc.RQ.Bits = int16(p.bits)
 	uc.RQ.TruncatedDims = p.retained
 	uc.RQ.RescoreLimit = p.rescoreLims[0]
-	if p.bits == 1 {
-		// The 1-bit quantizer has no truncation support; it always encodes
-		// the full rotated width.
-		if p.retained != 0 && p.retained != fullWidth {
-			return fmt.Errorf("bits=1 supports only full width (%d), got -retained %d", fullWidth, p.retained)
-		}
+	if p.retained == fullWidth {
+		// Full width: identical to the untruncated quantizer; avoid tripping
+		// per-format width restrictions.
 		uc.RQ.TruncatedDims = 0
-		if len(p.swaps) > 0 {
-			return fmt.Errorf("bits=1 does not support -swap-retained")
-		}
 	}
 
 	logger := logrus.New()
