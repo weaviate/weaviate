@@ -142,9 +142,9 @@ func rankCurve(store *bitStore, queries []float32, dims, nq int, gt []int32, gtC
 }
 
 type rankCurveRow struct {
-	depth                  int
-	p50, p95, p99, max     int // worst-case ties
-	p50e, p95e, p99e, maxe int // expected-case ties
+	depth                              int
+	p50, p75, p90, p95, p99, max       int // worst-case ties
+	p50e, p75e, p90e, p95e, p99e, maxe int // expected-case ties
 }
 
 // quantileInt returns the q-th percentile of vals (vals is sorted in place).
@@ -168,10 +168,14 @@ func rankCurveStats(res rankCurveResult) []rankCurveRow {
 		rows = append(rows, rankCurveRow{
 			depth: (b + 1) * 64,
 			p50:   pick(w, 0.50),
+			p75:   pick(w, 0.75),
+			p90:   pick(w, 0.90),
 			p95:   pick(w, 0.95),
 			p99:   pick(w, 0.99),
 			max:   w[len(w)-1],
 			p50e:  pick(e, 0.50),
+			p75e:  pick(e, 0.75),
+			p90e:  pick(e, 0.90),
 			p95e:  pick(e, 0.95),
 			p99e:  pick(e, 0.99),
 			maxe:  e[len(e)-1],
@@ -204,18 +208,19 @@ func generateBudgets(res rankCurveResult, q float64, floor, n int) []int {
 
 func printRankCurve(w *os.File, config string, sampleN, k int, rows []rankCurveRow) {
 	fmt.Fprintf(w, "\n=== prefix rank curve: %s (%d queries, max rank over %d true neighbours) ===\n", config, sampleN, k)
-	fmt.Fprintf(w, "                 worst-case ties                    expected-case ties\n")
-	fmt.Fprintf(w, "depth       p50       p95       p99       max       p50       p95       p99       max\n")
+	fmt.Fprintf(w, "                          worst-case ties                                        expected-case ties\n")
+	fmt.Fprintf(w, "depth       p50       p75       p90       p95       p99       max       p50       p75       p90       p95       p99       max\n")
 	for _, r := range rows {
-		fmt.Fprintf(w, "%5d %9d %9d %9d %9d %9d %9d %9d %9d\n",
-			r.depth, r.p50, r.p95, r.p99, r.max, r.p50e, r.p95e, r.p99e, r.maxe)
+		fmt.Fprintf(w, "%5d %9d %9d %9d %9d %9d %9d %9d %9d %9d %9d %9d %9d\n",
+			r.depth, r.p50, r.p75, r.p90, r.p95, r.p99, r.max,
+			r.p50e, r.p75e, r.p90e, r.p95e, r.p99e, r.maxe)
 	}
 }
 
 var rankCSVHeader = strings.Join([]string{
 	"timestamp", "dataset", "config", "rotate", "center", "retained", "queries", "k", "depth",
-	"p50_worst", "p95_worst", "p99_worst", "max_worst",
-	"p50_exp", "p95_exp", "p99_exp", "max_exp",
+	"p50_worst", "p75_worst", "p90_worst", "p95_worst", "p99_worst", "max_worst",
+	"p50_exp", "p75_exp", "p90_exp", "p95_exp", "p99_exp", "max_exp",
 }, ",")
 
 func appendRankCSV(path, dataset, config string, rotate, center bool, retained, sampleN, k int, rows []rankCurveRow) error {
@@ -233,9 +238,10 @@ func appendRankCSV(path, dataset, config string, rotate, center bool, retained, 
 	}
 	ts := time.Now().Format(time.RFC3339)
 	for _, r := range rows {
-		if _, err := fmt.Fprintf(f, "%s,%s,%s,%v,%v,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+		if _, err := fmt.Fprintf(f, "%s,%s,%s,%v,%v,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
 			ts, dataset, config, rotate, center, retained, sampleN, k,
-			r.depth, r.p50, r.p95, r.p99, r.max, r.p50e, r.p95e, r.p99e, r.maxe); err != nil {
+			r.depth, r.p50, r.p75, r.p90, r.p95, r.p99, r.max,
+			r.p50e, r.p75e, r.p90e, r.p95e, r.p99e, r.maxe); err != nil {
 			return err
 		}
 	}
