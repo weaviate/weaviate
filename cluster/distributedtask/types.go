@@ -583,26 +583,36 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 	t.FinishedAt = at
 }
 
-// repairTerminalStamp gives a terminal task that carries no finish time the
-// latest moment it does carry, and reports whether it changed anything. It is
-// the only writer of [Task.FinishedAt] besides [Task.markTerminal], and it runs
-// on one path only: [Manager.Restore].
+// repairTerminalStamp moves a terminal task's finish time forward to the latest
+// moment the task itself records, and reports whether it changed anything. With
+// [Task.clearNonTerminalStamp] it is the only writer of [Task.FinishedAt]
+// besides [Task.markTerminal], and it runs on one path only: [Manager.Restore].
 //
-// A terminal task with a zero stamp arrives when an older binary finalizes a
-// task this build left unstamped and the state comes back by snapshot. Left
-// alone it never ages out (the TTL has nothing to measure) and the backup
-// overlap backstop refuses every capture of its collection for good.
+// Two shapes arrive by snapshot from an older binary. A stamp of zero, when that
+// binary finalized a task this build left unstamped: left alone it never ages
+// out (the TTL has nothing to measure) and the backup overlap backstop refuses
+// every capture of its collection for good. And, more commonly, a stamp that is
+// merely early: older builds stamped FinishedAt when the task's units stopped,
+// so it predates the bucket swap that ran after it, and the backstop waives a
+// capture that spanned that swap.
 //
 // The value is the newest timestamp on the task itself — no node clock, no map
 // order — so every node restoring the same snapshot computes the same one and
 // the FSM stays identical across the cluster.
 //
-// Newest, not oldest, is what keeps the backstop fail-closed: it waives a
-// capture when FinishedAt is before the capture start, so an earlier stamp
-// waives more. The remaining gap is the RAFT round trip between the last ack
-// and the finalize that was never stamped.
+// The stamp only ever moves later, and never past the real finish: every moment
+// it can pick is one the task reached before it went terminal. Later is the
+// fail-closed direction, because the backstop waives a capture that starts after
+// FinishedAt. The residual is the gap between the last ack and the finalize that
+// was never stamped: up to one scheduler tick (default 1 minute, see
+// DefaultDistributedTasksSchedulerTickInterval), sub-second in practice because
+// the finalize runs off the scheduler's wake channel.
+//
+// On state this build produced it is a no-op: the stamp already sits at or after
+// every moment on the task, because acks and unit reports against a terminal
+// task are dropped.
 func (t *Task) repairTerminalStamp() bool {
-	if !t.Status.IsTerminal() || !t.FinishedAt.IsZero() {
+	if !t.Status.IsTerminal() {
 		return false
 	}
 
@@ -620,10 +630,23 @@ func (t *Task) repairTerminalStamp() bool {
 		}
 	}
 
-	if at.IsZero() {
+	if !at.After(t.FinishedAt) {
 		return false
 	}
 	t.FinishedAt = at
+	return true
+}
+
+// clearNonTerminalStamp is the other half of the restore normalization: an older
+// binary stamped FinishedAt when a task's units stopped, so a snapshot can carry
+// a PREPARING or SWAPPING task with a finish time already set. Every decision
+// reads the status first, so nothing acts on it, but GET /v1/tasks renders it as
+// a finish time on a task that is still running.
+func (t *Task) clearNonTerminalStamp() bool {
+	if t.Status.IsTerminal() || t.FinishedAt.IsZero() {
+		return false
+	}
+	t.FinishedAt = time.Time{}
 	return true
 }
 

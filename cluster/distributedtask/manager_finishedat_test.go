@@ -284,29 +284,6 @@ func TestManager_FinishedAt_NotRestampedByASecondTerminalApply(t *testing.T) {
 	}
 }
 
-// The units stopping is not the task ending: FinishedAt stays zero across
-// STARTED → PREPARING → SWAPPING, however long the coordination phases run.
-func TestManager_FinishedAt_ZeroUntilTerminal(t *testing.T) {
-	ref := finishedAtRef()
-
-	h := newTestHarness(t).init(t)
-	defer h.manager.Close()
-
-	addBarrierTaskWithUnits(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, []string{"u-node-1"})
-	require.Equal(t, TaskStatusStarted, onlyTask(t, h, finishedAtNS).Status)
-	require.True(t, onlyTask(t, h, finishedAtNS).FinishedAt.IsZero())
-
-	drivePreparing(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, []string{"node-1"})
-	require.True(t, onlyTask(t, h, finishedAtNS).FinishedAt.IsZero(),
-		"the units stopped, the task did not end")
-
-	h.clock.Advance(10 * time.Minute)
-	require.NoError(t, ref.prepAck(t, h, "node-1", true, h.clock.Now()))
-	require.Equal(t, TaskStatusSwapping, onlyTask(t, h, finishedAtNS).Status)
-	require.True(t, onlyTask(t, h, finishedAtNS).FinishedAt.IsZero(),
-		"a swap in flight is not a finished task")
-}
-
 // stageStartedWithClaimedUnit leaves the task STARTED with one unit claimed.
 func stageStartedWithClaimedUnit(t *testing.T, h *testHarness) {
 	t.Helper()

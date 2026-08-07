@@ -813,30 +813,71 @@ func TestOverlapBackstopReadsTheSwapMomentNotTheUnitMoment(t *testing.T) {
 			"every task has to be examined, not just the first")
 	})
 
-	t.Run("a terminal task restored without a stamp still refuses an overlapping capture", func(t *testing.T) {
-		// The state an older binary produces: FINISHED, no finish time. The
-		// restore stamps it from the newest moment the task carries — here the
-		// swap ack inside the capture window — so the backstop still refuses.
-		// Stamping it from an earlier moment, e.g. the task's start, would
-		// waive this capture instead.
+	// restoredWithStamp seeds one FINISHED task whose swap acked at swapAck,
+	// rewrites its stamp to what an older binary would have written, restores
+	// the result into a fresh manager and returns it.
+	restoredWithStamp := func(t *testing.T, taskID string, swapAck, oldStamp time.Time) *distributedtask.Manager {
+		t.Helper()
 		src := newManager(t)
-		seedFinishedTask(t, src, "movies:unstamped", "Movies", 1, backupStart.Add(time.Minute))
-		snapBytes := unstampTerminalTasks(t, src)
+		seedFinishedTask(t, src, taskID, "Movies", 1, swapAck)
+		snapBytes := restampTerminalTasks(t, src, oldStamp)
 
 		m := newManager(t)
 		require.NoError(t, m.Restore(snapBytes))
+		return m
+	}
+
+	// requireStampIs asserts what the restore actually wrote. Without it the
+	// subtests below also pass on an unrepaired zero stamp, which the backstop
+	// refuses on separately.
+	requireStampIs := func(t *testing.T, m *distributedtask.Manager, want time.Time) {
+		t.Helper()
+		tasks, err := m.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Len(t, tasks[ReindexNamespace], 1)
+		require.True(t, tasks[ReindexNamespace][0].FinishedAt.Equal(want),
+			"restore must stamp the task from the swap ack, got %s want %s",
+			tasks[ReindexNamespace][0].FinishedAt, want)
+	}
+
+	t.Run("a terminal task restored without a stamp still refuses an overlapping capture", func(t *testing.T) {
+		// The state an older binary produces when it finalizes a task this
+		// build left unstamped: FINISHED, no finish time. The restore stamps it
+		// from the newest moment the task carries — here the swap ack inside
+		// the capture window — so the backstop still refuses.
+		swapAck := backupStart.Add(time.Minute)
+		m := restoredWithStamp(t, "movies:unstamped", swapAck, time.Time{})
+		requireStampIs(t, m, time.UnixMilli(swapAck.UnixMilli()))
 
 		err := NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
 			context.Background(), []string{"Movies"}, backupStart)
 		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
 			"the repaired stamp must keep the swap inside the capture window")
 	})
+
+	t.Run("a terminal task restored with an older binary's units-stopped stamp still refuses", func(t *testing.T) {
+		// The common upgrade shape: older builds stamped FinishedAt when the
+		// units stopped, so the value predates the swap that ran after it. Here
+		// the units stopped before the capture began and the swap ran inside
+		// it, so a repair that only fills a missing stamp leaves this task
+		// waiving a capture it may have torn.
+		swapAck := backupStart.Add(time.Minute)
+		m := restoredWithStamp(t, "movies:stale", swapAck, unitsStopped)
+		requireStampIs(t, m, time.UnixMilli(swapAck.UnixMilli()))
+
+		err := NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart)
+		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+			"the restore must advance a stale stamp to the swap ack, or every capture "+
+				"that spanned a pre-upgrade swap publishes as clean for the whole TTL")
+	})
 }
 
-// unstampTerminalTasks snapshots a manager and clears FinishedAt on every
+// restampTerminalTasks snapshots a manager and rewrites FinishedAt on every
 // terminal task in the JSON, producing the bytes an older binary's snapshot
-// carries: a task that reached a terminal status without recording when.
-func unstampTerminalTasks(t *testing.T, m *distributedtask.Manager) []byte {
+// carries: a task that reached a terminal status recording either nothing or
+// the moment its units stopped.
+func restampTerminalTasks(t *testing.T, m *distributedtask.Manager, at time.Time) []byte {
 	t.Helper()
 	raw, err := m.Snapshot()
 	require.NoError(t, err)
@@ -850,12 +891,12 @@ func unstampTerminalTasks(t *testing.T, m *distributedtask.Manager) []byte {
 	for _, tasks := range decoded.Tasks {
 		for _, task := range tasks {
 			if distributedtask.TaskStatus(task["status"].(string)).IsTerminal() {
-				task["finishedAt"] = time.Time{}
+				task["finishedAt"] = at
 				cleared++
 			}
 		}
 	}
-	require.NotZero(t, cleared, "sanity: the snapshot must carry a terminal task to unstamp")
+	require.NotZero(t, cleared, "sanity: the snapshot must carry a terminal task to restamp")
 
 	out, err := json.Marshal(decoded)
 	require.NoError(t, err)
