@@ -651,19 +651,32 @@ func (seg *segment) scanInto(sortedKeys entinverted.SortedKeys, res *Resolution,
 	// compare. The window is a range over the caller's keys, so every position
 	// below is already a query position.
 	lo, hi := seg.keys.queryWindow(sortedKeys)
+	if lo >= hi {
+		return // no query key can match this column
+	}
 
 	if mergeScanCheaper(hi-lo, n) {
 		si, qi := 0, lo
+		// The query key is held across iterations rather than re-read per
+		// comparison: the scan advances si alone for every corpus key between
+		// two matches, and each of those iterations would otherwise re-derive
+		// the same key. On a corpus much larger than the query — which is when
+		// this branch is chosen — most iterations are exactly that.
+		q := sortedKeys.At(qi)
 		for si < n && qi < hi {
-			switch cmp := seg.keys.compare(si, sortedKeys.At(qi)); {
+			switch cmp := seg.keys.compare(si, q); {
 			case cmp < 0: // corpus key behind the query cursor — advance the scan
 				si++
 			case cmp > 0: // query key absent from the corpus — advance the query
-				qi++
+				if qi++; qi < hi {
+					q = sortedKeys.At(qi)
+				}
 			default: // match — one row per key, so both cursors advance
 				seg.applyRow(si, qi, res, adds, overflowed)
 				si++
-				qi++
+				if qi++; qi < hi {
+					q = sortedKeys.At(qi)
+				}
 			}
 		}
 		return
