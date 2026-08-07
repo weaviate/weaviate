@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // This package is split across two CI matrix entries, each passing an exact-name
@@ -171,9 +172,10 @@ func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 //	                      ->  run.sh's --flag that arms the dispatcher
 //	                      ->  a workflow matrix entry passing that --flag
 //
-// Every hop is a literal string match, so this needs no YAML parsing: the
-// matrix entries pass run.sh flags verbatim, and that is the whole contract
-// between the two files.
+// The last hop is read out of the parsed YAML, not out of the file's bytes. A
+// commented-out matrix entry is still a literal substring of the workflow, and
+// so are a flag in a workflow no pull request triggers and one in a job behind
+// an always-false if: — three ways for the entry to be present and dead.
 func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 	root := repoRoot(t)
 	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
@@ -185,26 +187,159 @@ func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 		"found no run_acceptance_* function holding an AOF_GROUP_RUN filter for %s; "+
 			"either the groups were renamed or this guard's parsing broke", runShPackagePath)
 
-	workflows := workflowSources(t, root)
+	invocations := workflowRunShInvocations(t, root)
 
 	for _, group := range groups {
 		t.Run(group, func(t *testing.T) {
 			requireDispatched(t, runSh, group)
 			flag := flagArming(t, runSh, group)
 
-			var found string
-			for name, body := range workflows {
-				if strings.Contains(body, `"`+flag+`"`) {
-					found = name
-					break
-				}
-			}
-			require.NotEmptyf(t, found,
-				"no workflow in .github/workflows passes %q, so %s never runs in CI while "+
-					"the tests it owns still read as covered by the run.sh allowlist guard",
+			_, invoked := invocations[flag]
+			require.Truef(t, invoked,
+				"no pull-request-triggered workflow job in .github/workflows passes %q to test/run.sh, "+
+					"so %s never runs in CI while the tests it owns still read as covered by the "+
+					"run.sh allowlist guard",
 				flag, group)
 		})
 	}
+}
+
+// workflowFile is the slice of a workflow this guard reads: what triggers it,
+// and which jobs it has.
+type workflowFile struct {
+	On   yaml.Node              `yaml:"on"`
+	Jobs map[string]workflowJob `yaml:"jobs"`
+}
+
+type workflowJob struct {
+	If       string `yaml:"if"`
+	Strategy struct {
+		Matrix struct {
+			Include []map[string]yaml.Node `yaml:"include"`
+		} `yaml:"matrix"`
+	} `yaml:"strategy"`
+	Steps []workflowStep `yaml:"steps"`
+}
+
+type workflowStep struct {
+	If   string               `yaml:"if"`
+	Run  string               `yaml:"run"`
+	With map[string]yaml.Node `yaml:"with"`
+}
+
+// workflowRunShInvocations returns every test/run.sh flag a pull request can
+// actually reach: the flag has to be a word in a live step's command or in a
+// matrix entry feeding a job whose steps call run.sh.
+func workflowRunShInvocations(t *testing.T, root string) map[string]struct{} {
+	t.Helper()
+
+	dir := filepath.Join(root, ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	flags := map[string]struct{}{}
+	var parsed int
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "ml") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		require.NoError(t, err)
+
+		var wf workflowFile
+		require.NoErrorf(t, yaml.Unmarshal(body, &wf),
+			"%s does not parse as YAML; this guard cannot tell what it runs", entry.Name())
+		parsed++
+
+		if !triggersOnPullRequest(&wf.On) {
+			continue
+		}
+		for _, job := range wf.Jobs {
+			if alwaysFalse(job.If) {
+				continue
+			}
+			collectRunShFlags(job, flags)
+		}
+	}
+	require.NotZero(t, parsed, "no workflow files found under %s", dir)
+	return flags
+}
+
+// collectRunShFlags adds this job's run.sh flags, from the step commands
+// themselves and from the matrix entries those commands interpolate.
+func collectRunShFlags(job workflowJob, flags map[string]struct{}) {
+	var invokesRunSh bool
+	var stepWords []string
+	for _, step := range job.Steps {
+		if alwaysFalse(step.If) {
+			continue
+		}
+		commands := []string{step.Run}
+		for _, v := range step.With {
+			commands = append(commands, scalar(&v))
+		}
+		for _, c := range commands {
+			if !strings.Contains(c, "run.sh") {
+				continue
+			}
+			invokesRunSh = true
+			stepWords = append(stepWords, strings.Fields(c)...)
+		}
+	}
+	if !invokesRunSh {
+		return
+	}
+
+	for _, w := range stepWords {
+		if strings.HasPrefix(w, "--") {
+			flags[w] = struct{}{}
+		}
+	}
+	for _, entry := range job.Strategy.Matrix.Include {
+		for _, v := range entry {
+			for _, w := range strings.Fields(scalar(&v)) {
+				if strings.HasPrefix(w, "--") {
+					flags[w] = struct{}{}
+				}
+			}
+		}
+	}
+}
+
+// triggersOnPullRequest reads the `on:` key in each of its three legal shapes.
+func triggersOnPullRequest(on *yaml.Node) bool {
+	switch on.Kind {
+	case yaml.ScalarNode:
+		return on.Value == "pull_request"
+	case yaml.SequenceNode:
+		for _, item := range on.Content {
+			if item.Value == "pull_request" {
+				return true
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i < len(on.Content); i += 2 {
+			if on.Content[i].Value == "pull_request" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// alwaysFalse reports whether an if: can never hold, which is how a job or step
+// is kept in the file while being taken out of CI.
+func alwaysFalse(expr string) bool {
+	e := strings.TrimSpace(expr)
+	e = strings.TrimSuffix(strings.TrimPrefix(e, "${{"), "}}")
+	return strings.EqualFold(strings.TrimSpace(e), "false")
+}
+
+func scalar(n *yaml.Node) string {
+	if n.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return n.Value
 }
 
 // groupsRunningThisPackage returns the run_acceptance_* functions that carry an
@@ -275,27 +410,4 @@ func flagArming(t *testing.T, runSh, group string) string {
 	}
 	t.Fatalf("no run.sh argument sets %s=true, so nothing on a CI command line can select it", group)
 	return ""
-}
-
-// workflowSources reads every workflow file as text. The matrix entries pass
-// run.sh flags verbatim, so a literal search over the file is the whole check
-// and a YAML parser would only add ways to be wrong.
-func workflowSources(t *testing.T, root string) map[string]string {
-	t.Helper()
-
-	dir := filepath.Join(root, ".github", "workflows")
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-
-	sources := map[string]string{}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "ml") {
-			continue
-		}
-		body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-		require.NoError(t, err)
-		sources[entry.Name()] = string(body)
-	}
-	require.NotEmpty(t, sources, "no workflow files found under %s", dir)
-	return sources
 }
