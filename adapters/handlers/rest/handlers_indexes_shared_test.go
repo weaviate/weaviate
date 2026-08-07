@@ -215,6 +215,7 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.On("ReadOnlyClass", collection).Return(class).Maybe()
+	reader.On("ResolveAlias", mock.Anything).Return("").Maybe()
 	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
 		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
 		require.NoError(t, fn(class, shardState))
