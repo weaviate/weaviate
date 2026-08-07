@@ -693,58 +693,94 @@ func TestRefuseIfAnyReindexInFlightScopesTheClusterCheckByCollection(t *testing.
 // migration stopped before the capture began, but its bucket swap ran inside
 // the capture window. Driven through the real FSM rather than a hand-built
 // task, because the whole question is which moment the FSM records.
-func TestOverlapBackstopCatchesASwapThatRanInsideTheCaptureWindow(t *testing.T) {
+func TestOverlapBackstopReadsTheSwapMomentNotTheUnitMoment(t *testing.T) {
 	const (
-		taskID  = "movies:task"
-		version = uint64(1)
-		node    = "node-1"
-		unit    = "u1"
+		node = "node-1"
+		unit = "u1"
 	)
 
-	unitsStopped := time.Now().Add(-3 * time.Minute)
+	unitsStopped := time.Now().Add(-5 * time.Minute)
 	backupStart := unitsStopped.Add(time.Minute)
-	swapDone := backupStart.Add(time.Minute)
 
-	manager := distributedtask.NewManager(distributedtask.ManagerParameters{
-		CompletedTaskTTL: time.Hour,
-		Logger:           logrus.New(),
+	// seedFinishedTask drives one task through the FSM to FINISHED, with its
+	// units stopping before the capture and its swap acked at swapDone.
+	seedFinishedTask := func(t *testing.T, m *distributedtask.Manager,
+		taskID, collection string, version uint64, swapDone time.Time,
+	) {
+		t.Helper()
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: collection})
+		require.NoError(t, err)
+
+		require.NoError(t, m.AddTask(applyReq(t, &api.AddDistributedTaskRequest{
+			Namespace:             ReindexNamespace,
+			Id:                    taskID,
+			Payload:               payload,
+			SubmittedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
+			UnitIds:               []string{unit},
+		}), version))
+		require.NoError(t, m.UpdateUnitProgress(applyReq(t, &api.UpdateDistributedTaskUnitProgressRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			NodeId: node, UnitId: unit, Progress: 0.1,
+			UpdatedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
+		})))
+		require.NoError(t, m.RecordUnitCompletion(applyReq(t, &api.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			NodeId: node, UnitId: unit,
+			FinishedAtUnixMillis: unitsStopped.UnixMilli(),
+		}), false))
+		require.NoError(t, m.RecordPostCompletionAck(applyReq(t, &api.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			NodeId: node, Success: true,
+			AckedAtUnixMillis: swapDone.UnixMilli(),
+		}), false))
+		require.NoError(t, m.MarkTaskFinalized(applyReq(t, &api.MarkTaskFinalizedRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			FinalizedAtUnixMillis: swapDone.UnixMilli(),
+		})))
+	}
+
+	newManager := func(t *testing.T) *distributedtask.Manager {
+		t.Helper()
+		m := distributedtask.NewManager(distributedtask.ManagerParameters{
+			CompletedTaskTTL: time.Hour,
+			Logger:           logrus.New(),
+		})
+		t.Cleanup(m.Close)
+		return m
+	}
+
+	t.Run("swap inside the capture window tears it", func(t *testing.T) {
+		m := newManager(t)
+		seedFinishedTask(t, m, "movies:task", "Movies", 1, backupStart.Add(time.Minute))
+
+		err := NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart)
+		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+			"the swap ran while the backup was being captured, so the capture is torn")
 	})
-	defer manager.Close()
 
-	payload, err := json.Marshal(ReindexTaskPayload{Collection: "Movies"})
-	require.NoError(t, err)
+	t.Run("swap before the capture began is waived", func(t *testing.T) {
+		m := newManager(t)
+		seedFinishedTask(t, m, "movies:task", "Movies", 1, backupStart.Add(-time.Second))
 
-	require.NoError(t, manager.AddTask(applyReq(t, &api.AddDistributedTaskRequest{
-		Namespace:             ReindexNamespace,
-		Id:                    taskID,
-		Payload:               payload,
-		SubmittedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
-		UnitIds:               []string{unit},
-	}), version))
-	require.NoError(t, manager.UpdateUnitProgress(applyReq(t, &api.UpdateDistributedTaskUnitProgressRequest{
-		Namespace: ReindexNamespace, Id: taskID, Version: version,
-		NodeId: node, UnitId: unit, Progress: 0.1,
-		UpdatedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
-	})))
-	require.NoError(t, manager.RecordUnitCompletion(applyReq(t, &api.RecordDistributedTaskUnitCompletionRequest{
-		Namespace: ReindexNamespace, Id: taskID, Version: version,
-		NodeId: node, UnitId: unit,
-		FinishedAtUnixMillis: unitsStopped.UnixMilli(),
-	}), false))
-	require.NoError(t, manager.RecordPostCompletionAck(applyReq(t, &api.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace: ReindexNamespace, Id: taskID, Version: version,
-		NodeId: node, Success: true,
-		AckedAtUnixMillis: swapDone.UnixMilli(),
-	}), false))
-	require.NoError(t, manager.MarkTaskFinalized(applyReq(t, &api.MarkTaskFinalizedRequest{
-		Namespace: ReindexNamespace, Id: taskID, Version: version,
-		FinalizedAtUnixMillis: swapDone.UnixMilli(),
-	})))
+		require.NoError(t, NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart),
+			"a migration entirely over before the capture began cannot have torn it")
+	})
 
-	lookup := NewReindexOverlapLookup(manager.ListDistributedTasks, time.Hour)
-	err = lookup(context.Background(), []string{"Movies"}, backupStart)
-	require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
-		"the swap ran while the backup was being captured, so the capture is torn")
+	t.Run("a second task is examined too", func(t *testing.T) {
+		// Two tasks on the same collection, only the second one overlapping.
+		// A scan that stopped at the first task it could waive would publish
+		// the torn capture.
+		m := newManager(t)
+		seedFinishedTask(t, m, "movies:early", "Movies", 1, backupStart.Add(-time.Second))
+		seedFinishedTask(t, m, "movies:late", "Movies", 2, backupStart.Add(time.Minute))
+
+		err := NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart)
+		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+			"every task has to be examined, not just the first")
+	})
 }
 
 func applyReq[T any](t *testing.T, subCommand T) *api.ApplyRequest {
