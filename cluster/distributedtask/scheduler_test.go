@@ -966,6 +966,69 @@ func TestReactiveFiring_TerminalUnitWakesScheduler(t *testing.T) {
 	require.Equal(t, "1234", recvWithTimeout(t, h.provider.completedCh).ID)
 }
 
+// TestReactiveFiring_DeleteTasksForCollectionWakesScheduler: DELETE_CLASS
+// drops the task from the FSM while the scheduler is still running its units
+// against shards the drop is about to remove. The wake is what terminates them
+// this cycle instead of up to a tick later.
+func TestReactiveFiring_DeleteTasksForCollectionWakesScheduler(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+	h.manager.RegisterCollectionExtractor(h.tasksNamespace, func(payload []byte) (string, bool) {
+		return string(payload), true
+	})
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		Payload:               []byte("Foo"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
+
+	require.Len(t, h.manager.DeleteTasksForCollection("Foo"), 1)
+
+	// CRUCIAL: no clock advance. recvWithTimeout gives up after 5s, the tick
+	// interval is 30s, so arriving at all means the wake carried it.
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.cancelledCh).ID)
+}
+
+// TestReactiveFiring_RestoreWakesScheduler: a restored snapshot replaces the
+// whole task map, so the scheduler can be left running a task the cluster no
+// longer has. The wake is what terminates it this cycle instead of up to a tick
+// later.
+func TestReactiveFiring_RestoreWakesScheduler(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
+
+	// A snapshot that does not carry the running task: the cluster cleaned it
+	// up while this node was behind.
+	empty, err := json.Marshal(&snapshot{Version: 1})
+	require.NoError(t, err)
+	require.NoError(t, h.manager.Restore(empty))
+
+	// CRUCIAL: no clock advance, same 5s-against-30s budget as above.
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.cancelledCh).ID)
+}
+
 // TestReactiveFiring_WakeIsCoalesced verifies that rapid-fire wake-up
 // calls (e.g. multiple in-flight applies) do not panic, deadlock, or
 // leak; the channel buffer of size 1 silently coalesces extras.

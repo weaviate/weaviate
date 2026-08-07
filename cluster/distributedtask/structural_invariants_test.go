@@ -364,6 +364,37 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 				"never reached the swap")
 	})
 
+	t.Run("a snapshot this build wrote is left alone", func(t *testing.T) {
+		// Same stale stamp, but the payload states the format it was written
+		// in, so there is nothing to normalize. Repairing anyway would keep the
+		// FSM rewriting state that is already correct, with no version at which
+		// the repair could ever be removed.
+		versionedBytes, err := json.Marshal(&snapshot{Version: 1, Tasks: map[string][]*Task{
+			"ns": {{
+				Namespace:      "ns",
+				TaskDescriptor: TaskDescriptor{ID: "already-normalized", Version: 1},
+				Status:         TaskStatusFinished,
+				StartedAt:      started,
+				FinishedAt:     unitsStopped,
+				Units:          map[string]*Unit{"u1": {ID: "u1", Status: UnitStatusCompleted, FinishedAt: unitsStopped}},
+				PostCompletionAcks: map[string]PostCompletionAck{
+					"node-1": {Success: true, AckedAt: lastAck},
+				},
+			}},
+		}})
+		require.NoError(t, err)
+
+		m := NewManager(ManagerParameters{
+			Clock: clockwork.NewFakeClockAt(lastAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
+		})
+		t.Cleanup(m.Close)
+		require.NoError(t, m.Restore(versionedBytes))
+
+		require.True(t, restoredTask(t, m).FinishedAt.Equal(unitsStopped),
+			"the stamp in a version 1 snapshot is the authoritative one; advancing it "+
+				"would leave the repair with no state that can retire it")
+	})
+
 	t.Run("deletable once the TTL has run from the repaired stamp", func(t *testing.T) {
 		clock := clockwork.NewFakeClockAt(lastAck.Add(30 * time.Minute))
 		m := restoreInto(t, clock)
@@ -380,6 +411,44 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 		require.NoError(t, err)
 		require.Empty(t, tasks["ns"], "the cleaned-up task must be gone")
 	})
+}
+
+// TestStructuralInvariant_ManagerSnapshot_RoundTripsUnchanged pins the pair
+// [Manager.Snapshot] and [Manager.Restore] form: state this build wrote comes
+// back byte-identical, including the format version that told Restore its
+// normalization had nothing to do.
+func TestStructuralInvariant_ManagerSnapshot_RoundTripsUnchanged(t *testing.T) {
+	const ns = "ns"
+
+	h := newTestHarness(t).init(t)
+	defer h.manager.Close()
+
+	// One task still running and one terminal, so both halves of the
+	// "FinishedAt set iff terminal" invariant are in the payload.
+	addTaskWithUnits(t, h, ns, "running", 1, []string{"u"})
+	addTaskWithUnits(t, h, ns, "cancelled", 2, []string{"u"})
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: ns, Id: "cancelled", Version: 2,
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), false))
+
+	first, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	var declared struct {
+		Version int `json:"version"`
+	}
+	require.NoError(t, json.Unmarshal(first, &declared))
+	require.Equal(t, 1, declared.Version,
+		"a snapshot that does not state its format leaves the next node guessing whether "+
+			"the finish times in it have been normalized")
+
+	require.NoError(t, h.manager.Restore(first))
+	second, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	require.JSONEq(t, string(first), string(second),
+		"a restore of this build's own snapshot must not move a single field")
 }
 
 // structuralInvariantSeedTask is a tight helper that injects a
@@ -585,12 +654,15 @@ func TestStructuralInvariant_FinishedAtIffTerminal(t *testing.T) {
 }
 
 // preUpgradeStamps rewrites a snapshot the way builds before the FinishedAt
-// invariant wrote it: every task carries a finish time whatever its status. The
-// value is deliberately ancient so a terminal task's stamp is one the repair
-// has to advance rather than one it can leave alone.
+// invariant wrote it: every task carries a finish time whatever its status, and
+// the payload states no format version. The value is deliberately ancient so a
+// terminal task's stamp is one the repair has to advance rather than one it can
+// leave alone.
 func preUpgradeStamps(t *testing.T, raw []byte) []byte {
 	t.Helper()
 
+	// No version field on the target struct, so the rewritten payload carries
+	// none either — which is what makes Restore normalize it.
 	var decoded struct {
 		Tasks map[string][]map[string]any `json:"tasks"`
 	}

@@ -1795,6 +1795,47 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		removed := h.manager.DeleteTasksForCollection("Foo")
 		assert.Empty(t, removed, "empty-namespace registration must be ignored")
 	})
+
+	// The scheduler holds a handle for every task removed here, so it has to be
+	// woken to terminate them. A DELETE_CLASS that matched no task leaves it
+	// nothing to converge on, and every such class drop is one on a cluster that
+	// has never run a reindex.
+	t.Run("wakes the scheduler only when something was removed", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			collection string
+			wantWake   bool
+		}{
+			{"a task matched", "Foo", true},
+			{"no task matched", "Bar", false},
+			{"the collection name is refused", "", false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newTestHarness(t).init(t)
+				h.manager.RegisterCollectionExtractor("scoped", collectionExtractor)
+
+				payload, err := json.Marshal(map[string]string{"collection": "Foo"})
+				require.NoError(t, err)
+				addRawTask(t, h, "scoped", "foo-1", payload, "u-1")
+
+				// Wired after the add, so only the delete's wake is counted.
+				var woke wakeCounter
+				h.manager.SetSchedulerNotifier(&woke)
+
+				removed := h.manager.DeleteTasksForCollection(tc.collection)
+				require.Equal(t, tc.wantWake, len(removed) > 0, "sanity: the fixture must exercise the intended arm")
+
+				if tc.wantWake {
+					require.Positive(t, woke.n.Load(),
+						"the scheduler is still running the removed task's units; without the wake it "+
+							"keeps them alive until the next tick")
+					return
+				}
+				require.Zero(t, woke.n.Load(),
+					"nothing was removed, so the scheduling cycle has nothing to converge on")
+			})
+		}
+	})
 }
 
 // addBarrierTaskWithUnits is the barrier-mode counterpart to
