@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // recordingAuthorizer refuses every check and remembers what it was asked, so a
@@ -169,6 +171,59 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 		require.Nil(t, fs.selector.reindexCollections[1],
 			"the second question must be cluster-wide; scoping it repeats the first")
 	})
+
+	// A caller that names its classes has already been authorized against
+	// exactly those, above. Re-asking against the wildcard here answers 403 for
+	// a mistyped id to every principal holding anything narrower than a grant on
+	// all collections, and the handler maps Forbidden ahead of NotFound.
+	t.Run("a per-class grant still gets the 404, not a 403", func(t *testing.T) {
+		fs := newFixture(t)
+		authz := &scopedAuthorizer{granted: authorization.Backups("Movies")}
+		fs.auth = authz
+
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      unknownID,
+			Include: []string{"Movies"},
+		}, false)
+
+		require.Error(t, err)
+		assert.IsTypef(t, backup.ErrNotFound{}, err,
+			"a principal holding the grant it named must be told the id is unknown; got %v", err)
+		require.NotContains(t, authz.asked, authorization.Backups(),
+			"the wildcard grant is not what this caller needs")
+	})
+}
+
+// scopedAuthorizer allows only the resources granted, the way a per-collection
+// RBAC grant does, and records what it was asked.
+type scopedAuthorizer struct {
+	granted []string
+	asked   [][]string
+}
+
+func (a *scopedAuthorizer) Authorize(_ context.Context, pr *models.Principal, verb string, resources ...string) error {
+	a.asked = append(a.asked, resources)
+	for _, r := range resources {
+		if !slices.Contains(a.granted, r) {
+			return authzerrors.NewForbidden(pr, verb, resources...)
+		}
+	}
+	return nil
+}
+
+func (a *scopedAuthorizer) AuthorizeSilent(ctx context.Context, pr *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(ctx, pr, verb, resources...)
+}
+
+func (a *scopedAuthorizer) FilterAuthorizedResources(_ context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
+	allowed := make([]string, 0, len(resources))
+	for _, r := range resources {
+		if slices.Contains(a.granted, r) {
+			allowed = append(allowed, r)
+		}
+	}
+	return allowed, nil
 }
 
 // A restore that names no classes takes its own path through Restore: the class

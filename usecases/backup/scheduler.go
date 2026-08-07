@@ -248,12 +248,17 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if errors.Is(err, errMetaNotFound) {
 			// The gate answers before existence does, the way authorization
 			// does: a caller who cannot restore right now should be told that,
-			// not sent to fix an id that was never the problem. On this path
-			// there are no classes to authorize against, so the broad grant
-			// stands in — the gate's answer is cluster-wide state and must not
-			// reach a principal with no backup permission at all.
-			if authErr := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...); authErr != nil {
-				return nil, authErr
+			// not sent to fix an id that was never the problem.
+			if !explicitInclude {
+				// Only this path has no classes to authorize against, so the
+				// broad grant stands in — the gate's answer is cluster-wide
+				// state and must not reach a principal with no backup
+				// permission at all. A caller that named its classes was
+				// already cleared on exactly those above; asking it for the
+				// wildcard too would answer 403 for a mistyped id.
+				if authErr := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...); authErr != nil {
+					return nil, authErr
+				}
 			}
 			if gateErr := s.refuseRestoreDuringReindex(ctx, nil); gateErr != nil {
 				return nil, gateErr
