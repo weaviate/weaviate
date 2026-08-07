@@ -758,10 +758,10 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 // It tells a collection being deleted apart from a node shutting down: a
 // deleted collection takes its on-disk state with it, a shut-down one leaves it
 // for the next start. A close nobody signalled a cause for reads as
-// [errIndexClosed], which callers must treat like a shutdown.
+// errIndexClosed, which callers must treat like a shutdown.
 func (i *Index) closeCause() error {
-	// Both reads dereference their context, and an Index built without either
-	// one is still an index this has to answer for. Nothing has closed an index
+	// Calling Err on a nil context panics, and an Index built without either
+	// context is still one this has to answer for. Nothing has closed an index
 	// that has no closingCtx, so it is open.
 	if i.closingCtx == nil || i.closingCtx.Err() == nil {
 		return nil
