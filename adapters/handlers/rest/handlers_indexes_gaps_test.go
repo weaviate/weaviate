@@ -831,9 +831,12 @@ func TestTouchesSearchable(t *testing.T) {
 		{db.ReindexTypeChangeAlgorithm, true},
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableSearchable, true},
+		{db.ReindexTypeRebuildSearchable, true},
 		{db.ReindexTypeRepairFilterable, false},
+		{db.ReindexTypeChangeTokenizationFilterable, false},
 		{db.ReindexTypeEnableFilterable, false},
 		{db.ReindexTypeEnableRangeable, false},
+		{db.ReindexTypeRepairRangeable, false},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
@@ -849,10 +852,13 @@ func TestTouchesFilterable(t *testing.T) {
 	}{
 		{db.ReindexTypeRepairFilterable, true},
 		{db.ReindexTypeChangeTokenization, true},
+		{db.ReindexTypeChangeTokenizationFilterable, true},
 		{db.ReindexTypeEnableFilterable, true},
 		{db.ReindexTypeChangeAlgorithm, false},
 		{db.ReindexTypeEnableSearchable, false},
+		{db.ReindexTypeRebuildSearchable, false},
 		{db.ReindexTypeEnableRangeable, false},
+		{db.ReindexTypeRepairRangeable, false},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
