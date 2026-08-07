@@ -316,7 +316,8 @@ func (d *DockerCompose) weaviateNodeIndex(n int) (int, error) {
 	return -1, fmt.Errorf("weaviate node %d (%q) not found", n, name)
 }
 
-// StopNode stops weaviate node n (1-based).
+// StopNode stops the weaviate node named weaviate-<n> (0-based name suffix,
+// unlike GetWeaviateNode which is 1-based).
 func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Duration) error {
 	idx, err := d.weaviateNodeIndex(n)
 	if err != nil {
@@ -325,7 +326,8 @@ func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Durat
 	return d.StopAt(ctx, idx, timeout)
 }
 
-// StartNode starts weaviate node n (1-based), re-mapping its endpoints.
+// StartNode starts the weaviate node named weaviate-<n> (0-based name suffix,
+// unlike GetWeaviateNode which is 1-based), re-mapping its endpoints.
 func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
 	idx, err := d.weaviateNodeIndex(n)
 	if err != nil {
@@ -334,7 +336,8 @@ func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
 	return d.StartAt(ctx, idx)
 }
 
-// EnsureRunning starts weaviate node n (1-based) if it is not currently
+// EnsureRunning starts the weaviate node named weaviate-<n> (0-based name
+// suffix, unlike GetWeaviateNode which is 1-based) if it is not currently
 // running; a no-op when the node is already up.
 func (d *DockerCompose) EnsureRunning(ctx context.Context, n int) error {
 	idx, err := d.weaviateNodeIndex(n)
