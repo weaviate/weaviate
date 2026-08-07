@@ -502,7 +502,22 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time that task reached a terminal status.
+	// FinishedAt is the time the task's UNITS stopped working — not, despite
+	// what the name suggests, the time it reached a terminal status. It is
+	// stamped when AllUnitsTerminal lands, at which point the status becomes
+	// PREPARING or SWAPPING, and the bucket swap and shard-directory rename
+	// still lie ahead. A task can therefore sit in SWAPPING for minutes with a
+	// FinishedAt already in the past.
+	//
+	// That is wrong and known to be wrong. Two places already work around it
+	// rather than rely on it: the completed-task TTL sweep skips SWAPPING so a
+	// stale FinishedAt cannot delete a task mid-swap, and the terminal-observer
+	// dispatch takes an explicit occurredAt instead of reading this field.
+	// A third, the backup overlap backstop, does rely on it and is wrong in the
+	// narrow case where a swap runs inside a capture that admission did not
+	// see. Tracked separately; not fixed here because the correct fix is to
+	// change what this field means, which reaches beyond a backup gate.
+	//
 	// Additionally, it is used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`
 
