@@ -563,22 +563,29 @@ type PostCompletionAck struct {
 }
 
 // markTerminal ends the task, setting the status and the matching FinishedAt
-// in one step. It is the only place a terminal status is assigned, which is
-// what keeps the [Task.FinishedAt] invariant true by construction rather than
-// by six sites remembering to stamp.
+// in one step. It is the only place in this package that assigns a terminal
+// status, which is what pairs the status and the stamp: they cannot drift
+// apart.
 //
 // at must be the timestamp carried on the RAFT request that caused the
 // transition, never the applying node's clock: two nodes applying this same
 // log entry have to arrive at the same state.
 //
-// Callers guard the transition themselves — every one of them refuses or
-// ignores a command against an already-terminal task, so a task is stamped
-// exactly once.
+// A task already terminal is left untouched, so the stamp records the first
+// terminal transition and no later apply can move it. Callers guard the
+// transition too; this guard makes exactly-once a property of the task rather
+// than of every caller.
 func (t *Task) markTerminal(status TaskStatus, at time.Time) {
+	if t.Status.IsTerminal() {
+		return
+	}
 	t.Status = status
 	t.FinishedAt = at
 }
 
+// Clone deep-copies the maps a caller could otherwise mutate under the
+// Manager's lock. [Task.Payload] is shared, not copied: callers outside the
+// FSM read it and must not write to it.
 func (t *Task) Clone() *Task {
 	clone := *t
 	if t.Units != nil {

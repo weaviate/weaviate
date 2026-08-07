@@ -239,13 +239,18 @@ func structuralInvariantSeedTask(
 	}
 }
 
-// TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter enforces the
-// "only way" half of [Task.markTerminal]: the FinishedAt-iff-terminal
-// invariant holds by construction only while no other line in the package
-// assigns a terminal status or stamps the task's FinishedAt directly.
+// TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter catches the
+// common way of breaking [Task.markTerminal]'s "only way" property: a line in
+// this package's non-test sources that names a terminal status constant on the
+// right of a `.Status =`, or that stamps `task.FinishedAt` directly.
 //
-// A source scan rather than a type-system guard because Go has no way to
-// make a field writable from one method only within its own package.
+// It is two line-regexes, so it is a tripwire, not a proof. It does NOT catch
+// a terminal status reached through a variable, a stamp written through a
+// receiver not named `task`, `_test.go` files, or the other packages holding a
+// *Task (both fields are exported). What actually defends the invariant on
+// every path the FSM replays is TestStructuralInvariant_FinishedAtIffTerminal,
+// which re-checks it after every apply; this scan only makes the cheap
+// regression cheap to catch.
 func TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter(t *testing.T) {
 	forbidden := []*regexp.Regexp{
 		regexp.MustCompile(`\.Status\s*=\s*TaskStatus(Finished|Failed|Cancelled)\b`),
@@ -268,7 +273,8 @@ func TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter(t *testing.T) {
 			for _, re := range forbidden {
 				require.NotRegexp(t, re, line,
 					"%s:%d assigns a terminal status or FinishedAt outside Task.markTerminal, "+
-						"which is what keeps FinishedAt.IsZero() ⟺ !Status.IsTerminal() true by construction",
+						"which is what pairs the status with the stamp and keeps "+
+						"FinishedAt.IsZero() ⟺ !Status.IsTerminal() true",
 					name, i+1)
 			}
 		}

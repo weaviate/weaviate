@@ -190,6 +190,33 @@ func TestManager_FinishedAt_StampedAtTheTerminalTransition(t *testing.T) {
 	}
 }
 
+// markTerminal itself refuses to re-end an ended task, so exactly-once is a
+// property of the task and not of the six callers all remembering to guard
+// first. Asserted directly because every caller does guard: with the callers
+// in the way, dropping this guard leaves the FSM-level tests green.
+func TestTask_MarkTerminal_LeavesAnEndedTaskAlone(t *testing.T) {
+	first := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	later := first.Add(24 * time.Hour)
+
+	for _, terminal := range []TaskStatus{TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled} {
+		t.Run(string(terminal), func(t *testing.T) {
+			task := &Task{Status: TaskStatusSwapping}
+
+			task.markTerminal(terminal, first)
+			require.Equal(t, terminal, task.Status)
+			require.Equal(t, first, task.FinishedAt)
+
+			for _, second := range []TaskStatus{TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled} {
+				task.markTerminal(second, later)
+				require.Equal(t, terminal, task.Status,
+					"a second terminal transition changed the status")
+				require.Equal(t, first, task.FinishedAt,
+					"a second terminal transition moved the stamp")
+			}
+		})
+	}
+}
+
 // The other half of "stamped exactly once": a second terminal command against
 // an already-ended task must leave the stamp where it is, whether the FSM
 // treats it as an idempotent no-op or refuses it outright. RAFT redelivers
