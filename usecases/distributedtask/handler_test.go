@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -70,6 +71,35 @@ func TestHandler_ListTasks(t *testing.T) {
 			},
 		},
 	}, tasks)
+}
+
+// An in-flight task carries no finish time, and strfmt.DateTime is a value
+// type whose MarshalJSON always writes something — so `finishedAt` renders as
+// the zero time rather than being absent or empty. Pinned because the swagger
+// description promises exactly this string, and a client testing for an empty
+// value would otherwise render "finished 2024 years ago" for every running
+// migration.
+func TestHandler_ListTasks_InFlightTaskRendersTheZeroFinishedAt(t *testing.T) {
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)
+
+	h := NewHandler(authorizer, taskListerStub{items: map[string][]*distributedtask.Task{
+		"ns": {{
+			Namespace:      "ns",
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+			Payload:        []byte(`{}`),
+			Status:         distributedtask.TaskStatusSwapping,
+			StartedAt:      time.Now().Add(-time.Hour),
+		}},
+	}})
+
+	tasks, err := h.ListTasks(context.Background(), &models.Principal{})
+	require.NoError(t, err)
+
+	rendered, err := json.Marshal(tasks["ns"][0])
+	require.NoError(t, err)
+	require.Contains(t, string(rendered), `"finishedAt":"0001-01-01T00:00:00.000Z"`,
+		"the swagger description documents this exact value for a non-terminal task")
 }
 
 type taskListerStub struct {

@@ -8322,7 +8322,7 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Empty while the task is still running or finalizing.",
+          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Reports the zero time (0001-01-01T00:00:00.000Z) until the task is terminal, including while it is finalizing.",
           "type": "string",
           "format": "date-time"
         },
@@ -20027,7 +20027,7 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Empty while the task is still running or finalizing.",
+          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Reports the zero time (0001-01-01T00:00:00.000Z) until the task is terminal, including while it is finalizing.",
           "type": "string",
           "format": "date-time"
         },
