@@ -896,7 +896,13 @@ const reindexOwnerGatePollInterval = 100 * time.Millisecond
 //
 // It never fails the cancel: the task is already cancelled, and a caller who
 // cannot cancel at all is worse off than one told about a smaller window.
-func (h *indexesHandlers) awaitOwnerCleanupGates(ctx context.Context, payload *db.ReindexTaskPayload, collection, taskID string) {
+// ownersKnown is false when the task's payload could not be read: the payload
+// is where the owners are, so there is nothing to probe and the answer confirms
+// nothing. Without it that degraded case is indistinguishable from the
+// legitimate one where this node owns everything.
+func (h *indexesHandlers) awaitOwnerCleanupGates(ctx context.Context, payload *db.ReindexTaskPayload,
+	collection, taskID string, ownersKnown bool,
+) {
 	if h.reindexCleanup == nil {
 		return
 	}
@@ -917,6 +923,15 @@ func (h *indexesHandlers) awaitOwnerCleanupGates(ctx context.Context, payload *d
 		owners = append(owners, node)
 	}
 	if len(owners) == 0 {
+		if !ownersKnown {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"audit_event": "reindex_cancel_gate_unprobed",
+				"taskID":      taskID,
+				"collection":  collection,
+			}).Warn("cancel: the task payload does not say which nodes own its units, so no owner was asked " +
+				"whether it closed its cleanup gate; answering anyway — a backup started right now could still " +
+				"catch a teardown on another node")
+		}
 		return
 	}
 
@@ -1359,12 +1374,15 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	// Set when the match names no collection at all, which decides how much of
 	// the teardown below can safely run.
 	var unattributable bool
+	// Set only by the strict pass. False means the property, index type and
+	// owning nodes below are the URL's guess, not the task's own.
+	var payloadReadable bool
 	for _, task := range tasks[db.ReindexNamespace] {
 		if task.Status != distributedtask.TaskStatusStarted {
 			continue
 		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		payload, _, err := db.DecodeReindexTaskPayload(task.Payload)
+		if err != nil {
 			continue
 		}
 		if !strings.EqualFold(payload.Collection, collection) {
@@ -1378,12 +1396,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		}
 		target = task
 		targetPayload = payload
+		payloadReadable = true
 		break
 	}
 
 	if target == nil {
-		// A live task whose payload the full decoder rejects refuses every
-		// backup of this collection, and the refusal names this endpoint as
+		// A live task whose payload cannot be read ([db.DecodeReindexTaskPayload])
+		// refuses every backup of this collection, and the refusal names this endpoint as
 		// the remedy. The property and index type it targets are inside the
 		// payload that will not decode, so the collection is all there is to
 		// match on. Answering NO_OP here would leave the operator with no way
@@ -1395,11 +1414,10 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			if task.Status != distributedtask.TaskStatusStarted {
 				continue
 			}
-			var payload db.ReindexTaskPayload
-			if err := json.Unmarshal(task.Payload, &payload); err == nil {
+			_, recovered, err := db.DecodeReindexTaskPayload(task.Payload)
+			if err == nil {
 				continue
 			}
-			recovered := db.ReindexTaskCollection(task.Payload)
 			if recovered == "" || !strings.EqualFold(recovered, collection) {
 				continue
 			}
@@ -1434,11 +1452,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			if task.Status != distributedtask.TaskStatusStarted {
 				continue
 			}
-			var payload db.ReindexTaskPayload
-			if err := json.Unmarshal(task.Payload, &payload); err == nil {
-				continue
-			}
-			if db.ReindexTaskCollection(task.Payload) != "" {
+			_, recovered, err := db.DecodeReindexTaskPayload(task.Payload)
+			if err == nil || recovered != "" {
 				continue
 			}
 			h.appState.Logger.WithFields(logrus.Fields{
@@ -1523,7 +1538,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		// ends: awaitOwnerCleanupGates below still reports on this node's
 		// teardown window.
 		if release := h.drainAndCleanupCancelledTask(ctx, provider,
-			target, &targetPayload, collection, propertyName, indexType); release != nil {
+			target, &targetPayload, collection, propertyName, indexType, payloadReadable); release != nil {
 			defer release()
 		}
 	default:
@@ -1536,7 +1551,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	// Nothing above closed a gate if this node owns none of the shards.
-	h.awaitOwnerCleanupGates(ctx, &targetPayload, collection, target.ID)
+	h.awaitOwnerCleanupGates(ctx, &targetPayload, collection, target.ID, payloadReadable)
 
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancelled",
@@ -1568,6 +1583,10 @@ type reindexCleanupGateProvider interface {
 // wipes the partial on-disk state the cancelled task left behind, with the
 // backup and restore gates closed across both.
 //
+// payloadReadable false means the (property, index type) it sweeps is the URL's
+// and not the task's, because the task's payload would not decode; the
+// completion log says so rather than claiming an authoritative clean.
+//
 // The drain has to come first: the worker is still writing to the __reindex /
 // __ingest buckets, and ShutdownBucket would tear them out from under it and
 // corrupt the store. It is bounded so a stuck goroutine cannot turn the cancel
@@ -1589,6 +1608,7 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 	target *distributedtask.Task,
 	payload *db.ReindexTaskPayload,
 	collection, propertyName, indexType string,
+	payloadReadable bool,
 ) func() {
 	fields := logrus.Fields{
 		"taskID":     target.ID,
@@ -1663,8 +1683,18 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 		h.appState.Logger.WithFields(fields).WithField("strategies", indexTypesToClean).Errorf(
 			"cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry",
 			len(cleanupErrs), cleanupErrs)
-	} else {
+	} else if payloadReadable {
 		h.appState.Logger.WithFields(fields).Info("cancel: on-disk cleanup complete")
+	} else {
+		// The property and index type came from the URL because the task's own
+		// payload would not decode, so this swept the tuple the caller asked
+		// about, not necessarily the one the task holds. Reporting it as done
+		// would tell an operator the disk is clean when the task's real
+		// sidecars may be untouched.
+		h.appState.Logger.WithFields(fields).WithField("strategies", indexTypesToClean).Info(
+			"cancel: on-disk cleanup complete for the property and index type in the request URL; " +
+				"the task's own payload would not decode, so what it actually holds may differ and " +
+				"is left to the next submit's sweep or the restart audit")
 	}
 	return release
 }
@@ -1703,9 +1733,8 @@ func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 			!db.IsLiveReindexTaskStatus(task.Status) {
 			continue
 		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			recovered := db.ReindexTaskCollection(task.Payload)
+		payload, recovered, err := db.DecodeReindexTaskPayload(task.Payload)
+		if err != nil {
 			if recovered == "" {
 				// Kept as the fallback: a task naming this collection is the
 				// better answer, so only report it once the loop finds none.
@@ -1990,16 +2019,16 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 type parsedReindexTask struct {
 	task    *distributedtask.Task
 	payload db.ReindexTaskPayload
-	// unreadable marks a live task the full decoder rejected. Only
-	// payload.Collection is populated, recovered by
-	// [db.ReindexTaskCollection]; every other field is zero.
+	// unreadable marks a live task [db.DecodeReindexTaskPayload] could not
+	// read. Only payload.Collection is populated, recovered by that same
+	// helper; every other field is zero.
 	unreadable bool
 }
 
 // parseReindexTasks unmarshals every reindex task's payload once.
 //
-// A live task whose payload the full decoder rejects is kept, flagged
-// unreadable, with just the collection recovered. The backup gate refuses
+// A live task whose payload [db.DecodeReindexTaskPayload] cannot read is kept,
+// flagged unreadable, with just the collection recovered. The backup gate refuses
 // that whole collection on exactly this payload and tells the operator to
 // poll here until every index reads "ready", so dropping the task would
 // answer "ready" for a collection backups keep refusing. A rolling upgrade
@@ -2014,9 +2043,8 @@ type parsedReindexTask struct {
 func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 	parsed := make([]parsedReindexTask, 0, len(tasks))
 	for _, task := range tasks {
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			collection := db.ReindexTaskCollection(task.Payload)
+		payload, collection, err := db.DecodeReindexTaskPayload(task.Payload)
+		if err != nil {
 			if collection == "" || !db.IsLiveReindexTaskStatus(task.Status) {
 				continue
 			}

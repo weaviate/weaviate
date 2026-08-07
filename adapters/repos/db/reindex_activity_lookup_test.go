@@ -600,7 +600,11 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 			task: func(*testing.T) *distributedtask.Task {
 				return unreadableTask(distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))
 			},
-			why: "an unidentifiable task still cannot write after it finished; the timestamps alone clear it",
+			leaked: []string{"not json", "invalid character"},
+			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable; " +
+				"retry once every node runs the same server version, and report this to Weaviate if it persists",
+			why: "nothing tore this task's sidecars down, because the teardown is addressed by the shards its payload names; " +
+				"the timestamps say when it stopped running, not when it stopped leaving state on disk",
 		},
 		{
 			name: "collection field renamed by a newer node, live",
@@ -652,7 +656,26 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 			task: func(t *testing.T) *distributedtask.Task {
 				return poisonTask(t, "Movies", distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))
 			},
-			why: "status and FinishedAt come off the task, not the payload; one that was over before the capture began cannot have spanned it",
+			wantMsg: unreadablePayloadMsg("Movies"),
+			why:     "no teardown ran for a payload nothing can read, so the refusal outlives the task and stays on the one collection it names",
+		},
+		{
+			name: "terminal poison on a collection this backup does not cover",
+			task: func(t *testing.T) *distributedtask.Task {
+				return poisonTask(t, "Actors", distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))
+			},
+			why: "the un-torn-down state belongs to another collection; refusing this backup would be the cluster-wide outage the scoping exists to avoid",
+		},
+		{
+			name: "terminal renamed field that finished before the backup started",
+			task: func(t *testing.T) *distributedtask.Task {
+				task := renamedFieldTask(t, distributedtask.TaskStatusFinished)
+				task.FinishedAt = backupStart.Add(-time.Minute)
+				return task
+			},
+			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable; " +
+				"retry once every node runs the same server version, and report this to Weaviate if it persists",
+			why: "a renamed collection field decodes cleanly and still names nothing, so it gets the same answer as a payload that will not decode at all",
 		},
 		{
 			name: "terminal poison that finished inside the window",

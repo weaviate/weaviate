@@ -606,7 +606,7 @@ func TestAwaitOwnerCleanupGatesGivesEachOwnerItsOwnBudget(t *testing.T) {
 	h.awaitOwnerCleanupGates(ctx, &db.ReindexTaskPayload{
 		Collection: collection,
 		UnitToNode: map[string]string{"u1": slowOwner, "u2": fastOwner, "u3": local},
-	}, collection, "task-1")
+	}, collection, "task-1", true)
 
 	entry := warned(hook, "could not confirm")
 	require.NotNil(t, entry, "the owner that never answered has to be visible to the operator")

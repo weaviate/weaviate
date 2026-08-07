@@ -1166,24 +1166,23 @@ func newShardReindexActivityBuilder(
 			if !db.IsLiveReindexTaskStatus(task.Status) {
 				continue
 			}
-			var payload db.ReindexTaskPayload
-			if err := json.Unmarshal(task.Payload, &payload); err != nil {
-				collection := db.ReindexTaskCollection(task.Payload)
+			payload, collection, err := db.DecodeReindexTaskPayload(task.Payload)
+			if err != nil {
 				if collection == "" {
 					logger.WithField("action", "backup_reindex_gate").
 						WithField("task_id", task.ID).
-						Warnf("backup-reindex gate: cannot decode task payload and it names no collection; refusing all backups until it is readable or evicted: %v", err)
+						Warnf("backup-reindex gate: cannot read task payload and it names no collection; refusing all backups until it is readable or evicted: %v", err)
 					return func(string, string) bool { return true }
 				}
 				logger.WithField("action", "backup_reindex_gate").
 					WithField("task_id", task.ID).
 					WithField("collection", collection).
-					Warnf("backup-reindex gate: cannot decode task payload; refusing backups of this collection until it is readable or evicted: %v", err)
+					Warnf("backup-reindex gate: cannot read task payload; refusing backups of this collection until it is readable or evicted: %v", err)
 				blocked[strings.ToLower(collection)] = true
 				continue
 			}
 			for _, shardName := range payload.UnitToShard {
-				live[shardKey{payload.Collection, shardName}] = true
+				live[shardKey{collection, shardName}] = true
 			}
 		}
 		return func(collection, shardName string) bool {

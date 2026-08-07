@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -238,6 +239,29 @@ func unattributableTask(id string, status distributedtask.TaskStatus) *distribut
 	}
 }
 
+// renamedFieldTask is the other way a payload can name no collection, and the
+// one a decoder cannot see: a newer node renames the collection field, Go
+// ignores the unknown key, and this decodes without error into an empty
+// payload. It holds the same cluster-wide gate as a payload that will not
+// decode at all, so every pass that handles one has to handle this too.
+func renamedFieldTask(t *testing.T, id string, status distributedtask.TaskStatus) *distributedtask.Task {
+	t.Helper()
+	raw := []byte(`{"collektion":"Movies","unitToShard":{"u1":"shard1"}}`)
+
+	var probe db.ReindexTaskPayload
+	require.NoError(t, json.Unmarshal(raw, &probe),
+		"this fixture is only meaningful while the payload decodes without error")
+	require.Empty(t, probe.Collection,
+		"this fixture is only meaningful while the decoded collection is empty")
+
+	return &distributedtask.Task{
+		Namespace:      db.ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 3},
+		Status:         status,
+		Payload:        raw,
+	}
+}
+
 // A live task that names no collection refuses every backup and every restore
 // in the cluster, and no collection's status endpoint can report it. If cancel
 // cannot reach it either, the only exit left is RUNTIME_REINDEX_ENABLED=false,
@@ -292,6 +316,25 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			wantStatus:      "CANCELLED",
 		},
 		{
+			name: "the only live task has a renamed collection field",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{renamedFieldTask(t, "renamed", distributedtask.TaskStatusStarted)}
+			},
+			wantCancelledID: "renamed",
+			wantStatus:      "CANCELLED",
+		},
+		{
+			name: "a decodable task on this collection still wins over a renamed one",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					renamedFieldTask(t, "renamed", distributedtask.TaskStatusStarted),
+					decodableOnMovies(t),
+				}
+			},
+			wantCancelledID: "t-decodable",
+			wantStatus:      "CANCELLED",
+		},
+		{
 			name: "a terminal task holds no gate and is left alone",
 			tasks: func(*testing.T) []*distributedtask.Task {
 				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusFinished)}
@@ -302,6 +345,13 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			name: "past STARTED, DTM will not cancel it, so say so",
 			tasks: func(*testing.T) []*distributedtask.Task {
 				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusSwapping)}
+			},
+			wantConflict: true,
+		},
+		{
+			name: "a renamed one past STARTED gets the same refusal",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{renamedFieldTask(t, "renamed", distributedtask.TaskStatusSwapping)}
 			},
 			wantConflict: true,
 		},

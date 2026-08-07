@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -320,25 +319,20 @@ func lowercasedSet(collections []string) map[string]struct{} {
 // operation, and refusing every backup with no remedy is a self-inflicted
 // outage.
 //
-// Two things bound it: status and FinishedAt are read off the task rather than
-// the payload, so one already over when the capture began is cleared whatever
-// its payload says, and [ReindexTaskCollection] recovers the collection from
-// payloads the full decoder rejects, holding the rest to the collection the
-// task names.
+// [DecodeReindexTaskPayload] bounds it: it recovers the collection from
+// payloads it cannot otherwise read, holding the refusal to the collection the
+// task names. Only a payload naming no collection at all refuses everything.
+//
+// The task-level "already over before the capture began" waiver applies to
+// readable payloads only. Nothing tore an unreadable one down — the teardown is
+// addressed by the shards the payload names — so its sidecar state can still be
+// on disk, and the timestamps say nothing about a teardown that never started.
+// The cost is that such a task keeps refusing until the completed-task TTL
+// drops it; the alternative is waiving a capture nothing ever cleaned up after.
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
-	var payload ReindexTaskPayload
-	decodeErr := json.Unmarshal(task.Payload, &payload)
-	// Recovery keys on the collection being absent, not on the decoder having
-	// complained. A retyped field fails json.Unmarshal; a RENAMED one does not,
-	// because Go ignores unknown fields — it decodes cleanly to an empty
-	// collection. Both are rolling-upgrade shapes and both must reach the
-	// tolerant probe.
-	collection := payload.Collection
-	if collection == "" {
-		collection = ReindexTaskCollection(task.Payload)
-	}
+	_, collection, decodeErr := DecodeReindexTaskPayload(task.Payload)
 
-	if !IsLiveReindexTaskStatus(task.Status) {
+	if !IsLiveReindexTaskStatus(task.Status) && decodeErr == nil {
 		if task.Status == distributedtask.TaskStatusCancelled && !reindexTaskTouchedShards(task) {
 			// A cancelled task that never claimed a unit wrote nothing, so it
 			// cannot have spanned this backup. One is produced on purpose by
