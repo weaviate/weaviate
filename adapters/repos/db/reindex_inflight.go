@@ -345,7 +345,7 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 		// here and still refuses the backup, but cancel refuses too. Promising
 		// cancel outright sent operators into a loop between a refused backup
 		// and a cancel that reported nothing to do.
-		advice = " has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\"). While it is still building indexes you can cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}; once it has started committing its result it can only be waited out"
+		advice = " has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\"). While it is still building indexes you can cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}; once it has started committing its result it can only be waited out. If every index already reports \"ready\", the task holding this gate is one this server cannot attribute to a collection — the same cancel call, on any collection, clears it"
 	}
 	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf("%s: collection %q%s",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection, advice)}
