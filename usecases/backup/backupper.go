@@ -57,11 +57,8 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
-	// The slot is released as soon as the operation returns, so a poll only a
-	// moment later lands here. Answer a remembered failure before consulting
-	// the backend: when writing the descriptor is what failed, the backend
-	// answers "metadata file not found", and that text is what the coordinator
-	// latches and publishes as the reason the backup failed.
+	// Before the backend, because the backend has nothing to say about the
+	// failure this remembers; see [backupStat.failedReason].
 	if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
 		return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
 	}

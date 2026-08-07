@@ -172,17 +172,8 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	require.Equal(t, backup.Failed, res.Status)
 	require.Contains(t, res.Err, "a runtime-reindex overlapped this backup",
 		"the reason must survive the hop to the coordinator, which latches this answer")
-
-	// The operation returns and releases the slot within a millisecond of
-	// setting the reason, which is what backupper.backup's deferred reset does.
-	// A realistic poll lands after that, and with the descriptor unwritten
-	// there is nothing else left to read the reason from.
-	slot.reset()
-	res = handler.OnStatus(context.Background(), &StatusRequest{Method: OpCreate, ID: backupID})
-	require.Equal(t, backup.Failed, res.Status,
-		"once the slot is released the poll must still see a failure, not a backup that might be running")
-	require.Contains(t, res.Err, "a runtime-reindex overlapped this backup",
-		"a reason that evaporates with the slot is a reason no operator ever reads")
+	// TestRememberedFailureSurvivesTheProductionSlotRelease covers the poll
+	// that lands after the operation releases the slot.
 }
 
 // A cancellation that is not the caller's is not an abort. The lookup is a

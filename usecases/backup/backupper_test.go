@@ -913,11 +913,12 @@ func TestResolveBaseBackupChain(t *testing.T) {
 }
 
 // runParticipantBackup wires the participant mocks, drives a backup to
-// completion, and returns the stored meta. Duration is an hour so the
-// pre-commit window can't expire under CI load.
+// completion, and returns the handler alongside the stored meta. metaWriteErr
+// fails the descriptor write. Duration is an hour so the pre-commit window
+// can't expire under CI load.
 func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
-	classes []string, sourcePath string, descs ...backup.ClassDescriptor,
-) (backup.Status, string) {
+	classes []string, sourcePath string, metaWriteErr error, descs ...backup.ClassDescriptor,
+) (*Handler, backup.Status, string) {
 	t.Helper()
 	var (
 		ctx         = context.Background()
@@ -938,7 +939,7 @@ func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBacke
 	backend.On("SourceDataPath").Return(sourcePath)
 	backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 	backend.On("Initialize", ctx, nodeHome).Return(nil)
-	backend.On("PutObject", any, nodeHome, BackupFile, any).Return(nil)
+	backend.On("PutObject", any, nodeHome, BackupFile, any).Return(metaWriteErr)
 	backend.On("Write", any, nodeHome, any, any).Return(any, nil)
 
 	m := createManager(sourcer, nil, backend, nil)
@@ -950,7 +951,54 @@ func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBacke
 	require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
 	m.backupper.waitForCompletion(50, 100)
 
-	return backend.getMetaStatus()
+	status, reason := backend.getMetaStatus()
+	return m, status, reason
+}
+
+// waitForSlotRelease waits for backupper.backup's deferred reset, which is what
+// hands the node back to the next operation. Reports whether it happened.
+func (r *backupper) waitForSlotRelease(n, ms int) bool {
+	for i := 0; i < n; i++ {
+		if r.lastOp.get().ID == "" {
+			return true
+		}
+		time.Sleep(time.Millisecond * time.Duration(ms))
+	}
+	return false
+}
+
+// A poll that arrives after the operation released the slot is the realistic
+// one: the release is a deferred call a millisecond behind the failure. When
+// writing the descriptor is itself what failed there is no descriptor for that
+// poll to fall back on, so the reason has to outlive the slot or the coordinator
+// latches "metadata not found" as why the backup failed.
+func TestRememberedFailureSurvivesTheProductionSlotRelease(t *testing.T) {
+	t.Parallel()
+	const cls = "Movies"
+
+	sourcer := &fakeSourcer{}
+	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrBackupSpannedReindex, cls)
+
+	// The descriptor the poll would otherwise fall back on. It is not there,
+	// because writing it is what failed.
+	backend := newFakeBackend()
+	backend.On("GetObject", context.Background(), "1", BackupFile).Return(nil, errNotFound)
+
+	sourcePath := t.TempDir()
+	m, _, _ := runParticipantBackup(t, sourcer, backend, []string{cls}, sourcePath,
+		errors.New("object storage unreachable"), genClassDescriptions(t, sourcePath, cls)...)
+
+	require.True(t, m.backupper.waitForSlotRelease(50, 100),
+		"backupper.backup's deferred reset never ran, so this test would prove nothing about polls after it")
+
+	res := m.OnStatus(context.Background(), &StatusRequest{Method: OpCreate, ID: "1", Backend: "gcs"})
+	require.Equal(t, backup.Failed, res.Status,
+		"a poll after the slot is released must not report a finished backup as one that might be running")
+	require.Contains(t, res.Err, "a runtime-reindex overlapped this backup",
+		"the reason has to survive the release; the descriptor that would otherwise carry it was never written")
+	require.NotContains(t, res.Err, "metadata not found",
+		"the missing descriptor is the symptom of the failure, not its reason")
 }
 
 // Pins: a reindex admitted after the pre-capture check still fails the
@@ -991,8 +1039,8 @@ func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 					backup.ErrBackupSpannedReindex, cls)
 			}
 
-			status, errMsg := runParticipantBackup(t, sourcer, newFakeBackend(),
-				[]string{cls, cls2}, sourcePath, genClassDescriptions(t, sourcePath, cls, cls2)...)
+			_, status, errMsg := runParticipantBackup(t, sourcer, newFakeBackend(),
+				[]string{cls, cls2}, sourcePath, nil, genClassDescriptions(t, sourcePath, cls, cls2)...)
 			require.Equal(t, tc.wantStatus, status)
 			if tc.wantErrPart == "" {
 				require.Empty(t, errMsg)
@@ -1026,8 +1074,8 @@ func TestBackupFailureMetaOmitsTheShardThatRefused(t *testing.T) {
 	wrapped := fmt.Errorf("backup class %s descriptor: backup shards with hardlinks: snapshot shard %s: halt for snapshot: %w",
 		cls, shard, refusal)
 
-	_, errMsg := runParticipantBackup(t, &fakeSourcer{}, newFakeBackend(), []string{cls}, t.TempDir(),
-		backup.ClassDescriptor{Name: cls, Error: wrapped})
+	_, _, errMsg := runParticipantBackup(t, &fakeSourcer{}, newFakeBackend(), []string{cls}, t.TempDir(),
+		nil, backup.ClassDescriptor{Name: cls, Error: wrapped})
 
 	// OnStatus keys the participant's failure off meta.Error, not meta.Status:
 	// the per-shard path leaves Status at TRANSFERRING, unlike the commit-time
