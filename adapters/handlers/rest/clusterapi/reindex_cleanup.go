@@ -25,8 +25,7 @@ import (
 
 // ReindexCleanupProber answers whether this node has seen a cancel for the
 // collection or is still tearing down its reindex sidecars. This is the
-// confirmation signal a cancelling node waits on; it blocks nothing itself,
-// unlike the cleanup gate the backup and restore admission checks read.
+// confirmation signal a cancelling node waits on. It blocks nothing itself.
 type ReindexCleanupProber interface {
 	AnyCleanupInProgressForCollection(collection string) bool
 }

@@ -289,10 +289,10 @@ type wakeCounter struct{ n atomic.Int64 }
 
 func (w *wakeCounter) Wake() { w.n.Add(1) }
 
-// Pins: dispatch must not read timestamps to decide replay-vs-live, since
-// they're stamped by the proposing node, so clock skew would make a live
-// ending look replayed and skip the observer. Only the FSM's own local
-// replay flag may suppress a dispatch.
+// Pins: dispatch must not read timestamps to decide replay-vs-live. They are
+// stamped by the proposing node, so clock skew would make a live ending look
+// replayed and skip the observer. Only the FSM's own local replay flag may
+// suppress a dispatch.
 func TestTerminalDispatchIgnoresProposerClockSkew(t *testing.T) {
 	tests := []struct {
 		name string
