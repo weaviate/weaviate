@@ -992,6 +992,26 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+
+	// Installed here, not in the goroutine below: both read this node's own
+	// provider, which initReindexAndDistributedTasks stored synchronously one
+	// line above, so neither has anything to wait for. The goroutine does not
+	// run until RAFT has replayed and then waits up to 60s for DTM to answer,
+	// and HTTP is already serving through all of it — a submission that is
+	// deleting sidecars right now would be invisible to a concurrent backup
+	// for that whole window.
+	//
+	// S1: the DTM-activity lookup flips a shard "free" the moment a task lands
+	// in a terminal status; autoCleanupAfterTerminal then tears the sidecar
+	// __reindex / __ingest dirs over the next tens of seconds. The
+	// cleanup-in-progress lookup keeps the gate closed for that window so a
+	// backup landing in the gap doesn't snapshot half-removed sidecars.
+	reindexProvider := appState.ReindexProvider.Load()
+	repo.SetReindexCleanupInProgressLookup(reindexProvider.CleanupInProgressLookupBuilder())
+	// Same race, restore side: the cluster lookup installed below sees only
+	// DTM, which has already forgotten the task by the time sidecars come down.
+	repo.SetAnyCleanupInProgressLookup(anyCleanupInProgressLookup(reindexProvider))
+
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1106,17 +1126,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			appState.ClusterService.ListDistributedTasks,
 			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 		))
-		// S1: the DTM-activity lookup flips a shard "free" the moment a
-		// task lands in a terminal status; autoCleanupAfterTerminal then
-		// tears the sidecar __reindex / __ingest dirs over the next
-		// tens of seconds. The cleanup-in-progress lookup keeps the gate
-		// closed for that window so a backup landing in the gap doesn't
-		// snapshot half-removed sidecars.
-		reindexProvider := appState.ReindexProvider.Load()
-		repo.SetReindexCleanupInProgressLookup(reindexProvider.CleanupInProgressLookupBuilder())
-		// Same race, restore side: the cluster lookup above sees only DTM,
-		// which has already forgotten the task by the time sidecars come down.
-		repo.SetAnyCleanupInProgressLookup(anyCleanupInProgressLookup(reindexProvider))
 	}, appState.Logger)
 
 	return appState
@@ -1132,16 +1141,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 // is the same uncertainty in a smaller shape.
 //
 // How wide that refusal goes depends on how much of the payload survives.
-// [db.ReindexTaskCollection] recovers the collection from payloads the full
-// decoder rejects, which is what a rolling upgrade produces, and the refusal is
-// held to that collection's shards. Only a payload naming no collection at all
-// refuses every backup in the cluster, because nothing says which shards it
+// [db.DecodeReindexTaskPayload] recovers the collection from payloads it will
+// not otherwise read, which is what a rolling upgrade produces, and the refusal
+// is held to that collection's shards. Only a payload naming no collection at
+// all refuses every backup in the cluster, because nothing says which shards it
 // could have been holding.
 //
 // The commit-time backstop ([db.ReindexOverlapLookup]) draws the same line, and
 // the two have to agree on what unreadable means: a gap either admits a capture
 // the commit will reject after all the upload work, or refuses at admission
-// what the commit would have allowed.
+// what the commit would have allowed. That agreement is why both read the
+// payload through [db.DecodeReindexTaskPayload] rather than each deciding for
+// itself what unreadable means.
 func newShardReindexActivityBuilder(
 	ctx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),

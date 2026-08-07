@@ -170,11 +170,12 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	} else {
 		snap.activity = activityBuilder()
 	}
-	// Installed independently of the activity lookup. The cleanup hold is a map
-	// read on this node's own provider — it needs nothing from DTM — so letting
-	// a missing activity builder suppress it makes a submission that is already
-	// deleting sidecars invisible to a concurrent backup for the whole
-	// post-bootstrap wait, while HTTP is already serving.
+	// Read even when the activity builder is missing. The cleanup hold is a map
+	// read on this node's own provider, so configure_api.go installs it
+	// synchronously, before the goroutine that waits for RAFT and DTM installs
+	// the activity builder. Letting a missing activity builder suppress it
+	// would make a submission that is already deleting sidecars invisible to a
+	// concurrent backup for that whole wait, while HTTP is already serving.
 	if cleanupBuilder != nil {
 		snap.cleanup = cleanupBuilder()
 	}
