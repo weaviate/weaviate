@@ -125,6 +125,44 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 		"the last status an operator can poll has to be the cancellation they caused")
 }
 
+// The refusal's status flip waits for the meta write, so object storage failing
+// that write is exactly when the flip is at risk of being skipped. Leaving the
+// slot at Transferring publishes a finished operation as still running, and the
+// operator loses the reason for the one failure mode this feature adds.
+func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
+	const backupID = "1"
+	any := mock.Anything
+
+	backend := newFakeBackend()
+	backend.On("PutObject", any, backupID, BackupFile, any).
+		Return(errors.New("object storage unreachable"))
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
+	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrBackupSpannedReindex, "Movies")
+
+	var observed []backup.Status
+	setStatus := func(st backup.Status) { observed = append(observed, st) }
+
+	logger, _ := test.NewNullLogger()
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
+
+	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
+	err := uploader.all(context.Background(), nil, &desc, nil, "", "")
+
+	require.ErrorIs(t, err, backup.ErrBackupSpannedReindex)
+	require.Contains(t, err.Error(), "a runtime-reindex overlapped this backup",
+		"with the descriptor unwritten, the returned error is the only place the reason survives")
+	require.Contains(t, err.Error(), "object storage unreachable",
+		"the meta write failure has to stay visible next to the refusal")
+
+	require.NotEmpty(t, observed)
+	require.Equal(t, backup.Failed, observed[len(observed)-1],
+		"a refusal left at Transferring reads as a backup that is still running")
+}
+
 // A cancellation that is not the caller's is not an abort. The lookup is a
 // leader-forwarded RAFT query, and a client that gives up on its own derived
 // context hands back an error carrying context.Canceled while this backup's
