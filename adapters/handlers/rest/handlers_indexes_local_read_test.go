@@ -36,7 +36,7 @@ func (s *splitViewTaskService) ListDistributedTasks(context.Context) (map[string
 	return map[string][]*distributedtask.Task{db.ReindexNamespace: s.leader}, nil
 }
 
-func (s *splitViewTaskService) ListDistributedTasksLocal(context.Context) (map[string][]*distributedtask.Task, error) {
+func (s *splitViewTaskService) ListDistributedTasksAtLocalConsistency(context.Context) (map[string][]*distributedtask.Task, error) {
 	return map[string][]*distributedtask.Task{db.ReindexNamespace: s.local}, nil
 }
 
@@ -193,7 +193,7 @@ type erroringLocalReadService struct {
 	reindexTaskService
 }
 
-func (erroringLocalReadService) ListDistributedTasksLocal(context.Context) (map[string][]*distributedtask.Task, error) {
+func (erroringLocalReadService) ListDistributedTasksAtLocalConsistency(context.Context) (map[string][]*distributedtask.Task, error) {
 	return nil, errors.New("local FSM read failed")
 }
 

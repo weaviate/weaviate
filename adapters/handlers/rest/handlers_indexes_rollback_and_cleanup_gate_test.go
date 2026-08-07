@@ -790,10 +790,10 @@ func TestUpdateIndexNamesTheTaskWhenTheRollbackFails(t *testing.T) {
 	}
 }
 
-func (s *ctxAwareTaskService) ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+func (s *ctxAwareTaskService) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return s.ListDistributedTasks(ctx)
 }
 
-func (s *scriptedRollbackService) ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+func (s *scriptedRollbackService) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return s.ListDistributedTasks(ctx)
 }

@@ -150,9 +150,9 @@ type reindexCleanupProber interface {
 // without a live RAFT node.
 type reindexTaskService interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
-	// Reads this node's own FSM; only the status endpoint wants it. Picking
-	// the wrong one compiles — see [cluster.Raft.ListDistributedTasksLocal].
-	ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	// Reads this node's own FSM; only the status endpoint wants it. See
+	// [cluster.Raft.ListDistributedTasksAtLocalConsistency].
+	ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error)
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 	AddDistributedTaskWithBarrier(ctx context.Context, namespace, taskID string,
 		taskPayload any, unitIDs []string, needsPreparationBarrier bool) error
@@ -182,7 +182,7 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 //
 // Answers at LOCAL consistency, so the schema flags and the task list are
 // apply-ordered with respect to each other — see
-// [cluster.Raft.ListDistributedTasksLocal]. The submit path and the backup
+// [cluster.Raft.ListDistributedTasksAtLocalConsistency]. The submit path and the backup
 // commit-time gate answer at the leader, so a lagging node can report an index
 // `ready` and then refuse the operator's follow-up write.
 //
@@ -230,7 +230,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		})
 	} else {
 		var err error
-		activeTasks, err = h.tasks.ListDistributedTasksLocal(params.HTTPRequest.Context())
+		activeTasks, err = h.tasks.ListDistributedTasksAtLocalConsistency(params.HTTPRequest.Context())
 		if err != nil {
 			return schema.NewSchemaObjectsIndexesGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))

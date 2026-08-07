@@ -124,6 +124,6 @@ func TestDeleteClassPropertyIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) 
 		"submit lock must be keyed on the qualified class so callers using the short vs qualified name share it")
 }
 
-func (f fakeReindexTaskLister) ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+func (f fakeReindexTaskLister) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return f.tasks, nil
 }
