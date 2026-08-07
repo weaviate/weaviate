@@ -18,13 +18,27 @@ import (
 
 	"github.com/stretchr/testify/require"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestRestoreRefusedDuringInFlightReindex pins that a restore is refused
-// (422) by a live reindex on an unrelated collection — the gate is
-// cluster-wide because the restored class has no local index of its own.
+// TestRestoreRefusedDuringInFlightReindex pins both halves of the restore
+// gate's contract while a migration is live: a restore that INCLUDES the
+// migrating collection is refused synchronously with 422, and a restore of
+// any OTHER collection is admitted and completes.
+//
+// The check is cluster-wide but scoped by collection. Cluster-wide because a
+// restoring class has no local index, so no per-shard lookup could ever see
+// the task; scoped because a migration can run for days, and answering blind
+// would refuse every restore of every collection for that whole time.
+//
+// Both arms are load-bearing. Without the second one, dropping the scoping
+// again would leave this test green.
+//
+// The contract's third arm — a live task whose payload names no collection at
+// all refuses every restore — needs a payload no API can write, so it stays at
+// the unit tier in TestAnyReindexActivityLookupScopesUndecodablePayloads.
 func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	ctx := context.Background()
 
@@ -39,26 +53,28 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	defer dumpWeaviateLogs(ctx, t, compose.GetWeaviate().Container(), "weaviate")
 
 	const (
-		restoredClass = "RestoreGuard_Payload"
-		reindexClass  = "RestoreGuard_Migrating"
-		backupID      = "restore-guard-refuse"
+		unrelatedClass = "RestoreGuard_Payload"
+		reindexClass   = "RestoreGuard_Migrating"
+		backend        = "filesystem"
+		backupID       = "restore-guard-refuse"
 	)
 
-	// Delete after backing up so the restore below is otherwise valid.
-	createBodyClass(t, restoredClass, "body")
-	importBodies(t, restoredClass, 200)
-	_, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), restoredClass, "filesystem", backupID)
-	require.NoError(t, err)
-	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil,
-		helper.WithDeadline(2*time.Minute))
-	helper.DeleteClass(t, restoredClass)
+	createBodyClass(t, unrelatedClass, "body")
+	importBodies(t, unrelatedClass, 200)
 
 	// 50k objects keep the tokenization change live for several seconds, long
-	// enough for the restore call below to land inside the window.
+	// enough for both restore calls below to land inside the window.
 	createBodyClass(t, reindexClass, "body")
 	// Not deleted on the way out: the migration is still live at that point and
 	// the mutation guard rejects the delete. The container goes away regardless.
 	importBodies(t, reindexClass, 50_000)
+
+	// One backup holding both, so each arm below names a backup that really
+	// contains what it asks to restore.
+	createBackupOf(t, backend, backupID, unrelatedClass, reindexClass)
+	// Deleted after the backup so the cross-collection restore is otherwise
+	// valid. The migrating class has to stay: it is what the reindex runs on.
+	helper.DeleteClass(t, unrelatedClass)
 
 	taskID := submitChangeTokenization(t, restURI, reindexClass, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
@@ -66,22 +82,23 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		reindexhelpers.WithTimeout(30*time.Second))
 
 	statusBefore := reindexTaskStatus(t, restURI, taskID)
-	_, restoreErr := helper.RestoreBackup(t, helper.DefaultRestoreConfig(),
-		restoredClass, "filesystem", backupID, nil, false)
+	sameCollectionErr := restoreClasses(t, backend, backupID, unrelatedClass, reindexClass)
+	crossCollectionErr := restoreClasses(t, backend, backupID, unrelatedClass)
 	statusAfter := reindexTaskStatus(t, restURI, taskID)
 
-	// Judge the window before judging the verdict: a migration that drained
+	// Judge the window before judging the verdicts: a migration that drained
 	// early would make any outcome below meaningless.
 	require.Truef(t, liveReindexStatus(statusBefore) && liveReindexStatus(statusAfter),
-		"reindex task %s must still be live on both sides of the restore attempt "+
+		"reindex task %s must still be live on both sides of the restore attempts "+
 			"(before=%q after=%q); grow the imported corpus until the migration "+
-			"outlives the restore call", taskID, statusBefore, statusAfter)
+			"outlives both restore calls", taskID, statusBefore, statusAfter)
 
-	require.Error(t, restoreErr,
-		"restore must be refused synchronously while a runtime-reindex is live")
+	// Arm 1: the restore names the migrating collection, so it is refused.
+	require.Error(t, sameCollectionErr,
+		"a restore including the migrating collection must be refused synchronously")
 	var refusal *clientbackups.BackupsRestoreUnprocessableEntity
-	require.ErrorAsf(t, restoreErr, &refusal,
-		"expected 422 BackupsRestoreUnprocessableEntity, got %T: %v", restoreErr, restoreErr)
+	require.ErrorAsf(t, sameCollectionErr, &refusal,
+		"expected 422 BackupsRestoreUnprocessableEntity, got %T: %v", sameCollectionErr, sameCollectionErr)
 	require.NotNil(t, refusal.Payload, "422 payload must not be nil")
 
 	errMsg := errorResponseMessage(refusal.Payload)
@@ -89,15 +106,59 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		"error body must name the refused operation and the blocking condition; got: %s", errMsg)
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step; got: %s", errMsg)
-	// Both words belong to the per-shard backup gate, not this cluster-wide one.
+	// "backup blocked" is the per-shard backup gate's own prefix
+	// (ErrBackupBlockedByInFlightReindex); seeing it here means the two gates'
+	// errors got crossed.
 	require.NotContains(t, errMsg, "backup blocked",
 		"a restore refusal must not be worded as a backup refusal; got: %s", errMsg)
-	require.NotContains(t, errMsg, "this shard",
-		"the gate is cluster-wide; no shard is involved; got: %s", errMsg)
 
-	// The class must stay absent: a refused restore may not partially land.
-	_, exists := reindexhelpers.FetchClass(restURI, restoredClass, true)
-	require.Falsef(t, exists, "a refused restore must not create %s", restoredClass)
+	// A refused restore may not partially land.
+	_, exists := reindexhelpers.FetchClass(restURI, unrelatedClass, true)
+	require.Falsef(t, exists, "a refused restore must not create %s", unrelatedClass)
+
+	// Arm 2: same migration, same moment, a collection it does not name. This
+	// is what pins the scoping — it passes the coordinator's gate AND every
+	// participant's, since the restore's class list reaches both.
+	require.NoErrorf(t, crossCollectionErr,
+		"a restore of %s must be admitted while the migration on %s is live; "+
+			"refusing it is the cluster-wide gate this scoping removed",
+		unrelatedClass, reindexClass)
+	helper.ExpectBackupEventuallyRestored(t, backupID, backend, nil,
+		helper.WithDeadline(2*time.Minute))
+	_, exists = reindexhelpers.FetchClass(restURI, unrelatedClass, true)
+	require.Truef(t, exists, "the admitted restore must bring %s back", unrelatedClass)
+}
+
+// createBackupOf backs up several classes into one backup and waits for it to
+// report SUCCESS. helper.CreateBackup only takes a single class.
+func createBackupOf(t *testing.T, backend, backupID string, classes ...string) {
+	t.Helper()
+	params := clientbackups.NewBackupsCreateParams().
+		WithBackend(backend).
+		WithBody(&models.BackupCreateRequest{
+			ID:      backupID,
+			Include: classes,
+			Config:  helper.DefaultBackupConfig(),
+		})
+	_, err := helper.Client(t).Backups.BackupsCreate(params, nil)
+	require.NoError(t, err)
+	helper.ExpectBackupEventuallyCreated(t, backupID, backend, nil,
+		helper.WithDeadline(3*time.Minute))
+}
+
+// restoreClasses issues one restore naming several classes and returns the
+// synchronous outcome. helper.RestoreBackup only takes a single class.
+func restoreClasses(t *testing.T, backend, backupID string, classes ...string) error {
+	t.Helper()
+	params := clientbackups.NewBackupsRestoreParams().
+		WithBackend(backend).
+		WithID(backupID).
+		WithBody(&models.BackupRestoreRequest{
+			Include: classes,
+			Config:  helper.DefaultRestoreConfig(),
+		})
+	_, err := helper.Client(t).Backups.BackupsRestore(params, nil)
+	return err
 }
 
 // reindexTaskStatus reads one reindex task's DTM status.

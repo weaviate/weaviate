@@ -59,9 +59,9 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // events may run concurrently, and past [terminalDispatchOverflowLimit] an event
 // is dropped rather than delivered — see [Manager.dispatchTerminalWithLock].
 //
-// Transitions older than [terminalObserverStaleAfter] when they apply are
-// skipped, so a node replaying the RAFT log does not pay for endings nobody is
-// waiting on.
+// Endings a node replays from its RAFT log at startup are skipped, decided by
+// the FSM's own replay flag rather than by how old the transition looks, so a
+// node whose clock is out of step still gets its live endings.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
@@ -515,9 +515,9 @@ type Task struct {
 	// than rely on it: completed-task TTL cleanup skips every non-terminal
 	// status on both sides — the scheduler's sweep filter and the FSM guard in
 	// [Manager.CleanUpTask] — so a stale FinishedAt cannot delete a task
-	// mid-swap, and the terminal-observer dispatch takes an explicit occurredAt
-	// instead of reading this field. Two others do rely on it and inherit the
-	// error: the backup overlap backstop is wrong in the narrow case where a
+	// mid-swap, and the terminal-observer dispatch decides on the FSM's replay
+	// flag instead of reading this field. Two others do rely on it and inherit
+	// the error: the backup overlap backstop is wrong in the narrow case where a
 	// swap runs inside a capture that admission did not see, and the reindex
 	// status handler's finalize window starts ticking when the units stopped
 	// rather than when the swap ended. Tracked separately; not fixed here
