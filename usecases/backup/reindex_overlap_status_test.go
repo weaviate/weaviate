@@ -336,3 +336,98 @@ func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.
 	require.Equal(t, classes, askedClasses,
 		"the check must be asked about the classes this backup captured")
 }
+
+// The remembered failure is what a poll reads once the slot is released. It has
+// to answer for exactly the backup that failed: for any other id the slot has
+// nothing to say, and answering anyway would report a stranger's failure as
+// that backup's own — which the coordinator latches and stops asking about.
+func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
+	const (
+		failedID = "backup-a"
+		otherID  = "backup-b"
+		reason   = "a runtime-reindex overlapped this backup"
+	)
+
+	tests := []struct {
+		name string
+		// setup drives the slot into the state the poll then reads.
+		setup      func(s *backupStat)
+		pollID     string
+		wantFound  bool
+		wantReason string
+	}{
+		{
+			name:       "the failed backup's own poll gets the reason",
+			setup:      func(s *backupStat) { s.setFailed(reason) },
+			pollID:     failedID,
+			wantFound:  true,
+			wantReason: reason,
+		},
+		{
+			name:      "another backup's poll is not answered with this failure",
+			setup:     func(s *backupStat) { s.setFailed(reason) },
+			pollID:    otherID,
+			wantFound: false,
+		},
+		{
+			name:      "an empty id matches nothing, including a slot that never failed",
+			setup:     func(s *backupStat) {},
+			pollID:    "",
+			wantFound: false,
+		},
+		{
+			name:      "a slot that ended without failing remembers nothing",
+			setup:     func(s *backupStat) { s.set(backup.Success) },
+			pollID:    failedID,
+			wantFound: false,
+		},
+		{
+			name: "a retry under the same id is not answered with the earlier attempt's failure",
+			setup: func(s *backupStat) {
+				s.setFailed(reason)
+				s.reset()
+				require.Empty(t, s.renew(failedID, "bucket/backups/a", "", ""))
+			},
+			pollID:    failedID,
+			wantFound: false,
+		},
+		{
+			name: "a different backup starting does not erase the failed one's reason",
+			setup: func(s *backupStat) {
+				s.setFailed(reason)
+				s.reset()
+				require.Empty(t, s.renew(otherID, "bucket/backups/b", "", ""))
+			},
+			pollID:     failedID,
+			wantFound:  true,
+			wantReason: reason,
+		},
+		{
+			name:      "a failure with no reason is not worth remembering",
+			setup:     func(s *backupStat) { s.setFailed("") },
+			pollID:    failedID,
+			wantFound: false,
+		},
+		{
+			name: "a cancelled backup is not turned into a failure",
+			setup: func(s *backupStat) {
+				s.set(backup.Cancelled)
+				s.setFailed(reason)
+			},
+			pollID:    failedID,
+			wantFound: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var slot backupStat
+			require.Empty(t, slot.renew(failedID, "bucket/backups/a", "", ""))
+			tc.setup(&slot)
+
+			gotReason, gotFound := slot.rememberedFailure(tc.pollID)
+			require.Equal(t, tc.wantFound, gotFound)
+			require.Equal(t, tc.wantReason, gotReason)
+		})
+	}
+}
