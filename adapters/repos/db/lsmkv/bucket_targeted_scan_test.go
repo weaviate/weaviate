@@ -52,21 +52,25 @@ func targetedPutEmpty(t *testing.T, b *Bucket, id uint64) {
 }
 
 // collectMergedCursor is the reference visibility ScanTargetedReplace must match.
-func collectMergedCursor(t *testing.T, b *Bucket) map[string]int {
+// Keyed by key, not value: zero-length values are indistinguishable otherwise, so
+// a duplicated or dropped empty row would not show up.
+func collectMergedCursor(t *testing.T, b *Bucket) map[string]string {
 	t.Helper()
-	expected := map[string]int{}
+	expected := map[string]string{}
 	c := b.Cursor()
 	defer c.Close()
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		expected[string(v)]++
+		_, seen := expected[string(k)]
+		require.False(t, seen, "cursor yielded key %q twice", k)
+		expected[string(k)] = string(v)
 	}
 	return expected
 }
 
-func scanCollect(t *testing.T, b *Bucket, peekSize, parallel int) map[string]int {
+func scanCollect(t *testing.T, b *Bucket, peekSize, parallel int) map[string]string {
 	t.Helper()
 	var mu sync.Mutex
-	got := map[string]int{}
+	got := map[string]string{}
 	require.NoError(t, b.ScanTargetedReplace(context.Background(), peekSize, parallel,
 		func(e *TargetedScanEntry) error {
 			raw, err := e.ReadRange(0, 0)
@@ -74,8 +78,11 @@ func scanCollect(t *testing.T, b *Bucket, peekSize, parallel int) map[string]int
 				return err
 			}
 			mu.Lock()
-			got[string(raw)]++
-			mu.Unlock()
+			defer mu.Unlock()
+			if _, seen := got[string(e.Key)]; seen {
+				return fmt.Errorf("key %q served twice", e.Key)
+			}
+			got[string(e.Key)] = string(raw)
 			return nil
 		}, nullLogger()))
 	return got
@@ -138,7 +145,7 @@ func TestScanTargetedReplace(t *testing.T) {
 			for _, parallel := range []int{1, 4, 16} {
 				const peekSize = 16
 				var mu sync.Mutex
-				got := map[string]int{}
+				got := map[string]string{}
 				err := b.ScanTargetedReplace(ctx, peekSize, parallel, func(e *TargetedScanEntry) error {
 					// assert, not require: the callback runs on worker goroutines and
 					// FailNow must not run off the test goroutine
@@ -167,8 +174,10 @@ func TestScanTargetedReplace(t *testing.T) {
 					assert.Error(t, err)
 
 					mu.Lock()
-					got[string(whole)]++
-					mu.Unlock()
+					defer mu.Unlock()
+					_, seen := got[string(e.Key)]
+					assert.False(t, seen, "key %q served twice", e.Key)
+					got[string(e.Key)] = string(whole)
 					return nil
 				}, nullLogger())
 				require.NoError(t, err)
@@ -304,38 +313,85 @@ func TestScanTargetedReplaceLazySegments(t *testing.T) {
 	require.Equal(t, collectMergedCursor(t, b), scanCollect(t, b, 16, 4))
 }
 
-// BenchmarkScanTargetedReplace scans one flushed ~200k-row segment, peek 16,
-// parallel 4.
-func BenchmarkScanTargetedReplace(b *testing.B) {
+// benchScanFixture spreads rows over the given number of flushed segments. Keys
+// are disjoint per segment, so every row survives the newest-wins probe and the
+// scan pays the full O(rows x segments) probe term.
+func benchScanFixture(b *testing.B, segments, valueLen int, opts ...BucketOption) (*Bucket, int) {
+	b.Helper()
 	ctx := context.Background()
 	dir := b.TempDir()
+	o := append([]BucketOption{WithStrategy(StrategyReplace)}, opts...)
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), o...)
 	require.NoError(b, err)
-	defer bucket.Shutdown(ctx)
 	bucket.SetMemtableThreshold(1e9)
 
 	const rows = 200_000
-	for i := uint64(0); i < rows; i++ {
-		require.NoError(b, bucket.Put([]byte(fmt.Sprintf("key-%08d", i)), targetedTestValue(i, 56)))
+	perSegment := rows / segments
+	for s := 0; s < segments; s++ {
+		for i := 0; i < perSegment; i++ {
+			id := uint64(s*perSegment + i)
+			require.NoError(b, bucket.Put([]byte(fmt.Sprintf("key-%08d", id)),
+				targetedTestValue(id, valueLen)))
+		}
+		require.NoError(b, bucket.FlushAndSwitch())
 	}
-	require.NoError(b, bucket.FlushAndSwitch())
+	return bucket, perSegment * segments
+}
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		var count atomic.Int64
-		err := bucket.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
-			count.Add(1)
-			return nil
-		}, nullLogger())
-		if err != nil {
-			b.Fatal(err)
-		}
-		if count.Load() != rows {
-			b.Fatalf("scanned %d rows, want %d", count.Load(), rows)
-		}
+// BenchmarkScanTargetedReplace compares the targeted scan against the merged
+// cursor it exists to avoid. Both arms read every row; the scan additionally
+// extracts a 16-byte prefix, which is the whole point — the cursor materializes
+// each full value to hand it back.
+//
+// Values are 4 KiB, the shape the scan is for: a caller wanting a few bytes out
+// of a large object. Segment counts bracket a freshly compacted bucket and a
+// churned one.
+func BenchmarkScanTargetedReplace(b *testing.B) {
+	ctx := context.Background()
+	const valueLen = 4096
+
+	for _, segments := range []int{1, 16} {
+		b.Run(fmt.Sprintf("segments=%d/targetedScan", segments), func(b *testing.B) {
+			bucket, rows := benchScanFixture(b, segments, valueLen)
+			defer bucket.Shutdown(ctx)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				var count atomic.Int64
+				err := bucket.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+					count.Add(1)
+					return nil
+				}, nullLogger())
+				if err != nil {
+					b.Fatal(err)
+				}
+				if count.Load() != int64(rows) {
+					b.Fatalf("scanned %d rows, want %d", count.Load(), rows)
+				}
+			}
+		})
+
+		b.Run(fmt.Sprintf("segments=%d/mergedCursor", segments), func(b *testing.B) {
+			bucket, rows := benchScanFixture(b, segments, valueLen)
+			defer bucket.Shutdown(ctx)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				count := 0
+				c := bucket.Cursor()
+				for k, v := c.First(); k != nil; k, v = c.Next() {
+					_ = v[:16]
+					count++
+				}
+				c.Close()
+				if count != rows {
+					b.Fatalf("cursor saw %d rows, want %d", count, rows)
+				}
+			}
+		})
 	}
 }
 
@@ -450,15 +506,20 @@ func TestEstimatedEntrySize(t *testing.T) {
 		}
 		require.NoError(t, b.FlushAndSwitch())
 
+		// asserted against the fixture's own geometry rather than a recomputation
+		// of the implementation: 108-byte values plus a 7-byte key and the node's
+		// per-row overhead, and well under the row size once the index is counted
+		const valueLen = 8 + 100
+		got := b.EstimatedEntrySize()
+		require.Greater(t, got, int64(valueLen))
+		require.Less(t, got, int64(valueLen*2))
+
 		segments, release := b.disk.getConsistentViewOfSegments()
-		var size int64
 		for _, seg := range segments {
-			size += int64(seg.payloadSize())
 			// the estimate must exclude the index tree
 			require.Less(t, int64(seg.payloadSize()), seg.Size())
 		}
 		release()
-		require.Equal(t, size/entries, b.EstimatedEntrySize())
 	})
 
 	t.Run("without net-additions tracking", func(t *testing.T) {

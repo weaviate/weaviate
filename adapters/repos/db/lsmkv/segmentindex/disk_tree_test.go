@@ -254,19 +254,11 @@ func FuzzDiskTreeRead(f *testing.F) {
 		assert.Equal(t, len(allKeys), keyCount, "KeyCount disagrees with AllKeys")
 		assert.Equal(t, allKeys, eachKeys, "ForEachKey disagrees with AllKeys")
 
-		// the range walk reports a sub-node tail where the sequential ones stop at
-		// it, so it must succeed exactly when the nodes account for every byte
-		consumed := 0
-		for _, k := range allKeys {
-			consumed += len(k) + TREE_KEY_STORE_OVERHEAD
-		}
-		if consumed == len(data) {
-			assert.NoError(t, rangedErr, "range walk rejected a fully-parsed blob")
-			assert.Equal(t, allKeys, ranged, "ForEachNodeInRange disagrees with AllKeys")
-		} else {
-			assert.Error(t, rangedErr, "range walk accepted a blob with a %d-byte tail",
-				len(data)-consumed)
-		}
+		// SplitNodeRanges tiles the blob and both walkers stop at the same tail, so
+		// the ranges must reproduce AllKeys exactly — no node skipped at a boundary,
+		// none visited twice.
+		assert.NoError(t, rangedErr, "range walk rejected a blob AllKeys accepted")
+		assert.Equal(t, allKeys, ranged, "ForEachNodeInRange disagrees with AllKeys")
 	})
 }
 

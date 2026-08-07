@@ -28,6 +28,8 @@ import (
 // TargetedScanEntry is one live entry served by ScanTargetedReplace. The entry
 // and every slice it hands out are valid only until the callback returns.
 type TargetedScanEntry struct {
+	// Key comes from the index walk, so it costs nothing to carry.
+	Key       []byte
 	ValueSize uint64
 	// Peek holds the first min(peekSize, ValueSize) bytes of the value. Peek stays
 	// valid across ReadRange calls: they read into a separate scratch buffer.
@@ -85,7 +87,8 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	defer release()
 
 	// inMem runs newest first, so each memtable's keys hide the ones after it and
-	// every segment. Nothing reads the oldest one's back when there are no segments.
+	// every segment. The oldest one's keys have no such reader when there are no
+	// segments, so they are not collected.
 	var hideSets []map[string]struct{}
 	for i, c := range inMem {
 		var collect map[string]struct{}
@@ -226,6 +229,7 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 			serve = false
 		}
 		if serve {
+			entry.Key = k
 			entry.ValueSize = uint64(len(v))
 			entry.Peek = v[:min(peekSize, len(v))]
 			entry.seg = nil
@@ -302,6 +306,7 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 			peekLen = valueLen
 		}
 
+		entry.Key = n.Key
 		entry.ValueSize = valueLen
 		entry.Peek = node[9 : 9+peekLen]
 		entry.seg = task.seg
@@ -331,9 +336,14 @@ type segmentNodeRange struct {
 
 // scanIndexNodes visits the primary index nodes packed in byte range [from,to) —
 // on-disk order, not key order — yielding each node's byte range without reading
-// any value bytes. Yielded ranges are validated against the segment's data
-// bounds, so a corrupt index offset surfaces as an error here rather than
-// sizing a read downstream.
+// any value bytes.
+//
+// Ranges are checked against the segment's data bounds, which stops a corrupt
+// offset from sizing a read, but not against the row they claim to describe:
+// offsets pointing at another live row pass, and that row's bytes are served
+// under this node's key. Detecting that needs the value's trailing primary key,
+// which this deliberately does not read. Callers that cannot tolerate it should
+// run with checksum validation on.
 func (s *segment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error {
 	return s.index.ForEachNodeInRange(from, to, func(key []byte, start, end uint64) error {
 		// ordered so the subtraction cannot wrap on end < start

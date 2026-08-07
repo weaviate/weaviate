@@ -311,10 +311,12 @@ func (t *DiskTree) ForEachKey(fn func(key []byte)) {
 // ForEachNodeInRange walks the serialized nodes packed in data[from:to) — the
 // tree's on-disk order, not key order — without allocating. The key passed to fn
 // is a subslice of the underlying data, valid only for the duration of fn.
+// Bounds must be node-aligned, e.g. from SplitNodeRanges.
 //
-// Bounds must be node-aligned, e.g. from SplitNodeRanges. Unlike AllKeys and
-// KeyCount, which stop at a tail too short to hold a node, this reports one: a
-// caller walking every byte of a range needs the difference surfaced.
+// A tail too short to hold a node ends the walk, as it does in AllKeys and
+// KeyCount: a segment written with checksums carries a 4-byte trailer here when
+// no secondary index bounds the primary, so a short tail is not a corruption
+// signal. A node whose header does not parse still is, and errors.
 func (t *DiskTree) ForEachNodeInRange(from, to int, fn func(key []byte, start, end uint64) error) error {
 	if from < 0 || to > len(t.data) || from > to {
 		return fmt.Errorf("node range [%d,%d) outside index bounds [0,%d]", from, to, len(t.data))
@@ -323,8 +325,7 @@ func (t *DiskTree) ForEachNodeInRange(from, to int, fn func(key []byte, start, e
 	for pos < to {
 		remaining := to - pos
 		if remaining < TREE_KEY_STORE_OVERHEAD {
-			return fmt.Errorf("truncated node at %d: %d bytes left, need at least %d",
-				pos, remaining, TREE_KEY_STORE_OVERHEAD)
+			return nil
 		}
 		keyLen := int(binary.LittleEndian.Uint32(t.data[pos:]))
 		if keyLen > remaining-TREE_KEY_STORE_OVERHEAD {

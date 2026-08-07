@@ -138,8 +138,12 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 }
 
 func (s *segment) existsKey(key []byte) (bool, error) {
-	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace); err != nil {
-		return false, fmt.Errorf("segment::existsKey: %w", err)
+	// compared directly rather than through the variadic CheckExpectedStrategy,
+	// whose argument slice escapes and so allocates on every call: a targeted scan
+	// probes this once per row per newer segment
+	if s.strategy != segmentindex.StrategyReplace {
+		return false, fmt.Errorf("segment::existsKey: %w",
+			segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace))
 	}
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
