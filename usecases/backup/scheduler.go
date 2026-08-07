@@ -358,7 +358,9 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 //
 // collections must be resolved class names, never wildcard patterns. nil asks
 // about every collection, which the meta-not-found arm has to do because it has
-// no class list yet.
+// no class list yet. The check fails closed: a task whose payload cannot be read
+// refuses the collection the payload still names, and one that names no
+// collection at all refuses every restore.
 func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
 	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx, collections); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("restore blocked: %w", err))
