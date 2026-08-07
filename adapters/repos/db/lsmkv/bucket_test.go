@@ -1132,7 +1132,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k), concurrency.SROAR_MERGE)
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
@@ -1161,7 +1161,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k), concurrency.SROAR_MERGE)
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
