@@ -628,7 +628,8 @@ func (s *Scheduler) tick() {
 		// that somehow carries no stamp is excluded outright rather than
 		// deleted on the first tick. Deleting it would also erase it from the
 		// backup overlap backstop, which refuses a capture on exactly that
-		// state.
+		// state. [Task.repairTerminalStamp] stamps such a task on the next
+		// restore, so this guard only covers the window before it.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
 				return false

@@ -1048,6 +1048,8 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	// it from the backup overlap backstop, which refuses a capture on exactly
 	// this state. The refusal is a property of the task alone, so every node
 	// applying this entry reaches it, whatever its own clock says.
+	// [Task.repairTerminalStamp] stamps such a task on the next restore, so
+	// this guard only covers the window before it.
 	if task.FinishedAt.IsZero() {
 		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
 			Warnf("refusing to clean up task %s/%s/%d: it is %s but carries no finish time",
@@ -1218,6 +1220,16 @@ func (m *Manager) Restore(bytes []byte) error {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {
 				m.tasks[namespace] = make(map[string]*Task)
+			}
+
+			// The snapshot is the one door a terminal task with no finish time
+			// enters through; repairing it here is what lets it age out again.
+			if task.repairTerminalStamp() {
+				m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
+					Warnf("task %s/%s/%d was restored %s but carried no finish time; stamping it %s, "+
+						"the newest moment the task records. Expected after a rolling upgrade past "+
+						"a build that did not stamp the terminal transition",
+						namespace, task.ID, task.Version, task.Status, task.FinishedAt)
 			}
 
 			m.tasks[namespace][task.ID] = task
