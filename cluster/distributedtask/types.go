@@ -593,18 +593,11 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 // [Task.clearNonTerminalStamp] it is the only writer of [Task.FinishedAt]
 // besides [Task.markTerminal], and it runs on one path only: [Manager.Restore].
 //
-// Two shapes arrive by snapshot from an older binary. A stamp of zero, when that
-// binary finalized a task this build left unstamped: left alone it never ages
-// out (the TTL has nothing to measure) and the backup overlap backstop refuses
-// every capture of its collection for good. And, more commonly, a stamp that is
-// merely early: older builds stamped FinishedAt when the task's units stopped,
-// so it predates the bucket swap that ran after it, and the backstop waives a
-// capture that spanned that swap.
-//
 // It runs only on snapshots below [snapshot.Version] 1, and it can be deleted
 // with that field. Until then it carries an obligation: a new [Task] field that
 // records a moment has to join the max below, or the stamp lands before a
-// moment the task reached and the backstop waives a capture that spanned it.
+// moment the task reached and the backup overlap backstop waives a capture that
+// spanned it.
 //
 // The repaired stamp normally lives only in the restoring node's memory until
 // that node writes its own snapshot. raft.RecoverCluster is the exception: it
@@ -613,24 +606,15 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 //
 // The value is a function of the task bytes alone — no node clock, no map
 // order — so every node restoring the same snapshot computes the same stamp and
-// the FSM stays identical across the cluster. The moments it picks between are
-// still each some other node's time.Now(): a unit report's, an acker's. The
-// repair does not reconcile those, it only picks the largest.
+// the FSM stays identical across the cluster.
 //
-// The stamp only ever moves later, and, up to inter-node clock skew, never past
-// the real finish: every moment it can pick is one the task reached before it
-// went terminal, as measured on the node that reported it. Later is the
-// fail-closed direction, because the backstop waives a capture that starts after
-// FinishedAt. The residual is the gap between the last ack and the finalize that
-// was never stamped: up to one scheduler tick (default 1 minute, see
-// DefaultDistributedTasksSchedulerTickInterval), sub-second in practice because
-// the finalize runs off the scheduler's wake channel.
-//
-// On state this build produced it is a no-op up to that same skew: acks and unit
-// reports against a terminal task are dropped, so the stamp already sits at or
-// after every moment on the task — unless an acker's clock ran ahead of the
-// finalizer's, in which case the repair advances the stamp by the difference.
-// Fail-closed again, and the TTL only defers.
+// Two qualifiers on "never past the real finish". The moments it picks between
+// are each some other node's time.Now(), so an acker whose clock ran ahead of
+// the finalizer's moves the stamp by that difference. And the gap between the
+// last ack and an unstamped finalize is not recovered: up to one scheduler tick
+// (see DefaultDistributedTasksSchedulerTickInterval), sub-second in practice.
+// Both err later, which is the fail-closed direction — the backstop waives a
+// capture that starts after FinishedAt, and the TTL only defers.
 func (t *Task) repairTerminalStamp() bool {
 	if !t.Status.IsTerminal() {
 		return false

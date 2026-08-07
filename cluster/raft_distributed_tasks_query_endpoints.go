@@ -53,6 +53,11 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 // task can finish without flipping anything — change-algorithm defers its
 // class-level flip until every searchable property has migrated. The ordering
 // here only says this node cannot see the task before the flip it did make.
+//
+// It cannot fail today — the call under it clones a locked map. Growing a real
+// error return means revisiting what the REST handler does with it: the 500 arm
+// renders the error with errPayloadFromSingleErr, which strips namespace
+// prefixes but not node names.
 func (s *Raft) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return s.store.distributedTasksManager.ListDistributedTasks(ctx)
 }

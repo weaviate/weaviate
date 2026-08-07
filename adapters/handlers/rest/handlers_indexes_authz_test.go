@@ -285,17 +285,16 @@ func TestGetIndexesAuthorization(t *testing.T) {
 			"the check must be scoped to the collection whose index state is exposed")
 	})
 
-	// Every arm above names a collection the fixture registers, so a handler
-	// that answered 404 first would still refuse them with 403. This one names
-	// a collection that does not exist: under the check-after-lookup ordering
-	// it comes back 404, which tells an unauthorized caller which collections
-	// are real.
+	// The absent-collection arm, same reasoning as the submit route's.
 	t.Run("a refused caller cannot tell an absent collection from a present one", func(t *testing.T) {
 		forbidden := authzerrors.NewForbidden(principal, authorization.READ,
 			authorization.CollectionsMetadata("Absent")...)
-		h, _, _ := newFixture(t, forbidden)
+		h, _, svc := newFixture(t, forbidden)
 
 		responder := getIndexesResponderFor(t, h, principal, "Absent")
+
+		require.Zerof(t, svc.lists,
+			"a refused caller made the handler read the cluster's task list")
 
 		_, ok := responder.(*schema.SchemaObjectsIndexesGetForbidden)
 		require.Truef(t, ok,

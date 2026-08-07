@@ -144,10 +144,14 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 	var (
 		killAt    time.Time
 		sawFailed bool
+		fetchErr  error
 	)
 	require.Eventually(t, func() bool {
 		status, err := fetchTaskStatus(restURI, taskID)
-		require.NoError(t, err)
+		if err != nil {
+			fetchErr = err
+			return true
+		}
 		if status == "FAILED" {
 			// Stop polling and report below rather than failing here:
 			// testify runs this condition on its own goroutine, where a
@@ -161,6 +165,7 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 		}
 		return false
 	}, 120*time.Second, 20*time.Millisecond)
+	require.NoError(t, fetchErr, "polling /v1/tasks failed")
 	require.False(t, sawFailed, "task FAILED before reaching FINISHED")
 	require.False(t, killAt.IsZero(), "task never reached FINISHED before deadline")
 	t.Logf("task observed FINISHED at %v — initiating immediate container stop", killAt)
