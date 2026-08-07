@@ -1066,7 +1066,7 @@ function run_acceptance_reindex_mt() {
 # image build. One group cannot cover that, and a budget shorter than the sum
 # lets the runner kill the job before go test can panic with stacks. Splitting
 # is the only way to keep every group's budget above its own worst case:
-# 35m + 26m + 32m all fit under 45m − 5m, and the split is balanced so no
+# 35m + 27m + 32m all fit under 45m − 5m, and the split is balanced so no
 # group sits near the ceiling. TestCIGroupTimeoutFitsTheJobWindow pins each
 # budget against the window of the job that runs it.
 
@@ -1106,7 +1106,7 @@ function run_acceptance_reindex_backup_cluster() {
   # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. See the siblings
   # above for why it gets its own budget. Its deadlines sum to about 26m (two
   # 10m backup waits plus six 60s cluster and reindex waits), so unlike the
-  # sibling this budget does cover the worst case.
+  # pre-split single-node group this budget does cover the worst case.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
