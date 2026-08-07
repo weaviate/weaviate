@@ -167,11 +167,14 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 
 	if activityBuilder == nil {
 		db.warnUnwiredReindexGate()
-		return snap
+	} else {
+		snap.activity = activityBuilder()
 	}
-	snap.activity = activityBuilder()
-	// Cleanup lookup is optional: older wiring paths and test fixtures
-	// install only the activity lookup.
+	// Installed independently of the activity lookup. The cleanup hold is a map
+	// read on this node's own provider — it needs nothing from DTM — so letting
+	// a missing activity builder suppress it makes a submission that is already
+	// deleting sidecars invisible to a concurrent backup for the whole
+	// post-bootstrap wait, while HTTP is already serving.
 	if cleanupBuilder != nil {
 		snap.cleanup = cleanupBuilder()
 	}
@@ -188,10 +191,7 @@ func (db *DB) reindexBlockReason(collection, shardName string) reindexBlockReaso
 // reindexBlockReasonIn answers for one shard against an already-built
 // snapshot.
 func (db *DB) reindexBlockReasonIn(snap reindexGateSnapshot, collection, shardName string) reindexBlockReason {
-	if snap.activity == nil {
-		return reindexNotBlocked
-	}
-	if snap.activity(collection, shardName) {
+	if snap.activity != nil && snap.activity(collection, shardName) {
 		// Debug-level so flag-on operators get visibility into which
 		// side of the OR fired the gate refusal. The matching cleanup
 		// branch below logs at the same level.

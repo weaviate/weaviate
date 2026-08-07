@@ -187,3 +187,29 @@ func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
 	require.Zero(t, activityBuilds.Load(),
 		"the backup path must make no reindex lookup while the feature is off")
 }
+
+// The submit hold is a map read on this node's own provider: it needs nothing
+// from DTM. Installing it behind the activity builder meant that during the
+// post-bootstrap wait — which can run 60s while HTTP already serves — a
+// submission that had taken MarkSubmitInProgress and was deleting
+// .migrations/ dirs was invisible to a concurrent backup of the same shard.
+func TestReindexGateReadsTheSubmitHoldBeforeTheActivityLookupIsWired(t *testing.T) {
+	db := &DB{}
+	provider := &ReindexProvider{}
+	provider.MarkSubmitInProgress("Movies")
+
+	// Only the cleanup builder is installed — exactly the post-bootstrap
+	// window, where the DTM-backed activity builder is not yet available.
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return provider.HoldForShard
+	})
+
+	snap := db.newReindexGateSnapshot()
+	require.NotNil(t, snap.cleanup,
+		"the cleanup lookup must install even when the activity builder is not yet wired; "+
+			"it is a local map read and needs nothing from DTM")
+
+	require.Equal(t, reindexBlockedBySubmit, db.reindexBlockReasonIn(snap, "Movies", "shard1"),
+		"a submission that is already deleting sidecars must block a backup of the same shard "+
+			"during the post-bootstrap wait, not only after the activity lookup lands")
+}
