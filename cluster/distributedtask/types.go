@@ -601,21 +601,26 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 // so it predates the bucket swap that ran after it, and the backstop waives a
 // capture that spanned that swap.
 //
-// The value is the newest timestamp on the task itself — no node clock, no map
-// order — so every node restoring the same snapshot computes the same one and
-// the FSM stays identical across the cluster.
+// The value is a function of the task bytes alone — no node clock, no map
+// order — so every node restoring the same snapshot computes the same stamp and
+// the FSM stays identical across the cluster. The moments it picks between are
+// still each some other node's time.Now(): a unit report's, an acker's. The
+// repair does not reconcile those, it only picks the largest.
 //
-// The stamp only ever moves later, and never past the real finish: every moment
-// it can pick is one the task reached before it went terminal. Later is the
+// The stamp only ever moves later, and, up to inter-node clock skew, never past
+// the real finish: every moment it can pick is one the task reached before it
+// went terminal, as measured on the node that reported it. Later is the
 // fail-closed direction, because the backstop waives a capture that starts after
 // FinishedAt. The residual is the gap between the last ack and the finalize that
 // was never stamped: up to one scheduler tick (default 1 minute, see
 // DefaultDistributedTasksSchedulerTickInterval), sub-second in practice because
 // the finalize runs off the scheduler's wake channel.
 //
-// On state this build produced it is a no-op: the stamp already sits at or after
-// every moment on the task, because acks and unit reports against a terminal
-// task are dropped.
+// On state this build produced it is a no-op up to that same skew: acks and unit
+// reports against a terminal task are dropped, so the stamp already sits at or
+// after every moment on the task — unless an acker's clock ran ahead of the
+// finalizer's, in which case the repair advances the stamp by the difference.
+// Fail-closed again, and the TTL only defers.
 func (t *Task) repairTerminalStamp() bool {
 	if !t.Status.IsTerminal() {
 		return false

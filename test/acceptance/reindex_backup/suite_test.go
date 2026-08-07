@@ -394,10 +394,11 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 		"refused backup must not leave a staging dir at %s", stagingPath)
 
 	// Wait via the index-status surface (status:"ready") rather than DTM
-	// task status. With the DTM-backed gate, FINISHED already releases
-	// the gate, but status:"ready" additionally confirms the underlying
-	// index has flipped to the new tokenization, which is closer to the
-	// queryable end-state operators care about.
+	// task status. Both say the migration is no longer in flight, so the
+	// backup gate is open; "ready" is the surface an operator polls. It does
+	// not confirm the tokenization flip — the handler answers from the node's
+	// own FSM, and for change-algorithm it renders "ready" without any flip at
+	// all. Safe here because this is a single node, so there is no FSM lag.
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable",
 		reindexhelpers.WithTimeout(120*time.Second))
 
@@ -445,9 +446,10 @@ func testBackupSucceedsAfterMigrationFinishes(t *testing.T, restURI string) {
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 	// Use the index-status surface (status:"ready") rather than DTM
-	// FINISHED: both signal the gate is open, but status:"ready" is
-	// closer to operator expectations and survives future DTM-status
-	// reshuffles.
+	// FINISHED: both signal the gate is open, and "ready" is the surface an
+	// operator polls. It says nothing about the tokenization flip; see the
+	// note at the AwaitReindexViaIndexes call in
+	// testBackupRefusedDuringInFlightMigration.
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable",
 		reindexhelpers.WithTimeout(60*time.Second))
 
