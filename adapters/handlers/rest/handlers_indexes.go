@@ -89,7 +89,9 @@ type indexesHandlers struct {
 	// nil in fixtures without a cluster; treated the same as an unwired probe.
 	cluster clusterMembership
 
-	// nil until wired; both reindex routes answer 503 then.
+	// nil until wired. The two reindex routes answer 503 then; getIndexes
+	// renders every index ready and warns, since a status read is better
+	// answered than refused.
 	tasks reindexTaskService
 
 	// nil in fixtures without a cluster HTTP client; the cancel handler then
@@ -179,7 +181,9 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 //
 // A task list this node cannot read is answered with a 500, not with an empty
 // one: an empty list renders every index `ready`, which is the one answer that
-// would send the operator on to a write the gates then refuse.
+// would send the operator on to a write the gates then refuse. An unwired task
+// service gives the same `ready` answer, since a status read is better answered
+// than refused, and warns so the operator can tell the two apart.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
@@ -210,7 +214,15 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// has already flipped, at the cost of the view lagging the leader by
 	// local apply propagation.
 	var activeTasks map[string][]*distributedtask.Task
-	if h.tasks != nil {
+	if h.tasks == nil {
+		h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("action", "reindex_index_status").
+				WithField("collection", collection).
+				Warn("distributed task service is not wired; answering with no tasks, which renders " +
+					"every index ready even if a migration is running. " +
+					"Expected in test fixtures; if this appears in production, check the ListTasks wiring in configure_api.go.")
+		})
+	} else {
 		var err error
 		activeTasks, err = h.tasks.ListDistributedTasksLocal(context.Background())
 		if err != nil {
