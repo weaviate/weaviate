@@ -186,6 +186,13 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	// backup this text refuses and a cancel that refuses back.
 	require.Contains(t, err.Error(), "While it is still building indexes you can cancel it")
 	require.Contains(t, err.Error(), "once it has started committing its result it can only be waited out")
+	// Nor is the wait promised to end: a node that owned part of the task
+	// leaving the cluster wedges it past STARTED, and the restart is then the
+	// only thing that lifts this refusal.
+	require.Contains(t, err.Error(),
+		"if a node that owned part of it left the cluster it never finishes at all")
+	require.Contains(t, err.Error(),
+		"a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal")
 }
 
 // TestReindexInFlightError_Submit pins the wording variant used while a
