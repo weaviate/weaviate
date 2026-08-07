@@ -1356,6 +1356,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	// Find the STARTED task that targets this (collection, prop, indexType).
 	var target *distributedtask.Task
 	var targetPayload db.ReindexTaskPayload
+	// Set when the match names no collection at all, which decides how much of
+	// the teardown below can safely run.
+	var unattributable bool
 	for _, task := range tasks[db.ReindexNamespace] {
 		if task.Status != distributedtask.TaskStatusStarted {
 			continue
@@ -1417,8 +1420,53 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	if target == nil {
-		if held := h.uncancellableLiveTask(tasks[db.ReindexNamespace], collection,
+		// A live task whose payload names no collection at all refuses every
+		// backup and every restore in the whole cluster, because nothing in it
+		// says which shards it could be holding — see
+		// newShardReindexActivityBuilder. It cannot be matched to a collection,
+		// so accepting it from any collection's cancel endpoint is the only
+		// remedy an operator has short of the RUNTIME_REINDEX_ENABLED kill
+		// switch; restarting does not help, the task lives in RAFT.
+		//
+		// Runs after both passes above, so a task that can be attributed to a
+		// collection is never cancelled from an unrelated one.
+		for _, task := range tasks[db.ReindexNamespace] {
+			if task.Status != distributedtask.TaskStatusStarted {
+				continue
+			}
+			var payload db.ReindexTaskPayload
+			if err := json.Unmarshal(task.Payload, &payload); err == nil {
+				continue
+			}
+			if db.ReindexTaskCollection(task.Payload) != "" {
+				continue
+			}
+			h.appState.Logger.WithFields(logrus.Fields{
+				"audit_event": "reindex_task_cancel_unattributable_payload",
+				"taskID":      task.ID,
+				"collection":  collection,
+				"property":    propertyName,
+				"index_type":  indexType,
+				"principal":   principalUsername(principal),
+			}).Info("cancel: task payload will not decode and names no collection; cancelling it because it refuses every backup in the cluster")
+			target = task
+			unattributable = true
+			break
+		}
+	}
+
+	if target == nil {
+		if held, attributable := h.uncancellableLiveTask(tasks[db.ReindexNamespace], collection,
 			propertyName, indexType); held != nil {
+			if !attributable {
+				h.appState.Logger.WithFields(logrus.Fields{
+					"audit_event": "reindex_task_cancel_unattributable_past_cancellation_point",
+					"taskID":      held.ID,
+					"task_status": string(held.Status),
+					"principal":   principalUsername(principal),
+				}).Info("cancel: an unreadable task that names no collection has left STARTED; DTM will not cancel it")
+				return reindexCancelUnattributablePastCancellationPoint(principal)
+			}
 			h.appState.Logger.WithFields(logrus.Fields{
 				"audit_event": "reindex_task_cancel_past_cancellation_point",
 				"taskID":      held.ID,
@@ -1459,7 +1507,18 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			fmt.Sprintf("cancelling task: %v", err)))
 	}
 
-	if provider := h.appState.ReindexProvider.Load(); provider != nil {
+	provider := h.appState.ReindexProvider.Load()
+	switch {
+	case unattributable:
+		// The sweep below is addressed by (collection, property, indexType),
+		// and this task names none of them — running it against the URL's tuple
+		// would delete on-disk state belonging to some other migration. Nothing
+		// local is left behind either: a payload the provider cannot decode
+		// never started a worker here.
+		h.appState.Logger.WithFields(logrus.Fields{
+			"taskID": target.ID,
+		}).Info("cancel: task names no collection; skipping drain+cleanup, nothing on disk can be attributed to it")
+	case provider != nil:
 		// The gate is released once the handler answers, not once the cleanup
 		// ends: awaitOwnerCleanupGates below still reports on this node's
 		// teardown window.
@@ -1467,7 +1526,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			target, &targetPayload, collection, propertyName, indexType); release != nil {
 			defer release()
 		}
-	} else {
+	default:
 		h.appState.Logger.WithFields(logrus.Fields{
 			"taskID":     target.ID,
 			"collection": collection,
@@ -1629,12 +1688,16 @@ const reindexCancelCleanupTimeout = 2 * time.Minute
 // a 500. What is wrong is the answer, so this exists to give the caller a
 // refusal that matches the gate.
 //
-// Matching mirrors the two passes above: an exact (collection, property, index
-// type) match where the payload decodes, and a collection-only match where it
-// does not, because the property is inside the payload that will not decode.
+// Matching mirrors the three passes above: an exact (collection, property,
+// index type) match where the payload decodes, a collection-only match where it
+// does not (the property is inside the payload that will not decode), and a
+// match on any collection for a payload that names none, which holds the gate
+// everywhere. attributable is false for that last kind, because none of the
+// per-collection advice applies to it.
 func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 	collection, propertyName, indexType string,
-) *distributedtask.Task {
+) (task *distributedtask.Task, attributable bool) {
+	var unattributable *distributedtask.Task
 	for _, task := range tasks {
 		if task.Status == distributedtask.TaskStatusStarted ||
 			!db.IsLiveReindexTaskStatus(task.Status) {
@@ -1642,9 +1705,17 @@ func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 		}
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			if recovered := db.ReindexTaskCollection(task.Payload); recovered != "" &&
-				strings.EqualFold(recovered, collection) {
-				return task
+			recovered := db.ReindexTaskCollection(task.Payload)
+			if recovered == "" {
+				// Kept as the fallback: a task naming this collection is the
+				// better answer, so only report it once the loop finds none.
+				if unattributable == nil {
+					unattributable = task
+				}
+				continue
+			}
+			if strings.EqualFold(recovered, collection) {
+				return task, true
 			}
 			continue
 		}
@@ -1657,9 +1728,12 @@ func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
 			continue
 		}
-		return task
+		return task, true
 	}
-	return nil
+	if unattributable != nil {
+		return unattributable, false
+	}
+	return nil, false
 }
 
 // reindexCancelPastCancellationPoint is the refusal both cancel paths answer
@@ -1672,6 +1746,19 @@ func reindexCancelPastCancellationPoint(principal *models.Principal) middleware.
 		"cancel refused: the migration has finished building and is committing its result; "+
 			"it can no longer be cancelled. Poll GET /v1/schema/<class>/indexes until every "+
 			"index reports status=\"ready\"."))
+}
+
+// reindexCancelUnattributablePastCancellationPoint answers the cancel for a
+// live task that names no collection and has left STARTED. Both remedies the
+// other refusals name are false here: DTM will not cancel it, and no
+// collection's status endpoint can report it, so polling one reports "ready"
+// while every backup in the cluster stays refused.
+func reindexCancelUnattributablePastCancellationPoint(principal *models.Principal) middleware.Responder {
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		"cancel refused: a runtime-reindex task this server cannot read is committing its "+
+			"result. It names no collection, so no index status reports it, and it can no "+
+			"longer be cancelled; it clears when the commit finishes. Report this to Weaviate "+
+			"if backups stay refused after that."))
 }
 
 // answerCancelThatRacedTheCommit answers the cancel that DTM refused because
@@ -1724,7 +1811,10 @@ func (h *indexesHandlers) answerCancelThatRacedTheCommit(ctx context.Context, ca
 	}
 	tasks := fresh[db.ReindexNamespace]
 
-	if held := h.uncancellableLiveTask(tasks, collection, propertyName, indexType); held != nil {
+	if held, attributable := h.uncancellableLiveTask(tasks, collection, propertyName, indexType); held != nil {
+		if !attributable {
+			return reindexCancelUnattributablePastCancellationPoint(principal)
+		}
 		h.appState.Logger.WithFields(logrus.Fields{
 			"audit_event": "reindex_task_cancel_past_cancellation_point",
 			"taskID":      held.ID,

@@ -220,3 +220,123 @@ func TestCancelLeavesAnUnreadableTaskOfAnotherCollectionAlone(t *testing.T) {
 	require.Equal(t, reindexCancelStatusNoOp, accepted.Payload.Status)
 	require.Empty(t, svc.cancelled)
 }
+
+// unattributableTaskPayload defeats the full ReindexTaskPayload decoder AND
+// the lenient collection reader. Nothing in it says which shards the task
+// holds, so the backup gate refuses every collection in the cluster rather
+// than one.
+func unattributableTaskPayload() []byte {
+	return []byte(`{"unitToShard":"a-newer-node-changed-this-shape"}`)
+}
+
+func unattributableTask(id string, status distributedtask.TaskStatus) *distributedtask.Task {
+	return &distributedtask.Task{
+		Namespace:      db.ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 3},
+		Status:         status,
+		Payload:        unattributableTaskPayload(),
+	}
+}
+
+// A live task that names no collection refuses every backup and every restore
+// in the cluster, and no collection's status endpoint can report it. If cancel
+// cannot reach it either, the only exit left is RUNTIME_REINDEX_ENABLED=false,
+// and a restart does not help because the task lives in RAFT.
+func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
+	const collection = "Movies"
+
+	decodableOnMovies := func(t *testing.T) *distributedtask.Task {
+		return buildTask(t, "t-decodable", distributedtask.TaskStatusStarted, db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeRepairFilterable,
+			Collection:    collection,
+			Properties:    []string{"title"},
+		}, nil)
+	}
+
+	tests := []struct {
+		name  string
+		tasks func(t *testing.T) []*distributedtask.Task
+		// wantCancelledID is empty when nothing may be cancelled in DTM.
+		wantCancelledID string
+		wantStatus      string
+		wantConflict    bool
+	}{
+		{
+			name: "the only live task names no collection",
+			tasks: func(*testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusStarted)}
+			},
+			wantCancelledID: "orphan",
+			wantStatus:      "CANCELLED",
+		},
+		{
+			name: "a decodable task on this collection wins",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					unattributableTask("orphan", distributedtask.TaskStatusStarted),
+					decodableOnMovies(t),
+				}
+			},
+			wantCancelledID: "t-decodable",
+			wantStatus:      "CANCELLED",
+		},
+		{
+			name: "an unreadable task naming this collection wins",
+			tasks: func(*testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					unattributableTask("orphan", distributedtask.TaskStatusStarted),
+					unreadableTask("t-named", collection, distributedtask.TaskStatusStarted),
+				}
+			},
+			wantCancelledID: "t-named",
+			wantStatus:      "CANCELLED",
+		},
+		{
+			name: "a terminal task holds no gate and is left alone",
+			tasks: func(*testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusFinished)}
+			},
+			wantStatus: reindexCancelStatusNoOp,
+		},
+		{
+			name: "past STARTED, DTM will not cancel it, so say so",
+			tasks: func(*testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusSwapping)}
+			},
+			wantConflict: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &raceTaskService{tasks: tc.tasks(t)}
+			var busy atomic.Bool
+			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
+				func() int { return 1 }, context.Background()))
+
+			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
+				&models.Principal{Username: "u1"})
+
+			if tc.wantConflict {
+				require.IsTypef(t, &schema.SchemaObjectsIndexesUpdateConflict{}, responder,
+					"a live task DTM refuses to cancel must not be answered as if there were "+
+						"nothing to cancel, got %T", responder)
+				require.Empty(t, svc.cancelled)
+				return
+			}
+
+			accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+			require.Truef(t, ok, "cancel must be accepted, got %T", responder)
+			require.Equal(t, tc.wantStatus, accepted.Payload.Status)
+
+			if tc.wantCancelledID == "" {
+				require.Empty(t, svc.cancelled, "nothing was holding the gate")
+				return
+			}
+			require.Len(t, svc.cancelled, 1)
+			require.Equal(t, tc.wantCancelledID, svc.cancelled[0].ID,
+				"the task holding the gate is the one that must be cancelled")
+		})
+	}
+}
