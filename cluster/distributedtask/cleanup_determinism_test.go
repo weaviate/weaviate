@@ -20,17 +20,18 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// CleanUpTask used to decide a replicated command's outcome from
-// m.clock.Since(task.FinishedAt) — the applying node's wall clock against the
-// applying node's stored stamp. Two nodes that disagree on either fork on
-// whether the entry deletes, and since GET /v1/schema/{class}/indexes reads
-// locally the fork is visible to the caller. During a rolling upgrade the
-// stamps differ by the whole prep-plus-swap window on every task, so the fork
-// needs no clock failure at all.
+// CleanUpTask decides a replicated command's outcome from what the proposing
+// sweep measured — the moment it looked and the TTL it looked against — plus the
+// task's own finish time. Both operands travel with the log entry or live in the
+// FSM, so every node reaches the same answer.
 //
-// The decision now travels on the request. The tests below pin that the apply
-// obeys it, that it still refuses on the task's own state, and that a request
-// from a binary that sends no decision keeps the old local check.
+// Reading the applying node's wall clock instead would fork two nodes on whether
+// the entry deletes, and since GET /v1/schema/{class}/indexes reads locally the
+// fork is visible to the caller.
+//
+// The tests below pin that the apply uses the proposer's numbers in both
+// directions, that it still refuses on the task's own state, and that a request
+// carrying no measurements keeps the local age check.
 
 // seedTerminalTaskStampedAt installs a single FINISHED task carrying the given
 // finish time straight into the task map.
@@ -42,7 +43,7 @@ func seedTerminalTaskStampedAt(t *testing.T, m *Manager, namespace, taskID strin
 	m.tasks[namespace][taskID].FinishedAt = finishedAt
 }
 
-func TestManager_CleanUpTask_ObeysTheProposersTTLVerdict(t *testing.T) {
+func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 	const (
 		ns      = "tasks-namespace"
 		taskID  = "stamped"
@@ -51,46 +52,72 @@ func TestManager_CleanUpTask_ObeysTheProposersTTLVerdict(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		// stampAge is how far in the past the task's finish time sits on this
-		// node, measured at the moment the command applies.
-		stampAge   time.Duration
-		ttlElapsed bool
-		wantKept   bool
+		// stampAge is how far in the past the task's finish time sits,
+		// measured from this node's clock at the moment the command applies.
+		stampAge time.Duration
+		// proposerElapsed is the age the proposer measured (its measuring
+		// moment minus the task's finish time) and proposerTTL is the TTL it
+		// measured against. A zero proposerTTL means the request carries no
+		// measurements at all.
+		proposerElapsed time.Duration
+		proposerTTL     time.Duration
+		wantKept        bool
 	}{
 		{
-			name:       "a fresh stamp still deletes when the proposer says the TTL elapsed",
-			stampAge:   time.Minute,
-			ttlElapsed: true,
-			wantKept:   false,
+			name:            "a task this node reads as fresh deletes when the proposer's TTL is shorter",
+			stampAge:        time.Minute,
+			proposerElapsed: time.Minute,
+			proposerTTL:     time.Second,
+			wantKept:        false,
 		},
 		{
-			name:       "an expired stamp deletes on the proposer's verdict too",
-			stampAge:   100 * 365 * 24 * time.Hour,
-			ttlElapsed: true,
-			wantKept:   false,
+			name:            "a task this node reads as long expired is kept when the proposer's TTL is longer",
+			stampAge:        100 * 365 * 24 * time.Hour,
+			proposerElapsed: 100 * 365 * 24 * time.Hour,
+			proposerTTL:     200 * 365 * 24 * time.Hour,
+			wantKept:        true,
 		},
 		{
-			name:       "no verdict on the request falls back to the local age check, which refuses a fresh task",
-			stampAge:   time.Minute,
-			ttlElapsed: false,
-			wantKept:   true,
+			name:            "the proposer's moment decides, not this node's: a proposer that looked before the TTL ran out keeps the task",
+			stampAge:        48 * time.Hour,
+			proposerElapsed: time.Hour,
+			proposerTTL:     24 * time.Hour,
+			wantKept:        true,
 		},
 		{
-			name:       "no verdict on the request falls back to the local age check, which deletes an expired task",
-			stampAge:   100 * 365 * 24 * time.Hour,
-			ttlElapsed: false,
-			wantKept:   false,
+			name:            "elapsed exactly equal to the TTL deletes",
+			stampAge:        24 * time.Hour,
+			proposerElapsed: 24 * time.Hour,
+			proposerTTL:     24 * time.Hour,
+			wantKept:        false,
+		},
+		{
+			name:     "no measurements on the request fall back to the local age check, which refuses a fresh task",
+			stampAge: time.Minute,
+			wantKept: true,
+		},
+		{
+			name:     "no measurements on the request fall back to the local age check, which deletes an expired task",
+			stampAge: 100 * 365 * 24 * time.Hour,
+			wantKept: false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHarness(t).init(t)
 			defer h.manager.Close()
 
-			seedTerminalTaskStampedAt(t, h.manager, ns, taskID, version, h.clock.Now().Add(-tc.stampAge))
+			// FinishedAt is millisecond-aligned in production (the FSM stamps
+			// it from a *_unix_millis field), so align the fixture the same
+			// way — the wire carries the proposer's moment in milliseconds too.
+			finishedAt := h.clock.Now().Add(-tc.stampAge).Truncate(time.Millisecond)
+			seedTerminalTaskStampedAt(t, h.manager, ns, taskID, version, finishedAt)
 
-			err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Namespace: ns, Id: taskID, Version: version, TtlElapsed: tc.ttlElapsed,
-			}))
+			req := &cmd.CleanUpDistributedTaskRequest{Namespace: ns, Id: taskID, Version: version}
+			if tc.proposerTTL != 0 {
+				req.ProposedAtUnixMillis = finishedAt.Add(tc.proposerElapsed).UnixMilli()
+				req.TtlMillis = tc.proposerTTL.Milliseconds()
+			}
+			err := h.manager.CleanUpTask(toCmd(t, req))
 
 			tasks, listErr := h.manager.ListDistributedTasks(context.Background())
 			require.NoError(t, listErr)
@@ -105,36 +132,39 @@ func TestManager_CleanUpTask_ObeysTheProposersTTLVerdict(t *testing.T) {
 	}
 }
 
-// The determinism property itself: the same log entry applied to two nodes
-// that disagree about the task's finish time by more than a TTL still leaves
-// both maps in the same state.
-func TestManager_CleanUpTask_DivergentStampsReachTheSameState(t *testing.T) {
+// The determinism property itself: the same log entry applied to two nodes whose
+// wall clocks are more than a TTL apart still leaves both maps in the same state.
+func TestManager_CleanUpTask_DivergentClocksReachTheSameState(t *testing.T) {
 	const (
 		ns      = "tasks-namespace"
 		taskID  = "stamped"
 		version = uint64(7)
 	)
 
-	running := newTestHarness(t).init(t)
-	defer running.manager.Close()
-	restored := newTestHarness(t).init(t)
-	defer restored.manager.Close()
+	behind := newTestHarness(t).init(t)
+	defer behind.manager.Close()
+	ahead := newTestHarness(t).init(t)
+	defer ahead.manager.Close()
+	ahead.clock.Advance(3 * ahead.completedTaskTTL)
 
-	// The rolling-upgrade shape: the node that restored from a snapshot
-	// repaired the stamp forward by the prep-plus-swap window, so its copy of
-	// the task looks far younger than the other node's.
-	seedTerminalTaskStampedAt(t, running.manager, ns, taskID, version,
-		running.clock.Now().Add(-2*running.completedTaskTTL))
-	seedTerminalTaskStampedAt(t, restored.manager, ns, taskID, version,
-		restored.clock.Now())
+	// One replicated finish time, two nodes that disagree about what time it is
+	// by more than the TTL. Reading the local clock, one would call the task
+	// fresh and the other long expired.
+	finishedAt := behind.clock.Now().Truncate(time.Millisecond)
+	seedTerminalTaskStampedAt(t, behind.manager, ns, taskID, version, finishedAt)
+	seedTerminalTaskStampedAt(t, ahead.manager, ns, taskID, version, finishedAt)
 
 	entry := &cmd.CleanUpDistributedTaskRequest{
-		Namespace: ns, Id: taskID, Version: version, TtlElapsed: true,
+		Namespace:            ns,
+		Id:                   taskID,
+		Version:              version,
+		ProposedAtUnixMillis: finishedAt.Add(2 * time.Hour).UnixMilli(),
+		TtlMillis:            time.Hour.Milliseconds(),
 	}
-	require.NoError(t, running.manager.CleanUpTask(toCmd(t, entry)))
-	require.NoError(t, restored.manager.CleanUpTask(toCmd(t, entry)))
+	require.NoError(t, behind.manager.CleanUpTask(toCmd(t, entry)))
+	require.NoError(t, ahead.manager.CleanUpTask(toCmd(t, entry)))
 
-	for name, h := range map[string]*testHarness{"running": running, "restored": restored} {
+	for name, h := range map[string]*testHarness{"behind": behind, "ahead": ahead} {
 		tasks, err := h.manager.ListDistributedTasks(context.Background())
 		require.NoError(t, err)
 		require.Empty(t, tasks[ns],
@@ -142,14 +172,24 @@ func TestManager_CleanUpTask_DivergentStampsReachTheSameState(t *testing.T) {
 	}
 }
 
-// The proposer's verdict does not override the task's own state. Both refusals
+// The proposer's measurements do not override the task's own state. Both refusals
 // below are properties of the task alone, so they are the same answer on every
 // node whatever its clock says.
-func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersVerdict(t *testing.T) {
+func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersMeasurements(t *testing.T) {
 	const (
 		ns      = "tasks-namespace"
 		version = uint64(7)
 	)
+
+	elapsed := func(h *testHarness, id string) *cmd.CleanUpDistributedTaskRequest {
+		return &cmd.CleanUpDistributedTaskRequest{
+			Namespace:            ns,
+			Id:                   id,
+			Version:              version,
+			ProposedAtUnixMillis: h.clock.Now().UnixMilli(),
+			TtlMillis:            time.Second.Milliseconds(),
+		}
+	}
 
 	t.Run("a running task is refused", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
@@ -160,9 +200,8 @@ func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersVerdict(t *testin
 		h.manager.tasks[ns]["running"].Status = TaskStatusStarted
 		h.manager.mu.Unlock()
 
-		require.ErrorContains(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-			Namespace: ns, Id: "running", Version: version, TtlElapsed: true,
-		})), "is still running")
+		require.ErrorContains(t,
+			h.manager.CleanUpTask(toCmd(t, elapsed(h, "running"))), "is still running")
 	})
 
 	t.Run("a terminal task without a finish time is refused", func(t *testing.T) {
@@ -171,8 +210,7 @@ func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersVerdict(t *testin
 
 		seedTerminalTaskWithoutAStamp(t, h.manager, ns, "unstamped", version)
 
-		require.ErrorContains(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-			Namespace: ns, Id: "unstamped", Version: version, TtlElapsed: true,
-		})), "carries no finish time")
+		require.ErrorContains(t,
+			h.manager.CleanUpTask(toCmd(t, elapsed(h, "unstamped"))), "carries no finish time")
 	})
 }

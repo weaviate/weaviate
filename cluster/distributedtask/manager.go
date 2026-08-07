@@ -1028,9 +1028,11 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 	return nil
 }
 
-// CleanUpTask removes a terminal task from the Manager's state. It refuses to clean up tasks
-// that are still running or whose completedTaskTTL has not yet elapsed, preventing premature
-// removal of status information that other nodes may still need to observe.
+// CleanUpTask removes a terminal task from the Manager's state. It refuses tasks that are
+// still running, tasks carrying no finish time, and tasks the proposer's measurements say
+// are still within the completed-task TTL — preventing premature removal of status
+// information that other nodes may still need to observe. See [Manager.ttlHasElapsed] for
+// which TTL and which clock decide that last one.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1065,24 +1067,43 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 			r.Namespace, r.Id, task.Version, task.Status)
 	}
 
-	// Age is the proposer's call, not this node's. The scheduler sweep that
-	// issues this command measures the task against the TTL once; re-deriving
-	// it here would read the applying node's wall clock against the applying
-	// node's stored stamp, so two nodes fork on whether the entry deletes.
-	// Skewed clocks do that, and so does a rolling upgrade, where the same
-	// task carries stamps a whole prep-plus-swap window apart by binary
-	// version. GET /v1/schema/{class}/indexes reads locally, so the fork is
-	// visible to the caller.
-	//
-	// A proposer that predates CleanUpDistributedTaskRequest.TtlElapsed sends
-	// no decision, and the field decodes to false: fall back to the local
-	// check, which is the behavior that binary's sweep expects.
-	if !r.TtlElapsed && m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
+	if !m.ttlHasElapsed(&r, task.FinishedAt) {
 		return fmt.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
 	}
 
 	delete(m.tasks[task.Namespace], task.ID)
 	return nil
+}
+
+// ttlHasElapsed reports whether a task stamped finishedAt is old enough to delete,
+// from the proposer's measurements rather than this node's clock: the moment the
+// scheduler sweep looked, and the TTL it looked against. Both operands come from
+// the log entry and the FSM state, so every node reaches the same verdict.
+//
+// Re-measuring locally instead would read the applying node's wall clock against
+// the applying node's stored stamp, and two nodes would fork on whether the entry
+// deletes. Skewed clocks do that, and so does a rolling upgrade, where the same
+// task carries stamps a whole PREPARING-through-SWAPPING window apart depending on
+// which binary stamped it. GET /v1/schema/{class}/indexes reads locally, so the
+// fork is visible to the caller.
+//
+// The TTL applied is the proposer's. DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is
+// a per-node setting, so raising it on one node governs that node's own proposals
+// only; the effective cluster retention is whatever the proposing node had.
+//
+// Both measurements zero means the request came from a binary that predates the
+// fields, and the local age check that binary's sweep expects applies instead.
+// The opposite direction does not converge: an applier on such a binary discards
+// the measurements and re-derives locally whatever the proposer sent, so a
+// mixed-version cluster keeps forking until every node runs a binary that reads
+// them.
+func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, finishedAt time.Time) bool {
+	if r.ProposedAtUnixMillis == 0 && r.TtlMillis == 0 {
+		return m.completedTaskTTL < m.clock.Since(finishedAt)
+	}
+
+	elapsed := time.UnixMilli(r.ProposedAtUnixMillis).Sub(finishedAt)
+	return time.Duration(r.TtlMillis)*time.Millisecond <= elapsed
 }
 
 // ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is

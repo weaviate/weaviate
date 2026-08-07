@@ -203,6 +203,22 @@ Two things about it changed with the `finishedAt` work:
   `finishedAt` entirely, so a client sorting on the field no longer sees
   every running migration dated year 1. The same applies to each unit's
   `finishedAt`.
+- **The completed-task TTL is now decided by the node that proposes the
+  deletion.** The cleanup request carries the moment that node's sweep
+  measured the task's age at and the TTL it measured against, and every
+  node applies that rather than re-measuring against its own wall clock.
+  Two nodes therefore agree on whether a task is still listed, which they
+  did not before. The consequence for operators:
+  `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` is a per-node setting, and
+  each node's sweep proposes with its own value, so **the effective
+  cluster retention is the shortest value configured on any node**. Raise
+  it on every node; raising it on one changes only what that node
+  proposes, and during the rolling restart that applies the new value the
+  old shorter one still wins on the nodes that have not restarted yet.
+  A node old enough not to send the measurements sends nothing, and the
+  applying node falls back to its own age check — so during an upgrade
+  from such a version the two nodes can still disagree, in both
+  directions, until every node runs a binary that carries them.
 
 ## 3. End-to-end lifecycle
 
@@ -1337,6 +1353,15 @@ configuration:
   whose window contained that swap. Restoring the RAFT snapshot repairs
   the stamp on the restoring node, but the gate reads the leader's list,
   so the window lasts as long as an old node holds leadership.
+- *Old node ending a task without stamping it at all during a rolling
+  upgrade.* A terminal task carrying no `finishedAt` has no age, so both
+  the sweep and the cleanup apply refuse it rather than delete it — the
+  alternative is treating a zero stamp as ~2000 years old and hiding the
+  task from the backup overlap check. The task stays listed and the
+  scheduler logs `... carry no finish time` once an hour. There is no
+  config change and no API call that clears it: the state goes away when
+  leadership moves to an upgraded node, because the sweep reads the
+  leader's list and only that node's list is repaired on restore.
 - *`RUNTIME_REINDEX_ENABLED=false`, the default.* Every gate returns
   before it looks at anything, so no gate refuses and none of them logs:
   this window is silent by design, and it is the shipped default. It is
