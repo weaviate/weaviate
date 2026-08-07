@@ -1286,8 +1286,13 @@ configuration:
   resumes a `STARTED` task from DTM, and cancel stays allowed so a
   teardown can still be in flight. With the gates off a backup can span
   any of the three, and no commit-time backstop catches it either, since
-  that check is off too. This is the escape hatch for the whole feature,
-  so it cannot itself fail backups.
+  that check is off too. What the flag lifts is exactly the backup and
+  restore refusals (and the commit-time backstop with them), so it cannot
+  itself fail backups. It is not an escape hatch for the whole feature:
+  the schema gates that block `DeleteClass`, property updates and tenant
+  mutations while a task is in flight sit on the RAFT apply path and never
+  read this flag, so they keep refusing until the task reaches a terminal
+  state.
 
 **The commit-time backstop compares two clocks.** `RefuseIfReindexOverlapped`
 clears a task when its `FinishedAt` is before the backup's start time. Those two

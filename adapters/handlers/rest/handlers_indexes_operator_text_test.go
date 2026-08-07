@@ -48,7 +48,8 @@ func TestPastCancellationRefusalsDoNotPromiseThatPollingEndsIt(t *testing.T) {
 
 			msg := conflict.Payload.Error[0].Message
 			require.Contains(t, msg, "RUNTIME_REINDEX_ENABLED=false",
-				"the kill switch is the only exit when the migration never finishes")
+				"a restart with the flag off is what lifts the backup and restore refusals "+
+					"when the migration never finishes; it does not end the migration")
 			require.Contains(t, msg, "STARTED",
 				"the operator has to learn that cancel only works before this point")
 			require.NotContains(t, msg, "until every index reports",
