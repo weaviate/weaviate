@@ -216,6 +216,10 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 		// minElapsed, when set, is the floor on how long the whole rollback
 		// must take. Only the rows that retry have one.
 		minElapsed time.Duration
+		// wantRolledBack is what the caller learns. False means the migration
+		// is still running, which is the only case where the caller has to be
+		// told its id.
+		wantRolledBack bool
 	}{
 		{
 			name: "the listing fails, so the task to cancel is never identified",
@@ -249,6 +253,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedLevel:       logrus.WarnLevel,
 			expectedMessage:     "rollback: the task was already gone",
 			expectedAudit:       "reindex_task_rollback_not_needed",
+			wantRolledBack:      true,
 		},
 		{
 			// The task finished between the listing and the cancel, so the FSM
@@ -267,6 +272,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedLevel:       logrus.InfoLevel,
 			expectedMessage:     "rollback: the reindex task that raced a backup claim had already reached a terminal status",
 			expectedAudit:       "reindex_task_rollback_already_terminal",
+			wantRolledBack:      true,
 		},
 		{
 			// PREPARING is not cancellable, so the FSM answers with the same
@@ -328,6 +334,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedLevel:       logrus.InfoLevel,
 			expectedMessage:     "rollback: the reindex task that raced a backup claim had already reached a terminal status",
 			expectedAudit:       "reindex_task_rollback_already_terminal",
+			wantRolledBack:      true,
 		},
 		{
 			// A retryable RAFT failure must still escalate.
@@ -350,6 +357,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedLevel:       logrus.InfoLevel,
 			expectedMessage:     "rollback: cancelled a reindex task that raced a backup claim",
 			expectedAudit:       "reindex_task_rolled_back",
+			wantRolledBack:      true,
 		},
 		{
 			// The transient case the retry exists for. It must report success
@@ -364,6 +372,7 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedLevel:       logrus.InfoLevel,
 			expectedMessage:     "rollback: cancelled a reindex task that raced a backup claim",
 			expectedAudit:       "reindex_task_rolled_back",
+			wantRolledBack:      true,
 			// The base delay is 500ms and the library jitters it down to half,
 			// so 250ms is the floor. Spelled out rather than derived from the
 			// constant, so that shrinking the constant fails here instead of
@@ -382,8 +391,12 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			}
 
 			start := time.Now()
-			h.rollbackRacedReindexTask(context.Background(), taskID, collection, property)
+			rolledBack := h.rollbackRacedReindexTask(context.Background(), taskID, collection, property)
 			elapsed := time.Since(start)
+
+			require.Equal(t, test.wantRolledBack, rolledBack,
+				"the caller answers the submitter from this; a wrong answer either hides a "+
+					"running migration or names one that is gone")
 
 			if test.minElapsed > 0 {
 				require.Greater(t, elapsed, test.minElapsed,
@@ -849,4 +862,62 @@ func TestUpdateIndexRollbackRunsWithoutTheSubmitHolds(t *testing.T) {
 	require.Equal(t, db.ReindexHoldNone, db.ReindexHold(gateAtCancel.Load()),
 		"the submit gate is still closed during the rollback; every backup of this collection "+
 			"waits out a rollback nobody is listening for")
+}
+
+// A rollback that never lands leaves the migration committed and running while
+// its submitter is told the submission was refused. The refusal has to name the
+// task: the caller's retry is answered 409 by checkReindexConflict for a task
+// they were never told about, and cancelling it is the only way out. The
+// adjacent unconfirmed-probe arm already answers this state with the id.
+func TestUpdateIndexNamesTheTaskWhenTheRollbackFails(t *testing.T) {
+	// The submit path mints the id with a random suffix, so the expectation is
+	// built from the task that was actually committed.
+	wantNamed := func(taskID string) string {
+		return `reindex blocked: a backup is running in the cluster, and the migration committed ` +
+			`before that was known could not be rolled back. It is running as task "` + taskID +
+			`"; cancel it, then retry after the backup finishes.`
+	}
+
+	tests := []struct {
+		name string
+		// cancelErr fails every rollback attempt when set.
+		cancelErr error
+		wantBody  func(taskID string) string
+	}{
+		{
+			name:      "the rollback never lands",
+			cancelErr: errors.New("raft: leader election in progress"),
+			wantBody:  wantNamed,
+		},
+		{
+			name: "the rollback lands",
+			wantBody: func(string) string {
+				return "reindex blocked: a backup is running in the cluster; retry after it finishes"
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var busy atomic.Bool
+			svc := &raceTaskService{cancelErr: test.cancelErr}
+			svc.onCommitted = func() { busy.Store(true) }
+
+			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+			responder := submitReindex(h)
+
+			conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
+			require.Truef(t, ok, "a racing backup is a 409 either way, got %T", responder)
+			require.Equal(t, 1, svc.adds, "the task must be committed, or no rollback is attempted")
+
+			svc.mu.Lock()
+			require.Len(t, svc.tasks, 1)
+			taskID := svc.tasks[0].ID
+			svc.mu.Unlock()
+
+			// Exact, because the id is the whole point: a message that merely
+			// mentions a rollback leaves the caller with nothing to cancel.
+			require.Equal(t, test.wantBody(taskID), errorMessage(t, conflict.Payload))
+		})
+	}
 }

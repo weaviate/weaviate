@@ -834,7 +834,16 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			// was attempted.
 			releaseSubmitGate()
 			releaseSubmitLock()
-			h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName)
+			if !h.rollbackRacedReindexTask(ctx, taskID, collection, propertyName) {
+				// Same state the unconfirmed-probe arm below answers: the
+				// migration is committed and running. Answering with the plain
+				// refusal would send the caller into a retry that
+				// checkReindexConflict answers 409, for a task they were never
+				// told about — and here they also need the id to cancel the
+				// migration the rollback failed to stop.
+				return reindexTaskRollbackFailedResponder(principal,
+					namespacing.StripOwnNamespace(principal, taskID))
+			}
 			return responder
 		}
 		h.appState.Logger.WithFields(logrus.Fields{
@@ -1030,7 +1039,10 @@ const reindexRollbackRetryDelay = 500 * time.Millisecond
 // exists precisely so a rollback that never claimed a unit stays harmless.
 // Bounding the accumulation would mean deleting records that backstop needs;
 // the retention window is the intended bound and is operator-tunable.
-func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) {
+// Reports whether the task is gone. A false answer means the migration is still
+// running and the caller has to name it, which is the whole reason for the
+// return value: only the server log knows the id otherwise.
+func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, collection, propertyName string) bool {
 	fields := logrus.Fields{
 		"audit_event": "reindex_task_rolled_back",
 		"taskID":      taskID,
@@ -1047,7 +1059,7 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 	for attempt := 1; attempt <= reindexRollbackAttempts; attempt++ {
 		done, err := h.tryRollbackRacedReindexTask(ctx, taskID, fields)
 		if done {
-			return
+			return true
 		}
 		lastErr = err
 		if ctx.Err() != nil {
@@ -1060,6 +1072,19 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 	h.appState.Logger.WithFields(fields).WithField("audit_event", "reindex_task_rollback_failed").Errorf(
 		"rollback: could not cancel the task in %d attempts: %v; it is still running while its submitter was told the "+
 			"submission was refused — cancel it by hand", reindexRollbackAttempts, lastErr)
+	return false
+}
+
+// reindexTaskRollbackFailedResponder answers the submit whose post-commit
+// rollback never landed. 409 like the refusal it replaces — a backup really
+// does hold the slot, so retrying after it finishes is still the advice — but
+// it names the task, because that task is running and only its id makes the
+// cancel the caller now needs possible.
+func reindexTaskRollbackFailedResponder(principal *models.Principal, taskID string) middleware.Responder {
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex blocked: a backup is running in the cluster, and the migration committed "+
+			"before that was known could not be rolled back. It is running as task %q; cancel it, then "+
+			"retry after the backup finishes.", taskID)))
 }
 
 // newRollbackRetryBackoff builds the rollback retry schedule.

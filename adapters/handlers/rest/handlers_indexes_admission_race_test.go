@@ -47,6 +47,9 @@ type raceTaskService struct {
 	adds        int
 	lists       int
 	onCommitted func()
+	// cancelErr, when set, fails every cancel — the shape of a rollback that
+	// never lands.
+	cancelErr error
 }
 
 func (s *raceTaskService) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
@@ -93,6 +96,9 @@ func (s *raceTaskService) AddDistributedTaskWithGroupsBarrier(_ context.Context,
 func (s *raceTaskService) CancelDistributedTask(_ context.Context, _, taskID string, version uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.cancelErr != nil {
+		return s.cancelErr
+	}
 	s.cancelled = append(s.cancelled, distributedtask.TaskDescriptor{ID: taskID, Version: version})
 	for _, t := range s.tasks {
 		if t.ID == taskID {
