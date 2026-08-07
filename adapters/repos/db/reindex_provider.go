@@ -2073,21 +2073,7 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 // unrecognized case, so a task from a newer node was live to the backup
 // gate but invisible to conflict detection.
 func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
-	switch status {
-	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping:
-		return true
-	case distributedtask.TaskStatusFinished,
-		distributedtask.TaskStatusCancelled,
-		distributedtask.TaskStatusFailed:
-		return false
-	}
-	// A status this build does not recognize comes from a newer node, and every
-	// caller reads true as "leave it alone": refuse the backup, refuse the
-	// restore, keep the tracker dirs. Guessing "not live" would admit a backup
-	// over a migration whose status was added after this build shipped.
-	return true
+	return status.IsActive()
 }
 
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST
