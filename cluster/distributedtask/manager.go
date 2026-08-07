@@ -619,9 +619,8 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 		u.Status = UnitStatusFailed
 		u.Error = r.Error
 		u.FinishedAt = finishedAt
-		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
-		task.FinishedAt = finishedAt
+		task.markTerminal(TaskStatusFailed, finishedAt)
 		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
@@ -704,8 +703,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest, catchingUp bool) 
 	// Any failure flips the task to FAILED immediately; later acks are
 	// still recorded for forensic value.
 	if !r.Success && task.Status == TaskStatusSwapping {
-		task.Status = TaskStatusFailed
-		task.FinishedAt = ackedAt
+		task.markTerminal(TaskStatusFailed, ackedAt)
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
@@ -797,14 +795,13 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest, catchingUp b
 	// Failure path: the task fails immediately. No node proceeds to the
 	// atomic swap.
 	if !r.Success && task.Status == TaskStatusPreparing {
-		task.Status = TaskStatusFailed
 		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
-		task.FinishedAt = ackedAt
+		task.markTerminal(TaskStatusFailed, ackedAt)
 		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
@@ -880,10 +877,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	task.Status = TaskStatusFinished
-	// From the request, never the local clock: two nodes applying this same
-	// log entry have to arrive at the same state.
-	task.FinishedAt = time.UnixMilli(r.FinalizedAtUnixMillis)
+	task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FinalizedAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -923,10 +917,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest, catchingUp bool) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	task.Status = TaskStatusFailed
-	// From the request, never the local clock: two nodes applying this same
-	// log entry have to arrive at the same state.
-	task.FinishedAt = time.UnixMilli(r.FailedAtUnixMillis)
+	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.FailedAtUnixMillis))
 	if r.Error != "" {
 		if task.Error != "" {
 			task.Error = task.Error + "; " + r.Error
@@ -1023,8 +1014,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
-	task.Status = TaskStatusCancelled
-	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
+	task.markTerminal(TaskStatusCancelled, time.UnixMilli(r.CancelledAtUnixMillis))
 	m.dispatchTerminalWithLock(task, catchingUp)
 	m.notifySchedulerWithLock()
 	return nil

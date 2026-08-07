@@ -562,6 +562,23 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
+// markTerminal ends the task, setting the status and the matching FinishedAt
+// in one step. It is the only place a terminal status is assigned, which is
+// what keeps the [Task.FinishedAt] invariant true by construction rather than
+// by six sites remembering to stamp.
+//
+// at must be the timestamp carried on the RAFT request that caused the
+// transition, never the applying node's clock: two nodes applying this same
+// log entry have to arrive at the same state.
+//
+// Callers guard the transition themselves — every one of them refuses or
+// ignores a command against an already-terminal task, so a task is stamped
+// exactly once.
+func (t *Task) markTerminal(status TaskStatus, at time.Time) {
+	t.Status = status
+	t.FinishedAt = at
+}
+
 func (t *Task) Clone() *Task {
 	clone := *t
 	if t.Units != nil {
