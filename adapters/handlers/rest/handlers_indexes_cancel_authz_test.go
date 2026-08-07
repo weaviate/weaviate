@@ -98,6 +98,25 @@ func (a auditingAuthorizer) Authorize(ctx context.Context, principal *models.Pri
 	return nil
 }
 
+// splitAuthorizer lets the silent probe and the audible call disagree. The two
+// take the RBAC store's lock separately, so a grant revoked between them
+// answers the first and refuses the second, and an outage can start in the same
+// window.
+type splitAuthorizer struct {
+	auditingAuthorizer
+	audibleErr error
+}
+
+func (a splitAuthorizer) Authorize(ctx context.Context, principal *models.Principal,
+	verb string, resources ...string,
+) error {
+	var forbidden authzerrors.Forbidden
+	if errors.As(a.audibleErr, &forbidden) {
+		a.logger.WithField("resource", resources).Error("authorization denied")
+	}
+	return a.audibleErr
+}
+
 // outageAuthorizer cannot answer at all. Its error is not a Forbidden, so the
 // caller's grant is unknown rather than absent — the one case where refusing
 // tells the operator nothing about the caller.
@@ -139,15 +158,23 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 		wantCancelled string
 		wantErrorLog  bool
 		wantGrantLog  bool
-		wantAuditity  string
+		// wantGrantVerb is the verb the grant record has to carry. The record
+		// exists to say which privilege was used, so the wrong verb on it is
+		// the same as no record.
+		wantGrantVerb  string
+		wantAuditEvent string
+		// wantEventLevel is the level of the entry carrying wantAuditEvent,
+		// which is the handler's own verdict rather than the authorizer's.
+		wantEventLevel logrus.Level
 	}{
 		{
 			name: "a caller holding only this collection is denied without an alert",
 			authorizer: func(logger logrus.FieldLogger) authorization.Authorizer {
 				return auditingAuthorizer{scopedAuthorizer: grantUpdateOn(collection), logger: logger}
 			},
-			wantStatus:   reindexCancelStatusNoOp,
-			wantAuditity: "reindex_task_cancel_unattributable_denied",
+			wantStatus:     reindexCancelStatusNoOp,
+			wantAuditEvent: "reindex_task_cancel_unattributable_denied",
+			wantEventLevel: logrus.InfoLevel,
 		},
 		{
 			name: "a cluster-privileged caller cancels it, and the grant is on the record",
@@ -156,19 +183,55 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 				// for, which is what UPDATE on every collection looks like.
 				return auditingAuthorizer{scopedAuthorizer: grantUpdateOn(), logger: logger}
 			},
-			wantStatus:    "CANCELLED",
-			wantCancelled: foreignID,
-			wantGrantLog:  true,
-			wantAuditity:  "reindex_task_cancel_unattributable_payload",
+			wantStatus:     "CANCELLED",
+			wantCancelled:  foreignID,
+			wantGrantLog:   true,
+			wantGrantVerb:  authorization.UPDATE,
+			wantAuditEvent: "reindex_task_cancel_unattributable_payload",
+			wantEventLevel: logrus.InfoLevel,
 		},
 		{
 			name: "an authorizer that cannot answer leaves the task running, loudly",
 			authorizer: func(logrus.FieldLogger) authorization.Authorizer {
 				return outageAuthorizer{}
 			},
-			wantStatus:   reindexCancelStatusNoOp,
-			wantErrorLog: true,
-			wantAuditity: "reindex_task_cancel_unattributable_authorizer_unavailable",
+			wantStatus:     reindexCancelStatusNoOp,
+			wantErrorLog:   true,
+			wantAuditEvent: "reindex_task_cancel_unattributable_authorizer_unavailable",
+			wantEventLevel: logrus.ErrorLevel,
+		},
+		{
+			// The probe said yes and the record said no. Nothing is wrong with
+			// the authorizer, so this is the denial arriving one statement
+			// late, and it must not page anyone as an outage.
+			name: "a grant withdrawn between the probe and the record leaves the task running",
+			authorizer: func(logger logrus.FieldLogger) authorization.Authorizer {
+				return splitAuthorizer{
+					auditingAuthorizer: auditingAuthorizer{scopedAuthorizer: grantUpdateOn(), logger: logger},
+					audibleErr: authzerrors.NewForbidden(&models.Principal{Username: "u1"},
+						authorization.UPDATE, authorization.Collections()[0]),
+				}
+			},
+			wantStatus: reindexCancelStatusNoOp,
+			// The RBAC layer files its own denial for the audible call.
+			wantErrorLog:   true,
+			wantAuditEvent: "reindex_task_cancel_unattributable_grant_withdrawn",
+			wantEventLevel: logrus.InfoLevel,
+		},
+		{
+			// The same window, with the store going down in it rather than the
+			// grant going away. Unknown, not absent, so it keeps the outage name.
+			name: "an authorizer that fails only on the audible call leaves the task running, loudly",
+			authorizer: func(logger logrus.FieldLogger) authorization.Authorizer {
+				return splitAuthorizer{
+					auditingAuthorizer: auditingAuthorizer{scopedAuthorizer: grantUpdateOn(), logger: logger},
+					audibleErr:         errAuthorizerUnavailable,
+				}
+			},
+			wantStatus:     reindexCancelStatusNoOp,
+			wantErrorLog:   true,
+			wantAuditEvent: "reindex_task_cancel_unattributable_authorizer_unavailable",
+			wantEventLevel: logrus.ErrorLevel,
 		},
 	}
 
@@ -207,19 +270,42 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 			require.Equalf(t, tc.wantErrorLog, errorLevel,
 				"an error-level record is a page for a human; entries were %q", entryMessages(hook))
 
-			grantLogged := strings.Contains(entryMessages(hook), auditGranted)
-			require.Equalf(t, tc.wantGrantLog, grantLogged,
+			grant := entryWith(hook, func(e *logrus.Entry) bool { return e.Message == auditGranted })
+			require.Equalf(t, tc.wantGrantLog, grant != nil,
 				"the audit stream has to carry the grant that let this cancel through, and nothing else; "+
 					"entries were %q", entryMessages(hook))
+			if tc.wantGrantVerb != "" {
+				require.Equal(t, tc.wantGrantVerb, grant.Data["verb"],
+					"the grant record names the privilege that was used; the wrong verb on it is "+
+						"what a compliance query reads")
+			}
 
-			require.Contains(t, entryMessages(hook), tc.wantAuditity,
-				"each outcome needs its own event name, or a SIEM rule counts two different facts as one")
+			event := entryWith(hook, func(e *logrus.Entry) bool {
+				return e.Data["audit_event"] == tc.wantAuditEvent
+			})
+			require.NotNilf(t, event,
+				"each outcome needs its own event name, or a SIEM rule counts two different facts "+
+					"as one; entries were %q", entryMessages(hook))
+			require.Equal(t, tc.wantEventLevel, event.Level,
+				"the level is the handler's own verdict on this outcome, and a denial filed at "+
+					"error level pages someone for a request that was answered correctly")
 		})
 	}
 }
 
+// entryWith returns the one entry matching pred, failing the caller's assertion
+// with nil when there is none.
+func entryWith(hook *logrustest.Hook, pred func(*logrus.Entry) bool) *logrus.Entry {
+	for _, entry := range hook.AllEntries() {
+		if pred(entry) {
+			return entry
+		}
+	}
+	return nil
+}
+
 // entryMessages joins each entry's message with its audit_event field, so a
-// test can assert on either without knowing which carries the text.
+// failure can show what was logged without knowing which carries the text.
 func entryMessages(hook *logrustest.Hook) string {
 	var b strings.Builder
 	for _, entry := range hook.AllEntries() {

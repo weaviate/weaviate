@@ -1423,15 +1423,25 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 						"whether the caller may cancel it, so it was left running: %v", probeErr)
 			default:
 				// The probe passed, so this request is about to use cluster-wide
-				// UPDATE. Authorize audibly once, on the path that actually
-				// cancels, or the one privileged act this pass gates leaves no
-				// record in the audit stream.
+				// UPDATE. Call Authorize on the path that actually cancels, or
+				// the cancel leaves no record in the audit stream.
 				if grantErr := h.appState.Authorizer.Authorize(ctx, principal, authorization.UPDATE,
 					authorization.Collections()...); grantErr != nil {
-					h.appState.Logger.WithFields(fields).
-						WithField("audit_event", "reindex_task_cancel_unattributable_authorizer_unavailable").
-						Errorf("cancel: the caller's cluster-wide grant did not survive being recorded, "+
-							"so the task naming no collection was left running: %v", grantErr)
+					var forbidden authzerrors.Forbidden
+					if errors.As(grantErr, &forbidden) {
+						// The probe allowed and this refused, so the grant was
+						// withdrawn between the two calls. A denial, and the
+						// response says as little as the probe's own denial does.
+						h.appState.Logger.WithFields(fields).
+							WithField("audit_event", "reindex_task_cancel_unattributable_grant_withdrawn").
+							Infof("cancel: the caller's cluster-wide grant was gone by the time it was "+
+								"recorded, so the task naming no collection was left running: %v", grantErr)
+					} else {
+						h.appState.Logger.WithFields(fields).
+							WithField("audit_event", "reindex_task_cancel_unattributable_authorizer_unavailable").
+							Errorf("cancel: the caller's cluster-wide grant could not be recorded, "+
+								"so the task naming no collection was left running: %v", grantErr)
+					}
 					break
 				}
 				h.appState.Logger.WithFields(fields).
@@ -1656,8 +1666,9 @@ func (o *cleanupSweepOutcome) add(indexType string, err error) {
 }
 
 // logPreSubmitSweep reports one strategy's pre-submit sweep. A collection being
-// deleted is silent about state, not a failure: there is none left, and the
-// submit this sweep runs for is refused a moment later anyway.
+// deleted logs at info, not error: there is no stale state left to
+// short-circuit on, and the submit this sweep runs for is refused a moment
+// later anyway.
 func logPreSubmitSweep(entry *logrus.Entry, err error) {
 	switch {
 	case err == nil:
