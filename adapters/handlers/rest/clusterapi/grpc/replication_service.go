@@ -428,6 +428,10 @@ func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse
 	return out
 }
 
+// replicationErrorToGRPC maps typed replication errors to gRPC codes. The
+// async replication clients (HashTreeLevel, DigestObjectsInRange, CompareDigests,
+// OverwriteObjects) map FailedPrecondition back to ErrAsyncReplicationNotActive
+// (retry-later); keep those RPCs' server paths free of other FailedPrecondition sources.
 func replicationErrorToGRPC(err error) error {
 	if err == nil {
 		return nil

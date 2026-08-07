@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -685,14 +684,16 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	s, release, err := idx.GetShard(ctx, shard)
+	// Never load from a repair write: a cold replica is activated by real
+	// traffic, not by async replication or read repair.
+	s, release, err := idx.getLoadedShard(shard)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q not found locally", shard)
+		return nil, fmt.Errorf("shard %q: %w", shard, err)
 	}
 
 	defer release()
 	if s == nil {
-		return nil, fmt.Errorf("shard %q not found locally", shard)
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shard)
 	}
 
 	if err := idx.ensureShardLocallyReady(s); err != nil {
@@ -1049,13 +1050,14 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 func (i *Index) DigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) (result []types.RepairResponse, err error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load from async replication; empty success for unloaded would invite full propagation.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, nil
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
 	return shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
@@ -1070,13 +1072,14 @@ func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 func (i *Index) CompareDigests(ctx context.Context,
 	shardName string, sourceDigests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load from async replication's propagation pre-check.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, fmt.Errorf("shard %q is not yet initialized on this node", shardName)
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
 	return shard.CompareDigests(ctx, sourceDigests)
@@ -1085,13 +1088,14 @@ func (i *Index) CompareDigests(ctx context.Context,
 func (i *Index) HashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load a shard from async replication.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
 	return shard.HashTreeLevel(ctx, level, discriminant)
@@ -1103,8 +1107,7 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-// CompareHashTreeRoots returns shards whose local root was read and differs; not-ready
-// shards (missing/uninitialised/cold) are omitted — caught once they become ready.
+// CompareHashTreeRoots returns shards whose loaded tree differs or is not ready (the source descends instead of reading not-ready as converged); unloaded shards are omitted without loading them.
 func (i *Index) CompareHashTreeRoots(ctx context.Context,
 	roots map[string]hashtree.Digest,
 ) ([]string, error) {
@@ -1113,15 +1116,16 @@ func (i *Index) CompareHashTreeRoots(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		localRoot, ok := func() (hashtree.Digest, bool) {
-			shard, release, err := i.GetShard(ctx, shardName)
+		localRoot, ok, loaded := func() (hashtree.Digest, bool, bool) {
+			shard, release, err := i.getLoadedShard(shardName)
 			if err != nil || shard == nil {
-				return hashtree.Digest{}, false
+				return hashtree.Digest{}, false, false
 			}
 			defer release()
-			return shard.HashTreeRoot()
+			root, ok := shard.HashTreeRoot()
+			return root, ok, true
 		}()
-		if ok && localRoot != sourceRoot {
+		if loaded && (!ok || localRoot != sourceRoot) {
 			diverging = append(diverging, shardName)
 		}
 	}

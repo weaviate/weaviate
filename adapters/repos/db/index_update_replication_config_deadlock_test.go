@@ -15,6 +15,7 @@ import (
 	"context"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,6 +66,7 @@ func deadlockStacks(full string) string {
 	var kept []string
 	for _, g := range strings.Split(full, "\n\n") {
 		if strings.Contains(g, "updateReplicationConfig") ||
+			strings.Contains(g, "reconcileAsyncReplication") ||
 			strings.Contains(g, "LazyLoadShard") ||
 			strings.Contains(g, "initNonVector") {
 			kept = append(kept, g)
@@ -108,6 +110,50 @@ func (g gateAllocChecker) CheckMappingAndReserve(int64, int) error {
 
 func (g gateAllocChecker) Refresh(bool) {}
 
+const (
+	deadlockSyncTimeout = 10 * time.Second
+	deadlockTimeout     = 15 * time.Second
+)
+
+// startGatedLoad parks lazy's Load inside its critical section (shard mutex held, before its config reads) and returns the gate plus Load's done channel.
+func startGatedLoad(t *testing.T, ctx context.Context, lazy *LazyLoadShard) (gateAllocChecker, chan error) {
+	t.Helper()
+	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
+	lazy.memMonitor = gate
+
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- lazy.Load(ctx) }()
+
+	select {
+	case <-gate.entered:
+	case <-time.After(deadlockSyncTimeout):
+		t.Fatal("Load never reached the gate inside its critical section — the fixture no longer exercises the interleaving")
+	}
+	return gate, loadDone
+}
+
+// requireBothComplete fails with filtered goroutine stacks when either channel stays blocked past the deadlock timeout.
+func requireBothComplete(t *testing.T, what string, loadDone, opDone chan error) {
+	t.Helper()
+	loadOK, opOK := false, false
+	timeout := time.After(deadlockTimeout)
+	for !loadOK || !opOK {
+		select {
+		case err := <-loadDone:
+			require.NoError(t, err)
+			loadOK = true
+		case err := <-opDone:
+			require.NoError(t, err)
+			opOK = true
+		case <-timeout:
+			buf := make([]byte, 1<<22)
+			stacks := string(buf[:runtime.Stack(buf, true)])
+			t.Fatalf("deadlock: %s and LazyLoadShard.Load wedged for %s (load done: %v, op done: %v).\n\ninvolved goroutines:\n\n%s",
+				what, deadlockTimeout, loadOK, opOK, deadlockStacks(stacks))
+		}
+	}
+}
+
 // Pins the ABBA deadlock that wedged the RAFT FSM in prod (the UpdateClass
 // apply never returns, so raft.Shutdown hangs on runFSM):
 //
@@ -120,26 +166,12 @@ func (g gateAllocChecker) Refresh(bool) {}
 // config read collide with the fan-out. Every sync point fails the test loudly
 // if it is not reached, so the test cannot pass without exercising the cycle.
 func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
-	const (
-		syncTimeout     = 10 * time.Second
-		deadlockTimeout = 15 * time.Second
-	)
 	ctx := context.Background()
 
 	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigDeadlock")
 	lazy := soleColdShard(t, index)
 
-	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
-	lazy.memMonitor = gate
-
-	loadDone := make(chan error, 1)
-	go func() { loadDone <- lazy.Load(ctx) }()
-
-	select {
-	case <-gate.entered:
-	case <-time.After(syncTimeout):
-		t.Fatal("Load never reached the gate inside its critical section — the fixture no longer exercises the interleaving")
-	}
+	gate, loadDone := startGatedLoad(t, ctx, lazy)
 
 	// Queue the updater behind a test-held read lock so its write-lock request
 	// is observably pending before Load is released.
@@ -153,7 +185,7 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 	}()
 
 	writerQueued := false
-	for deadline := time.Now().Add(syncTimeout); time.Now().Before(deadline); {
+	for deadline := time.Now().Add(deadlockSyncTimeout); time.Now().Before(deadline); {
 		if !index.replicationConfigLock.TryRLock() {
 			writerQueued = true // a pending writer blocks new readers
 			break
@@ -168,22 +200,175 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 	index.replicationConfigLock.RUnlock() // writer acquires the lock now
 	close(gate.release)                   // Load proceeds into its config read
 
-	loadOK, updateOK := false, false
-	timeout := time.After(deadlockTimeout)
-	for !loadOK || !updateOK {
-		select {
-		case err := <-loadDone:
-			require.NoError(t, err)
-			loadOK = true
-		case err := <-updateDone:
-			require.NoError(t, err)
-			updateOK = true
-		case <-timeout:
-			buf := make([]byte, 1<<22)
-			stacks := string(buf[:runtime.Stack(buf, true)])
-			t.Fatalf("deadlock: updateReplicationConfig and LazyLoadShard.Load wedged for %s (load done: %v, update done: %v).\n\ninvolved goroutines:\n\n%s",
-				deadlockTimeout, loadOK, updateOK, deadlockStacks(stacks))
-		}
+	requireBothComplete(t, "updateReplicationConfig", loadDone, updateDone)
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad pins the updater deadlock's sibling: reconcile must not hold replicationConfigLock across the fan-out, whose isLoaded() blocks on a mid-load shard's mutex.
+func TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad(t *testing.T) {
+	ctx := context.Background()
+
+	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigReconcileDeadlock")
+	lazy := soleColdShard(t, index)
+
+	gate, loadDone := startGatedLoad(t, ctx, lazy)
+
+	reconcileDone := make(chan error, 1)
+	go func() { reconcileDone <- index.reconcileAsyncReplication(ctx) }()
+
+	// Completing here would mean the fan-out no longer blocks on the parked shard's mutex.
+	select {
+	case <-reconcileDone:
+		t.Fatal("reconcile completed while Load held the shard mutex — the fan-out no longer touches it")
+	case <-time.After(200 * time.Millisecond):
 	}
+
+	close(gate.release) // Load proceeds into its config read
+
+	requireBothComplete(t, "reconcileAsyncReplication", loadDone, reconcileDone)
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// resumeLockScopeProbe records whether replicationConfigLock was free and the apply lock held while rebuildAsyncReplicationFromScratch ran.
+type resumeLockScopeProbe struct {
+	ShardLike
+	asyncReplicationController
+	idx       *Index
+	rebuilt   bool
+	lockFree  bool
+	applyHeld bool
+}
+
+func (p *resumeLockScopeProbe) resumeMaintenanceCycles(context.Context) error { return nil }
+
+func (p *resumeLockScopeProbe) rebuildAsyncReplicationFromScratch(context.Context, bool, AsyncReplicationConfig) error {
+	p.rebuilt = true
+	if p.idx.replicationConfigLock.TryLock() {
+		p.idx.replicationConfigLock.Unlock()
+		p.lockFree = true
+	}
+	if p.idx.asyncReplicationApplyLock.TryLock() {
+		p.idx.asyncReplicationApplyLock.Unlock()
+	} else {
+		p.applyHeld = true
+	}
+	return nil
+}
+
+// TestResumeAfterAbortedOffload_ConfigLockNotHeldAcrossRebuild: holding the config lock across the wrapper call recreates the lazy-load deadlock cycle.
+func TestResumeAfterAbortedOffload_ConfigLockNotHeldAcrossRebuild(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "ResumeLockScope")
+
+	probe := &resumeLockScopeProbe{idx: index}
+	index.shards.Store("probe-shard", probe)
+
+	require.NoError(t, index.resumeAfterAbortedOffload(ctx, "probe-shard"))
+	require.True(t, probe.rebuilt, "the rebuild must run for a loaded shard")
+	require.True(t, probe.lockFree, "replicationConfigLock must not be held across rebuildAsyncReplicationFromScratch")
+	require.True(t, probe.applyHeld, "asyncReplicationApplyLock must be held across rebuildAsyncReplicationFromScratch")
+
+	_, _ = index.shards.LoadAndDelete("probe-shard")
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// gatedApplyProbe parks the first enable before recording, modelling the in-place config assignment a real shard performs under its mutex.
+type gatedApplyProbe struct {
+	ShardLike
+	asyncReplicationController
+	entered  chan struct{}
+	release  chan struct{}
+	parkOnce sync.Once
+	mu       sync.Mutex
+	ops      []string
+}
+
+func (p *gatedApplyProbe) enableAsyncReplication(_ context.Context, _ AsyncReplicationConfig) error {
+	p.parkOnce.Do(func() { close(p.entered); <-p.release })
+	p.mu.Lock()
+	p.ops = append(p.ops, "enable")
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *gatedApplyProbe) disableAsyncReplication(context.Context) error {
+	p.mu.Lock()
+	p.ops = append(p.ops, "disable")
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *gatedApplyProbe) hasActiveAsyncReplicationTargetOverrides() bool { return false }
+
+// TestStaleFanOutCannotClobberNewerConfig: a fan-out parked mid-apply must finish before a newer config's fan-out, so the newest decision is always the last applied.
+func TestStaleFanOutCannotClobberNewerConfig(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigStaleClobber")
+
+	index.asyncReplicationScheduler = newSchedulerForUnitTest(t)
+	index.replicationConfigLock.Lock()
+	index.Config.ReplicationFactor = 3
+	index.replicationConfigLock.Unlock()
+
+	probe := &gatedApplyProbe{entered: make(chan struct{}), release: make(chan struct{})}
+	index.shards.Store("probe-shard", probe)
+
+	reconcileDone := make(chan error, 1)
+	go func() { reconcileDone <- index.reconcileAsyncReplication(ctx) }()
+	select {
+	case <-probe.entered:
+	case <-time.After(deadlockSyncTimeout):
+		t.Fatal("the reconcile fan-out never reached the probe shard")
+	}
+
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- index.updateReplicationConfig(ctx, &models.ReplicationConfig{Factor: 1})
+	}()
+	// Wait for the updater to publish the new factor: its fan-out is then at or
+	// behind the apply lock (serialized) or already past it (the regression this
+	// test pins) — no wall-clock guessing.
+	require.Eventually(t, func() bool {
+		index.replicationConfigLock.RLock()
+		defer index.replicationConfigLock.RUnlock()
+		return index.Config.ReplicationFactor == 1
+	}, deadlockSyncTimeout, time.Millisecond, "updateReplicationConfig never published the new factor")
+
+	close(probe.release)
+	require.NoError(t, <-reconcileDone)
+	require.NoError(t, <-updateDone)
+
+	probe.mu.Lock()
+	ops := append([]string(nil), probe.ops...)
+	probe.mu.Unlock()
+	require.NotEmpty(t, ops)
+	require.Equal(t, "disable", ops[len(ops)-1],
+		"the newest config (factor 1 ⇒ disable) must be the last applied — a stale fan-out may not clobber it")
+
+	_, _ = index.shards.LoadAndDelete("probe-shard")
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// TestConcurrentUpdateAndReconcileNoRace: the fan-out's per-shard decision must not read index config unsynchronized (run with -race).
+func TestConcurrentUpdateAndReconcileNoRace(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigApplyNoRace")
+
+	index.asyncReplicationScheduler = newSchedulerForUnitTest(t)
+
+	probe := &gatedApplyProbe{entered: make(chan struct{}), release: make(chan struct{})}
+	close(probe.release)
+	index.shards.Store("probe-shard", probe)
+
+	for i := 0; i < 25; i++ {
+		factor := int64(1 + i%3)
+		errs := make(chan error, 2)
+		go func() { errs <- index.updateReplicationConfig(ctx, &models.ReplicationConfig{Factor: factor}) }()
+		go func() { errs <- index.reconcileAsyncReplication(ctx) }()
+		require.NoError(t, <-errs)
+		require.NoError(t, <-errs)
+	}
+
+	_, _ = index.shards.LoadAndDelete("probe-shard")
 	require.NoError(t, repo.Shutdown(context.Background()))
 }

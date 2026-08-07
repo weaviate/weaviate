@@ -43,11 +43,15 @@ const (
 	fallbackRootPrefilterBatchSize = config.DefaultAsyncReplicationRootPrefilterBatchSize
 	maxRootPrefilterBatchSize      = config.MaxAsyncReplicationRootPrefilterBatchSize
 
-	// asyncRepRebuildBaseBackoff is the wait after the first consecutive rebuild
-	// failure. Each subsequent failure doubles the wait up to asyncRepRebuildMaxBackoff.
-	asyncRepRebuildBaseBackoff = 30 * time.Second
-	asyncRepRebuildMaxBackoff  = 30 * time.Minute
+	asyncRepRebuildMaxBackoff = 30 * time.Minute
 )
+
+// asyncRepRebuildBaseBackoff (ns) is the first-failure wait, doubled up to asyncRepRebuildMaxBackoff; atomic so tests can shrink it.
+var asyncRepRebuildBaseBackoff atomic.Int64
+
+func init() {
+	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
+}
 
 // ErrSchedulerClosed is returned by Register / Deregister when called after Close.
 var ErrSchedulerClosed = errors.New("AsyncReplicationScheduler is closed")
@@ -63,7 +67,7 @@ func asyncRepRebuildBackoffDuration(consecutiveFailures uint32) time.Duration {
 	if exp > 10 { // 30s<<10 = ~8.5h >> maxBackoff; cap the shift to avoid overflow
 		exp = 10
 	}
-	d := asyncRepRebuildBaseBackoff << exp
+	d := time.Duration(asyncRepRebuildBaseBackoff.Load()) << exp
 	if d > asyncRepRebuildMaxBackoff {
 		d = asyncRepRebuildMaxBackoff
 	}
@@ -193,6 +197,8 @@ type asyncReplicationSchedulerMetrics struct {
 	// A non-zero rate means a cluster may be stuck partially reconciled until
 	// the next flag toggle or schema update.
 	reconcileFailures prometheus.Counter
+	// rebuildFailures counts failed rebuild attempts; a retrying shard is out of the repair mesh both directions.
+	rebuildFailures prometheus.Counter
 	// rootPrefilterSkips counts shard cycles short-circuited as in-sync by the pre-filter.
 	rootPrefilterSkips prometheus.Counter
 	// rootPrefilterBatchSize observes the number of shards per pre-filter batch.
@@ -274,6 +280,18 @@ func newAsyncReplicationSchedulerMetrics(prom *monitoring.PrometheusMetrics) (as
 			Namespace: "weaviate",
 			Name:      "async_replication_reconcile_failures_total",
 			Help:      "Number of indices that failed to reconcile async replication with the global AsyncReplicationDisabled flag.",
+		}),
+	)
+	if err != nil {
+		return m, err
+	}
+
+	m.rebuildFailures, _, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_rebuild_failures_total",
+			Help:      "Number of failed hashtree rebuild attempts; a growing rate means shards are out of the repair mesh while retrying.",
 		}),
 	)
 	if err != nil {
@@ -371,6 +389,12 @@ func (m *asyncReplicationSchedulerMetrics) incWorkersLive() {
 func (m *asyncReplicationSchedulerMetrics) decWorkersLive() {
 	if m.monitoring {
 		m.workersLive.Dec()
+	}
+}
+
+func (m *asyncReplicationSchedulerMetrics) incRebuildFailures() {
+	if m.monitoring {
+		m.rebuildFailures.Inc()
 	}
 }
 
@@ -1528,43 +1552,68 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 	needsRebuild = s.asyncRepNeedsRebuild.CompareAndSwap(true, false)
 }
 
-// rebuildHashtree stops then restarts async replication on s, picking up the
-// new hashtree height from runtime config via enableAsyncReplication's
-// internal Effective() call.
+// rebuildHashtree stops then restarts async replication on s, picking up the new hashtree height.
+// Failed attempts retry with backoff: after disable the shard is deregistered, so nothing else would ever retry — async would silently stay off until restart.
 func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// Wait for any cycle dispatched between our Done() and the disable below.
 	s.asyncRepWg.Wait()
 
+	for {
+		if !sched.tryRebuildHashtree(s) {
+			return
+		}
+		timer := time.NewTimer(asyncRepRebuildBackoffDuration(s.asyncRepRebuildFailures.Load()))
+		select {
+		case <-sched.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+// tryRebuildHashtree performs one disable→enable attempt; retry means back off and try again.
+func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool) {
+	// Serialize with config fan-outs (apply lock first — it is outermost): the
+	// re-read of the shard's base config below must not interleave with a fan-out,
+	// or the rebuild's enable could re-install a stale config in place.
+	s.index.asyncReplicationApplyLock.Lock()
+	defer s.index.asyncReplicationApplyLock.Unlock()
+
 	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
 	// across store teardown): enable either finishes before shutdown or is skipped.
+	// drop() never takes shutdownLock, so this check is best-effort for drop —
+	// the decisive guards are the in-mux ones inside disable/enable.
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
 
-	if s.shut.Load() {
-		return
+	if s.shutOrDropped() {
+		return false
 	}
 
-	// disableAsyncReplication is fsync-free (it never persists the live tree on
-	// the runtime path), so it is safe to hold across the shutdownLock.RLock
-	// region below.
-	if err := s.disableAsyncReplication(sched.ctx); err != nil {
+	fail := func(stage string, err error) {
 		if sched.logger != nil {
 			sched.logger.
 				WithField("action", "async_replication_rebuild").
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
-				Errorf("hashtree rebuild: stop failed: %v", err)
+				Errorf("hashtree rebuild: %s failed: %v", stage, err)
 		}
 		failures := s.asyncRepRebuildFailures.Add(1)
 		s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(asyncRepRebuildBackoffDuration(failures)).UnixNano())
-		s.asyncRepNeedsRebuild.Store(true)
-		return
+		sched.metrics.incRebuildFailures()
+	}
+
+	// disableAsyncReplication does not persist; its scrub is one ReadDir, safe under shutdownLock.RLock.
+	if err := s.disableAsyncReplication(sched.ctx); err != nil {
+		fail("stop", err)
+		return true
 	}
 
 	// Bail if Close() fired: enableAsyncReplication would otherwise spawn an
 	// init-scan goroutine with no cancellable context.
 	if sched.ctx.Err() != nil {
-		return
+		return false
 	}
 
 	s.asyncReplicationRWMux.RLock()
@@ -1573,35 +1622,23 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 
 	// Re-check after the RLock window.
 	if sched.ctx.Err() != nil {
-		return
+		return false
 	}
 
 	if err := s.enableAsyncReplication(sched.ctx, baseCfg); err != nil {
-		if sched.logger != nil {
-			sched.logger.
-				WithField("action", "async_replication_rebuild").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Errorf("hashtree rebuild: start failed: %v", err)
-		}
-		failures := s.asyncRepRebuildFailures.Add(1)
-		s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(asyncRepRebuildBackoffDuration(failures)).UnixNano())
-		s.asyncRepNeedsRebuild.Store(true)
-		return
+		fail("start", err)
+		return true
 	}
 
 	// Reset backoff so subsequent height changes start clean.
 	s.asyncRepRebuildFailures.Store(0)
 	s.asyncRepRebuildBackoffUntil.Store(0)
 
-	// If Close() fired during enableAsyncReplication, or performShutdown set
-	// s.shut between the entry-time check and now, the enable touched a store
-	// being torn down or registered against a cancelled scheduler. Disable to
-	// clean up; disableAsyncReplication does no disk I/O so this is bounded
-	// by the Deregister round-trip.
-	if sched.ctx.Err() != nil || s.shut.Load() {
+	// Close() during enable registered against a cancelled scheduler, or a drop raced the enable — disable to clean up (shutdownLock.RLock blocks shutdown but not drop).
+	if sched.ctx.Err() != nil || s.shutOrDropped() {
 		if err := s.disableAsyncReplication(sched.ctx); err != nil {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
 		}
 	}
+	return false
 }

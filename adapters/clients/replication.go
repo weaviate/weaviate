@@ -143,6 +143,9 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
@@ -239,6 +242,9 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
@@ -284,6 +290,18 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords
 
 // HashTreeLevel fetches hash tree level digests. discriminant.Size() must
 // equal hashtree.LeavesCount(level).
+
+// asyncNotReadyError converts the typed retry-later statuses of the async
+// replication RPCs — 412 (replica not ready: unloaded or hashtree still
+// initializing) and 503 (node still booting behind the cluster-API readiness
+// gate) — to the sentinel; nil for any other status (pre-1.38 peers send 500).
+func asyncNotReadyError(code int, body []byte) error {
+	if code == http.StatusPreconditionFailed || code == http.StatusServiceUnavailable {
+		return fmt.Errorf("%w: %s", replica.ErrAsyncReplicationNotActive, body)
+	}
+	return nil
+}
+
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
@@ -326,6 +344,9 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	if code := res.StatusCode; !successCode(code) {
 		errBody, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(code, errBody); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
 	}
 
@@ -569,6 +590,9 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 

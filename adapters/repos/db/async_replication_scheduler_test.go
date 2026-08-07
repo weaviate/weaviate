@@ -649,10 +649,12 @@ func TestAdjustWorkersCapWarnsWithLogger(t *testing.T) {
 	assert.True(t, warned, "a warning must be logged when the worker count is clamped")
 }
 
-// TestRebuildHashtreeEnableFailureRearmsNeedsRebuild verifies that when
-// enableAsyncReplication fails during a rebuild (e.g. the scheduler reference is
-// nil), asyncRepNeedsRebuild is re-armed so the next hashbeat cycle retries.
-func TestRebuildHashtreeEnableFailureRearmsNeedsRebuild(t *testing.T) {
+// TestRebuildHashtreeEnableFailureRetriesUntilShutdown: a failed enable is retried with backoff; the loop exits once the shard shuts down.
+func TestRebuildHashtreeEnableFailureRetriesUntilShutdown(t *testing.T) {
+	prevBackoff := asyncRepRebuildBaseBackoff.Load()
+	asyncRepRebuildBaseBackoff.Store(int64(time.Millisecond))
+	t.Cleanup(func() { asyncRepRebuildBaseBackoff.Store(prevBackoff) })
+
 	sched := newSchedulerForUnitTest(t)
 
 	// Index with nil scheduler → enableAsyncReplication returns an error immediately.
@@ -661,15 +663,53 @@ func TestRebuildHashtreeEnableFailureRearmsNeedsRebuild(t *testing.T) {
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
 		shutdownLock: new(sync.RWMutex),
-		// hashtree is nil → disableAsyncReplication is a no-op (idempotent).
 	}
 
-	require.False(t, s.asyncRepNeedsRebuild.Load(), "precondition: rebuild not needed yet")
+	done := make(chan struct{})
+	go func() {
+		sched.rebuildHashtree(s)
+		close(done)
+	}()
 
-	sched.rebuildHashtree(s)
+	require.Eventually(t, func() bool { return s.asyncRepRebuildFailures.Load() >= 2 },
+		5*time.Second, time.Millisecond, "a failed enable must be retried")
 
-	assert.True(t, s.asyncRepNeedsRebuild.Load(),
-		"asyncRepNeedsRebuild must be re-armed when enableAsyncReplication fails")
+	s.shut.Store(true)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retry loop did not exit after the shard shut down")
+	}
+}
+
+// TestTryRebuildHashtreeSerializedByApplyLock: a rebuild attempt must queue behind a running config fan-out, so its enable cannot re-install a stale config.
+func TestTryRebuildHashtreeSerializedByApplyLock(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	idx.asyncReplicationApplyLock.Lock()
+	attemptDone := make(chan bool, 1)
+	go func() { attemptDone <- sched.tryRebuildHashtree(s) }()
+
+	select {
+	case <-attemptDone:
+		t.Fatal("tryRebuildHashtree ran while a config fan-out held the apply lock")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	idx.asyncReplicationApplyLock.Unlock()
+	select {
+	case retry := <-attemptDone:
+		require.True(t, retry, "the enable failure (nil scheduler on the index) must request a retry")
+	case <-time.After(5 * time.Second):
+		t.Fatal("tryRebuildHashtree never completed after the apply lock was released")
+	}
 }
 
 // TestNextIntervalErrNoDiffFoundWithPropagatedTrue verifies that ErrNoDiffFound

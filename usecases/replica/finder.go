@@ -470,6 +470,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
+	notReadyTargets := 0
+	sawConverged := false
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
@@ -478,7 +480,15 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
-			if !errors.Is(err, replicaerrors.ErrNoDiffFound) {
+			switch {
+			case errors.Is(err, replicaerrors.ErrNoDiffFound):
+				sawConverged = true
+			case errors.Is(err, ErrAsyncReplicationNotActive):
+				// Not-ready peer (unloaded or hashtree initializing): retry-later,
+				// not a fault — kept out of the error compounder so callers can
+				// classify the aggregate by errors.Is.
+				notReadyTargets++
+			default:
 				ec.Add(err)
 			}
 			continue
@@ -490,6 +500,11 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	err = ec.ToError()
 	if err != nil {
 		return nil, err
+	}
+
+	if notReadyTargets > 0 && !sawConverged {
+		// Nothing was verified this cycle — it must not read as convergence.
+		return nil, fmt.Errorf("%w: %d target replica(s) not ready", ErrAsyncReplicationNotActive, notReadyTargets)
 	}
 
 	return &ShardDifferenceReader{}, replicaerrors.ErrNoDiffFound

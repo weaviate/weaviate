@@ -16,6 +16,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -50,6 +52,11 @@ func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
 	proc := &recordingProcessor{}
 	m.SetCluster(proc)
 	m.cloud = &failingOffloadCloud{uploadErr: fmt.Errorf("simulated upload failure")}
+
+	// Planted as a pre-fix binary could leave it; the abort must discard it.
+	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
+	stale := filepath.Join(s.pathHashTree(), "hashtree-0000000000000001.ht")
+	require.NoError(t, os.WriteFile(stale, []byte("stale snapshot"), 0o600))
 
 	ec := errorcompounder.New()
 	m.freeze(ctx, idx, class, []*schemaUC.UpdateTenantPayload{

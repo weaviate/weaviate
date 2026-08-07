@@ -474,7 +474,7 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 		digests, err := i.replicator.DigestObjectsInRange(r.Context(), index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 
@@ -731,7 +731,7 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 		results, err := i.replicator.OverwriteObjects(r.Context(), index, shard, vobjs)
 		if err != nil {
 			http.Error(w, "overwrite objects: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 
@@ -797,7 +797,7 @@ func (i *replicatedIndices) postCompareDigests() http.Handler {
 
 		stale, err := i.replicator.CompareDigests(r.Context(), index, shard, sourceDigests)
 		if err != nil {
-			http.Error(w, "compare digests: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "compare digests: "+err.Error(), asyncCheckpointHTTPStatus(err))
 			return
 		}
 

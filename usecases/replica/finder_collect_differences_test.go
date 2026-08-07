@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -130,33 +131,131 @@ func TestCollectShardDifferencesDivergent(t *testing.T) {
 	assert.Equal(t, diffLeaves, collectRangeLeaves(t, dr.RangeReader))
 }
 
-func TestCollectShardDifferencesMixedTargets(t *testing.T) {
+// TestCollectShardDifferencesDivergentTargetWins: the divergent target's diff is returned regardless of its sibling's state (converged or not ready).
+func TestCollectShardDifferencesDivergentTargetWins(t *testing.T) {
+	const (
+		class  = "C1"
+		shard  = "SH1"
+		height = 8
+	)
+	diffLeaves := []uint64{5, 100, 200}
+
+	tests := []struct {
+		name     string
+		siblingB func(local *hashtree.HashTree) func(context.Context, string, string, string, int, *hashtree.Bitset) ([]hashtree.Digest, error)
+	}{
+		{name: "converged sibling", siblingB: func(local *hashtree.HashTree) func(context.Context, string, string, string, int, *hashtree.Bitset) ([]hashtree.Digest, error) {
+			return serveHashTreeLevel(local)
+		}},
+		{name: "not-ready sibling", siblingB: func(*hashtree.HashTree) func(context.Context, string, string, string, int, *hashtree.Bitset) ([]hashtree.Digest, error) {
+			return func(context.Context, string, string, string, int, *hashtree.Bitset) ([]hashtree.Digest, error) {
+				return nil, replica.ErrAsyncReplicationNotActive
+			}
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := newFakeFactory(t, class, shard, []string{"A", "B", "C"}, false)
+			finder := f.newFinder("A")
+
+			local, peer := newDivergentTrees(t, height, diffLeaves)
+
+			f.RClient.EXPECT().
+				HashTreeLevel(mock.Anything, "B", class, shard, mock.Anything, mock.Anything).
+				RunAndReturn(tc.siblingB(local)).
+				Maybe()
+			f.RClient.EXPECT().
+				HashTreeLevel(mock.Anything, "C", class, shard, mock.Anything, mock.Anything).
+				RunAndReturn(serveHashTreeLevel(peer))
+
+			dr, err := finder.CollectShardDifferences(ctx, shard, local, time.Second, nil)
+			require.NoError(t, err)
+			assert.Equal(t, "C", dr.TargetNodeName)
+			require.NotNil(t, dr.RangeReader)
+			assert.Equal(t, diffLeaves, collectRangeLeaves(t, dr.RangeReader))
+		})
+	}
+}
+
+func TestCollectShardDifferencesAllTargetsNotReady(t *testing.T) {
 	const (
 		class  = "C1"
 		shard  = "SH1"
 		height = 8
 	)
 	ctx := context.Background()
-	diffLeaves := []uint64{5, 100, 200}
 
 	f := newFakeFactory(t, class, shard, []string{"A", "B", "C"}, false)
 	finder := f.newFinder("A")
 
-	local, peer := newDivergentTrees(t, height, diffLeaves)
+	local, err := hashtree.NewHashTree(height)
+	require.NoError(t, err)
+
+	f.RClient.EXPECT().
+		HashTreeLevel(mock.Anything, mock.Anything, class, shard, mock.Anything, mock.Anything).
+		Return(nil, replica.ErrAsyncReplicationNotActive)
+
+	dr, err := finder.CollectShardDifferences(ctx, shard, local, time.Second, nil)
+	require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+		"all targets not ready must surface the retry-later sentinel")
+	require.NotErrorIs(t, err, replicaerrors.ErrNoDiffFound,
+		"an unverified cycle must not read as convergence")
+	require.Nil(t, dr)
+}
+
+func TestCollectShardDifferencesNotReadyPlusConverged(t *testing.T) {
+	const (
+		class  = "C1"
+		shard  = "SH1"
+		height = 8
+	)
+	ctx := context.Background()
+
+	f := newFakeFactory(t, class, shard, []string{"A", "B", "C"}, false)
+	finder := f.newFinder("A")
+
+	local, _ := newDivergentTrees(t, height, nil)
 
 	f.RClient.EXPECT().
 		HashTreeLevel(mock.Anything, "B", class, shard, mock.Anything, mock.Anything).
-		RunAndReturn(serveHashTreeLevel(local)).
-		Maybe()
+		Return(nil, replica.ErrAsyncReplicationNotActive)
 	f.RClient.EXPECT().
 		HashTreeLevel(mock.Anything, "C", class, shard, mock.Anything, mock.Anything).
-		RunAndReturn(serveHashTreeLevel(peer))
+		RunAndReturn(serveHashTreeLevel(local))
 
-	dr, err := finder.CollectShardDifferences(ctx, shard, local, time.Second, nil)
+	_, err := finder.CollectShardDifferences(ctx, shard, local, time.Second, nil)
+	require.ErrorIs(t, err, replicaerrors.ErrNoDiffFound,
+		"one converged target is a verified cycle even when another is not ready")
+}
+
+func TestCollectShardDifferencesNotReadyPlusFailure(t *testing.T) {
+	const (
+		class  = "C1"
+		shard  = "SH1"
+		height = 8
+	)
+	ctx := context.Background()
+
+	f := newFakeFactory(t, class, shard, []string{"A", "B", "C"}, false)
+	finder := f.newFinder("A")
+
+	local, err := hashtree.NewHashTree(height)
 	require.NoError(t, err)
-	assert.Equal(t, "C", dr.TargetNodeName)
-	require.NotNil(t, dr.RangeReader)
-	assert.Equal(t, diffLeaves, collectRangeLeaves(t, dr.RangeReader))
+
+	f.RClient.EXPECT().
+		HashTreeLevel(mock.Anything, "B", class, shard, mock.Anything, mock.Anything).
+		Return(nil, replica.ErrAsyncReplicationNotActive)
+	f.RClient.EXPECT().
+		HashTreeLevel(mock.Anything, "C", class, shard, mock.Anything, mock.Anything).
+		Return(nil, errors.New("connection refused"))
+
+	_, err = finder.CollectShardDifferences(ctx, shard, local, time.Second, nil)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+		"a hard failure must not be classified as retry-later")
+	require.NotErrorIs(t, err, replicaerrors.ErrNoDiffFound)
 }
 
 func TestCollectShardDifferencesRejectsMalformedLevelResponse(t *testing.T) {

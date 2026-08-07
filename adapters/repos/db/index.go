@@ -243,7 +243,9 @@ type Index struct {
 	getSchema    schemaUC.SchemaGetter
 	schemaReader schemaUC.SchemaReader
 
-	replicationFSMReader replicationTypes.ReplicationFSMReader
+	// replicationFSMReader is wired post-construction (migrator/init) while
+	// shards may already run hashbeats — hence atomic, read via getReplicationFSMReader.
+	replicationFSMReader atomic.Pointer[replicationTypes.ReplicationFSMReader]
 	logger               logrus.FieldLogger
 	remote               *sharding.RemoteIndex
 	stopwords            *stopwords.Detector
@@ -332,7 +334,11 @@ type Index struct {
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
-	replicationConfigLock     sync.RWMutex
+	replicationConfigLock sync.RWMutex
+	// serializes applyAsyncReplicationToLoadedShards fan-outs and the single-shard
+	// appliers (resume, scheduler rebuild) so a stale snapshot cannot clobber a
+	// fresher one; each holder snapshots the config AFTER acquiring it
+	asyncReplicationApplyLock sync.Mutex
 	asyncReplicationScheduler *AsyncReplicationScheduler
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
@@ -967,10 +973,7 @@ func (i *Index) asyncReplicationGloballyDisabled() bool {
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
-	// The lock must not span the shard fan-out below: it takes each
-	// LazyLoadShard's mutex, and a mid-load shard holds that mutex while
-	// RLocking this config — ABBA deadlock. Post-unlock loads read the new
-	// config, so no shard misses the update.
+	// The lock must not span the fan-out (ABBA deadlock, see applyAsyncReplicationToLoadedShards); post-unlock loads read the new config.
 	err := func() error {
 		i.replicationConfigLock.Lock()
 		defer i.replicationConfigLock.Unlock()
@@ -978,12 +981,12 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 		i.Config.ReplicationFactor = cfg.Factor
 		i.Config.DeletionStrategy = cfg.DeletionStrategy
 
-		config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
+		parsed, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
 		if err != nil {
 			return err
 		}
 		// assign async replication config
-		i.Config.AsyncReplicationConfig = config
+		i.Config.AsyncReplicationConfig = parsed
 		return nil
 	}()
 	if err != nil {
@@ -991,18 +994,22 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	}
 
 	// unloaded shards will fetch the latest config when they are loaded
-	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
+	return i.applyAsyncReplicationToLoadedShards(ctx)
 }
 
-// applyAsyncReplicationToLoadedShardsLocked (re-)applies the per-shard
-// enable/disable decision to every loaded shard. The decision is per-shard, so
-// an over-replicated shard at ReplicationFactor 1 keeps async on (e.g. mid
-// scale-out, or while the factor is lowered before the extra replicas drain).
-//
-// Caller MUST hold i.replicationConfigLock for writing. enableAsyncReplication
-// does synchronous hashtree disk I/O, so hashbeat cycles stall until this ends.
-func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
+// applyAsyncReplicationToLoadedShards (re-)applies the per-shard enable/disable decision to every loaded shard (an over-replicated shard at factor 1 keeps async on).
+// Callers must NOT hold i.replicationConfigLock — the fan-out takes shard mutexes a mid-load shard holds while RLocking the config (ABBA deadlock).
+// Fan-outs are serialized by asyncReplicationApplyLock and snapshot the config at start, so the last one applies the freshest and a stale caller can never clobber a fresher apply.
+func (i *Index) applyAsyncReplicationToLoadedShards(ctx context.Context) error {
+	i.asyncReplicationApplyLock.Lock()
+	defer i.asyncReplicationApplyLock.Unlock()
+
+	i.replicationConfigLock.RLock()
 	config := i.Config.AsyncReplicationConfig
+	rf := i.Config.ReplicationFactor
+	i.replicationConfigLock.RUnlock()
+	// Snapshot the runtime flag too: one pass must not mix enable and disable decisions.
+	globallyDisabled := i.asyncReplicationGloballyDisabled()
 
 	// iterate concurrently so one shard's fault can't skip the rest (errors are
 	// accumulated, not first-error abort).
@@ -1018,7 +1025,7 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
 		}
 
-		if i.asyncReplicationEnabledForShard(name) {
+		if i.asyncReplicationEnabledForShardWith(name, rf, globallyDisabled) {
 			// enableAsyncReplication handles the already-running case by updating
 			// the stored config in-place. The scheduler's runEntry detects height
 			// changes and triggers a rebuild via asyncRepNeedsRebuild, so a
@@ -1045,10 +1052,7 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 // AsyncReplicationDisabled flag. Must not short-circuit on
 // ReplicationFactor <= 1 — over-replicated shards still need async.
 func (i *Index) reconcileAsyncReplication(ctx context.Context) error {
-	i.replicationConfigLock.Lock()
-	defer i.replicationConfigLock.Unlock()
-
-	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
+	return i.applyAsyncReplicationToLoadedShards(ctx)
 }
 
 // ReconcileAsyncReplication re-applies async replication to every loaded shard
@@ -1301,8 +1305,8 @@ func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool
 	if i.replicationEnabled() {
 		return true
 	}
-	if i.replicationFSMReader != nil &&
-		i.replicationFSMReader.HasActiveReplicationForShard(i.Config.ClassName.String(), shardName) {
+	if r := i.getReplicationFSMReader(); r != nil &&
+		r.HasActiveReplicationForShard(i.Config.ClassName.String(), shardName) {
 		return true
 	}
 	// if the router is nil, preserve previous behavior by returning false
@@ -1474,15 +1478,22 @@ func (i *Index) asyncReplicationEnabled() bool {
 // asyncReplicationEnabledForShard is the per-shard async-replication gate.
 // Caller MUST hold replicationConfigLock.
 func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
+	return i.asyncReplicationEnabledForShardWith(shardName, i.Config.ReplicationFactor, i.asyncReplicationGloballyDisabled())
+}
+
+// asyncReplicationEnabledForShardWith takes the factor and global-disable flag as
+// snapshots so lock-free fan-outs get one consistent decision per pass; the
+// per-shard replicas lookup stays live (FSM read with its own locking).
+func (i *Index) asyncReplicationEnabledForShardWith(shardName string, rf int64, globallyDisabled bool) bool {
 	if i.asyncReplicationScheduler == nil {
 		return false
 	}
 
-	if i.asyncReplicationGloballyDisabled() {
+	if globallyDisabled {
 		return false
 	}
 
-	if i.Config.ReplicationFactor > 1 {
+	if rf > 1 {
 		return true
 	}
 
@@ -1492,7 +1503,7 @@ func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
 			WithField("action", "async_replication").
 			WithField("class_name", i.Config.ClassName.String()).
 			WithField("shard_name", shardName).
-			Warnf("asyncReplicationEnabledForShard: could not read shard replicas: %v", err)
+			Warnf("async replication gate: could not read shard replicas: %v", err)
 		return false
 	}
 
@@ -1525,8 +1536,25 @@ func (i *Index) AsyncReplicationEnabledForShard(shardName string) bool {
 	return i.asyncReplicationEnabledForShard(shardName)
 }
 
+// asyncReplicationStateForShard reads the per-shard decision and the config under
+// one lock acquisition, so shard load cannot mix two config generations.
+func (i *Index) asyncReplicationStateForShard(shardName string) (enabled bool, config AsyncReplicationConfig) {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.asyncReplicationEnabledForShard(shardName), i.Config.AsyncReplicationConfig
+}
+
 func (i *Index) SetReplicationFSMReader(r replicationTypes.ReplicationFSMReader) {
-	i.replicationFSMReader = r
+	i.replicationFSMReader.Store(&r)
+}
+
+// getReplicationFSMReader returns the wired reader, or nil when none is set.
+func (i *Index) getReplicationFSMReader() replicationTypes.ReplicationFSMReader {
+	if p := i.replicationFSMReader.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async
@@ -1563,7 +1591,8 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 	// Nil reader: treat as "no in-flight ops". Mirrors the runHashbeatCycle
 	// guard so tests without an FSM wired (and any future Index-construction
 	// path that doesn't call SetReplicationFSMReader) don't nil-panic.
-	if i.replicationFSMReader == nil {
+	fsmReader := i.getReplicationFSMReader()
+	if fsmReader == nil {
 		return false, nil
 	}
 	var midMovement bool
@@ -1575,7 +1604,7 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 		for shardName := range state.Physical {
 			// Short-circuit on first match: map iteration is randomized, so
 			// without this we'd non-deterministically miss other in-flight shards.
-			if i.replicationFSMReader.HasActiveReplicationForShard(className, shardName) {
+			if fsmReader.HasActiveReplicationForShard(className, shardName) {
 				midMovement = true
 				return nil
 			}
@@ -1694,10 +1723,18 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
 	}
 
-	i.replicationConfigLock.Lock()
-	defer i.replicationConfigLock.Unlock()
+	// Serialize with config fan-outs and snapshot under the apply lock, so a stale
+	// rebuild cannot install an old-config tree after a fresher apply. The config
+	// lock itself must not span the call (see applyAsyncReplicationToLoadedShards).
+	i.asyncReplicationApplyLock.Lock()
+	defer i.asyncReplicationApplyLock.Unlock()
 
-	return ctrl.rebuildAsyncReplicationFromScratch(ctx, i.asyncReplicationEnabledForShard(shardName), i.Config.AsyncReplicationConfig)
+	i.replicationConfigLock.RLock()
+	enabled := i.asyncReplicationEnabledForShard(shardName)
+	config := i.Config.AsyncReplicationConfig
+	i.replicationConfigLock.RUnlock()
+
+	return ctrl.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
