@@ -48,14 +48,14 @@ func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testin
 		reason string
 	}
 	var observed []observation
-	setStatus := func(st backup.Status) {
+	slot := &fakeStatusSlot{onChange: func(st backup.Status) {
 		_, reason := backend.getMetaStatus()
 		observed = append(observed, observation{status: st, reason: reason})
-	}
+	}}
 
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
 
 	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
 	err := uploader.all(context.Background(), nil, &desc, nil, "", "")
@@ -103,12 +103,11 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 			"the cluster task manager could not be queried: %w", context.Canceled)
 	}
 
-	var observed []backup.Status
-	setStatus := func(st backup.Status) { observed = append(observed, st) }
+	slot := &fakeStatusSlot{}
 
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
 
 	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
 	err := uploader.all(ctx, nil, &desc, nil, "", "")
@@ -119,9 +118,9 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 	require.NotContains(t, storedReason, "reindex",
 		"an aborted backup must not be blamed on a migration that never ran")
 
-	require.NotContains(t, observed, backup.Failed,
+	require.NotContains(t, slot.statuses, backup.Failed,
 		"the status API must not report FAILED for a backup the operator aborted")
-	require.Equal(t, backup.Cancelled, observed[len(observed)-1],
+	require.Equal(t, backup.Cancelled, slot.last(),
 		"the last status an operator can poll has to be the cancellation they caused")
 }
 
@@ -142,12 +141,11 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
 		backup.ErrBackupSpannedReindex, "Movies")
 
-	var observed []backup.Status
-	setStatus := func(st backup.Status) { observed = append(observed, st) }
+	slot := &fakeStatusSlot{}
 
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
 
 	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
 	err := uploader.all(context.Background(), nil, &desc, nil, "", "")
@@ -158,9 +156,11 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	require.Contains(t, err.Error(), "object storage unreachable",
 		"the meta write failure has to stay visible next to the refusal")
 
-	require.NotEmpty(t, observed)
-	require.Equal(t, backup.Failed, observed[len(observed)-1],
+	require.NotEmpty(t, slot.statuses)
+	require.Equal(t, backup.Failed, slot.last(),
 		"a refusal left at Transferring reads as a backup that is still running")
+	require.Contains(t, slot.reason, "a runtime-reindex overlapped this backup",
+		"with the descriptor unwritten, the slot is the only place a poll can read the reason")
 }
 
 // A cancellation that is not the caller's is not an abort. The lookup is a
@@ -184,12 +184,11 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 		return undeterminedOverlapErr{cause: context.Canceled}
 	}
 
-	var observed []backup.Status
-	setStatus := func(st backup.Status) { observed = append(observed, st) }
+	slot := &fakeStatusSlot{}
 
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, setStatus, logger)
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
 
 	ctx := context.Background()
 	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
@@ -205,9 +204,9 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 	require.NotContains(t, storedReason, "overlapped this backup",
 		"the check never got an answer, so it must not report a migration it did not see")
 
-	require.NotContains(t, observed, backup.Cancelled,
+	require.NotContains(t, slot.statuses, backup.Cancelled,
 		"nobody cancelled this backup")
-	require.Equal(t, backup.Failed, observed[len(observed)-1],
+	require.Equal(t, backup.Failed, slot.last(),
 		"the last status an operator can poll has to be the failure")
 }
 
@@ -266,7 +265,7 @@ func TestOverlapRefusalDistinguishesAnObservedMigrationFromAnUnansweredCheck(t *
 			logger, _ := test.NewNullLogger()
 			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
 			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID,
-				func(backup.Status) {}, logger)
+				&fakeStatusSlot{}, logger)
 
 			desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
 			err := uploader.all(context.Background(), nil, &desc, nil, "", "")
@@ -299,7 +298,7 @@ func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
 	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID,
-		func(backup.Status) {}, logger)
+		&fakeStatusSlot{}, logger)
 
 	// Far enough back that "now" cannot be mistaken for it.
 	startedAt := time.Now().UTC().Add(-time.Hour)
@@ -314,4 +313,49 @@ func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.
 		"the check must be asked about the capture start, not the commit instant")
 	require.Equal(t, classes, askedClasses,
 		"the check must be asked about the classes this backup captured")
+}
+
+// The meta write is what carries the reason to the backend, so when it fails
+// the node's own slot is all a status poll has left. It has to hold the reason:
+// the coordinator latches the first terminal answer a participant gives and
+// stops polling it, so FAILED with an empty reason becomes the permanent answer.
+func TestOverlapRefusalPublishesAReasonOnTheSlotWhenTheMetaWriteFails(t *testing.T) {
+	const backupID = "1"
+	any := mock.Anything
+
+	backend := newFakeBackend()
+	backend.On("PutObject", any, backupID, BackupFile, any).
+		Return(errors.New("object storage unreachable"))
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
+	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrBackupSpannedReindex, "Movies")
+
+	// The real slot on a real backupper, not a stub: this is what OnStatus
+	// serves from, so the whole path from the refusal to the wire is exercised.
+	bp := &backupper{}
+	slot := &bp.lastOp
+	require.Empty(t, slot.renew(backupID, "bucket/backups/1", "", ""))
+
+	logger, _ := test.NewNullLogger()
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
+
+	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
+	require.Error(t, uploader.all(context.Background(), nil, &desc, nil, "", ""))
+
+	st := slot.get()
+	require.Equal(t, backup.Failed, st.Status)
+	require.NotEmpty(t, st.Err,
+		"FAILED with no reason is the one failure this feature adds, reported as nothing at all")
+	require.Contains(t, st.Err, "a runtime-reindex overlapped this backup",
+		"the reason has to name the refusal, not the storage error that hid it")
+
+	// And the wire response a polling coordinator reads carries the same text.
+	handler := &Handler{backupper: bp}
+	res := handler.OnStatus(context.Background(), &StatusRequest{Method: OpCreate, ID: backupID})
+	require.Equal(t, backup.Failed, res.Status)
+	require.Contains(t, res.Err, "a runtime-reindex overlapped this backup",
+		"the reason must survive the hop to the coordinator, which latches this answer")
 }

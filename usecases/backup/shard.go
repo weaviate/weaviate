@@ -29,9 +29,13 @@ const (
 )
 
 type reqState struct {
-	Starttime      time.Time
-	ID             string
-	Status         backup.Status
+	Starttime time.Time
+	ID        string
+	Status    backup.Status
+	// Err is why the operation ended, for the statuses that need one. The
+	// descriptor on the backend carries the same text, but only once it is
+	// written; a poll landing before that reads this slot instead.
+	Err            string
 	Path           string
 	OverrideBucket string
 	OverridePath   string
@@ -62,6 +66,7 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	s.reqState.OverridePath = overridePath
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
+	s.reqState.Err = ""
 	return ""
 }
 
@@ -76,6 +81,7 @@ func (s *backupStat) clear() {
 	s.reqState.ID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
+	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
 }
@@ -109,6 +115,20 @@ func (s *backupStat) resetIfOwned(id string) bool {
 	}
 	s.clear()
 	return true
+}
+
+// setFailed ends the operation as failed together with the reason. Failed with
+// no reason is worse than useless to a poller: the coordinator latches whatever
+// a participant reports and stops asking, so an empty reason becomes the
+// permanent answer for a failure that does have one.
+func (s *backupStat) setFailed(reason string) {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.Status == backup.Cancelled {
+		return
+	}
+	s.reqState.Status = backup.Failed
+	s.reqState.Err = reason
 }
 
 func (s *backupStat) set(st backup.Status) {
