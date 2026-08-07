@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -39,10 +40,10 @@ func (s *splitViewTaskService) ListDistributedTasksLocal(context.Context) (map[s
 	return map[string][]*distributedtask.Task{db.ReindexNamespace: s.local}, nil
 }
 
-// The index status has to render the task list against the schema flags it was
-// ordered with. Reading the list from the leader and the flags from local
-// state was what made "FINISHED but the flag is still off" observable at all,
-// and it is why the endpoint used to need a timed finalize window.
+// The index status renders the task list against the schema flags it is
+// ordered with, so both have to come from this node. A list read at the leader
+// can carry a FINISHED task whose schema flip this node has not applied yet,
+// which renders as "finished, but the index is still off".
 func TestGetIndexes_ReadsTasksFromTheLocalFSM(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -156,6 +157,60 @@ func TestGetIndexes_FlagOffEmitsOnlyOnActionableSignal(t *testing.T) {
 			require.Equal(t, tc.wantStatus, filterable.Status)
 		})
 	}
+}
+
+// The local read is for rendering, not for deciding. Admission has to answer
+// at the leader: a follower that has not yet applied the leader's task would
+// admit a second reindex on a bucket that is already migrating.
+func TestUpdateIndex_ChecksConflictsAgainstTheLeader(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeRebuildSearchable,
+		Collection:    "Movies",
+		Properties:    []string{"title"},
+	}
+	units := map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress, Progress: 0.5},
+	}
+
+	svc := &splitViewTaskService{
+		// The leader knows a migration is running on this property.
+		leader: []*distributedtask.Task{
+			buildTask(t, "Movies:rebuild-searchable:title", distributedtask.TaskStatusStarted, payload, units),
+		},
+		// This node has not applied it yet.
+		local: nil,
+	}
+
+	responder := submitReindex(submissionHandlers(t, svc, nil))
+	_, isConflict := responder.(*restschema.SchemaObjectsIndexesUpdateConflict)
+	require.True(t, isConflict,
+		"admission must refuse against the leader's task list, got %T", responder)
+}
+
+// erroringLocalReadService fails only the local read, which is the one failure
+// mode the status endpoint has left.
+type erroringLocalReadService struct {
+	reindexTaskService
+}
+
+func (erroringLocalReadService) ListDistributedTasksLocal(context.Context) (map[string][]*distributedtask.Task, error) {
+	return nil, errors.New("local FSM read failed")
+}
+
+// A task list this node cannot read must not be answered as "no tasks":
+// every index would render `ready` and the operator would go on to a write
+// the submit gate then refuses.
+func TestGetIndexes_UnreadableLocalTaskListFailsClosed(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "/v1/schema/Movies/indexes", nil)
+	require.NoError(t, err)
+
+	h := submissionHandlers(t, erroringLocalReadService{}, nil)
+	responder := h.getIndexes(restschema.SchemaObjectsIndexesGetParams{
+		HTTPRequest: req,
+		ClassName:   "Movies",
+	}, nil)
+
+	require.IsType(t, &restschema.SchemaObjectsIndexesGetInternalServerError{}, responder)
 }
 
 // getFilterableEntry serves GET /indexes for the fixture collection and

@@ -38,10 +38,15 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 }
 
 // ListDistributedTasksLocal answers from this node's own FSM instead of the
-// leader. Callers that pair the task list with other locally-applied state
-// need both to come from one apply-ordered view: read from the leader and a
-// follower can report a task FINISHED before it has applied the schema change
-// the same task committed to the log first.
+// leader.
+//
+// Which one to call: pick this one when the answer is rendered against other
+// state read from this same node, so the two are apply-ordered with respect to
+// each other — read from the leader instead and a follower can report a task
+// FINISHED before it has applied the schema change the same task committed to
+// the log first. Pick [Raft.ListDistributedTasks] for anything that decides
+// whether an operation may proceed: a lagging follower's view admits work the
+// leader already knows conflicts.
 func (s *Raft) ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return s.store.distributedTasksManager.ListDistributedTasks(ctx)
 }
