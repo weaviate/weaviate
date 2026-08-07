@@ -139,6 +139,27 @@ const (
 	ReindexTypeChangeTokenizationFilterable ReindexMigrationType = "change-tokenization-filterable"
 )
 
+// AllReindexMigrationTypes is the registry of every declared
+// [ReindexMigrationType], in declaration order. Every exhaustive switch over
+// the type is checked against it, so a constant added here without an arm in
+// those switches fails the tests rather than reaching a switch default at
+// runtime.
+//
+// TestReindexMigrationTypeRegistryMatchesTheConstants scans this file and
+// requires the two to agree, so a constant declared above and not listed here
+// is caught the same way.
+var AllReindexMigrationTypes = []ReindexMigrationType{
+	ReindexTypeChangeAlgorithm,
+	ReindexTypeRebuildSearchable,
+	ReindexTypeRepairFilterable,
+	ReindexTypeEnableRangeable,
+	ReindexTypeRepairRangeable,
+	ReindexTypeEnableFilterable,
+	ReindexTypeEnableSearchable,
+	ReindexTypeChangeTokenization,
+	ReindexTypeChangeTokenizationFilterable,
+}
+
 // ReindexTaskPayload is the JSON-serialized payload stored in the DTM task.
 type ReindexTaskPayload struct {
 	MigrationType      ReindexMigrationType `json:"migrationType"`

@@ -110,11 +110,11 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
 	// Sanity-check the migration types via the exhaustive bucket-touch
-	// predicates so an unknown ReindexMigrationType still panics
-	// loudly at the conflict-check boundary rather than slipping
-	// through as "no conflict". Result values are intentionally
-	// discarded — the conflict rule below does not depend on which
-	// buckets are touched, only that both types are known.
+	// predicates, so an unknown ReindexMigrationType stops here rather than
+	// slipping through as "no conflict". Result values are intentionally
+	// discarded — the conflict rule below does not depend on which buckets are
+	// touched, only that both types are known. See [TouchesSearchable] for what
+	// stopping here actually costs at the apply tier.
 	_ = TouchesSearchable(newType)
 	_ = TouchesFilterable(newType)
 	_ = TouchesSearchable(existType)
@@ -164,12 +164,16 @@ func ReindexPropsOverlap(a, b []string) bool {
 // TouchesSearchable reports whether migration type t writes to the
 // searchable bucket. Implemented as an exhaustive switch so that a
 // newly-added [ReindexMigrationType] cannot silently be treated as
-// "doesn't touch searchable" — the default case panics with a clear
-// message, surfacing the gap on the first request that exercises the
-// new type. This matters because [typesConflictReason] relies on
-// these answers (via the sanity-check at its entry) to gate
-// concurrent reindex submissions: a positive-list miss would allow
-// conflicting writes to the same bucket through.
+// "doesn't touch searchable": a positive-list miss would let
+// [typesConflictReason] admit conflicting writes to the same bucket.
+//
+// The default panics, which is not the loud failure it looks like. At the RAFT
+// AddTask apply the panic is recovered by the apply wrapper, so the response
+// carries no error: the client gets 202 Accepted with a task ID for a task that
+// node never stored, while nodes that do know the type store it. The task then
+// sits STARTED forever on the diverged node. What keeps that unreachable is
+// [AllReindexMigrationTypes] and the tests walking it, not this default.
+// weaviate/0-weaviate-issues#511 tracks replacing it with a refusal.
 func TouchesSearchable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeChangeAlgorithm,

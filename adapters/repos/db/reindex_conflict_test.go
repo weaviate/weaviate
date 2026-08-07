@@ -782,10 +782,11 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 
 // TestTouchesTables_CoverEveryMigrationType is what makes the exhaustive
 // switches in TouchesSearchable/TouchesFilterable safe to rely on: the tables
-// are checked against allKnownMigrationTypes(), so a newly declared type reds
-// this test instead of panicking whichever request reaches the switch first.
-// Both switch defaults panic, and one of the two call sites is the RAFT
-// AddTask apply, where a panic is recovered and the entry silently dropped.
+// are checked against [AllReindexMigrationTypes], the production registry, which
+// TestReindexMigrationTypeRegistryMatchesTheConstants ties to the declared
+// constants. So a newly declared type fails here instead of reaching a switch
+// default, where the panic is recovered by the RAFT apply wrapper and the task
+// silently dropped on that node.
 func TestTouchesTables_CoverEveryMigrationType(t *testing.T) {
 	searchable := map[ReindexMigrationType]bool{
 		ReindexTypeChangeAlgorithm:              true,
@@ -810,7 +811,7 @@ func TestTouchesTables_CoverEveryMigrationType(t *testing.T) {
 		ReindexTypeRepairRangeable:              false,
 	}
 
-	known := allKnownMigrationTypes()
+	known := AllReindexMigrationTypes
 	require.Len(t, searchable, len(known), "every declared migration type needs a searchable row")
 	require.Len(t, filterable, len(known), "every declared migration type needs a filterable row")
 
@@ -836,12 +837,11 @@ func TestTouchesTables_PanicOnUnknownType(t *testing.T) {
 		func() { TouchesFilterable(ReindexMigrationType("phantom")) })
 }
 
-// TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty runs the
-// conflict check at the tier it actually runs at — the RAFT AddTask apply,
-// where a panic is swallowed by the apply wrapper and the submit reports
-// success with no task in the FSM. Every declared type is exercised as the
-// in-flight one, so a type missing from either touch switch fails here as a
-// refusal that never arrives rather than as a lost apply in production.
+// TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty checks the
+// detector in isolation: every declared type must refuse a new task on an
+// overlapping property. The same journey through the real RAFT AddTask apply,
+// where a panic in the detector is swallowed by the apply wrapper, is
+// TestStoreApply_RefusesAReindexConflictForEveryMigrationType in cluster/.
 func TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -852,7 +852,7 @@ func TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty(t *testi
 	})
 	require.NoError(t, err)
 
-	for _, mt := range allKnownMigrationTypes() {
+	for _, mt := range AllReindexMigrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
 			existPayload, err := json.Marshal(ReindexTaskPayload{
 				Collection:    "C",
