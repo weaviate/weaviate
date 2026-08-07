@@ -42,8 +42,8 @@ func observerAddCmd(t *testing.T, h *testHarness) *cmd.ApplyRequest {
 	})
 }
 
-// observerCancelCmd stamps the cancel with a time relative to the harness clock,
-// which is what decides whether the observer still cares about it.
+// observerCancelCmd stamps the cancel with a time relative to the harness clock.
+// The stamp is the proposing node's, so nothing about dispatch may turn on it.
 func observerCancelCmd(t *testing.T, h *testHarness, cancelledAgo time.Duration) *cmd.ApplyRequest {
 	return toCmd(t, &cmd.CancelDistributedTaskRequest{
 		Namespace:             observerNamespace,
@@ -89,7 +89,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 		require.Zero(t, rec.count(), "adding a task must not fire the cancel observer")
 
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
 
 		require.Eventually(t, func() bool { return rec.count() == 1 },
 			5*time.Second, 5*time.Millisecond, "the observer must fire for the cancel")
@@ -123,7 +123,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 
 		applied := make(chan error, 1)
-		go func() { applied <- h.manager.CancelTask(observerCancelCmd(t, h, 0)) }()
+		go func() { applied <- h.manager.CancelTask(observerCancelCmd(t, h, 0), false) }()
 
 		select {
 		case err := <-applied:
@@ -134,14 +134,14 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Zero(t, rec.count(), "the observer cannot have finished yet")
 	})
 
-	// A node catching up on the RAFT log applies cancels nobody is waiting on
-	// any more. Every signal an observer raises has expired by then, so paying
-	// for them means a restart holds gates it can never usefully release.
+	// A node replaying its RAFT log at startup applies cancels nobody is waiting
+	// on any more. Every signal an observer raises has expired by then, so
+	// paying for them means a restart holds gates it can never usefully release.
 	//
-	// The age is a literal rather than terminalObserverStaleAfter+something:
-	// derived from the constant it would still pass at a window of a day, which
-	// is exactly the replay this test exists to forbid.
-	t.Run("a cancel older than the observer window is skipped", func(t *testing.T) {
+	// The cancel is stamped as happening right now, so only the replay flag can
+	// suppress it: an implementation that goes back to judging by the age of the
+	// transition delivers this one.
+	t.Run("a cancel replayed from the RAFT log is skipped", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer h.manager.Close()
 
@@ -149,12 +149,11 @@ func TestManagerTerminalObserver(t *testing.T) {
 		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(
-			observerCancelCmd(t, h, 2*time.Minute)))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), true))
 
 		require.Never(t, func() bool { return rec.count() > 0 },
 			200*time.Millisecond, 5*time.Millisecond,
-			"a cancel two minutes old must not reach the observer")
+			"a cancel the FSM flagged as replayed must not reach the observer")
 	})
 
 	// A full queue keeps delivering up to the overflow bound; past it production
@@ -186,7 +185,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 		}
 		h.manager.mu.Lock()
 		for range total {
-			h.manager.dispatchTerminalWithLock(task, task.FinishedAt)
+			h.manager.dispatchTerminalWithLock(task, false)
 		}
 		h.manager.mu.Unlock()
 
@@ -196,16 +195,22 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"every queued cancel must reach the observer")
 	})
 
+	// Dispatch is queued to a goroutine, so a foreign observer that does fire
+	// fires after the apply returns. Recording and awaiting it is what makes
+	// this fail; a require.Fail inside the observer would land on a finished t.
 	t.Run("a namespace without an observer applies normally", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer h.manager.Close()
 
-		h.manager.RegisterTerminalObserver("some-other-namespace", func(*Task) {
-			require.Fail(t, "another namespace's observer must not fire")
-		})
+		var foreign observerRecorder
+		h.manager.RegisterTerminalObserver("some-other-namespace", foreign.record)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+
+		require.Never(t, func() bool { return foreign.count() > 0 },
+			200*time.Millisecond, 10*time.Millisecond,
+			"another namespace's observer must not fire")
 	})
 
 	// Registration is last-write-wins, so a nil stored over a live observer
@@ -220,7 +225,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 		h.manager.RegisterTerminalObserver(observerNamespace, nil)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
 
 		require.Eventually(t, func() bool { return rec.count() == 1 },
 			5*time.Second, 5*time.Millisecond,
@@ -236,7 +241,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 		h.manager.RegisterTerminalObserver("", empty.record)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
 		require.Eventually(t, func() bool { return live.count() == 1 },
 			5*time.Second, 5*time.Millisecond)
 
@@ -248,7 +253,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
 			Status:         TaskStatusCancelled,
 			FinishedAt:     h.clock.Now(),
-		}, h.clock.Now())
+		}, false)
 		h.manager.mu.Unlock()
 
 		require.Never(t, func() bool { return empty.count() > 0 },
@@ -289,7 +294,7 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 	for len(h.manager.terminalDispatch) > 0 {
 		<-h.manager.terminalDispatch
 	}
-	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
 	require.Empty(t, h.manager.terminalDispatch,
 		"the apply path must not hand a cancel over after Close")
 }
@@ -342,7 +347,7 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 
 	m.mu.Lock()
 	for range maxDelivered + pastTheBound {
-		m.dispatchTerminalWithLock(terminalDispatchTask(m), m.clock.Now())
+		m.dispatchTerminalWithLock(terminalDispatchTask(m), false)
 	}
 	m.mu.Unlock()
 
@@ -385,7 +390,7 @@ func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 	close(m.terminalDispatchDone)
 
 	m.mu.Lock()
-	m.dispatchTerminalWithLock(terminalDispatchTask(m), m.clock.Now())
+	m.dispatchTerminalWithLock(terminalDispatchTask(m), false)
 	m.mu.Unlock()
 
 	require.Never(t, func() bool { return rec.count() > 0 },
@@ -473,7 +478,7 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 	}
 	h.manager.mu.Lock()
 	for range total {
-		h.manager.dispatchTerminalWithLock(task, task.FinishedAt)
+		h.manager.dispatchTerminalWithLock(task, false)
 	}
 	h.manager.mu.Unlock()
 
@@ -534,7 +539,7 @@ func TestTerminalDrainerSurvivesAPanickingObserver(t *testing.T) {
 	})
 
 	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0)))
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
 
 	select {
 	case <-panicked:
@@ -556,7 +561,7 @@ func TestTerminalDrainerSurvivesAPanickingObserver(t *testing.T) {
 		Id:                    "2",
 		Version:               nextVersion,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	require.Eventually(t, func() bool { return rec.count() == 1 },
 		10*time.Second, 10*time.Millisecond,

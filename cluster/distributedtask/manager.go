@@ -302,19 +302,6 @@ const terminalDispatchQueueDepth = 256
 // forever, so the fan-out has to stop somewhere.
 const terminalDispatchOverflowLimit = 32
 
-// terminalObserverStaleAfter is how old a terminal transition may be and still be
-// worth telling an observer about. Observers exist to make a JUST-applied
-// ending observable to a request waiting on it. A node catching up on the RAFT
-// log applies endings that happened long ago; without this bound each one would
-// raise a gate nothing can release except its timeout, so a restart costs a
-// stretch of refused backups and an error line per replayed cancel.
-//
-// Measured against the FinishedAt the proposing node stamped, the same
-// cross-node clock comparison [Manager.CleanUpTask] already makes. A clock
-// further out of step than this skips the observer, and the request-scoped
-// confirmation it feeds is already unusable at that skew.
-const terminalObserverStaleAfter = time.Minute
-
 // startTerminalDrainerWithLock brings up the single goroutine that runs cancel
 // observers. Caller holds m.mu.
 func (m *Manager) startTerminalDrainerWithLock() {
@@ -391,11 +378,23 @@ func (m *Manager) runTerminalObserver(task *Task) {
 // dispatchTerminalWithLock hands a task that has just gone terminal to the
 // drainer. Caller holds m.mu.
 //
-// occurredAt is when the terminal transition happened, and is what the
-// staleness bound is measured against. It is passed rather than read off the
-// task because task.FinishedAt means "when the units stopped working", which on
-// the swap and prep failure paths is deliberately older than the failure
-// itself.
+// catchingUp is the FSM's own replay flag. Observers exist to make a
+// JUST-applied ending observable to a request waiting on it; a node replaying
+// its RAFT log at startup applies endings that finished long ago, and each one
+// signalled would raise a cleanup gate nothing can release except its own
+// timeout. Keying the skip on the flag rather than on how old the transition
+// looks is what makes it immune to clock skew: every timestamp on the request
+// is stamped by the PROPOSING node, so an age-based bound read every live
+// ending on a node a minute out of step as replayed, and dropped the blocking
+// gate along with it.
+//
+// A node that fell behind while running is not catching up in this sense and
+// still gets its dispatches. That is correct: it never ran the teardown for
+// those endings either, so the gate covering the window until it does is
+// exactly what it needs.
+//
+// The flag is node-local and only ever decides a side effect, never any state
+// the FSM stores, so it cannot make two nodes diverge.
 //
 // Observers run off the apply path, never inline: they take their own locks,
 // which the admission path and HTTP handlers also take, and a RAFT apply that
@@ -405,7 +404,7 @@ func (m *Manager) runTerminalObserver(task *Task) {
 // routinely acts on it before the local apply lands, which was a real bug.
 //
 // The task is cloned because it stays in m.tasks and later applies mutate it.
-func (m *Manager) dispatchTerminalWithLock(task *Task, occurredAt time.Time) {
+func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 	if m.terminalDispatchClosed {
 		// The drainer has been told to exit and drops whatever it still finds
 		// on the queue, so nothing handed over from here can be delivered.
@@ -417,12 +416,11 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, occurredAt time.Time) {
 	if observer == nil {
 		return
 	}
-	if age := m.clock.Since(occurredAt); age > terminalObserverStaleAfter {
+	if catchingUp {
 		m.dispatchLogger().WithFields(logrus.Fields{
 			"namespace": task.Namespace,
 			"task_id":   task.ID,
-			"age":       age,
-		}).Debug("distributedtask: skipping the terminal observer for a transition that is already older than anything it could signal")
+		}).Debug("distributedtask: skipping the terminal observer for an ending replayed from the RAFT log")
 		return
 	}
 
@@ -614,7 +612,7 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 // in-flight units are NOT waited for, and their subsequent completion reports will be
 // rejected with "task is no longer running". This fail-fast behavior is intentional: it avoids
 // wasting cluster resources on a task that is already doomed.
-func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
+func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskUnitCompletionRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record unit completion request: %w", err)
@@ -649,7 +647,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.FinishedAt = finishedAt
-		m.dispatchTerminalWithLock(task, finishedAt)
+		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -688,7 +686,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
 // late acks against terminal states are silently dropped.
-func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
+func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record post-completion ack request: %w", err)
@@ -741,9 +739,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		} else {
 			task.Error = ackErr
 		}
-		// The ack, not task.FinishedAt: the failure happened when the node
-		// reported it, which is arbitrarily later than the units stopping.
-		m.dispatchTerminalWithLock(task, time.UnixMilli(r.AckedAtUnixMillis))
+		m.dispatchTerminalWithLock(task, catchingUp)
 	}
 
 	m.notifySchedulerWithLock()
@@ -780,7 +776,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 // purely from the task's Units → NodeID map (which is RAFT-replicated
 // and identical on every node) plus the PreparationCompletionAcks state — so
 // every node's Manager arrives at the transition on the same apply.
-func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
+func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record prep-complete ack request: %w", err)
@@ -835,7 +831,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 			task.Error = ackErr
 		}
 		// FinishedAt was set when AllUnitsTerminal landed; keep it.
-		m.dispatchTerminalWithLock(task, time.UnixMilli(r.AckedAtUnixMillis))
+		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -929,7 +925,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
 // is refused. FinishedAt stays at the AllUnitsTerminal moment.
-func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
+func (m *Manager) MarkTaskFailed(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.MarkTaskFailedRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal mark task failed request: %w", err)
@@ -964,10 +960,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			task.Error = r.Error
 		}
 	}
-	// FailedAtUnixMillis, not task.FinishedAt: the latter deliberately stays at
-	// the units-stopped moment, which a long swap puts arbitrarily far in the
-	// past.
-	m.dispatchTerminalWithLock(task, time.UnixMilli(r.FailedAtUnixMillis))
+	m.dispatchTerminalWithLock(task, catchingUp)
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -1038,7 +1031,7 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 
 // CancelTask transitions a running task to CANCELLED. In-flight units are not waited
 // for — the [Scheduler] will terminate their local handles on the next tick.
-func (m *Manager) CancelTask(a *api.ApplyRequest) error {
+func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal cancel task request: %w", err)
@@ -1058,7 +1051,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	task.Status = TaskStatusCancelled
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
-	m.dispatchTerminalWithLock(task, task.FinishedAt)
+	m.dispatchTerminalWithLock(task, catchingUp)
 	m.notifySchedulerWithLock()
 	return nil
 }

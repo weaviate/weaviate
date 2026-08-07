@@ -168,7 +168,8 @@ func TestTaskCancellation(t *testing.T) {
 		Id:                    taskID,
 		Version:               version,
 		CancelledAtUnixMillis: cancellationTime,
-	}))
+	}), false)
+
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -484,7 +485,8 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Id:                    "cancel",
 		Version:               12,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
+	}), false)
+
 	require.NoError(t, err)
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -678,7 +680,7 @@ func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace
 		Version:            taskVersion,
 		Error:              errMsg,
 		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
-	}))
+	}), false)
 }
 
 func (h *testHarness) advanceClock(duration time.Duration) {
