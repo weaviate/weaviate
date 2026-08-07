@@ -1681,9 +1681,9 @@ func logCleanupSweep(entry *logrus.Entry, indexTypesToClean []string,
 		entry = entry.WithField("strategies", indexTypesToClean).
 			WithField("sweep_truncated", outcome.truncated)
 		if outcome.truncated {
-			// The sweep stopped mid-list, or never started because the node is
-			// shutting down; either way the shards it did not reach were never
-			// looked at, not just the ones that errored.
+			// The sweep stopped mid-list, or never started because the node
+			// is shutting down. Either way the shards it did not reach were
+			// never looked at, not just the ones that errored.
 			entry.Errorf("cancel: the on-disk cleanup stopped before it had visited every shard, "+
 				"so an unknown number of shards were not swept at all: %v; next submit's defense-in-depth "+
 				"cleanup will retry", outcome.errs)
