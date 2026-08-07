@@ -1267,13 +1267,9 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	return shard.PutObject(ctx, object)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.PutObject(ctx, object)
+	})
 }
 
 func (i *Index) replicationEnabled() bool {
@@ -1896,13 +1892,14 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
+	var res []error
+	if err := i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		res = shard.PutObjectBatch(ctx, objects)
+		return nil
+	}); err != nil {
 		return duplicateErr(err, len(objects))
 	}
-	defer release()
-
-	return shard.PutObjectBatch(ctx, objects)
+	return res
 }
 
 // return value map[int]error gives the error for the index as it received it
@@ -1987,13 +1984,14 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
+	var res []error
+	if err := i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		res = shard.AddReferencesBatch(ctx, refs)
+		return nil
+	}); err != nil {
 		return duplicateErr(err, len(refs))
 	}
-	defer release()
-
-	return shard.AddReferencesBatch(ctx, refs)
+	return res
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
@@ -2907,13 +2905,9 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	return shard.DeleteObject(ctx, id, deletionTime)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.DeleteObject(ctx, id, deletionTime)
+	})
 }
 
 func (i *Index) getClass() *models.Class {
@@ -3068,6 +3062,18 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 	return shard, release, nil
 }
 
+// withShardForWrite runs f against the named local shard's write surface. It
+// owns the pin lifetime, so a caller cannot leak one and leave inUseCounter
+// non-zero, blocking the shard from unloading.
+func (i *Index) withShardForWrite(ctx context.Context, shardName string, f func(shard shardWriter) error) error {
+	shard, release, err := i.getOrInitShard(ctx, shardName)
+	defer release()
+	if err != nil {
+		return fmt.Errorf("get shard %q: %w", shardName, err)
+	}
+	return f(shard)
+}
+
 // getOptInitLocalShard returns the local shard with the given name.
 // It is ensured that the returned instance is a fully loaded shard if ensureInit is set to true.
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
@@ -3202,13 +3208,9 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	return shard.MergeObject(ctx, mergeDoc)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.MergeObject(ctx, mergeDoc)
+	})
 }
 
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
@@ -3729,26 +3731,15 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 		return nil
 	}
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	defer release()
-	if err != nil {
-		return err
-	}
-	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	})
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	if shard == nil {
-		return fmt.Errorf("shard %s does not exist locally", shardName)
-	}
-
-	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	})
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
@@ -3900,15 +3891,16 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
+	var res objects.BatchSimpleObjects
+	if err := i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		res = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+		return nil
+	}); err != nil {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: err},
 		}
 	}
-	defer release()
-
-	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+	return res
 }
 
 func defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
