@@ -53,7 +53,9 @@ func (m *failToLoadMonitor) Refresh(updateMappings bool) {}
 // shards after that point untouched — if the only thing it reports is the
 // shard that failed before it, the caller reads a bounded failure where the
 // truth is "unknown, from here on". A sweep that visited nothing at all,
-// because the collection is closing, is the same answer in its worst form.
+// because the node is shutting down, is the same answer in its worst form. A
+// collection being deleted is the one close that is neither: its state is
+// deleted with it, so there is nothing left for any sweep to remove.
 func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -61,14 +63,18 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// cancelOnCall aborts the sweep's context on the nth shard load; 0
 		// lets the walk run to the end.
 		cancelOnCall int
-		// closing makes the collection closing or being dropped, which is what
-		// makes the shard walk visit nothing.
-		closing bool
-		// indexType "" means one this build knows, so no shard is loaded and
-		// the sweep is clean.
+		// closing closes the index, which is what makes the shard walk visit
+		// nothing. closeCause is what the close was signalled with; nil stands
+		// for a close nobody named a cause for.
+		closing    bool
+		closeCause error
+		// indexType "filterable" is one the bucket-name mapping knows, so no
+		// shard is loaded and the sweep is clean; anything else puts every
+		// shard on the list.
 		indexType     string
 		wantErr       bool
 		wantTruncated bool
+		wantDropped   bool
 		// wantShardErr expects the failing shard to still be named.
 		wantShardErr bool
 	}{
@@ -111,7 +117,31 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		{
 			// The walk visits nothing here, so "swept every shard" would be a
 			// report about work that never happened.
-			name:          "a closing collection is swept not at all",
+			name:          "a node shutting down leaves every shard unswept",
+			shards:        []string{"shard-a", "shard-b"},
+			closing:       true,
+			closeCause:    errIndexShutdown,
+			indexType:     "an-index-type-this-build-does-not-know",
+			wantErr:       true,
+			wantTruncated: true,
+		},
+		{
+			// The state this sweep removes lives under the collection's own
+			// directory, so the delete removes it. Reporting truncation here
+			// would send the operator after shards that are going away, and
+			// promise a retry on a submit that will never come.
+			name:        "a collection being deleted has nothing left to sweep",
+			shards:      []string{"shard-a", "shard-b"},
+			closing:     true,
+			closeCause:  errIndexDropped,
+			indexType:   "an-index-type-this-build-does-not-know",
+			wantErr:     true,
+			wantDropped: true,
+		},
+		{
+			// A close nobody named a cause for could still be a shutdown, and
+			// the shards would then really be left behind.
+			name:          "a close with no cause is treated as a shutdown",
 			shards:        []string{"shard-a", "shard-b"},
 			closing:       true,
 			indexType:     "an-index-type-this-build-does-not-know",
@@ -131,19 +161,36 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			logger.SetOutput(io.Discard)
 			closingCtx, closeIndex := context.WithCancel(context.Background())
 			defer closeIndex()
-			if tc.closing {
-				closeIndex()
-			}
+			closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
+			defer signalCloseRequested(nil)
 			idx := &Index{
-				Config:     IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
-				closingCtx: closingCtx,
-				logger:     logger,
+				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				closingCtx:           closingCtx,
+				closeRequestedCtx:    closeRequestedCtx,
+				signalCloseRequested: signalCloseRequested,
+				logger:               logger,
+			}
+			if tc.closing {
+				// The real teardowns signal the cause first and cancel
+				// closingCtx once they hold the lock.
+				if tc.closeCause != nil {
+					signalCloseRequested(tc.closeCause)
+				}
+				closeIndex()
 			}
 			for _, name := range tc.shards {
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
 					memMonitor: monitor,
 				})
+			}
+
+			if tc.closing {
+				require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+					t.Errorf("a closing index walked shard %q", name)
+					return nil
+				}), "ForEachShard answers a closing index as a walk that reached every shard, "+
+					"which is why the sweep cannot use it")
 			}
 
 			// An index type the bucket-name mapping does not know reads as
@@ -162,7 +209,16 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 					"shards the walk never reached were never swept, and the caller has to know")
 			} else {
 				require.NotErrorIs(t, err, ErrCleanupSweepTruncated,
-					"every shard was visited, so the failure is bounded to the ones that failed")
+					"every shard was visited, or the collection is being deleted, so nothing "+
+						"is left unswept that a later sweep could still reach")
+			}
+			if tc.wantDropped {
+				require.ErrorIs(t, err, ErrCleanupCollectionDropped,
+					"a collection being deleted takes its state with it, and the caller must not "+
+						"report unswept shards or promise a retry for it")
+			} else {
+				require.NotErrorIs(t, err, ErrCleanupCollectionDropped,
+					"the collection is not being deleted, so its state outlives this sweep")
 			}
 			if tc.wantShardErr {
 				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
