@@ -254,8 +254,12 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 // stale task, and painting "indexing" for it is the bleed of
 // https://github.com/weaviate/weaviate/issues/10675.
 //
-// The "still finalizing" window lives in the PREPARING / SWAPPING statuses
-// now, which is what the last sub-test pins.
+// The "still finalizing" window lives in the PREPARING / SWAPPING statuses,
+// pinned by TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing.
+//
+// Both rows below carry the same expectation at different finish times on
+// purpose: a status that varied with the age of the stamp is exactly the
+// time-bounded override this case exists to keep out.
 func TestMergeReindexStatus_FinishedNeverSurfacesASyntheticEntry(t *testing.T) {
 	mkTask := func(status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
 		task := buildTask(t, "C:enable-filterable:foo:abcd",
@@ -293,21 +297,7 @@ func TestMergeReindexStatus_FinishedNeverSurfacesASyntheticEntry(t *testing.T) {
 			status:     distributedtask.TaskStatusFinished,
 			finishedAt: time.Now().Add(-time.Hour),
 			wantStatus: "ready",
-			why:        "the post-DELETE bleed, which used to be merely time-bounded",
-		},
-		{
-			name:         "SWAPPING",
-			status:       distributedtask.TaskStatusSwapping,
-			wantStatus:   "indexing",
-			wantProgress: 1.0,
-			why:          "this is where the not-yet-flipped window lives now",
-		},
-		{
-			name:         "PREPARING",
-			status:       distributedtask.TaskStatusPreparing,
-			wantStatus:   "indexing",
-			wantProgress: 1.0,
-			why:          "same, one phase earlier",
+			why:        "the post-DELETE bleed, which the age of the task must not revive",
 		},
 	}
 

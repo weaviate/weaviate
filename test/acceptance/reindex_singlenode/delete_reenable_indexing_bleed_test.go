@@ -22,23 +22,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testDeleteThenReEnableIndexingBleed pins the Sev 1 frontend repro on
-// 2026-05-14 in https://github.com/weaviate/weaviate/issues/10675: after multiple enable→DELETE cycles
-// on the same property, GET /indexes shows a synthetic "indexing(1)" entry
-// for the just-deleted index, "carrying over from the previous FINISHED
-// task". The synthetic status sticks: a follow-up enable's swap doesn't
-// dislodge it because the FINISHED task it keys off is stale.
-//
-// Root cause: mergeReindexStatus had a finalize-window override that said
-// "FINISHED task with flag-off → still finalizing → indexing@100%". The
-// override forgot that after DELETE the flag is intentionally off, NOT
-// "swap hasn't propagated yet". A previous FINISHED task whose swap had
-// completed (flag flipped on, then off again by DELETE) was silently
-// reclassified as "still finalizing", and the synthetic "indexing(1)"
-// entry bled across cycles.
-//
-// The override is gone: FINISHED produces no synthetic entry at all, so
-// the bleed is structurally impossible rather than time-bounded.
+// testDeleteThenReEnableIndexingBleed pins the invariant behind the Sev 1
+// frontend repro in https://github.com/weaviate/weaviate/issues/10675: after
+// any number of enable→DELETE cycles on the same property, GET /indexes must
+// carry no entry for the deleted index. A FINISHED task produces no synthetic
+// entry, so the flag being off after a DELETE cannot be read as "the swap has
+// not propagated yet" and no stale task can paint a phantom "indexing(1)".
 //
 // Distinct from testDeleteThenReEnableMultiCycle (which pins the
 // silent-failure family for the bucket itself): this test pins the
@@ -63,15 +52,11 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 			}), "object %d", i)
 		}
 
-		// Three enable→FINISHED→DELETE cycles. After each one, the GET
-		// /indexes surface must not surface a synthetic "indexing"/"pending"/
-		// "failed"/"cancelled" entry for the just-deleted searchable index.
-		// The bleed mode was the synthetic-status override in
-		// mergeReindexStatus reclassifying a stale FINISHED task as "still
-		// finalizing", and it compounded with each completed-then-deleted
-		// cycle (more stale FINISHED tasks in DTM history to compete for
-		// the "finalize-window winner" pick). FINISHED now produces no
-		// synthetic entry, so no number of cycles can bring one back.
+		// Three enable→FINISHED→DELETE cycles. After each one, GET /indexes
+		// must not surface a synthetic "indexing"/"pending"/"failed"/
+		// "cancelled" entry for the just-deleted searchable index. Cycles
+		// accumulate FINISHED tasks in DTM history, and none of them can
+		// produce a synthetic entry, so the count does not matter.
 		for cycle := 1; cycle <= 3; cycle++ {
 			runEnableThenDeleteCycle(t, restURI, class, "body",
 				`{"searchable":{"enabled":true,"tokenization":"word"}}`,
@@ -164,16 +149,14 @@ func runEnableThenDeleteCycle(
 	deleteIndex(t, restURI, class, propName, deleteIndexName)
 }
 
-// assertNoIndexBleedAfterDelete is the inverse of the FINISHED-task
-// "finalize-window override" bug surface: after a DELETE, GET /indexes
-// must NOT surface any entry of the named type on the named property. The
-// schema flag is off and no reindex is in flight; a synthetic entry here
-// means a stale FINISHED task is being surfaced again, which is what the
-// deleted override used to do.
+// assertNoIndexBleedAfterDelete requires that after a DELETE, GET /indexes
+// carries no entry of the named type on the named property. The schema flag is
+// off and no reindex is in flight, so an entry here means a stale FINISHED
+// task is being surfaced.
 //
 // Eventually-polls because the schema-flag flip may take a moment to
-// propagate. 12s window with 250ms poll cadence — the bug surfaces
-// immediately at t=0, the fix lets the poll converge inside the window.
+// propagate. 12s window with 250ms poll cadence — a bleed surfaces
+// immediately at t=0, a clean response converges inside the window.
 //
 // `idxStatusType` is the GET /indexes status-block type name (one of
 // "searchable" / "filterable" / "rangeable"), distinct from the DELETE
