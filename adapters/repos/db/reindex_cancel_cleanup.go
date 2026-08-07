@@ -109,9 +109,6 @@ func (i *Index) CleanStalePartialReindexState(
 	propName, indexType string,
 ) error {
 	var shardErrs error
-	// forEachShardStrict rather than ForEachShard, which answers a closing
-	// index with a silent nil that is indistinguishable here from a sweep that
-	// reached every shard.
 	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
