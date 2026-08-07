@@ -53,7 +53,12 @@ func run() error {
 		rankQueries = flag.Int("rank-queries", 400, "queries to sample in rankcurve mode / schedule generation")
 		genQuantile = flag.Float64("gen-quantile", 0, "generate the budget schedule from the expected-case rank curve at this quantile (0 = use -budgets)")
 		sweepArg    = flag.String("rescore-sweep", "", "full mode: comma-separated rescore windows evaluated in one scan (recall per window)")
-		blSweepArg  = flag.String("baseline-sweep", "16,32,64,128,256,512", "hnsw/hfresh modes: accuracy parameter sweep (ef / searchProbe)")
+		blSweepArg  = flag.String("baseline-sweep", "16,32,64,128,256,512", "hnsw/hfresh/rqhnsw modes: accuracy parameter sweep (ef / searchProbe)")
+		rqBits      = flag.Int("rq-bits", 8, "rqhnsw mode: RQ bit depth (8, 4 or 1)")
+		swapArg     = flag.String("swap-retained", "", "rqhnsw mode: after building, re-encode codes at these widths over the same graph (comma-separated)")
+		rlimsArg    = flag.String("rescore-limits", "0,100", "rqhnsw mode: rescore limits applied at every ef of the sweep")
+		windowEF    = flag.Int("window-ef", 128, "rqhnsw mode: fixed ef for the rescore-window search")
+		targetRec   = flag.Float64("target-recall", 0.98, "rqhnsw mode: recall@k the rescore-window search must reach")
 		limitBase   = flag.Int("limit-base", 0, "use only the first N base vectors (smoke tests; ground truth becomes invalid)")
 		streamBuild = flag.Bool("stream-build", false, "rankcurve mode: build the code store by streaming base vectors from disk (floats never fully resident)")
 		k           = flag.Int("k", 10, "final result count / recall@k")
@@ -62,7 +67,7 @@ func run() error {
 	flag.Parse()
 
 	switch *mode {
-	case "schedule", "full", "hybrid", "rankcurve", "hnsw", "hfresh":
+	case "schedule", "full", "hybrid", "rankcurve", "hnsw", "hfresh", "rqhnsw":
 	default:
 		return fmt.Errorf("unknown -mode %q", *mode)
 	}
@@ -136,7 +141,7 @@ func run() error {
 	}
 	normalizeRows(queries, *dims)
 
-	if *mode == "hnsw" || *mode == "hfresh" {
+	if *mode == "hnsw" || *mode == "hfresh" || *mode == "rqhnsw" {
 		sweep, err := parseBudgets(*blSweepArg)
 		if err != nil {
 			return err
@@ -146,6 +151,28 @@ func run() error {
 		}
 		if *mode == "hnsw" {
 			return runHNSWBaseline(base, *dims, n, queries, gt, gtCols, *numQueries, *k, sweep, *csvPath, filepath.Base(*dataDir))
+		}
+		if *mode == "rqhnsw" {
+			var swaps []int
+			if *swapArg != "" {
+				if swaps, err = parseBudgets(*swapArg); err != nil {
+					return err
+				}
+			}
+			rlims, err := parseIntList(*rlimsArg)
+			if err != nil {
+				return err
+			}
+			return runRQHNSW(base, *dims, n, queries, gt, gtCols, *numQueries, *k, rqHNSWParams{
+				bits:        *rqBits,
+				retained:    *retained,
+				center:      *center,
+				efSweep:     sweep,
+				rescoreEF:   *windowEF,
+				swaps:       swaps,
+				rescoreLims: rlims,
+				targetRec:   *targetRec,
+			}, *csvPath, filepath.Base(*dataDir))
 		}
 		return runHFreshBaseline(base, *dims, n, queries, gt, gtCols, *numQueries, *k, sweep, *csvPath, filepath.Base(*dataDir))
 	}
