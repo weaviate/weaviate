@@ -987,9 +987,11 @@ func (st *Store) openDatabase(ctx context.Context) {
 // then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
-		stop := st.trackDBLoadProgress()
-		st.schemaManager.ReloadDBFromSchema()
-		stop()
+		func() {
+			stop := st.trackDBLoadProgress()
+			defer stop()
+			st.schemaManager.ReloadDBFromSchema()
+		}()
 		st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
 	} else {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
