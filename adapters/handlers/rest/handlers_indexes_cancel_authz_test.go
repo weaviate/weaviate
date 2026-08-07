@@ -31,17 +31,23 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-// scopedAuthorizer grants a verb on exactly the resources it was built with
-// and denies every other resource, which is what an RBAC role holding UPDATE
-// on one collection looks like to a handler.
+// scopedAuthorizer grants exactly the verb-and-resource pairs it was built with
+// and denies every other pair, which is what an RBAC role holding UPDATE on one
+// collection looks like to a handler. Keying on the verb as well as the
+// resource is what makes a call site asking for the wrong privilege visible.
 type scopedAuthorizer struct {
 	granted map[string]bool
+}
+
+// grantKey is how one verb-on-one-resource privilege is spelled in granted.
+func grantKey(verb, resource string) string {
+	return verb + " on " + resource
 }
 
 func grantUpdateOn(classes ...string) *scopedAuthorizer {
 	granted := map[string]bool{}
 	for _, resource := range authorization.Collections(classes...) {
-		granted[resource] = true
+		granted[grantKey(authorization.UPDATE, resource)] = true
 	}
 	return &scopedAuthorizer{granted: granted}
 }
@@ -50,8 +56,10 @@ func (a *scopedAuthorizer) Authorize(ctx context.Context, principal *models.Prin
 	verb string, resources ...string,
 ) error {
 	for _, resource := range resources {
-		if !a.granted[resource] {
-			return authzerrors.NewForbidden(principal, verb, resource)
+		if !a.granted[grantKey(verb, resource)] {
+			// Wrapped the way both real authorizers return it, so a caller
+			// reaching the Forbidden has to unwrap for it.
+			return fmt.Errorf("rbac: %w", authzerrors.NewForbidden(principal, verb, resource))
 		}
 	}
 	return nil
@@ -68,7 +76,7 @@ func (a *scopedAuthorizer) FilterAuthorizedResources(ctx context.Context, princi
 ) ([]string, error) {
 	var allowed []string
 	for _, resource := range resources {
-		if a.granted[resource] {
+		if a.granted[grantKey(verb, resource)] {
 			allowed = append(allowed, resource)
 		}
 	}
@@ -208,8 +216,9 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 			authorizer: func(logger logrus.FieldLogger) authorization.Authorizer {
 				return splitAuthorizer{
 					auditingAuthorizer: auditingAuthorizer{scopedAuthorizer: grantUpdateOn(), logger: logger},
-					audibleErr: authzerrors.NewForbidden(&models.Principal{Username: "u1"},
-						authorization.UPDATE, authorization.Collections()[0]),
+					audibleErr: fmt.Errorf("rbac: %w", authzerrors.NewForbidden(
+						&models.Principal{Username: "u1"},
+						authorization.UPDATE, authorization.Collections()[0])),
 				}
 			},
 			wantStatus: reindexCancelStatusNoOp,
@@ -270,19 +279,20 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 			require.Equalf(t, tc.wantErrorLog, errorLevel,
 				"an error-level record is a page for a human; entries were %q", entryMessages(hook))
 
-			grant := entryWith(hook, func(e *logrus.Entry) bool { return e.Message == auditGranted })
+			grant := warned(hook, auditGranted)
 			require.Equalf(t, tc.wantGrantLog, grant != nil,
 				"the audit stream has to carry the grant that let this cancel through, and nothing else; "+
 					"entries were %q", entryMessages(hook))
 			if tc.wantGrantVerb != "" {
+				require.NotNilf(t, grant,
+					"this row names the verb the grant record has to carry, but there is no grant "+
+						"record; entries were %q", entryMessages(hook))
 				require.Equal(t, tc.wantGrantVerb, grant.Data["verb"],
 					"the grant record names the privilege that was used; the wrong verb on it is "+
 						"what a compliance query reads")
 			}
 
-			event := entryWith(hook, func(e *logrus.Entry) bool {
-				return e.Data["audit_event"] == tc.wantAuditEvent
-			})
+			event := audited(hook, tc.wantAuditEvent)
 			require.NotNilf(t, event,
 				"each outcome needs its own event name, or a SIEM rule counts two different facts "+
 					"as one; entries were %q", entryMessages(hook))
@@ -291,17 +301,6 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 					"error level pages someone for a request that was answered correctly")
 		})
 	}
-}
-
-// entryWith returns the one entry matching pred, failing the caller's assertion
-// with nil when there is none.
-func entryWith(hook *logrustest.Hook, pred func(*logrus.Entry) bool) *logrus.Entry {
-	for _, entry := range hook.AllEntries() {
-		if pred(entry) {
-			return entry
-		}
-	}
-	return nil
 }
 
 // entryMessages joins each entry's message with its audit_event field, so a

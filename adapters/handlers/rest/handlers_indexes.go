@@ -1280,6 +1280,13 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	return "", false
 }
 
+// auditEventCancelAuthorizerUnavailable names both points where the authorizer
+// could not say whether an unattributable task may be cancelled. One name,
+// because whoever the alert wakes has the same fact either way: the authorizer
+// did not answer and the task was left running. The messages differ, so a
+// message-keyed rule can still tell the two apart.
+const auditEventCancelAuthorizerUnavailable = "reindex_task_cancel_unattributable_authorizer_unavailable"
+
 // cancelReindexTask finds the STARTED reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
@@ -1418,7 +1425,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				// operator's only remedy for this task is unavailable. The
 				// response stays non-disclosing and cannot say so.
 				h.appState.Logger.WithFields(fields).
-					WithField("audit_event", "reindex_task_cancel_unattributable_authorizer_unavailable").
+					WithField("audit_event", auditEventCancelAuthorizerUnavailable).
 					Errorf("cancel: a task naming no collection is live, but the authorizer could not say "+
 						"whether the caller may cancel it, so it was left running: %v", probeErr)
 			default:
@@ -1438,7 +1445,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 								"recorded, so the task naming no collection was left running: %v", grantErr)
 					} else {
 						h.appState.Logger.WithFields(fields).
-							WithField("audit_event", "reindex_task_cancel_unattributable_authorizer_unavailable").
+							WithField("audit_event", auditEventCancelAuthorizerUnavailable).
 							Errorf("cancel: the caller's cluster-wide grant could not be recorded, "+
 								"so the task naming no collection was left running: %v", grantErr)
 					}
