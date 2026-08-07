@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"regexp"
 	"runtime"
@@ -20,8 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 // Structural invariant tests for the DTM package.
@@ -148,9 +151,10 @@ func structuralInvariantClockHasWaiter(
 // the RAFT FSM Restore contract: post-Restore state == snapshot, not
 // pre-state ∪ snapshot. Exercises the three failure modes the merge
 // implementation allows: (a) different ID in shared namespace,
-// (b) unrelated namespace, (c) intersection (correctly overwritten —
-// positive control).
+// (b) unrelated namespace.
 //
+// Same fix as the still-open weaviate/weaviate#11416, which carries it
+// line-for-line; whichever lands first makes the other a no-op.
 // weaviate/0-weaviate-issues#245.
 func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
@@ -201,6 +205,83 @@ func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) 
 	require.Equal(t, "snapshot-task", sharedTasks[0].ID,
 		"the surviving task in ns-shared must be the one from the snapshot, "+
 			"not the pre-existing task (replacement contract)")
+}
+
+// TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskWithNoStamp pins
+// the repair a snapshot carrying a terminal task with no finish time gets:
+// stamped with the newest moment the task itself records, identically on every
+// node, and deletable once the TTL has run from there. Without it the task can
+// never age out and the backup overlap backstop refuses every capture of its
+// collection for good. weaviate/0-weaviate-issues#501.
+func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskWithNoStamp(t *testing.T) {
+	nullLogger, _ := logrustest.NewNullLogger()
+	started := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
+	unitsStopped := started.Add(10 * time.Minute)
+	lastAck := started.Add(12 * time.Minute)
+
+	snapBytes, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+		"ns": {{
+			Namespace:      "ns",
+			TaskDescriptor: TaskDescriptor{ID: "unstamped", Version: 1},
+			Status:         TaskStatusFinished,
+			StartedAt:      started,
+			Units:          map[string]*Unit{"u1": {ID: "u1", Status: UnitStatusCompleted, FinishedAt: unitsStopped}},
+			PostCompletionAcks: map[string]PostCompletionAck{
+				"node-1": {Success: true, AckedAt: lastAck},
+				"node-2": {Success: true, AckedAt: unitsStopped.Add(time.Minute)},
+			},
+		}},
+	}})
+	require.NoError(t, err)
+
+	restoreInto := func(t *testing.T, clock clockwork.Clock) *Manager {
+		t.Helper()
+		m := NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: time.Hour, Logger: nullLogger})
+		t.Cleanup(m.Close)
+		require.NoError(t, m.Restore(snapBytes))
+		return m
+	}
+
+	restoredTask := func(t *testing.T, m *Manager) *Task {
+		t.Helper()
+		tasks, err := m.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Len(t, tasks["ns"], 1)
+		return tasks["ns"][0]
+	}
+
+	t.Run("stamped with the newest moment the task records", func(t *testing.T) {
+		task := restoredTask(t, restoreInto(t, clockwork.NewFakeClockAt(lastAck)))
+		require.True(t, task.FinishedAt.Equal(lastAck),
+			"the stamp must be the last ack, the newest moment on the task: an earlier one "+
+				"makes the backup overlap backstop waive a capture the migration may have torn")
+	})
+
+	t.Run("every node restoring the snapshot computes the same stamp", func(t *testing.T) {
+		// Different clocks on purpose: the value must come off the task, not
+		// off the applying node, or the FSM diverges.
+		first := restoredTask(t, restoreInto(t, clockwork.NewFakeClockAt(lastAck)))
+		second := restoredTask(t, restoreInto(t, clockwork.NewFakeClockAt(lastAck.Add(9*time.Hour))))
+		require.True(t, first.FinishedAt.Equal(second.FinishedAt),
+			"the stamp must be identical on every node applying this snapshot")
+	})
+
+	t.Run("deletable once the TTL has run from the repaired stamp", func(t *testing.T) {
+		clock := clockwork.NewFakeClockAt(lastAck.Add(30 * time.Minute))
+		m := restoreInto(t, clock)
+		cleanUp := func() error {
+			return m.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+				Namespace: "ns", Id: "unstamped", Version: 1,
+			}))
+		}
+		require.Error(t, cleanUp(), "half a TTL in, the task is still too fresh to clean up")
+
+		clock.Advance(time.Hour)
+		require.NoError(t, cleanUp(), "past the TTL the repaired task must age out like any other")
+		tasks, err := m.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Empty(t, tasks["ns"], "the cleaned-up task must be gone")
+	})
 }
 
 // structuralInvariantSeedTask is a tight helper that injects a
