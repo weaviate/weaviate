@@ -1849,11 +1849,20 @@ func (h *indexesHandlers) uncancellableLiveTask(tasks []*distributedtask.Task,
 // already past STARTED, and the post-cancel error path learns it from DTM
 // after the task moved between the listing and the cancel. One function so
 // the operator cannot get two different wordings for one state.
+//
+// It does not tell the operator to poll until the migration reports ready:
+// PREPARING/SWAPPING is not always transient. A node that owned part of the
+// task leaving the cluster leaves it there for good, still holding every backup
+// and restore refusal, so the text names the kill switch as the way out
+// instead of a completion that may never arrive.
 func reindexCancelPastCancellationPoint(principal *models.Principal) middleware.Responder {
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-		"cancel refused: the migration has finished building and is committing its result; "+
-			"it can no longer be cancelled. Poll GET /v1/schema/<class>/indexes until every "+
-			"index reports status=\"ready\"."))
+		"cancel refused: the migration has finished building and is committing its result; cancel "+
+			"only works while the task is STARTED, and there is no cancel past that point. It "+
+			"normally clears on its own — watch GET /v1/schema/<class>/indexes — but a node that "+
+			"owned part of it leaving the cluster wedges it here for good, and the only way to "+
+			"lift the backup and restore refusals it holds is then a restart with "+
+			"RUNTIME_REINDEX_ENABLED=false."))
 }
 
 // reindexCancelUnattributablePastCancellationPoint answers the cancel for a
@@ -1864,9 +1873,10 @@ func reindexCancelPastCancellationPoint(principal *models.Principal) middleware.
 func reindexCancelUnattributablePastCancellationPoint(principal *models.Principal) middleware.Responder {
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
 		"cancel refused: a runtime-reindex task this server cannot read is committing its "+
-			"result. It names no collection, so no index status reports it, and it can no "+
-			"longer be cancelled; it clears when the commit finishes. Report this to Weaviate "+
-			"if backups stay refused after that."))
+			"result. It names no collection, so no index status reports it, and cancel only "+
+			"works while a task is STARTED; if the backup and restore refusals it holds do not "+
+			"clear on their own, a restart with RUNTIME_REINDEX_ENABLED=false is the only way "+
+			"to lift them. Report it to Weaviate either way."))
 }
 
 // answerCancelThatRacedTheCommit answers the cancel that DTM refused because
