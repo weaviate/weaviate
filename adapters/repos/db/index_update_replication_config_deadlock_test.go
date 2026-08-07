@@ -110,6 +110,50 @@ func (g gateAllocChecker) CheckMappingAndReserve(int64, int) error {
 
 func (g gateAllocChecker) Refresh(bool) {}
 
+const (
+	deadlockSyncTimeout = 10 * time.Second
+	deadlockTimeout     = 15 * time.Second
+)
+
+// startGatedLoad parks lazy's Load inside its critical section (shard mutex held, before its config reads) and returns the gate plus Load's done channel.
+func startGatedLoad(t *testing.T, ctx context.Context, lazy *LazyLoadShard) (gateAllocChecker, chan error) {
+	t.Helper()
+	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
+	lazy.memMonitor = gate
+
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- lazy.Load(ctx) }()
+
+	select {
+	case <-gate.entered:
+	case <-time.After(deadlockSyncTimeout):
+		t.Fatal("Load never reached the gate inside its critical section — the fixture no longer exercises the interleaving")
+	}
+	return gate, loadDone
+}
+
+// requireBothComplete fails with filtered goroutine stacks when either channel stays blocked past the deadlock timeout.
+func requireBothComplete(t *testing.T, what string, loadDone, opDone chan error) {
+	t.Helper()
+	loadOK, opOK := false, false
+	timeout := time.After(deadlockTimeout)
+	for !loadOK || !opOK {
+		select {
+		case err := <-loadDone:
+			require.NoError(t, err)
+			loadOK = true
+		case err := <-opDone:
+			require.NoError(t, err)
+			opOK = true
+		case <-timeout:
+			buf := make([]byte, 1<<22)
+			stacks := string(buf[:runtime.Stack(buf, true)])
+			t.Fatalf("deadlock: %s and LazyLoadShard.Load wedged for %s (load done: %v, op done: %v).\n\ninvolved goroutines:\n\n%s",
+				what, deadlockTimeout, loadOK, opOK, deadlockStacks(stacks))
+		}
+	}
+}
+
 // Pins the ABBA deadlock that wedged the RAFT FSM in prod (the UpdateClass
 // apply never returns, so raft.Shutdown hangs on runFSM):
 //
@@ -122,26 +166,12 @@ func (g gateAllocChecker) Refresh(bool) {}
 // config read collide with the fan-out. Every sync point fails the test loudly
 // if it is not reached, so the test cannot pass without exercising the cycle.
 func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
-	const (
-		syncTimeout     = 10 * time.Second
-		deadlockTimeout = 15 * time.Second
-	)
 	ctx := context.Background()
 
 	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigDeadlock")
 	lazy := soleColdShard(t, index)
 
-	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
-	lazy.memMonitor = gate
-
-	loadDone := make(chan error, 1)
-	go func() { loadDone <- lazy.Load(ctx) }()
-
-	select {
-	case <-gate.entered:
-	case <-time.After(syncTimeout):
-		t.Fatal("Load never reached the gate inside its critical section — the fixture no longer exercises the interleaving")
-	}
+	gate, loadDone := startGatedLoad(t, ctx, lazy)
 
 	// Queue the updater behind a test-held read lock so its write-lock request
 	// is observably pending before Load is released.
@@ -155,7 +185,7 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 	}()
 
 	writerQueued := false
-	for deadline := time.Now().Add(syncTimeout); time.Now().Before(deadline); {
+	for deadline := time.Now().Add(deadlockSyncTimeout); time.Now().Before(deadline); {
 		if !index.replicationConfigLock.TryRLock() {
 			writerQueued = true // a pending writer blocks new readers
 			break
@@ -170,48 +200,18 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 	index.replicationConfigLock.RUnlock() // writer acquires the lock now
 	close(gate.release)                   // Load proceeds into its config read
 
-	loadOK, updateOK := false, false
-	timeout := time.After(deadlockTimeout)
-	for !loadOK || !updateOK {
-		select {
-		case err := <-loadDone:
-			require.NoError(t, err)
-			loadOK = true
-		case err := <-updateDone:
-			require.NoError(t, err)
-			updateOK = true
-		case <-timeout:
-			buf := make([]byte, 1<<22)
-			stacks := string(buf[:runtime.Stack(buf, true)])
-			t.Fatalf("deadlock: updateReplicationConfig and LazyLoadShard.Load wedged for %s (load done: %v, update done: %v).\n\ninvolved goroutines:\n\n%s",
-				deadlockTimeout, loadOK, updateOK, deadlockStacks(stacks))
-		}
-	}
+	requireBothComplete(t, "updateReplicationConfig", loadDone, updateDone)
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
 // TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad pins the updater deadlock's sibling: reconcile must not hold replicationConfigLock across the fan-out, whose isLoaded() blocks on a mid-load shard's mutex.
 func TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad(t *testing.T) {
-	const (
-		syncTimeout     = 10 * time.Second
-		deadlockTimeout = 15 * time.Second
-	)
 	ctx := context.Background()
 
 	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigReconcileDeadlock")
 	lazy := soleColdShard(t, index)
 
-	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
-	lazy.memMonitor = gate
-
-	loadDone := make(chan error, 1)
-	go func() { loadDone <- lazy.Load(ctx) }()
-
-	select {
-	case <-gate.entered:
-	case <-time.After(syncTimeout):
-		t.Fatal("Load never reached the gate inside its critical section — the fixture no longer exercises the interleaving")
-	}
+	gate, loadDone := startGatedLoad(t, ctx, lazy)
 
 	reconcileDone := make(chan error, 1)
 	go func() { reconcileDone <- index.reconcileAsyncReplication(ctx) }()
@@ -225,23 +225,7 @@ func TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad(t *testing.T) 
 
 	close(gate.release) // Load proceeds into its config read
 
-	loadOK, reconcileOK := false, false
-	timeout := time.After(deadlockTimeout)
-	for !loadOK || !reconcileOK {
-		select {
-		case err := <-loadDone:
-			require.NoError(t, err)
-			loadOK = true
-		case err := <-reconcileDone:
-			require.NoError(t, err)
-			reconcileOK = true
-		case <-timeout:
-			buf := make([]byte, 1<<22)
-			stacks := string(buf[:runtime.Stack(buf, true)])
-			t.Fatalf("deadlock: reconcileAsyncReplication and LazyLoadShard.Load wedged for %s (load done: %v, reconcile done: %v).\n\ninvolved goroutines:\n\n%s",
-				deadlockTimeout, loadOK, reconcileOK, deadlockStacks(stacks))
-		}
-	}
+	requireBothComplete(t, "reconcileAsyncReplication", loadDone, reconcileDone)
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
@@ -333,7 +317,7 @@ func TestStaleFanOutCannotClobberNewerConfig(t *testing.T) {
 	go func() { reconcileDone <- index.reconcileAsyncReplication(ctx) }()
 	select {
 	case <-probe.entered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(deadlockSyncTimeout):
 		t.Fatal("the reconcile fan-out never reached the probe shard")
 	}
 

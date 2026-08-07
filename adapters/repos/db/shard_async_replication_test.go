@@ -2054,6 +2054,26 @@ func TestHaltForTransferOffloadDoesNotPersistHashtree(t *testing.T) {
 }
 
 // TestLoadHashtreeRejectsCorruptNewestFile: a corrupt newest .ht rescans, never loading an older one.
+// plantableSnapshot enables async replication, serializes the live tree, disables again, and returns the payload, its height, and the recreated snapshot dir.
+func plantableSnapshot(t *testing.T, ctx context.Context, s *Shard) (payload []byte, height int, dir string) {
+	t.Helper()
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+
+	s.asyncReplicationRWMux.RLock()
+	var buf bytes.Buffer
+	_, serErr := s.hashtree.Serialize(&buf)
+	height = s.hashtree.Height()
+	s.asyncReplicationRWMux.RUnlock()
+	require.NoError(t, serErr)
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	dir = s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	return buf.Bytes(), height, dir
+}
+
 func TestLoadHashtreeRejectsCorruptNewestFile(t *testing.T) {
 	ctx := context.Background()
 	const class = "LoadHashtreeRejectsCorruptTest"
@@ -2062,25 +2082,11 @@ func TestLoadHashtreeRejectsCorruptNewestFile(t *testing.T) {
 	s := concreteShard(t, sl)
 	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
 
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-
-	s.asyncReplicationRWMux.RLock()
-	var validPayload bytes.Buffer
-	_, serErr := s.hashtree.Serialize(&validPayload)
-	height := s.hashtree.Height()
-	s.asyncReplicationRWMux.RUnlock()
-	require.NoError(t, serErr)
-
-	require.NoError(t, s.disableAsyncReplication(ctx))
-
-	dir := s.pathHashTree()
-	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	validPayload, height, dir := plantableSnapshot(t, ctx, s)
 	// Larger hex suffix (nanosecond timestamp) is the newest load candidate.
 	olderValid := filepath.Join(dir, "hashtree-0000000000000001.ht")
 	newerCorrupt := filepath.Join(dir, "hashtree-00000000000000ff.ht")
-	require.NoError(t, os.WriteFile(olderValid, validPayload.Bytes(), 0o600))
+	require.NoError(t, os.WriteFile(olderValid, validPayload, 0o600))
 	require.NoError(t, os.WriteFile(newerCorrupt, []byte("not a valid hashtree payload"), 0o600))
 
 	loaded, err := s.tryLoadHashtreeFromDisk(height)
@@ -2133,24 +2139,11 @@ func TestLoadHashtreeQuarantinesUndeletableStaleSnapshot(t *testing.T) {
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "LoadHashtreeQuarantineTest")
 
-	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-	awaitHashtreeInitialized(t, s)
-
-	s.asyncReplicationRWMux.RLock()
-	var validPayload bytes.Buffer
-	_, serErr := s.hashtree.Serialize(&validPayload)
-	height := s.hashtree.Height()
-	s.asyncReplicationRWMux.RUnlock()
-	require.NoError(t, serErr)
-
-	require.NoError(t, s.disableAsyncReplication(ctx))
-
-	dir := s.pathHashTree()
-	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	validPayload, height, dir := plantableSnapshot(t, ctx, s)
 	stale := filepath.Join(dir, "hashtree-0000000000000001.ht")
 	newest := filepath.Join(dir, "hashtree-00000000000000ff.ht")
 	require.NoError(t, os.WriteFile(stale, []byte("junk"), 0o600))
-	require.NoError(t, os.WriteFile(newest, validPayload.Bytes(), 0o600))
+	require.NoError(t, os.WriteFile(newest, validPayload, 0o600))
 
 	prev := removeHashtreeFile
 	removeHashtreeFile = func(name string) error {
@@ -2200,24 +2193,11 @@ func TestLoadHashtreeIgnoresQuarantinedFiles(t *testing.T) {
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "LoadHashtreeIgnoresQuarantineTest")
 
-	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-	awaitHashtreeInitialized(t, s)
-
-	s.asyncReplicationRWMux.RLock()
-	var validPayload bytes.Buffer
-	_, serErr := s.hashtree.Serialize(&validPayload)
-	height := s.hashtree.Height()
-	s.asyncReplicationRWMux.RUnlock()
-	require.NoError(t, serErr)
-
-	require.NoError(t, s.disableAsyncReplication(ctx))
-
-	dir := s.pathHashTree()
-	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	validPayload, height, dir := plantableSnapshot(t, ctx, s)
 	quarantined := filepath.Join(dir, "hashtree-0000000000000001.ht"+hashtreeQuarantineSuffix)
 	newest := filepath.Join(dir, "hashtree-00000000000000ff.ht")
 	require.NoError(t, os.WriteFile(quarantined, []byte("junk"), 0o600))
-	require.NoError(t, os.WriteFile(newest, validPayload.Bytes(), 0o600))
+	require.NoError(t, os.WriteFile(newest, validPayload, 0o600))
 
 	loaded, err := s.tryLoadHashtreeFromDisk(height)
 	require.NoError(t, err)
