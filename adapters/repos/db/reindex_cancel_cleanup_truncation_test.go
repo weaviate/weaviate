@@ -27,7 +27,7 @@ import (
 // ForEachShard is documented as safe on an index that is dropping or shutting
 // down, and about ten test builders in this package construct an Index with no
 // closeRequestedCtx at all. Asking such an index why it is closing has to
-// answer, and [errIndexClosed] is the answer that leaves the shards accounted
+// answer, and errIndexClosed is the answer that leaves the shards accounted
 // for.
 func TestCloseCauseAnswersAnIndexBuiltWithoutOne(t *testing.T) {
 	tests := []struct {

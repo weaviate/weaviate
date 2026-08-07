@@ -58,7 +58,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 	}
 
 	// Before the backend, because the backend has nothing to say about the
-	// failure this remembers.
+	// failure remembered here.
 	if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
 		return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
 	}
