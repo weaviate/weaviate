@@ -912,11 +912,20 @@ func TestResolveBaseBackupChain(t *testing.T) {
 	}
 }
 
-// runParticipantBackup wires the participant mocks, drives a backup to
-// completion, and returns the handler alongside the stored meta. metaWriteErr
-// fails the descriptor write. Duration is an hour so the pre-commit window
-// can't expire under CI load.
+// runParticipantBackup drives a participant backup whose descriptor write
+// succeeds.
 func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
+	classes []string, sourcePath string, descs ...backup.ClassDescriptor,
+) (*Handler, backup.Status, string) {
+	t.Helper()
+	return runParticipantBackupFailingMetaWrite(t, sourcer, backend, classes, sourcePath, nil, descs...)
+}
+
+// runParticipantBackupFailingMetaWrite wires the participant mocks, drives a
+// backup to completion, and returns the handler alongside the stored meta.
+// metaWriteErr fails the descriptor write. Duration is an hour so the
+// pre-commit window can't expire under CI load.
+func runParticipantBackupFailingMetaWrite(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
 	classes []string, sourcePath string, metaWriteErr error, descs ...backup.ClassDescriptor,
 ) (*Handler, backup.Status, string) {
 	t.Helper()
@@ -986,7 +995,7 @@ func TestRememberedFailureSurvivesTheProductionSlotRelease(t *testing.T) {
 	backend.On("GetObject", context.Background(), "1", BackupFile).Return(nil, errNotFound)
 
 	sourcePath := t.TempDir()
-	m, _, _ := runParticipantBackup(t, sourcer, backend, []string{cls}, sourcePath,
+	m, _, _ := runParticipantBackupFailingMetaWrite(t, sourcer, backend, []string{cls}, sourcePath,
 		errors.New("object storage unreachable"), genClassDescriptions(t, sourcePath, cls)...)
 
 	require.True(t, m.backupper.waitForSlotRelease(50, 100),
@@ -1040,7 +1049,7 @@ func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
 			}
 
 			_, status, errMsg := runParticipantBackup(t, sourcer, newFakeBackend(),
-				[]string{cls, cls2}, sourcePath, nil, genClassDescriptions(t, sourcePath, cls, cls2)...)
+				[]string{cls, cls2}, sourcePath, genClassDescriptions(t, sourcePath, cls, cls2)...)
 			require.Equal(t, tc.wantStatus, status)
 			if tc.wantErrPart == "" {
 				require.Empty(t, errMsg)
@@ -1075,7 +1084,7 @@ func TestBackupFailureMetaOmitsTheShardThatRefused(t *testing.T) {
 		cls, shard, refusal)
 
 	_, _, errMsg := runParticipantBackup(t, &fakeSourcer{}, newFakeBackend(), []string{cls}, t.TempDir(),
-		nil, backup.ClassDescriptor{Name: cls, Error: wrapped})
+		backup.ClassDescriptor{Name: cls, Error: wrapped})
 
 	// OnStatus keys the participant's failure off meta.Error, not meta.Status:
 	// the per-shard path leaves Status at TRANSFERRING, unlike the commit-time
