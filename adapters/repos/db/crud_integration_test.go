@@ -2634,8 +2634,7 @@ func TestOverwriteObjects(t *testing.T) {
 		}
 
 		_, err = idx.OverwriteObjects(context.Background(), shd, input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found locally")
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
 		assert.Nil(t, idx.shards.Load(shd), "shard must not be reloaded by OverwriteObjects")
 	})
 }
