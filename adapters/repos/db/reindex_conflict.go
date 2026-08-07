@@ -207,8 +207,10 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	}
 }
 
-// reindexGateRemedy is the closing sentence every schema gate below ends
-// with, in one place so the three refusals cannot drift apart.
+// ReindexGateRemedy is the closing sentence every reindex schema gate ends
+// with, in one place so the refusals cannot drift apart. Exported because the
+// REST property-mutation pre-check answers the same question one hop before
+// the RAFT apply path reaches the gates below, and the two must agree.
 //
 // Status-aware because cancel is not always on offer: DTM only cancels a
 // task while it is STARTED, and the cancel endpoint answers 409 past that
@@ -218,7 +220,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // Past STARTED there is nothing better to offer than waiting, and even that
 // is not promised: a node that owned part of the task leaving the cluster
 // wedges it there for good.
-func reindexGateRemedy(status distributedtask.TaskStatus) string {
+func ReindexGateRemedy(status distributedtask.TaskStatus) string {
 	if status == distributedtask.TaskStatusStarted {
 		return `cancel it via PUT /v1/schema/<class>/indexes/<prop> ` +
 			`{"<indexType>":{"cancel":true}}, or wait for it to finish`
@@ -296,7 +298,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"reindex reaches a terminal state — %s",
 			task.ID, existP.MigrationType,
 			existP.Collection, propertyName, task.Status,
-			reindexGateRemedy(task.Status))
+			ReindexGateRemedy(task.Status))
 	}
 	return nil
 }
@@ -348,7 +350,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 				"working state and produce a bucket↔schema inversion "+
 				"on every replica — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
-			reindexGateRemedy(task.Status))
+			ReindexGateRemedy(task.Status))
 	}
 	return nil
 }
@@ -401,7 +403,7 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 				"mutating tenants %v would make their shards locally "+
 				"unavailable and produce a bucket↔schema inversion — %s",
 			task.ID, existP.MigrationType, existP.Collection,
-			task.Status, tenants, reindexGateRemedy(task.Status))
+			task.Status, tenants, ReindexGateRemedy(task.Status))
 	}
 	return nil
 }
