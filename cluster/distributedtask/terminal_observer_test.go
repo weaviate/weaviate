@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 				NodeId:               n,
 				UnitId:               "u-" + n,
 				FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})))
+			}), false))
 		}
 	}
 
@@ -71,7 +72,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 					UnitId:               "u-node-1",
 					Error:                "synthetic unit failure",
 					FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 		},
 		{
@@ -87,7 +88,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 					Success:           false,
 					Error:             "synthetic swap failure",
 					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 		},
 		{
@@ -103,7 +104,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 					Success:           false,
 					Error:             "synthetic prep failure",
 					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 		},
 		{
@@ -117,7 +118,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 					Version:            version,
 					Error:              "synthetic cutover failure",
 					FailedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 		},
 	}
@@ -151,24 +152,20 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 	}
 }
 
-// The staleness bound is measured against when the failure happened, and on the
-// paths below that is not task.FinishedAt — that field deliberately stays at the
-// moment the units stopped. A phase outlasting the bound would otherwise look
-// like a replayed RAFT entry and be dropped, silently reopening the window this
-// dispatch exists to close.
-//
-// One case per apply that dispatches with a timestamp of its own. Each stages a
-// task whose units stopped long enough ago to be stale, then fails it now: an
-// apply reading task.FinishedAt instead drops the dispatch here.
-func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testing.T) {
+// The companion to TestTerminalDispatchIgnoresProposerClockSkew, one case per
+// apply that can fail a task. Each stages a task whose units stopped long ago,
+// so task.FinishedAt is far in the past by the time the failure lands: a
+// dispatch that judges by any timestamp drops these, silently reopening the
+// window it exists to close.
+func TestFailedApplyDispatchIgnoresHowOldTheTaskLooks(t *testing.T) {
 	const (
 		ns      = "ns"
 		taskID  = "task1"
 		version = uint64(10)
 	)
 
-	// Well past terminalObserverStaleAfter, and a literal so that widening the
-	// constant does not quietly turn these cases green.
+	// Comfortably past any bound an age-based implementation would plausibly
+	// pick, and a literal so it cannot follow one.
 	const unitsStoppedAgo = 2 * time.Minute
 
 	tests := []struct {
@@ -191,7 +188,7 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 					NodeId:               "node-1",
 					UnitId:               "u-node-1",
 					FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 			fail: func(t *testing.T, h *testHarness) {
 				require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
@@ -202,7 +199,7 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 					Success:           false,
 					Error:             "synthetic swap failure",
 					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 		},
 		{
@@ -220,7 +217,7 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 					Success:           false,
 					Error:             "synthetic prep failure",
 					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 		},
 		{
@@ -235,7 +232,7 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 					NodeId:               "node-1",
 					UnitId:               "u-node-1",
 					FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 			fail: func(t *testing.T, h *testHarness) {
 				require.NoError(t, h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
@@ -244,7 +241,7 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 					Version:            version,
 					Error:              "synthetic cutover failure",
 					FailedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			},
 		},
 	}
@@ -279,9 +276,80 @@ func TestFailedApplyMeasuresStalenessFromTheFailureNotTheUnitsStopping(t *testin
 
 			require.Eventually(t, func() bool { return rec.count() == 1 },
 				5*time.Second, 5*time.Millisecond,
-				"the failure was aged against task.FinishedAt rather than its own "+
-					"timestamp, so a phase slower than the staleness bound was read "+
-					"as a replayed RAFT entry and its terminal dispatch dropped")
+				"the dispatch was decided by how old the task looks, so a phase "+
+					"slower than that bound was read as a replayed RAFT entry and "+
+					"its terminal dispatch dropped")
+		})
+	}
+}
+
+// wakeCounter stands in for the Scheduler as the Manager's notifier. Wake runs
+// under the Manager's write lock, so counting has to be safe from there.
+type wakeCounter struct{ n atomic.Int64 }
+
+func (w *wakeCounter) Wake() { w.n.Add(1) }
+
+// Every timestamp on a terminal apply is stamped by the PROPOSING node, so the
+// dispatch decision must not read one. It used to: a node whose clock ran a
+// minute ahead of the proposer's read every live ending as replayed and skipped
+// the observer, which drops the blocking cleanup gate — the exact window the
+// observer exists to close. Only the FSM's own replay flag may suppress a
+// dispatch, and that flag is local to this node.
+//
+// The skews are literals rather than a bound plus something: derived from a
+// constant they would follow it, and following it is the defect.
+func TestTerminalDispatchIgnoresProposerClockSkew(t *testing.T) {
+	tests := []struct {
+		name string
+		// proposerSkew is how far the proposing node's clock sits from this
+		// node's: negative means the stamps arrive looking old.
+		proposerSkew time.Duration
+		catchingUp   bool
+		wantDispatch bool
+	}{
+		{name: "clocks in step", wantDispatch: true},
+		{name: "proposer 90s behind", proposerSkew: -90 * time.Second, wantDispatch: true},
+		{name: "proposer 90s ahead", proposerSkew: 90 * time.Second, wantDispatch: true},
+		{name: "replayed from the RAFT log", catchingUp: true},
+		{name: "replayed, proposer 90s behind", proposerSkew: -90 * time.Second, catchingUp: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			defer h.manager.Close()
+
+			var woke wakeCounter
+			h.manager.SetSchedulerNotifier(&woke)
+
+			var rec observerRecorder
+			h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+
+			require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+			require.NoError(t, h.manager.CancelTask(
+				observerCancelCmd(t, h, -tc.proposerSkew), tc.catchingUp))
+
+			if tc.wantDispatch {
+				require.Eventually(t, func() bool { return rec.count() == 1 },
+					5*time.Second, 5*time.Millisecond,
+					"a live ending must reach the observer whatever the proposer's clock says; "+
+						"skipping it leaves the window between the apply and the teardown ungated")
+			} else {
+				require.Never(t, func() bool { return rec.count() > 0 },
+					200*time.Millisecond, 5*time.Millisecond,
+					"an ending the FSM flagged as replayed must not reach the observer")
+			}
+
+			// Skipping the dispatch may only cost the side effect. The state the
+			// scheduler converges from, and the wake-up that makes it look, are
+			// what bound the degradation to one tick.
+			tasks, err := h.manager.ListDistributedTasks(context.Background())
+			require.NoError(t, err)
+			require.Len(t, tasks[observerNamespace], 1)
+			require.Equal(t, TaskStatusCancelled, tasks[observerNamespace][0].Status,
+				"the cancel must land in FSM state whether or not the observer ran")
+			require.Positive(t, woke.n.Load(),
+				"the scheduler must still be woken, or a skipped dispatch would wait for the next tick")
 		})
 	}
 }
