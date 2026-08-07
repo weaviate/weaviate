@@ -13,6 +13,8 @@ package distributedtask
 
 import (
 	"context"
+	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -20,7 +22,6 @@ import (
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 // Structural invariant tests for the DTM package.
@@ -243,6 +244,43 @@ func structuralInvariantSeedTask(
 	}
 }
 
+// TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter enforces the
+// "only way" half of [Task.markTerminal]: the FinishedAt-iff-terminal
+// invariant holds by construction only while no other line in the package
+// assigns a terminal status or stamps the task's FinishedAt directly.
+//
+// A source scan rather than a type-system guard because Go has no way to
+// make a field writable from one method only within its own package.
+func TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter(t *testing.T) {
+	forbidden := []*regexp.Regexp{
+		regexp.MustCompile(`\.Status\s*=\s*TaskStatus(Finished|Failed|Cancelled)\b`),
+		regexp.MustCompile(`task\.FinishedAt\s*=`),
+	}
+
+	entries, err := os.ReadDir(".")
+	require.NoError(t, err)
+
+	scanned := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		require.NoError(t, err)
+		scanned++
+		for i, line := range strings.Split(string(src), "\n") {
+			for _, re := range forbidden {
+				require.NotRegexp(t, re, line,
+					"%s:%d assigns a terminal status or FinishedAt outside Task.markTerminal, "+
+						"which is what keeps FinishedAt.IsZero() ⟺ !Status.IsTerminal() true by construction",
+					name, i+1)
+			}
+		}
+	}
+	require.Greater(t, scanned, 1, "sanity: the scan must have read the package sources")
+}
+
 // TestStructuralInvariant_FinishedAtIffTerminal pins the lifecycle invariant
 // the FinishedAt semantics rest on, checked after every single apply rather
 // than only at the end of a path:
@@ -252,12 +290,16 @@ func structuralInvariantSeedTask(
 // Every consumer (TTL sweep, cleanup guard, backup overlap backstop, display
 // sort, the /v1/tasks response) reads the field naively and is correct only
 // while this holds. weaviate/0-weaviate-issues#501.
+//
+// The last two paths carry an out-of-phase ack — a barrier ack landing
+// against a task that is not in that barrier's phase, which RAFT redelivery
+// and multi-node barriers produce routinely. That a duplicate terminal apply
+// does not move the stamp is pinned separately, by
+// TestManager_FinishedAt_NotRestampedByASecondTerminalApply.
 func TestStructuralInvariant_FinishedAtIffTerminal(t *testing.T) {
-	const (
-		ns      = "ns"
-		taskID  = "task1"
-		version = uint64(10)
-	)
+	const ns = finishedAtNS
+
+	ref := finishedAtRef()
 
 	type step struct {
 		name  string
@@ -265,56 +307,50 @@ func TestStructuralInvariant_FinishedAtIffTerminal(t *testing.T) {
 	}
 
 	plain := step{"add", func(t *testing.T, h *testHarness) {
-		addTaskWithUnits(t, h, ns, taskID, version, []string{"u"})
+		addTaskWithUnits(t, h, ns, ref.id, ref.version, []string{"u"})
 	}}
 	barrier := step{"add barrier task", func(t *testing.T, h *testHarness) {
-		addBarrierTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
+		addBarrierTaskWithUnits(t, h, ns, ref.id, ref.version, []string{"u-node-1"})
 	}}
 	claim := step{"claim unit", func(t *testing.T, h *testHarness) {
-		updateProgress(t, h, ns, taskID, version, "node-1", "u", 0.1)
+		updateProgress(t, h, ns, ref.id, ref.version, "node-1", "u", 0.1)
 	}}
 	finishUnit := step{"finish unit", func(t *testing.T, h *testHarness) {
-		completeUnit(t, h, ns, taskID, version, "node-1", "u")
+		completeUnit(t, h, ns, ref.id, ref.version, "node-1", "u")
 	}}
 	prepAck := func(success bool) step {
 		return step{"prep ack", func(t *testing.T, h *testHarness) {
-			require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-				Namespace: ns, Id: taskID, Version: version, NodeId: "node-1",
-				Success: success, AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-			}), false))
+			require.NoError(t, ref.prepAck(t, h, "node-1", success, h.clock.Now()))
 		}}
 	}
 	swapAck := func(success bool) step {
 		return step{"swap ack", func(t *testing.T, h *testHarness) {
-			require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-				Namespace: ns, Id: taskID, Version: version, NodeId: "node-1",
-				Success: success, AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-			}), false))
+			require.NoError(t, ref.swapAck(t, h, "node-1", success, h.clock.Now()))
 		}}
 	}
+	// An ack from a node whose barrier phase the task is not in. The FSM
+	// records it for forensics and leaves the status alone; stamping here
+	// would end a task that is still running.
+	outOfPhaseSwapAck := step{"out-of-phase failing swap ack", func(t *testing.T, h *testHarness) {
+		require.NoError(t, ref.swapAck(t, h, "node-2", false, h.clock.Now()))
+	}}
+	outOfPhasePrepAck := step{"out-of-phase failing prep ack", func(t *testing.T, h *testHarness) {
+		require.NoError(t, ref.prepAck(t, h, "node-2", false, h.clock.Now()))
+	}}
 	finalize := step{"finalize", func(t *testing.T, h *testHarness) {
-		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
-			Namespace: ns, Id: taskID, Version: version,
-			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		require.NoError(t, ref.finalize(t, h, h.clock.Now()))
 	}}
 	markFailed := step{"mark failed", func(t *testing.T, h *testHarness) {
-		require.NoError(t, h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
-			Namespace: ns, Id: taskID, Version: version, Error: "synthetic",
-			FailedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), false))
+		require.NoError(t, ref.markFailed(t, h, h.clock.Now()))
 	}}
 	failUnitStep := step{"fail unit", func(t *testing.T, h *testHarness) {
-		failUnit(t, h, ns, taskID, version, "node-1", "u", "synthetic")
+		require.NoError(t, ref.failUnitAt(t, h, "node-1", "u", h.clock.Now()))
 	}}
 	cancel := step{"cancel", func(t *testing.T, h *testHarness) {
-		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-			Namespace: ns, Id: taskID, Version: version,
-			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), false))
+		require.NoError(t, ref.cancel(t, h, h.clock.Now()))
 	}}
 	driveBarrierUnits := step{"finish barrier units", func(t *testing.T, h *testHarness) {
-		drivePreparing(t, h, ns, taskID, version, []string{"node-1"})
+		drivePreparing(t, h, ns, ref.id, ref.version, []string{"node-1"})
 	}}
 
 	paths := [][]step{
@@ -325,6 +361,8 @@ func TestStructuralInvariant_FinishedAtIffTerminal(t *testing.T) {
 		{plain, claim, cancel},
 		{barrier, driveBarrierUnits, prepAck(false)},
 		{barrier, driveBarrierUnits, prepAck(true), swapAck(true), finalize},
+		{plain, claim, outOfPhaseSwapAck, cancel},
+		{plain, claim, outOfPhasePrepAck, cancel},
 	}
 
 	for _, path := range paths {
