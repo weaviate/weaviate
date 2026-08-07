@@ -59,10 +59,10 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 
 	// The slot is released as soon as the operation returns, so a poll only a
 	// moment later lands here. Answer a remembered failure before consulting
-	// the backend: when writing the descriptor is what failed, the backend has
-	// nothing to say and the poll would get "metadata file not found", which
-	// the coordinator does not classify as a failure at all.
-	if reason, ok := b.lastOp.failureReason(req.ID); ok {
+	// the backend: when writing the descriptor is what failed, the backend
+	// answers "metadata file not found", and that text is what the coordinator
+	// latches and publishes as the reason the backup failed.
+	if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
 		return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
 	}
 

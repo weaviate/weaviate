@@ -35,7 +35,7 @@ type reqState struct {
 	// Err is why the operation ended, for the statuses that need one. The
 	// descriptor on the backend carries the same text, but only once it is
 	// written; a poll landing before that reads this slot instead, and one
-	// landing after the slot is released reads [backupStat.failureReason].
+	// landing after the slot is released reads [backupStat.rememberedFailure].
 	Err            string
 	Path           string
 	OverrideBucket string
@@ -46,11 +46,11 @@ type backupStat struct {
 	sync.Mutex
 	reqState
 
-	// failedID and failedReason outlive the slot itself. The slot is released
-	// as soon as the operation returns, and a status poll arriving after that
-	// is answered from the descriptor on the backend — which does not exist
-	// when writing it is what failed. Keeping the last failure here is the
-	// only way that reason still reaches the coordinator.
+	// failedID and failedReason outlive the slot itself, for the one failure
+	// that leaves nothing else to read: the slot is released as soon as the
+	// operation returns, and a later poll is answered from the descriptor on
+	// the backend, which does not exist when writing it is what failed. The
+	// restore side answers the same question from restorer.restoreStatusMap.
 	failedID     string
 	failedReason string
 }
@@ -143,20 +143,24 @@ func (s *backupStat) setFailed(reason string) {
 	}
 	s.reqState.Status = backup.Failed
 	s.reqState.Err = reason
+	if reason == "" {
+		return
+	}
 	s.failedID = s.reqState.ID
 	s.failedReason = reason
 }
 
-// failureReason reports why the operation with this id ended failed, for polls
-// arriving after the slot was released. Absent for anything that did not end
-// failed with a reason.
-func (s *backupStat) failureReason(id string) (string, bool) {
+// rememberedFailure reports why the operation with this id ended failed, for
+// polls arriving after the slot was released. Absent for anything that did not
+// end failed with a reason. The id has to match: a poll for one backup must
+// never be answered with what happened to another.
+func (s *backupStat) rememberedFailure(id string) (string, bool) {
 	s.Lock()
 	defer s.Unlock()
-	if s.failedID == "" || s.failedID != id {
+	if id == "" || s.failedID != id {
 		return "", false
 	}
-	return s.failedReason, s.failedReason != ""
+	return s.failedReason, true
 }
 
 func (s *backupStat) set(st backup.Status) {
