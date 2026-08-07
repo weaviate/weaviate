@@ -22,12 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAnyLiveReindexForShard_RuntimeReindexDisabled pins the backup half
-// of the kill switch: with the feature off the gate consults nothing, so
-// a backup runs exactly as it would on a build without the gate.
-//
-// The lookup reports every shard as reindexing, so a gate that still ran
-// would both refuse and bump the counter.
+// Pins: with RUNTIME_REINDEX_ENABLED off, the backup gate must consult
+// nothing (the stub lookup reports every shard as reindexing, so a gate
+// that still ran would refuse and bump the counter).
 func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -55,15 +52,9 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 	}
 }
 
-// RUNTIME_REINDEX_ENABLED=false must take the restore path back to the behavior
-// it had before the gate existed: no gate, and no leader query to answer it.
-//
-// Both of the gate's inputs are installed in every case, because the gate has
-// two of them: the node-local cleanup probe runs first and can refuse on its
-// own, so a kill switch that only covers the cluster-wide lookup still refuses
-// restores with the feature off. The disabled row therefore also pins WHERE the
-// flag check sits — above the cleanup lookup, not merely somewhere in the
-// function.
+// Pins: with the flag off, the restore path must consult neither of the
+// gate's two inputs (cluster-wide lookup AND node-local cleanup probe) — both
+// are installed in every case so a kill switch covering only one still fails.
 func TestRefuseIfAnyReindexInFlight_RuntimeReindexDisabled(t *testing.T) {
 	tests := []struct {
 		name     string

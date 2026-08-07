@@ -247,16 +247,13 @@ type Config struct {
 
 	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
 	// off by default. With it off, new reindex submissions are refused and
-	// neither the backup nor the restore path performs any reindex check,
-	// including the backup's commit-time overlap check.
+	// neither the backup nor restore path performs any reindex check
+	// (including the commit-time overlap check).
 	//
-	// Off stops new submissions and the gates; it does not stop live work, so
-	// "no new task can start" is not "no task is running". A reindex is still
-	// live with the flag off if it was running when the flag was turned off,
-	// if the node BOOTED with the flag off and resumed a STARTED task from DTM
-	// (the flag gates submission, not recovery), or while a cancel tears down —
-	// cancel stays allowed so a running task can be stopped. With the checks
-	// off a backup can span any of the three.
+	// "No new task can start" is not "no task is running": a reindex already
+	// running, resumed from DTM on boot, or still tearing down after a
+	// cancel is unaffected by the flag, so a backup can span any of those
+	// with the checks off.
 	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ

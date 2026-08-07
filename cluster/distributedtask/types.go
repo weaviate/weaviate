@@ -41,27 +41,19 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// TerminalObserver is called on every node shortly after a task goes terminal —
-// CANCELLED or FAILED — usually before the scheduler has looked at it. Register
-// via [Manager.RegisterTerminalObserver].
+// TerminalObserver is called on every node shortly after a task goes terminal
+// (CANCELLED or FAILED), usually before the scheduler has looked at it.
+// Register via [Manager.RegisterTerminalObserver]. It exists so a namespace
+// can make "this node has seen the task end" observable to peers without
+// waiting for the scheduler tick; see the reindex namespace's OnTerminalApplied.
 //
-// It exists so a namespace can make "this node has seen the task end"
-// observable to peers without waiting for the scheduler tick; the reindex
-// namespace's OnTerminalApplied documents what that buys. Both statuses run the
-// same local teardown, so both need the same window covered: a FAILED task
-// stops reading live the moment the apply lands, while its partial on-disk
-// state survives until the teardown the next scheduler tick starts.
-//
-// Runs on the Manager's drainer goroutine, not on the RAFT-apply path, so it
-// may take locks and do work. It gets a clone of the task and must not mutate
-// RAFT-replicated state. Three guarantees it does NOT have: it may run after
-// the scheduler has already acted on the transition, under queue overflow two
-// events may run concurrently, and past [terminalDispatchOverflowLimit] an event
-// is dropped rather than delivered — see [Manager.dispatchTerminalWithLock].
-//
-// Endings a node replays from its RAFT log at startup are skipped, decided by
-// the FSM's own replay flag rather than by how old the transition looks, so a
-// node whose clock is out of step still gets its live endings.
+// Runs on the Manager's drainer goroutine, not the RAFT-apply path, so it may
+// take locks and do work; it gets a clone of the task and must not mutate
+// RAFT-replicated state. Guarantees it does NOT have: it may run after the
+// scheduler has already acted, two events may run concurrently under queue
+// overflow, and past [terminalDispatchOverflowLimit] an event is dropped
+// rather than delivered — see [Manager.dispatchTerminalWithLock]. Endings
+// replayed from the RAFT log at startup are skipped.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
@@ -445,12 +437,10 @@ func (t TaskStatus) IsTerminal() bool {
 // IsActive is true for non-terminal in-flight states (STARTED, PREPARING,
 // SWAPPING) — used by conflict detection and the schema MutationGuard.
 //
-// It is the exact negation of [TaskStatus.IsTerminal] so a status this
-// build does not recognize — one a newer node introduced during a rolling
-// upgrade — counts as in-flight. Guessing "not active" would admit a
-// second migration onto a property the newer node is still migrating, and
-// would let the TTL sweep evict a live task, whose FinishedAt is either
-// zero or already in the past — see [Task.FinishedAt].
+// The exact negation of [TaskStatus.IsTerminal], so a status this build
+// doesn't recognize (from a rolling upgrade) counts as in-flight rather than
+// admitting a second migration onto a property the newer node is still
+// migrating.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -504,25 +494,18 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time the task's UNITS stopped working — not, despite
-	// what the name suggests, the time it reached a terminal status. It is
-	// stamped when AllUnitsTerminal lands, at which point the status becomes
-	// PREPARING or SWAPPING, and the bucket swap and shard-directory rename
-	// still lie ahead. A task can therefore sit in SWAPPING for minutes with a
-	// FinishedAt already in the past.
+	// FinishedAt is the time the task's UNITS stopped working — despite the
+	// name, NOT the time it reached a terminal status. It is stamped when
+	// AllUnitsTerminal lands, while the status becomes PREPARING or SWAPPING
+	// and the bucket swap/rename still lie ahead, so a task can sit in
+	// SWAPPING for minutes with a FinishedAt already in the past.
 	//
-	// That is wrong and known to be wrong. Two places work around it rather
-	// than rely on it: completed-task TTL cleanup skips every non-terminal
-	// status on both sides — the scheduler's sweep filter and the FSM guard in
-	// [Manager.CleanUpTask] — so a stale FinishedAt cannot delete a task
-	// mid-swap, and the terminal-observer dispatch decides on the FSM's replay
-	// flag instead of reading this field. Two others do rely on it and inherit
-	// the error: the backup overlap backstop is wrong in the narrow case where a
-	// swap runs inside a capture that admission did not see, and the reindex
-	// status handler's finalize window starts ticking when the units stopped
-	// rather than when the swap ended. Tracked separately; not fixed here
-	// because the correct fix is to change what this field means, which
-	// reaches beyond a backup gate.
+	// Known wrong. TTL cleanup and terminal-observer dispatch work around it
+	// (skip non-terminal statuses / use the FSM's replay flag instead). The
+	// backup overlap backstop and the reindex finalize window both still rely
+	// on it and inherit the error in the narrow case of a swap running inside
+	// an unseen capture. Not fixed here — the correct fix changes what this
+	// field means, beyond a backup gate.
 	//
 	// Additionally, it is used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`

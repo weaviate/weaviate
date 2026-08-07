@@ -54,36 +54,19 @@ const reindexRefusalShardSample = 10
 
 // Backupable returns whether all given classes can be backed up. Refuses if any
 // shard has an in-flight runtime-reindex; runs in the coordinator's canCommit
-// phase, so a rejection creates no staging dir.
+// phase, so a rejection creates no staging dir. Failures accumulate rather
+// than short-circuit, so the operator sees the whole blocked list in one
+// canCommit round.
 //
-// Failures accumulate rather than short-circuit: with several classes blocked
-// at once the operator sees the whole list in one canCommit round instead of
-// fixing and retrying one at a time.
-//
-// When a gate refusal is among them, only the gate refusals are returned and
-// the rest go to the log via [DB.logReindexRefusals]. The withheld ones name
-// the local node, and this error becomes an API response body a backup caller
-// has no grant on node names for. "class %v doesn't exist" rides along anyway:
-// it names no node, and the operator who typoed a class name would otherwise
-// wait out the whole migration to hear about it.
-//
-// The joined error still satisfies errors.Is for any wrapped sentinel
-// (e.g. ErrBackupBlockedByInFlightReindex).
+// When a gate refusal is among them, only gate refusals (which name no node
+// or shard, so are safe in an API response) and missing-class errors are
+// returned; everything else goes to the log via [DB.logReindexRefusals] since
+// it names the local node. The joined error still satisfies errors.Is for any
+// wrapped sentinel (e.g. ErrBackupBlockedByInFlightReindex).
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
 	gate := db.newReindexGateSnapshot()
-	// Gate refusals are kept apart from everything else because only they are
-	// composed to name no node and no shard, which is what makes them safe to
-	// serve from an API response. Joining one with an error that does name a
-	// node still satisfies errors.Is for the gate sentinel, so the join reads as
-	// a gate refusal to every caller that classifies it — and carries the node
-	// name into the body behind that classification.
-	//
-	// missingClassErrs are the one thing that rides along with a gate refusal
-	// rather than being withheld: they name no node, and withholding them makes
-	// an operator who typoed a class name in a multi-class backup wait out the
-	// whole migration before the typo is reported.
 	var errs, gateErrs, missingClassErrs []error
 	gateSeen := map[string]struct{}{}
 	blockedShards := map[string][]string{}
@@ -144,11 +127,9 @@ func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]str
 	if db.logger == nil {
 		return
 	}
-	// One line per collection, not per shard, and the shard list is capped:
-	// this pass can cover five-figure shard counts, so an uncapped field just
-	// moves the O(shards) growth out of the body and into a log line. The count
-	// is exact; the names are a sample. Sorted so repeated refusals diff
-	// cleanly.
+	// One line per collection, shard list capped (this pass can cover
+	// five-figure shard counts); count is exact, names are a sample. Sorted
+	// so repeated refusals diff cleanly.
 	collections := make([]string, 0, len(blockedShards))
 	for c := range blockedShards {
 		collections = append(collections, c)

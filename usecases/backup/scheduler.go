@@ -243,16 +243,13 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
-			// The gate answers before existence does, the way authorization
-			// does: a caller who cannot restore right now should be told that,
-			// not sent to fix an id that was never the problem.
+			// The gate answers before existence does: a caller who cannot
+			// restore right now should be told that, not sent to fix an id
+			// that was never the problem.
 			if !explicitInclude {
-				// Only this path has no classes to authorize against, so the
-				// broad grant stands in — the gate's answer is cluster-wide
-				// state and must not reach a principal with no backup
-				// permission at all. A caller that named its classes was
-				// already cleared on exactly those above; asking it for the
-				// wildcard too would answer 403 for a mistyped id.
+				// This path has no classes to authorize against, so a broad
+				// grant stands in — the gate's cluster-wide answer must not
+				// reach a principal with no backup permission at all.
 				if authErr := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...); authErr != nil {
 					return nil, authErr
 				}
@@ -273,11 +270,9 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		meta.Include(allowed)
 	}
 
-	// Both arms gate here, on the class list the restore will actually touch.
-	// An include may carry wildcards, and validateRestoreRequest is what expands
-	// them against the backup's classes: gating any earlier asks the lookup about
-	// the pattern, which matches no collection and lets the restore through.
-	// Authorization has already run on both arms above.
+	// Gated here, after validateRestoreRequest expands any wildcard include
+	// against the backup's classes — gating earlier would ask the lookup
+	// about the pattern itself, which matches no collection.
 	if err := s.refuseRestoreDuringReindex(ctx, meta.Classes()); err != nil {
 		return nil, err
 	}
@@ -348,19 +343,11 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 }
 
 // refuseRestoreDuringReindex refuses a restore while a runtime-reindex task is
-// live on any of collections, anywhere in the cluster. It refuses rather than
-// waits: waiting would hold the restore slot the reverse guard reads,
-// deadlocking both sides.
-//
-// Every caller must authorize first. Both the refusal text and the time this
-// takes disclose cluster-wide reindex state, so a principal without a backup
-// grant must never reach it.
-//
-// collections must be resolved class names, never wildcard patterns. nil asks
-// about every collection, which the meta-not-found arm has to do because it has
-// no class list yet. The check fails closed: a task whose payload cannot be read
-// refuses the collection the payload still names, and one that names no
-// collection at all refuses every restore.
+// live on any of collections, anywhere in the cluster. Refuses rather than
+// waits, since waiting would hold the restore slot the reverse guard reads,
+// deadlocking both sides. Every caller must authorize first: the refusal
+// discloses cluster-wide reindex state. collections must be resolved class
+// names, never wildcards; nil asks about every collection. Fails closed.
 func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
 	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx, collections); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("restore blocked: %w", err))

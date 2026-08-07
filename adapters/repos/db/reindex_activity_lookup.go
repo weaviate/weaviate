@@ -36,11 +36,8 @@ type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 //
 // Calls before installation default to "no live reindex" and WARN,
 // rate-limited to one line per hour so a shard-by-shard pass cannot flood
-// the log. The builder is wired by configure_api.go's post-bootstrap
-// goroutine, and an external backup request can arrive before that runs,
-// so the WARN names a backup that really was admitted without a check.
-// Refusing instead would block every module-test fixture that bypasses
-// the bootstrap path. See [DB.AnyLiveReindexForShard].
+// the log. Refusing instead would block every module-test fixture that
+// bypasses the bootstrap path. See [DB.AnyLiveReindexForShard].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
@@ -49,27 +46,19 @@ func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBu
 
 // AnyReindexActivityLookup reports whether a runtime-reindex task on any of the
 // given collections is live in the cluster. An empty list asks about every
-// collection, which the restore path has to do when it does not yet know its
-// class list. A non-nil error means the answer could not be determined.
-//
-// Scoped by collection for the same reason [AnyCleanupInProgressLookup] is, and
-// with more at stake: a migration can run for days, and a blind answer would
-// refuse restores of every OTHER collection for that whole time. Comparison is
-// case-insensitive, matching the rest of the reindex gates.
-//
-// A live task whose payload names no collection ([DecodeReindexTaskPayload])
-// still answers yes for every collection: nothing says what it holds, so the
-// only honest answer is cluster-wide.
+// collection (the restore path's case when it doesn't yet know its class
+// list). Scoped by collection: a migration can run for days, and a blind
+// answer would refuse restores of every OTHER collection for that whole
+// time. A live task whose payload names no collection still answers yes for
+// every collection, since nothing says what it holds.
 type AnyReindexActivityLookup func(ctx context.Context, collections []string) (bool, error)
 
 // AnyCleanupInProgressLookup reports whether this node is still tearing reindex
 // sidecar dirs for a task that has already reached a terminal status on any of
-// the given collections. An empty list asks about every collection, which is
-// what the restore path has to do when it does not yet know its class list.
-//
-// It is scoped by collection because the answer can be stuck: a worker that
-// never exits holds its collection's gate until the cap, and a blind answer
-// would refuse restores of every OTHER collection for that whole time.
+// the given collections. An empty list asks about every collection. Scoped by
+// collection because the answer can be stuck (a worker that never exits holds
+// its gate until the cap), so a blind answer would refuse every OTHER
+// collection's restore for that whole time.
 type AnyCleanupInProgressLookup func(collections []string) bool
 
 // SetAnyCleanupInProgressLookup installs the node-local cleanup probe OR-ed
@@ -90,19 +79,11 @@ func (db *DB) SetAnyReindexActivityLookup(lookup AnyReindexActivityLookup) {
 	db.anyReindexActivityLookup = lookup
 }
 
-// redactedErr keeps its sentinels and a cause reachable via errors.Is without
-// printing any of them. The cause names nodes and task internals that must not
-// reach an API response body, and a sentinel's own text would otherwise be
-// printed twice by %w wrapping. Without the sentinels in Unwrap, every caller
-// classifying the refusal sees a plain error and treats a fail-closed gate
-// refusal as an unrelated failure.
-//
-// More than one sentinel because a refusal can need classifying on two axes at
-// once: the overlap refusals carry both what they refuse and whether they
-// observed it.
-//
-// A nil cause is allowed: the retention-window refusal has nothing to hide,
-// only a message that must not be prefixed with a sentinel's text.
+// redactedErr keeps its sentinels and cause reachable via errors.Is without
+// printing them: the cause can name nodes and task internals that must not
+// reach an API response body. More than one sentinel because a refusal can
+// need classifying on two axes at once (what it refuses, and whether it
+// observed it). A nil cause is allowed for a refusal with nothing to hide.
 type redactedErr struct {
 	msg       string
 	sentinels []error
@@ -128,10 +109,7 @@ func (e redactedErr) Unwrap() []error {
 // [DB.AnyLiveReindexForShard].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error {
 	if db.config.RuntimeReindexDisabled {
-		// Same contract the backup half honors: with RUNTIME_REINDEX_ENABLED
-		// off there is no reindex check at all, so off means the behavior
-		// operators had before the restore gate existed. Returns before the
-		// lookup, which is a leader-forwarded RAFT query.
+		// Same contract as the backup half: off means no reindex check at all.
 		return nil
 	}
 
@@ -140,13 +118,9 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	cleanupLookup := db.anyCleanupInProgressLookup
 	db.reindexAuditMu.RUnlock()
 
-	// The lookup answers yes for two different node-local holds, and cannot say
-	// which: a cancelled task still deleting sidecar dirs (tens of seconds), or
-	// a submission sweep clearing the way for a migration that is about to
-	// start. The text has to fit both, so it promises neither a short wait nor
-	// a finished migration. The per-shard backup gate can name the case
-	// (reindexBlockedBySubmit vs reindexBlockedByCleanup) because its lookup
-	// returns a [ReindexHold]; this one returns a bool.
+	// cleanupLookup returns bool, so it can't distinguish a cancelled task
+	// still deleting sidecars from a submission sweep about to start; the
+	// text below has to fit both.
 	if cleanupLookup != nil && cleanupLookup(collections) {
 		if db.logger != nil {
 			db.logger.WithField("action", "restore_reindex_gate").
@@ -170,8 +144,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 
 	live, err := lookup(ctx, collections)
 	if err != nil {
-		// The RAFT error may name nodes; restoring grants no access to node names,
-		// so the detail stays in the log only.
+		// The RAFT error may name nodes; keep detail in the log, not the response.
 		if db.logger != nil {
 			db.logger.WithField("action", "restore_reindex_gate").
 				Errorf("restore-reindex gate: cannot query the cluster task manager, assuming a migration is live: %v", err)
@@ -203,24 +176,21 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 // ReindexOverlapLookup answers the backup's commit-time question: did any
 // reindex task on these collections have a lifetime overlapping [since, now]?
 //
-// Overlap, not liveness. A migration that both starts and finishes while the
-// files are being copied leaves the capture just as inconsistent, and asking
-// whether one is running at commit time answers no — there is nothing left to
-// see. Every caller of this lookup depends on that distinction.
+// Overlap, not liveness: a migration that both starts and finishes while
+// files are being copied leaves the capture just as inconsistent, but "is one
+// running now" would answer no.
 //
-// A non-nil error means either that one overlapped or that the question can no
-// longer be answered; callers fail closed on both. The two are told apart by
-// [entitiesbackup.ErrReindexOverlapUndetermined], which only the second kind
-// carries, because the operator-facing refusal must not claim a migration the
-// check never saw.
+// A non-nil error means either that one overlapped or that the question can
+// no longer be answered; callers fail closed on both, told apart by
+// [entitiesbackup.ErrReindexOverlapUndetermined] so the refusal never claims
+// a migration the check never saw.
 //
-// Cancelled tasks are decided by unit state, not by timestamps: cancel only
-// applies to a task that had already STARTED, so a cancelled one may already
-// have rebuilt buckets. It counts as an overlap whenever any unit left PENDING.
-// The exemption for one where nothing was claimed exists because the submit
-// path manufactures exactly that state: its post-commit rollback withdraws a
-// task when a backup claims first, and counting it would fail the backup that
-// won the race.
+// Cancelled tasks are decided by unit state, not timestamps: cancel only
+// applies to an already-STARTED task, so a cancelled one may have already
+// rebuilt buckets, and counts as an overlap whenever any unit left PENDING.
+// Exempted when nothing was claimed, since the submit path's post-commit
+// rollback manufactures exactly that state and counting it would fail the
+// backup that won the race.
 //
 // The exemption leaves no residual. A worker's first action is a progress
 // report of 0.0, and 0.0 still flips the unit out of PENDING even though it is
@@ -322,27 +292,17 @@ func lowercasedSet(collections []string) map[string]struct{} {
 // overlap. The returned collection name is the payload's, for the refusal
 // message; it is only meaningful when overlaps is true.
 //
-// A non-nil error means the payload could not be read, so overlap can no longer
-// be ruled out and the caller fails closed.
+// A non-nil error means the payload could not be read, so overlap can no
+// longer be ruled out and the caller fails closed — but scoped by
+// [DecodeReindexTaskPayload], which recovers the collection from payloads it
+// cannot otherwise fully read. Without that scoping, one payload no node can
+// decode (e.g. from a rolling upgrade that retyped a field) would refuse
+// EVERY backup of EVERY collection until the completed-task TTL drops it.
+// Only a payload naming no collection at all refuses everything.
 //
-// That fail-closed is scoped, because its blast radius is the whole point: the
-// caller loops every reindex task in the cluster, so one payload no node can
-// decode would otherwise refuse EVERY backup of EVERY collection until the
-// completed-task TTL drops it days later. A rolling upgrade that retypes a
-// payload field produces exactly that payload, so this is reachable in normal
-// operation, and refusing every backup with no remedy is a self-inflicted
-// outage.
-//
-// [DecodeReindexTaskPayload] bounds it: it recovers the collection from
-// payloads it cannot otherwise read, holding the refusal to the collection the
-// task names. Only a payload naming no collection at all refuses everything.
-//
-// The task-level "already over before the capture began" waiver applies to
-// readable payloads only. Nothing tore an unreadable one down — the teardown is
-// addressed by the shards the payload names — so its sidecar state can still be
-// on disk, and the timestamps say nothing about a teardown that never started.
-// The cost is that such a task keeps refusing until the completed-task TTL
-// drops it; the alternative is waiving a capture nothing ever cleaned up after.
+// The "already over before the capture began" waiver applies to readable
+// payloads only: nothing tore an unreadable one down, so its sidecar state
+// may still be on disk regardless of what the timestamps say.
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
 	_, collection, decodeErr := DecodeReindexTaskPayload(task.Payload)
 
@@ -381,13 +341,10 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 }
 
 // reindexTaskTouchedShards reports whether any unit of the task ever left
-// PENDING, i.e. whether a worker could have written to a shard.
-//
-// A CANCELLED task is not automatically harmless to a backup: cancel only
-// applies to a STARTED task, and the workers may already have been rebuilding
-// buckets when it landed. Skipping every cancelled task let the submit path's
-// own rollback manufacture the one state this backstop ignores. Unit state is
-// what separates the two: no unit out of PENDING means no worker claimed one.
+// PENDING, i.e. whether a worker could have written to a shard. A CANCELLED
+// task is not automatically harmless: cancel only applies to a STARTED task,
+// which may already be rebuilding buckets. Unit state is what separates a
+// genuinely untouched cancel from one that isn't.
 func reindexTaskTouchedShards(task *distributedtask.Task) bool {
 	for _, unit := range task.Units {
 		if unit != nil && unit.Status != distributedtask.UnitStatusPending {
@@ -406,19 +363,11 @@ func reindexTaskTouchedShards(task *distributedtask.Task) bool {
 // than refused. The WARN is what tells the operator it happened.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, collections []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
-		// Same contract as the other two gates: RUNTIME_REINDEX_ENABLED=false
-		// means no reindex check anywhere. Returning here also skips the lookup
-		// itself, a leader-forwarded RAFT query that could fail a backup for
-		// reasons needing no reindex to exist (unreachable leader, or a backup
-		// outliving the completed-task retention window).
-		//
-		// Residual, at its true width: "no new task can start" is not "no task
-		// is running". A reindex is still live with the flag off if it was
-		// already running when the flag was turned off, if the node BOOTED with
-		// the flag off and resumed a STARTED task from DTM (the flag gates
-		// submission, not recovery), or if a cancel is still tearing down.
-		// Accepted: the flag is the escape hatch for the whole feature, so it
-		// cannot itself fail backups.
+		// Same contract as the other gates: the flag means no reindex check at
+		// all. Residual: "no new task can start" isn't "no task is running" —
+		// a reindex already in flight when the flag flipped is still live —
+		// but the flag is the feature's escape hatch and must not itself fail
+		// backups.
 		return nil
 	}
 

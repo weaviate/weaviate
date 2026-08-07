@@ -994,18 +994,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
 
 	// Installed here, not in the goroutine below: both read this node's own
-	// provider, which initReindexAndDistributedTasks stored synchronously one
-	// line above, so neither has anything to wait for. The goroutine does not
-	// run until RAFT has replayed and then waits up to 60s for DTM to answer,
-	// and HTTP is already serving through all of it — a submission that is
-	// deleting sidecars right now would be invisible to a concurrent backup
-	// for that whole window.
-	//
-	// S1: the DTM-activity lookup flips a shard "free" the moment a task lands
-	// in a terminal status; autoCleanupAfterTerminal then tears the sidecar
-	// __reindex / __ingest dirs over the next tens of seconds. The
-	// cleanup-in-progress lookup keeps the gate closed for that window so a
-	// backup landing in the gap doesn't snapshot half-removed sidecars.
+	// provider (already stored above), so neither has anything to wait for,
+	// unlike the goroutine which waits on RAFT replay and DTM. Without this,
+	// a submission deleting sidecars right now would be invisible to a
+	// concurrent backup for that whole window (S1).
 	reindexProvider := appState.ReindexProvider.Load()
 	repo.SetReindexCleanupInProgressLookup(reindexProvider.CleanupInProgressLookupBuilder())
 	// Same race, restore side: the cluster lookup installed below sees only
@@ -1121,28 +1113,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	return appState
 }
 
-// newShardReindexActivityBuilder builds the backup gate's per-shard lookup. One
-// DTM snapshot per admission pass, scoped to the exact (collection, shard)
-// tuples the live tasks name, so a migration elsewhere blocks no unrelated
-// backup and a migration on this shard is not missed because a sibling is idle.
+// newShardReindexActivityBuilder builds the backup gate's per-shard lookup.
+// One DTM snapshot per admission pass, scoped to the (collection, shard)
+// tuples the live tasks name.
 //
-// A DTM it cannot reach refuses every backup: the gate must not read "free"
-// from a question it could not ask. A live task whose payload will not decode
-// is the same uncertainty in a smaller shape.
-//
-// How wide that refusal goes depends on how much of the payload survives.
-// [db.DecodeReindexTaskPayload] recovers the collection from payloads it will
-// not otherwise read, which is what a rolling upgrade produces, and the refusal
-// is held to that collection's shards. Only a payload naming no collection at
-// all refuses every backup in the cluster, because nothing says which shards it
-// could have been holding.
-//
-// The commit-time backstop ([db.ReindexOverlapLookup]) draws the same line, and
-// the two have to agree on what unreadable means: a gap either admits a capture
-// the commit will reject after all the upload work, or refuses at admission
-// what the commit would have allowed. That agreement is why both read the
-// payload through [db.DecodeReindexTaskPayload] rather than each deciding for
-// itself what unreadable means.
+// A DTM it cannot reach refuses every backup, since the gate must not read
+// "free" from a question it could not ask. A live task whose payload will
+// not decode is the same uncertainty, but scoped by
+// [db.DecodeReindexTaskPayload], which recovers the collection from an
+// otherwise-unreadable payload (what a rolling upgrade produces); only a
+// payload naming no collection refuses every backup in the cluster. The
+// commit-time backstop ([db.ReindexOverlapLookup]) must agree on this same
+// scoping, so both read the payload through the same decoder.
 func newShardReindexActivityBuilder(
 	ctx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -1192,19 +1174,13 @@ func newShardReindexActivityBuilder(
 	}
 }
 
-// newAnyReindexActivityLookup builds the restore gate's cluster-wide lookup. It
-// answers for the collections being restored only: a migration can run for
-// days, and answering blind would refuse every restore in the cluster for its
-// whole duration.
-//
-// A DTM it cannot reach returns the error, which the gate turns into a refusal
-// — the same "do not read free from a question you could not ask" rule the
-// backup half follows. A live task whose payload will not decode is that
-// uncertainty in a smaller shape, and how wide the refusal goes depends on how
-// much of the payload survives: [db.DecodeReindexTaskPayload] recovers the
-// collection from payloads it will not otherwise read, so the refusal is held
-// to that collection. Only a payload naming no collection at all refuses every
-// restore, because nothing says what it could have been holding.
+// newAnyReindexActivityLookup builds the restore gate's cluster-wide lookup.
+// Answers only for the collections being restored: a migration can run for
+// days, and a blind answer would refuse every restore for its whole
+// duration. Same scoping rule as [newShardReindexActivityBuilder]: a DTM
+// error or fully-unreadable payload refuses everything, but a payload
+// [db.DecodeReindexTaskPayload] can partially recover holds the refusal to
+// that collection.
 func newAnyReindexActivityLookup(
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
 	logger logrus.FieldLogger,
@@ -2636,19 +2612,13 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 	return clusterHttpClient(authConfig, minimumInternalTimeout, http.ProxyFromEnvironment)
 }
 
-// reindexGateProbeHttpClient serves the backup-vs-reindex gate's two probes and
-// nothing else. It is identical to [reasonableHttpClient] except that it never
-// consults HTTP_PROXY/HTTPS_PROXY.
-//
-// The probes ask a named peer a question only that peer can answer, and read a
-// 404 as "this build predates the route". A proxy answering in the peer's stead
-// 404s everything, which the gate would read as "no backups anywhere". The
-// probe corroborates a 404 against this server's own mux shape, but anything
-// fronted by a Go default mux emits a byte-identical one; bypassing the proxy
-// removes the class rather than narrowing it.
-//
-// Scoped to these probes on purpose: whether cluster-internal traffic in general
-// should honor a proxy is a deployment-visible question, and is left as it is.
+// reindexGateProbeHttpClient serves the backup-vs-reindex gate's two probes
+// and nothing else. Identical to [reasonableHttpClient] except it never
+// consults HTTP_PROXY/HTTPS_PROXY: a proxy answering in the peer's stead
+// would 404 everything, and the probes read a 404 as "this build predates
+// the route" — a proxy would make the gate read "no backups anywhere".
+// Scoped to just these probes; whether cluster-internal traffic in general
+// should honor a proxy is a separate, deployment-visible question.
 func reindexGateProbeHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
 	return clusterHttpClient(authConfig, minimumInternalTimeout, nil)
 }

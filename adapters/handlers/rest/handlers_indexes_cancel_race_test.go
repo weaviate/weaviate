@@ -73,17 +73,11 @@ func (s *flippingTaskService) ListDistributedTasks(
 	return s.raceTaskService.ListDistributedTasks(ctx)
 }
 
-// A task that is STARTED when the handler lists tasks can be PREPARING by the
-// time the cancel reaches DTM, which refuses anything but STARTED. The very
-// same state answers 409 when the flip happens a moment earlier, because the
-// pre-cancel check catches it there. Mapping every cancel error to a 500 made
-// the operator's answer depend on which side of that window the transition
-// landed on.
-//
-// The refusal is only right for a task the backup gate still counts as live:
-// only then is "poll until every index is ready" true. A cancel that failed
-// for any other reason must still fail loudly — telling an operator to poll
-// while RAFT is unreachable buries the real fault.
+// Pins: a task that flips STARTED->PREPARING between the pre-cancel listing
+// and the DTM cancel must answer the same 409 as if the flip had happened a
+// moment earlier and been caught by the pre-cancel check — not a 500. A
+// cancel that failed for any other reason (e.g. RAFT unreachable) must still
+// fail loudly.
 func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 	const (
 		collection = "Movies"

@@ -20,15 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The two cleanup lookups read this node's own provider and need nothing from
-// RAFT or DTM, and the gates that consult them are reachable over HTTP as soon
-// as the server serves. Installing them inside MakeAppState's post-bootstrap
-// goroutine leaves both nil through a RAFT replay plus a wait of up to 60s for
-// DTM — a window in which a submission that is deleting sidecars right now is
-// invisible to a concurrent backup and to a concurrent restore.
-//
-// Only reachable as a source-level check: the goroutine's own wiring is what is
-// under test, and MakeAppState cannot be run without a real cluster.
+// Pins: the two node-local cleanup lookups must install before
+// MakeAppState's post-bootstrap goroutine, not inside it, or a submission
+// deleting sidecars is invisible to concurrent backups/restores for up to
+// 60s. Source-level check since MakeAppState needs a real cluster to run.
 func TestCleanupLookupsAreInstalledBeforeTheBootstrapWait(t *testing.T) {
 	installs := []string{
 		"SetReindexCleanupInProgressLookup",

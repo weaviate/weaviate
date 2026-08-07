@@ -289,15 +289,10 @@ type wakeCounter struct{ n atomic.Int64 }
 
 func (w *wakeCounter) Wake() { w.n.Add(1) }
 
-// Every timestamp on a terminal apply is stamped by the PROPOSING node, so the
-// dispatch decision must not read one. It used to: a node whose clock ran a
-// minute ahead of the proposer's read every live ending as replayed and skipped
-// the observer, which drops the blocking cleanup gate — the exact window the
-// observer exists to close. Only the FSM's own replay flag may suppress a
-// dispatch, and that flag is local to this node.
-//
-// The skews are literals rather than a bound plus something: derived from a
-// constant they would follow it, and following it is the defect.
+// Pins: dispatch must not read timestamps to decide replay-vs-live, since
+// they're stamped by the proposing node — clock skew used to make a live
+// ending look replayed and skip the observer. Only the FSM's own local
+// replay flag may suppress a dispatch.
 func TestTerminalDispatchIgnoresProposerClockSkew(t *testing.T) {
 	tests := []struct {
 		name string

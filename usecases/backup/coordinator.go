@@ -76,14 +76,10 @@ type Selector interface {
 	Backupable(_ context.Context, classes []string) error
 
 	// RefuseIfAnyReindexInFlight refuses when a runtime-reindex task is live
-	// anywhere in the cluster on any of collections. Used for restore admission:
-	// Backupable can't answer for a class absent from this node.
-	//
-	// collections must be resolved class names, never wildcard patterns; an
-	// empty list asks about every collection, which the restore path has to do
-	// before it knows its class list. It fails closed: a task whose payload
-	// cannot be read refuses the collection the payload still names, and one
-	// that names no collection at all refuses every restore.
+	// anywhere in the cluster on any of collections. Used for restore
+	// admission, since Backupable can't answer for a class absent from this
+	// node. collections must be resolved class names, never wildcard
+	// patterns; empty asks about every collection. Fails closed.
 	RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error
 }
 
@@ -525,22 +521,12 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 // error, one arm per [CanCommitErrorKind], so upstream `errors.Is` checks
 // survive the RPC boundary:
 //
-//   - [CanCommitErrInFlightReindex] (backup refused) carries
-//     [backup.ErrBackupBlockedByInFlightReindex], as a
-//     [backup.ReindexBlockedError] when the participant's message already opens
-//     with the sentinel.
-//   - [CanCommitErrRestoreBlockedByReindex] (restore refused) carries
-//     [backup.ErrReindexInFlight] and NOT [errCannotCommit]: a caller that maps
-//     it to [errCannotCommit] answers 500 for what the scheduler answers 422.
-//   - every other kind, including the empty one older nodes send, stays wrapped
-//     in [errCannotCommit]. None of them is retryable, so 500 is the right
-//     answer, and [errCannotCommit] is what the callers that decide that match
-//     on.
-//
-// Deliberately open: a participant from before the shard-name redaction sets
-// the same [CanCommitErrInFlightReindex] kind and names the shard in its
-// message, which this republishes. Closing it would cost a wire field whose
-// only job is telling peer versions apart.
+//   - [CanCommitErrInFlightReindex] carries [backup.ErrBackupBlockedByInFlightReindex].
+//   - [CanCommitErrRestoreBlockedByReindex] carries [backup.ErrReindexInFlight],
+//     not [errCannotCommit] — mapping it to that would answer 500 for what the
+//     scheduler answers 422.
+//   - everything else, including the empty kind older nodes send, stays wrapped
+//     in [errCannotCommit] (none of it is retryable).
 func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	if resp == nil {
 		return errCannotCommit
@@ -560,15 +546,11 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	}
 }
 
-// isNodeFreeCanCommitErrKind reports whether a refusal of this kind is composed
-// to name no node and no shard, and so can be served to a backup caller as-is.
-//
-// Only the two reindex refusals are. Everything else — a disk-full report, a
-// transport failure, a legacy refusal from a node that sends no kind at all —
-// is an operator-facing failure whose first question is "which node?", so
-// [coordinator.canCommit] keeps the node prefix on those. Answering that
-// question from the logs alone means correlating a backup ID across every node
-// in the cluster.
+// isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
+// node and no shard, and so can be served to a backup caller as-is. Only the
+// two reindex refusals are; everything else is an operator-facing failure
+// whose first question is "which node?", so [coordinator.canCommit] keeps
+// the node prefix on those.
 func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
 	switch kind {
 	case CanCommitErrInFlightReindex, CanCommitErrRestoreBlockedByReindex:

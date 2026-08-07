@@ -25,23 +25,12 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestCleanStalePartialReindexState_CancelledContextLeavesItHalfDone pins why
-// the cancel and submit handlers hand this sweep a context that outlives their
-// request (see [context.WithoutCancel] at both call sites in
-// handlers_indexes.go).
-//
-// The sweep deregisters each sidecar bucket BEFORE it removes anything from
-// disk, and it removes the tracker dir last. A context that is already
-// cancelled fails the very first ShutdownBucket, so the sweep returns with the
-// buckets unreachable and started.mig still on disk. Both handler sweeps are
-// therefore given a context that outlives their request, so a disconnect cannot
-// abandon one part-way.
-//
-// The cancellation only reaches the sweep through ShutdownBucket: steps 2 and 3
-// (removing the sidecar dirs and the tracker dir) never consult the context. So
-// a fixture whose sidecars exist only as directories on disk would take the
-// cancelled path and still finish, proving nothing. The loaded-bucket
-// precondition below is therefore load-bearing and asserted, not assumed.
+// Pins: a context cancelled before the sweep fails the first ShutdownBucket,
+// leaving buckets deregistered but unremoved and started.mig still on disk —
+// which is why both handler call sites use [context.WithoutCancel]. Requires
+// a loaded bucket, since cancellation is only observed through ShutdownBucket;
+// sidecars that exist only as bare directories would finish regardless and
+// prove nothing.
 func TestCleanStalePartialReindexState_CancelledContextLeavesItHalfDone(t *testing.T) {
 	const (
 		propName  = "category"

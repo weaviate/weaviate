@@ -71,17 +71,14 @@ var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach
 // Errors do NOT stop iteration: a stuck shard must not prevent the other
 // shards from being cleaned, otherwise a one-shard failure would
 // permanently wedge the (collection, prop, indexType) tuple at every
-// future submit. Context cancellation DOES stop it: both call sites hold the
-// collection's backup and restore gate closed for the whole sweep, so the work
-// left after the deadline has to end rather than continue as a run of failed
-// loads. That abort is joined into the returned error and tagged with
-// [ErrCleanupSweepTruncated], because a caller that sees only the shard
-// failures reads a bounded problem where the truth is that the sweep stopped.
+// future submit. Context cancellation DOES stop it — both call sites hold
+// the collection's backup and restore gate closed for the whole sweep — and
+// is tagged with [ErrCleanupSweepTruncated] so the caller can tell "sweep
+// stopped early" from "these shards failed".
 //
-// A shard that is not loaded is loaded only if it has on-disk state this sweep
-// would remove. Unwrapping every cold shard of a large multi-tenant collection
-// hydrates thousands of tenants (LSM store, vector index) under that gate, for
-// a sweep that finds nothing on almost all of them.
+// A cold shard is only unwrapped if it has on-disk state this sweep would
+// remove, so a large multi-tenant collection doesn't hydrate thousands of
+// idle tenants under the gate.
 func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,

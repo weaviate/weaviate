@@ -160,22 +160,11 @@ func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 		runShPackagePath, strings.Join(stale, ", "))
 }
 
-// The guard above proves every test here is named in some run.sh filter. It
-// says nothing about whether CI ever invokes the group holding that filter. A
-// matrix entry renamed or deleted in .github/workflows takes its whole group
-// out of CI, and both the allowlist guard and the job stay green.
-//
-// The chain that has to hold, end to end:
-//
-//	AOF_GROUP_RUN filter  ->  the run_acceptance_* function it lives in
-//	                      ->  run.sh's dispatcher, which calls that function
-//	                      ->  run.sh's --flag that arms the dispatcher
-//	                      ->  a workflow matrix entry passing that --flag
-//
-// The last hop is read out of the parsed YAML, not out of the file's bytes. A
-// commented-out matrix entry is still a literal substring of the workflow, and
-// so are a flag in a workflow no pull request triggers and one in a job behind
-// an always-false if: — three ways for the entry to be present and dead.
+// Pins the chain the guard above doesn't check: filter -> run.sh function ->
+// dispatcher --flag -> a workflow matrix entry actually passing that flag. A
+// matrix entry renamed/deleted/commented-out/dead-behind-an-if takes the
+// whole group out of CI while both the allowlist guard and the job stay
+// green, so the last hop is read from parsed YAML, not the file's bytes.
 func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 	root := repoRoot(t)
 	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))

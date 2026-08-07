@@ -60,14 +60,8 @@ func (confirmingCleanupProber) CleanupInProgress(context.Context, string, string
 	return true, nil
 }
 
-// The kill switch stops migrations being started, not migrations already
-// running. A task in flight when the flag is turned off keeps rebuilding
-// buckets, so refusing its cancel would leave the operator holding the one
-// thing they cannot stop with the escape hatch they just pulled.
-//
-// TestRequestsCancel below pins the predicate; this pins that updateIndex
-// actually consults it, which is the part a refusal placed one line higher
-// would silently break.
+// Pins: the kill switch must not block cancel of an already-running
+// migration, or an operator loses the only way to stop it.
 func TestUpdateIndex_RuntimeReindexDisabledStillCancels(t *testing.T) {
 	const (
 		collection = "Movies"

@@ -21,18 +21,13 @@ import (
 )
 
 // reindexGateSamplerBudget rate-limits each operator-facing gate WARN to one
-// line per hour. The conditions they report (a gate reached before its lookup
-// was installed, a hold kind this build cannot classify) persist until someone
-// fixes the wiring or ships a fix, so the line has to keep reappearing for an
-// operator who starts reading the logs later — but not once per shard checked.
+// line per hour rather than once per shard checked.
 const reindexGateSamplerBudget = time.Hour
 
 // reindexGateSamplers holds one budget per fail-open gate.
 //
-// Built per [DB], not per process: the budget describes the node that is
-// failing open, and a package-level one leaves every test after the first with
-// an exhausted budget, which is what stopped this package from running with
-// -count=2.
+// Built per [DB], not per process: a package-level budget would leave every
+// test after the first with an exhausted one.
 type reindexGateSamplers struct {
 	unwiredGate        *logrusext.Sampler
 	unwiredRestoreGate *logrusext.Sampler
@@ -118,24 +113,20 @@ const (
 // in configure_api.go.
 //
 // Default to "no live reindex" when the lookup is unwired (with a
-// rate-limited WARN). The original conservative default (refuse) was
-// correct in isolation but broke every module-test fixture that
-// spins up Weaviate without going through the post-bootstrap
-// install path. The window is short but externally reachable: HTTP can
-// answer before the install runs, so the WARN reports a backup that was
-// really admitted without a check, not a broken wiring.
+// rate-limited WARN); refusing here broke every module-test fixture that
+// spins up Weaviate without the post-bootstrap install path. HTTP can answer
+// before that install runs, so the WARN reports a backup admitted without a
+// check, not necessarily broken wiring.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return db.reindexBlockReason(collection, shardName) != reindexNotBlocked
 }
 
-// reindexGateSnapshot is one admission pass's view of both backup-gate lookups,
-// built once per pass because the activity builder issues a leader-forwarded
-// RAFT query: per-shard rebuilds cost one leader round trip per shard.
-//
-// Shards checked late therefore miss a task that appeared mid-pass. The pass was
-// never atomic anyway, and the commit-time overlap check catches those.
-//
-// A nil activity lookup admits the backup, per [DB.AnyLiveReindexForShard].
+// reindexGateSnapshot is one admission pass's view of both backup-gate
+// lookups, built once per pass because the activity builder issues a
+// leader-forwarded RAFT query: per-shard rebuilds cost one round trip per
+// shard. Shards checked late may miss a task that appeared mid-pass; the
+// commit-time overlap check catches those. A nil activity lookup admits the
+// backup, per [DB.AnyLiveReindexForShard].
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
@@ -147,14 +138,9 @@ type reindexGateSnapshot struct {
 func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	var snap reindexGateSnapshot
 	if db.config.RuntimeReindexDisabled {
-		// Returning before the builders run is the point: the activity builder
-		// issues a leader-forwarded RAFT query, and the kill switch has to cost
-		// nothing. A zero snapshot reads as "not blocked" downstream, without
-		// the unwired warning below.
-		//
-		// Flag-off is "no reindex check anywhere", not "no reindex running";
-		// the residual that leaves is stated in full at
-		// [DB.RefuseIfReindexOverlapped].
+		// Return before the builders run so the kill switch costs nothing (no
+		// RAFT query, no unwired warning). Flag-off is "no reindex check
+		// anywhere", not "no reindex running" — see [DB.RefuseIfReindexOverlapped].
 		return snap
 	}
 
@@ -169,12 +155,10 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	} else {
 		snap.activity = activityBuilder()
 	}
-	// Read even when the activity builder is missing. The cleanup hold is a map
-	// read on this node's own provider, so configure_api.go installs it
-	// synchronously, before the goroutine that waits for RAFT and DTM installs
-	// the activity builder. Letting a missing activity builder suppress it
-	// would make a submission that is already deleting sidecars invisible to a
-	// concurrent backup for that whole wait, while HTTP is already serving.
+	// Read even when the activity builder is missing: the cleanup hold is a
+	// local map read installed synchronously, before the goroutine that waits
+	// for RAFT/DTM installs the activity builder, and suppressing it in the
+	// meantime would hide an in-progress sidecar deletion from a concurrent backup.
 	if cleanupBuilder != nil {
 		snap.cleanup = cleanupBuilder()
 	}
@@ -289,12 +273,9 @@ func (i *Index) refuseIfReindexInFlightIn(snap reindexGateSnapshot, shardName st
 	if reason == reindexNotBlocked {
 		return nil
 	}
-	// Deliberately silent: a multi-shard pass calls this once per shard, so
-	// logging here is O(shards) per refusal. The shard is what an operator
-	// needs and the body withholds it, so each caller reports at its own
-	// granularity instead — one line per shard where that IS the operation
-	// ([Index.refuseIfReindexInFlight]), one bounded line per collection
-	// where it is not ([DB.Backupable]).
+	// Deliberately silent here: a multi-shard pass calls this once per shard,
+	// so each caller logs at its own granularity instead
+	// ([Index.refuseIfReindexInFlight], [DB.Backupable]).
 	return reindexInFlightError(collection, reason)
 }
 

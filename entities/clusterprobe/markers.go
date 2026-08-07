@@ -15,23 +15,20 @@
 // other.
 package clusterprobe
 
-// Each probe answers "nothing running here", and that answer is what lets the
-// reindex gate admit a migration. Only an answer that proves it came from a
-// node may say it: without a marker, every JSON object an intermediary can
-// return in a node's stead — a transparent proxy, a misrouted ingress —
-// decodes to the permissive value and clears the whole cluster at once. Each
-// route puts its own marker in the response's "probe" field, and its client
-// refuses a 200 that carries anything else.
+// Each probe's "nothing running here" answer is what lets the reindex gate
+// admit a migration, so only an answer proven to come from a node may say
+// it: without a marker, a proxy or misrouted ingress answering in a node's
+// stead would decode to the permissive value and clear the whole cluster.
+// Each route puts its marker in the "probe" field; its client refuses a 200
+// carrying anything else.
 const (
 	BackupNodeActivityMarker = "weaviate/backup-node-activity"
 	ReindexCleanupMarker     = "weaviate/reindex-cleanup-activity"
 )
 
-// The route each probe is served on, defined once for the mux that mounts it
-// and the client that calls it. A path that disagreed between the two would
-// answer 404, which is exactly what the clients read as "this node runs an
-// older build" and let through — a typo would silently disable the gate rather
-// than break it.
+// The route each probe is served on, defined once for both the mux and the
+// client. A path mismatch would 404, which clients read as "older build" and
+// let through — a typo would silently disable the gate rather than break it.
 const (
 	BackupNodeActivityPath     = "/backups/node-activity"
 	ReindexCleanupActivityPath = "/reindex/cleanup-activity"

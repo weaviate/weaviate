@@ -21,16 +21,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestReindexRefusedWhileRestoreRuns is the restore half of the guard's stated
-// contract: a migration must not start while this node is part of a backup OR a
-// restore. The backup half has its own tests; a restore reaches the same probe
-// through a different slot, so a Handler wired with only a backupper would let
-// every migration through with nothing to catch it.
-//
-// The migrating collection is not the one being restored, and cannot be: a
-// collection under restore does not exist in the schema yet, so a submission
-// against it would be answered by the 404 before any gate runs. The guard is
-// node-scoped, which is what makes the two collections the right shape here.
+// TestReindexRefusedWhileRestoreRuns is the restore half of the guard's
+// contract: a migration must not start while this node is part of a backup
+// OR a restore. Migrates a different collection than the one being
+// restored, since a restoring collection doesn't exist in the schema yet
+// and would 404 before any gate runs — the guard is node-scoped.
 func TestReindexRefusedWhileRestoreRuns(t *testing.T) {
 	ctx := context.Background()
 

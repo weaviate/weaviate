@@ -661,16 +661,10 @@ func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 		"the gate must reopen at the cap rather than wait for a process restart")
 }
 
-// And the raise moved past the drain only, not past the applicability checks.
-// Two things decide applicability, and both are in this table: what the payload
-// says there is to tear down, and whether the task's units say a worker ever
-// ran. The gate is what refuses a backup, so a skip that is too eager admits a
-// backup over half-removed sidecars, and one that is too shy fails the backup
-// the submit path's rollback exists to let win.
-//
-// FAILED with nothing claimed is here because a failed task means a worker
-// reported a failure, so something ran no matter what the unit map says: the
-// waiver is deliberately narrower than "terminal with nothing claimed".
+// Pins the two things that decide whether the gate is held: what the payload
+// says there is to tear down, and whether the task's units show a worker ever
+// ran. FAILED with nothing claimed still holds the gate, since a failed task
+// means a worker reported something, unlike CANCELLED with nothing claimed.
 func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-2", Version: 1}
 	const shard = "shard1"
