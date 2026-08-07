@@ -331,10 +331,8 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !matches {
 			continue
 		}
-		// Same wording as the apply-path gate in
-		// [db.ReindexProvider.CheckPropertyUpdate], from the same helper: a
-		// caller that hits this pre-check and a caller that gets past it must
-		// not be told two different things about the same task.
+		// Mirrors [db.ReindexProvider.CheckPropertyUpdate] so pre-check and
+		// apply-path gate agree.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+

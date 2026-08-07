@@ -716,13 +716,8 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 	}
 }
 
-// TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that all three
-// schema gates only tell the operator to cancel while cancel still works.
-// DTM cancels a task while it is STARTED and refuses past that point, so a
-// PREPARING or SWAPPING refusal naming cancel sends the operator at a call
-// that is guaranteed to answer 409. Past STARTED the text must also stop
-// short of promising the wait ends: a node that owned part of the task
-// leaving the cluster wedges it there for good.
+// Pins that all three schema gates only offer cancel while STARTED, and
+// never promise the wait ends past that point.
 func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	provider := &ReindexProvider{}
 

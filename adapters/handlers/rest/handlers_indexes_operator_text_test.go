@@ -72,11 +72,8 @@ func pastCancellationRefusal(t *testing.T) string {
 	return conflict.Payload.Error[0].Message
 }
 
-// The REST pre-check answers the same question as the apply-path gate in
-// [db.ReindexProvider.CheckPropertyUpdate], one hop earlier, and it is the
-// first refusal a caller sees. It must therefore carry the same status-aware
-// remedy: cancel only while the task is STARTED, and no promise that the wait
-// ends once it is past that point.
+// Pins that the REST pre-check offers the same status-aware remedy as
+// [db.ReindexProvider.CheckPropertyUpdate].
 func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T) {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,
