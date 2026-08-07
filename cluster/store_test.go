@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -1641,4 +1644,64 @@ func cmdAsBytes(class string,
 	}
 
 	return data
+}
+
+// TestStoreWaitToRestoreDBIsMutedWhileLoading pins that only one progress
+// reporter speaks at a time. On a restart into a live cluster the reload runs on
+// the Apply catch-up path, so WaitToRestoreDB is still waiting while
+// trackDBLoadProgress reports the same counters.
+func TestStoreWaitToRestoreDBIsMutedWhileLoading(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+	logHook := logrustest.NewLocal(ms.logger)
+	st := ms.store
+	st.cfg.DBLoadProgress = func() *db.StartupProgressSnapshot {
+		return &db.StartupProgressSnapshot{Loaded: 1, Total: 10}
+	}
+
+	countMsg := func(msg string) int {
+		n := 0
+		for _, e := range logHook.AllEntries() {
+			if e.Message == msg {
+				n++
+			}
+		}
+		return n
+	}
+
+	st.dbLoadInProgress.Store(true)
+
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		// lastLog starts at the zero time, so an unmuted waiter logs on tick one.
+		_ = st.WaitToRestoreDB(context.Background(), 10*time.Millisecond, make(chan struct{}))
+	}, ms.logger)
+
+	time.Sleep(200 * time.Millisecond)
+	require.Equal(t, 0, countMsg("waiting for database to be restored"),
+		"the waiter must stay quiet while trackDBLoadProgress is reporting")
+
+	st.dbLoaded.Store(true)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
+	}
+
+	// Muting must not cost it its purpose: with nothing loading it still reports.
+	st.dbLoaded.Store(false)
+	st.dbLoadInProgress.Store(false)
+	done2 := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done2)
+		_ = st.WaitToRestoreDB(context.Background(), 10*time.Millisecond, make(chan struct{}))
+	}, ms.logger)
+
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, func() bool {
+		return countMsg("waiting for database to be restored") > 0
+	}), "with no load in flight the waiter must still report")
+	st.dbLoaded.Store(true)
+	<-done2
 }
