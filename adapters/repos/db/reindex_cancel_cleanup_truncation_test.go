@@ -27,12 +27,16 @@ import (
 // ForEachShard is documented as safe on an index that is dropping or shutting
 // down, and about ten test builders in this package construct an Index with no
 // closeRequestedCtx at all. Asking such an index why it is closing has to
-// answer, and a shutdown is the answer that leaves the shards accounted for.
+// answer, and [errIndexClosed] is the answer that leaves the shards accounted
+// for.
 func TestCloseCauseAnswersAnIndexBuiltWithoutOne(t *testing.T) {
 	tests := []struct {
 		name string
 		// wired builds the index with a closeRequestedCtx, as production does.
 		wired bool
+		// noClosingCtx leaves the other context nil too, which is the shape a
+		// builder that sets neither produces.
+		noClosingCtx bool
 		// cause is signalled on that ctx before the close.
 		cause     error
 		closing   bool
@@ -44,6 +48,10 @@ func TestCloseCauseAnswersAnIndexBuiltWithoutOne(t *testing.T) {
 		},
 		{
 			name: "an open index with no closeRequestedCtx is not closing either",
+		},
+		{
+			name:         "an index with neither context is not closing",
+			noClosingCtx: true,
 		},
 		{
 			name:      "a wired index reports the cause it was closed with",
@@ -73,9 +81,11 @@ func TestCloseCauseAnswersAnIndexBuiltWithoutOne(t *testing.T) {
 			defer closeIndex()
 
 			idx := &Index{
-				Config:     IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
-				closingCtx: closingCtx,
-				logger:     logger,
+				Config: IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				logger: logger,
+			}
+			if !tc.noClosingCtx {
+				idx.closingCtx = closingCtx
 			}
 			if tc.wired {
 				closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
