@@ -61,6 +61,31 @@ type TestHFresh struct {
 	mvStore *muveraTestStore
 }
 
+// waitForMaintenance blocks until all HFresh background queues are drained.
+// Callers must stop issuing foreground writes before calling it.
+func (h *HFresh) waitForMaintenance(t testing.TB) {
+	t.Helper()
+
+	queues := []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue.DiskQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.mergeQueue,
+		h.taskQueue.reassignQueue,
+	}
+
+	for {
+		require.NoError(t, h.taskQueue.Flush())
+		h.scheduler.Schedule(t.Context())
+
+		for _, q := range queues {
+			require.NoError(t, q.Wait(t.Context()))
+		}
+		if h.taskQueue.Size() == 0 {
+			return
+		}
+	}
+}
+
 // testIndexOption mutates the index config before the index is created.
 // The default distance provider is L2; cosine-sensitive behavior (token
 // normalization, cosine-dot semantics) is only exercised when tests opt in

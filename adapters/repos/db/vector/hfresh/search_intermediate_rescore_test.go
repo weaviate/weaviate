@@ -77,6 +77,7 @@ func TestIntermediateRescoreCorrectsRQ1(t *testing.T) {
 	for i := 0; i < nDocs; i++ {
 		addMultiVectorToIndex(t, &tf, uint64(i), randomMultiVector(rng, tokens, dim))
 	}
+	tf.Index.waitForMaintenance(t)
 
 	// rerankBudget = max(k=1, rescoreLimit=1) = 1
 	uc := ent.NewDefaultUserConfig()
