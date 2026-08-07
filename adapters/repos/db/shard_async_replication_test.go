@@ -759,9 +759,9 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 	// Swap in a fresh FSM reader so we control the predicate this cycle reads.
 	fsmMock := replicationTypes.NewMockReplicationFSMReader(t)
 	fsmMock.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	saved := idx.replicationFSMReader
-	idx.replicationFSMReader = fsmMock
-	defer func() { idx.replicationFSMReader = saved }()
+	saved := idx.getReplicationFSMReader()
+	idx.SetReplicationFSMReader(fsmMock)
+	defer func() { idx.SetReplicationFSMReader(saved) }()
 
 	// Resolve the concrete *Shard to invoke runHashbeatCycle directly.
 	concrete, ok := sh.(*Shard)
@@ -783,8 +783,8 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 	t.Run("nil FSM reader is treated as no in-flight ops", func(t *testing.T) {
 		// Tests that never plumb the reader should not have their hashbeat
 		// gated by an absent FSM — they fall through to the normal gate.
-		idx.replicationFSMReader = nil
-		defer func() { idx.replicationFSMReader = fsmMock }()
+		idx.SetReplicationFSMReader(nil)
+		defer func() { idx.SetReplicationFSMReader(fsmMock) }()
 
 		// We don't need to drive a full diff; we just want to confirm we got
 		// past the FSM short-circuit. With no peers configured, the cycle
@@ -816,7 +816,7 @@ func TestRunHashbeatCycleNotReadyIsQuiet(t *testing.T) {
 		func(i *Index) { i.logger = logger },
 	)
 	s := concreteShard(t, sl)
-	idx.replicationFSMReader = nil
+	idx.SetReplicationFSMReader(nil)
 	setShardReplicas(t, idx, "node1", "node2")
 
 	metrics, err := NewMetrics(logger, monitoring.GetMetrics(), class, s.name)

@@ -1648,8 +1648,8 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 	// un-caught-up target running hashbeat would push its stale state back to
 	// the source. (Source-side hashbeat during the same op is left enabled —
 	// LWW makes any source→target push idempotent with the concurrent CCL replay.)
-	if s.index.replicationFSMReader != nil &&
-		s.index.replicationFSMReader.HasActiveTargetReplicationForShard(s.class.Class, s.name, s.index.db.localNodeName) {
+	if r := s.index.getReplicationFSMReader(); r != nil &&
+		r.HasActiveTargetReplicationForShard(s.class.Class, s.name, s.index.db.localNodeName) {
 		return false, nil
 	}
 

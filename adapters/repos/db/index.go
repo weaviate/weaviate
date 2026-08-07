@@ -243,7 +243,9 @@ type Index struct {
 	getSchema    schemaUC.SchemaGetter
 	schemaReader schemaUC.SchemaReader
 
-	replicationFSMReader replicationTypes.ReplicationFSMReader
+	// replicationFSMReader is wired post-construction (migrator/init) while
+	// shards may already run hashbeats — hence atomic, read via getReplicationFSMReader.
+	replicationFSMReader atomic.Pointer[replicationTypes.ReplicationFSMReader]
 	logger               logrus.FieldLogger
 	remote               *sharding.RemoteIndex
 	stopwords            *stopwords.Detector
@@ -1303,8 +1305,8 @@ func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool
 	if i.replicationEnabled() {
 		return true
 	}
-	if i.replicationFSMReader != nil &&
-		i.replicationFSMReader.HasActiveReplicationForShard(i.Config.ClassName.String(), shardName) {
+	if r := i.getReplicationFSMReader(); r != nil &&
+		r.HasActiveReplicationForShard(i.Config.ClassName.String(), shardName) {
 		return true
 	}
 	// if the router is nil, preserve previous behavior by returning false
@@ -1544,7 +1546,15 @@ func (i *Index) asyncReplicationStateForShard(shardName string) (enabled bool, c
 }
 
 func (i *Index) SetReplicationFSMReader(r replicationTypes.ReplicationFSMReader) {
-	i.replicationFSMReader = r
+	i.replicationFSMReader.Store(&r)
+}
+
+// getReplicationFSMReader returns the wired reader, or nil when none is set.
+func (i *Index) getReplicationFSMReader() replicationTypes.ReplicationFSMReader {
+	if p := i.replicationFSMReader.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async
@@ -1581,7 +1591,8 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 	// Nil reader: treat as "no in-flight ops". Mirrors the runHashbeatCycle
 	// guard so tests without an FSM wired (and any future Index-construction
 	// path that doesn't call SetReplicationFSMReader) don't nil-panic.
-	if i.replicationFSMReader == nil {
+	fsmReader := i.getReplicationFSMReader()
+	if fsmReader == nil {
 		return false, nil
 	}
 	var midMovement bool
@@ -1593,7 +1604,7 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 		for shardName := range state.Physical {
 			// Short-circuit on first match: map iteration is randomized, so
 			// without this we'd non-deterministically miss other in-flight shards.
-			if i.replicationFSMReader.HasActiveReplicationForShard(className, shardName) {
+			if fsmReader.HasActiveReplicationForShard(className, shardName) {
 				midMovement = true
 				return nil
 			}
