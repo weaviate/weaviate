@@ -195,10 +195,11 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	// enable→DELETE cycles on the same property, GET /indexes shows a
 	// phantom "indexing(1)" entry for the deleted index, "carrying over
 	// from the previous FINISHED task". mergeReindexStatus's
-	// finalize-window override reclassifies a stale FINISHED task as
-	// "still finalizing" because it only gates on flagOn==false, not on
-	// whether the swap that flipped the flag for THIS task has already
-	// completed and been undone by DELETE.
+	// finalize-window override reclassified a stale FINISHED task as
+	// "still finalizing" because it only gated on flagOn==false, not on
+	// whether the swap that flipped the flag for THIS task had already
+	// completed and been undone by DELETE. The override is gone; FINISHED
+	// produces no synthetic entry at all.
 	t.Run("DeleteThenReEnableIndexingBleed", func(t *testing.T) {
 		testDeleteThenReEnableIndexingBleed(t, restURI)
 	})

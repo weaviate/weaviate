@@ -41,7 +41,21 @@ import (
 // FINISHED the schema must ALREADY report the new tokenization.
 //
 // The window between the units stopping and the flip is reported by the
-// PREPARING and SWAPPING statuses, not by FINISHED.
+// PREPARING and SWAPPING statuses, not by FINISHED. The test also reads
+// `finishedAt` along the way: empty while the migration is in flight,
+// non-zero and sane once FINISHED (weaviate/0-weaviate-issues#501).
+//
+// What one node cannot prove: that the stamp came off the RAFT request
+// rather than the applying node's own clock. Here the proposing node and
+// the applying node are the same machine, so the two are indistinguishable
+// by observation. The wire-vs-local-clock provenance is pinned at the FSM
+// level instead, by TestManager_FinishedAt_StampedAtTheTerminalTransition,
+// which sets the request timestamp an hour off the harness clock.
+//
+// It also reads FINISHED from /v1/tasks (which answers at the leader) and
+// the schema from the local node. Sound only because leader and local are
+// the same node here — promoted to the multi-node suite as written, this
+// would flake on apply lag and blame the Journey 3 wiring for a read split.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 
@@ -87,20 +101,50 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	// accurate. Keep a tight 20ms tick — this test measures the sub-second
 	// lag between FINISHED and the schema flip, so the cadence is
 	// load-bearing.
-	var sawFinishedAt time.Time
+	var (
+		sawFinishedAt time.Time
+		finished      *models.DistributedTask
+		// Recorded rather than asserted inline: testify runs the condition
+		// on its own goroutine, where a failed require would only surface
+		// as a 120s timeout.
+		inFlightWithAFinishTime string
+	)
 	require.Eventually(t, func() bool {
-		status, err := fetchTaskStatus(restURI, taskID)
+		task, err := fetchTask(restURI, taskID)
 		require.NoError(t, err)
-		if status == "FAILED" {
+		if task == nil {
+			return false
+		}
+		if task.Status == "FAILED" {
 			t.Fatalf("task FAILED before reaching FINISHED")
 		}
-		if status == "FINISHED" {
-			sawFinishedAt = time.Now()
-			return true
+		if task.Status != "FINISHED" {
+			if !time.Time(task.FinishedAt).IsZero() && inFlightWithAFinishTime == "" {
+				inFlightWithAFinishTime = fmt.Sprintf("%s carried finishedAt=%v", task.Status, task.FinishedAt)
+			}
+			return false
 		}
-		return false
+		sawFinishedAt = time.Now()
+		finished = task
+		return true
 	}, 120*time.Second, 20*time.Millisecond)
 	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED")
+	require.Empty(t, inFlightWithAFinishTime,
+		"a migration in flight has not ended, so /v1/tasks must report no finish time for it")
+
+	// The stamp must be the terminal transition, not a leftover from an
+	// earlier phase and not a placeholder. Bounded below by the task's own
+	// submit time (same clock, so no skew) and above by the moment we first
+	// saw FINISHED, plus slack for host-vs-container clock drift.
+	finishedAt := time.Time(finished.FinishedAt)
+	require.False(t, finishedAt.IsZero(), "a FINISHED task must carry its finish time")
+	require.False(t, finishedAt.Before(time.Time(finished.StartedAt)),
+		"the task cannot have ended before it was submitted (startedAt=%v, finishedAt=%v)",
+		finished.StartedAt, finishedAt)
+	require.False(t, finishedAt.After(sawFinishedAt.Add(clockSkewSlack)),
+		"finishedAt is in the future relative to the moment FINISHED became visible (%v vs %v)",
+		finishedAt, sawFinishedAt)
+	t.Logf("FINISHED carries finishedAt=%v (submitted at %v)", finishedAt, finished.StartedAt)
 
 	// No polling: the flip is ordered before FINISHED in the RAFT log, so it
 	// is already applied by the time FINISHED is observable. A retry loop here
@@ -120,26 +164,41 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		observedTokenization, sawFinishedAt)
 }
 
+// clockSkewSlack absorbs drift between the test host's clock and the
+// container's. On a Linux host they are the same clock and the slack is
+// unused; under a Docker Desktop VM they can differ by seconds.
+const clockSkewSlack = 2 * time.Minute
+
 // fetchTaskStatus returns the status string for the given reindex task, or
 // the empty string if not present.
 func fetchTaskStatus(restURI, taskID string) (string, error) {
+	task, err := fetchTask(restURI, taskID)
+	if err != nil || task == nil {
+		return "", err
+	}
+	return task.Status, nil
+}
+
+// fetchTask returns the named reindex task as /v1/tasks renders it, or nil if
+// the list does not carry it.
+func fetchTask(restURI, taskID string) (*models.DistributedTask, error) {
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	var tasks models.DistributedTasks
 	if err := json.Unmarshal(body, &tasks); err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, task := range tasks["reindex"] {
 		if task.ID == taskID {
-			return task.Status, nil
+			return &task, nil
 		}
 	}
-	return "", nil
+	return nil, nil
 }
