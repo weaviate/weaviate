@@ -2218,6 +2218,16 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Progress = 1.0
 			surfaceSyntheticFields = true
 		}
+	default:
+		// A status a newer node introduced is live to the backup gate, and the
+		// refusal sends the operator here to poll until every index reads
+		// "ready". Leaving it at "ready" makes that a loop. No progress is
+		// claimed and no synthetic field painted: the phase is exactly what
+		// this build does not know.
+		if db.IsLiveReindexTaskStatus(best.Status) {
+			idx.Status = models.IndexStatusStatusPending
+			idx.Progress = 0
+		}
 	}
 
 	// A matching task that leaves the entry at "ready" answers nothing the
@@ -2311,6 +2321,13 @@ func taskStatusPriority(task *distributedtask.Task) int {
 		distributedtask.TaskStatusFinished:
 		return 1
 	default:
+		// A status a newer node introduced is live to the backup gate, so it
+		// outranks a terminal attempt whose outcome the operator has already
+		// seen. Delegated rather than assumed, so the two predicates cannot
+		// drift apart.
+		if db.IsLiveReindexTaskStatus(task.Status) {
+			return 2
+		}
 		return 0
 	}
 }

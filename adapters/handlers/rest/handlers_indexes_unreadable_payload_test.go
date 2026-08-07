@@ -340,3 +340,50 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 		})
 	}
 }
+
+// A task in a status this build does not know is live to the backup gate
+// ([db.IsLiveReindexTaskStatus]), and the refusal sends the operator to this
+// endpoint to poll until every index reads "ready". Reporting "ready" for it —
+// or preferring an older terminal attempt over it — makes that a loop.
+func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeRepairFilterable,
+		Collection:    "Movies",
+		Properties:    []string{"title"},
+	}
+	unknown := func(t *testing.T) *distributedtask.Task {
+		return buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), payload, nil)
+	}
+	failed := func(t *testing.T) *distributedtask.Task {
+		return buildTask(t, "t-failed", distributedtask.TaskStatusFailed, payload,
+			map[string]*distributedtask.Unit{"u1": {Status: distributedtask.UnitStatusFailed}})
+	}
+
+	tests := []struct {
+		name  string
+		tasks func(t *testing.T) []*distributedtask.Task
+	}{
+		{
+			name:  "on its own",
+			tasks: func(t *testing.T) []*distributedtask.Task { return []*distributedtask.Task{unknown(t)} },
+		},
+		{
+			name: "next to a terminal attempt on the same property",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{failed(t), unknown(t)}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "Movies", "title", "filterable", true,
+				tasksMap(tc.tasks(t)...), time.Hour, nil)
+
+			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
+				"the task still holds this collection at the backup gate")
+			require.Zero(t, idx.Progress, "no progress is readable from a phase this build does not know")
+		})
+	}
+}
