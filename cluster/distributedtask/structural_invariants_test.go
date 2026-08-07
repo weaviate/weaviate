@@ -207,13 +207,17 @@ func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) 
 			"not the pre-existing task (replacement contract)")
 }
 
-// TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskWithNoStamp pins
-// the repair a snapshot carrying a terminal task with no finish time gets:
+// TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp pins the
+// repair a snapshot carrying a terminal task with a wrong finish time gets:
 // stamped with the newest moment the task itself records, identically on every
-// node, and deletable once the TTL has run from there. Without it the task can
-// never age out and the backup overlap backstop refuses every capture of its
-// collection for good. weaviate/0-weaviate-issues#501.
-func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskWithNoStamp(t *testing.T) {
+// node, and deletable once the TTL has run from there.
+//
+// Both broken shapes are covered. A missing stamp never ages out (the TTL has
+// nothing to measure) and the backup overlap backstop refuses every capture of
+// its collection for good. A stamp that is merely early — an older binary
+// stamped when the units stopped, before the swap — lets the same backstop
+// waive a capture that spanned the swap. weaviate/0-weaviate-issues#501.
+func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.T) {
 	nullLogger, _ := logrustest.NewNullLogger()
 	started := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
 	unitsStopped := started.Add(10 * time.Minute)
@@ -294,6 +298,70 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskWithNoStamp(t *te
 
 		require.True(t, restoredTask(t, m).FinishedAt.Equal(unitsStopped),
 			"the stamp must be the last unit to stop, the newest moment on a task with no acks")
+	})
+
+	t.Run("a stamp that is merely early is advanced to the newest moment", func(t *testing.T) {
+		// The common post-upgrade shape: an older binary stamped FinishedAt
+		// when the units stopped, so the stamp predates the swap that ran
+		// after it. Filling only a missing stamp leaves this one early, and
+		// the backup overlap backstop then waives a capture whose window
+		// contained the swap.
+		earlyBytes, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+			"ns": {{
+				Namespace:      "ns",
+				TaskDescriptor: TaskDescriptor{ID: "units-stopped-stamp", Version: 1},
+				Status:         TaskStatusFinished,
+				StartedAt:      started,
+				FinishedAt:     unitsStopped,
+				Units:          map[string]*Unit{"u1": {ID: "u1", Status: UnitStatusCompleted, FinishedAt: unitsStopped}},
+				PostCompletionAcks: map[string]PostCompletionAck{
+					"node-1": {Success: true, AckedAt: lastAck},
+				},
+			}},
+		}})
+		require.NoError(t, err)
+
+		m := NewManager(ManagerParameters{
+			Clock: clockwork.NewFakeClockAt(lastAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
+		})
+		t.Cleanup(m.Close)
+		require.NoError(t, m.Restore(earlyBytes))
+
+		require.True(t, restoredTask(t, m).FinishedAt.Equal(lastAck),
+			"a non-zero but early stamp must be advanced to the last ack, not left at the "+
+				"moment the units stopped")
+	})
+
+	t.Run("a task that failed at the prep barrier takes the stamp from the prep acks", func(t *testing.T) {
+		// PreparationCompletionAcks is the only map a task carries when it
+		// fails at the PREP barrier: it never reaches the swap, so there are
+		// no post-completion acks to fall back on.
+		prepAck := unitsStopped.Add(3 * time.Minute)
+		prepBytes, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+			"ns": {{
+				Namespace:               "ns",
+				TaskDescriptor:          TaskDescriptor{ID: "failed-at-prep", Version: 1},
+				NeedsPreparationBarrier: true,
+				Status:                  TaskStatusFailed,
+				StartedAt:               started,
+				Units:                   map[string]*Unit{"u1": {ID: "u1", Status: UnitStatusCompleted, FinishedAt: unitsStopped}},
+				PreparationCompletionAcks: map[string]PostCompletionAck{
+					"node-1": {Success: true, AckedAt: unitsStopped.Add(time.Minute)},
+					"node-2": {Success: false, Error: "prep failed", AckedAt: prepAck},
+				},
+			}},
+		}})
+		require.NoError(t, err)
+
+		m := NewManager(ManagerParameters{
+			Clock: clockwork.NewFakeClockAt(prepAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
+		})
+		t.Cleanup(m.Close)
+		require.NoError(t, m.Restore(prepBytes))
+
+		require.True(t, restoredTask(t, m).FinishedAt.Equal(prepAck),
+			"the stamp must be the last preparation ack, the newest moment on a task that "+
+				"never reached the swap")
 	})
 
 	t.Run("deletable once the TTL has run from the repaired stamp", func(t *testing.T) {
