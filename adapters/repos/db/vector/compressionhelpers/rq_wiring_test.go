@@ -158,7 +158,7 @@ func TestRQCompressorFactoryDispatch(t *testing.T) {
 
 	newCompressor := func(store *lsmkv.Store, bits int) (compressionhelpers.VectorCompressor, error) {
 		return compressionhelpers.NewRQCompressor(dist, 1e6, logger, store, memwatch.NewDummyMonitor(),
-			lsmkv.MakeNoopBucketOptions, bits, dim, "", nil)
+			lsmkv.MakeNoopBucketOptions, bits, dim, compressionhelpers.RQOptions{}, "", nil)
 	}
 
 	// statsBits extracts the bit width from the stats type the given

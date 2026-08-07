@@ -45,7 +45,7 @@ func TestBatchDistancerMatchesDistanceToNode(t *testing.T) {
 					defer store.Shutdown(context.Background())
 
 					compressor, err := compressionhelpers.NewRQCompressor(metric, 1e6, logger, store,
-						memwatch.NewDummyMonitor(), lsmkv.MakeNoopBucketOptions, bits, dim, "", nil)
+						memwatch.NewDummyMonitor(), lsmkv.MakeNoopBucketOptions, bits, dim, compressionhelpers.RQOptions{}, "", nil)
 					require.NoError(t, err)
 					defer compressor.Drop()
 

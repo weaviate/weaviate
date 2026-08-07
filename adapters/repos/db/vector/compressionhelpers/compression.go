@@ -876,13 +876,14 @@ func NewRQCompressor(
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	bits int,
 	dim int,
+	opts RQOptions,
 	targetVector string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer, err := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		quantizer, err := NewBinaryRotationalQuantizerWithOptions(dim, DefaultFastRotationSeed, distance, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -903,7 +904,10 @@ func NewRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	case 4:
-		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		quantizer, err := NewFourBitRotationalQuantizerWithOptions(dim, DefaultFastRotationSeed, distance, opts)
+		if err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:         quantizer,
 			compressedStore:   store,
@@ -921,7 +925,10 @@ func NewRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	case 8:
-		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
+		quantizer, err := NewRotationalQuantizerWithOptions(dim, DefaultFastRotationSeed, bits, distance, opts)
+		if err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:         quantizer,
 			compressedStore:   store,

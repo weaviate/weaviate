@@ -117,11 +117,19 @@ func (h *hnsw) checkAndCompress() error {
 			h.compressActionLock.Lock()
 			defer h.compressActionLock.Unlock()
 			singleVector := !h.multivector.Load() || h.muvera.Load()
+			rqOpts := compressionhelpers.RQOptions{
+				TruncatedDims: h.rqConfig.TruncatedDims,
+				Mean:          compressionhelpers.BenchRQCenteringMean(),
+			}
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.vectorForID)
+					int(h.rqConfig.Bits), int(h.dims.Load()), rqOpts, h.getTargetVector(), h.vectorForID)
 			} else {
+				if rqOpts.TruncatedDims != 0 || rqOpts.Mean != nil {
+					err = errors.New("rq truncation/centering is not supported for multi-vector indexes")
+					return
+				}
 				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
 					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.multiVectorForNodeID)

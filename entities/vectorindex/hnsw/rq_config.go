@@ -29,6 +29,13 @@ type RQConfig struct {
 	Enabled      bool  `json:"enabled"`
 	Bits         int16 `json:"bits"`
 	RescoreLimit int   `json:"rescoreLimit"`
+
+	// TruncatedDims is a bench-only knob: when non-zero, RQ codes keep only
+	// the first TruncatedDims rotated dimensions. Deliberately excluded from
+	// JSON and from parseRQMap so it cannot be set through any user-facing
+	// config surface; commit-log persistence does not record it, so restart
+	// of a truncated index is unsupported. See compressionhelpers.RQOptions.
+	TruncatedDims int `json:"-"`
 }
 
 func ValidateRQConfig(cfg RQConfig) error {
