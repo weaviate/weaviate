@@ -52,14 +52,7 @@ func newStartupProgressDB(t *testing.T) (db *DB, restoreSchema, loadShards func(
 
 	restoreSchema = func() { sg.sch = restored }
 
-	loadShards = func() {
-		idx := newTestIndex(t, db.logger, "Alpha", nil, map[string]ShardLike{
-			"s1": NewMockShardLike(t),
-		})
-		db.indexLock.Lock()
-		defer db.indexLock.Unlock()
-		db.indices = map[string]*Index{idx.ID(): idx}
-	}
+	loadShards = func() { db.startupShards.eager.Add(1) }
 
 	return db, restoreSchema, loadShards
 }

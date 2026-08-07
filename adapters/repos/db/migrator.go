@@ -207,6 +207,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
+			StartupShards:                                &m.db.startupShards,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
 			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
 			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,

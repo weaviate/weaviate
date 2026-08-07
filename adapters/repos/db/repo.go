@@ -21,8 +21,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/loadlimiter"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -36,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -66,6 +65,7 @@ type DB struct {
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	startupComplete           atomic.Bool
+	startupShards             startupShardCounters
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -220,29 +220,33 @@ func (db *DB) startupClassNames() []string {
 	return names
 }
 
+// startupShardCounters tallies shards as they are stored during startup loading.
+type startupShardCounters struct {
+	eager atomic.Int64
+	lazy  atomic.Int64
+}
+
 // scanStartupProgress computes eager shard-loading progress from scratch for the
 // given classes.
 //
-// total starts from every HOT local shard known to the schema (eager and lazy);
-// lazy shards are then discounted as they are encountered in the index maps,
-// leaving the eager total. Safe to call while the DB is still loading.
+// total starts from every HOT local shard known to the schema (eager and lazy).
+// Both come from initAndStoreShards rather than db.indices, which an
+// Index only reaches once all of its shards have loaded — counting published
+// indices would advance a whole collection at a time, reporting 0% for the
+// entire load of a collection that holds every shard.
 func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 	for _, className := range classNames {
 		total += db.localShardsToLoad(className)
 	}
 
-	for _, idx := range db.copyIndices() {
-		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
-			if _, ok := shard.(*LazyLoadShard); ok {
-				total--
-				return nil
-			}
-			loaded++
-			return nil
-		})
+	// The lazy count is monotonic while total is recomputed from the live schema,
+	// so a class dropped or a tenant deactivated after its shards were counted
+	// can push this below zero.
+	if total -= db.startupShards.lazy.Load(); total < 0 {
+		total = 0
 	}
 
-	return loaded, total
+	return db.startupShards.eager.Load(), total
 }
 
 // localShardsToLoad returns the number of local shards that count toward eager

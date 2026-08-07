@@ -183,6 +183,7 @@ func (db *DB) init(ctx context.Context) error {
 				AsyncReplicationScheduler:                    db.asyncReplicationScheduler,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
+				StartupShards:                                &db.startupShards,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,
 				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
 				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
