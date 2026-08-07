@@ -141,7 +141,9 @@ func TestRefuseIfAnyReindexInFlight_Wording(t *testing.T) {
 			`(poll GET /v1/schema/<class>/indexes until all indexes report status="ready"). `+
 			`While it is still building indexes you can cancel it via `+
 			`PUT /v1/schema/<class>/indexes/<prop> {"<indexType>":{"cancel":true}}; `+
-			`once it has started committing its result it can only be waited out`,
+			`once it has started committing its result it can only be waited out, `+
+			`and if a node that owned part of it left the cluster it never finishes at all — `+
+			`a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal`,
 		err.Error())
 }
 
