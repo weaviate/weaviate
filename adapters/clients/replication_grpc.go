@@ -378,6 +378,9 @@ func (c *grpcReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 		Limit:       int32(limit),
 	})
 	if err != nil {
+		if nrErr := asyncNotReadyGRPCError(err); nrErr != nil {
+			return nil, nrErr
+		}
 		return nil, fmt.Errorf("gRPC DigestObjectsInRange: %w", err)
 	}
 
@@ -401,6 +404,9 @@ func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index,
 	}
 	resp, err := client.CompareDigests(ctx, req)
 	if err != nil {
+		if nrErr := asyncNotReadyGRPCError(err); nrErr != nil {
+			return nil, nrErr
+		}
 		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
 	}
 	return protoToRepairResponses(resp.GetDigests()), nil
@@ -471,6 +477,9 @@ func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, inde
 		Encoding:     encoding,
 	})
 	if err != nil {
+		if nrErr := asyncNotReadyGRPCError(err); nrErr != nil {
+			return nil, nrErr
+		}
 		return nil, fmt.Errorf("gRPC OverwriteObjects: %w", err)
 	}
 
@@ -510,6 +519,17 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 
 // HashTreeLevel fetches hash tree level digests via gRPC. discriminant must
 // be a level-local bitset of size hashtree.LeavesCount(level).
+
+// asyncNotReadyGRPCError maps FailedPrecondition (replica not ready, see
+// replicationErrorToGRPC) and Unavailable (node-level boot gate) to the typed
+// retry-later sentinel for the async replication RPCs; nil for other codes.
+func asyncNotReadyGRPCError(err error) error {
+	if c := status.Code(err); c == codes.FailedPrecondition || c == codes.Unavailable {
+		return fmt.Errorf("%w: %w", replica.ErrAsyncReplicationNotActive, err)
+	}
+	return nil
+}
+
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
 	level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
@@ -545,11 +565,8 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 		Discriminant: discData,
 	})
 	if err != nil {
-		// FailedPrecondition on this RPC only ever means replica-not-ready (see
-		// replicationErrorToGRPC); Unavailable is the node-level boot gate. Both
-		// are typed retry-later signals, not faults.
-		if c := status.Code(err); c == codes.FailedPrecondition || c == codes.Unavailable {
-			return nil, fmt.Errorf("%w: %w", replica.ErrAsyncReplicationNotActive, err)
+		if nrErr := asyncNotReadyGRPCError(err); nrErr != nil {
+			return nil, nrErr
 		}
 		return nil, fmt.Errorf("gRPC HashTreeLevel: %w", err)
 	}

@@ -68,8 +68,9 @@ type fakeGRPCReplicationServer struct {
 	// commitPayload is the JSON payload returned by Commit on success.
 	commitPayload []byte
 
-	// hashTreeLevelErr, when set, is returned verbatim by HashTreeLevel.
-	hashTreeLevelErr error
+	// hashTreeLevelErr/compareDigestsErr, when set, are returned verbatim.
+	hashTreeLevelErr  error
+	compareDigestsErr error
 }
 
 func newFakeGRPCReplicationServer(t *testing.T) *fakeGRPCReplicationServer {
@@ -111,6 +112,13 @@ func (f *fakeGRPCReplicationServer) HashTreeLevel(_ context.Context, _ *pb.HashT
 		return nil, f.hashTreeLevelErr
 	}
 	return &pb.HashTreeLevelResponse{DigestsData: []byte("[]")}, nil
+}
+
+func (f *fakeGRPCReplicationServer) CompareDigests(_ context.Context, _ *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
+	if f.compareDigestsErr != nil {
+		return nil, f.compareDigestsErr
+	}
+	return &pb.CompareDigestsResponse{}, nil
 }
 
 func (f *fakeGRPCReplicationServer) PutObject(_ context.Context, req *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
@@ -825,6 +833,17 @@ func TestGRPCReplicationHashTreeLevelNotReady(t *testing.T) {
 		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
 		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
 			"FailedPrecondition on HashTreeLevel means replica not ready and must map to the typed sentinel")
+	})
+
+	t.Run("CompareDigestsFailedPreconditionMapsToSentinel", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.compareDigestsErr = status.Error(codes.FailedPrecondition, "shard not loaded on this node")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.CompareDigests(ctx, "passthrough:bufnet", "C1", "S1",
+			[]types.RepairResponse{{ID: UUID1.String(), UpdateTime: 1}})
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
 	})
 
 	t.Run("UnavailableMapsToSentinel", func(t *testing.T) {

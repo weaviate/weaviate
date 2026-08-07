@@ -859,6 +859,42 @@ func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {
 	require.False(t, lazy.isLoaded(), "reconcile must not force-load an unloaded shard")
 }
 
+// TestRepairEndpointsDoNotForceLoadUnloadedShard: the async-replication data
+// endpoints must return the typed not-ready error for a cold shard, never load it.
+func TestRepairEndpointsDoNotForceLoadUnloadedShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "RepairEndpointsNoForceLoad"
+
+	_, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	setShardReplicas(t, idx, "node1", "node2")
+
+	const lazyName = "lazy-cold-shard-repair"
+	sl, err := idx.initShard(ctx, lazyName, &models.Class{Class: class}, nil, false, false)
+	require.NoError(t, err)
+	lazy, ok := sl.(*LazyLoadShard)
+	require.True(t, ok, "expected a *LazyLoadShard")
+	require.False(t, lazy.isLoaded(), "precondition: shard must start unloaded")
+	idx.shards.Store(lazyName, sl)
+
+	t.Run("OverwriteObjects", func(t *testing.T) {
+		_, err := idx.OverwriteObjects(ctx, lazyName, []*objects.VObject{{}})
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.False(t, lazy.isLoaded(), "OverwriteObjects must not force-load an unloaded shard")
+	})
+
+	t.Run("CompareDigests", func(t *testing.T) {
+		_, err := idx.CompareDigests(ctx, lazyName, []routerTypes.RepairResponse{{ID: string(uuidLow)}})
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.False(t, lazy.isLoaded(), "CompareDigests must not force-load an unloaded shard")
+	})
+
+	t.Run("DigestObjectsInRange", func(t *testing.T) {
+		_, err := idx.DigestObjectsInRange(ctx, lazyName, uuidLow, uuidHigh, 10)
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.False(t, lazy.isLoaded(), "DigestObjectsInRange must not force-load an unloaded shard")
+	})
+}
+
 // TestDBReconcileAsyncReplicationWalksEveryIndex verifies that
 // DB.ReconcileAsyncReplication visits every index (not just the first) and
 // applies the per-shard decision to each one's loaded shards after a runtime

@@ -684,14 +684,16 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	s, release, err := idx.GetShard(ctx, shard)
+	// Never load from a repair write: a cold replica is activated by real
+	// traffic, not by async replication or read repair.
+	s, release, err := idx.getLoadedShard(shard)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q not found locally", shard)
+		return nil, fmt.Errorf("shard %q: %w", shard, err)
 	}
 
 	defer release()
 	if s == nil {
-		return nil, fmt.Errorf("shard %q not found locally", shard)
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shard)
 	}
 
 	if err := idx.ensureShardLocallyReady(s); err != nil {
@@ -1070,13 +1072,14 @@ func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 func (i *Index) CompareDigests(ctx context.Context,
 	shardName string, sourceDigests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load from async replication's propagation pre-check.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, fmt.Errorf("shard %q is not yet initialized on this node", shardName)
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
 	return shard.CompareDigests(ctx, sourceDigests)

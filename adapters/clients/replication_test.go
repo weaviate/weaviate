@@ -604,6 +604,18 @@ func TestReplicationOverwriteObjects(t *testing.T) {
 	assert.Equal(t, expected[0].ID, resp[0].ID)
 	assert.Equal(t, expected[0].Version, resp[0].Version)
 	assert.Equal(t, expected[0].UpdateTime, resp[0].UpdateTime)
+
+	t.Run("NotReady412MapsToSentinel", func(t *testing.T) {
+		notReady := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "shard \"S1\" not loaded on this node", http.StatusPreconditionFailed)
+		}))
+		defer notReady.Close()
+
+		c := newReplicationClient(t, notReady.Client())
+		_, err := c.OverwriteObjects(context.Background(), notReady.URL[7:], "C1", "S1", input)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"a 412 from a cold replica must map to the typed retry-later sentinel")
+	})
 }
 
 func TestReplicationHashTreeLevel(t *testing.T) {
