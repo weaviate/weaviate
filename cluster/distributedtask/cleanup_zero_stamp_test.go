@@ -13,9 +13,13 @@ package distributedtask
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -138,4 +142,48 @@ func TestScheduler_Sweep_KeepsATerminalTaskWithoutAFinishTime(t *testing.T) {
 
 	tasks := h.listManagerTasks(t)
 	require.Len(t, tasks[h.tasksNamespace], 1)
+}
+
+// The warn the sweep emits for those tasks sits on the path they take on every
+// tick, forever — nothing cleans them up. On the shared scheduler budget that
+// silences the four other sites, one of which reports a task that failed to
+// start.
+func TestScheduler_Sweep_ZeroStampWarnKeepsToItsOwnBudget(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	h := newTestHarness(t)
+	h.logger = logger
+	h.init(t)
+	defer h.Close()
+
+	// More unstamped tasks than the shared budget holds, so a warn drawing on
+	// it would exhaust the budget within one tick.
+	for i := 0; i < 6; i++ {
+		seedTerminalTaskWithoutAStamp(t, h.manager, h.tasksNamespace, fmt.Sprintf("unstamped-%d", i), 7)
+	}
+
+	h.startScheduler(t)
+	for i := 0; i < 3; i++ {
+		h.advanceClock(h.completedTaskTTL)
+	}
+
+	var warns int
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "carry no finish time") {
+			warns++
+		}
+	}
+	require.Equal(t, 1, warns,
+		"the state does not change between ticks, so it must be reported once, not once per "+
+			"task per tick")
+
+	// The four sites that share sampledLogger must still have their full
+	// budget: this is what a warn on the shared budget takes away.
+	hook.Reset()
+	for i := 0; i < 5; i++ {
+		h.scheduler.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+			l.Error("failed to start distributed task")
+		})
+	}
+	require.Len(t, hook.AllEntries(), 5,
+		"the zero-stamp warn spent the budget the scheduler's error sites share")
 }

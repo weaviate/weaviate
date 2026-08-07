@@ -220,6 +220,9 @@ func submissionHandlersForClass(t *testing.T, tasks reindexTaskService, prober n
 
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.On("ReadOnlyClass", collection).Return(class).Maybe()
+	// Any other name is a collection that does not exist, which is how a test
+	// drives the 404 path.
+	reader.On("ReadOnlyClass", mock.Anything).Return(nil).Maybe()
 	reader.On("ResolveAlias", mock.Anything).Return("").Maybe()
 	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
 		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
@@ -261,9 +264,13 @@ func submitReindex(h *indexesHandlers) middleware.Responder {
 }
 
 func submitReindexOn(h *indexesHandlers, ctx context.Context) middleware.Responder {
+	return submitReindexForClass(h, ctx, "Movies")
+}
+
+func submitReindexForClass(h *indexesHandlers, ctx context.Context, collection string) middleware.Responder {
 	return h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
 		HTTPRequest:  httptest.NewRequest("PUT", "/", nil).WithContext(ctx),
-		ClassName:    "Movies",
+		ClassName:    collection,
 		PropertyName: "title",
 		Body: &models.IndexUpdateRequest{
 			Filterable: &models.IndexUpdateFilterable{Rebuild: true},
