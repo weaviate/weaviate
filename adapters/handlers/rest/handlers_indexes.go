@@ -1280,11 +1280,9 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	return "", false
 }
 
-// auditEventCancelAuthorizerUnavailable names both points where the authorizer
-// could not say whether an unattributable task may be cancelled. One name,
-// because whoever the alert wakes has the same fact either way: the authorizer
-// did not answer and the task was left running. The messages differ, so a
-// message-keyed rule can still tell the two apart.
+// auditEventCancelAuthorizerUnavailable tags both points where the authorizer
+// could not answer and an unattributable task was left running. The two log
+// messages differ, so a message-keyed SIEM rule can still separate them.
 const auditEventCancelAuthorizerUnavailable = "reindex_task_cancel_unattributable_authorizer_unavailable"
 
 // cancelReindexTask finds the STARTED reindex task targeting
