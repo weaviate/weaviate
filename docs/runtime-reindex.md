@@ -1209,7 +1209,7 @@ each refuses to start while another is running:
 | Submitted | Refused when | Where |
 | --- | --- | --- |
 | Backup | A live DTM reindex task targets the shard, or a cancelled task is still removing its sidecars | `Index.refuseIfReindexInFlight` |
-| Restore | Any reindex task is live in the cluster, or a cancelled one is still removing sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the three `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and in each participant's `OnCanCommit` |
+| Restore | A reindex task is live on one of the collections being restored, or a cancelled one is still removing that collection's sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the three `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and in each participant's `OnCanCommit` |
 | Reindex | Any node reports a backup or restore slot held | `indexesHandlers.probeBackupActivity`, over `GET /backups/node-activity` |
 
 These rows describe behavior with `RUNTIME_REINDEX_ENABLED=true`. The flag is
@@ -1226,14 +1226,17 @@ survives (`db.DecodeReindexTaskPayload`, consulted by
 
 | What survives | What is refused |
 | --- | --- |
-| The collection, but not the shards (a field a newer node retyped) | Every backup of that one collection |
-| Nothing — no collection either (unparseable, or a collection field a newer node renamed) | Every backup in the cluster |
+| The collection, but not the shards (a field a newer node retyped) | Every backup of that one collection, and every restore that includes it |
+| Nothing — no collection either (unparseable, or a collection field a newer node renamed) | Every backup and every restore in the cluster |
 
 A payload that names no collection is unreadable even when it decodes
 without error: a renamed field leaves an empty collection behind, and
 nothing then says which shards the task holds. The cancel endpoint
 accepts such a task from any collection, which is the operator's remedy
-for the cluster-wide case.
+for the cluster-wide case. Because that cancel reaches a migration on a
+collection the URL does not name, it requires `UPDATE` on every
+collection, not just the one in the URL; a caller without that gets the
+same `NO_OP` it would get if no such task existed.
 
 The commit-time overlap check draws the same two lines through the same
 decoder, so admission and commit cannot disagree about what unreadable
