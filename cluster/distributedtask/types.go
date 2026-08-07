@@ -449,8 +449,8 @@ func (t TaskStatus) IsTerminal() bool {
 // build does not recognize — one a newer node introduced during a rolling
 // upgrade — counts as in-flight. Guessing "not active" would admit a
 // second migration onto a property the newer node is still migrating, and
-// would let the TTL sweep evict a live task (its FinishedAt is zero, so
-// the age check is trivially satisfied).
+// would let the TTL sweep evict a live task, whose FinishedAt is either
+// zero or already in the past — see [Task.FinishedAt].
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -511,14 +511,18 @@ type Task struct {
 	// still lie ahead. A task can therefore sit in SWAPPING for minutes with a
 	// FinishedAt already in the past.
 	//
-	// That is wrong and known to be wrong. Two places already work around it
-	// rather than rely on it: the completed-task TTL sweep skips SWAPPING so a
-	// stale FinishedAt cannot delete a task mid-swap, and the terminal-observer
-	// dispatch takes an explicit occurredAt instead of reading this field.
-	// A third, the backup overlap backstop, does rely on it and is wrong in the
-	// narrow case where a swap runs inside a capture that admission did not
-	// see. Tracked separately; not fixed here because the correct fix is to
-	// change what this field means, which reaches beyond a backup gate.
+	// That is wrong and known to be wrong. Two places work around it rather
+	// than rely on it: completed-task TTL cleanup skips every non-terminal
+	// status on both sides — the scheduler's sweep filter and the FSM guard in
+	// [Manager.CleanUpTask] — so a stale FinishedAt cannot delete a task
+	// mid-swap, and the terminal-observer dispatch takes an explicit occurredAt
+	// instead of reading this field. Two others do rely on it and inherit the
+	// error: the backup overlap backstop is wrong in the narrow case where a
+	// swap runs inside a capture that admission did not see, and the reindex
+	// status handler's finalize window starts ticking when the units stopped
+	// rather than when the swap ended. Tracked separately; not fixed here
+	// because the correct fix is to change what this field means, which
+	// reaches beyond a backup gate.
 	//
 	// Additionally, it is used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`

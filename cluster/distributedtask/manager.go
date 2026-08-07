@@ -372,8 +372,12 @@ func (m *Manager) dispatchLogger() logrus.FieldLogger {
 	return m.logger
 }
 
-// runTerminalObserver looks the observer up fresh so a registration that lands
-// after the event was queued still sees it.
+// runTerminalObserver reads the observer under its own lock instead of carrying
+// one over from the apply path, which would hold the apply lock across observer
+// code. Re-reading also picks the current registration: last write wins, and a
+// namespace re-registered between queueing and running gets the event. The nil
+// check is defensive — an event is only queued while an observer is registered,
+// and registration never installs a nil one.
 func (m *Manager) runTerminalObserver(task *Task) {
 	m.mu.RLock()
 	observer := m.terminalObservers[task.Namespace]
@@ -1076,9 +1080,10 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Every non-terminal status, not just STARTED: PREPARING/SWAPPING and
-	// any status a newer node introduced have a zero FinishedAt, so the TTL
-	// check below cannot stop them being deleted while still in flight.
+	// Every non-terminal status, not just STARTED. PREPARING/SWAPPING carry a
+	// FinishedAt stamped when their units stopped, already in the past while
+	// the swap runs; a status a newer node introduced may carry a zero one.
+	// Either way the TTL check below cannot stop the delete.
 	if task.Status.IsActive() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
