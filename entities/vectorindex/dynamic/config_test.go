@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/common/testinghelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -416,4 +417,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("with null distance", func(t *testing.T) {
+		testinghelpers.AssertNullDistanceRejected(t, func(input map[string]interface{}) error {
+			_, err := ParseAndValidateConfig(input, false)
+			return err
+		})
+	})
 }
