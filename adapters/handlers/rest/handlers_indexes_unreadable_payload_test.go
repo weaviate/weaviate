@@ -83,7 +83,7 @@ func TestIndexStatusSurfacesATaskWhosePayloadWillNotDecode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, tc.collection, "title", "filterable", true,
-				tasksMap(tc.task), time.Hour, nil)
+				tasksMap(tc.task), nil)
 			require.Equal(t, tc.wantStatus, idx.Status,
 				"the status endpoint is the remedy the backup refusal names")
 			require.Zero(t, idx.Progress, "no progress was readable")
@@ -105,8 +105,7 @@ func TestIndexStatusPrefersADecodableTaskOverTheFallback(t *testing.T) {
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 	mergeReindexStatus(idx, "Movies", "title", "filterable", true,
-		tasksMap(live, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)),
-		time.Hour, nil)
+		tasksMap(live, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)), nil)
 
 	require.Equal(t, models.IndexStatusStatusIndexing, idx.Status)
 }
@@ -144,8 +143,7 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "Movies", "title", "filterable", tc.flagOn,
-				tasksMap(tc.matched, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)),
-				time.Hour, nil)
+				tasksMap(tc.matched, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)), nil)
 
 			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
 				"the live unreadable task still holds the collection at the backup gate, and the "+
@@ -389,7 +387,7 @@ func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "Movies", "title", "filterable", true,
-				tasksMap(tc.tasks(t)...), time.Hour, nil)
+				tasksMap(tc.tasks(t)...), nil)
 
 			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
 				"the task still holds this collection at the backup gate")
