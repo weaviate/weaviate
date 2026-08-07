@@ -323,6 +323,8 @@ func triggersOnPullRequest(on *yaml.Node) bool {
 				return true
 			}
 		}
+	case yaml.DocumentNode, yaml.AliasNode:
+		// not a legal shape for an `on:` value; treat as not triggered
 	}
 	return false
 }
