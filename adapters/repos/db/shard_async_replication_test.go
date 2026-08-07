@@ -2170,8 +2170,8 @@ func TestLoadHashtreeRemoveFailure(t *testing.T) {
 	}
 }
 
-// TestLoadHashtreeQuarantinesUndeletableStaleSnapshot: an undeletable stale .ht is renamed out of trust scope instead of failing the load.
-func TestLoadHashtreeQuarantinesUndeletableStaleSnapshot(t *testing.T) {
+// TestLoadHashtreeDemotesUndeletableStaleSnapshot: an undeletable stale .ht is demoted to a stray .tmp instead of failing the load.
+func TestLoadHashtreeDemotesUndeletableStaleSnapshot(t *testing.T) {
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "LoadHashtreeQuarantineTest")
 
@@ -2194,12 +2194,21 @@ func TestLoadHashtreeQuarantinesUndeletableStaleSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded, "the trusted newest snapshot must still load")
 	require.Empty(t, htFilesInDir(t, dir), "no trust-loadable .ht may remain")
-	_, statErr := os.Stat(stale + hashtreeQuarantineSuffix)
-	require.NoError(t, statErr, "the undeletable stale file must be quarantined by rename")
+	_, statErr := os.Stat(stale + ".tmp")
+	require.NoError(t, statErr, "the undeletable stale file must be demoted to a stray .tmp")
+
+	// The demoted .tmp is re-swept on the next load: reclaimed once removable.
+	prevSeam := removeHashtreeFile
+	removeHashtreeFile = os.Remove
+	t.Cleanup(func() { removeHashtreeFile = prevSeam })
+	_, err = s.tryLoadHashtreeFromDisk(height)
+	require.NoError(t, err)
+	_, statErr = os.Stat(stale + ".tmp")
+	require.True(t, os.IsNotExist(statErr), "the demoted file must be reclaimed once removable")
 }
 
-// TestLoadHashtreeQuarantineRenameFailureIsFatal: when neither delete nor quarantine can neutralize a stale .ht, the load must keep failing.
-func TestLoadHashtreeQuarantineRenameFailureIsFatal(t *testing.T) {
+// TestLoadHashtreeDemoteRenameFailureIsFatal: when neither delete nor demote can neutralize a stale .ht, the load must keep failing.
+func TestLoadHashtreeDemoteRenameFailureIsFatal(t *testing.T) {
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "LoadHashtreeQuarantineFatalTest")
 
@@ -2209,7 +2218,7 @@ func TestLoadHashtreeQuarantineRenameFailureIsFatal(t *testing.T) {
 	newest := filepath.Join(dir, "hashtree-00000000000000ff.ht")
 	require.NoError(t, os.WriteFile(stale, []byte("junk"), 0o600))
 	require.NoError(t, os.WriteFile(newest, []byte("junk"), 0o600))
-	require.NoError(t, os.Mkdir(stale+hashtreeQuarantineSuffix, 0o755))
+	require.NoError(t, os.Mkdir(stale+".tmp", 0o755))
 
 	prev := removeHashtreeFile
 	removeHashtreeFile = func(name string) error {
@@ -2221,25 +2230,7 @@ func TestLoadHashtreeQuarantineRenameFailureIsFatal(t *testing.T) {
 	t.Cleanup(func() { removeHashtreeFile = prev })
 
 	_, err := s.tryLoadHashtreeFromDisk(16)
-	require.ErrorContains(t, err, "quarantine rename failed")
-}
-
-// TestLoadHashtreeIgnoresQuarantinedFiles: quarantined files are outside trust scope and survive the load untouched.
-func TestLoadHashtreeIgnoresQuarantinedFiles(t *testing.T) {
-	ctx := context.Background()
-	_, s := newAsyncTestShard(t, ctx, "LoadHashtreeIgnoresQuarantineTest")
-
-	validPayload, height, dir := plantableSnapshot(t, ctx, s)
-	quarantined := filepath.Join(dir, "hashtree-0000000000000001.ht"+hashtreeQuarantineSuffix)
-	newest := filepath.Join(dir, "hashtree-00000000000000ff.ht")
-	require.NoError(t, os.WriteFile(quarantined, []byte("junk"), 0o600))
-	require.NoError(t, os.WriteFile(newest, validPayload, 0o600))
-
-	loaded, err := s.tryLoadHashtreeFromDisk(height)
-	require.NoError(t, err)
-	require.NotNil(t, loaded, "the valid newest .ht must load despite the quarantined neighbour")
-	_, statErr := os.Stat(quarantined)
-	require.NoError(t, statErr, "quarantined files must survive the load untouched")
+	require.ErrorContains(t, err, "demoting rename failed")
 }
 
 // TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes pins: a drain-window conflict-delete reaches the store but not the dumped tree.

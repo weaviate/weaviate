@@ -30,7 +30,7 @@ const (
 	markerNotReadySkip   = "hashbeat iteration skipped: target replica not ready"
 	markerHeightMismatch = "cached hashtree height mismatch"
 	markerDeserializeErr = "deserializing hashtree file"
-	markerQuarantined    = "quarantined undeletable stale hashtree file"
+	markerDemoted        = "demoted undeletable stale hashtree file"
 	markerPanic          = "Recovered from panic:"
 	markerDataRace       = "WARNING: DATA RACE"
 )

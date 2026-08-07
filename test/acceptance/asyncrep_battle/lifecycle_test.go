@@ -193,7 +193,7 @@ func TestBattleLifecycle(t *testing.T) {
 		})
 
 		for n := 1; n <= 3; n++ {
-			require.Zero(t, countMarker(nodeLogs(ctx, t, compose, n), markerQuarantined, ""), "no quarantine expected in any lifecycle scenario")
+			require.Zero(t, countMarker(nodeLogs(ctx, t, compose, n), markerDemoted, ""), "no snapshot demotion expected in any lifecycle scenario")
 		}
 		requireConverged(ctx, t, compose, class, 5000, p.convergeTimeout)
 	})

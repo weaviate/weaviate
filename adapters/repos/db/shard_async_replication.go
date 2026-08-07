@@ -584,10 +584,6 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	return nil
 }
 
-// hashtreeQuarantineSuffix moves an undeletable stale .ht out of trust scope; quarantined files are ignored by load and scrub and never reaped.
-// Not .deleteme: that suffix promises boot-time reaping, which never descends to this depth.
-const hashtreeQuarantineSuffix = ".quarantine"
-
 // removeHashtreeFile is a test seam: per-file unremovability has no portable filesystem simulation.
 var removeHashtreeFile = os.Remove
 
@@ -684,13 +680,15 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		if attemptedNewest || ext != ".ht" {
 			removed, err := s.removeSnapshotFile(filename, ext)
 			if err != nil {
-				// Quarantine instead of failing shard init: a renamed file is outside
-				// trust scope. Only an un-neutralizable stale .ht still fails the load.
-				quarantined := filename + hashtreeQuarantineSuffix
-				if renameErr := os.Rename(filename, quarantined); renameErr != nil {
-					return nil, fmt.Errorf("deleting stale hashtree file %q: %w (quarantine rename failed: %w)", filename, err, renameErr)
+				// Demote to a stray .tmp instead of failing shard init: .tmp is
+				// outside trust scope and re-swept (warn-only) on every later load,
+				// so a transiently undeletable file self-heals. Only an
+				// un-neutralizable stale .ht still fails the load.
+				demoted := filename + ".tmp"
+				if renameErr := os.Rename(filename, demoted); renameErr != nil {
+					return nil, fmt.Errorf("deleting stale hashtree file %q: %w (demoting rename failed: %w)", filename, err, renameErr)
 				}
-				logger.Warnf("quarantined undeletable stale hashtree file as %q: %v", quarantined, err)
+				logger.Warnf("demoted undeletable stale hashtree file to %q: %v", demoted, err)
 				removedAny = true
 				continue
 			}
