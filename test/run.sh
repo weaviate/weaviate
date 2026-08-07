@@ -58,7 +58,9 @@ function main() {
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
-  run_acceptance_reindex_backup=false
+  run_acceptance_reindex_backup_suite=false
+  run_acceptance_reindex_backup_a=false
+  run_acceptance_reindex_backup_b=false
   run_acceptance_reindex_backup_cluster=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -117,7 +119,9 @@ function main() {
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
-          --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --acceptance-reindex-backup-suite|-arbs) run_all_tests=false; run_acceptance_reindex_backup_suite=true;;
+          --acceptance-reindex-backup-a|-arba) run_all_tests=false; run_acceptance_reindex_backup_a=true;;
+          --acceptance-reindex-backup-b|-arbb) run_all_tests=false; run_acceptance_reindex_backup_b=true;;
           --acceptance-reindex-backup-cluster|-arbc) run_all_tests=false; run_acceptance_reindex_backup_cluster=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -166,7 +170,9 @@ function main() {
               "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
-              "--acceptance-reindex-backup | -arb"\
+              "--acceptance-reindex-backup-suite | -arbs"\
+              "--acceptance-reindex-backup-a | -arba"\
+              "--acceptance-reindex-backup-b | -arbb"\
               "--acceptance-reindex-backup-cluster | -arbc"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
@@ -410,9 +416,19 @@ function main() {
     run_acceptance_reindex_mt
   fi
 
-  if $run_acceptance_reindex_backup; then
-    echo "running backup × runtime-reindex acceptance tests (single-node)"
-    run_acceptance_reindex_backup
+  if $run_acceptance_reindex_backup_suite; then
+    echo "running backup × runtime-reindex acceptance tests (single-node suite)"
+    run_acceptance_reindex_backup_suite
+  fi
+
+  if $run_acceptance_reindex_backup_a; then
+    echo "running backup × runtime-reindex acceptance tests (single-node guards A)"
+    run_acceptance_reindex_backup_a
+  fi
+
+  if $run_acceptance_reindex_backup_b; then
+    echo "running backup × runtime-reindex acceptance tests (single-node guards B)"
+    run_acceptance_reindex_backup_b
   fi
 
   if $run_acceptance_reindex_backup_cluster; then
@@ -1023,40 +1039,63 @@ function run_acceptance_reindex_mt() {
     test/acceptance/reindex_mt
 }
 
-function run_acceptance_reindex_backup() {
+# The single-node half of test/acceptance/reindex_backup is spread over the
+# three groups below. Every filter matches by exact name; a typo runs zero
+# tests and still reports green, which is what
+# TestCIAllowlistCoversEveryTestInThisPackage exists to catch (it has to be
+# listed itself to be able to run).
+#
+# Each group's budget is the sum of the deadlines its own tests wait on, which
+# is why they differ. The per-test worst cases:
+#
+#   TestBackupVsReindexSuite                  ~35m over 9 sequential subtests
+#   TestReindexRefusedWhileRestoreRuns         20m (three 5m waits + 60s + 60s + 180s)
+#   TestReindexBlockClearsAfterNodeCrash       18m (two 5m probes + a restart)
+#   TestReindexRefusedWhileBackupRuns        ~14m (two 5m waits + 30s + 60s + 180s)
+#   TestRestoreRefusedDuringInFlightReindex    ~6m (3m backup + 2m restore + 30s)
+#
+# Those sum to ~93m, against a 45m job window that also has to fit the ~5m
+# image build. One group cannot cover that, and a budget shorter than the sum
+# lets the runner kill the job before go test can panic with stacks. Splitting
+# is the only way to keep every group's budget above its own worst case:
+# 35m + 26m + 32m all fit under 45m − 5m, and the split is balanced so no
+# group sits near the ceiling. TestCIGroupTimeoutFitsTheJobWindow pins each
+# budget against the window of the job that runs it.
+
+function run_acceptance_reindex_backup_suite() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-backup (single-node)"
-  # The package's multi-node test runs separately in -backup-cluster (below);
-  # it alone can eat the whole budget this group shares. Filter matches by
-  # exact name: a typo here silently runs zero tests.
-  # TestCIAllowlistCoversEveryTestInThisPackage guards these two lists against
-  # the silent-skip described above; it has to be listed to be able to run.
-  # 35m, not the 20m default. It is a cap, not the sum: adding up every
-  # deadline these tests wait on gives about 93m, before any container startup
-  #
-  #   TestBackupVsReindexSuite                  ~35m over 9 sequential subtests
-  #   TestReindexRefusedWhileRestoreRuns         20m (three 5m waits + 60s + 60s + 180s)
-  #   TestReindexBlockClearsAfterNodeCrash       18m (two 5m probes + a restart)
-  #   TestReindexRefusedWhileBackupRuns        ~14m (two 5m waits + 30s + 60s + 180s)
-  #   TestRestoreRefusedDuringInFlightReindex   ~6m (3m backup + 2m restore + 30s)
-  #
-  # 93m does not fit the job's 45m window, so no budget can both cover the sum
-  # and leave the image build room inside it. 35m is the largest that does fit
-  # (see TestCIGroupTimeoutFitsTheJobWindow, which pins the two against each
-  # other). Typical runs finish in seconds, so the sum is reached only if
-  # several tests hang at once — and then the budget fires first and panics
-  # with stacks, which is the outcome worth having. If it ever fires on a real
-  # run rather than a hang, split the group instead of raising this: the suite
-  # alone is ~35m of deadlines and belongs in its own matrix entry.
+  echo_green "acceptance — reindex-backup-suite (single-node, TestBackupVsReindexSuite)"
+  # 35m of deadlines in one test, so it gets the entry to itself.
   AOF_GROUP_TIMEOUT=35m \
-    AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexRefusedWhileRestoreRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow)$' \
-    run_aof_group "reindex-backup" test/acceptance/reindex_backup
+    AOF_GROUP_RUN='^TestBackupVsReindexSuite$' \
+    run_aof_group "reindex-backup-suite" test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_a() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup-a (single-node restore guards)"
+  # 20m + 6m = 26m, plus the three CI guards, which cost a package build and
+  # a `go test -list` rather than a container. They ride in the shortest
+  # group so their compile time has the most room.
+  AOF_GROUP_TIMEOUT=27m \
+    AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow)$' \
+    run_aof_group "reindex-backup-a" test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_b() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup-b (single-node backup guards)"
+  # 18m + 14m = 32m. Both tests share proveReindexBlockedDuringBackup and its
+  # 5m probe, so pairing them keeps that setup's worst case in one group.
+  AOF_GROUP_TIMEOUT=32m \
+    AOF_GROUP_RUN='^(TestReindexBlockClearsAfterNodeCrash|TestReindexRefusedWhileBackupRuns)$' \
+    run_aof_group "reindex-backup-b" test/acceptance/reindex_backup
 }
 
 function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
-  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. See the sibling
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. See the siblings
   # above for why it gets its own budget. Its deadlines sum to about 26m (two
   # 10m backup waits plus six 60s cluster and reindex waits), so unlike the
   # sibling this budget does cover the worst case.
