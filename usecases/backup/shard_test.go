@@ -96,6 +96,83 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 	}
 }
 
+// TestBackupStatSetIfOwned pins that setIfOwned writes only to a slot the given
+// id still holds and never over a slot that already reached Cancelled: a second
+// cancel arriving after the first stamped the terminal state would otherwise
+// re-open it.
+func TestBackupStatSetIfOwned(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		claimedID  string
+		status     backup.Status
+		setID      string
+		setStatus  backup.Status
+		wantOK     bool
+		wantStatus backup.Status
+	}{
+		{
+			name:       "live op under the id being written",
+			claimedID:  "op-1",
+			status:     backup.Transferring,
+			setID:      "op-1",
+			setStatus:  backup.Cancelling,
+			wantOK:     true,
+			wantStatus: backup.Cancelling,
+		},
+		{
+			name:       "op mid-cancel under the id being written",
+			claimedID:  "op-1",
+			status:     backup.Cancelling,
+			setID:      "op-1",
+			setStatus:  backup.Cancelled,
+			wantOK:     true,
+			wantStatus: backup.Cancelled,
+		},
+		{
+			name:       "second cancel re-stamping an already cancelled op",
+			claimedID:  "op-1",
+			status:     backup.Cancelled,
+			setID:      "op-1",
+			setStatus:  backup.Cancelling,
+			wantOK:     false,
+			wantStatus: backup.Cancelled,
+		},
+		{
+			name:       "live op under a different id",
+			claimedID:  "op-2",
+			status:     backup.Transferring,
+			setID:      "op-1",
+			setStatus:  backup.Cancelling,
+			wantOK:     false,
+			wantStatus: backup.Transferring,
+		},
+		{
+			name:       "slot is free",
+			claimedID:  "",
+			setID:      "op-1",
+			setStatus:  backup.Cancelling,
+			wantOK:     false,
+			wantStatus: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s backupStat
+			if tc.claimedID != "" {
+				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
+				s.set(tc.status)
+			}
+
+			require.Equal(t, tc.wantOK, s.setIfOwned(tc.setID, tc.setStatus))
+			require.Equal(t, tc.wantStatus, s.get().Status)
+		})
+	}
+}
+
 // TestBackupStatResetIfCancelledLeavesNewOwnerIntact pins that a losing
 // resetIfCancelled leaves every field of the current claim untouched.
 func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
