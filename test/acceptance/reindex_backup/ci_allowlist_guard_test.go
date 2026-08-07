@@ -85,9 +85,18 @@ func allowlistedTests(t *testing.T, runSh string) map[string]string {
 	return allowed
 }
 
-// testWorstCases reads run.sh's per-test AOF_TEST_BUDGET lines, the sums the
-// group budgets are derived from. They live in run.sh so the derivation and the
-// budget it produces cannot drift apart in separate files.
+// testWorstCases reads run.sh's per-test AOF_TEST_BUDGET lines, which are the
+// sums the group budgets are derived from. They live in run.sh so the
+// derivation and the budget it produces cannot drift apart in separate files.
+//
+// The lines are hand-written. Nothing here reads a deadline out of the test
+// source, so raising a helper.WithDeadline in a test file without editing that
+// test's AOF_TEST_BUDGET line moves the real floor above the budget and leaves
+// every guard in this file green. That rot is accepted: what it costs is CI
+// triage, not correctness. go test still panics with stacks inside the job
+// window, the failure just reads as a product hang rather than as a budget too
+// small. Closing it means every wait in this package referencing a per-test
+// constant this guard can sum.
 func testWorstCases(t *testing.T, runSh string) map[string]int {
 	t.Helper()
 
@@ -186,6 +195,17 @@ func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 		"these names in run.sh's allowlists match no test in %s, so that filter silently runs "+
 			"fewer tests than it reads as covering: %s",
 		runShPackagePath, strings.Join(stale, ", "))
+
+	var staleBudgets []string
+	for name := range testWorstCases(t, string(runSh)) {
+		if _, ok := declaredSet[name]; !ok {
+			staleBudgets = append(staleBudgets, name)
+		}
+	}
+	require.Emptyf(t, staleBudgets,
+		"these AOF_TEST_BUDGET lines in run.sh name no test in %s, so a group budget is being "+
+			"read against a worst case nothing spends: %s",
+		runShPackagePath, strings.Join(staleBudgets, ", "))
 }
 
 // Pins the chain the guard above doesn't check: filter -> run.sh function ->
@@ -221,8 +241,8 @@ func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 	}
 }
 
-// TestCIGroupTimeoutFitsTheJobWindow pins each budget between the two numbers
-// it sits between: the deadlines its own tests wait on, and the window the
+// TestCIGroupTimeoutFitsTheJobWindow checks each budget against the two numbers
+// that bound it: the deadlines its own tests wait on, and the window the
 // workflow gives the job. Go's -timeout is what turns a hang into a panic with
 // stacks, and it produces that only if it fires before the runner kills the
 // job and after the tests have had the time they ask for.
