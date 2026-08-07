@@ -283,10 +283,15 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 		tasks func(t *testing.T) []*distributedtask.Task
 		// authorizer is nil for a caller with every grant.
 		authorizer authorization.Authorizer
+		// principal is nil for a caller confined to no namespace.
+		principal *models.Principal
 		// wantCancelledID is empty when nothing may be cancelled in DTM.
 		wantCancelledID string
-		wantStatus      string
-		wantConflict    bool
+		// wantTaskID is the id the response hands back — the operator's only
+		// handle on a task they now have to watch finish.
+		wantTaskID   string
+		wantStatus   string
+		wantConflict bool
 	}{
 		{
 			name: "the only live task names no collection",
@@ -294,6 +299,7 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusStarted)}
 			},
 			wantCancelledID: "orphan",
+			wantTaskID:      "orphan",
 			wantStatus:      "CANCELLED",
 		},
 		{
@@ -305,6 +311,7 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 				}
 			},
 			wantCancelledID: "t-decodable",
+			wantTaskID:      "t-decodable",
 			wantStatus:      "CANCELLED",
 		},
 		{
@@ -316,6 +323,7 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 				}
 			},
 			wantCancelledID: "t-named",
+			wantTaskID:      "t-named",
 			wantStatus:      "CANCELLED",
 		},
 		{
@@ -324,6 +332,7 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 				return []*distributedtask.Task{renamedFieldTask(t, "renamed", distributedtask.TaskStatusStarted)}
 			},
 			wantCancelledID: "renamed",
+			wantTaskID:      "renamed",
 			wantStatus:      "CANCELLED",
 		},
 		{
@@ -335,6 +344,7 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 				}
 			},
 			wantCancelledID: "t-decodable",
+			wantTaskID:      "t-decodable",
 			wantStatus:      "CANCELLED",
 		},
 		{
@@ -371,6 +381,24 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			wantStatus: reindexCancelStatusNoOp,
 		},
 		{
+			// The id is the caller's handle on the cancel, and a namespaced
+			// caller has never seen their own prefix on anything.
+			name: "a namespaced caller gets their own prefix stripped off the id",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					buildTask(t, "acme:t-namespaced", distributedtask.TaskStatusStarted, db.ReindexTaskPayload{
+						MigrationType: db.ReindexTypeRepairFilterable,
+						Collection:    collection,
+						Properties:    []string{"title"},
+					}, nil),
+				}
+			},
+			principal:       &models.Principal{Username: "u1", Namespace: "acme"},
+			wantCancelledID: "acme:t-namespaced",
+			wantTaskID:      "t-namespaced",
+			wantStatus:      "CANCELLED",
+		},
+		{
 			name: "the same caller still cancels the decodable task next to it",
 			tasks: func(t *testing.T) []*distributedtask.Task {
 				return []*distributedtask.Task{
@@ -380,6 +408,7 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			},
 			authorizer:      grantUpdateOn(collection),
 			wantCancelledID: "t-decodable",
+			wantTaskID:      "t-decodable",
 			wantStatus:      "CANCELLED",
 		},
 	}
@@ -395,8 +424,11 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
 				func() int { return 1 }, context.Background()))
 
-			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
-				&models.Principal{Username: "u1"})
+			principal := tc.principal
+			if principal == nil {
+				principal = &models.Principal{Username: "u1"}
+			}
+			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable", principal)
 
 			if tc.wantConflict {
 				require.IsTypef(t, &schema.SchemaObjectsIndexesUpdateConflict{}, responder,
@@ -419,6 +451,9 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			require.Len(t, svc.cancelled, 1)
 			require.Equal(t, tc.wantCancelledID, svc.cancelled[0].ID,
 				"the task holding the gate is the one that must be cancelled")
+			require.Equal(t, tc.wantTaskID, accepted.Payload.TaskID,
+				"the caller has to get the id back, stripped of their own namespace, "+
+					"or they cannot poll the cancel they just asked for")
 		})
 	}
 }

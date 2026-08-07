@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -74,13 +75,16 @@ func (a *scopedAuthorizer) FilterAuthorizedResources(ctx context.Context, princi
 	return allowed, nil
 }
 
-// auditingAuthorizer records denials the way the RBAC authorizer does: the
-// auditing entry point files an ERROR-level "authorization denied", the silent
-// one files nothing. Which of the two a call site picks is visible only here.
+// auditingAuthorizer records the way the RBAC authorizer does: the auditing
+// entry point files an ERROR-level "authorization denied" for a refusal and one
+// grant record for an allow, the silent one files neither. Which of the two a
+// call site picks is visible only here.
 type auditingAuthorizer struct {
 	*scopedAuthorizer
 	logger logrus.FieldLogger
 }
+
+const auditGranted = "authorization granted"
 
 func (a auditingAuthorizer) Authorize(ctx context.Context, principal *models.Principal,
 	verb string, resources ...string,
@@ -88,46 +92,130 @@ func (a auditingAuthorizer) Authorize(ctx context.Context, principal *models.Pri
 	err := a.scopedAuthorizer.Authorize(ctx, principal, verb, resources...)
 	if err != nil {
 		a.logger.WithField("resource", resources).Error("authorization denied")
+		return err
 	}
-	return err
+	a.logger.WithFields(logrus.Fields{"verb": verb, "resource": resources}).Info(auditGranted)
+	return nil
+}
+
+// outageAuthorizer cannot answer at all. Its error is not a Forbidden, so the
+// caller's grant is unknown rather than absent — the one case where refusing
+// tells the operator nothing about the caller.
+type outageAuthorizer struct{}
+
+var errAuthorizerUnavailable = errors.New("policy store unreachable")
+
+func (outageAuthorizer) Authorize(context.Context, *models.Principal, string, ...string) error {
+	return errAuthorizerUnavailable
+}
+
+func (outageAuthorizer) AuthorizeSilent(context.Context, *models.Principal, string, ...string) error {
+	return errAuthorizerUnavailable
+}
+
+func (outageAuthorizer) FilterAuthorizedResources(context.Context, *models.Principal, string,
+	...string,
+) ([]string, error) {
+	return nil, errAuthorizerUnavailable
 }
 
 // The cluster-wide check on the unattributable-task pass is a capability probe,
 // not something the caller asked for: an ordinary single-collection cancel that
-// merely coincides with such a task is answered 202 and must not leave a
-// security-alert-shaped record behind for a request that succeeded.
-func TestCancelCapabilityProbeFilesNoAuthorizationDenial(t *testing.T) {
+// merely coincides with such a task is answered 202 and must not leave an
+// ERROR-level "authorization denied" behind for a request that succeeded. The
+// grant is the opposite case — it is the one privileged act this pass gates, so
+// it has to be attributable.
+func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 	const (
 		collection = "Movies"
 		foreignID  = "Reviews:change_tokenization:body:ab3f"
 	)
 
-	svc := &raceTaskService{tasks: []*distributedtask.Task{
-		unattributableTask(foreignID, distributedtask.TaskStatusStarted),
-	}}
-	var busy atomic.Bool
-	h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-
-	logger, hook := logrustest.NewNullLogger()
-	h.appState.Logger = logger
-	h.appState.Authorizer = auditingAuthorizer{scopedAuthorizer: grantUpdateOn(collection), logger: logger}
-	h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
-		func() int { return 1 }, context.Background()))
-
-	responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
-		&models.Principal{Username: "u1"})
-
-	accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
-	require.Truef(t, ok, "cancel must be accepted, got %T", responder)
-	require.Equal(t, reindexCancelStatusNoOp, accepted.Payload.Status)
-
-	for _, entry := range hook.AllEntries() {
-		require.NotEqualf(t, logrus.ErrorLevel, entry.Level,
-			"a request answered %q must not file an error-level audit record: %q",
-			accepted.Payload.Status, entry.Message)
+	tests := []struct {
+		name       string
+		authorizer func(logger logrus.FieldLogger) authorization.Authorizer
+		wantStatus string
+		// wantCancelled is the task the handler must have cancelled in DTM.
+		wantCancelled string
+		wantErrorLog  bool
+		wantGrantLog  bool
+		wantAuditity  string
+	}{
+		{
+			name: "a caller holding only this collection is denied without an alert",
+			authorizer: func(logger logrus.FieldLogger) authorization.Authorizer {
+				return auditingAuthorizer{scopedAuthorizer: grantUpdateOn(collection), logger: logger}
+			},
+			wantStatus:   reindexCancelStatusNoOp,
+			wantAuditity: "reindex_task_cancel_unattributable_denied",
+		},
+		{
+			name: "a cluster-privileged caller cancels it, and the grant is on the record",
+			authorizer: func(logger logrus.FieldLogger) authorization.Authorizer {
+				// No classes named: the cluster-wide resource the probe asks
+				// for, which is what UPDATE on every collection looks like.
+				return auditingAuthorizer{scopedAuthorizer: grantUpdateOn(), logger: logger}
+			},
+			wantStatus:    "CANCELLED",
+			wantCancelled: foreignID,
+			wantGrantLog:  true,
+			wantAuditity:  "reindex_task_cancel_unattributable_payload",
+		},
+		{
+			name: "an authorizer that cannot answer leaves the task running, loudly",
+			authorizer: func(logrus.FieldLogger) authorization.Authorizer {
+				return outageAuthorizer{}
+			},
+			wantStatus:   reindexCancelStatusNoOp,
+			wantErrorLog: true,
+			wantAuditity: "reindex_task_cancel_unattributable_authorizer_unavailable",
+		},
 	}
-	require.Contains(t, entryMessages(hook), "reindex_task_cancel_unattributable_denied",
-		"the handler still has to record the denial itself, at its own level")
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &raceTaskService{tasks: []*distributedtask.Task{
+				unattributableTask(foreignID, distributedtask.TaskStatusStarted),
+			}}
+			var busy atomic.Bool
+			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+
+			logger, hook := logrustest.NewNullLogger()
+			h.appState.Logger = logger
+			h.appState.Authorizer = tc.authorizer(logger)
+			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
+				func() int { return 1 }, context.Background()))
+
+			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
+				&models.Principal{Username: "u1"})
+
+			accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+			require.Truef(t, ok, "cancel must be accepted, got %T", responder)
+			require.Equal(t, tc.wantStatus, accepted.Payload.Status)
+
+			if tc.wantCancelled == "" {
+				require.Empty(t, svc.cancelled, "the task must be left running")
+			} else {
+				require.Len(t, svc.cancelled, 1)
+				require.Equal(t, tc.wantCancelled, svc.cancelled[0].ID)
+			}
+
+			var errorLevel bool
+			for _, entry := range hook.AllEntries() {
+				errorLevel = errorLevel || entry.Level == logrus.ErrorLevel
+			}
+			require.Equalf(t, tc.wantErrorLog, errorLevel,
+				"an error-level record is a page for a human; entries were %q", entryMessages(hook))
+
+			grantLogged := strings.Contains(entryMessages(hook), auditGranted)
+			require.Equalf(t, tc.wantGrantLog, grantLogged,
+				"the audit stream has to carry the grant that let this cancel through, and nothing else; "+
+					"entries were %q", entryMessages(hook))
+
+			require.Contains(t, entryMessages(hook), tc.wantAuditity,
+				"each outcome needs its own event name, or a SIEM rule counts two different facts as one")
+		})
+	}
 }
 
 // entryMessages joins each entry's message with its audit_event field, so a
