@@ -1062,6 +1062,13 @@ function run_acceptance_reindex_mt() {
 #   AOF_TEST_BUDGET TestCIWorkflowInvokesEveryGroupThatRunsThisPackage 0m   no deadline
 #   AOF_TEST_BUDGET TestCIGroupTimeoutFitsTheJobWindow 0m   no deadline
 #
+# That sum is a floor, not a target. reindex-backup-suite and reindex-backup-b
+# are budgeted at exactly theirs, so testcontainer startup and -race overhead
+# come out of the slack the deadlines themselves carry rather than out of a
+# separate allowance. That is deliberate: a group needing longer than every
+# deadline it waits on has a test that overran its own declared worst case, and
+# the go-test timeout firing on it is the panic-with-stacks this budget is for.
+#
 # Those sum to ~119m against a 45m job window that also has to fit the ~5m
 # image build, which is why the package is split over four entries rather than
 # run under one budget.
@@ -1069,7 +1076,7 @@ function run_acceptance_reindex_mt() {
 function run_acceptance_reindex_backup_suite() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-suite (single-node, TestBackupVsReindexSuite)"
-  # 35m of deadlines in one test, so it gets the entry to itself.
+  # One test, so it gets the entry to itself.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestBackupVsReindexSuite$' \
     run_aof_group "reindex-backup-suite" test/acceptance/reindex_backup
@@ -1078,9 +1085,9 @@ function run_acceptance_reindex_backup_suite() {
 function run_acceptance_reindex_backup_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-a (single-node restore guards)"
-  # 20m + 6m = 26m, plus the three CI guards, which cost a package build and
-  # a `go test -list` rather than a container. They ride in the shortest
-  # group so their compile time has the most room.
+  # Carries the three CI guards, which cost a package build and a
+  # `go test -list` rather than a container. They ride in the shortest group so
+  # their compile time has the most room.
   AOF_GROUP_TIMEOUT=27m \
     AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow)$' \
     run_aof_group "reindex-backup-a" test/acceptance/reindex_backup
@@ -1089,8 +1096,8 @@ function run_acceptance_reindex_backup_a() {
 function run_acceptance_reindex_backup_b() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-b (single-node backup guards)"
-  # 18m + 14m = 32m. Both tests are backup-side guards, so a change to that
-  # side lands in one group rather than two.
+  # Both tests are backup-side guards, so a change to that side lands in one
+  # group rather than two.
   AOF_GROUP_TIMEOUT=32m \
     AOF_GROUP_RUN='^(TestReindexBlockClearsAfterNodeCrash|TestReindexRefusedWhileBackupRuns)$' \
     run_aof_group "reindex-backup-b" test/acceptance/reindex_backup
@@ -1099,9 +1106,9 @@ function run_acceptance_reindex_backup_b() {
 function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
-  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only, at 26m of
-  # deadlines. The multi-node cluster also takes the longest to come up, which
-  # is the padding the extra 9m buys.
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The multi-node
+  # cluster takes the longest to come up, which is the padding this group's
+  # margin over its floor buys.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
