@@ -33,8 +33,8 @@ type reqState struct {
 	ID        string
 	Status    backup.Status
 	// Err is why the operation ended, for the statuses that need one. It lives
-	// only as long as the slot; see [backupStat.failedReason] for what a poll
-	// arriving after that reads.
+	// only as long as the slot; see [backupStat.rememberedFailureReason] for
+	// what a poll arriving after that reads.
 	Err            string
 	Path           string
 	OverrideBucket string
@@ -45,12 +45,13 @@ type backupStat struct {
 	sync.Mutex
 	reqState
 
-	// failedID and failedReason outlive the slot itself, for the one failure
-	// that leaves nothing else to read: the slot is released as soon as the
-	// operation returns, and a later poll is answered from the descriptor on
-	// the backend, which does not exist when writing it is what failed.
-	failedID     string
-	failedReason string
+	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
+	// for the one failure that leaves nothing else to read: the slot is
+	// released as soon as the operation returns, and a later poll is answered
+	// from the descriptor on the backend, which does not exist when writing it
+	// is what failed.
+	rememberedFailureID     string
+	rememberedFailureReason string
 }
 
 func (s *backupStat) get() reqState {
@@ -74,10 +75,10 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
 	s.reqState.Err = ""
-	if s.failedID == id {
+	if s.rememberedFailureID == id {
 		// A retry under the same id: the earlier failure is no longer the
 		// answer to a poll for it.
-		s.failedID, s.failedReason = "", ""
+		s.rememberedFailureID, s.rememberedFailureReason = "", ""
 	}
 	return ""
 }
@@ -144,8 +145,8 @@ func (s *backupStat) setFailed(reason string) {
 	if reason == "" {
 		return
 	}
-	s.failedID = s.reqState.ID
-	s.failedReason = reason
+	s.rememberedFailureID = s.reqState.ID
+	s.rememberedFailureReason = reason
 }
 
 // rememberedFailure reports why the operation with this id ended failed, for
@@ -155,10 +156,10 @@ func (s *backupStat) setFailed(reason string) {
 func (s *backupStat) rememberedFailure(id string) (string, bool) {
 	s.Lock()
 	defer s.Unlock()
-	if id == "" || s.failedID != id {
+	if id == "" || s.rememberedFailureID != id {
 		return "", false
 	}
-	return s.failedReason, true
+	return s.rememberedFailureReason, true
 }
 
 func (s *backupStat) set(st backup.Status) {
