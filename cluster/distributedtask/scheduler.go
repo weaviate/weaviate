@@ -622,12 +622,23 @@ func (s *Scheduler) tick() {
 			s.runFinalizePhase(namespace, tasks, providerIsUnitAware)
 		}
 
-		// TTL-cleanup of finished tasks. IsActive() excludes every
-		// non-terminal status, which is what keeps a live task out: its
-		// FinishedAt is zero, and the age check below would read that as
-		// long expired.
+		// TTL-cleanup of finished tasks. Both guards exist because the age
+		// check reads a zero FinishedAt as ~2000 years old, which clears any
+		// TTL: a live task is excluded by IsActive(), and a terminal task
+		// that somehow carries no stamp is excluded outright rather than
+		// deleted on the first tick. Deleting it would also erase it from the
+		// backup overlap backstop, which refuses a capture on exactly that
+		// state.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
+				return false
+			}
+			if task.FinishedAt.IsZero() {
+				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+					s.loggerWithTask(namespace, task.TaskDescriptor).
+						Warnf("task is %s but carries no finish time; keeping it rather than "+
+							"cleaning it up, since its age cannot be established", task.Status)
+				})
 				return false
 			}
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
