@@ -1788,15 +1788,29 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	defer release()
 	cleanupCtx, cancel := context.WithTimeout(p.shutdownCtx(), reindexTerminalCleanupTimeout)
 	defer cancel()
+	swept, dropped := true, false
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {
-			if err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType); err != nil {
+			err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType)
+			switch {
+			case err == nil:
+			case errors.Is(err, ErrCleanupCollectionDropped):
+				dropped = true
+			default:
+				swept = false
 				logger.WithField("property", propName).WithField("index_type", indexType).
 					Warnf("auto-cleanup after terminal status failed: %v", err)
 			}
 		}
 	}
-	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+	switch {
+	case !swept:
+		logger.Warn("auto-cleanup after terminal status: some partial sidecar state is still on this node")
+	case dropped:
+		logger.Info("auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it")
+	default:
+		logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+	}
 }
 
 // uniqueShardsFromPayload returns the distinct shard names referenced

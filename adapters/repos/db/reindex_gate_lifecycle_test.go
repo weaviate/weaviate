@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -248,4 +249,55 @@ func TestBlockingHoldClearsWithTheTeardownNotTheConfirmationWindow(t *testing.T)
 		"the teardown is done, so the restore gate must open with it and not wait out the confirmation window")
 	require.True(t, p.AnyCleanupInProgressForCollection(lifecycleCollection),
 		"the confirmation window is unaffected; it is what the cancel handler polls")
+}
+
+// A node shutting down and a collection being deleted both stop the teardown's
+// sweep before it visits a shard, but only one of them leaves sidecar state
+// behind. The summary line is what an operator reads to decide whether the
+// node still has cleaning up to do.
+func TestTerminalTeardownSaysWhyItSweptNothing(t *testing.T) {
+	tests := []struct {
+		name        string
+		closeCause  error
+		wantLevel   logrus.Level
+		wantMessage string
+	}{
+		{
+			name:        "a collection being deleted takes its state with it",
+			closeCause:  errIndexDropped,
+			wantLevel:   logrus.InfoLevel,
+			wantMessage: "the collection is being deleted",
+		},
+		{
+			name:        "a shutting-down node leaves its state on disk",
+			closeCause:  errIndexShutdown,
+			wantLevel:   logrus.WarnLevel,
+			wantMessage: "still on this node",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			serverCtx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			p := lifecycleProvider(t, serverCtx)
+			task, payload := lifecycleTask(t, "task-teardown-close")
+
+			idx := p.db.indices[indexID(schema.ClassName(lifecycleCollection))]
+			closingCtx, closeIndex := context.WithCancel(context.Background())
+			defer closeIndex()
+			idx.closingCtx = closingCtx
+			idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+			idx.signalCloseRequested(tc.closeCause)
+			closeIndex()
+
+			logger, hook := logrustest.NewNullLogger()
+			p.autoCleanupAfterTerminal(task, payload, logger)
+
+			last := hook.LastEntry()
+			require.NotNil(t, last, "the teardown has to say what it did")
+			require.Equalf(t, tc.wantLevel, last.Level, "summary was %q", last.Message)
+			require.Contains(t, last.Message, tc.wantMessage)
+		})
+	}
 }

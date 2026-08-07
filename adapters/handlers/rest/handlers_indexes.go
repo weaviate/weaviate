@@ -752,15 +752,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 		defer cancelCleanup()
 		for _, indexTypeForCleanup := range indexTypesForCleanup {
-			if err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, indexTypeForCleanup); err != nil {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"collection":      collection,
-					"property":        propertyName,
-					"migration_type":  migrationType,
-					"index_type":      indexTypeForCleanup,
-					"sweep_truncated": errors.Is(err, db.ErrCleanupSweepTruncated),
-				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
-			}
+			err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, indexTypeForCleanup)
+			logPreSubmitSweep(h.appState.Logger.WithFields(logrus.Fields{
+				"collection":     collection,
+				"property":       propertyName,
+				"migration_type": migrationType,
+				"index_type":     indexTypeForCleanup,
+			}), err)
 		}
 	}
 
@@ -1610,41 +1608,89 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 		context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 	defer cancelCleanup()
 
-	var cleanupErrs []error
-	truncated := false
+	var outcome cleanupSweepOutcome
 	for _, it := range indexTypesToClean {
-		if err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, it); err != nil {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
-			truncated = truncated || errors.Is(err, db.ErrCleanupSweepTruncated)
-		}
+		outcome.add(it, h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, it))
 	}
-	if len(cleanupErrs) > 0 {
-		entry := h.appState.Logger.WithFields(fields).
-			WithField("strategies", indexTypesToClean).
-			WithField("sweep_truncated", truncated)
-		if truncated {
-			// The sweep stopped mid-list, or never started because the
-			// collection is closing; either way the shards it did not reach
-			// were never looked at, not just the ones that errored.
+	logCleanupSweep(h.appState.Logger.WithFields(fields), indexTypesToClean, outcome, payloadReadable)
+	return release
+}
+
+// cleanupSweepOutcome adds up what the per-strategy sweeps of one cancel
+// reported.
+type cleanupSweepOutcome struct {
+	errs []error
+	// truncated marks a sweep that left shards it never looked at, so a later
+	// sweep still has work to do.
+	truncated bool
+	// dropped marks a sweep skipped because the collection is being deleted.
+	// Not a failure and not truncation: the state is deleted with the
+	// collection, and there is no later sweep to do it.
+	dropped bool
+}
+
+func (o *cleanupSweepOutcome) add(indexType string, err error) {
+	switch {
+	case err == nil:
+	case errors.Is(err, db.ErrCleanupCollectionDropped):
+		o.dropped = true
+	default:
+		o.errs = append(o.errs, fmt.Errorf("indexType=%q: %w", indexType, err))
+		o.truncated = o.truncated || errors.Is(err, db.ErrCleanupSweepTruncated)
+	}
+}
+
+// logPreSubmitSweep reports one strategy's pre-submit sweep. A collection being
+// deleted is silent about state, not a failure: there is none left, and the
+// submit this sweep runs for is refused a moment later anyway.
+func logPreSubmitSweep(entry *logrus.Entry, err error) {
+	switch {
+	case err == nil:
+	case errors.Is(err, db.ErrCleanupCollectionDropped):
+		entry.Infof("submit: pre-submit cleanup swept nothing because the collection is being deleted, "+
+			"which takes its stale state with it: %v", err)
+	default:
+		entry.WithField("sweep_truncated", errors.Is(err, db.ErrCleanupSweepTruncated)).
+			Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task "+
+				"may short-circuit on the stale state and report a false success — operator inspection recommended", err)
+	}
+}
+
+// logCleanupSweep reports the sweep to the operator. Only an outcome a later
+// submit still has to clean up after is an error.
+func logCleanupSweep(entry *logrus.Entry, indexTypesToClean []string,
+	outcome cleanupSweepOutcome, payloadReadable bool,
+) {
+	switch {
+	case len(outcome.errs) > 0:
+		entry = entry.WithField("strategies", indexTypesToClean).
+			WithField("sweep_truncated", outcome.truncated)
+		if outcome.truncated {
+			// The sweep stopped mid-list, or never started because the node is
+			// shutting down; either way the shards it did not reach were never
+			// looked at, not just the ones that errored.
 			entry.Errorf("cancel: the on-disk cleanup stopped before it had visited every shard, "+
 				"so an unknown number of shards were not swept at all: %v; next submit's defense-in-depth "+
-				"cleanup will retry", cleanupErrs)
-		} else {
-			entry.Errorf(
-				"cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry",
-				len(cleanupErrs), cleanupErrs)
+				"cleanup will retry", outcome.errs)
+			return
 		}
-	} else if payloadReadable {
-		h.appState.Logger.WithFields(fields).Info("cancel: on-disk cleanup complete")
-	} else {
+		entry.Errorf(
+			"cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry",
+			len(outcome.errs), outcome.errs)
+	case outcome.dropped:
+		entry.WithField("strategies", indexTypesToClean).Info(
+			"cancel: the collection is being deleted, so the on-disk cleanup swept nothing; " +
+				"the state it would have removed is deleted with the collection")
+	case payloadReadable:
+		entry.Info("cancel: on-disk cleanup complete")
+	default:
 		// Payload didn't decode, so this swept the URL's tuple, not
 		// necessarily the one the task actually holds.
-		h.appState.Logger.WithFields(fields).WithField("strategies", indexTypesToClean).Info(
+		entry.WithField("strategies", indexTypesToClean).Info(
 			"cancel: on-disk cleanup complete for the property and index type in the request URL; " +
 				"the task's own payload would not decode, so what it actually holds may differ and " +
 				"is left to the next submit's sweep or the restart audit")
 	}
-	return release
 }
 
 // reindexCancelCleanupTimeout bounds the on-disk sweep once it is detached from

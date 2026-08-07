@@ -63,6 +63,26 @@ func (db *DB) CleanStalePartialReindexState(
 // caller's answer is "unknown from here on" and not "these shards failed".
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
+// ErrCleanupCollectionDropped marks a sweep that ran while the collection was
+// being deleted. Nothing was swept and nothing needs to be: the sidecar state
+// lives under the collection's directory and goes away with it, so there is no
+// later sweep to retry either.
+var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is being deleted")
+
+// reportCloseCause tags a walk that a close cut short, so the caller can tell
+// the two ends apart: a deleted collection leaves nothing behind, anything else
+// leaves every shard unswept.
+func reportCloseCause(err error) error {
+	switch {
+	case errors.Is(err, errIndexDropped):
+		return fmt.Errorf("%w: %w", ErrCleanupCollectionDropped, err)
+	case errors.Is(err, errIndexShutdown), errors.Is(err, errIndexClosed):
+		return fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
+	default:
+		return err
+	}
+}
+
 // CleanStalePartialReindexState iterates every local shard of this index
 // and calls the per-shard cleanup. Per-shard errors are collected and
 // returned together so the caller can decide whether to refuse the submit
@@ -76,9 +96,10 @@ var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach
 // is tagged with [ErrCleanupSweepTruncated] so the caller can tell "sweep
 // stopped early" from "these shards failed".
 //
-// A closing or dropping index is also truncated, not clean: the shard walk
-// visits nothing at all there, so reporting success would tell the caller every
-// shard was swept when none was.
+// A closing index is also truncated, not clean: the shard walk visits nothing
+// at all there, so reporting success would tell the caller every shard was
+// swept when none was. A collection being deleted is neither, and is tagged
+// with [ErrCleanupCollectionDropped]: its state is deleted along with it.
 //
 // A cold shard is only unwrapped if it has on-disk state this sweep would
 // remove, so a large multi-tenant collection doesn't hydrate thousands of
@@ -87,16 +108,11 @@ func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 ) error {
-	// The same guard ForEachShard applies, made visible: it answers a closing
-	// index with a silent nil, which here is indistinguishable from a sweep
-	// that reached every shard.
-	if closeErr := i.closingCtx.Err(); closeErr != nil {
-		return fmt.Errorf("%w: the collection is closing or being dropped: %w",
-			ErrCleanupSweepTruncated, closeErr)
-	}
-
 	var shardErrs error
-	walkErr := i.shards.Range(func(name string, shardLike ShardLike) error {
+	// forEachShardStrict rather than ForEachShard, which answers a closing
+	// index with a silent nil that is indistinguishable here from a sweep that
+	// reached every shard.
+	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}
@@ -125,7 +141,7 @@ func (i *Index) CleanStalePartialReindexState(
 		}
 		return nil
 	})
-	return errors.Join(shardErrs, walkErr)
+	return errors.Join(shardErrs, reportCloseCause(walkErr))
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath has
