@@ -141,12 +141,19 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 	// Step 4: poll /v1/tasks until FINISHED, then kill on that boundary. See
 	// the SCOPE note above for why this is the completion boundary and not
 	// the swap-recovery window.
-	var killAt time.Time
+	var (
+		killAt    time.Time
+		sawFailed bool
+	)
 	require.Eventually(t, func() bool {
 		status, err := fetchTaskStatus(restURI, taskID)
 		require.NoError(t, err)
 		if status == "FAILED" {
-			t.Fatalf("task FAILED before reaching FINISHED")
+			// Stop polling and report below rather than failing here:
+			// testify runs this condition on its own goroutine, where a
+			// t.Fatalf surfaces as a 120s timeout instead of the message.
+			sawFailed = true
+			return true
 		}
 		if status == "FINISHED" {
 			killAt = time.Now()
@@ -154,6 +161,7 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 		}
 		return false
 	}, 120*time.Second, 20*time.Millisecond)
+	require.False(t, sawFailed, "task FAILED before reaching FINISHED")
 	require.False(t, killAt.IsZero(), "task never reached FINISHED before deadline")
 	t.Logf("task observed FINISHED at %v — initiating immediate container stop", killAt)
 
@@ -209,17 +217,21 @@ func TestRestartAfterSwapCompletes(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("post-restart task status: %q", finalStatus)
 
-	// Step 9: query with FIELD-tokenization-style queries. The swap ran before
-	// the kill, so the write above belongs in the new bucket and both queries
-	// must find it.
-	t.Run("PostRestartWriteIsQueryableInTheNewBucket", func(t *testing.T) {
+	// Step 9: the post-restart write must be retrievable through both the
+	// searchable index (BM25) and the filterable one (Equal).
+	//
+	// Which bucket serves it is deliberately not claimed here: the marker is a
+	// single lowercase token, so word and field tokenization produce the same
+	// term for it and no query can tell the two buckets apart. What an empty
+	// result would prove is that the write reached neither.
+	t.Run("PostRestartWriteIsQueryable", func(t *testing.T) {
 		bm25IDs := restartAfterSwapBM25Query(t, className, "description", marker)
 		assert.NotEmpty(t, bm25IDs,
-			"post-restart BM25(%q) returned no results — the write did not land in the new bucket",
+			"post-restart BM25(%q) returned no results — the write is missing from the searchable index",
 			marker)
 		equalIDs := restartAfterSwapFilterQuery(t, className, "description", "Equal", marker)
 		assert.NotEmpty(t, equalIDs,
-			"post-restart Equal(description, %q) returned no results — the write did not land in the new bucket",
+			"post-restart Equal(description, %q) returned no results — the write is missing from the filterable index",
 			marker)
 	})
 }
