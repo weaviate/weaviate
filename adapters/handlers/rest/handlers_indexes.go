@@ -1493,25 +1493,37 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		//
 		// Runs after both passes above, so a task that can be attributed to a
 		// collection is never cancelled from an unrelated one.
-		for _, task := range tasks[db.ReindexNamespace] {
-			if task.Status != distributedtask.TaskStatusStarted {
-				continue
+		//
+		// Cancelling from anywhere means the privilege has to come from
+		// everywhere: [indexesHandlers.updateIndex] authorized UPDATE on the
+		// URL's collection alone, and this pass stops a migration on some other
+		// collection and answers with a task id that spells that collection and
+		// the migrated property out. So it demands UPDATE on every collection,
+		// which is what the operator who legitimately has to clear such a task
+		// holds anyway. A caller without it falls through to the checks below
+		// and gets the answer it would get if this pass did not exist, so the
+		// refusal does not disclose that the task is there.
+		if candidate := firstUnattributableStartedTask(tasks[db.ReindexNamespace]); candidate != nil {
+			fields := logrus.Fields{
+				"taskID":     candidate.ID,
+				"collection": collection,
+				"property":   propertyName,
+				"index_type": indexType,
+				"principal":  principalUsername(principal),
 			}
-			_, recovered, err := db.DecodeReindexTaskPayload(task.Payload)
-			if err == nil || recovered != "" {
-				continue
+			if err := h.appState.Authorizer.Authorize(ctx, principal, authorization.UPDATE,
+				authorization.Collections()...); err != nil {
+				h.appState.Logger.WithFields(fields).
+					WithField("audit_event", "reindex_task_cancel_unattributable_denied").
+					Infof("cancel: a task naming no collection is live, but cancelling it needs UPDATE on every "+
+						"collection and the caller only has it on this one: %v", err)
+			} else {
+				h.appState.Logger.WithFields(fields).
+					WithField("audit_event", "reindex_task_cancel_unattributable_payload").
+					Info("cancel: task payload will not decode and names no collection; cancelling it because it refuses every backup in the cluster")
+				target = candidate
+				unattributable = true
 			}
-			h.appState.Logger.WithFields(logrus.Fields{
-				"audit_event": "reindex_task_cancel_unattributable_payload",
-				"taskID":      task.ID,
-				"collection":  collection,
-				"property":    propertyName,
-				"index_type":  indexType,
-				"principal":   principalUsername(principal),
-			}).Info("cancel: task payload will not decode and names no collection; cancelling it because it refuses every backup in the cluster")
-			target = task
-			unattributable = true
-			break
 		}
 	}
 
@@ -1748,6 +1760,22 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 // the request. Generous: it is bucket teardown across every strategy the
 // migration touched, and abandoning it half-done is what the detach avoids.
 const reindexCancelCleanupTimeout = 2 * time.Minute
+
+// firstUnattributableStartedTask finds a STARTED task whose payload names no
+// collection — the one shape that holds the backup and restore gate on every
+// collection in the cluster and that no collection's cancel can address.
+func firstUnattributableStartedTask(tasks []*distributedtask.Task) *distributedtask.Task {
+	for _, task := range tasks {
+		if task.Status != distributedtask.TaskStatusStarted {
+			continue
+		}
+		if _, recovered, err := db.DecodeReindexTaskPayload(task.Payload); err == nil || recovered != "" {
+			continue
+		}
+		return task
+	}
+	return nil
+}
 
 // uncancellableLiveTask finds a task that the backup gate and the status
 // endpoint both count as live ([db.IsLiveReindexTaskStatus]) but that
