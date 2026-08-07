@@ -524,6 +524,32 @@ func unreadableTask(status distributedtask.TaskStatus, finishedAt time.Time) *di
 	}
 }
 
+// renamedFieldTask is the half of the rolling-upgrade shape that decodes
+// CLEANLY. A newer node that renames the payload's collection field produces
+// JSON this build unmarshals without error into an empty Collection, because
+// Go ignores unknown fields. Nothing about it is "unreadable" to the decoder,
+// yet nothing in it names what the task touches.
+func renamedFieldTask(t *testing.T, status distributedtask.TaskStatus) *distributedtask.Task {
+	t.Helper()
+	raw := []byte(`{"collektion":"Movies","propertyName":"title","migrationType":"enable-rangeable"}`)
+
+	var probe ReindexTaskPayload
+	require.NoError(t, json.Unmarshal(raw, &probe),
+		"this fixture is only meaningful while the payload decodes without error")
+	require.Empty(t, probe.Collection,
+		"this fixture is only meaningful while the decoded collection is empty")
+
+	return &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "renamed", Version: 1},
+		Namespace:      ReindexNamespace,
+		Status:         status,
+		Payload:        raw,
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusInProgress},
+		},
+	}
+}
+
 // The refusal is stored in the backup's failure meta and served from
 // GET /v1/backups/{backend}/{id}, so it must not carry the RAFT and decoding
 // internals its causes name. It must also stay scoped: a payload no node can
@@ -575,6 +601,17 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 				return unreadableTask(distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))
 			},
 			why: "an unidentifiable task still cannot write after it finished; the timestamps alone clear it",
+		},
+		{
+			name: "collection field renamed by a newer node, live",
+			task: func(t *testing.T) *distributedtask.Task {
+				return renamedFieldTask(t, distributedtask.TaskStatusStarted)
+			},
+			backingUp: []string{"Movies"},
+			wantMsg: "cannot rule out a runtime-reindex during this backup: a task payload is unreadable; " +
+				"retry once every node runs the same server version, and report this to Weaviate if it persists",
+			why: "a renamed field decodes without error, so keying recovery on decodeErr lets a LIVE task " +
+				"read as no-overlap and the backup publish over it",
 		},
 		{
 			name: "poison on another collection",

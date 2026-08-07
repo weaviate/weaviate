@@ -328,8 +328,13 @@ func lowercasedSet(collections []string) map[string]struct{} {
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
 	var payload ReindexTaskPayload
 	decodeErr := json.Unmarshal(task.Payload, &payload)
+	// Recovery keys on the collection being absent, not on the decoder having
+	// complained. A retyped field fails json.Unmarshal; a RENAMED one does not,
+	// because Go ignores unknown fields — it decodes cleanly to an empty
+	// collection. Both are rolling-upgrade shapes and both must reach the
+	// tolerant probe.
 	collection := payload.Collection
-	if decodeErr != nil {
+	if collection == "" {
 		collection = ReindexTaskCollection(task.Payload)
 	}
 
@@ -345,7 +350,7 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 		}
 	}
 
-	if decodeErr != nil && collection == "" {
+	if collection == "" {
 		// Nothing names what this task touched, and it could still have been
 		// writing during the capture. Unbounded on purpose: declaring any
 		// collection clean here would be a guess.
