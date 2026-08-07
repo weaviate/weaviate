@@ -122,13 +122,19 @@ func (s *raceTaskService) startedTasks() []*distributedtask.Task {
 
 // togglingProber answers the backup probe from a flag the test flips, so a
 // backup claim can be placed at an exact point in the submission sequence.
-type togglingProber struct{ busy *atomic.Bool }
+// An unset kind reports a backup.
+type togglingProber struct {
+	busy *atomic.Bool
+	kind string
+}
 
 func (p togglingProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
 	if p.busy.Load() {
-		return backup.NodeActivity{
-			Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1",
-		}, nil
+		kind := p.kind
+		if kind == "" {
+			kind = backup.NodeActivityKindBackup
+		}
+		return backup.NodeActivity{Busy: true, Kind: kind, ID: kind + "-1"}, nil
 	}
 	return backup.NodeActivity{}, nil
 }

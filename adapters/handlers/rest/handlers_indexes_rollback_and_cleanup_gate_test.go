@@ -864,28 +864,48 @@ func TestUpdateIndexRollbackRunsWithoutTheSubmitHolds(t *testing.T) {
 // adjacent unconfirmed-probe arm already answers this state with the id.
 func TestUpdateIndexNamesTheTaskWhenTheRollbackFails(t *testing.T) {
 	// The submit path mints the id with a random suffix, so the expectation is
-	// built from the task that was actually committed.
-	wantNamed := func(taskID string) string {
-		return `reindex blocked: a backup is running in the cluster, and the migration committed ` +
-			`before that was known could not be rolled back. It is running as task "` + taskID +
-			`"; cancel it, then retry after the backup finishes.`
+	// built from the task that was actually committed. The blocking operation
+	// is named from what the probe reported: telling an operator to wait for a
+	// backup while a restore holds the node sends them to the wrong dashboard.
+	wantNamed := func(kind string) func(string) string {
+		return func(taskID string) string {
+			return `reindex blocked: a ` + kind + ` is running in the cluster, and the migration committed ` +
+				`before that was known could not be rolled back. It is running as task "` + taskID +
+				`"; cancel it, then retry after the ` + kind + ` finishes.`
+		}
 	}
 
 	tests := []struct {
 		name string
+		kind string
 		// cancelErr fails every rollback attempt when set.
 		cancelErr error
 		wantBody  func(taskID string) string
 	}{
 		{
-			name:      "the rollback never lands",
+			name:      "the rollback never lands during a backup",
+			kind:      backup.NodeActivityKindBackup,
 			cancelErr: errors.New("raft: leader election in progress"),
-			wantBody:  wantNamed,
+			wantBody:  wantNamed("backup"),
 		},
 		{
-			name: "the rollback lands",
+			name:      "the rollback never lands during a restore",
+			kind:      backup.NodeActivityKindRestore,
+			cancelErr: errors.New("raft: leader election in progress"),
+			wantBody:  wantNamed("restore"),
+		},
+		{
+			name: "the rollback lands during a backup",
+			kind: backup.NodeActivityKindBackup,
 			wantBody: func(string) string {
 				return "reindex blocked: a backup is running in the cluster; retry after it finishes"
+			},
+		},
+		{
+			name: "the rollback lands during a restore",
+			kind: backup.NodeActivityKindRestore,
+			wantBody: func(string) string {
+				return "reindex blocked: a restore is running in the cluster; retry after it finishes"
 			},
 		},
 	}
@@ -896,7 +916,7 @@ func TestUpdateIndexNamesTheTaskWhenTheRollbackFails(t *testing.T) {
 			svc := &raceTaskService{cancelErr: test.cancelErr}
 			svc.onCommitted = func() { busy.Store(true) }
 
-			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+			h := submissionHandlers(t, svc, togglingProber{busy: &busy, kind: test.kind})
 			responder := submitReindex(h)
 
 			conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
