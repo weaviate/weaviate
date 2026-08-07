@@ -79,7 +79,9 @@ type Selector interface {
 	// anywhere in the cluster on any of collections. Used for restore
 	// admission, since Backupable can't answer for a class absent from this
 	// node. collections must be resolved class names, never wildcard
-	// patterns; empty asks about every collection. Fails closed.
+	// patterns; empty asks about every collection. Fails closed: a task whose
+	// payload cannot be read refuses the collection the payload still names,
+	// and one naming no collection at all refuses every restore.
 	RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error
 }
 
