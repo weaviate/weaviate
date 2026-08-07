@@ -26,3 +26,13 @@ const (
 	BackupNodeActivityMarker = "weaviate/backup-node-activity"
 	ReindexCleanupMarker     = "weaviate/reindex-cleanup-activity"
 )
+
+// The route each probe is served on, defined once for the mux that mounts it
+// and the client that calls it. A path that disagreed between the two would
+// answer 404, which is exactly what the clients read as "this node runs an
+// older build" and let through — a typo would silently disable the gate rather
+// than break it.
+const (
+	BackupNodeActivityPath     = "/backups/node-activity"
+	ReindexCleanupActivityPath = "/reindex/cleanup-activity"
+)

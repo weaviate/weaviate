@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
 
-const pathReindexCleanupActivity = "/reindex/cleanup-activity"
+const pathReindexCleanupActivity = clusterprobe.ReindexCleanupActivityPath
 
 // ErrReindexCleanupUnsupported means the node runs a build without the route.
 // Waiting on it would never succeed, so callers stop asking rather than burn

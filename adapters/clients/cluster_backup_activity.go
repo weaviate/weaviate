@@ -17,10 +17,11 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-const pathBackupNodeActivity = "/backups/node-activity"
+const pathBackupNodeActivity = clusterprobe.BackupNodeActivityPath
 
 // ErrNodeActivityUnsupported marks a node that doesn't serve the node-activity
 // route (e.g. mid rolling-upgrade); callers treat it as not busy.
