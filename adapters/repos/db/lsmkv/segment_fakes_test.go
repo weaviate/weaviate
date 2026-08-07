@@ -755,3 +755,15 @@ func (c *fakeMapCursor) next() ([]byte, []MapPair, error) {
 func (c *fakeMapCursor) seek(target []byte) ([]byte, []MapPair, error) {
 	panic("not implemented")
 }
+
+func (f *fakeSegment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) indexNodeSplits(parts int) [][2]int {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {
+	panic("not implemented")
+}
