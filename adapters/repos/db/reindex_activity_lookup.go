@@ -304,6 +304,9 @@ func lowercasedSet(collections []string) map[string]struct{} {
 // The "already over before the capture began" waiver applies to readable
 // payloads only: nothing tore an unreadable one down, so its sidecar state
 // may still be on disk regardless of what the timestamps say.
+//
+// FinishedAt post-dates the bucket swap, so a migration whose units stopped
+// before the capture but whose swap ran inside it is not waived.
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
 	_, collection, decodeErr := DecodeReindexTaskPayload(task.Payload)
 
@@ -314,7 +317,7 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 			// the submit path's post-commit rollback.
 			return "", false, nil
 		}
-		if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
+		if task.FinishedAt.Before(since) {
 			return "", false, nil
 		}
 	}

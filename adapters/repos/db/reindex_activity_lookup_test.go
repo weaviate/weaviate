@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
@@ -682,4 +683,69 @@ func TestRefuseIfAnyReindexInFlightScopesTheClusterCheckByCollection(t *testing.
 		"with no class list yet the question stays cluster-wide")
 	require.Equal(t, [][]string{{"Docs"}, {"Docs", "Logs"}, nil}, asked,
 		"the gate must forward the restore's class list unchanged")
+}
+
+// The bug that motivated weaviate/0-weaviate-issues#501: the units of a
+// migration stopped before the capture began, but its bucket swap ran inside
+// the capture window. Driven through the real FSM rather than a hand-built
+// task, because the whole question is which moment the FSM records.
+func TestOverlapBackstopCatchesASwapThatRanInsideTheCaptureWindow(t *testing.T) {
+	const (
+		taskID  = "movies:task"
+		version = uint64(1)
+		node    = "node-1"
+		unit    = "u1"
+	)
+
+	unitsStopped := time.Now().Add(-3 * time.Minute)
+	backupStart := unitsStopped.Add(time.Minute)
+	swapDone := backupStart.Add(time.Minute)
+
+	manager := distributedtask.NewManager(distributedtask.ManagerParameters{
+		CompletedTaskTTL: time.Hour,
+		Logger:           logrus.New(),
+	})
+	defer manager.Close()
+
+	payload, err := json.Marshal(ReindexTaskPayload{Collection: "Movies"})
+	require.NoError(t, err)
+
+	require.NoError(t, manager.AddTask(applyReq(t, &api.AddDistributedTaskRequest{
+		Namespace:             ReindexNamespace,
+		Id:                    taskID,
+		Payload:               payload,
+		SubmittedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
+		UnitIds:               []string{unit},
+	}), version))
+	require.NoError(t, manager.UpdateUnitProgress(applyReq(t, &api.UpdateDistributedTaskUnitProgressRequest{
+		Namespace: ReindexNamespace, Id: taskID, Version: version,
+		NodeId: node, UnitId: unit, Progress: 0.1,
+		UpdatedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
+	})))
+	require.NoError(t, manager.RecordUnitCompletion(applyReq(t, &api.RecordDistributedTaskUnitCompletionRequest{
+		Namespace: ReindexNamespace, Id: taskID, Version: version,
+		NodeId: node, UnitId: unit,
+		FinishedAtUnixMillis: unitsStopped.UnixMilli(),
+	}), false))
+	require.NoError(t, manager.RecordPostCompletionAck(applyReq(t, &api.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace: ReindexNamespace, Id: taskID, Version: version,
+		NodeId: node, Success: true,
+		AckedAtUnixMillis: swapDone.UnixMilli(),
+	}), false))
+	require.NoError(t, manager.MarkTaskFinalized(applyReq(t, &api.MarkTaskFinalizedRequest{
+		Namespace: ReindexNamespace, Id: taskID, Version: version,
+		FinalizedAtUnixMillis: swapDone.UnixMilli(),
+	})))
+
+	lookup := NewReindexOverlapLookup(manager.ListDistributedTasks, time.Hour)
+	err = lookup(context.Background(), []string{"Movies"}, backupStart)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+		"the swap ran while the backup was being captured, so the capture is torn")
+}
+
+func applyReq[T any](t *testing.T, subCommand T) *api.ApplyRequest {
+	t.Helper()
+	raw, err := json.Marshal(subCommand)
+	require.NoError(t, err)
+	return &api.ApplyRequest{SubCommand: raw}
 }
