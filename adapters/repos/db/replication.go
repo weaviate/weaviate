@@ -56,6 +56,30 @@ var (
 	_ replicaPreparer = (*LazyLoadShard)(nil)
 )
 
+// shardChangeLogger is the replica-movement change-capture surface of a shard,
+// kept off ShardLike so general shard users and the mock do not carry it.
+type shardChangeLogger interface {
+	// ActivateChangeLog registers a change-capture log under opID and returns
+	// it for in-process callers.
+	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
+	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
+	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
+	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
+	// seals the log and returns the final LSN. Tailers drain to finalLSN
+	// and EOF.
+	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
+	// StopChangeCapture unregisters and deactivates the log without sealing.
+	StopChangeCapture(ctx context.Context, opID string) error
+	// GetChangeLog returns the active log for opID, or (nil, false) if none.
+	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
+}
+
+// Makes a dropped change-log method a build failure rather than a runtime miss in withShardForChangeLog.
+var (
+	_ shardChangeLogger = (*Shard)(nil)
+	_ shardChangeLogger = (*LazyLoadShard)(nil)
+)
+
 func (db *DB) ReplicateObject(ctx context.Context, class,
 	shard, requestID string, object *storobj.Object,
 	schemaVersion uint64,
@@ -487,18 +511,56 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 }
 
 func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming start change capture"
+	loaded, err := i.withShardForChangeLog(ctx, shardName, true, func(shard shardChangeLogger) error {
+		if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
+			return fmt.Errorf("activate op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("incoming start change capture: get shard %q: %w", shardName, err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
-		return fmt.Errorf("incoming start change capture: shard %q not found", shardName)
-	}
-	if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
-		return fmt.Errorf("incoming start change capture: activate op %q: %w", opID, err)
+	if !loaded { // unreachable; asserted so a miss cannot report success
+		return errShardNotLoaded(action, shardName)
 	}
 	return nil
+}
+
+// withShardForChangeLog runs f against the named shard's change-capture
+// surface, owning the pin lifetime, and reports whether the shard was there.
+//
+// Only activation passes forceInit; it has to load the shard to record
+// anything. Drain reads must not: loading sweeps the changelog dir, so a read
+// that initialized would delete the log it came for, and a shard unloaded
+// since capture began captured nothing.
+func (i *Index) withShardForChangeLog(ctx context.Context, shardName string, forceInit bool,
+	f func(shard shardChangeLogger) error,
+) (loaded bool, err error) {
+	var (
+		shard   ShardLike
+		release func()
+	)
+	if forceInit {
+		shard, release, err = i.getOrInitShard(ctx, shardName)
+	} else {
+		shard, release, err = i.getLoadedShard(shardName)
+	}
+	defer release()
+	if err != nil {
+		return false, fmt.Errorf("get shard %q: %w", shardName, err)
+	}
+	if shard == nil { // only without forceInit
+		return false, nil
+	}
+
+	// Always succeeds in production per the assertions above; MockShardLike
+	// does not implement it, so tests driving capture through a mock land here.
+	cl, ok := shard.(shardChangeLogger)
+	if !ok {
+		return false, fmt.Errorf("shard %q does not implement shardChangeLogger", shardName)
+	}
+	return true, f(cl)
 }
 
 // errShardNotLoaded reports a change-log request for a shard this node does not
@@ -515,35 +577,41 @@ func errShardNotLoaded(action, shardName string) error {
 // untilLSN is the inclusive upper bound on emitted LSNs.
 func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
 	const action = "incoming get change log"
-	shard, release, err := i.getLoadedShard(shardName)
+	var tailer *changelog.Tailer
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		log, ok := shard.GetChangeLog(ctx, opID)
+		if !ok {
+			return fmt.Errorf("%s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
+		}
+		var err error
+		tailer, err = log.NewTailerWithCap(0, untilLSN)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
+	if !loaded {
 		return nil, errShardNotLoaded(action, shardName)
 	}
-	log, ok := shard.GetChangeLog(ctx, opID)
-	if !ok {
-		return nil, fmt.Errorf("%s: %s %q on shard %q", action, changelog.ErrMsgNoActiveLog, opID, shardName)
-	}
-	return log.NewTailerWithCap(0, untilLSN)
+	return tailer, nil
 }
 
 // IncomingSnapshotChangeLogLSN returns the current LSN without sealing the log.
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
 	const action = "incoming snapshot change-log LSN"
-	shard, release, err := i.getLoadedShard(shardName)
+	var lsn uint64
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		var err error
+		if lsn, err = shard.SnapshotChangeLogLSN(ctx, opID); err != nil {
+			return fmt.Errorf("op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
+	if !loaded {
 		return 0, errShardNotLoaded(action, shardName)
-	}
-	lsn, err := shard.SnapshotChangeLogLSN(ctx, opID)
-	if err != nil {
-		return 0, fmt.Errorf("%s: op %q: %w", action, opID, err)
 	}
 	return lsn, nil
 }
@@ -554,17 +622,19 @@ func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opI
 // fails rather than tearing the shard down under it.
 func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {
 	const action = "incoming finalize change log"
-	shard, release, err := i.getLoadedShard(shardName)
+	var finalLSN uint64
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		var err error
+		if finalLSN, err = shard.FinalizeChangeLog(ctx, opID); err != nil {
+			return fmt.Errorf("op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
+	if !loaded {
 		return 0, errShardNotLoaded(action, shardName)
-	}
-	finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
-	if err != nil {
-		return 0, fmt.Errorf("%s: op %q: %w", action, opID, err)
 	}
 	return finalLSN, nil
 }
@@ -574,22 +644,23 @@ func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID s
 // serve a teardown would materialize a shard the caller never asked for. Its
 // log file is removed when the shard next loads.
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.getLoadedShard(shardName)
+	const action = "incoming stop change capture"
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		if err := shard.StopChangeCapture(ctx, opID); err != nil {
+			return fmt.Errorf("op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("incoming stop change capture: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
+	if !loaded {
 		i.logger.WithFields(logrus.Fields{
 			"action":   "change_capture_log",
 			"op_id":    opID,
 			"shard":    shardName,
 			"resident": i.shards.Load(shardName) != nil,
 		}).Debug("no loaded shard to stop change capture on")
-		return nil
-	}
-	if err := shard.StopChangeCapture(ctx, opID); err != nil {
-		return fmt.Errorf("incoming stop change capture: op %q: %w", opID, err)
 	}
 	return nil
 }
