@@ -57,12 +57,12 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed
-// task. The caller has already established that the task is past its
-// completed-task TTL, and the request carries that verdict: the apply obeys it
-// rather than re-measuring the age against its own wall clock, which would let
-// two nodes fork on whether the entry deletes.
+// task. proposedAt is the moment the caller measured the task's age at and ttl
+// is the completed-task TTL it measured against; the apply decides from those
+// two numbers and the task's stored finish time rather than from its own wall
+// clock, which would let two nodes fork on whether the entry deletes.
 type TaskCleaner interface {
-	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, proposedAt time.Time, ttl time.Duration) error
 }
 
 // TaskFinalizer is how the [Scheduler] transitions a task out of

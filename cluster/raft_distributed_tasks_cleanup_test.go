@@ -29,11 +29,11 @@ import (
 
 // The TTL decision belongs to the sweep that proposes the cleanup, not to each
 // node that applies it — an apply that reads the local wall clock forks the
-// FSM. CleanUpDistributedTask therefore has to put the decision on the request.
-// The task seeded here finished a moment ago and the node's TTL is an hour, so
-// a request that carries no decision is refused; the cleanup only lands
-// because the proposer's verdict travels with it.
-func TestRaft_CleanUpDistributedTask_CarriesTheProposersTTLVerdict(t *testing.T) {
+// FSM. CleanUpDistributedTask therefore has to put the measurements the sweep
+// made on the request. The task seeded here finished a moment ago and the
+// node's TTL is an hour, so a request carrying no measurements is refused; the
+// cleanup only lands because the proposer's numbers travel with it.
+func TestRaft_CleanUpDistributedTask_CarriesTheProposersMeasurements(t *testing.T) {
 	ctx := context.Background()
 
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
@@ -69,9 +69,10 @@ func TestRaft_CleanUpDistributedTask_CarriesTheProposersTTLVerdict(t *testing.T)
 	require.NoError(t, err)
 	require.NoError(t, srv.store.distributedTasksManager.Restore(snap))
 
-	require.NoError(t, srv.CleanUpDistributedTask(ctx, "reindex", "just-finished", 1),
-		"the apply must obey the proposer's TTL verdict; without it on the request the "+
-			"node re-measures the age itself and refuses this task as too fresh")
+	require.NoError(t, srv.CleanUpDistributedTask(ctx, "reindex", "just-finished", 1,
+		finishedAt.Add(time.Minute), time.Second),
+		"the apply must decide from the proposer's measurements; without them on the "+
+			"request the node re-measures the age itself and refuses this task as too fresh")
 
 	got, err := srv.ListDistributedTasksAtLocalConsistency(ctx)
 	require.NoError(t, err)

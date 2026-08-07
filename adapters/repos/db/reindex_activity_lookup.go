@@ -246,12 +246,18 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 // Past completedTaskTTL a finished task is dropped from the list, so its
 // absence stops being evidence; the lookup refuses outright rather than read an
 // empty list as all-clear.
+//
+// completedTaskTTL here is the local node's setting, but the deletion is decided
+// by whichever node's sweep proposed it, so the retention that actually governs
+// is the shortest TTL configured anywhere in the cluster. The error text says
+// "on every node" for that reason.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
 			return redactedOverlapErr(fmt.Sprintf(
-				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for; "+
-					"retry the backup, and raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS if backups here routinely take that long",
+				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s this node keeps finished tasks for; "+
+					"retry the backup, and if backups here routinely take that long raise "+
+					"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS on every node — the effective retention is the shortest value configured in the cluster",
 				completedTaskTTL), nil)
 		}
 		tasksByNamespace, err := list(ctx)

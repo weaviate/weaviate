@@ -692,16 +692,20 @@ func (h *testHarness) advanceClock(duration time.Duration) {
 }
 
 func (h *testHarness) expectCleanUpTask(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
-	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
+	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, proposedAt time.Time, ttl time.Duration) error {
 			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
 			require.Equal(t, expectTaskVersion, taskVersion)
 
+			// Forward what the sweep measured, the way Raft.CleanUpDistributedTask
+			// does, so these tests exercise the path production takes.
 			err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Namespace: namespace,
-				Id:        taskID,
-				Version:   taskVersion,
+				Namespace:            namespace,
+				Id:                   taskID,
+				Version:              taskVersion,
+				ProposedAtUnixMillis: proposedAt.UnixMilli(),
+				TtlMillis:            ttl.Milliseconds(),
 			}))
 			require.NoError(t, err)
 			return nil

@@ -146,13 +146,18 @@ const (
 // arm in those three fails the tests rather than reaching a switch default at
 // runtime.
 //
-// Six more functions branch on the type without such a test:
+// Seven more functions branch on the type without such a test. Six of them —
 // semanticMigrationIndexTypes, semanticMigrationIndexTypesForAudit,
 // [IsSemanticMigration], [IsTokenizationChangingMigration], and the REST
-// handler's migrationTypeTargetsIndex and indexTypesFromMigrationType. They
-// cover every current type by inspection only, and an unrecognized type gets
-// the zero value (nil, false) rather than a panic — so a missed arm degrades
-// quietly instead of crashing.
+// handler's migrationTypeTargetsIndex and indexTypesFromMigrationType — cover
+// every current type by inspection only, and an unrecognized type gets the zero
+// value (nil, false) rather than a panic, so a missed arm degrades quietly
+// instead of crashing.
+//
+// The seventh, buildRecoveryTasks (reindex_recovery.go), behaves neither way:
+// its default returns a hard error, and it has no arm for
+// [ReindexTypeRebuildSearchable], so a crash mid-swap on that migration is
+// logged and skipped rather than recovered. That gap predates this registry.
 //
 // TestReindexMigrationTypeRegistryMatchesTheConstants scans the package's
 // non-test files and requires the constants and this list to agree, so a

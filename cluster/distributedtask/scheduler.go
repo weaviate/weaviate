@@ -637,15 +637,19 @@ func (s *Scheduler) tick() {
 		// never touches, so the zero-stamp guard is live for a whole rolling
 		// upgrade — see [Task.repairTerminalStamp] for where the state comes
 		// from.
+		//
+		// sweptAt is measured once and both filtered on and sent, so the
+		// request reproduces exactly the comparison that selected the task.
+		sweptAt := s.clock.Now()
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() || task.FinishedAt.IsZero() {
 				return false
 			}
-			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
+			return s.completedTaskTTL <= sweptAt.Sub(task.FinishedAt)
 		})
 		s.warnAboutUnstampedTasks(namespace, tasks)
 		for _, task := range cleanableTasks {
-			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
+			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version, sweptAt, s.completedTaskTTL)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					s.loggerWithTask(namespace, task.TaskDescriptor).

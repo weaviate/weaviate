@@ -254,12 +254,22 @@ message CleanUpDistributedTaskRequest {
   string namespace = 1;
   string id = 2;
   uint64 version = 3;
-  // The proposer's verdict that the task is past its completed-task TTL.
-  // Carried on the wire so every node applies the same decision instead of
-  // re-measuring the age against its own wall clock. A request from a binary
-  // that predates this field decodes to false, which makes the apply fall
-  // back to the local age check that binary's proposer expected.
-  bool ttl_elapsed = 4;
+  // The moment the proposer measured the task's age at, and the TTL it
+  // measured against. The apply compares them to the task's own finish time
+  // rather than reading its local clock, so every node reaches the same
+  // verdict from the log entry and the FSM state alone.
+  //
+  // The TTL that governs a deletion is the proposer's.
+  // DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is per-node, so raising it on
+  // one node changes only what that node's own sweeps propose.
+  //
+  // Both fields zero means the request came from a binary that predates them,
+  // and the apply falls back to the local age check that binary's sweep
+  // expects. The other direction does not converge: a binary that predates
+  // these fields ignores them and re-derives locally whatever the proposer
+  // measured.
+  int64 proposed_at_unix_millis = 4;
+  int64 ttl_millis = 5;
 }
 
 message SyncShardRequest {

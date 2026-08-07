@@ -25,8 +25,8 @@ import (
 )
 
 // A terminal task with no finish time has no age, and both TTL predicates
-// compute age as clock.Since(FinishedAt) — on a zero stamp that is roughly two
-// thousand years, which clears every TTL. Deleting the task on that arithmetic
+// measure age from FinishedAt — on a zero stamp that is roughly two thousand
+// years, which clears every TTL. Deleting the task on that arithmetic
 // would also hide it from the backup overlap backstop
 // (adapters/repos/db/reindex_activity_lookup.go), which refuses a capture on
 // exactly this state. Both sites therefore keep the task.
@@ -89,34 +89,9 @@ func TestManager_CleanUpTask_RefusesATerminalTaskWithoutAFinishTime(t *testing.T
 	refuse("a century later")
 }
 
-// The positive control for the guard above: a terminal task that does carry a
-// stamp older than the TTL is still deleted, so the guard is not simply
-// disabling cleanup.
-func TestManager_CleanUpTask_StillDeletesAStampedExpiredTask(t *testing.T) {
-	const (
-		ns      = "tasks-namespace"
-		taskID  = "stamped"
-		version = uint64(7)
-	)
-
-	h := newTestHarness(t).init(t)
-	defer h.manager.Close()
-
-	seedTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
-	h.manager.mu.Lock()
-	h.manager.tasks[ns][taskID].FinishedAt = h.clock.Now()
-	h.manager.mu.Unlock()
-
-	h.clock.Advance(h.completedTaskTTL + time.Minute)
-
-	require.NoError(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-		Namespace: ns, Id: taskID, Version: version,
-	})))
-
-	tasks, err := h.manager.ListDistributedTasks(context.Background())
-	require.NoError(t, err)
-	require.Empty(t, tasks[ns])
-}
+// The positive control — a stamped task past its TTL is still deleted, so this
+// guard is not simply disabling cleanup — lives in the table in
+// cleanup_determinism_test.go.
 
 // The sweep half. MockTaskCleaner fails the test on any call it was not told
 // to expect, so "the scheduler never proposes cleanup" is asserted by setting

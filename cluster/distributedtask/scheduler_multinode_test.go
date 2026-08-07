@@ -270,9 +270,13 @@ type directCleaner struct {
 	manager *Manager
 }
 
-func (c *directCleaner) CleanUpDistributedTask(_ context.Context, ns, id string, version uint64) error {
+func (c *directCleaner) CleanUpDistributedTask(_ context.Context, ns, id string, version uint64, proposedAt time.Time, ttl time.Duration) error {
 	return c.manager.CleanUpTask(toCmd(c.t, &cmd.CleanUpDistributedTaskRequest{
-		Namespace: ns, Id: id, Version: version,
+		Namespace:            ns,
+		Id:                   id,
+		Version:              version,
+		ProposedAtUnixMillis: proposedAt.UnixMilli(),
+		TtlMillis:            ttl.Milliseconds(),
 	}))
 }
 
