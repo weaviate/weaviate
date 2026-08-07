@@ -20,54 +20,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestSingleNode_FinishedStatusRaceWithSchemaFlag pins the contract between
+// TestSingleNode_FinishedStatusRaceWithSchemaFlag pins the ordering between
 // the distributed-task FINISHED status and the schema-flag flip for a semantic
 // migration (change-tokenization) under the Journey 3 canonical wiring.
 //
-// Sequence:
+// The flip is not something FINISHED races: MarkTaskFinalized is only proposed
+// after OnTaskCompleted has returned nil, and OnTaskCompleted's schema update
+// is itself a RAFT apply. The flip therefore commits to the log strictly
+// before FINISHED does, and on one node it is applied first.
 //
-//  1. The last unit's `RecordDistributedTaskUnitCompletion` runs (Raft apply).
-//     In cluster/distributedtask/manager.go AllUnitsTerminal() → true and
-//     task.Status flips to FINISHED. A poller against /v1/tasks now sees
-//     FINISHED. The same apply also calls notifySchedulerWithLock which wakes
-//     the scheduler reactively (cluster/distributedtask/scheduler.go wakeCh
-//     path).
-//  2. The scheduler's run loop runs OnTaskCompleted within RAFT-propagation +
-//     scheduler-loop latency of the apply — typically low tens of ms with
-//     reactive firing, much faster than the periodic tick interval.
-//  3. OnTaskCompleted in adapters/repos/db/reindex_provider.go calls
-//     applyPerPropertySchemaUpdate (RAFT-idempotent), which flips the
-//     property's Tokenization. The flip is observable on /v1/schema once
-//     that RAFT entry applies locally.
+// That ordering is what lets the index-status endpoint read both signals from
+// the local FSM and treat FINISHED + flag-off as a stale task rather than a
+// pending swap. This test pins it end to end: at the first observation of
+// FINISHED the schema must ALREADY report the new tokenization.
 //
-// Contract this test pins: after a poller observes FINISHED on /v1/tasks,
-// the schema must catch up within a bounded window. We allow up to 5
-// seconds, which is conservative against RAFT propagation hiccups on a
-// loaded test runner; in practice it converges in well under 100ms.
-//
-// Why a window at all (rather than strict equality): the cluster-wide
-// atomicity guarantee (no node sees a half-applied migration where some
-// shards have swapped buckets but the schema hasn't flipped) requires the
-// schema flip to happen *after* every node's local OnGroupCompleted has
-// run the per-shard bucket swap. The schema flip is therefore one RAFT
-// commit removed from the task-FINISHED transition. The previous
-// implementation (commit f937532ea5) inlined the flip BEFORE FINISHED in
-// processOneUnit, eliminating this window but introducing a worse
-// cross-node window where the first node's swap flipped the schema flag
-// for the entire cluster while peer nodes still served the old bucket.
-//
-// Callers that need to observe the post-migration state synchronously
-// should poll /v1/indexes, which has a "finalize-window" override
-// (mergeReindexStatus in adapters/handlers/rest/handlers_indexes.go) that
-// surfaces "indexing@100%" during this brief window so the UI does not
-// flash "ready" with the pre-migration schema.
+// The window between the units stopping and the flip is reported by the
+// PREPARING and SWAPPING statuses, not by FINISHED.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 
@@ -128,54 +102,22 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	}, 120*time.Second, 20*time.Millisecond)
 	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED")
 
-	// Poll the schema for up to flipWindow after FINISHED was first observed.
-	// The schema flip happens in ReindexProvider.OnTaskCompleted (one RAFT
-	// commit after the task transitions to FINISHED). The reactive scheduler
-	// wake-up + OnTaskCompleted body + RAFT-apply latency is typically well
-	// under 100ms on a healthy cluster; allow 5s for headroom on a loaded
-	// test runner. If it doesn't converge within this window, the wiring
-	// is broken (e.g. notifier not installed, OnTaskCompleted not flipping,
-	// RAFT commit silently rejected).
-	const flipWindow = 5 * time.Second
-	var lastObservedTokenization string
-	var sawFieldAt time.Time
-	// Keep a tight 10ms tick so the captured sawFieldAt is as close as
-	// possible to the actual flip — the convergence-lag assertion below is
-	// sub-second. Capture the timestamp the instant the condition holds.
-	flipped := assert.Eventually(t, func() bool {
-		cls := helper.GetClass(t, className)
-		for _, prop := range cls.Properties {
-			if prop.Name == "filepath" {
-				lastObservedTokenization = prop.Tokenization
-			}
+	// No polling: the flip is ordered before FINISHED in the RAFT log, so it
+	// is already applied by the time FINISHED is observable. A retry loop here
+	// would hide exactly the regression this test exists to catch.
+	var observedTokenization string
+	for _, prop := range helper.GetClass(t, className).Properties {
+		if prop.Name == "filepath" {
+			observedTokenization = prop.Tokenization
 		}
-		if lastObservedTokenization == "field" {
-			sawFieldAt = time.Now()
-			return true
-		}
-		return false
-	}, flipWindow, 10*time.Millisecond)
-
-	if !flipped || sawFieldAt.IsZero() {
-		t.Fatalf(
-			"schema flag never flipped to %q within %v after FINISHED was first observed; "+
-				"last observed tokenization=%q. The Journey 3 wiring "+
-				"(ReindexProvider.OnTaskCompleted → applyPerPropertySchemaUpdate) "+
-				"is not firing or its RAFT commit is not landing.",
-			"field", flipWindow, lastObservedTokenization)
 	}
-
-	convergenceLag := sawFieldAt.Sub(sawFinishedAt)
-	t.Logf("schema observed at target tokenization=%q after %v of FINISHED being visible on /v1/tasks",
-		lastObservedTokenization, convergenceLag)
-
-	// Sanity floor: the window must be SHORTER than the periodic scheduler
-	// tick interval, otherwise reactive firing isn't actually firing and
-	// we're observing the tick fallback path. The test container sets the
-	// tick to 1s; we should comfortably observe convergence in under 1s.
-	require.Less(t, convergenceLag, time.Second,
-		"schema flip took >= 1s after FINISHED — reactive firing is not engaging, "+
-			"the wake-up path is broken and we are observing the tick fallback")
+	require.Equal(t, "field", observedTokenization,
+		"the schema flip commits before FINISHED does, so a task reported FINISHED "+
+			"must never render against the pre-migration schema. Either the Journey 3 "+
+			"wiring (ReindexProvider.OnTaskCompleted -> applyPerPropertySchemaUpdate) "+
+			"stopped preceding MarkTaskFinalized, or FINISHED is being reported early.")
+	t.Logf("schema already at tokenization=%q when FINISHED first became visible (observed at %v)",
+		observedTokenization, sawFinishedAt)
 }
 
 // fetchTaskStatus returns the status string for the given reindex task, or

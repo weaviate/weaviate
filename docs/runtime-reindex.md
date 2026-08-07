@@ -143,12 +143,15 @@ Per-property, per-index-type snapshot:
 
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
 The status is synthesized in `mergeReindexStatus` from a snapshot of
-the active DTM task list crossed with the live schema flags. A short
-**finalize-window override** lets a FINISHED-but-schema-not-yet-flipped
-entry render as `indexing@100%` for up to 10s (the bound, see
-`finalizeWindowMax`); without that override the UI would briefly show
-"None" between task FINISHED and the schema-flag flip, which was the
-user-visible face of weaviate/weaviate#10675.
+the DTM task list crossed with the live schema flags. Both are read
+from the **local FSM**, so they come from one apply-ordered view: a
+task's schema flip commits to the RAFT log before the task is marked
+FINISHED, so a locally FINISHED task always renders against a flag
+that has already flipped. The window between the units stopping and
+the flip is reported by the `PREPARING` and `SWAPPING` statuses, which
+render as `indexing@100%`. FINISHED with the flag off means the flag
+was turned back off since (an index DELETE), i.e. a stale task, and
+produces no entry — this is weaviate/weaviate#10675.
 
 Read-access is gated on `READ` of `CollectionsMetadata`; `PUT`/`DELETE`
 require the stronger `UPDATE` on `Collections`.
@@ -1295,12 +1298,14 @@ configuration:
   state.
 
 **The commit-time backstop compares two clocks.** `RefuseIfReindexOverlapped`
-clears a task when its `FinishedAt` is before the backup's start time. Those two
-stamps come from different machines: the start time from the node capturing the
-backup, `FinishedAt` from whichever node proposed the task to RAFT. If the
-proposer's clock runs far enough behind, a migration that really did finish
-inside the backup window reads as having finished before it, and the backup is
-published as clean while it is torn.
+clears a task when its `FinishedAt` is before the backup's start time.
+`FinishedAt` is stamped at the terminal transition, so it post-dates the bucket
+swap and a migration that swapped inside the capture window is not cleared. But
+the two stamps still come from different machines: the start time from the node
+capturing the backup, `FinishedAt` from whichever node proposed the terminal
+transition to RAFT. If the proposer's clock runs far enough behind, a migration
+that really did end inside the backup window reads as having ended before it,
+and the backup is published as clean while it is torn.
 
 This is accepted, not a bug to be worked around here. Backup state is not
 tracked in RAFT, so there is no cluster-wide consistent answer to "when did this
@@ -1392,8 +1397,7 @@ with the modern testcontainer style.
   `roaring_set_test`).
 - `delete_then_reenable_test` / `delete_reenable_multicycle_test` /
   `delete_reenable_indexing_bleed_test` / `delete_reenable_shortcircuit_test`
-  — the #10675 family + the `mergeReindexStatus` finalize-window
-  override bound test.
+  — the #10675 family.
 - `change_tok_delete_journeys_test` — the cross-strategy clobber +
   `cleanStaleMigrationDirs` family.
 - `cancel_test` / `cancel_then_retry_test` — cancel + the
