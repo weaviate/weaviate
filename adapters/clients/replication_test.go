@@ -688,6 +688,18 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 			"a 412 means the replica is not ready and must map to the typed sentinel")
 	})
 
+	t.Run("NodeBooting503MapsToSentinel", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "503 Node not ready", http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		c := newReplicationClient(t, server.Client())
+		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"the node-level boot gate (503) must map to the typed retry-later sentinel")
+	})
+
 	t.Run("InvalidBinaryLength", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Response-Encoding", "binary")

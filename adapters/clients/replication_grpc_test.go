@@ -827,6 +827,16 @@ func TestGRPCReplicationHashTreeLevelNotReady(t *testing.T) {
 			"FailedPrecondition on HashTreeLevel means replica not ready and must map to the typed sentinel")
 	})
 
+	t.Run("UnavailableMapsToSentinel", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelErr = status.Error(codes.Unavailable, "node not ready")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
+	})
+
 	t.Run("InternalStaysHardFailure", func(t *testing.T) {
 		fake := newFakeGRPCReplicationServer(t)
 		fake.hashTreeLevelErr = status.Error(codes.Internal, "boom")
