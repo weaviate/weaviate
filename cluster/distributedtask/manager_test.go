@@ -507,14 +507,14 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 				},
 				Payload: []byte("test2"),
 				// Manager.RecordUnitCompletion alone takes a successful
-				// task to FINALIZING; the FINISHED transition is committed
+				// task to SWAPPING; the FINISHED transition is committed
 				// by [Manager.MarkTaskFinalized] which the [Scheduler]
 				// issues after every node's [Provider.OnTaskCompleted]
 				// returns. This helper exercises RecordUnitCompletion in
-				// isolation, so FINALIZING is the expected end state.
-				Status:     TaskStatusSwapping,
-				StartedAt:  now,
-				FinishedAt: now.Add(time.Minute),
+				// isolation, so SWAPPING is the expected end state — and a
+				// SWAPPING task has no FinishedAt yet.
+				Status:    TaskStatusSwapping,
+				StartedAt: now,
 				Units: map[string]*Unit{
 					"su-1": {ID: "su-1", Status: UnitStatusCompleted, Progress: 1.0},
 				},
@@ -1382,16 +1382,19 @@ func TestManager_MarkTaskFailed(t *testing.T) {
 
 		tasks, _ := h.manager.ListDistributedTasks(context.Background())
 		require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
-		finishedAt := tasks["ns"][0].FinishedAt
+		require.True(t, tasks["ns"][0].FinishedAt.IsZero(),
+			"a SWAPPING task has not finished")
 
+		h.clock.Advance(time.Minute)
+		failedAt := h.clock.Now()
 		require.NoError(t, markFailed(t, h, "ns", "task1", version, "schema flip failed at finalize"))
 
 		tasks, _ = h.manager.ListDistributedTasks(context.Background())
 		task := tasks["ns"][0]
 		require.Equal(t, TaskStatusFailed, task.Status)
 		require.Contains(t, task.Error, "schema flip failed at finalize")
-		require.Equal(t, finishedAt, task.FinishedAt,
-			"FinishedAt must stay at the AllUnitsTerminal moment, matching other FAILED paths")
+		require.Equal(t, failedAt.UnixMilli(), task.FinishedAt.UnixMilli(),
+			"FinishedAt is the moment the task failed, off the request")
 	})
 
 	t.Run("is idempotent: second call on FAILED is a no-op", func(t *testing.T) {

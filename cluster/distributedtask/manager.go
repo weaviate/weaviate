@@ -642,9 +642,6 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 		} else {
 			task.Status = TaskStatusSwapping
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
-		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
-		task.FinishedAt = finishedAt
 	}
 
 	// Notify on every unit completion — even when not the last one — so
@@ -697,17 +694,18 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest, catchingUp bool) 
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PostCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
 	// Any failure flips the task to FAILED immediately; later acks are
-	// still recorded for forensic value. FinishedAt is not updated —
-	// "when did the work end" should remain the AllUnitsTerminal moment.
+	// still recorded for forensic value.
 	if !r.Success && task.Status == TaskStatusSwapping {
 		task.Status = TaskStatusFailed
+		task.FinishedAt = ackedAt
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
@@ -789,10 +787,11 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest, catchingUp b
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PreparationCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
 	// Failure path: the task fails immediately. No node proceeds to the
@@ -805,7 +804,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest, catchingUp b
 		} else {
 			task.Error = ackErr
 		}
-		// FinishedAt was set when AllUnitsTerminal landed; keep it.
+		task.FinishedAt = ackedAt
 		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
@@ -881,13 +880,10 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	// FinishedAt is intentionally NOT overwritten here. It was already set
-	// in [Manager.RecordUnitCompletion] when all units reached terminal
-	// state — that is the user-meaningful "when did the work finish"
-	// timestamp, and the completed-task TTL counts from there. The
-	// FinalizedAtUnixMillis on the request is left in place for forensic
-	// purposes (visible in RAFT logs) but not stored on the Task.
 	task.Status = TaskStatusFinished
+	// From the request, never the local clock: two nodes applying this same
+	// log entry have to arrive at the same state.
+	task.FinishedAt = time.UnixMilli(r.FinalizedAtUnixMillis)
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -899,7 +895,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
-// is refused. FinishedAt stays at the AllUnitsTerminal moment.
+// is refused.
 func (m *Manager) MarkTaskFailed(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.MarkTaskFailedRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -928,6 +924,9 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest, catchingUp bool) error {
 	}
 
 	task.Status = TaskStatusFailed
+	// From the request, never the local clock: two nodes applying this same
+	// log entry have to arrive at the same state.
+	task.FinishedAt = time.UnixMilli(r.FailedAtUnixMillis)
 	if r.Error != "" {
 		if task.Error != "" {
 			task.Error = task.Error + "; " + r.Error
@@ -1048,10 +1047,8 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Every non-terminal status, not just STARTED. PREPARING/SWAPPING carry a
-	// FinishedAt stamped when their units stopped, already in the past while
-	// the swap runs; a status a newer node introduced may carry a zero one.
-	// Either way the TTL check below cannot stop the delete.
+	// Every non-terminal status, not just STARTED: a non-terminal task has a
+	// zero FinishedAt, which the TTL check below reads as long expired.
 	if task.Status.IsActive() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}

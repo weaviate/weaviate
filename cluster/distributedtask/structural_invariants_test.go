@@ -14,11 +14,13 @@ package distributedtask
 import (
 	"context"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 // Structural invariant tests for the DTM package.
@@ -238,5 +240,116 @@ func structuralInvariantSeedTask(
 		Units: map[string]*Unit{
 			"u-1": {ID: "u-1", Status: UnitStatusPending},
 		},
+	}
+}
+
+// TestStructuralInvariant_FinishedAtIffTerminal pins the lifecycle invariant
+// the FinishedAt semantics rest on, checked after every single apply rather
+// than only at the end of a path:
+//
+//	Task.FinishedAt.IsZero()  ⟺  !Task.Status.IsTerminal()
+//
+// Every consumer (TTL sweep, cleanup guard, backup overlap backstop, display
+// sort, the /v1/tasks response) reads the field naively and is correct only
+// while this holds. weaviate/0-weaviate-issues#501.
+func TestStructuralInvariant_FinishedAtIffTerminal(t *testing.T) {
+	const (
+		ns      = "ns"
+		taskID  = "task1"
+		version = uint64(10)
+	)
+
+	type step struct {
+		name  string
+		apply func(t *testing.T, h *testHarness)
+	}
+
+	plain := step{"add", func(t *testing.T, h *testHarness) {
+		addTaskWithUnits(t, h, ns, taskID, version, []string{"u"})
+	}}
+	barrier := step{"add barrier task", func(t *testing.T, h *testHarness) {
+		addBarrierTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
+	}}
+	claim := step{"claim unit", func(t *testing.T, h *testHarness) {
+		updateProgress(t, h, ns, taskID, version, "node-1", "u", 0.1)
+	}}
+	finishUnit := step{"finish unit", func(t *testing.T, h *testHarness) {
+		completeUnit(t, h, ns, taskID, version, "node-1", "u")
+	}}
+	prepAck := func(success bool) step {
+		return step{"prep ack", func(t *testing.T, h *testHarness) {
+			require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+				Namespace: ns, Id: taskID, Version: version, NodeId: "node-1",
+				Success: success, AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+			}), false))
+		}}
+	}
+	swapAck := func(success bool) step {
+		return step{"swap ack", func(t *testing.T, h *testHarness) {
+			require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+				Namespace: ns, Id: taskID, Version: version, NodeId: "node-1",
+				Success: success, AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+			}), false))
+		}}
+	}
+	finalize := step{"finalize", func(t *testing.T, h *testHarness) {
+		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace: ns, Id: taskID, Version: version,
+			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}}
+	markFailed := step{"mark failed", func(t *testing.T, h *testHarness) {
+		require.NoError(t, h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
+			Namespace: ns, Id: taskID, Version: version, Error: "synthetic",
+			FailedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+	}}
+	failUnitStep := step{"fail unit", func(t *testing.T, h *testHarness) {
+		failUnit(t, h, ns, taskID, version, "node-1", "u", "synthetic")
+	}}
+	cancel := step{"cancel", func(t *testing.T, h *testHarness) {
+		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace: ns, Id: taskID, Version: version,
+			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+	}}
+	driveBarrierUnits := step{"finish barrier units", func(t *testing.T, h *testHarness) {
+		drivePreparing(t, h, ns, taskID, version, []string{"node-1"})
+	}}
+
+	paths := [][]step{
+		{plain, claim, finishUnit, swapAck(true), finalize},
+		{plain, claim, finishUnit, swapAck(false)},
+		{plain, claim, finishUnit, markFailed},
+		{plain, claim, failUnitStep},
+		{plain, claim, cancel},
+		{barrier, driveBarrierUnits, prepAck(false)},
+		{barrier, driveBarrierUnits, prepAck(true), swapAck(true), finalize},
+	}
+
+	for _, path := range paths {
+		names := make([]string, 0, len(path))
+		for _, s := range path {
+			names = append(names, s.name)
+		}
+		t.Run(strings.Join(names, " → "), func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			defer h.manager.Close()
+
+			for _, s := range path {
+				s.apply(t, h)
+				h.clock.Advance(time.Second)
+
+				tasks, err := h.manager.ListDistributedTasks(context.Background())
+				require.NoError(t, err)
+				require.Len(t, tasks[ns], 1)
+				task := tasks[ns][0]
+				require.Equal(t, !task.Status.IsTerminal(), task.FinishedAt.IsZero(),
+					"after %q the task is %s with FinishedAt %v", s.name, task.Status, task.FinishedAt)
+			}
+
+			require.True(t, onlyTask(t, h, ns).Status.IsTerminal(),
+				"sanity: every path ends terminal, so the ⟸ direction is exercised")
+		})
 	}
 }
