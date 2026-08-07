@@ -82,7 +82,9 @@ func gateHandlers(prober reindexCleanupProber, nodes ...string) (*indexesHandler
 	}, hook
 }
 
-func warned(hook *logrustest.Hook, fragment string) *logrus.Entry {
+// entryWithMessage finds the first entry whose rendered message contains
+// fragment, at any level.
+func entryWithMessage(hook *logrustest.Hook, fragment string) *logrus.Entry {
 	for _, e := range hook.AllEntries() {
 		if strings.Contains(e.Message, fragment) {
 			return e
@@ -92,8 +94,8 @@ func warned(hook *logrustest.Hook, fragment string) *logrus.Entry {
 }
 
 // audited finds the entry tagged with auditEvent. The event name is a
-// structured field and never appears in the rendered message, so warned can
-// never match it.
+// structured field and never appears in the rendered message, so
+// entryWithMessage can never match it.
 func audited(hook *logrustest.Hook, auditEvent string) *logrus.Entry {
 	for _, e := range hook.AllEntries() {
 		if e.Data["audit_event"] == auditEvent {
@@ -129,7 +131,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		// The WARN is only a signal if a healthy cancel stays quiet. When the
 		// owner raises its gate after its drain instead of before, every routed
 		// cancel trips it and it degrades into noise nobody reads.
-		require.Nil(t, warned(hook, "could not confirm"),
+		require.Nil(t, entryWithMessage(hook, "could not confirm"),
 			"a healthy routed cancel must not report an unconfirmed gate")
 		require.Nil(t, audited(hook, "reindex_cancel_gate_unconfirmed"),
 			"a healthy routed cancel must not emit the unconfirmed-gate audit event")
@@ -163,7 +165,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		// The handler's own budget is pinned below.
 		assert.Less(t, time.Since(start), time.Second,
 			"a cancelled caller must end the wait rather than be waited out")
-		entry := warned(hook, "could not confirm")
+		entry := entryWithMessage(hook, "could not confirm")
 		require.NotNil(t, entry, "the degraded path has to be visible to the operator")
 		assert.Equal(t, "reindex_cancel_gate_unconfirmed", entry.Data["audit_event"])
 		assert.Contains(t, entry.Data["nodes"], owner)
@@ -182,7 +184,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 			"an older build can never answer; polling it burns the budget for nothing")
 		assert.Less(t, time.Since(start), reindexOwnerGatePollInterval,
 			"the answer is known immediately")
-		require.NotNil(t, warned(hook, "could not confirm"))
+		require.NotNil(t, entryWithMessage(hook, "could not confirm"))
 	})
 
 	// cancelReindexTask runs on a keep-alive request context that carries no
@@ -212,7 +214,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 			collection, "task-1", true)
 
 		assert.Empty(t, prober.queried)
-		assert.Nil(t, warned(hook, "could not confirm"))
+		assert.Nil(t, entryWithMessage(hook, "could not confirm"))
 		assert.Nil(t, audited(hook, "reindex_cancel_gate_unprobed"),
 			"this node genuinely owns every unit; nothing was left unasked")
 	})

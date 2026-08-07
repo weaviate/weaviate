@@ -30,12 +30,16 @@ import (
 const runShPackagePath = "test/acceptance/reindex_backup"
 
 var (
-	aofGroupRunRe     = regexp.MustCompile(`AOF_GROUP_RUN='([^']*)'`)
-	aofGroupTimeoutRe = regexp.MustCompile(`AOF_GROUP_TIMEOUT=([0-9]+)m`)
-	aofTestBudgetRe   = regexp.MustCompile(`AOF_TEST_BUDGET (Test[A-Za-z0-9_]+) ([0-9]+)m`)
-	testNameRe        = regexp.MustCompile(`^Test[A-Za-z0-9_]*$`)
-	runShFunctionRe   = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
-	runShFlagRe       = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
+	aofGroupRunRe = regexp.MustCompile(`AOF_GROUP_RUN='([^']*)'`)
+	// Captures whatever a group sets its budget to, not only the readable
+	// shapes, so an unreadable one is rejected rather than skipped.
+	aofGroupTimeoutRe        = regexp.MustCompile(`AOF_GROUP_TIMEOUT=([^\s\\]*)`)
+	aofGroupTimeoutDefaultRe = regexp.MustCompile(`AOF_GROUP_TIMEOUT:-([^\s}]*)`)
+	aofTestBudgetRe          = regexp.MustCompile(`AOF_TEST_BUDGET (Test[A-Za-z0-9_]+) ([0-9]+)m`)
+	testNameRe               = regexp.MustCompile(`^Test[A-Za-z0-9_]*$`)
+	runShFunctionRe          = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
+	runShFlagRe              = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
+	wholeMinutesRe           = regexp.MustCompile(`^([0-9]+)m$`)
 )
 
 // imageBuildAllowanceMinutes is the slice of the job window spent building the
@@ -88,15 +92,6 @@ func allowlistedTests(t *testing.T, runSh string) map[string]string {
 // testWorstCases reads run.sh's per-test AOF_TEST_BUDGET lines, which are the
 // sums the group budgets are derived from. They live in run.sh so the
 // derivation and the budget it produces cannot drift apart in separate files.
-//
-// The lines are hand-written. Nothing here reads a deadline out of the test
-// source, so raising a helper.WithDeadline in a test file without editing that
-// test's AOF_TEST_BUDGET line moves the real floor above the budget and leaves
-// every guard in this file green. That rot is accepted: what it costs is CI
-// triage, not correctness. go test still panics with stacks inside the job
-// window, the failure just reads as a product hang rather than as a budget too
-// small. Closing it means every wait in this package referencing a per-test
-// constant this guard can sum.
 func testWorstCases(t *testing.T, runSh string) map[string]int {
 	t.Helper()
 
@@ -246,6 +241,13 @@ func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 // workflow gives the job. Go's -timeout is what turns a hang into a panic with
 // stacks, and it produces that only if it fires before the runner kills the
 // job and after the tests have had the time they ask for.
+//
+// The floor comes from hand-written AOF_TEST_BUDGET lines, not from the test
+// source, so raising a helper.WithDeadline without editing that test's line
+// moves the real floor above the budget and leaves this guard green. That rot
+// is accepted: it costs CI triage, not correctness. go test still panics with
+// stacks inside the job window; the failure just reads as a product hang
+// rather than as a budget too small.
 func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 	root := repoRoot(t)
 	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
@@ -257,6 +259,34 @@ func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 
 	jobWindows := workflowRunShTimeouts(t, root)
 	worstCases := testWorstCases(t, runSh)
+
+	// A budget the reader cannot understand used to fall through to
+	// run_aof_group's default and have the group validated against that number
+	// instead. These are the shapes go test accepts that this reader does not.
+	t.Run("budgets not written in whole minutes are unreadable", func(t *testing.T) {
+		tests := []struct {
+			value string
+			want  int
+			ok    bool
+		}{
+			{value: "20m", want: 20, ok: true},
+			{value: "0m", want: 0, ok: true},
+			{value: "90s"},
+			{value: "1h"},
+			{value: "18m30s"},
+			{value: "1h30m"},
+			{value: "20"},
+			{value: "m"},
+			{value: ""},
+		}
+		for _, tc := range tests {
+			t.Run(tc.value, func(t *testing.T) {
+				minutes, ok := wholeMinutes(tc.value)
+				require.Equal(t, tc.ok, ok)
+				require.Equal(t, tc.want, minutes)
+			})
+		}
+	})
 
 	for _, group := range groups {
 		t.Run(group.name, func(t *testing.T) {
@@ -295,7 +325,10 @@ func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 }
 
 // groupTimeoutMinutes reads the go-test budget a group sets, falling back to
-// run_aof_group's own default when the group does not set one.
+// run_aof_group's own default when the group does not set one. A budget written
+// in any other shape than whole minutes fails here rather than falling through
+// to the default, which would have this guard validate the group against a
+// number the group does not use.
 func groupTimeoutMinutes(t *testing.T, runSh, group string) int {
 	t.Helper()
 
@@ -310,17 +343,41 @@ func groupTimeoutMinutes(t *testing.T, runSh, group string) int {
 			continue
 		}
 		if m := aofGroupTimeoutRe.FindStringSubmatch(line); m != nil {
-			minutes, err := strconv.Atoi(m[1])
-			require.NoError(t, err)
-			return minutes
+			return requireWholeMinutes(t, m[1], group+" sets AOF_GROUP_TIMEOUT")
 		}
 	}
 
-	m := regexp.MustCompile(`AOF_GROUP_TIMEOUT:-([0-9]+)m`).FindStringSubmatch(runSh)
+	m := aofGroupTimeoutDefaultRe.FindStringSubmatch(runSh)
 	require.NotNilf(t, m, "%s sets no AOF_GROUP_TIMEOUT and run_aof_group's default "+
 		"is not in the shape this guard reads", group)
+	return requireWholeMinutes(t, m[1], "run_aof_group's default AOF_GROUP_TIMEOUT")
+}
+
+// wholeMinutes reads an Nm duration. Every other shape go test accepts —
+// 1h, 90s, 18m30s — reports false rather than a number, because rounding one
+// silently is the same defect as reading the wrong value.
+func wholeMinutes(value string) (int, bool) {
+	m := wholeMinutesRe.FindStringSubmatch(value)
+	if m == nil {
+		return 0, false
+	}
 	minutes, err := strconv.Atoi(m[1])
-	require.NoError(t, err)
+	if err != nil {
+		return 0, false
+	}
+	return minutes, true
+}
+
+// requireWholeMinutes is wholeMinutes with the failure spelled out for whoever
+// wrote the unreadable value.
+func requireWholeMinutes(t *testing.T, value, what string) int {
+	t.Helper()
+
+	minutes, ok := wholeMinutes(value)
+	require.Truef(t, ok,
+		"%s to %q, which is not the whole-minutes shape this guard reads, so it cannot say "+
+			"whether the group's tests fit inside it; write the budget as Nm",
+		what, value)
 	return minutes
 }
 
