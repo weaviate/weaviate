@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Three predicates answer questions about one task, and they used to disagree.
+// Three predicates answer questions about one task and have to agree.
 // Pins: for a task in PREPARING/SWAPPING (live to the backup gate but past
 // STARTED, which is all CancelTask accepts), cancel must refuse with a clear
 // message rather than reach DTM and surface its rejection as NO_OP or a 500.

@@ -997,7 +997,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// provider (already stored above), so neither has anything to wait for,
 	// unlike the goroutine which waits on RAFT replay and DTM. Without this,
 	// a submission deleting sidecars right now would be invisible to a
-	// concurrent backup for that whole window (S1).
+	// concurrent backup for that whole window.
 	reindexProvider := appState.ReindexProvider.Load()
 	repo.SetReindexCleanupInProgressLookup(reindexProvider.CleanupInProgressLookupBuilder())
 	// Same race, restore side: the cluster lookup installed below sees only

@@ -347,7 +347,9 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 // waits, since waiting would hold the restore slot the reverse guard reads,
 // deadlocking both sides. Every caller must authorize first: the refusal
 // discloses cluster-wide reindex state. collections must be resolved class
-// names, never wildcards; nil asks about every collection. Fails closed.
+// names, never wildcards; nil asks about every collection. Fails closed: a
+// task whose payload cannot be read refuses the collection the payload still
+// names, and one naming no collection at all refuses every restore.
 func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
 	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx, collections); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("restore blocked: %w", err))
