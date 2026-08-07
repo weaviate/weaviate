@@ -204,6 +204,16 @@ func TestReindexOverlapLookup(t *testing.T) {
 			wantRefuse: true,
 		},
 		{
+			// A terminal task always carries a finish time, so this state
+			// only exists once the invariant has broken — reachable during a
+			// rolling upgrade. The backstop must answer "torn" rather than
+			// waive a backup on a timestamp it does not have.
+			name:       "terminal task with no finish time is treated as overlapping",
+			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFailed, time.Time{})},
+			since:      backupStart,
+			wantRefuse: true,
+		},
+		{
 			name:  "task on a collection this backup does not cover",
 			tasks: []*distributedtask.Task{overlapTask("Actors", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
 			since: backupStart,
