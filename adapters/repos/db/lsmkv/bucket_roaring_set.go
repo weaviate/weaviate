@@ -152,13 +152,13 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 ) (bm *sroar.Bitmap, release func(), err error) {
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	diskLayer, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
+	diskBM, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
 	// diskRelease (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a failed flushing/active
-	// read can't leak the disk layer's pooled buffer.
+	// read can't leak the disk bitmap's pooled buffer.
 	defer func() {
 		if err != nil {
 			diskRelease()
@@ -166,10 +166,10 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 	}()
 
 	// Fold the disk, flushing and active layers one at a time, oldest first,
-	// without materializing a []BitmapLayer. diskLayer.Additions is the pooled
-	// base (with headroom); on a disk miss it is nil and the merger adopts the
-	// first memtable layer's clone instead of copying it.
-	merger := roaringset.NewLayerMerger(diskLayer.Additions, false, maxConc)
+	// without materializing a []BitmapLayer. diskBM is the pooled base (with
+	// headroom); on a disk miss it is nil and the merger adopts the first
+	// memtable layer's clone instead of copying it.
+	merger := roaringset.NewLayerMerger(diskBM, false, maxConc)
 
 	if view.Flushing != nil {
 		flushing, flushErr := view.Flushing.roaringSetGet(key)

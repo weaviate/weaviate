@@ -1131,23 +1131,6 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	}
 }
 
-// encodeBatchedContainsKeys encodes every value to its on-disk key via encode,
-// wrapping the first failure with its position so the caller can report
-// which element was malformed. encode takes interface{} — the shared
-// signature of the extract*Value encoders — so method values pass directly;
-// each typed value boxes at the call.
-func encodeBatchedContainsKeys[T any](values []T, encode func(interface{}) ([]byte, error)) ([][]byte, error) {
-	keys := make([][]byte, len(values))
-	for i, v := range values {
-		k, err := encode(v)
-		if err != nil {
-			return nil, fmt.Errorf("extract contains values: value %d: %w", i, err)
-		}
-		keys[i] = k
-	}
-	return keys, nil
-}
-
 // newBatchedContainsPair builds the batched Contains leaf from pre-encoded keys.
 func newBatchedContainsPair(property *models.Property, operator filters.Operator,
 	class *models.Class, keys [][]byte,
@@ -1171,9 +1154,9 @@ func newBatchedContainsPair(property *models.Property, operator filters.Operator
 func (s *Searcher) batchedContainsUUID(property *models.Property, operator filters.Operator,
 	class *models.Class, values []string,
 ) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractUUIDValue)
+	keys, err := encodeUUIDKeys(values)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1191,12 +1174,22 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	if err != nil {
 		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
-	keys := make([][]byte, batch.Len())
+	total := 0
 	for i, valueTokens := range batch.All() {
 		if len(valueTokens) != 1 {
 			return nil, fmt.Errorf("extract contains values: value %d: FIELD tokenization produced %d tokens, want exactly 1", i, len(valueTokens))
 		}
-		keys[i] = []byte(valueTokens[0])
+		total += len(valueTokens[0])
+	}
+	// all keys share one backing slab; the three-index sub-slices cap each
+	// key's capacity at its own end, so an append to one key cannot clobber
+	// the next
+	keys := make([][]byte, batch.Len())
+	slab := make([]byte, 0, total)
+	for i, valueTokens := range batch.All() {
+		start := len(slab)
+		slab = append(slab, valueTokens[0]...)
+		keys[i] = slab[start:len(slab):len(slab)]
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1204,9 +1197,9 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 func (s *Searcher) batchedContainsInt(property *models.Property, operator filters.Operator,
 	class *models.Class, values []int,
 ) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractIntValue)
+	keys, err := encodeIntKeys(values)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1214,9 +1207,9 @@ func (s *Searcher) batchedContainsInt(property *models.Property, operator filter
 func (s *Searcher) batchedContainsNumber(property *models.Property, operator filters.Operator,
 	class *models.Class, values []float64,
 ) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractNumberValue)
+	keys, err := encodeNumberKeys(values)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1224,9 +1217,9 @@ func (s *Searcher) batchedContainsNumber(property *models.Property, operator fil
 func (s *Searcher) batchedContainsBool(property *models.Property, operator filters.Operator,
 	class *models.Class, values []bool,
 ) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractBoolValue)
+	keys, err := encodeBoolKeys(values)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1234,9 +1227,9 @@ func (s *Searcher) batchedContainsBool(property *models.Property, operator filte
 func (s *Searcher) batchedContainsDate(property *models.Property, operator filters.Operator,
 	class *models.Class, values []string,
 ) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractDateValue)
+	keys, err := encodeDateKeys(values)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }

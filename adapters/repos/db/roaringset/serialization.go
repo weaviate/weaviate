@@ -147,23 +147,6 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 	return sroar.FromBuffer(buf)
 }
 
-// DeletionsCloneToBuf clones the node's deletions bitmap straight into a
-// buffer taken from pool. The clone is safe to use beyond the node's
-// lifetime, but bounded to the region length and cannot grow in place —
-// fine, since deletions are only ever an AndNot operand; a corrupt header
-// panics at the region boundary. It returns (nil, nil) when the node holds
-// no deletions — the release is non-nil exactly when the bitmap is.
-func (sn *SegmentNode) DeletionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, func()) {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
-	if len(buf) == 0 {
-		return nil, nil
-	}
-	return pool.CloneBytesToBufBounded(buf)
-}
-
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
 // creates a copy of the underlying buffer. This is safe to use indefinitely,
 // but much slower than [*SegmentNode.Deletions] as it requires copying all the

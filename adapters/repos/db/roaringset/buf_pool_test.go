@@ -1126,21 +1126,12 @@ func TestAccumulatorToBuf(t *testing.T) {
 func TestCloneBytesToBuf_OddLengthPanics(t *testing.T) {
 	pool := NewBitmapBufPoolNoop()
 
-	methods := []struct {
-		name  string
-		clone func(src []byte) (*sroar.Bitmap, func())
-	}{
-		{"CloneBytesToBuf", pool.CloneBytesToBuf},
-		{"CloneBytesToBufBounded", pool.CloneBytesToBufBounded},
-	}
-
-	for _, m := range methods {
-		t.Run(m.name, func(t *testing.T) {
-			require.PanicsWithValue(t,
-				"roaringset: corrupt serialized bitmap: odd length 9",
-				func() { m.clone(make([]byte, 9)) })
-		})
-	}
+	// call through a variable: the deliberately corrupt argument would
+	// otherwise trip staticcheck's serialized-bitmap length analysis
+	clone := pool.CloneBytesToBuf
+	require.PanicsWithValue(t,
+		"roaringset: corrupt serialized bitmap: odd length 9",
+		func() { clone(make([]byte, 9)) })
 }
 
 // mirrors the real LSMBitmapBuffersUsage definition, but unregistered so each

@@ -499,12 +499,12 @@ func TestBucket_RoaringSet_DeletionsOnlyOldestSegment(t *testing.T) {
 	}
 }
 
-// TestBucket_RoaringSet_ReleasesAllPooledBuffers pins combineReleases: the
-// buffers a node's read pools must all be freed by the single returned
-// release, in either read mode. The region shapes of the oldest segment
-// steer which combineReleases arm the read takes (and the arms differ per
-// mode — a pread read always pools the whole node buffer), so together the
-// scenarios cover every arm in both modes.
+// TestBucket_RoaringSet_ReleasesAllPooledBuffers pins two contracts of the
+// disk read: the buffers a node's read pools must all be freed by the single
+// returned release, in either read mode (mmap pools the additions clone, a
+// pread read pools the whole node buffer), and the oldest segment's own
+// deletions must never alter the result — the deletions-carrying scenarios
+// exercise base nodes whose deletions the read deliberately skips.
 func TestBucket_RoaringSet_ReleasesAllPooledBuffers(t *testing.T) {
 	modes := []struct {
 		name string
@@ -515,9 +515,9 @@ func TestBucket_RoaringSet_ReleasesAllPooledBuffers(t *testing.T) {
 	}
 
 	// The oldest segment's shape is what matters, because only the oldest
-	// segment holding the key is read through segment.roaringSetGet (and so
-	// through combineReleases) — newer segments are folded via
-	// roaringSetMergeWith, which pools nothing through it.
+	// segment holding the key is read through segment.roaringSetGet, which
+	// pools the buffer the returned release must free — newer segments are
+	// folded via roaringSetMergeWith, which pools nothing lasting.
 	scenarios := []struct {
 		name     string
 		seg1     func(t *testing.T, b *Bucket, key []byte)
