@@ -427,14 +427,20 @@ func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (flo
 		rq.cent*(cx.Norm2()+cy.Norm2()-rq.mu2), rq.err
 }
 
+// NewCompressedQuantizerDistancer returns a distancer whose origin is a
+// stored code (used e.g. when reconnecting the graph after deletes). The
+// query field is deliberately left nil: the only float-space vector that
+// could go there is Restore(c), which lives in ROTATED space, and passing it
+// to the raw-space SingleDist in DistanceToFloat produces garbage distances.
+// With a nil query, DistanceToFloat encodes its argument and compares
+// code-to-code instead, matching the 4-bit and 1-bit quantizers.
 func (rq *RotationalQuantizer) NewCompressedQuantizerDistancer(c []byte) quantizerDistancer[byte] {
-	restored := rq.Restore(c)
 	var corrQ float32
 	if rq.cent != 0 {
 		// The Norm2 slot of a centered code holds <mean, original vector>.
 		corrQ = RQCode(c).Norm2() - rq.mu2
 	}
-	return rq.newDistancer(restored, c, corrQ)
+	return rq.newDistancer(nil, c, corrQ)
 }
 
 type RQStats struct {

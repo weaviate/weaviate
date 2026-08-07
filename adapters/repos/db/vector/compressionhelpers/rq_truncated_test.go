@@ -319,6 +319,44 @@ func TestRQTruncatedRankingQuality(t *testing.T) {
 	assert.Greater(t, rHalfC, 0.1, "half-width centered recall@10 collapsed entirely: %v", rHalfC)
 }
 
+// TestRQCompressedDistancerDistanceToFloat is a regression test for a
+// pre-existing bug independent of truncation: NewCompressedQuantizerDistancer
+// used to set the distancer's query field to Restore(code), a ROTATED-space
+// vector, so DistanceToFloat computed SingleDist(rotated, raw) — a garbage
+// distance. The 4-bit and 1-bit quantizers already handled this by encoding
+// the float argument and comparing code-to-code; the 8-bit quantizer must do
+// the same. Unreachable from current production call sites (the only
+// DistanceToFloat caller is the rescore path, which always uses query-origin
+// distancers), but live on the shared CompressorDistancer interface.
+func TestRQCompressedDistancerDistanceToFloat(t *testing.T) {
+	dim := 256
+	vecs, mean := rqTestData(50, dim, 8)
+	cos := distancer.NewCosineDistanceProvider()
+
+	cases := []struct {
+		name string
+		opts RQOptions
+	}{
+		{name: "plain", opts: RQOptions{}},
+		{name: "truncated-centered", opts: RQOptions{TruncatedDims: 128, Mean: mean}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rq, err := NewRotationalQuantizerWithOptions(dim, 42, 8, cos, tc.opts)
+			require.NoError(t, err)
+			origin := vecs[0]
+			d := rq.NewCompressedQuantizerDistancer(rq.Encode(origin))
+			for _, x := range vecs[1:] {
+				got, err := d.DistanceToFloat(x)
+				require.NoError(t, err)
+				exact := cosineDistance(origin, x)
+				assert.InDelta(t, exact, got, 0.15,
+					"compressed-origin DistanceToFloat diverges from true distance")
+			}
+		})
+	}
+}
+
 // TestRQTruncatedDecodeRoundTrip ensures Decode does not panic on truncated
 // codes (UnRotateInPlace requires full-width input) and returns a vector
 // correlated with the original.
