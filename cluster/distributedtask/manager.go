@@ -456,7 +456,11 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, occurredAt time.Time) {
 				return
 			default:
 			}
-			observer(clone)
+			// Same containment as the drainer. GoWrapper's recover is
+			// conditional on DISABLE_RECOVERY_ON_PANIC, which the test image
+			// sets to "true", so relying on it here means a panicking observer
+			// takes the node down under queue overflow and nowhere else.
+			m.runTerminalObserverSafely(clone)
 		}, logger)
 	}
 }

@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -437,7 +438,74 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 }
 
 // A panicking observer must not end cancel observation for everyone.
-//
+// The overflow arm dispatches on its own goroutine rather than through the
+// drainer, so it needs the drainer's containment too. GoWrapper's recover is
+// conditional on DISABLE_RECOVERY_ON_PANIC, which the acceptance image sets to
+// "true" — so relying on it means a panicking observer takes the node down
+// under queue overflow and nowhere else, which is the worst possible place for
+// it to be the only uncontained path.
+func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
+	h := newTestHarness(t)
+	logger, hook := logrustest.NewNullLogger()
+	h.logger = logger
+	h.init(t)
+	defer h.manager.Close()
+
+	release := make(chan struct{})
+	var panics atomic.Int64
+	h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
+		<-release
+		panics.Add(1)
+		panic("overflow observer blew up")
+	})
+
+	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+
+	// One event parks in the observer, the queue fills, and the remainder go
+	// down the overflow arm — the path under test.
+	const overflow = 3
+	total := terminalDispatchQueueDepth + 1 + overflow
+	task := &Task{
+		TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
+		Namespace:      observerNamespace,
+		Status:         TaskStatusCancelled,
+		FinishedAt:     h.clock.Now(),
+	}
+	h.manager.mu.Lock()
+	for range total {
+		h.manager.dispatchTerminalWithLock(task, task.FinishedAt)
+	}
+	h.manager.mu.Unlock()
+
+	close(release)
+
+	// Counting, not detecting. The drainer already contains its own panics and
+	// logs this exact line, so "at least one appeared" is satisfied by the
+	// queued events alone and says nothing about the overflow arm. Only the
+	// total distinguishes them: every dispatch panics once, so all of them
+	// contained means the overflow arm is contained too.
+	contained := func() int {
+		n := 0
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "terminal observer panicked") &&
+				strings.Contains(e.Message, "overflow observer blew up") {
+				n++
+			}
+		}
+		return n
+	}
+
+	require.Eventuallyf(t, func() bool { return int(panics.Load()) == total },
+		10*time.Second, 10*time.Millisecond,
+		"every dispatched event must reach the observer; reached %d of %d", panics.Load(), total)
+
+	require.Eventuallyf(t, func() bool { return contained() == total },
+		10*time.Second, 10*time.Millisecond,
+		"every observer panic must be contained and logged the same way the drainer contains one; "+
+			"contained %d of %d panics — the shortfall is the overflow arm relying on GoWrapper, "+
+			"whose recover the acceptance image disables", contained(), total)
+}
+
 // GoWrapper's recover is outside the drainer loop, so a panic there exits the
 // goroutine while terminalDrainerRunning stays true — nothing restarts it, and
 // re-registering does not help. One namespace's bug then silences cancels for
