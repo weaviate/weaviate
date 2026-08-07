@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -157,7 +158,7 @@ func TestCancelDrainTimeoutHandsTheGateToTheWorkerExitWatcher(t *testing.T) {
 	release := h.drainAndCleanupCancelledTask(context.Background(), provider,
 		&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
 		&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
-		"Movies", "title", "filterable")
+		"Movies", "title", "filterable", true)
 
 	require.Nil(t, release,
 		"the caller must not be handed a release it would drop at its return, over a worker that is still writing")
@@ -199,7 +200,7 @@ func TestCancelReleasesTheCleanupGateWhenTheCleanupPanics(t *testing.T) {
 		h.drainAndCleanupCancelledTask(context.Background(), provider,
 			&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
 			&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
-			"Movies", "title", "filterable")
+			"Movies", "title", "filterable", true)
 	})
 
 	require.True(t, provider.released.Load(),
@@ -222,7 +223,7 @@ func TestCancelDrainRunsUnderItsOwnBound(t *testing.T) {
 	h.drainAndCleanupCancelledTask(context.Background(), provider,
 		&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
 		&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
-		"Movies", "title", "filterable")
+		"Movies", "title", "filterable", true)
 
 	require.True(t, provider.drainHasDeadline,
 		"the drain is detached from the request, so without its own deadline a wedged worker holds the goroutine forever")
@@ -272,3 +273,57 @@ func TestCancelReindexTaskNoOpDoesNotProbeOwners(t *testing.T) {
 	require.Equal(t, reindexCancelStatusNoOp, accepted.Payload.Status)
 	require.Empty(t, prober.queried)
 }
+
+// The tolerant cancel pass matches on the collection alone, so the property and
+// index type it sweeps come from the request URL, not from the task. Logging
+// the same "cleanup complete" line as the exact match tells an operator the
+// disk is clean when the task's own sidecars may be untouched.
+func TestCancelCleanupLogSaysWhenTheSweptTupleWasGuessed(t *testing.T) {
+	tests := []struct {
+		name            string
+		payloadReadable bool
+		wantMessage     string
+	}{
+		{
+			name:            "the task's own payload named the tuple",
+			payloadReadable: true,
+			wantMessage:     "cancel: on-disk cleanup complete",
+		},
+		{
+			name:        "the tuple came from the request URL",
+			wantMessage: "cancel: on-disk cleanup complete for the property and index type in the request URL",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h, _ := cancelFixture(t, &scriptedCleanupProber{})
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			h.appState.Logger = logger
+
+			release := h.drainAndCleanupCancelledTask(context.Background(), &stubCleanupGateProvider{},
+				&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
+				&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
+				"Movies", "title", "filterable", test.payloadReadable)
+			require.NotNil(t, release)
+			release()
+
+			var completion string
+			for _, entry := range hook.AllEntries() {
+				if strings.HasPrefix(entry.Message, "cancel: on-disk cleanup complete") {
+					completion = entry.Message
+				}
+			}
+			require.NotEmpty(t, completion, "the sweep has to report its outcome")
+			if test.payloadReadable {
+				require.Equal(t, test.wantMessage, completion)
+				return
+			}
+			require.NotEqual(t, "cancel: on-disk cleanup complete", completion,
+				"the unqualified line is the one an operator reads as authoritative")
+			require.Contains(t, completion, test.wantMessage)
+		})
+	}
+}
+

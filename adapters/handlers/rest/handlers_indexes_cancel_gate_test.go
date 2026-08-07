@@ -122,7 +122,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		}}
 		h, hook := gateHandlers(prober, local, owner)
 
-		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1")
+		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1", true)
 
 		assert.GreaterOrEqual(t, prober.callsFor(owner), 3,
 			"the owner must be re-asked until its gate is up")
@@ -141,7 +141,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		}}
 		h, _ := gateHandlers(prober, local, owner)
 
-		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1")
+		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1", true)
 
 		assert.Zero(t, prober.callsFor(local),
 			"this node raised its own gate synchronously; asking itself over HTTP is pointless")
@@ -156,7 +156,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 		defer cancel()
 		start := time.Now()
-		h.awaitOwnerCleanupGates(ctx, payload, collection, "task-1")
+		h.awaitOwnerCleanupGates(ctx, payload, collection, "task-1", true)
 
 		// Bounds the fixture's own 300 ms context, not the handler's budget:
 		// what this pins is that the wait inherits the caller's cancellation.
@@ -176,7 +176,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		h, hook := gateHandlers(prober, local, owner)
 
 		start := time.Now()
-		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1")
+		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1", true)
 
 		assert.Equal(t, 1, prober.callsFor(owner),
 			"an older build can never answer; polling it burns the budget for nothing")
@@ -195,7 +195,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 		h, _ := gateHandlers(prober, local, owner)
 
 		start := time.Now()
-		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1")
+		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1", true)
 
 		require.True(t, prober.hasDeadline,
 			"without its own deadline the wait is unbounded: the request context has none")
@@ -209,9 +209,29 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 
 		h.awaitOwnerCleanupGates(context.Background(),
 			&db.ReindexTaskPayload{Collection: collection, UnitToNode: map[string]string{"u1": local}},
-			collection, "task-1")
+			collection, "task-1", true)
 
 		assert.Empty(t, prober.queried)
 		assert.Nil(t, warned(hook, "could not confirm"))
+		assert.Nil(t, audited(hook, "reindex_cancel_gate_unprobed"),
+			"this node genuinely owns every unit; nothing was left unasked")
+	})
+
+	// The cancel of a task whose payload will not decode rebuilds a payload
+	// carrying the collection alone, so there are no owners to derive. It then
+	// answers 202 CANCELLED having confirmed nothing on any other node, which
+	// must not look like the healthy single-node case above.
+	t.Run("a payload that names no owners says so", func(t *testing.T) {
+		prober := &scriptedCleanupProber{}
+		h, hook := gateHandlers(prober, local, owner)
+
+		h.awaitOwnerCleanupGates(context.Background(),
+			&db.ReindexTaskPayload{Collection: collection},
+			collection, "task-1", false)
+
+		assert.Empty(t, prober.queried, "there is nothing in the payload to probe")
+		entry := audited(hook, "reindex_cancel_gate_unprobed")
+		require.NotNil(t, entry, "the degraded path has to be distinguishable from the single-node one")
+		assert.Equal(t, "task-1", entry.Data["taskID"])
 	})
 }

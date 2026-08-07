@@ -960,8 +960,11 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 		return cached, nil
 	}
 
-	var pl ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &pl); err != nil {
+	// Through the shared reader, so a payload that decodes but names no
+	// collection is the same "cannot act on this" answer here as it is at the
+	// backup gates; see [DecodeReindexTaskPayload].
+	pl, _, err := DecodeReindexTaskPayload(task.Payload)
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
 	return &pl, nil
@@ -1692,6 +1695,15 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// SWAPPING handled below; STARTED/PREPARING never reach
 				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
 			}
+		} else {
+			// The teardown is addressed by the shards the payload names, so a
+			// payload nothing can read cannot be torn down at all. Say so:
+			// this is the only trace that sidecar dirs may be left for the next
+			// restart's orphan audit, and it is what the commit-time backstop's
+			// refusal of this task ([reindexTaskOverlaps]) is protecting.
+			logger.Warnf("reindex provider: task-completion: payload is unreadable, so no sidecar teardown can run for it; "+
+				"stale __reindex / __ingest dirs may remain until the next restart's orphan audit, and backups stay refused "+
+				"until this task ages out: %v", payloadErr)
 		}
 		return nil
 	}
@@ -2577,10 +2589,7 @@ func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
 	// fully decode still gets a latch; without one the node handling the cancel
 	// burns its whole per-owner budget before answering unconfirmed. The
 	// blocking gate below genuinely needs the whole payload.
-	collection := ReindexTaskCollection(task.Payload)
-	if err == nil && payload.Collection != "" {
-		collection = payload.Collection
-	}
+	_, collection, _ := DecodeReindexTaskPayload(task.Payload)
 	if collection != "" {
 		p.holdCancelSeen(collection)
 	}

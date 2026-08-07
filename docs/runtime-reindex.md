@@ -1218,14 +1218,32 @@ see "Where each gate fails open" below, whose third window is that default.
 
 **Where each gate fails closed.** Once its lookup is installed, every
 gate treats an uncertain answer as a blocking one. The backup gate
-refuses every backup while the cluster task manager cannot be listed,
-and equally while a live task's payload will not decode, since the
-shards it holds cannot be named (`newShardReindexActivityBuilder` in
-`configure_api.go`). The commit-time overlap check refuses on an
-unreadable payload the same way. The restore gate
-refuses the restore on the same failure. The reindex gate answers 503
-for a node that does not respond to the probe. An `Index` built without
-a back-reference to `DB` refuses the backup outright.
+refuses every backup while the cluster task manager cannot be listed.
+A live task whose payload cannot be read is the same uncertainty in a
+smaller shape, and the refusal is scoped to how much of the payload
+survives (`db.DecodeReindexTaskPayload`, consulted by
+`newShardReindexActivityBuilder` in `configure_api.go`):
+
+| What survives | What is refused |
+| --- | --- |
+| The collection, but not the shards (a field a newer node retyped) | Every backup of that one collection |
+| Nothing — no collection either (unparseable, or a collection field a newer node renamed) | Every backup in the cluster |
+
+A payload that names no collection is unreadable even when it decodes
+without error: a renamed field leaves an empty collection behind, and
+nothing then says which shards the task holds. The cancel endpoint
+accepts such a task from any collection, which is the operator's remedy
+for the cluster-wide case.
+
+The commit-time overlap check draws the same two lines through the same
+decoder, so admission and commit cannot disagree about what unreadable
+means. It also does not waive an unreadable task that already finished:
+the teardown is addressed by the shards the payload names, so nothing
+tore it down, and the refusal stands until the completed-task TTL drops
+the task. The restore gate refuses the restore on the same failure. The
+reindex gate answers 503 for a node that does not respond to the probe.
+An `Index` built without a back-reference to `DB` refuses the backup
+outright.
 
 **Where each gate fails open.** Three windows are deliberately left
 open. Two are logged; the third is silent by design and is the default
@@ -1242,9 +1260,14 @@ configuration:
   lookups, and has been observed doing so. So a WARN here is a real
   signal — it names an operation that ran without its gate — and not
   evidence that the wiring is broken.
-  The cleanup half of the backup gate is skipped without a WARN when
-  only the activity lookup is installed, which is the shape module-test
-  fixtures use.
+  The cleanup half of both gates is narrower than this: it reads only
+  this node's own provider, so `configure_api.go` installs it
+  synchronously before that goroutine is even started, and it is never
+  nil while the goroutine waits. A submission that is sweeping sidecars
+  right now therefore refuses a concurrent backup and restore for the
+  whole of that window. It is skipped without a WARN when only the
+  activity lookup is installed, which is the shape module-test fixtures
+  use.
 - *Old node during a rolling upgrade.* A node that predates
   `GET /backups/node-activity` answers 404. The reindex gate counts that
   node as free of backups and admits the submission, with a WARN naming

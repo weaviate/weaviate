@@ -141,6 +141,11 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 		// probes maps a (collection, shard) tuple to whether the gate must
 		// report it held.
 		probes map[[2]string]bool
+		// decodesCleanly pins the shape of the payload itself: the renamed
+		// case is only meaningful while json.Unmarshal accepts it, and a
+		// future payload change that starts rejecting it would otherwise leave
+		// the case passing for the wrong reason.
+		decodesCleanly bool
 	}{
 		{
 			// The rolling-upgrade case: a newer node retypes a field, the full
@@ -157,6 +162,24 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 			},
 		},
 		{
+			// The other half of the rolling-upgrade shape, and the dangerous
+			// one: a newer node RENAMES the collection field, Go ignores the
+			// unknown key, and the payload decodes without error into an empty
+			// collection. A gate that trusts the decoder's silence registers
+			// the task under a collection no caller can name and reports every
+			// shard free, while the commit-time backstop refuses the same
+			// capture after all the upload work.
+			name:           "the collection field renamed by a newer node",
+			payload:        []byte(`{"collektion":"MyClass","unitToShard":{"u1":"shard1"}}`),
+			decodesCleanly: true,
+			probes: map[[2]string]bool{
+				{"MyClass", "shard1"}:      true,
+				{"OtherClass", "shard1"}:   true,
+				{"UntouchedClass", "s42"}:  true,
+				{"SiblingLiveClass", "sX"}: true,
+			},
+		},
+		{
 			name:    "nothing readable at all",
 			payload: []byte("{not json"),
 			probes: map[[2]string]bool{
@@ -170,6 +193,14 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			var probe db.ReindexTaskPayload
+			if tc.decodesCleanly {
+				require.NoError(t, json.Unmarshal(tc.payload, &probe))
+				require.Empty(t, probe.Collection)
+			} else {
+				require.Error(t, json.Unmarshal(tc.payload, &probe))
+			}
+
 			logger, hook := test.NewNullLogger()
 			lookup := newShardReindexActivityBuilder(context.Background(),
 				func(context.Context) (map[string][]*distributedtask.Task, error) {
