@@ -120,9 +120,50 @@ type delegate struct {
 	sync.RWMutex
 	Cache map[string]NodeInfo
 
+	// identities caches each member's network identity: memberlist mutates
+	// Node fields in place on alive updates, so raw *memberlist.Node field
+	// reads race with the gossip goroutine — events callbacks are the safe
+	// capture point.
+	identities map[string]nodeIdentity
+
 	hostInfo NodeInfo
 
 	metadata NodeMetadata
+}
+
+// nodeIdentity is a member's captured address, gossip port, and parsed metadata.
+type nodeIdentity struct {
+	addr    string
+	port    uint16
+	meta    NodeMetadata
+	hasMeta bool
+}
+
+// setIdentity captures a member's identity; called from the events delegate
+// (and once for the local node at startup), where the Node fields are stable.
+func (d *delegate) setIdentity(node *memberlist.Node) {
+	id := nodeIdentity{addr: node.Addr.String(), port: node.Port}
+	if len(node.Meta) > 0 {
+		if err := json.Unmarshal(node.Meta, &id.meta); err == nil {
+			id.hasMeta = true
+		} else {
+			d.log.WithField("node", node.Name).Debugf("unmarshal node metadata: %v", err)
+		}
+	}
+	d.Lock()
+	defer d.Unlock()
+	if d.identities == nil {
+		d.identities = make(map[string]nodeIdentity, 32)
+	}
+	d.identities[node.Name] = id
+}
+
+// identity returns a member's cached identity; false until its join event fired.
+func (d *delegate) identity(name string) (nodeIdentity, bool) {
+	d.RLock()
+	defer d.RUnlock()
+	id, ok := d.identities[name]
+	return id, ok
 }
 
 type NodeMetadata struct {
@@ -254,6 +295,7 @@ func (d *delegate) delete(node string) {
 	d.Lock()
 	defer d.Unlock()
 	delete(d.Cache, node)
+	delete(d.identities, node)
 }
 
 // sortCandidates by the amount of free space in descending order
@@ -311,6 +353,7 @@ func (e events) NotifyJoin(node *memberlist.Node) {
 	if node == nil {
 		return
 	}
+	e.d.setIdentity(node)
 	e.d.log.WithFields(logrus.Fields{
 		"action":    "memberlist_event",
 		"event":     "join",
@@ -341,6 +384,7 @@ func (e events) NotifyUpdate(node *memberlist.Node) {
 	if node == nil {
 		return
 	}
+	e.d.setIdentity(node)
 	e.d.log.WithFields(logrus.Fields{
 		"action":    "memberlist_event",
 		"event":     "update",

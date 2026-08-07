@@ -12,7 +12,6 @@
 package cluster
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"slices"
@@ -207,6 +206,10 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		return nil, errors.Wrap(err, "create memberlist")
 	}
 
+	// Seed the local node's identity: its own join event may not fire, and
+	// nothing else populates the cache for self.
+	state.delegate.setIdentity(state.list.LocalNode())
+
 	// memberlist.Create has bound the gossip sockets. Any error from here on
 	// returns a nil State, so no caller is left with a handle to close them
 	defer func() {
@@ -280,38 +283,35 @@ func (s *State) Hostnames() []string {
 			continue
 		}
 
-		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
+		addr, ok := s.hostAddr(m.Name)
+		if !ok {
+			continue // join event not processed yet
+		}
+		out[i] = addr
 		i++
 	}
 
 	return out[:i]
 }
 
-func nodeMetadata(m *memberlist.Node) (NodeMetadata, error) {
-	if len(m.Meta) == 0 {
-		return NodeMetadata{}, errors.New("no metadata available")
+// hostAddr returns a member's data-plane host:port from the identity cache;
+// false until the member's join event has fired (raw *memberlist.Node field
+// reads race with the gossip goroutine's in-place alive updates).
+func (s *State) hostAddr(name string) (string, bool) {
+	id, ok := s.delegate.identity(name)
+	if !ok {
+		return "", false
 	}
-
-	var meta NodeMetadata
-	if err := json.Unmarshal(m.Meta, &meta); err != nil {
-		return NodeMetadata{}, errors.Wrap(err, "unmarshal node metadata")
-	}
-
-	return meta, nil
+	return net.JoinHostPort(id.addr, fmt.Sprintf("%d", identityDataPort(id))), true
 }
 
-func (s *State) dataPort(m *memberlist.Node) int {
-	meta, err := nodeMetadata(m)
-	if err != nil {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action": "data_port_fallback",
-			"node":   m.Name,
-		}).WithError(err).Debug("unable to get node metadata, falling back to default data port")
-
-		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
+// identityDataPort keeps the gossip-port+1 fallback convention for members
+// without parsable metadata.
+func identityDataPort(id nodeIdentity) int {
+	if id.hasMeta {
+		return id.meta.RestPort
 	}
-
-	return meta.RestPort
+	return int(id.port) + 1
 }
 
 // AllHostnames for live members, including self.
@@ -321,10 +321,12 @@ func (s *State) AllHostnames() []string {
 	}
 
 	mem := s.list.Members()
-	out := make([]string, len(mem))
+	out := make([]string, 0, len(mem))
 
-	for i, m := range mem {
-		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
+	for _, m := range mem {
+		if addr, ok := s.hostAddr(m.Name); ok {
+			out = append(out, addr)
+		}
 	}
 
 	return out
@@ -401,6 +403,9 @@ func (s *State) LocalName() string {
 // LocalAddr() returns local address
 func (s *State) LocalAddr() string {
 	if s.config.AdvertiseAddr == "" {
+		if id, ok := s.delegate.identity(s.delegate.Name); ok {
+			return id.addr
+		}
 		return s.list.LocalNode().Addr.String()
 	}
 
@@ -419,13 +424,7 @@ func (s *State) ClusterHealthScore() int {
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	for _, mem := range s.list.Members() {
-		if mem.Name == nodeName {
-			return net.JoinHostPort(mem.Addr.String(), fmt.Sprintf("%d", s.dataPort(mem))), true
-		}
-	}
-
-	return "", false
+	return s.hostAddr(nodeName)
 }
 
 // extractHost extracts the host portion from an address string,
@@ -464,7 +463,11 @@ func (s *State) AllOtherClusterMembers(port int) map[string]string {
 			// skip self
 			continue
 		}
-		result[m.Name] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", port))
+		id, ok := s.delegate.identity(m.Name)
+		if !ok {
+			continue // join event not processed yet
+		}
+		result[m.Name] = net.JoinHostPort(id.addr, fmt.Sprintf("%d", port))
 	}
 
 	return result
@@ -496,10 +499,8 @@ func (s *State) Shutdown() error {
 }
 
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
-	for _, mem := range s.list.Members() {
-		if mem.Name == nodeID {
-			return s.dataPort(mem), nil
-		}
+	if id, ok := s.delegate.identity(nodeID); ok {
+		return identityDataPort(id), nil
 	}
 	return 0, fmt.Errorf("node not found: %s", nodeID)
 }
