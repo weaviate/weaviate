@@ -327,3 +327,50 @@ func TestCancelCleanupLogSaysWhenTheSweptTupleWasGuessed(t *testing.T) {
 	}
 }
 
+// Every gate on the submission path says so when it fails open, and every one
+// of those lines has to reach the handler's own logger — the sampler that
+// rate-limits them is what carries it.
+func TestSubmitReportsEveryGateItFailsOpen(t *testing.T) {
+	tests := []struct {
+		name string
+		// unwire removes one dependency from a handler that is otherwise whole.
+		unwire  func(h *indexesHandlers)
+		wantLog string
+	}{
+		{
+			name:    "no reindex provider, so the submit gate is a no-op",
+			unwire:  func(h *indexesHandlers) { h.appState.ReindexProvider.Store(nil) },
+			wantLog: "reindex provider is not wired",
+		},
+		{
+			name:    "no backup activity probe, so no node is asked",
+			unwire:  func(h *indexesHandlers) { h.backupActivity = nil },
+			wantLog: "backup activity probe is not wired",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var busy atomic.Bool
+			h := submissionHandlers(t, &raceTaskService{}, togglingProber{busy: &busy})
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			h.appState.Logger = logger
+			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, logger, fixtureNode,
+				func() int { return 1 }, context.Background()))
+			test.unwire(h)
+
+			require.IsType(t, &schema.SchemaObjectsIndexesUpdateAccepted{}, submitReindex(h),
+				"the gate fails open, so the submission still goes through")
+
+			var found bool
+			for _, entry := range hook.AllEntries() {
+				if strings.Contains(entry.Message, test.wantLog) {
+					found = true
+					require.Equal(t, logrus.WarnLevel, entry.Level)
+				}
+			}
+			require.Truef(t, found, "an ungated submission has to be visible on the node's own logger")
+		})
+	}
+}

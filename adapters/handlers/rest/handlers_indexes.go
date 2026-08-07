@@ -108,9 +108,15 @@ type indexesHandlers struct {
 // persistent misconfiguration, so a once-per-process line would leave every
 // later submission silent for an operator who starts reading the logs after the
 // first one. Built on first use because fixtures construct the handler directly.
+// Built over the handler's own logger, which is where every emission goes: a
+// sampler over a different logger budgets lines nobody reads.
 func (h *indexesHandlers) backupActivityGateWarn() *logrusext.Sampler {
 	h.gateWarnOnce.Do(func() {
-		h.gateWarnSampler = logrusext.NewSampler(logrus.StandardLogger(), 1, time.Hour)
+		logger := logrus.FieldLogger(logrus.StandardLogger())
+		if h.appState != nil && h.appState.Logger != nil {
+			logger = h.appState.Logger
+		}
+		h.gateWarnSampler = logrusext.NewSampler(logger, 1, time.Hour)
 	})
 	return h.gateWarnSampler
 }
@@ -355,9 +361,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Key on the qualified class (the reindex-task key) so short- and qualified-name
 	// callers for the same collection share the DeleteClassPropertyIndex lock.
 	//
-	// Worst case with one unreachable node the lock is held ~10s (two 5s backup
-	// probes plus the RAFT task-add), during which a DELETE on the same property
-	// waits and MarkSubmitInProgress refuses the collection's backups. The probes
+	// Worst case the lock is held ~130s: two 5s backup probes against an
+	// unreachable node, plus the pre-submit sweep, which runs inside this lock
+	// under its own 2-minute budget (reindexCancelCleanupTimeout) and is
+	// detached from the request, so a client disconnect no longer cuts it
+	// short. A DELETE on the same property waits for all of it, and
+	// MarkSubmitInProgress refuses the collection's backups for the same
+	// window. The probes
 	// are not hoisted out of the lock even though they read no schema state:
 	// outside it they would run before the 404, conflict and cap checks, so every
 	// request that fails locally would pay a cluster-wide fan-out first, and a
@@ -724,6 +734,16 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	if indexTypeKnown {
 		if provider := h.appState.ReindexProvider.Load(); provider != nil {
 			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
+		} else {
+			// Every sibling gate says so when it fails open; this one used to
+			// leave the sweep and the commit below ungated in silence.
+			h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+				l.WithField("action", "reindex_backup_gate").
+					WithField("collection", collection).
+					Warn("reindex provider is not wired; submitting without the submit gate, so a backup can " +
+						"claim this collection while the pre-submit sweep is deleting its sidecars. " +
+						"Expected in test fixtures; if this appears in production, check the ReindexProvider wiring in configure_api.go.")
+			})
 		}
 	}
 
@@ -1299,8 +1319,8 @@ func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *mo
 	}
 
 	if h.backupActivity == nil || len(nodes) == 0 {
-		h.backupActivityGateWarn().WithSampling(func(logrus.FieldLogger) {
-			h.appState.Logger.WithField("action", "reindex_backup_gate").
+		h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("action", "reindex_backup_gate").
 				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
 					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")
 		})
