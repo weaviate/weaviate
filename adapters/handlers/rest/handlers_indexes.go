@@ -141,10 +141,8 @@ type reindexCleanupProber interface {
 // without a live RAFT node.
 type reindexTaskService interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
-	// ListDistributedTasksLocal reads this node's own FSM. The status
-	// endpoint uses it so the task list and the schema flags it renders
-	// against come from one apply-ordered view; every other caller here wants
-	// the leader's answer.
+	// Reads this node's own FSM; only the status endpoint wants it. Picking
+	// the wrong one compiles — see [cluster.Raft.ListDistributedTasksLocal].
 	ListDistributedTasksLocal(ctx context.Context) (map[string][]*distributedtask.Task, error)
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 	AddDistributedTaskWithBarrier(ctx context.Context, namespace, taskID string,
@@ -173,17 +171,19 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
 //
-// Answers at LOCAL consistency: both the schema flags and the task list come
-// from this node's FSM, which is what makes them apply-ordered with respect to
-// each other. The submit path and the backup commit-time gate answer at the
-// leader, so a lagging node can report an index `ready` and then refuse the
-// operator's follow-up write.
+// Answers at LOCAL consistency, so the schema flags and the task list are
+// apply-ordered with respect to each other — see
+// [cluster.Raft.ListDistributedTasksLocal]. The submit path and the backup
+// commit-time gate answer at the leader, so a lagging node can report an index
+// `ready` and then refuse the operator's follow-up write.
 //
-// A task list this node cannot read is answered with a 500, not with an empty
-// one: an empty list renders every index `ready`, which is the one answer that
-// would send the operator on to a write the gates then refuse. An unwired task
-// service gives the same `ready` answer, since a status read is better answered
-// than refused, and warns so the operator can tell the two apart.
+// That lag is the failure mode this endpoint cannot report: a node still
+// replaying the log answers with a partial task list and no error, and renders
+// every index `ready`. There is no readiness precondition to check it against.
+// The 500 below is defensive only — the local read has no error return today.
+// An unwired task service gives the same `ready` answer, since a status read is
+// better answered than refused, and warns so the operator can tell the two
+// apart.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
@@ -207,12 +207,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
 
-	// Fetch active reindex tasks from the LOCAL FSM, not the leader: the
-	// schema flags below are read from local state, and a task's schema flip
-	// commits to the RAFT log before the task is marked FINISHED. Reading
-	// both locally means a FINISHED task always renders against a flag that
-	// has already flipped, at the cost of the view lagging the leader by
-	// local apply propagation.
+	// The LOCAL FSM, not the leader: a leader read can report a task FINISHED
+	// before this node has applied the schema flip that task committed first,
+	// and the flags below are read from this node.
 	var activeTasks map[string][]*distributedtask.Task
 	if h.tasks == nil {
 		h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
@@ -2186,11 +2183,22 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
 		// No synthetic entry. FINISHED means every post-completion callback
-		// committed, and the schema flip commits to the RAFT log before the
-		// task is marked FINISHED — so on the local FSM this handler reads,
-		// the flag is already on and the base "ready" entry is the truth.
-		// FINISHED with the flag off therefore means the flag was flipped
-		// back since (an index DELETE), i.e. a stale task.
+		// committed, and any schema flip the task made commits to the RAFT log
+		// before it — so on the local FSM this handler reads, the base "ready"
+		// entry is the truth.
+		//
+		// The flag that decides whether an entry is emitted at all is the
+		// per-property one (IndexSearchable and friends). For the enable-* and
+		// change-tokenization types, which are the ones that turn it on,
+		// FINISHED with it still off means it was turned back off since (an
+		// index DELETE), i.e. a stale task. change-algorithm does not touch it
+		// and can finish without flipping anything: the class-level
+		// UsingBlockMaxWAND defers until every searchable bucket on the class
+		// is blockmax (shouldDeferBlockmaxFlip), so the class can sit FINISHED
+		// with wand still reported, which is what
+		// testMapToBlockmaxMultiPropertyDefersFlip pins. The entry still
+		// renders "ready" with the class's current algorithm, which is the
+		// honest answer while queries are still class-wide WAND.
 	default:
 		// A status a newer node introduced is still live to the backup gate;
 		// leaving it "ready" would make the operator's advised poll a loop.

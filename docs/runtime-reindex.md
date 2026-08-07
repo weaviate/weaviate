@@ -144,14 +144,28 @@ Per-property, per-index-type snapshot:
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
 The status is synthesized in `mergeReindexStatus` from a snapshot of
 the DTM task list crossed with the live schema flags. Both are read
-from the **local FSM**, so they come from one apply-ordered view: a
-task's schema flip commits to the RAFT log before the task is marked
-FINISHED, so a locally FINISHED task always renders against a flag
-that has already flipped. The window between the units stopping and
-the flip is reported by the `PREPARING` and `SWAPPING` statuses, which
-render as `indexing@100%`. FINISHED with the flag off means the flag
-was turned back off since (an index DELETE), i.e. a stale task, and
-produces no entry — this is weaviate/weaviate#10675.
+from the **local FSM**, so they come from one apply-ordered view: any
+schema flip a task makes commits to the RAFT log before the task is
+marked FINISHED, so a locally FINISHED task never renders against a
+flip this node has yet to apply. The window between the units stopping
+and the flip is reported by the `PREPARING` and `SWAPPING` statuses,
+which render as `indexing@100%`.
+
+Whether an entry is emitted at all is decided by the **per-property**
+flag (`indexSearchable`, `indexFilterable`, `indexRangeFilters`). For
+the migrations that turn it on — the `enable-*` types and
+`change-tokenization` — FINISHED with it still off means it was turned
+back off since (an index DELETE), i.e. a stale task, and produces no
+entry; this is weaviate/weaviate#10675.
+
+`change-algorithm` is different: it never touches the per-property
+flag, and the class-level `usingBlockMaxWAND` it does flip is deferred
+until every searchable property on the class has migrated. So a class
+can sit FINISHED with `"algorithm": "wand"` reported on a property
+whose buckets are already blockmax, until the last sibling property
+migrates. The entry is still `ready`, and `wand` is the honest answer
+while queries remain class-wide WAND. There is currently no way to
+tell that state apart from "no migration has run" at this endpoint.
 
 This endpoint answers at **local** consistency while `POST`/`PUT`
 submits and the backup commit-time gate answer at the leader, so the
