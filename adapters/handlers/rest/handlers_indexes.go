@@ -861,7 +861,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 				// checkReindexConflict answers 409, for a task they were never
 				// told about — and here they also need the id to cancel the
 				// migration the rollback failed to stop.
-				return reindexTaskRollbackFailedResponder(principal,
+				return reindexTaskRollbackFailedResponder(principal, scan.Activity,
 					namespacing.StripOwnNamespace(principal, taskID))
 			}
 			return responder
@@ -1096,15 +1096,21 @@ func (h *indexesHandlers) rollbackRacedReindexTask(ctx context.Context, taskID, 
 }
 
 // reindexTaskRollbackFailedResponder answers the submit whose post-commit
-// rollback never landed. 409 like the refusal it replaces — a backup really
-// does hold the slot, so retrying after it finishes is still the advice — but
-// it names the task, because that task is running and only its id makes the
-// cancel the caller now needs possible.
-func reindexTaskRollbackFailedResponder(principal *models.Principal, taskID string) middleware.Responder {
+// rollback never landed. 409 like the refusal it replaces — a backup or restore
+// really does hold the slot, so retrying after it finishes is still the advice
+// — but it names the task, because that task is running and only its id makes
+// the cancel the caller now needs possible.
+//
+// It names the operation the probe actually saw, like [backupBusyResponder]:
+// "wait for the backup" is the wrong thing to watch when a restore is what
+// blocked.
+func reindexTaskRollbackFailedResponder(principal *models.Principal,
+	activity backup.NodeActivity, taskID string,
+) middleware.Responder {
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-		fmt.Sprintf("reindex blocked: a backup is running in the cluster, and the migration committed "+
+		fmt.Sprintf("reindex blocked: a %s is running in the cluster, and the migration committed "+
 			"before that was known could not be rolled back. It is running as task %q; cancel it, then "+
-			"retry after the backup finishes.", taskID)))
+			"retry after the %s finishes.", activity.Kind, taskID, activity.Kind)))
 }
 
 // newRollbackRetryBackoff builds the rollback retry schedule.
