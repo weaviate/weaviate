@@ -110,6 +110,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		// as a 120s timeout.
 		inFlightWithAFinishTime string
 		inFlightPolls           int
+		sawFailed               bool
 	)
 	require.Eventually(t, func() bool {
 		task, err := fetchTask(restURI, taskID)
@@ -118,7 +119,11 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 			return false
 		}
 		if task.Status == "FAILED" {
-			t.Fatalf("task FAILED before reaching FINISHED")
+			// Stop polling and report below rather than failing here: the
+			// task will never reach FINISHED, and a t.Fatalf on this
+			// goroutine would surface as a 120s timeout instead.
+			sawFailed = true
+			return true
 		}
 		if task.Status != "FINISHED" {
 			inFlightPolls++
@@ -131,6 +136,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		finished = task
 		return true
 	}, 120*time.Second, 20*time.Millisecond)
+	require.False(t, sawFailed, "task FAILED before reaching FINISHED")
 	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED")
 
 	// Opportunistic: this is a 20 ms poll against a migration whose whole
