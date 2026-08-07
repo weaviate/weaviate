@@ -33,8 +33,8 @@ type reqState struct {
 	ID        string
 	Status    backup.Status
 	// Err is why the operation ended, for the statuses that need one. It lives
-	// only as long as the slot; see [backupStat.rememberedFailureReason] for
-	// what a poll arriving after that reads.
+	// only as long as the slot; a poll arriving after that is answered from
+	// backupStat.rememberedFailure.
 	Err            string
 	Path           string
 	OverrideBucket string
