@@ -54,6 +54,7 @@ func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
 	m.cloud = &failingOffloadCloud{uploadErr: fmt.Errorf("simulated upload failure")}
 
 	// Planted as a pre-fix binary could leave it; the abort must discard it.
+	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
 	stale := filepath.Join(s.pathHashTree(), "hashtree-0000000000000001.ht")
 	require.NoError(t, os.WriteFile(stale, []byte("stale snapshot"), 0o600))
 
