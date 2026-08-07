@@ -1062,8 +1062,8 @@ function run_acceptance_reindex_mt() {
 #
 #   AOF_TEST_BUDGET TestBackupVsReindexSuite 35m   9 sequential subtests
 #   AOF_TEST_BUDGET TestReindexRefusedWhileRestoreRuns 20m   three 5m waits + 60s + 60s + 180s
-#   AOF_TEST_BUDGET TestReindexBlockClearsAfterNodeCrash 18m   two 5m probes + a restart
-#   AOF_TEST_BUDGET TestReindexRefusedWhileBackupRuns 14m   two 5m waits + 30s + 60s + 180s
+#   AOF_TEST_BUDGET TestReindexBlockClearsAfterNodeCrash 17m   two 5m probes + 120s + 60s + 60s + 180s
+#   AOF_TEST_BUDGET TestReindexRefusedWhileBackupRuns 15m   two 5m waits + 30s + 60s + 180s, rounded up from 14.5m
 #   AOF_TEST_BUDGET TestRestoreRefusedDuringInFlightReindex 6m   3m backup + 2m restore + 30s
 #   AOF_TEST_BUDGET TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp 26m   two 10m backup waits + six 60s waits
 #   AOF_TEST_BUDGET TestCIAllowlistCoversEveryTestInThisPackage 0m   no deadline; costs a package build
@@ -1071,11 +1071,12 @@ function run_acceptance_reindex_mt() {
 #   AOF_TEST_BUDGET TestCIGroupTimeoutFitsTheJobWindow 0m   no deadline
 #
 # That sum is a floor, not a target. reindex-backup-suite and reindex-backup-b
-# are budgeted at exactly theirs, so testcontainer startup and -race overhead
-# come out of the slack the deadlines themselves carry rather than out of a
-# separate allowance. That is deliberate: a group needing longer than every
-# deadline it waits on has a test that overran its own declared worst case, and
-# the go-test timeout firing on it is the panic-with-stacks this budget is for.
+# are budgeted at exactly theirs, on the assumption their tests finish well
+# inside their own deadlines. Container startup and the -race build sit outside
+# every per-test deadline, so they come out of that slack rather than out of a
+# separate allowance. In practice each group finishes in under 5 minutes,
+# because the deadlines are ceilings a healthy run never approaches. If that
+# stops holding, these two groups go red first.
 #
 # Those sum to ~119m against a 45m job window that also has to fit the ~5m
 # image build, which is why the package is split over four entries rather than
@@ -1114,9 +1115,9 @@ function run_acceptance_reindex_backup_b() {
 function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
-  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The multi-node
-  # cluster takes the longest to come up, which is the padding this group's
-  # margin over its floor buys.
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m this budget
+  # carries over its floor buys padding for the multi-node cluster, which takes
+  # the longest of the four groups to come up.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
