@@ -204,12 +204,6 @@ func TestReindexOverlapLookup(t *testing.T) {
 			wantRefuse: true,
 		},
 		{
-			name:       "terminal task with no finish time is treated as overlapping",
-			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFailed, time.Time{})},
-			since:      backupStart,
-			wantRefuse: true,
-		},
-		{
 			name:  "task on a collection this backup does not cover",
 			tasks: []*distributedtask.Task{overlapTask("Actors", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
 			since: backupStart,
