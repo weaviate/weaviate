@@ -637,7 +637,7 @@ func (s *Scheduler) tick() {
 			// load-bearing (e.g. drop-vector coverage records while their
 			// marker is pending — expiring the chain forces a periodic
 			// full re-clean). Proposal-side only: the FSM stays untouched.
-			return !providerRetains || !retainer.ShouldRetainCompletedTask(task)
+			return !providerRetains || !retainer.ShouldRetainCompletedTask(task, tasks)
 		})
 		for _, task := range cleanableTasks {
 			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)

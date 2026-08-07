@@ -487,6 +487,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		LSMSkipWriteClassNameEnabled:        appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 		NamespacesEnabled:                   appState.ServerConfig.Config.Namespaces.Enabled,
+		RuntimeReindexDisabled:              !appState.ServerConfig.Config.RuntimeReindexEnabled,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -1188,9 +1189,13 @@ func initReindexAndDistributedTasks(
 	// Wake the reconcile loop when a round ends with work remaining (batch
 	// chains, deferrals, failed rounds) instead of idling a full interval.
 	dropVectorReconcileNudge := make(chan struct{}, 1)
+	dropVectorFinalizer := db.NewSchemaVectorConfigFinalizer(appState.SchemaManager)
+	// Direct-finalize hook for tenant-less MT collections, where no cleanup
+	// task can ever exist to drive the finalize.
+	dropVectorEnqueuer.SetVectorConfigFinalizer(dropVectorFinalizer)
 	dropVectorProvider := db.NewDropVectorIndexProvider(
 		repo,
-		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		dropVectorFinalizer,
 		appState.ClusterService.Raft,
 		appState.Logger,
 		appState.Cluster.LocalName(),

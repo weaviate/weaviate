@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 
@@ -28,7 +29,7 @@ const (
 var ErrVersionIncrementFailed = errors.New("version increment failed")
 
 // A VectorVersion is a 1-byte value structured as follows:
-// - 7 bits for the version number
+// - 7 bits for the version number (1-127; 0 is reserved, see Increment)
 // - 1 bit for the tombstone flag (0 = alive, 1 = deleted)
 // TODO: versions can wrap around after 127 updates,
 // we need a mechanism to handle this in the future (e.g. during snapshots perhaps, etc.)
@@ -49,7 +50,11 @@ func (ve VectorVersion) Increment() VectorVersion {
 	if counter < 127 {
 		counter++
 	} else {
-		counter = 0 // wraparound behavior
+		// wrap to 1, never 0: the in-memory paged array uses 0 as its
+		// "empty slot" sentinel, so a live version of 0 would be
+		// indistinguishable from a never-loaded entry and could be rolled
+		// back to an older persisted value by loadInto or Warmup
+		counter = 1
 	}
 
 	return VectorVersion(delBit | counter)
@@ -202,6 +207,51 @@ func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, erro
 	return version.Deleted(), nil
 }
 
+// Warmup loads every persisted vector version into memory with one
+// sequential sweep over the store, so that searches after a restart never
+// fault versions in one LSM read at a time. In-memory values always win
+// over persisted ones, making it safe to run concurrently with reads and
+// writes. It returns the number of entries installed.
+func (v *VersionMap) Warmup(ctx context.Context) (int, error) {
+	var count int
+	v.store.IterateAll(func(vectorID uint64, loaded VectorVersion) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		page, slot := v.data.EnsurePageFor(vectorID)
+		v.locks.Lock(vectorID)
+		if page[slot] == 0 {
+			page[slot] = loaded
+			count++
+		}
+		v.locks.Unlock(vectorID)
+		return true
+	})
+
+	err := ctx.Err()
+	if err != nil {
+		return count, err
+	}
+	return count, nil
+}
+
+// EnsureDefault installs the implicit first version for a vector with no
+// in-memory entry yet, and reports whether it did. Vectors are added at
+// version 1 without persisting it (the store only sees increments and
+// deletes), so entries absent from the store default to v1 on load;
+// installing that default eagerly keeps such vectors off the lazy fault
+// path. In-memory values always win.
+func (v *VersionMap) EnsureDefault(vectorID uint64) bool {
+	page, slot := v.data.EnsurePageFor(vectorID)
+	v.locks.Lock(vectorID)
+	installed := page[slot] == 0
+	if installed {
+		page[slot] = v1
+	}
+	v.locks.Unlock(vectorID)
+	return installed
+}
+
 // VersionStore is a persistent store for vector versions.
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
@@ -238,4 +288,24 @@ func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion,
 func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorVersion) error {
 	key := v.key(vectorID)
 	return v.bucket.Put(key[:], []byte{byte(version)})
+}
+
+// IterateAll calls fn for every persisted vector version, in one sequential
+// sweep over the store. Iteration stops early when fn returns false.
+func (v *VersionStore) IterateAll(fn func(vectorID uint64, version VectorVersion) bool) {
+	c := v.bucket.CursorReplaceReusable()
+	defer c.Close()
+
+	for k, val := c.Seek(versionMapBucketPrefix); k != nil; k, val = c.Next() {
+		if !bytes.HasPrefix(k, versionMapBucketPrefix) {
+			break // left the version keyspace of the shared bucket
+		}
+		if len(k) != len(versionMapBucketPrefix)+8 || len(val) == 0 {
+			continue
+		}
+		vectorID := binary.LittleEndian.Uint64(k[len(versionMapBucketPrefix):])
+		if !fn(vectorID, VectorVersion(val[0])) {
+			break
+		}
+	}
 }

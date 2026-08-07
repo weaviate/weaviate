@@ -229,6 +229,24 @@ func waitForNoActiveDropTask(t *testing.T) {
 	}, time.Minute, 500*time.Millisecond)
 }
 
+// dropTaskIDsErr returns every recorded drop-vector cleanup task keyed by ID,
+// active or terminal. Records outlive their round (they are the resume and
+// coverage-inheritance anchors), so a round that started and finished between
+// two calls still shows up here.
+func dropTaskIDsErr() (map[string]string, error) {
+	resp, err := helper.Client(nil).DistributedTasks.DistributedTasksGet(
+		distributed_tasks.NewDistributedTasksGetParams(), nil)
+	if err != nil {
+		return nil, err
+	}
+	tasks := resp.Payload["drop-vector-index"]
+	ids := make(map[string]string, len(tasks))
+	for _, task := range tasks {
+		ids[task.ID] = task.Status
+	}
+	return ids, nil
+}
+
 // setTenantStatusEventually retries a tenant status change through transient
 // rejections (leadership changes, other guards). Drop-vector cleanups no
 // longer block tenant mutations, so for them a plain update works too.
