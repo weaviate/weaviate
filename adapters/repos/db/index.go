@@ -760,11 +760,12 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 // for the next start. A close nobody signalled a cause for reads as
 // [errIndexClosed], which callers must treat like a shutdown.
 func (i *Index) closeCause() error {
-	if i.closingCtx.Err() == nil {
+	// Both reads dereference their context, and an Index built without either
+	// one is still an index this has to answer for. Nothing has closed an index
+	// that has no closingCtx, so it is open.
+	if i.closingCtx == nil || i.closingCtx.Err() == nil {
 		return nil
 	}
-	// context.Cause dereferences its argument, and an Index built without a
-	// closeRequestedCtx is still an index this has to answer for.
 	if i.closeRequestedCtx == nil {
 		return errIndexClosed
 	}
