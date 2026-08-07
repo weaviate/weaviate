@@ -12,11 +12,11 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"testing"
-
-	entsInverted "github.com/weaviate/weaviate/entities/inverted"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
 )
 
 // containsBatchFixture owns a real roaringset *lsmkv.Bucket and the
@@ -126,7 +127,7 @@ func TestDocBitmapContainsBatch_ContainsAnyFold(t *testing.T) {
 
 	pv := &propValuePair{
 		operator:       filters.ContainsAny,
-		containsValues: keysOf([]byte("present-a"), []byte("missing"), []byte("present-b")),
+		containsValues: sortedKeys([]byte("present-a"), []byte("missing"), []byte("present-b")),
 	}
 
 	s := &Searcher{}
@@ -136,8 +137,8 @@ func TestDocBitmapContainsBatch_ContainsAnyFold(t *testing.T) {
 
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, dbm.docIDs.ToArray())
 	require.False(t, dbm.IsDenyList())
-	require.Equal(t, []string{"present-a", "missing", "present-b"}, fixture.reads,
-		"every key must be read for ContainsAny, absent key included")
+	require.Equal(t, []string{"missing", "present-a", "present-b"}, fixture.reads,
+		"every key must be read for ContainsAny, absent key included, in key order")
 }
 
 // TestDocBitmapContainsBatch_UnsupportedOperator pins the defensive default
@@ -154,7 +155,7 @@ func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
 
 	pv := &propValuePair{
 		operator:       filters.OperatorEqual,
-		containsValues: keysOf([]byte("present-a"), []byte("present-b")),
+		containsValues: sortedKeys([]byte("present-a"), []byte("present-b")),
 	}
 
 	s := &Searcher{}
@@ -177,7 +178,7 @@ func TestDocBitmapContainsBatch_NoKeys(t *testing.T) {
 		t.Run(op.Name(), func(t *testing.T) {
 			s := &Searcher{}
 			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t),
-				&propValuePair{prop: "some-prop", operator: op, containsValues: keysOf()})
+				&propValuePair{prop: "some-prop", operator: op, containsValues: sortedKeys()})
 			require.ErrorContains(t, err, "carries no keys")
 			require.ErrorContains(t, err, `"some-prop"`, "the error must name the property")
 			require.Nil(t, dbm.docIDs)
@@ -221,25 +222,26 @@ func TestDocBitmapContainsBatch_ReadError(t *testing.T) {
 			ctx := context.Background()
 			fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{
 				"a": {1, 2, 3},
-				"c": {7, 8},
+				"z": {7, 8},
 			})
 
 			pool := roaringset.NewBitmapBufPoolTrackingForTests()
 			s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 })}
 
-			// "a" is read and accumulated, "poison" fails, "c" must never be read
+			// "a" is read and accumulated, "poison" fails, "z" must never be
+			// reached — the keys arrive ascending, so "poison" sits between them
 			dbm, err := s.docBitmapContainsBatch(ctx,
 				&failingContainsBatchReader{containsBatchReader: fixture.reader(t), failKey: "poison"},
 				&propValuePair{
 					operator:       filters.ContainsAny,
-					containsValues: keysOf([]byte("a"), []byte("poison"), []byte("c")),
+					containsValues: sortedKeys([]byte("a"), []byte("poison"), []byte("z")),
 				})
 			require.ErrorContains(t, err, "read row")
 			require.ErrorContains(t, err, "injected read failure")
 			require.Equal(t, docBitmap{}, dbm, "a failed read must not yield a partial result")
 
 			// the poisoned key is answered by the wrapper, so it never reaches
-			// the fixture; "c" missing is what proves the fold stopped
+			// the fixture; "z" missing is what proves the fold stopped
 			require.Equal(t, []string{"a"}, fixture.reads, "no key after the failure may be read")
 			require.Equal(t, len(fixture.reads), fixture.releaseCalls,
 				"every row the fold received must be released")
@@ -261,7 +263,7 @@ func TestResolveDocIDs_ContainsKeysRequireContainsOperator(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pv := &propValuePair{
 				operator:       tc.operator,
-				containsValues: keysOf([]byte("a"), []byte("b")),
+				containsValues: sortedKeys([]byte("a"), []byte("b")),
 			}
 			_, err := pv.resolveDocIDs(context.Background(), &Searcher{}, 0)
 			require.ErrorContains(t, err, "non-contains operator")
@@ -282,7 +284,7 @@ func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
 
 	pv := &propValuePair{
 		operator:       filters.ContainsNone,
-		containsValues: keysOf([]byte("present-a"), []byte("missing"), []byte("present-b")),
+		containsValues: sortedKeys([]byte("present-a"), []byte("missing"), []byte("present-b")),
 	}
 
 	s := &Searcher{}
@@ -293,7 +295,7 @@ func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, dbm.docIDs.ToArray(),
 		"ContainsNone folds the same union as ContainsAny")
 	require.True(t, dbm.IsDenyList())
-	require.Equal(t, []string{"present-a", "missing", "present-b"}, fixture.reads)
+	require.Equal(t, []string{"missing", "present-a", "present-b"}, fixture.reads)
 }
 
 // Same folds as above but forced through the Accumulator path, which the
@@ -315,7 +317,7 @@ func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
 		"present-c": {70_000, 200_000},
 	}
 
-	keys := keysOf(
+	keys := sortedKeys(
 		[]byte("present-a"), []byte("missing"), []byte("present-b"), []byte("present-c"),
 	)
 	for _, tc := range []struct {
@@ -336,8 +338,8 @@ func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
 
 			require.Equal(t, []uint64{1, 2, 3, 4, 5, 70_000, 200_000}, dbm.docIDs.ToArray())
 			require.Equal(t, tc.wantDenyList, dbm.IsDenyList())
-			require.Equal(t, []string{"present-a", "missing", "present-b", "present-c"}, fixture.reads,
-				"every key must be read, absent key included")
+			require.Equal(t, []string{"missing", "present-a", "present-b", "present-c"}, fixture.reads,
+				"every key must be read, absent key included, in key order")
 
 			dbm.release()
 			require.Zero(t, pool.Outstanding(),
@@ -372,7 +374,7 @@ func TestDocBitmapContainsBatch_SingleKey(t *testing.T) {
 			s := &Searcher{}
 			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), &propValuePair{
 				operator:       tc.operator,
-				containsValues: keysOf([]byte(tc.key)),
+				containsValues: sortedKeys([]byte(tc.key)),
 			})
 			require.NoError(t, err)
 			defer dbm.release()
@@ -396,7 +398,7 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 
 		pv := &propValuePair{
 			operator:       filters.ContainsAll,
-			containsValues: keysOf([]byte("a"), []byte("b"), []byte("c")),
+			containsValues: sortedKeys([]byte("a"), []byte("b"), []byte("c")),
 		}
 
 		s := &Searcher{}
@@ -417,7 +419,7 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 
 		pv := &propValuePair{
 			operator:       filters.ContainsAll,
-			containsValues: keysOf([]byte("a"), []byte("b"), []byte("c")),
+			containsValues: sortedKeys([]byte("a"), []byte("b"), []byte("c")),
 		}
 
 		s := &Searcher{}
@@ -433,12 +435,13 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 	t.Run("absent key empties the intersection and stops reading", func(t *testing.T) {
 		fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{
 			"a": {1, 2, 3},
-			"c": {1, 2, 3}, // must never be read: the absent key already emptied the AND
+			"z": {1, 2, 3}, // must never be read: the absent key already emptied the AND
 		})
 
+		// keys arrive ascending, so "missing" sits between the two present ones
 		pv := &propValuePair{
 			operator:       filters.ContainsAll,
-			containsValues: keysOf([]byte("a"), []byte("missing"), []byte("c")),
+			containsValues: sortedKeys([]byte("a"), []byte("missing"), []byte("z")),
 		}
 
 		s := &Searcher{}
@@ -448,7 +451,7 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 
 		require.Empty(t, dbm.docIDs.ToArray())
 		require.Equal(t, []string{"a", "missing"}, fixture.reads,
-			"key c must not be read once the absent key emptied the accumulator")
+			"key z must not be read once the absent key emptied the accumulator")
 	})
 }
 
@@ -489,7 +492,7 @@ func TestDocBitmapContainsBatch_ContextCancelledMidLoop(t *testing.T) {
 			s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(fixture.pool, func() uint64 { return 300_000 })}
 			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), &propValuePair{
 				operator:       filters.ContainsAny,
-				containsValues: keysOf([]byte("a"), []byte("b"), []byte("c")),
+				containsValues: sortedKeys([]byte("a"), []byte("b"), []byte("c")),
 			})
 			require.ErrorIs(t, err, context.Canceled)
 			require.Equal(t, docBitmap{}, dbm)
@@ -501,10 +504,11 @@ func TestDocBitmapContainsBatch_ContextCancelledMidLoop(t *testing.T) {
 	}
 }
 
-// keysOf builds an [entsInverted.Keys] from literal keys, in the order given —
-// this path does not reorder them, and several tests assert the order they are
-// read in.
-func keysOf(keys ...[]byte) entsInverted.Keys {
+// sortedKeys builds a [entsInverted.SortedKeys] from literal keys, sorting them
+// as every producer does, so tests can state the keys they mean without
+// mirroring a builder.
+func sortedKeys(keys ...[]byte) entsInverted.SortedKeys {
+	slices.SortFunc(keys, bytes.Compare)
 	total := 0
 	for _, k := range keys {
 		total += len(k)
@@ -514,4 +518,15 @@ func keysOf(keys ...[]byte) entsInverted.Keys {
 		kb.AppendString(string(k))
 	}
 	return kb.Build()
+}
+
+// collectKeys materializes a [entsInverted.SortedKeys] as a [][]byte, so tests
+// can compare against the keys they expect without asserting through an
+// accessor.
+func collectKeys(keys entsInverted.SortedKeys) [][]byte {
+	out := make([][]byte, 0, keys.Len())
+	for _, k := range keys.All() {
+		out = append(out, k)
+	}
+	return out
 }

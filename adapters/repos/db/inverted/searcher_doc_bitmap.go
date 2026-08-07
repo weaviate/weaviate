@@ -324,7 +324,7 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 // staging blocks (proportional to the doc-ID spread of the result, not to
 // the number of keys) plus a single row in flight.
 func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
-	keys entsInverted.Keys, pool roaringset.BitmapBufPool, mergeConc int,
+	keys entsInverted.SortedKeys, pool roaringset.BitmapBufPool, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	// TODO aliszka:gh12242 wire mergeConc into the accumulator's Or once sroar
 	// supports concurrent deposits; today it bounds only the per-row disk merge
@@ -360,7 +360,7 @@ func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
 // batch-read grouping can beat — hence ContainsAll deliberately has no
 // accumulator path.
 func foldContainsIncremental(ctx context.Context, reader containsBatchReader,
-	keys entsInverted.Keys, op filters.Operator, mergeConc int,
+	keys entsInverted.SortedKeys, op filters.Operator, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	var acc *sroar.Bitmap
 	accRelease := noopRelease

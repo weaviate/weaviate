@@ -1132,8 +1132,14 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 }
 
 // newBatchedContainsPair builds the batched Contains leaf from pre-encoded keys.
+//
+// The keys arrive ascending. Each producer orders them where it is cheapest —
+// the text path sorts the tokens the tokenizer already holds, the fixed-width
+// encoders sort their slab in place — so a consumer that needs them ordered gets
+// that without re-sorting, and the leaf being shared across every shard a query
+// touches means it would otherwise be re-sorted, or copied, per shard.
 func newBatchedContainsPair(property *models.Property, operator filters.Operator,
-	class *models.Class, keys inverted.Keys,
+	class *models.Class, keys inverted.SortedKeys,
 ) (*propValuePair, error) {
 	pv, err := newPropValuePair(class)
 	if err != nil {
@@ -1174,12 +1180,12 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	if err != nil {
 		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
-	total := 0
-	for i, valueTokens := range batch.All() {
-		if len(valueTokens) != 1 {
-			return nil, fmt.Errorf("extract contains values: value %d: FIELD tokenization produced %d tokens, want exactly 1", i, len(valueTokens))
-		}
-		total += len(valueTokens[0])
+	// FIELD gives one token per value, and the key is that token's bytes — so
+	// ordering the tokens is ordering the keys, and it happens in the batch the
+	// tokenizer already allocated rather than over a copy of it.
+	total, err := batch.SortSingleTokens()
+	if err != nil {
+		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
 
 	kb := inverted.NewKeyBuilder(batch.Len(), total)

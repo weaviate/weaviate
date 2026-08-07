@@ -18,14 +18,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKeysLayouts reads both layouts back through every accessor. They
+// TestSortedKeysLayouts reads both layouts back through every accessor. They
 // are built by different types and share no code, so what a key reads back as
 // must not depend on which one produced it.
-func TestKeysLayouts(t *testing.T) {
+func TestSortedKeysLayouts(t *testing.T) {
 	tests := []struct {
 		name      string
 		keys      []string
-		build     func(keys []string) Keys
+		build     func(keys []string) SortedKeys
 		wantFixed bool
 	}{
 		{
@@ -92,16 +92,17 @@ func TestKeysLayouts(t *testing.T) {
 	}
 }
 
-// TestKeysEmpty covers the lists that hold no keys: one from each builder,
+// TestSortedKeysEmpty covers the lists that hold no keys: one from each builder,
 // and the zero value a leaf carries when it is not a batched Contains.
-func TestKeysEmpty(t *testing.T) {
-	for name, keys := range map[string]Keys{
+func TestSortedKeysEmpty(t *testing.T) {
+	for name, keys := range map[string]SortedKeys{
 		"variable builder, nothing appended": NewKeyBuilder(4, 16).Build(),
 		"fixed builder, nothing appended":    NewFixedKeyBuilder(4, 8).Build(),
 		"zero value":                         {},
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.Zero(t, keys.Len())
+			assert.True(t, keys.IsAscending())
 			for range keys.All() {
 				t.Fatal("an empty list must yield nothing")
 			}
@@ -109,7 +110,33 @@ func TestKeysEmpty(t *testing.T) {
 	}
 }
 
-func buildVariable(keys []string) Keys {
+// TestFixedKeyBuilderSort pins that ordering happens in the slab itself — the
+// keys move, and nothing indexes them that would have to move too.
+func TestFixedKeyBuilderSort(t *testing.T) {
+	t.Run("orders the keys", func(t *testing.T) {
+		keys := buildFixed(2)([]string{"dd", "bb", "cc", "aa"})
+		require.True(t, keys.IsAscending())
+		assert.Equal(t, []string{"aa", "bb", "cc", "dd"}, collect(keys))
+	})
+
+	t.Run("a single key needs no ordering", func(t *testing.T) {
+		assert.Equal(t, []string{"zz"}, collect(buildFixed(2)([]string{"zz"})))
+	})
+
+	t.Run("equal keys survive", func(t *testing.T) {
+		keys := buildFixed(2)([]string{"bb", "aa", "bb"})
+		assert.Equal(t, []string{"aa", "bb", "bb"}, collect(keys))
+	})
+}
+
+func TestIsAscending(t *testing.T) {
+	assert.True(t, buildVariable([]string{"aa", "bb", "cc"}).IsAscending())
+	assert.False(t, buildVariable([]string{"bb", "aa"}).IsAscending())
+	assert.True(t, buildVariable([]string{"aa", "aa"}).IsAscending(), "equal keys are ordered")
+	assert.False(t, buildVariable([]string{"b", "aaa"}).IsAscending(), "shorter is not smaller")
+}
+
+func buildVariable(keys []string) SortedKeys {
 	total := 0
 	for _, k := range keys {
 		total += len(k)
@@ -121,14 +148,23 @@ func buildVariable(keys []string) Keys {
 	return b.Build()
 }
 
-// buildFixed appends through the encoder-shaped path: write into the buffer the
-// builder hands out, rather than copying in a key built elsewhere.
-func buildFixed(width int) func(keys []string) Keys {
-	return func(keys []string) Keys {
+// buildFixed appends through the encoder-shaped path — write into the buffer the
+// builder hands out — and orders the result, as the fixed-width encoders do.
+func buildFixed(width int) func(keys []string) SortedKeys {
+	return func(keys []string) SortedKeys {
 		b := NewFixedKeyBuilder(len(keys), width)
 		for _, k := range keys {
 			copy(b.AppendBuf(), k)
 		}
+		b.Sort()
 		return b.Build()
 	}
+}
+
+func collect(keys SortedKeys) []string {
+	out := make([]string, 0, keys.Len())
+	for _, k := range keys.All() {
+		out = append(out, string(k))
+	}
+	return out
 }

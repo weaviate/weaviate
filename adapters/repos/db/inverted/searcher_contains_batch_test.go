@@ -12,7 +12,9 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	entsInverted "github.com/weaviate/weaviate/entities/inverted"
@@ -198,9 +200,15 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Equal(t, tt.prop, pv.prop)
 			require.True(t, pv.hasFilterableIndex)
 			require.Equal(t, tt.numVals, pv.containsValues.Len())
-			for i := 0; i < tt.numVals; i++ {
-				require.Equal(t, tt.wantKey(t, i), pv.containsValues.At(i), "key %d", i)
+			// the keys are the encoded values in ascending order, not in the
+			// order the filter listed them — the key/doc column reads them
+			// as a sorted run (bool below is the case where the two differ)
+			want := make([][]byte, tt.numVals)
+			for i := range want {
+				want[i] = tt.wantKey(t, i)
 			}
+			slices.SortFunc(want, bytes.Compare)
+			require.Equal(t, want, collectKeys(pv.containsValues))
 		})
 	}
 }
@@ -506,7 +514,7 @@ func TestFetchContainsBatch_EmptyKeySet(t *testing.T) {
 			pv := &propValuePair{
 				prop:               "prop-int",
 				operator:           op,
-				containsValues:     keysOf(),
+				containsValues:     sortedKeys(),
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}
@@ -539,7 +547,7 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 			pv := &propValuePair{
 				prop:               tc.prop,
 				operator:           filters.ContainsAny,
-				containsValues:     keysOf([]byte("a")),
+				containsValues:     sortedKeys([]byte("a")),
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}
@@ -580,13 +588,13 @@ func TestFetchContainsBatch_ReadsRows(t *testing.T) {
 	tests := []struct {
 		name         string
 		operator     filters.Operator
-		keys         entsInverted.Keys
+		keys         entsInverted.SortedKeys
 		wantDocIDs   []uint64
 		wantDenyList bool
 	}{
-		{"ContainsAny reaches the rows", filters.ContainsAny, keysOf([]byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, false},
+		{"ContainsAny reaches the rows", filters.ContainsAny, sortedKeys([]byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, false},
 		// ContainsNone additionally proves the fold's deny flag reaches the caller
-		{"ContainsNone denies", filters.ContainsNone, keysOf([]byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, true},
+		{"ContainsNone denies", filters.ContainsNone, sortedKeys([]byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -618,7 +626,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	writeContainsRows(t, f, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
 
-	newPV := func(keys entsInverted.Keys) *propValuePair {
+	newPV := func(keys entsInverted.SortedKeys) *propValuePair {
 		return &propValuePair{
 			prop:               "prop-int",
 			operator:           filters.ContainsAny,
@@ -630,7 +638,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 
 	t.Run("a batched read is annotated", func(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
-		dbm, err := newPV(keysOf([]byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
+		dbm, err := newPV(sortedKeys([]byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -652,7 +660,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		pv := &propValuePair{
 			prop:               "prop-nonroaringset",
 			operator:           filters.ContainsAny,
-			containsValues:     keysOf([]byte("a"), []byte("b")),
+			containsValues:     sortedKeys([]byte("a"), []byte("b")),
 			hasFilterableIndex: true,
 			Class:              f.class,
 		}
@@ -675,7 +683,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		ctx, cancel := context.WithCancel(helpers.InitSlowQueryDetails(context.Background()))
 		cancel()
 
-		_, err := newPV(keysOf([]byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
+		_, err := newPV(sortedKeys([]byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
 		require.ErrorIs(t, err, context.Canceled)
 
 		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
@@ -691,10 +699,10 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		prop string
-		keys entsInverted.Keys
+		keys entsInverted.SortedKeys
 	}{
 		{name: "an empty key set is not annotated", prop: "prop-int"},
-		{name: "a missing bucket is not annotated", prop: "prop-no-bucket", keys: keysOf([]byte("a"))},
+		{name: "a missing bucket is not annotated", prop: "prop-no-bucket", keys: sortedKeys([]byte("a"))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := helpers.InitSlowQueryDetails(context.Background())

@@ -12,7 +12,9 @@
 package inverted
 
 import (
+	"bytes"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,12 +58,21 @@ func TestExtractBoolValue(t *testing.T) {
 func TestEncodeKeys(t *testing.T) {
 	s := &Searcher{}
 
-	// assertKeysMatch checks each slab key against the single-value encoder and
-	// that its capacity is capped to keyLen (the three-index sub-slice).
-	assertKeysMatch := func(t *testing.T, keys ent.Keys, keyLen int, want func(i int) []byte) {
+	// assertKeysMatch checks the encoded keys against the single-value encoder
+	// and that each key's capacity is capped to keyLen, so appending to one
+	// cannot reach the next. The encoders order their output, so the expectation
+	// is the sorted set of per-value encodings rather than a positional match.
+	assertKeysMatch := func(t *testing.T, keys ent.SortedKeys, keyLen int, want func(i int) []byte) {
 		t.Helper()
+		expected := make([][]byte, keys.Len())
+		for i := range expected {
+			expected[i] = want(i)
+		}
+		slices.SortFunc(expected, bytes.Compare)
+
+		require.True(t, keys.IsAscending(), "encoders must produce ascending keys")
 		for i, key := range keys.All() {
-			assert.Equalf(t, want(i), key, "key %d bytes", i)
+			assert.Equalf(t, expected[i], key, "key %d bytes", i)
 			assert.Equalf(t, keyLen, cap(key), "key %d capacity must be capped to its own %d-byte end", i, keyLen)
 		}
 	}

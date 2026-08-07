@@ -51,7 +51,7 @@ type propValuePair struct {
 	// containsValues holds pre-encoded on-disk keys for a flat, single-property
 	// Contains(Any|All|None) filter. When non-nil, resolveDocIDs routes to
 	// fetchContainsBatch instead of the children-based dispatch below.
-	containsValues entsInverted.Keys
+	containsValues entsInverted.SortedKeys
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {

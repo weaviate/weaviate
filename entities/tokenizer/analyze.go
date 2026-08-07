@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"iter"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -134,6 +135,33 @@ func (b *AnalyzedBatch) All() iter.Seq2[int, []string] {
 			start = end
 		}
 	}
+}
+
+// SortSingleTokens orders the batch's tokens ascending, in place and without
+// allocating, and reports their total byte length.
+//
+// Every value must have produced exactly one token, which is what FIELD
+// tokenization guarantees. That is not a convenience: sorting flat scrambles
+// which value a token came from, and ends survives that only when every group
+// holds exactly one — so the precondition is what makes the operation
+// meaningful, and it is checked rather than assumed.
+//
+// Callers building keys from a whole batch want the tokens ordered, not the
+// values, and this leaves the batch usable through Tokens and All exactly as
+// before, only in token order.
+func (b *AnalyzedBatch) SortSingleTokens() (totalBytes int, err error) {
+	start := uint32(0)
+	for i, end := range b.ends {
+		if end-start != 1 {
+			return 0, fmt.Errorf("value %d produced %d tokens, want exactly 1", i, end-start)
+		}
+		start = end
+	}
+	for _, tok := range b.flat {
+		totalBytes += len(tok)
+	}
+	slices.Sort(b.flat)
+	return totalBytes, nil
 }
 
 // AnalyzeBatch analyzes each value independently — the batch equivalent of
