@@ -1232,6 +1232,10 @@ type snapshot struct {
 	//	    terminal and already sits at the newest moment the task records,
 	//	    so Restore leaves it alone.
 	//
+	// Only 0 is repaired. Any version above it is left alone, including one
+	// this build does not know: a future format owns its own finish times, and
+	// rewriting them would be worse than trusting them.
+	//
 	// The repair, and this field with it, can be deleted once no supported
 	// upgrade path can still produce a version 0 snapshot.
 	Version int                `json:"version,omitempty"`
@@ -1281,12 +1285,13 @@ func (m *Manager) Restore(bytes []byte) error {
 				m.tasks[namespace] = make(map[string]*Task)
 			}
 
-			// A snapshot below version 1 is the one door a terminal task with a
+			// The unversioned payload is the one door a terminal task with a
 			// missing or stale finish time enters through; repairing it here is
 			// what lets it age out again and keeps the backup overlap backstop
-			// honest. Version 1 already holds both halves of the invariant, so
-			// there is nothing to normalize. See [snapshot.Version].
-			if s.Version < 1 {
+			// honest. Every versioned payload already holds both halves of the
+			// invariant, or owns a format this build does not know how to
+			// normalize. See [snapshot.Version].
+			if s.Version == 0 {
 				if task.repairTerminalStamp() {
 					m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
 						Warnf("task %s/%s/%d was restored %s carrying a finish time older than the task's own "+

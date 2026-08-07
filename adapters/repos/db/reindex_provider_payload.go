@@ -160,8 +160,12 @@ const (
 // logged and skipped rather than recovered. That gap predates this registry.
 //
 // TestReindexMigrationTypeRegistryMatchesTheConstants scans the package's
-// non-test files and requires the constants and this list to agree, so a
-// constant declared anywhere in the package and not listed here is caught.
+// non-test files and requires the constants and this list to agree. It is a
+// line regex, so it is a tripwire rather than a proof: it matches
+// `ReindexType<Name> ReindexMigrationType = "value"` and misses a declaration
+// that uses conversion syntax, a `var`, or a name not starting with
+// ReindexType. Declare new types in that one shape and the scan catches an
+// omission from this list.
 var AllReindexMigrationTypes = []ReindexMigrationType{
 	ReindexTypeChangeAlgorithm,
 	ReindexTypeRebuildSearchable,

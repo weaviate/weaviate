@@ -81,7 +81,8 @@ func TestHandler_ListTasks(t *testing.T) {
 // a value field would serialize whatever it holds and omitempty could never
 // fire; the model declares a pointer (x-nullable in the spec) for that reason.
 // A client sorting the list by finishedAt would otherwise put every running
-// migration first, dated year 1.
+// migration first, dated year 1. The task's units render under the same rule,
+// so the fixture carries a running one.
 func TestHandler_ListTasks_InFlightTaskOmitsFinishedAt(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)
@@ -93,6 +94,9 @@ func TestHandler_ListTasks_InFlightTaskOmitsFinishedAt(t *testing.T) {
 			Payload:        []byte(`{}`),
 			Status:         distributedtask.TaskStatusSwapping,
 			StartedAt:      time.Now().Add(-time.Hour),
+			Units: map[string]*distributedtask.Unit{
+				"u1": {ID: "u1", NodeID: "node-1", Status: distributedtask.UnitStatusInProgress},
+			},
 		}},
 	}})
 
@@ -102,8 +106,14 @@ func TestHandler_ListTasks_InFlightTaskOmitsFinishedAt(t *testing.T) {
 	rendered, err := json.Marshal(tasks["ns"][0])
 	require.NoError(t, err)
 	require.NotContains(t, string(rendered), `"finishedAt"`,
-		"a task that has not ended must not report a finish time; the swagger description "+
-			"documents the field as absent until the task is terminal")
+		"neither a task that has not ended nor its running units may report a finish "+
+			"time; the swagger description documents the field as absent until terminal")
+
+	require.Len(t, tasks["ns"][0].Units, 1, "the unit arm above must actually have a unit to render")
+	unit, err := json.Marshal(tasks["ns"][0].Units[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(unit), `"finishedAt"`,
+		"a unit that has not finished must not report a finish time")
 }
 
 type taskListerStub struct {

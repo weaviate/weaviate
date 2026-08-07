@@ -28,7 +28,7 @@ import (
 
 // TestSingleNode_FinishedStatusRaceWithSchemaFlag pins the ordering between
 // the distributed-task FINISHED status and the schema-flag flip for a semantic
-// migration (change-tokenization) under the Journey 3 canonical wiring.
+// migration (change-tokenization) under the canonical single-node wiring.
 //
 // The flip is not something FINISHED races: MarkTaskFinalized is only proposed
 // after OnTaskCompleted has returned nil, and OnTaskCompleted's schema update
@@ -55,7 +55,7 @@ import (
 // It also reads FINISHED from /v1/tasks (which answers at the leader) and
 // the schema from the local node. Sound only because leader and local are
 // the same node here — promoted to the multi-node suite as written, this
-// would flake on apply lag and blame the Journey 3 wiring for a read split.
+// would flake on apply lag and blame the wiring for a read split.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 
@@ -110,10 +110,14 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		inFlightWithAFinishTime string
 		inFlightPolls           int
 		sawFailed               bool
+		fetchErr                error
 	)
 	require.Eventually(t, func() bool {
 		task, err := fetchTask(restURI, taskID)
-		require.NoError(t, err)
+		if err != nil {
+			fetchErr = err
+			return true
+		}
 		if task == nil {
 			return false
 		}
@@ -135,6 +139,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		finished = task
 		return true
 	}, 120*time.Second, 20*time.Millisecond)
+	require.NoError(t, fetchErr, "polling /v1/tasks failed")
 	require.False(t, sawFailed, "task FAILED before reaching FINISHED")
 	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED")
 
@@ -175,9 +180,9 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	}
 	require.Equal(t, "field", observedTokenization,
 		"the schema flip commits before FINISHED does, so a task reported FINISHED "+
-			"must never render against the pre-migration schema. Either the Journey 3 "+
-			"wiring (ReindexProvider.OnTaskCompleted -> applyPerPropertySchemaUpdate) "+
-			"stopped preceding MarkTaskFinalized, or FINISHED is being reported early.")
+			"must never render against the pre-migration schema. Either "+
+			"ReindexProvider.OnTaskCompleted -> applyPerPropertySchemaUpdate stopped "+
+			"preceding MarkTaskFinalized, or FINISHED is being reported early.")
 	t.Logf("schema already at tokenization=%q when FINISHED first became visible (observed at %v)",
 		observedTokenization, sawFinishedAt)
 }
