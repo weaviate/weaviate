@@ -19,8 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -83,17 +81,17 @@ func requireConverged(ctx context.Context, t *testing.T, compose *docker.DockerC
 	t.Helper()
 	uris := nodeURIs(compose)
 	clusters := clusterURIs(compose)
-	shards := discoverShards(t, uris[0], class)
+	shards := common.DiscoverShards(t, uris[0], class)
 	require.NotEmpty(t, shards)
 
 	createdAt := time.Now().UTC()
 	cutoffMs := createdAt.Add(10 * time.Second).UnixMilli()
 	for _, cluster := range clusters {
-		asyncCheckpointCreate(t, cluster, class, shards, cutoffMs, createdAt.UnixMilli())
+		common.CreateAsyncCheckpoint(t, cluster, class, shards, cutoffMs, createdAt.UnixMilli())
 	}
 	defer func() {
 		for _, cluster := range clusters {
-			asyncCheckpointDelete(t, cluster, class, shards)
+			common.DeleteAsyncCheckpoint(t, cluster, class, shards)
 		}
 	}()
 
@@ -112,7 +110,7 @@ func requireConverged(ctx context.Context, t *testing.T, compose *docker.DockerC
 		for _, shard := range shards {
 			var roots []string
 			for i, cluster := range clusters {
-				statuses := asyncCheckpointStatus(t, cluster, class, []string{shard})
+				statuses := common.AsyncCheckpointStatus(t, cluster, class, []string{shard})
 				entry, ok := statuses[shard]
 				require.True(ct, ok, "node %d hosts no checkpoint for shard %s", i+1, shard)
 				require.NotZero(ct, entry.CutoffMs, "node %d checkpoint inactive for shard %s", i+1, shard)
@@ -138,99 +136,4 @@ func requireSampleState(t *testing.T, uri, class string, live, deleted []strfmt.
 		require.NoError(t, err, "probe deleted id %s on %s", id, uri)
 		require.False(t, exists, "acked-deleted id %s resurrected on %s", id, uri)
 	}
-}
-
-// ── async-checkpoint wire helpers (wire-coupled copies of the convergence test) ──
-
-type asyncCheckpointStatusEntry struct {
-	Root        []byte `json:"root"`
-	CutoffMs    int64  `json:"cutoff_ms"`
-	CreatedAtMs int64  `json:"created_at_ms"`
-}
-
-func asyncCheckpointCreate(t *testing.T, clusterURI, className string, shards []string, cutoffMs, createdAtMs int64) {
-	t.Helper()
-	body, err := json.Marshal(map[string]any{
-		"shards":        shards,
-		"cutoff_ms":     cutoffMs,
-		"created_at_ms": createdAtMs,
-	})
-	require.NoError(t, err)
-	resp, err := http.Post(asyncCheckpointURL(clusterURI, className), "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		t.Fatalf("create checkpoint returned %d: %s", resp.StatusCode, respBody)
-	}
-}
-
-func asyncCheckpointDelete(t *testing.T, clusterURI, className string, shards []string) {
-	t.Helper()
-	body, err := json.Marshal(map[string]any{"shards": shards})
-	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodDelete, asyncCheckpointURL(clusterURI, className), bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		t.Fatalf("delete checkpoint returned %d: %s", resp.StatusCode, respBody)
-	}
-}
-
-func asyncCheckpointStatus(t *testing.T, clusterURI, className string, shards []string) map[string]asyncCheckpointStatusEntry {
-	t.Helper()
-	u, err := url.Parse(asyncCheckpointURL(clusterURI, className))
-	require.NoError(t, err)
-	if len(shards) > 0 {
-		q := u.Query()
-		for _, s := range shards {
-			q.Add("shards", s)
-		}
-		u.RawQuery = q.Encode()
-	}
-	resp, err := http.Get(u.String())
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status returned %d: %s", resp.StatusCode, body)
-	}
-	var out map[string]asyncCheckpointStatusEntry
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	return out
-}
-
-func asyncCheckpointURL(clusterURI, className string) string {
-	// docker's clusterURI is host:port (no scheme); the cluster API speaks plain HTTP.
-	uri := clusterURI
-	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
-		uri = "http://" + uri
-	}
-	return fmt.Sprintf("%s/replicas/indices/%s/async-checkpoint", uri, className)
-}
-
-// discoverShards uses the public REST API: the cluster API has no shard-enumeration endpoint.
-func discoverShards(t *testing.T, restURI, className string) []string {
-	t.Helper()
-	uri := restURI
-	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
-		uri = "http://" + uri
-	}
-	resp, err := http.Get(fmt.Sprintf("%s/v1/schema/%s/shards", uri, className))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var shards []struct {
-		Name string `json:"name"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&shards))
-	out := make([]string, len(shards))
-	for i, s := range shards {
-		out[i] = s.Name
-	}
-	return out
 }

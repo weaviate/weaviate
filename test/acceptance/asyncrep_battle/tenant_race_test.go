@@ -153,18 +153,18 @@ func TestBattleTenantRaces(t *testing.T) {
 	createdAt := time.Now().UTC()
 	cutoffMs := createdAt.Add(10 * time.Second).UnixMilli()
 	for _, cluster := range clusters {
-		asyncCheckpointCreate(t, cluster, class, shards, cutoffMs, createdAt.UnixMilli())
+		common.CreateAsyncCheckpoint(t, cluster, class, shards, cutoffMs, createdAt.UnixMilli())
 	}
 	defer func() {
 		for _, cluster := range clusters {
-			asyncCheckpointDelete(t, cluster, class, shards)
+			common.DeleteAsyncCheckpoint(t, cluster, class, shards)
 		}
 	}()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, shard := range shards {
 			var roots []string
 			for _, cluster := range clusters {
-				statuses := asyncCheckpointStatus(t, cluster, class, []string{shard})
+				statuses := common.AsyncCheckpointStatus(t, cluster, class, []string{shard})
 				entry, ok := statuses[shard]
 				require.True(ct, ok)
 				require.NotZero(ct, entry.CutoffMs)

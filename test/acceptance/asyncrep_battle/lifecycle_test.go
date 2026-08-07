@@ -54,7 +54,7 @@ func TestBattleLifecycle(t *testing.T) {
 		probeID := seedSentinel(t, uri1, class)
 		seedObjects(t, uri1, class, 500)
 		requireConverged(ctx, t, compose, class, 5000, p.convergeTimeout)
-		shard := discoverShards(t, uri1, class)[0]
+		shard := common.DiscoverShards(t, uri1, class)[0]
 
 		cur := markLogs(ctx, t, compose, 2)
 		cycleNode(ctx, t, compose, 2, nil, class, probeID)
@@ -78,7 +78,7 @@ func TestBattleLifecycle(t *testing.T) {
 		probeID := seedSentinel(t, uri1, class)
 		seeded := seedObjects(t, uri1, class, 300)
 		requireConverged(ctx, t, compose, class, 5000, p.convergeTimeout)
-		shard := discoverShards(t, uri1, class)[0]
+		shard := common.DiscoverShards(t, uri1, class)[0]
 
 		// One clean cycle first so a dump/consume round has already happened.
 		cycleNode(ctx, t, compose, 2, nil, class, probeID)
@@ -142,7 +142,7 @@ func TestBattleLifecycle(t *testing.T) {
 		probeID := seedSentinel(t, uri1, class)
 		seedObjects(t, uri1, class, 200)
 		requireConverged(ctx, t, compose, class, 5000, p.convergeTimeout)
-		shard := discoverShards(t, uri1, class)[0]
+		shard := common.DiscoverShards(t, uri1, class)[0]
 
 		t.Run("past junk swept unattempted on graceful restart", func(t *testing.T) {
 			plantHashtreeJunk(ctx, t, compose, 2, class, shard, "hashtree-0000000000000001.ht")
