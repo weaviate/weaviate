@@ -16,7 +16,10 @@ import (
 	"math"
 	"math/bits"
 	"math/rand/v2"
+	"slices"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -36,6 +39,17 @@ type BinaryRotationalQuantizer struct {
 	rounding    []float32
 	l2          float32
 	cos         float32
+
+	// Centering (bench-only, see RQOptions on the 8-bit quantizer). When
+	// active, codes quantize the signs of R(x-mean), carry <mean, x> in an
+	// extra metadata word, and the distance paths add the correction terms
+	// <mean,x> + <mean,q> - |mean|². Centered codes have fieldWords == 2
+	// metadata words instead of 1, so the layouts are incompatible.
+	mean       []float32
+	meanRot    []float32
+	mu2        float32
+	cent       float32 // Indicator: 1 when centering is active.
+	fieldWords int     // Metadata words at the start of a code: 1, or 2 when centered.
 }
 
 func (rq *BinaryRotationalQuantizer) Data() compression.RQData {
@@ -81,6 +95,36 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 		rounding:    rounding,
 		l2:          l2,
 		cos:         cos,
+		fieldWords:  oneBitFieldWords,
+	}
+	return rq, nil
+}
+
+// NewBinaryRotationalQuantizerWithOptions is NewBinaryRotationalQuantizer
+// plus the bench-only centering knob. Truncation is not supported for 1-bit
+// codes. Zero-valued options yield a quantizer identical to
+// NewBinaryRotationalQuantizer.
+func NewBinaryRotationalQuantizerWithOptions(inputDim int, seed uint64, distancer distancer.Provider, opts RQOptions) (*BinaryRotationalQuantizer, error) {
+	if opts.TruncatedDims != 0 {
+		return nil, errors.New("truncation is not supported for the 1-bit quantizer")
+	}
+	rq, err := NewBinaryRotationalQuantizer(inputDim, seed, distancer)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Mean != nil {
+		if len(opts.Mean) != inputDim {
+			return nil, errors.Errorf("centering mean has %d dims, input has %d",
+				len(opts.Mean), inputDim)
+		}
+		if t := distancer.Type(); t != "cosine-dot" && t != "dot" {
+			return nil, errors.Errorf("centering is only supported for dot-based distancers, got %s", t)
+		}
+		rq.mean = slices.Clone(opts.Mean)
+		rq.meanRot = rq.rotation.Rotate(rq.mean)
+		rq.mu2 = dotProduct(rq.mean, rq.mean)
+		rq.cent = 1
+		rq.fieldWords = 2
 	}
 	return rq, nil
 }
@@ -177,10 +221,34 @@ func (c RQOneBitCode) String() string {
 		c.Step(), c.SquaredNorm(), c.Bits()[0])
 }
 
+// codeBits returns the sign-bit words of a code under this quantizer's
+// layout (1 metadata word, or 2 when centered).
+func (rq *BinaryRotationalQuantizer) codeBits(c []uint64) []uint64 {
+	return c[rq.fieldWords:]
+}
+
+// codeDimension returns the number of encoded dimensions of a code under
+// this quantizer's layout.
+func (rq *BinaryRotationalQuantizer) codeDimension(c []uint64) int {
+	return 64 * (len(c) - rq.fieldWords)
+}
+
+// codeMuX returns <mean, x> stored in the second metadata word of a centered
+// code. Only valid when centering is active.
+func (rq *BinaryRotationalQuantizer) codeMuX(c []uint64) float32 {
+	return getFloat32Lower(c[1])
+}
+
 func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 	rx := rq.rotation.Rotate(x)
+	if rq.cent != 0 {
+		for i := range rx {
+			rx[i] -= rq.meanRot[i]
+		}
+	}
 	d := len(rx)
-	code := NewRQOneBitCode(d)
+	code := make([]uint64, rq.fieldWords+d/64)
+	codeBits := code[rq.fieldWords:]
 	blocks := d / 64
 	var l2NormSquared float32
 	var l1Norm float32
@@ -197,18 +265,28 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 			l2NormSquared += rx[i] * rx[i]
 			i++
 		}
-		code.Bits()[b] = bits
+		codeBits[b] = bits
 	}
 	if l1Norm == 0 {
 		return code
 	}
-	code.setSquaredNorm(l2NormSquared)
-	code.setStep(l2NormSquared / l1Norm)
+	code[0] = putFloat32Upper(code[0], l2NormSquared)
+	code[0] = putFloat32Lower(code[0], l2NormSquared/l1Norm)
+	if rq.cent != 0 {
+		code[1] = putFloat32Lower(code[1], dotProduct(rq.mean, x))
+	}
 	return code
 }
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
 	restored := rq.Restore(compressed)
+	if rq.cent != 0 {
+		// Restore approximates the CENTERED rotated vector; add the rotated
+		// mean back before undoing the rotation.
+		for i := range restored {
+			restored[i] += rq.meanRot[i]
+		}
+	}
 	unrotated := rq.rotation.UnRotateInPlace(restored)
 	return unrotated[:rq.originalDim]
 }
@@ -219,11 +297,11 @@ func (rq *BinaryRotationalQuantizer) Restore(b []uint64) []float32 {
 	// When restoring a float32 from the binary encoding we use the mapping:
 	// 0: -||x||/sqrt(D)
 	// 1:  ||x||/sqrt(D)
-	code := RQOneBitCode(b)
-	dim := code.Dimension()
-	avgNorm := code.Norm() / float32(math.Sqrt(float64(dim)))
+	dim := rq.codeDimension(b)
+	norm := float32(math.Sqrt(float64(getFloat32Upper(b[0]))))
+	avgNorm := norm / float32(math.Sqrt(float64(dim)))
 	x := make([]float32, dim)
-	bits := code.Bits()
+	bits := rq.codeBits(b)
 	for i := range dim {
 		block := i / 64
 		bit := uint(i) % 64
@@ -279,6 +357,11 @@ func maxAbs(rx []float32) float32 {
 // TODO: Handle corner cases as we do for 8-bit RQ.
 func (rq *BinaryRotationalQuantizer) encodeQuery(x []float32) RQMultiBitCode {
 	rx := rq.rotation.Rotate(x)
+	if rq.cent != 0 {
+		for i := range rx {
+			rx[i] -= rq.meanRot[i]
+		}
+	}
 	abs := maxAbs(rx)
 	if abs == 0 {
 		// The input vector is the zero vector.
@@ -340,6 +423,8 @@ type BinaryRQDistancer struct {
 	rq        *BinaryRotationalQuantizer
 	cos       float32
 	l2        float32
+	cent      float32 // Indicator: 1 when centering is active.
+	corrQ     float32 // <mean, q> - |mean|², the query-side centering correction.
 	cq        RQMultiBitCode
 }
 
@@ -356,12 +441,18 @@ func (rq *BinaryRotationalQuantizer) NewDistancer(q []float32) *BinaryRQDistance
 	if rq.distancer.Type() == "l2-squared" {
 		l2 = 1.0
 	}
+	var corrQ float32
+	if rq.cent != 0 && len(q) > 0 {
+		corrQ = dotProduct(rq.mean, q) - rq.mu2
+	}
 	return &BinaryRQDistancer{
 		query:     q,
 		distancer: rq.distancer,
 		rq:        rq,
 		cos:       cos,
 		l2:        l2,
+		cent:      rq.cent,
+		corrQ:     corrQ,
 		cq:        rq.encodeQuery(q),
 	}
 }
@@ -386,7 +477,11 @@ func HammingDistSIMD(x, y []uint64) float32 {
 // For binary quantization we always use SIMD, so maybe that is the way to go.
 func (d *BinaryRQDistancer) Distance(x []uint64) (float32, error) {
 	cx := RQOneBitCode(x)
-	bits := cx.Bits()
+	bits := d.rq.codeBits(x)
+	var corr float32
+	if d.cent != 0 {
+		corr = d.rq.codeMuX(x) + d.corrQ
+	}
 	const hammingDistSIMDThreshold = 512
 	if d.cq.Dimension < hammingDistSIMDThreshold {
 		dot := 31 * d.cq.Dimension
@@ -396,7 +491,7 @@ func (d *BinaryRQDistancer) Distance(x []uint64) (float32, error) {
 		dot -= HammingDist(d.cq.bits3, bits) << 4
 		dot -= HammingDist(d.cq.bits4, bits) << 5
 		dotEstimate := d.cq.Step * cx.Step() * float32(dot)
-		return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
+		return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate - corr, nil
 	}
 	dot := float32(31 * d.cq.Dimension)
 	dot -= 2 * HammingDistSIMD(d.cq.bits0, bits)
@@ -405,7 +500,7 @@ func (d *BinaryRQDistancer) Distance(x []uint64) (float32, error) {
 	dot -= 16 * HammingDistSIMD(d.cq.bits3, bits)
 	dot -= 32 * HammingDistSIMD(d.cq.bits4, bits)
 	dotEstimate := d.cq.Step * cx.Step() * dot
-	return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
+	return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate - corr, nil
 }
 
 func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
@@ -422,10 +517,16 @@ func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
 // TODO: Speed this up by tabulating the computation involving Cosine and storing the norm instead of the squared norm on the vectors.
 func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {
 	cx, cy := RQOneBitCode(x), RQOneBitCode(y)
-	fractionDiff := float64(HammingDist(cx.Bits(), cy.Bits())) / float64(cx.Dimension())
+	fractionDiff := float64(HammingDist(brq.codeBits(x), brq.codeBits(y))) / float64(brq.codeDimension(x))
 	cosEstimate := math.Cos(math.Pi * fractionDiff)
+	// With centering active the stored norms are centered norms, so this
+	// estimates <x-mean, y-mean>; the correction restores <x, y>.
 	dotEstimate := float32(math.Sqrt(float64(cx.SquaredNorm())) * math.Sqrt(float64(cy.SquaredNorm())) * cosEstimate)
-	return brq.l2*(cx.SquaredNorm()+cy.SquaredNorm()) + brq.cos - (1.0+brq.l2)*dotEstimate, nil
+	var corr float32
+	if brq.cent != 0 {
+		corr = brq.codeMuX(x) + brq.codeMuX(y) - brq.mu2
+	}
+	return brq.l2*(cx.SquaredNorm()+cy.SquaredNorm()) + brq.cos - (1.0+brq.l2)*dotEstimate - corr, nil
 }
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {

@@ -13,6 +13,8 @@ package compressionhelpers
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"sync"
 	"unsafe"
 
@@ -51,6 +53,18 @@ type FourBitRotationalQuantizer struct {
 	rotation  *compression.FastRotation
 	distancer distancer.Provider
 
+	// Truncation and centering (bench-only, see RQOptions on the 8-bit
+	// quantizer for the full contract). codeDim rotated dimensions are kept
+	// per code, pre-scaled by scale = sqrt(OutputDim/codeDim); when centering
+	// is active the rotated mean is subtracted before quantization, the Norm2
+	// slot carries <mean, x>, and the distance paths apply the corrections.
+	codeDim uint32
+	scale   float32
+	mean    []float32
+	meanRot []float32
+	mu2     float32
+	cent    float32 // Indicator: 1 when centering is active.
+
 	// Pool of encode-time scratch buffers; Encode is called concurrently
 	// during imports.
 	scratch sync.Pool
@@ -78,6 +92,8 @@ func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distance
 		inputDim:  uint32(inputDim),
 		rotation:  rotation,
 		distancer: distancer,
+		codeDim:   rotation.OutputDim,
+		scale:     1,
 		err:       err,
 		cos:       cos,
 		l2:        l2,
@@ -86,12 +102,47 @@ func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distance
 	return rq
 }
 
+// NewFourBitRotationalQuantizerWithOptions is NewFourBitRotationalQuantizer
+// plus the bench-only truncation and centering knobs. Zero-valued options
+// yield a quantizer identical to NewFourBitRotationalQuantizer.
+func NewFourBitRotationalQuantizerWithOptions(inputDim int, seed uint64, distancer distancer.Provider, opts RQOptions) (*FourBitRotationalQuantizer, error) {
+	rq := NewFourBitRotationalQuantizer(inputDim, seed, distancer)
+	if opts.TruncatedDims != 0 {
+		if opts.TruncatedDims < 0 || opts.TruncatedDims > int(rq.rotation.OutputDim) {
+			return nil, errors.Errorf("truncated dims %d outside [1, %d]",
+				opts.TruncatedDims, rq.rotation.OutputDim)
+		}
+		if opts.TruncatedDims%2 != 0 {
+			return nil, errors.Errorf("truncated dims %d must be even for the 4-bit plane layout",
+				opts.TruncatedDims)
+		}
+		rq.codeDim = uint32(opts.TruncatedDims)
+		rq.scale = float32(math.Sqrt(float64(rq.rotation.OutputDim) / float64(opts.TruncatedDims)))
+	}
+	if opts.Mean != nil {
+		if len(opts.Mean) != inputDim {
+			return nil, errors.Errorf("centering mean has %d dims, input has %d",
+				len(opts.Mean), inputDim)
+		}
+		if t := distancer.Type(); t != "cosine-dot" && t != "dot" {
+			return nil, errors.Errorf("centering is only supported for dot-based distancers, got %s", t)
+		}
+		rq.mean = slices.Clone(opts.Mean)
+		rq.meanRot = rq.rotation.Rotate(rq.mean)
+		rq.mu2 = dotProduct(rq.mean, rq.mean)
+		rq.cent = 1
+	}
+	return rq, nil
+}
+
 func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, distancer distancer.Provider) (*FourBitRotationalQuantizer, error) {
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &FourBitRotationalQuantizer{
 		inputDim:  uint32(inputDim),
 		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
 		distancer: distancer,
+		codeDim:   uint32(outputDim),
+		scale:     1,
 		err:       err,
 		cos:       cos,
 		l2:        l2,
@@ -308,8 +359,9 @@ func rq4Interval(rx []float32, scratch *rq4Scratch) (float32, float32, float32, 
 
 func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	outDim := rq.OutputDimension()
+	codeDim := int(rq.codeDim)
 	if len(x) == 0 {
-		return ZeroRQ4Code(outDim)
+		return ZeroRQ4Code(codeDim)
 	}
 	if len(x) > outDim {
 		x = x[:outDim]
@@ -317,14 +369,24 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 
 	scratch := rq.scratch.Get().(*rq4Scratch)
 	defer rq.scratch.Put(scratch)
-	rx := rq.rotation.RotateInto(x, scratch.rx)
+	rx := rq.rotation.RotateInto(x, scratch.rx)[:codeDim]
+	if rq.cent != 0 {
+		for i := range rx {
+			rx[i] -= rq.meanRot[i]
+		}
+	}
+	if rq.scale != 1 {
+		for i := range rx {
+			rx[i] *= rq.scale
+		}
+	}
 	lower, step, t, codeSum := rq4Interval(rx, scratch)
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.
-		return ZeroRQ4Code(outDim)
+		return ZeroRQ4Code(codeDim)
 	}
 
-	code := NewRQ4Code(outDim)
+	code := NewRQ4Code(codeDim)
 	packed := code.Packed()
 	half := len(packed)
 	// scratch.ci holds the codes of the winning interval; packing is a pure
@@ -339,7 +401,13 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	code.setLower(t * lower)
 	code.setStep(t * step)
 	code.setCodeSum(t * step * codeSum)
-	code.setNorm2(dotProduct(x, x))
+	if rq.cent != 0 {
+		// The Norm2 slot is unused by the dot-based distancers (the l2
+		// indicator zeroes it out); centering repurposes it for <mean, x>.
+		code.setNorm2(dotProduct(rq.mean, x))
+	} else {
+		code.setNorm2(dotProduct(x, x))
+	}
 	return code
 }
 
@@ -367,7 +435,28 @@ func (rq *FourBitRotationalQuantizer) Restore(b []byte) []float32 {
 }
 
 func (rq *FourBitRotationalQuantizer) Decode(compressed []byte) []float32 {
-	unrotated := rq.rotation.UnRotateInPlace(rq.Restore(compressed))
+	restored := rq.Restore(compressed)
+	if rq.scale != 1 || rq.cent != 0 {
+		// Undo the truncation scaling and centering in rotated space. The
+		// dropped tail is reconstructed as the rotated mean (its expectation
+		// under centering, zero otherwise).
+		full := make([]float32, rq.rotation.OutputDim)
+		inv := 1 / rq.scale
+		for i, v := range restored {
+			full[i] = v * inv
+		}
+		if rq.cent != 0 {
+			for i := range full {
+				if i < len(restored) {
+					full[i] += rq.meanRot[i]
+				} else {
+					full[i] = rq.meanRot[i]
+				}
+			}
+		}
+		restored = full
+	}
+	unrotated := rq.rotation.UnRotateInPlace(restored)
 	if int(rq.inputDim) < len(unrotated) {
 		return unrotated[:rq.inputDim]
 	}
@@ -395,16 +484,28 @@ type rq4QueryCode struct {
 
 func (rq *FourBitRotationalQuantizer) encodeQuery(q []float32) rq4QueryCode {
 	outDim := rq.OutputDimension()
+	codeDim := int(rq.codeDim)
 	if len(q) > outDim {
 		q = q[:outDim]
 	}
 	if len(q) == 0 {
 		return rq4QueryCode{
-			codes:     make([]byte, outDim),
-			codesInt8: make([]int8, outDim),
+			codes:     make([]byte, codeDim),
+			codesInt8: make([]int8, codeDim),
 		}
 	}
-	cq := encodeRotatedQuery(rq.rotation.Rotate(q))
+	rx := rq.rotation.Rotate(q)[:codeDim]
+	if rq.cent != 0 {
+		for i := range rx {
+			rx[i] -= rq.meanRot[i]
+		}
+	}
+	if rq.scale != 1 {
+		for i := range rx {
+			rx[i] *= rq.scale
+		}
+	}
+	cq := encodeRotatedQuery(rx)
 	cq.norm2 = dotProduct(q, q)
 	return cq
 }
@@ -458,9 +559,11 @@ type FourBitRQDistancer struct {
 	scratch     []byte
 	scratchInt8 []int8
 
-	err error
-	cos float32
-	l2  float32
+	err   error
+	cos   float32
+	l2    float32
+	cent  float32 // Indicator: 1 when centering is active.
+	corrQ float32 // <mean, q> - |mean|², the query-side centering correction.
 }
 
 // bytesAsInt8 reinterprets a byte slice as int8 for the SIMD int8 kernels.
@@ -472,6 +575,10 @@ func bytesAsInt8(b []byte) []int8 {
 func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistancer {
 	cq := rq.encodeQuery(q)
 	scratch := make([]byte, len(cq.codes))
+	var corrQ float32
+	if rq.cent != 0 && len(q) > 0 {
+		corrQ = dotProduct(rq.mean, q) - rq.mu2
+	}
 	return &FourBitRQDistancer{
 		distancer:   rq.distancer,
 		rq:          rq,
@@ -484,6 +591,8 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 		err:         rq.err,
 		cos:         rq.cos,
 		l2:          rq.l2,
+		cent:        rq.cent,
+		corrQ:       corrQ,
 	}
 }
 
@@ -501,7 +610,8 @@ func (d *FourBitRQDistancer) Distance(x []byte) (float32, error) {
 	dot := dotByteNibbleImpl(d.cq.codes, cx.Packed())
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
 		cx.Step()*d.cq.step*float32(dot)
-	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
+	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate -
+		d.cent*(cx.Norm2()+d.corrQ), d.err
 }
 
 // distanceScalar is the pure Go fallback using the packed byte-nibble kernel.
@@ -514,7 +624,8 @@ func (d *FourBitRQDistancer) distanceScalar(x []byte) (float32, error) {
 	cx := RQ4Code(x)
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
 		cx.Step()*d.cq.step*float32(dotByteNibbleGo(d.cq.codes, cx.Packed()))
-	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
+	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate -
+		d.cent*(cx.Norm2()+d.corrQ), d.err
 }
 
 func (d *FourBitRQDistancer) DistanceToFloat(x []float32) (float32, error) {
@@ -536,7 +647,8 @@ func (rq *FourBitRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []by
 	c := cy.Lower() * cx.CodeSum()
 	d := cx.Step() * cy.Step() * float32(dotNibbleNibbleImpl(cx.Packed(), cy.Packed()))
 	dotEstimate := a + b + c + d
-	return rq.l2*(cx.Norm2()+cy.Norm2()) + rq.cos - (1.0+rq.l2)*dotEstimate, rq.err
+	return rq.l2*(cx.Norm2()+cy.Norm2()) + rq.cos - (1.0+rq.l2)*dotEstimate -
+		rq.cent*(cx.Norm2()+cy.Norm2()-rq.mu2), rq.err
 }
 
 // fourBitRQCompressedDistancer computes distances from a stored 4-bit code,
