@@ -175,9 +175,11 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 // from this node's FSM, which is what makes them apply-ordered with respect to
 // each other. The submit path and the backup commit-time gate answer at the
 // leader, so a lagging node can report an index `ready` and then refuse the
-// operator's follow-up write. Still a fail-closed improvement over the leader
-// query this replaced, which degraded to "no active tasks" on error and so
-// reported every index ready.
+// operator's follow-up write.
+//
+// A task list this node cannot read is answered with a 500, not with an empty
+// one: an empty list renders every index `ready`, which is the one answer that
+// would send the operator on to a write the gates then refuse.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
@@ -212,7 +214,8 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		var err error
 		activeTasks, err = h.tasks.ListDistributedTasksLocal(context.Background())
 		if err != nil {
-			activeTasks = nil // degrade gracefully
+			return schema.NewSchemaObjectsIndexesGetInternalServerError().
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
