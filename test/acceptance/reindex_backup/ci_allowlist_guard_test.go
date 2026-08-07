@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,11 +30,19 @@ import (
 const runShPackagePath = "test/acceptance/reindex_backup"
 
 var (
-	aofGroupRunRe   = regexp.MustCompile(`AOF_GROUP_RUN='([^']*)'`)
-	testNameRe      = regexp.MustCompile(`^Test[A-Za-z0-9_]*$`)
-	runShFunctionRe = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
-	runShFlagRe     = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
+	aofGroupRunRe     = regexp.MustCompile(`AOF_GROUP_RUN='([^']*)'`)
+	aofGroupTimeoutRe = regexp.MustCompile(`AOF_GROUP_TIMEOUT=([0-9]+)m`)
+	testNameRe        = regexp.MustCompile(`^Test[A-Za-z0-9_]*$`)
+	runShFunctionRe   = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
+	runShFlagRe       = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
 )
+
+// imageBuildAllowanceMinutes is the slice of the job window spent building the
+// weaviate test image before go test starts. The go-test budget is what makes
+// a hang panic with stacks, so it only does that if the runner has not killed
+// the job first — which means the budget and the build have to share the
+// window.
+const imageBuildAllowanceMinutes = 5
 
 // repoRoot walks up from the working directory to the checkout root.
 func repoRoot(t *testing.T) string {
@@ -190,6 +199,166 @@ func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 					"run.sh allowlist guard",
 				flag, group)
 		})
+	}
+}
+
+// TestCIGroupTimeoutFitsTheJobWindow pins the budget against the window it has
+// to fit in. Go's -timeout is what turns a hang into a panic with stacks; the
+// runner killing the job first gets none of that, so raising one of the two
+// numbers without the other silently trades the stacks away.
+func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
+	root := repoRoot(t)
+	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
+	require.NoError(t, err)
+	runSh := string(runShBytes)
+
+	groups := groupsRunningThisPackage(t, runSh)
+	require.NotEmpty(t, groups, "found no run_acceptance_* function running "+runShPackagePath)
+
+	jobWindows := workflowRunShTimeouts(t, root)
+
+	for _, group := range groups {
+		t.Run(group, func(t *testing.T) {
+			budget := groupTimeoutMinutes(t, runSh, group)
+			flag := flagArming(t, runSh, group)
+
+			window, found := jobWindows[flag]
+			require.Truef(t, found,
+				"no workflow step passing %q declares a timeout_minutes, so nothing bounds "+
+					"the job %s runs in", flag, group)
+
+			require.LessOrEqualf(t, budget+imageBuildAllowanceMinutes, window,
+				"%s gets a %dm go-test budget and the image build takes about %dm, which "+
+					"together exceed the %dm the workflow step passing %q allows. The runner "+
+					"kills the job before go test can panic with stacks. Lower the budget, "+
+					"raise timeout_minutes, or split the group.",
+				group, budget, imageBuildAllowanceMinutes, window, flag)
+		})
+	}
+}
+
+// groupTimeoutMinutes reads the go-test budget a group sets, falling back to
+// run_aof_group's own default when the group does not set one.
+func groupTimeoutMinutes(t *testing.T, runSh, group string) int {
+	t.Helper()
+
+	lines := strings.Split(runSh, "\n")
+	var inGroup bool
+	for _, line := range lines {
+		if m := runShFunctionRe.FindStringSubmatch(line); m != nil {
+			inGroup = m[1] == group
+			continue
+		}
+		if !inGroup {
+			continue
+		}
+		if m := aofGroupTimeoutRe.FindStringSubmatch(line); m != nil {
+			minutes, err := strconv.Atoi(m[1])
+			require.NoError(t, err)
+			return minutes
+		}
+	}
+
+	m := regexp.MustCompile(`AOF_GROUP_TIMEOUT:-([0-9]+)m`).FindStringSubmatch(runSh)
+	require.NotNilf(t, m, "%s sets no AOF_GROUP_TIMEOUT and run_aof_group's default "+
+		"is not in the shape this guard reads", group)
+	minutes, err := strconv.Atoi(m[1])
+	require.NoError(t, err)
+	return minutes
+}
+
+// workflowRunShTimeouts maps each run.sh flag a pull request can reach to the
+// smallest timeout_minutes bounding a step that runs it.
+func workflowRunShTimeouts(t *testing.T, root string) map[string]int {
+	t.Helper()
+
+	dir := filepath.Join(root, ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	windows := map[string]int{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "ml") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		require.NoError(t, err)
+
+		var wf workflowFile
+		require.NoError(t, yaml.Unmarshal(body, &wf))
+		if !triggersOnPullRequest(&wf.On) {
+			continue
+		}
+		for _, job := range wf.Jobs {
+			if alwaysFalse(job.If) {
+				continue
+			}
+			collectRunShTimeouts(t, job, windows)
+		}
+	}
+	return windows
+}
+
+// collectRunShTimeouts records the window bounding every flag a job's run.sh
+// steps can be handed, including the ones its matrix interpolates in.
+func collectRunShTimeouts(t *testing.T, job workflowJob, windows map[string]int) {
+	t.Helper()
+
+	var flags []string
+	for _, entry := range job.Strategy.Matrix.Include {
+		for _, v := range entry {
+			for _, w := range strings.Fields(scalar(&v)) {
+				if strings.HasPrefix(w, "--") {
+					flags = append(flags, w)
+				}
+			}
+		}
+	}
+
+	for _, step := range job.Steps {
+		if alwaysFalse(step.If) {
+			continue
+		}
+		var runsRunSh bool
+		stepFlags := flags
+		for _, v := range step.With {
+			for _, w := range strings.Fields(scalar(&v)) {
+				if strings.Contains(w, "run.sh") {
+					runsRunSh = true
+				}
+				if strings.HasPrefix(w, "--") {
+					stepFlags = append(stepFlags, w)
+				}
+			}
+		}
+		for _, w := range strings.Fields(step.Run) {
+			if strings.Contains(w, "run.sh") {
+				runsRunSh = true
+			}
+			if strings.HasPrefix(w, "--") {
+				stepFlags = append(stepFlags, w)
+			}
+		}
+		if !runsRunSh {
+			continue
+		}
+
+		raw, ok := step.With["timeout_minutes"]
+		if !ok {
+			continue
+		}
+		// A timeout_minutes written as a `${{ }}` expression is a window this
+		// guard cannot read. Recording nothing makes the group it covers fail
+		// as "no window found" rather than pass on an unread number.
+		minutes, err := strconv.Atoi(scalar(&raw))
+		if err != nil {
+			continue
+		}
+		for _, flag := range stepFlags {
+			if existing, seen := windows[flag]; !seen || minutes < existing {
+				windows[flag] = minutes
+			}
+		}
 	}
 }
 

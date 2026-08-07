@@ -1039,12 +1039,25 @@ function run_acceptance_reindex_backup() {
   # exact name: a typo here silently runs zero tests.
   # TestCIAllowlistCoversEveryTestInThisPackage guards these two lists against
   # the silent-skip described above; it has to be listed to be able to run.
-  # 35m, not the 20m default: these tests wait on backups and reindexes with
-  # their own multi-minute deadlines, and the ones listed here sum to about that
-  # in the worst case. Typical runs finish in seconds. Stays under the job's 45m
-  # so a hang still panics with stacks instead of being killed by the runner.
+  # 35m, not the 20m default. It is a cap, not the sum: adding up every
+  # deadline these tests wait on gives about 93m, before any container startup
+  #
+  #   TestBackupVsReindexSuite                  ~35m over 9 sequential subtests
+  #   TestReindexRefusedWhileRestoreRuns         20m (three 5m waits + 60s + 60s + 180s)
+  #   TestReindexBlockClearsAfterNodeCrash       18m (two 5m probes + a restart)
+  #   TestReindexRefusedWhileBackupRuns        ~14m (two 5m waits + 30s + 60s + 180s)
+  #   TestRestoreRefusedDuringInFlightReindex   ~6m (3m backup + 2m restore + 30s)
+  #
+  # 93m does not fit the job's 45m window, so no budget can both cover the sum
+  # and leave the image build room inside it. 35m is the largest that does fit
+  # (see TestCIGroupTimeoutFitsTheJobWindow, which pins the two against each
+  # other). Typical runs finish in seconds, so the sum is reached only if
+  # several tests hang at once — and then the budget fires first and panics
+  # with stacks, which is the outcome worth having. If it ever fires on a real
+  # run rather than a hang, split the group instead of raising this: the suite
+  # alone is ~35m of deadlines and belongs in its own matrix entry.
   AOF_GROUP_TIMEOUT=35m \
-    AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexRefusedWhileRestoreRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage)$' \
+    AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexRefusedWhileRestoreRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow)$' \
     run_aof_group "reindex-backup" test/acceptance/reindex_backup
 }
 
@@ -1052,7 +1065,9 @@ function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
   # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. See the sibling
-  # above for why it gets its own budget; its two backup waits allow 10m each.
+  # above for why it gets its own budget. Its deadlines sum to about 26m (two
+  # 10m backup waits plus six 60s cluster and reindex waits), so unlike the
+  # sibling this budget does cover the worst case.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
