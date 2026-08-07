@@ -140,14 +140,23 @@ const (
 )
 
 // AllReindexMigrationTypes is the registry of every declared
-// [ReindexMigrationType], in declaration order. Every exhaustive switch over
-// the type is checked against it, so a constant added here without an arm in
-// those switches fails the tests rather than reaching a switch default at
+// [ReindexMigrationType], in declaration order. Three switches are checked
+// against it by tests that walk the registry: [TouchesSearchable],
+// [TouchesFilterable] and createReindexTasks. A constant added here without an
+// arm in those three fails the tests rather than reaching a switch default at
 // runtime.
 //
-// TestReindexMigrationTypeRegistryMatchesTheConstants scans this file and
-// requires the two to agree, so a constant declared above and not listed here
-// is caught the same way.
+// Six more functions branch on the type without such a test:
+// semanticMigrationIndexTypes, semanticMigrationIndexTypesForAudit,
+// [IsSemanticMigration], [IsTokenizationChangingMigration], and the REST
+// handler's migrationTypeTargetsIndex and indexTypesFromMigrationType. They
+// cover every current type by inspection only, and an unrecognized type gets
+// the zero value (nil, false) rather than a panic — so a missed arm degrades
+// quietly instead of crashing.
+//
+// TestReindexMigrationTypeRegistryMatchesTheConstants scans the package's
+// non-test files and requires the constants and this list to agree, so a
+// constant declared anywhere in the package and not listed here is caught.
 var AllReindexMigrationTypes = []ReindexMigrationType{
 	ReindexTypeChangeAlgorithm,
 	ReindexTypeRebuildSearchable,

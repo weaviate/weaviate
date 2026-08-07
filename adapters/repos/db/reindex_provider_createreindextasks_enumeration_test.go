@@ -13,7 +13,9 @@ package db
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -33,21 +35,30 @@ import (
 // a constant declared and never registered would be invisible to all of them —
 // which is how the ninth type reached a switch default in production.
 //
-// It is a line regex over one file, so it is a tripwire, not a proof: it reads
-// the wire value on the right of each `ReindexMigrationType = ` in the const
-// block and requires exactly that set in the registry.
+// It is a line regex over the package's non-test .go files, so it is a
+// tripwire, not a proof: it reads the wire value on the right of each
+// `ReindexMigrationType = ` declaration and requires exactly that set in the
+// registry, no matter which file declares it.
 func TestReindexMigrationTypeRegistryMatchesTheConstants(t *testing.T) {
-	src, err := os.ReadFile("reindex_provider_payload.go")
+	files, err := filepath.Glob("*.go")
 	require.NoError(t, err)
 
-	matches := regexp.MustCompile(`(?m)^\s*ReindexType\w+\s+ReindexMigrationType\s*=\s*"([^"]+)"`).
-		FindAllStringSubmatch(string(src), -1)
-	require.NotEmpty(t, matches, "sanity: the scan must find the const block")
+	// The optional `const` prefix catches a one-line declaration outside a
+	// const block, which is otherwise indistinguishable to the scan.
+	re := regexp.MustCompile(`(?m)^\s*(?:const\s+)?ReindexType\w+\s+ReindexMigrationType\s*=\s*"([^"]+)"`)
 
-	declared := make([]ReindexMigrationType, 0, len(matches))
-	for _, m := range matches {
-		declared = append(declared, ReindexMigrationType(m[1]))
+	declared := make([]ReindexMigrationType, 0, len(AllReindexMigrationTypes))
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		require.NoError(t, err)
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			declared = append(declared, ReindexMigrationType(m[1]))
+		}
 	}
+	require.NotEmpty(t, declared, "sanity: the scan must find the const block")
 
 	require.ElementsMatch(t, declared, AllReindexMigrationTypes,
 		"AllReindexMigrationTypes must list exactly the declared ReindexMigrationType constants; "+

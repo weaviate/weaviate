@@ -441,30 +441,19 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 	require.NoError(t, provider.CheckPropertyUpdate("B", "name", tasks))
 }
 
-// TestCheckPropertyUpdate_EveryMigrationTypeRejects walks every reindex
-// type that can be in flight (per ReindexTypeChangeTokenization etc.)
-// and confirms the guard rejects an external update on the same
-// property. This is the "blanket policy" guarantee — once any reindex
-// is in flight, no schema mutation on that property is allowed.
+// TestCheckPropertyUpdate_EveryMigrationTypeRejects walks
+// [AllReindexMigrationTypes] and confirms the guard rejects an external update
+// on a property a task of that type is reindexing. This is the "blanket policy"
+// guarantee — once any reindex is in flight, no schema mutation on that
+// property is allowed.
 //
 // Symmetry test for the matrix QA Claude is enumerating; failure of any
 // row here means the corresponding combination in the QA matrix would
 // pass through to the bucket↔schema inversion path.
 func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
-	migrationTypes := []ReindexMigrationType{
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeChangeAlgorithm,
-		ReindexTypeRepairFilterable,
-		ReindexTypeRepairRangeable,
-	}
-
 	provider := &ReindexProvider{}
 
-	for _, mt := range migrationTypes {
+	for _, mt := range AllReindexMigrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
 			payload, _ := json.Marshal(ReindexTaskPayload{
 				Collection:    "C",
