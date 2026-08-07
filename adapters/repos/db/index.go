@@ -1781,8 +1781,8 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 	return parsed, nil
 }
 
-// putObjectBatch returns one error per object, at the position that object held
-// in objects. A position left nil is reported to the client as a written object.
+// return value []error gives the error for the index with the positions
+// matching the inputs and nil on positions where the write succeeded
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
@@ -1907,9 +1907,8 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	return shard.PutObjectBatch(ctx, objects)
 }
 
-// AddReferencesBatch returns one error per reference, at the position that
-// reference held in refs. A position left nil is reported to the client as a
-// written reference.
+// return value []error gives the error for the index with the positions
+// matching the inputs and nil on positions where the write succeeded
 func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
