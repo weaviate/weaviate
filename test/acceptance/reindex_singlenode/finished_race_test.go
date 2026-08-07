@@ -108,6 +108,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		// on its own goroutine, where a failed require would only surface
 		// as a 120s timeout.
 		inFlightWithAFinishTime string
+		inFlightPolls           int
 	)
 	require.Eventually(t, func() bool {
 		task, err := fetchTask(restURI, taskID)
@@ -119,6 +120,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 			t.Fatalf("task FAILED before reaching FINISHED")
 		}
 		if task.Status != "FINISHED" {
+			inFlightPolls++
 			if !time.Time(task.FinishedAt).IsZero() && inFlightWithAFinishTime == "" {
 				inFlightWithAFinishTime = fmt.Sprintf("%s carried finishedAt=%v", task.Status, task.FinishedAt)
 			}
@@ -129,6 +131,15 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		return true
 	}, 120*time.Second, 20*time.Millisecond)
 	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED")
+
+	// Opportunistic: this is a 20 ms poll against a migration whose whole
+	// coordination phase can be under 30 ms, so a run may see zero non-terminal
+	// polls and check nothing here. Logged rather than required for that
+	// reason. "Non-terminal ⇒ no finish time" is pinned deterministically at
+	// the FSM (TestStructuralInvariant_FinishedAtIffTerminal, after every
+	// apply) and at the render layer
+	// (TestHandler_ListTasks_InFlightTaskRendersTheZeroFinishedAt).
+	t.Logf("sampled %d in-flight polls of /v1/tasks", inFlightPolls)
 	require.Empty(t, inFlightWithAFinishTime,
 		"a migration in flight has not ended, so /v1/tasks must report no finish time for it")
 

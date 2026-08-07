@@ -2245,9 +2245,8 @@ func markUnreadablePayload(idx *models.IndexStatus, collection string, parsedTas
 // failed migration wants to see the new attempt's progress, not the old
 // failure. FINISHED ranks alongside FAILED / CANCELLED so a recently-
 // completed FINISHED task wins the StartedAt tiebreak over an older
-// FAILED on the same property (and mergeReindexStatus uses it to keep
-// the synthetic "indexing@100%" entry visible until the schema flip
-// propagates — see the FINISHED case there).
+// FAILED on the same property, which keeps the entry at "ready" instead
+// of painting the old failure.
 func taskStatusPriority(task *distributedtask.Task) int {
 	switch task.Status {
 	case distributedtask.TaskStatusStarted,
