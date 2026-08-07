@@ -32,10 +32,9 @@ type reqState struct {
 	Starttime time.Time
 	ID        string
 	Status    backup.Status
-	// Err is why the operation ended, for the statuses that need one. The
-	// descriptor on the backend carries the same text, but only once it is
-	// written; a poll landing before that reads this slot instead, and one
-	// landing after the slot is released reads [backupStat.rememberedFailure].
+	// Err is why the operation ended, for the statuses that need one. It lives
+	// only as long as the slot; see [backupStat.failedReason] for what a poll
+	// arriving after that reads.
 	Err            string
 	Path           string
 	OverrideBucket string
@@ -49,8 +48,7 @@ type backupStat struct {
 	// failedID and failedReason outlive the slot itself, for the one failure
 	// that leaves nothing else to read: the slot is released as soon as the
 	// operation returns, and a later poll is answered from the descriptor on
-	// the backend, which does not exist when writing it is what failed. The
-	// restore side answers the same question from restorer.restoreStatusMap.
+	// the backend, which does not exist when writing it is what failed.
 	failedID     string
 	failedReason string
 }
