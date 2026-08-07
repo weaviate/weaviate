@@ -63,6 +63,9 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// cancelOnCall aborts the sweep's context on the nth shard load; 0
 		// lets the walk run to the end.
 		cancelOnCall int
+		// cancelAtEntry aborts the sweep's context before the call, so the
+		// walk stops on the first shard it looks at rather than mid-way.
+		cancelAtEntry bool
 		// closing closes the index, which is what makes the shard walk visit
 		// nothing. closeCause is what the close was signalled with; nil stands
 		// for a close nobody named a cause for.
@@ -77,6 +80,9 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		wantDropped   bool
 		// wantShardErr expects the failing shard to still be named.
 		wantShardErr bool
+		// wantShardsNamed expects each of these shards to be named in the
+		// error, so a sweep that gave up after the first failure is caught.
+		wantShardsNamed []string
 	}{
 		{
 			name:      "no shards is a clean sweep",
@@ -113,6 +119,53 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantErr:       true,
 			wantTruncated: true,
 			wantShardErr:  true,
+		},
+		{
+			// Nothing failed, because nothing was tried. The caller must not
+			// read the absence of a shard name as "no shard had a problem".
+			name:          "a cancel that arrives before the first shard names no shard",
+			shards:        []string{"shard-a", "shard-b"},
+			cancelAtEntry: true,
+			indexType:     "an-index-type-this-build-does-not-know",
+			wantErr:       true,
+			wantTruncated: true,
+			wantShardErr:  false,
+		},
+		{
+			// The same cancel over shards this sweep had no work on. The
+			// shards are still unswept, and a later sweep is still the only
+			// thing that can say so.
+			name:          "a cancel before the first shard is truncation even with nothing to clean",
+			shards:        []string{"shard-a", "shard-b"},
+			cancelAtEntry: true,
+			indexType:     "filterable",
+			wantErr:       true,
+			wantTruncated: true,
+			wantShardErr:  false,
+		},
+		{
+			// Every shard failed, and every one of them was still visited.
+			// The caller has a complete answer, so it must not also be told
+			// that something was left unreached.
+			name:            "every shard fails and the sweep still reaches the end",
+			shards:          []string{"shard-a", "shard-b"},
+			indexType:       "an-index-type-this-build-does-not-know",
+			wantErr:         true,
+			wantTruncated:   false,
+			wantShardErr:    true,
+			wantShardsNamed: []string{"shard-a", "shard-b"},
+		},
+		{
+			// The abort lands on the last shard, so there is no shard after
+			// it to leave unswept.
+			name:            "a cancel on the last shard leaves nothing unvisited",
+			shards:          []string{"shard-a", "shard-b"},
+			cancelOnCall:    2,
+			indexType:       "an-index-type-this-build-does-not-know",
+			wantErr:         true,
+			wantTruncated:   false,
+			wantShardErr:    true,
+			wantShardsNamed: []string{"shard-a", "shard-b"},
 		},
 		{
 			// The walk visits nothing here, so "swept every shard" would be a
@@ -193,6 +246,10 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 					"which is why the sweep cannot use it")
 			}
 
+			if tc.cancelAtEntry {
+				cancel()
+			}
+
 			// An index type the bucket-name mapping does not know reads as
 			// "cannot tell whether there is state here", which is what puts
 			// every shard on the sweep's list without any on-disk fixture.
@@ -223,6 +280,13 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			if tc.wantShardErr {
 				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
 					"the shard that failed before the abort must still be reported")
+			} else {
+				require.NotContains(t, err.Error(), "unwrap for partial-reindex cleanup",
+					"no shard was reached, so naming one would blame a shard that was never tried")
+			}
+			for _, name := range tc.wantShardsNamed {
+				require.Contains(t, err.Error(), name,
+					"one shard failing must not stop the sweep from reporting the others")
 			}
 		})
 	}
