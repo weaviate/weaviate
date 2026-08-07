@@ -340,6 +340,12 @@ func AwaitTokenizationVisible(t *testing.T, restURI, className, propName, wantTo
 // the named (property, indexType) reports `ready`. Unlike
 // AwaitReindexFinished, this polls the index-status surface — useful for
 // verifying the index is queryable end-to-end. Default timeout 120s.
+//
+// It returns on the first poll that sees `ready`, so on a verb whose
+// per-property flag was already on before the migration it can be satisfied
+// immediately and prove nothing about the migration. Pair it with
+// AwaitReindexFinished, or assert the migrated data, when the test needs to
+// know the migration actually ran.
 func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)

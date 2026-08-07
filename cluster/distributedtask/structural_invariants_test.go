@@ -149,9 +149,9 @@ func structuralInvariantClockHasWaiter(
 
 // TestStructuralInvariant_ManagerRestore_ReplacesExistingState pins
 // the RAFT FSM Restore contract: post-Restore state == snapshot, not
-// pre-state ∪ snapshot. Exercises the three failure modes the merge
-// implementation allows: (a) different ID in shared namespace,
-// (b) unrelated namespace.
+// pre-state ∪ snapshot. Exercises the two failure modes the merge
+// implementation allows: a different ID in a shared namespace, and an
+// unrelated namespace.
 //
 // Same fix as the still-open weaviate/weaviate#11416, which carries it
 // line-for-line; whichever lands first makes the other a no-op.

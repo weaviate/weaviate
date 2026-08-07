@@ -36,14 +36,15 @@ import (
 // before FINISHED does, and on one node it is applied first.
 //
 // That ordering is what lets the index-status endpoint read both signals from
-// the local FSM and treat FINISHED + flag-off as a stale task rather than a
-// pending swap. This test pins it end to end: at the first observation of
+// the local FSM: for a migration that turns a per-property flag on, FINISHED
+// with the flag off is a stale task rather than a pending swap. This test pins it end to end: at the first observation of
 // FINISHED the schema must ALREADY report the new tokenization.
 //
 // The window between the units stopping and the flip is reported by the
 // PREPARING and SWAPPING statuses, not by FINISHED. The test also reads
-// `finishedAt` along the way: empty while the migration is in flight,
-// non-zero and sane once FINISHED (weaviate/0-weaviate-issues#501).
+// `finishedAt` along the way: the zero time, rendered
+// `0001-01-01T00:00:00.000Z`, while the migration is in flight, and a sane
+// moment once FINISHED (weaviate/0-weaviate-issues#501).
 //
 // What one node cannot prove: that the stamp came off the RAFT request
 // rather than the applying node's own clock. Here the proposing node and

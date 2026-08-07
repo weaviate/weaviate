@@ -180,6 +180,28 @@ index `ready` — a worse answer than a stale one.
 Read-access is gated on `READ` of `CollectionsMetadata`; `PUT`/`DELETE`
 require the stronger `UPDATE` on `Collections`.
 
+### `GET /v1/tasks`
+
+The cluster-wide task list, grouped by namespace. Gated on `READ` of
+the cluster resource.
+
+Two things about it changed with the `finishedAt` work:
+
+- **Ordering is now defined.** Within a namespace, in-flight tasks come
+  first, then terminal ones, each group newest-first, ties broken by
+  task ID. "In flight" is every non-terminal status, so a task whose
+  units are done but whose barrier or bucket swap is still outstanding
+  ranks with the running ones, not with the finished ones. A client
+  that relied on Go's randomized map order will see a different (and
+  now stable) sequence.
+- **`finishedAt` is the terminal transition, not the moment the units
+  stopped.** Between the two sit the PREP barrier and the bucket swap,
+  so the value moved later by however long those took — seconds to
+  minutes on a large collection. The completed-task TTL measures from
+  it, so at an unchanged `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
+  tasks now linger by that same amount. An in-flight task renders
+  `0001-01-01T00:00:00.000Z`, not an absent or empty field.
+
 ## 3. End-to-end lifecycle
 
 The diagram below tracks state across **two independent status
@@ -1426,7 +1448,7 @@ with the modern testcontainer style.
   `cleanStaleMigrationDirs` family.
 - `cancel_test` / `cancel_then_retry_test` — cancel + the
   defense-in-depth cleanup.
-- `torn_resume_test` / `restart_during_swap_test` — crash recovery in
+- `torn_resume_test` / `restart_after_swap_test` — crash recovery in
   every phase boundary.
 - `property_state_migration_matrix_test` — exhaustive matrix
   (~510 cells × 6 data types × 15 body shapes).

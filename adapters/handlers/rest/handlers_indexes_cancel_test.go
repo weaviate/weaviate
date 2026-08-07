@@ -301,9 +301,14 @@ func TestEveryGateReportsWhenItFailsOpen(t *testing.T) {
 		wantLog string
 	}{
 		{
-			name:    "no task service, so the index status reads as ready",
-			unwire:  func(h *indexesHandlers) { h.tasks = nil },
-			act:     func(t *testing.T, h *indexesHandlers) { getFilterableEntry(t, h) },
+			name:   "no task service, so the index status reads as ready",
+			unwire: func(h *indexesHandlers) { h.tasks = nil },
+			act: func(t *testing.T, h *indexesHandlers) {
+				entry := getFilterableEntry(t, h)
+				require.NotNil(t, entry, "the status read has to answer, not refuse")
+				require.Equal(t, models.IndexStatusStatusReady, entry.Status,
+					"the warn is only worth logging because the answer is the optimistic one")
+			},
 			wantLog: "distributed task service is not wired",
 		},
 		{
