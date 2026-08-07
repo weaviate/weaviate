@@ -94,14 +94,7 @@ func reportCloseCause(err error) error {
 // future submit. Context cancellation DOES stop it: both call sites hold the
 // collection's backup and restore gate closed for the whole sweep, so the work
 // left after the deadline has to end rather than continue as a run of failed
-// loads. That abort is joined into the returned error and tagged with
-// [ErrCleanupSweepTruncated], because a caller that sees only the shard
-// failures reads a bounded problem where the truth is that the sweep stopped.
-//
-// A closing index is also truncated, not clean: the shard walk visits nothing
-// at all there, so reporting success would tell the caller every shard was
-// swept when none was. A collection being deleted is neither, and is tagged
-// with [ErrCleanupCollectionDropped]: its state is deleted along with it.
+// loads.
 //
 // A shard that is not loaded is loaded only if it has on-disk state this sweep
 // would remove. Unwrapping every cold shard of a large multi-tenant collection
@@ -111,13 +104,10 @@ func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 ) error {
-	var shardErrs error
-	// forEachShardStrict rather than ForEachShard, which answers a closing
-	// index with a silent nil that is indistinguishable here from a sweep that
-	// reached every shard.
-	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
+	var firstErr error
+	if err := i.ForEachShard(func(name string, shardLike ShardLike) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
+			return fmt.Errorf("partial-reindex cleanup stopped before shard %q: %w", name, ctxErr)
 		}
 		shard, ok := shardLike.(*Shard)
 		if !ok {
@@ -143,8 +133,10 @@ func (i *Index) CleanStalePartialReindexState(
 			shardErrs = errors.Join(shardErrs, fmt.Errorf("shard %q: %w", name, err))
 		}
 		return nil
-	})
-	return errors.Join(shardErrs, reportCloseCause(walkErr))
+	}); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath has
