@@ -302,20 +302,20 @@ func (c *coordinator) Restore(
 	nodes, err := c.canCommit(ctx, req)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
-		c.lastOp.reset()
+		c.lastOp.resetIfOwned(desc.ID)
 		return err
 	}
 
 	// Set status to Transferring now that staging has begun
 	c.descriptor.Status = backup.Transferring
-	c.lastOp.set(backup.Transferring)
+	c.lastOp.setIfOwned(desc.ID, backup.Transferring)
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
 
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.reset()
+		c.lastOp.resetIfOwned(desc.ID)
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
@@ -342,7 +342,7 @@ func (c *coordinator) Restore(
 				if c.descriptor.Error == "" {
 					c.descriptor.Error = errCancelled.Error()
 				}
-				c.lastOp.set(backup.Cancelled)
+				c.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 				return true
 			}
 			return false
@@ -371,7 +371,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Error = errCancelled.Error()
 			} else {
 				c.descriptor.Status = backup.Finalizing
-				c.lastOp.set(backup.Finalizing)
+				c.lastOp.setIfOwned(desc.ID, backup.Finalizing)
 				if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 					c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
 				}
@@ -391,7 +391,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.set(c.descriptor.Status)
+		c.lastOp.setIfOwned(desc.ID, c.descriptor.Status)
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -794,7 +794,7 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.set(c.descriptor.Status)
+	c.lastOp.setIfOwned(req.ID, c.descriptor.Status)
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
