@@ -145,9 +145,8 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	})
 
 	// The arm has no meta, so it cannot know which collections the backup would
-	// have touched. Re-asking about the caller's own Include only repeats the
-	// question already answered above and lets a migration anywhere else in the
-	// cluster through.
+	// have touched — not even for a caller that named its own. The gate is asked
+	// cluster-wide, so a migration anywhere blocks it.
 	t.Run("the unknown-id arm asks the gate cluster-wide", func(t *testing.T) {
 		fs := newFixture(t)
 		fs.selector.reindexInFlightFor = func(collections []string) error {
@@ -166,10 +165,10 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 		require.Error(t, err)
 		assert.IsTypef(t, backup.ErrUnprocessable{}, err,
 			"a migration outside the caller's classes must still block this restore; got %v", err)
-		require.Len(t, fs.selector.reindexCollections, 2,
-			"the caller's classes are asked about first, the cluster second")
-		require.Nil(t, fs.selector.reindexCollections[1],
-			"the second question must be cluster-wide; scoping it repeats the first")
+		require.Len(t, fs.selector.reindexCollections, 1,
+			"the gate must run exactly once on this arm")
+		require.Nil(t, fs.selector.reindexCollections[0],
+			"the question must be cluster-wide: this arm has no resolved class list to scope by")
 	})
 
 	// A caller that names its classes has already been authorized against
@@ -302,27 +301,106 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 	})
 }
 
-// Each restore arm has a different class list in hand, and the gate's node-local
-// half is scoped by it. An arm that passes the wrong list — or nil where it has
-// classes — silently widens or narrows the check, and nothing else notices.
+// Each restore arm has a different class list in hand, and the gate is scoped by
+// it. An arm that passes the wrong list — or nil where it has classes — silently
+// widens or narrows the check, and nothing else notices.
+//
+// The wildcard rows are the ones that need the meta: `include` accepts patterns
+// and they only become class names inside validateRestoreRequest, so a gate
+// asked before that is asked about a string no collection can equal.
 func TestRestoreGateIsScopedPerArm(t *testing.T) {
 	ctx := context.Background()
-	const backendName = "s3"
+	const (
+		backendName = "s3"
+		backupID    = "1"
+	)
 
-	t.Run("explicit include passes the requested classes", func(t *testing.T) {
-		fs := newFakeScheduler(nil)
-		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
+	tests := []struct {
+		name    string
+		include []string
+		want    []string
+	}{
+		{
+			name:    "explicit include passes the requested classes",
+			include: []string{"Movies", "Actors"},
+			want:    []string{"Movies", "Actors"},
+		},
+		{
+			name:    "a wildcard include is expanded before the gate sees it",
+			include: []string{"Mov*"},
+			want:    []string{"Movies"},
+		},
+		{
+			name:    "a wildcard matching several classes carries them all",
+			include: []string{"*s"},
+			want:    []string{"Movies", "Actors"},
+		},
+		{
+			name:    "a single-character wildcard is expanded too",
+			include: []string{"Actor?"},
+			want:    []string{"Actors"},
+		},
+		{
+			name:    "no include gates on every class in the backup",
+			include: nil,
+			want:    []string{"Movies", "Actors"},
+		},
+	}
 
-		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
-			Backend: backendName,
-			ID:      "some-backup",
-			Include: []string{"Movies", "Actors"},
-		}, false)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := restoreMetaFixture(ctx, backupID, "Movies", "Actors")
+			fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
 
-		require.Error(t, err)
-		require.Len(t, fs.selector.reindexCollections, 1, "the gate must run exactly once on this arm")
-		require.Equal(t, []string{"Movies", "Actors"}, fs.selector.reindexCollections[0],
-			"the explicit-include arm knows its classes and must scope the gate to them")
+			_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+				Backend: backendName,
+				ID:      backupID,
+				Include: tt.include,
+			}, false)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "restore blocked")
+			require.Len(t, fs.selector.reindexCollections, 1, "the gate must run exactly once on this arm")
+			require.ElementsMatch(t, tt.want, fs.selector.reindexCollections[0],
+				"the gate must be scoped to the classes this restore resolves to")
+		})
+	}
+
+	// The one live migration the wildcard rows above are about: it must refuse a
+	// restore whose pattern resolves onto it, and admit one whose pattern does not.
+	t.Run("a wildcard restore is refused by a migration it resolves onto", func(t *testing.T) {
+		for _, tc := range []struct {
+			include []string
+			refused bool
+		}{
+			{include: []string{"Mov*"}, refused: true},
+			{include: []string{"Act*"}, refused: false},
+		} {
+			fs := restoreMetaFixture(ctx, backupID, "Movies", "Actors")
+			fs.selector.reindexInFlightFor = func(collections []string) error {
+				if slices.Contains(collections, "Movies") {
+					return errors.New("runtime-reindex in flight")
+				}
+				return nil
+			}
+
+			_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+				Backend: backendName,
+				ID:      backupID,
+				Include: tc.include,
+			}, false)
+
+			if tc.refused {
+				require.Error(t, err)
+				assert.Containsf(t, err.Error(), "restore blocked",
+					"a migration on Movies must refuse a restore of %v", tc.include)
+				continue
+			}
+			if err != nil {
+				assert.NotContainsf(t, err.Error(), "restore blocked",
+					"a migration on Movies must not refuse a restore of %v", tc.include)
+			}
+		}
 	})
 
 	t.Run("meta-not-found falls back to the blind check", func(t *testing.T) {
@@ -343,4 +421,27 @@ func TestRestoreGateIsScopedPerArm(t *testing.T) {
 		require.Empty(t, fs.selector.reindexCollections[0],
 			"this arm answers before the meta is read, so it has no classes to scope by")
 	})
+}
+
+// restoreMetaFixture builds a scheduler whose backend serves a successful backup
+// meta holding classes, so a restore reaches the gate with a real class list.
+func restoreMetaFixture(ctx context.Context, backupID string, classes ...string) *fakeScheduler {
+	const node = "Node-A"
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	meta := backup.DistributedBackupDescriptor{
+		ID:            backupID,
+		StartedAt:     time.Now().UTC(),
+		Version:       Version,
+		ServerVersion: "1.23",
+		Status:        backup.Success,
+		Nodes:         map[string]*backup.NodeDescriptor{node: {Classes: classes}},
+	}
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/" + backupID)
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, backupID+"/"+node, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+	return fs
 }
