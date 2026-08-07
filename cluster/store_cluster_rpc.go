@@ -62,6 +62,11 @@ func (st *Store) Notify(id, addr string) (err error) {
 		return nil
 	}
 
+	// Concurrent NotifyPeer RPCs land here during bootstrap; the whole
+	// candidates read-modify-drain below must be atomic.
+	st.candidatesMu.Lock()
+	defer st.candidatesMu.Unlock()
+
 	st.candidates[id] = addr
 	if len(st.candidates) < st.cfg.BootstrapExpect {
 		st.log.WithFields(logrus.Fields{
@@ -99,4 +104,21 @@ func (st *Store) Notify(id, addr string) (err error) {
 	}
 	st.bootstrapped.Store(true)
 	return nil
+}
+
+func (st *Store) candidatesLen() int {
+	st.candidatesMu.Lock()
+	defer st.candidatesMu.Unlock()
+	return len(st.candidates)
+}
+
+// candidatesSnapshot returns a copy safe to hand to loggers and stats.
+func (st *Store) candidatesSnapshot() map[string]string {
+	st.candidatesMu.Lock()
+	defer st.candidatesMu.Unlock()
+	out := make(map[string]string, len(st.candidates))
+	for id, addr := range st.candidates {
+		out[id] = addr
+	}
+	return out
 }

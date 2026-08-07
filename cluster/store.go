@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -248,7 +249,9 @@ type Store struct {
 	logCache *raft.LogCache
 
 	// cluster bootstrap related attributes
-	candidates map[string]string
+	// candidatesMu guards candidates: concurrent NotifyPeer RPCs mutate it during bootstrap.
+	candidatesMu sync.Mutex
+	candidates   map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
 	bootstrapped atomic.Bool
 
@@ -492,7 +495,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	// Only if node recovery is enabled will we check if we are either forcing it or automating the detection of a one
 	// node cluster
-	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2)) {
+	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && st.candidatesLen() < 2)) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
@@ -820,7 +823,7 @@ func (st *Store) Stats() map[string]any {
 	stats["is_voter"] = st.IsVoter()
 	stats["open"] = st.open.Load()
 	stats["bootstrapped"] = st.bootstrapped.Load()
-	stats["candidates"] = st.candidates
+	stats["candidates"] = st.candidatesSnapshot()
 	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
 	stats["last_applied_index"] = st.lastIndex()
 	stats["db_loaded"] = st.dbLoaded.Load()
@@ -1008,16 +1011,16 @@ func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
 // used in a single cluster node.
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
 func (st *Store) recoverSingleNode(force bool) error {
-	if !force && (st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1) {
+	if !force && (st.cfg.BootstrapExpect > 1 || st.candidatesLen() > 1) {
 		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
-			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
+			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidatesSnapshot())
 	}
 	servers := st.raft.GetConfiguration().Configuration().Servers
 	// nothing to do here, wasn't a single node
 	if !force && len(servers) != 1 {
 		st.log.WithFields(logrus.Fields{
 			"servers_from_previous_configuration": servers,
-			"candidates":                          st.candidates,
+			"candidates":                          st.candidatesSnapshot(),
 		}).Warn("didn't perform cluster recovery")
 		return nil
 	}
