@@ -1044,7 +1044,7 @@ function run_acceptance_reindex_backup() {
   # in the worst case. Typical runs finish in seconds. Stays under the job's 45m
   # so a hang still panics with stacks instead of being killed by the runner.
   AOF_GROUP_TIMEOUT=35m \
-    AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage)$' \
+    AOF_GROUP_RUN='^(TestBackupVsReindexSuite|TestReindexRefusedWhileBackupRuns|TestReindexRefusedWhileRestoreRuns|TestReindexBlockClearsAfterNodeCrash|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage)$' \
     run_aof_group "reindex-backup" test/acceptance/reindex_backup
 }
 
