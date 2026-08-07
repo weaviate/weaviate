@@ -59,6 +59,7 @@ func run() error {
 		rlimsArg    = flag.String("rescore-limits", "0,100", "rqhnsw mode: rescore limits applied at every ef of the sweep")
 		windowEF    = flag.Int("window-ef", 128, "rqhnsw mode: fixed ef for the rescore-window search")
 		targetRec   = flag.Float64("target-recall", 0.98, "rqhnsw mode: recall@k the rescore-window search must reach")
+		gtK         = flag.Int("gt-k", 100, "gt mode: neighbors per query to compute")
 		limitBase   = flag.Int("limit-base", 0, "use only the first N base vectors (smoke tests; ground truth becomes invalid)")
 		streamBuild = flag.Bool("stream-build", false, "rankcurve mode: build the code store by streaming base vectors from disk (floats never fully resident)")
 		k           = flag.Int("k", 10, "final result count / recall@k")
@@ -67,7 +68,7 @@ func run() error {
 	flag.Parse()
 
 	switch *mode {
-	case "schedule", "full", "hybrid", "rankcurve", "hnsw", "hfresh", "rqhnsw":
+	case "schedule", "full", "hybrid", "rankcurve", "hnsw", "hfresh", "rqhnsw", "gt":
 	default:
 		return fmt.Errorf("unknown -mode %q", *mode)
 	}
@@ -116,6 +117,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	if *mode == "gt" {
+		if *limitBase > 0 && *limitBase < n {
+			n = *limitBase
+			base = base[:n**dims]
+		}
+		normalizeRows(base, *dims)
+		normalizeRows(queries, *dims)
+		return computeGroundTruth(base, *dims, n, queries, nq, *gtK,
+			filepath.Join(*dataDir, "neighbors.i32"))
+	}
+
 	gtPath := filepath.Join(*dataDir, "neighbors.i32")
 	gtCols, err := int32Cols(gtPath, nq)
 	if err != nil {
