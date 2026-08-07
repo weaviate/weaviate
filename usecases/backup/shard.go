@@ -117,6 +117,20 @@ func (s *backupStat) resetIfOwned(id string) bool {
 	return true
 }
 
+// setFailed ends the operation as failed together with the reason. Failed with
+// no reason is worse than useless to a poller: the coordinator latches whatever
+// a participant reports and stops asking, so an empty reason becomes the
+// permanent answer for a failure that does have one.
+func (s *backupStat) setFailed(reason string) {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.Status == backup.Cancelled {
+		return
+	}
+	s.reqState.Status = backup.Failed
+	s.reqState.Err = reason
+}
+
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
 	defer s.Unlock()

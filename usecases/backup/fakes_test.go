@@ -283,3 +283,32 @@ func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket,
 
 	return n, err
 }
+
+// fakeStatusSlot stands in for the node's operation slot, recording what a
+// status poll would read at each change.
+type fakeStatusSlot struct {
+	statuses []backup.Status
+	reason   string
+	// onChange runs at each status change, for a test that has to read some
+	// other state at exactly that instant.
+	onChange func(backup.Status)
+}
+
+func (f *fakeStatusSlot) set(st backup.Status) {
+	f.statuses = append(f.statuses, st)
+	if f.onChange != nil {
+		f.onChange(st)
+	}
+}
+
+func (f *fakeStatusSlot) setFailed(reason string) {
+	f.reason = reason
+	f.set(backup.Failed)
+}
+
+func (f *fakeStatusSlot) last() backup.Status {
+	if len(f.statuses) == 0 {
+		return ""
+	}
+	return f.statuses[len(f.statuses)-1]
+}
