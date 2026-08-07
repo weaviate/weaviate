@@ -494,20 +494,21 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time the task's UNITS stopped working — despite the
-	// name, NOT the time it reached a terminal status. It is stamped when
-	// AllUnitsTerminal lands, while the status becomes PREPARING or SWAPPING
-	// and the bucket swap/rename still lie ahead, so a task can sit in
-	// SWAPPING for minutes with a FinishedAt already in the past.
+	// FinishedAt is the time the task reached a terminal status, stamped
+	// exactly once at that transition and zero before it:
 	//
-	// Known wrong. TTL cleanup and terminal-observer dispatch work around it
-	// (skip non-terminal statuses / use the FSM's replay flag instead). The
-	// backup overlap backstop and the reindex finalize window both still rely
-	// on it and inherit the error in the narrow case of a swap running inside
-	// an unseen capture. Not fixed here — the correct fix changes what this
-	// field means, beyond a backup gate.
+	//	FinishedAt.IsZero()  ⟺  !Status.IsTerminal()
 	//
-	// Additionally, it is used to schedule task clean up.
+	// The value always comes off the RAFT request that caused the transition,
+	// never from the applying node's clock, so every node computes the same
+	// state from the same log entry.
+	//
+	// When the task's units stopped is [Unit.FinishedAt], per unit. The task
+	// has no copy of that moment: between it and FinishedAt sit the PREP
+	// barrier and the bucket swap, which is what the task's PREPARING and
+	// SWAPPING statuses report.
+	//
+	// Also used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
@@ -554,9 +555,10 @@ type PostCompletionAck struct {
 	Error string `json:"error,omitempty"`
 	// AckedAt is the wall-clock time the ack was applied on the FSM
 	// (set on the apply path, not from the scheduler). Useful for
-	// forensics — the gap between AllUnitsTerminal's FinishedAt and the
-	// last AckedAt is the SWAPPING window's wall-clock duration on this
-	// cluster.
+	// forensics — the gap between the last unit's FinishedAt and the last
+	// AckedAt is the SWAPPING window's wall-clock duration on this cluster.
+	// On the failing ack of a PREP or SWAP barrier it is also the task's own
+	// [Task.FinishedAt].
 	AckedAt time.Time `json:"ackedAt"`
 }
 

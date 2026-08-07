@@ -70,7 +70,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	// advance the clock just before expected clean up time to check whether it respects it
-	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar - time.Minute)
+	h.advanceToCleanUpDeadline(t, h.tasksNamespace, taskID, time.Minute)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, taskID, version)
 	h.advanceClock(h.schedulerTickInterval + time.Minute)
@@ -392,10 +392,10 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 
 	recvWithTimeout(t, h.provider.completedCh)
 
-	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
-	h.advanceClock(h.completedTaskTTL)
+	h.advanceToCleanUpDeadline(t, h.tasksNamespace, startedTask.ID, time.Minute)
 
-	h.advanceClock(h.schedulerTickInterval)
+	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
+	h.advanceClock(h.schedulerTickInterval + time.Minute)
 	cleanedDesc := recvWithTimeout(t, h.provider.cleanedUpCh)
 	require.Equal(t, startedTask.TaskDescriptor, cleanedDesc)
 }
@@ -713,6 +713,26 @@ func (h *testHarness) startScheduler(t *testing.T) {
 
 	// give some time for the newly launched goroutines to start
 	time.Sleep(50 * time.Millisecond)
+}
+
+// advanceToCleanUpDeadline moves the fake clock to `slack` short of the task's
+// clean-up deadline. The TTL counts from FinishedAt, which is only stamped once
+// the task goes terminal — several scheduler ticks after its units stopped — so
+// tests cannot count from the moment they submitted.
+func (h *testHarness) advanceToCleanUpDeadline(t *testing.T, namespace, taskID string, slack time.Duration) {
+	var finishedAt time.Time
+	require.Eventually(t, func() bool {
+		for _, task := range h.listManagerTasks(t)[namespace] {
+			if task.ID == taskID && task.Status.IsTerminal() {
+				finishedAt = task.FinishedAt
+				return true
+			}
+		}
+		h.advanceClock(h.schedulerTickInterval)
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "task %s never reached a terminal status", taskID)
+
+	h.advanceClock(h.completedTaskTTL - h.clock.Now().Sub(finishedAt) - slack)
 }
 
 func (h *testHarness) listManagerTasks(t *testing.T) map[string][]*Task {
