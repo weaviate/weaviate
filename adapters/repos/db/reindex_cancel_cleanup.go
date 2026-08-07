@@ -76,6 +76,10 @@ var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach
 // is tagged with [ErrCleanupSweepTruncated] so the caller can tell "sweep
 // stopped early" from "these shards failed".
 //
+// A closing or dropping index is also truncated, not clean: the shard walk
+// visits nothing at all there, so reporting success would tell the caller every
+// shard was swept when none was.
+//
 // A cold shard is only unwrapped if it has on-disk state this sweep would
 // remove, so a large multi-tenant collection doesn't hydrate thousands of
 // idle tenants under the gate.
@@ -83,8 +87,16 @@ func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 ) error {
+	// The same guard ForEachShard applies, made visible: it answers a closing
+	// index with a silent nil, which here is indistinguishable from a sweep
+	// that reached every shard.
+	if closeErr := i.closingCtx.Err(); closeErr != nil {
+		return fmt.Errorf("%w: the collection is closing or being dropped: %w",
+			ErrCleanupSweepTruncated, closeErr)
+	}
+
 	var shardErrs error
-	walkErr := i.ForEachShard(func(name string, shardLike ShardLike) error {
+	walkErr := i.shards.Range(func(name string, shardLike ShardLike) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}
