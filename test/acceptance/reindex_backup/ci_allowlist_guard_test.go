@@ -25,13 +25,14 @@ import (
 )
 
 // This package is split across four CI matrix entries, each passing an exact-name
-// -run allowlist. A test added here but to neither list never runs, and the job
+// -run allowlist. A test added here but to no list never runs, and the job
 // still reports green — the failure mode this guard exists to make loud.
 const runShPackagePath = "test/acceptance/reindex_backup"
 
 var (
 	aofGroupRunRe     = regexp.MustCompile(`AOF_GROUP_RUN='([^']*)'`)
 	aofGroupTimeoutRe = regexp.MustCompile(`AOF_GROUP_TIMEOUT=([0-9]+)m`)
+	aofTestBudgetRe   = regexp.MustCompile(`AOF_TEST_BUDGET (Test[A-Za-z0-9_]+) ([0-9]+)m`)
 	testNameRe        = regexp.MustCompile(`^Test[A-Za-z0-9_]*$`)
 	runShFunctionRe   = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
 	runShFlagRe       = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
@@ -59,32 +60,49 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// allowlistedTests collects the exact test names from every AOF_GROUP_RUN in
-// run.sh whose group runs this package.
+// allowlistedTests maps each allowlisted test name to the one group that runs
+// it. Being in two groups is rejected, not merged: the second group runs the
+// test again against a budget derived on the assumption it runs once, which is
+// what moving a test between groups and leaving the old entry behind looks
+// like.
 func allowlistedTests(t *testing.T, runSh string) map[string]string {
 	t.Helper()
 
-	lines := strings.Split(runSh, "\n")
 	allowed := map[string]string{}
-	for i, line := range lines {
-		m := aofGroupRunRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		// The package the filter applies to is named on the same line or the
-		// next few, as the argument to run_aof_group.
-		scope := strings.Join(lines[i:min(i+4, len(lines))], "\n")
-		if !strings.Contains(scope, runShPackagePath) {
-			continue
-		}
-		for _, name := range parseExactNameAlternation(t, m[1]) {
-			allowed[name] = m[1]
+	for _, group := range groupsRunningThisPackage(t, runSh) {
+		for _, name := range group.tests {
+			other, duplicate := allowed[name]
+			require.Falsef(t, duplicate,
+				"%s is in the AOF_GROUP_RUN filter of both %s and %s, so it runs twice while each "+
+					"group's budget is derived on the assumption it runs once; delete the stale entry",
+				name, other, group.name)
+			allowed[name] = group.name
 		}
 	}
 	require.NotEmpty(t, allowed,
 		"found no AOF_GROUP_RUN filter for %s in test/run.sh — either the group was renamed "+
 			"or this guard's parsing broke; a silent pass here would defeat the guard", runShPackagePath)
 	return allowed
+}
+
+// testWorstCases reads run.sh's per-test AOF_TEST_BUDGET lines, the sums the
+// group budgets are derived from. They live in run.sh so the derivation and the
+// budget it produces cannot drift apart in separate files.
+func testWorstCases(t *testing.T, runSh string) map[string]int {
+	t.Helper()
+
+	worst := map[string]int{}
+	for _, m := range aofTestBudgetRe.FindAllStringSubmatch(runSh, -1) {
+		_, duplicate := worst[m[1]]
+		require.Falsef(t, duplicate, "run.sh declares two AOF_TEST_BUDGET lines for %s", m[1])
+		minutes, err := strconv.Atoi(m[2])
+		require.NoError(t, err)
+		worst[m[1]] = minutes
+	}
+	require.NotEmpty(t, worst,
+		"run.sh declares no AOF_TEST_BUDGET lines, so nothing says what each group's budget "+
+			"has to cover; either they were removed or this guard's parsing broke")
+	return worst
 }
 
 // parseExactNameAlternation turns `^(A|B)$` or `^A$` into its names, and fails
@@ -159,9 +177,9 @@ func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 		declaredSet[name] = struct{}{}
 	}
 	var stale []string
-	for name, pattern := range allowed {
+	for name, group := range allowed {
 		if _, ok := declaredSet[name]; !ok {
-			stale = append(stale, name+" (in "+pattern+")")
+			stale = append(stale, name+" (in "+group+")")
 		}
 	}
 	require.Emptyf(t, stale,
@@ -189,24 +207,25 @@ func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 	invocations := workflowRunShInvocations(t, root)
 
 	for _, group := range groups {
-		t.Run(group, func(t *testing.T) {
-			requireDispatched(t, runSh, group)
-			flag := flagArming(t, runSh, group)
+		t.Run(group.name, func(t *testing.T) {
+			requireDispatched(t, runSh, group.name)
+			flag := flagArming(t, runSh, group.name)
 
 			_, invoked := invocations[flag]
 			require.Truef(t, invoked,
 				"no pull-request-triggered workflow job in .github/workflows passes %q to test/run.sh, "+
 					"so %s never runs in CI while the tests it owns still read as covered by the "+
 					"run.sh allowlist guard",
-				flag, group)
+				flag, group.name)
 		})
 	}
 }
 
-// TestCIGroupTimeoutFitsTheJobWindow pins the budget against the window it has
-// to fit in. Go's -timeout is what turns a hang into a panic with stacks; the
-// runner killing the job first gets none of that, so raising one of the two
-// numbers without the other silently trades the stacks away.
+// TestCIGroupTimeoutFitsTheJobWindow pins each budget between the two numbers
+// it sits between: the deadlines its own tests wait on, and the window the
+// workflow gives the job. Go's -timeout is what turns a hang into a panic with
+// stacks, and it produces that only if it fires before the runner kills the
+// job and after the tests have had the time they ask for.
 func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 	root := repoRoot(t)
 	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
@@ -217,23 +236,40 @@ func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 	require.NotEmpty(t, groups, "found no run_acceptance_* function running "+runShPackagePath)
 
 	jobWindows := workflowRunShTimeouts(t, root)
+	worstCases := testWorstCases(t, runSh)
 
 	for _, group := range groups {
-		t.Run(group, func(t *testing.T) {
-			budget := groupTimeoutMinutes(t, runSh, group)
-			flag := flagArming(t, runSh, group)
+		t.Run(group.name, func(t *testing.T) {
+			budget := groupTimeoutMinutes(t, runSh, group.name)
+			flag := flagArming(t, runSh, group.name)
 
 			window, found := jobWindows[flag]
 			require.Truef(t, found,
 				"no workflow step passing %q declares a timeout_minutes, so nothing bounds "+
-					"the job %s runs in", flag, group)
+					"the job %s runs in", flag, group.name)
 
 			require.LessOrEqualf(t, budget+imageBuildAllowanceMinutes, window,
 				"%s gets a %dm go-test budget and the image build takes about %dm, which "+
 					"together exceed the %dm the workflow step passing %q allows. The runner "+
 					"kills the job before go test can panic with stacks. Lower the budget, "+
 					"raise timeout_minutes, or split the group.",
-				group, budget, imageBuildAllowanceMinutes, window, flag)
+				group.name, budget, imageBuildAllowanceMinutes, window, flag)
+
+			var floor int
+			for _, name := range group.tests {
+				minutes, declared := worstCases[name]
+				require.Truef(t, declared,
+					"%s runs %s but run.sh declares no AOF_TEST_BUDGET line for it, so nothing says "+
+						"how much of the %dm budget it needs; add one next to the others",
+					group.name, name, budget)
+				floor += minutes
+			}
+			require.GreaterOrEqualf(t, budget, floor,
+				"%s gets a %dm go-test budget but its tests wait on %dm of deadlines (%s). go test "+
+					"is killed before the slowest one reaches its own assertion, and the failure "+
+					"reads as a product hang rather than a budget that is too small. Raise the "+
+					"budget, or move a test to another group.",
+				group.name, budget, floor, strings.Join(group.tests, ", "))
 		})
 	}
 }
@@ -503,23 +539,31 @@ func scalar(n *yaml.Node) string {
 	return n.Value
 }
 
-// groupsRunningThisPackage returns the run_acceptance_* functions that carry an
-// AOF_GROUP_RUN filter for this package.
-func groupsRunningThisPackage(t *testing.T, runSh string) []string {
+// packageGroup is one run_acceptance_* function running this package, with the
+// exact test names its AOF_GROUP_RUN filter selects.
+type packageGroup struct {
+	name  string
+	tests []string
+}
+
+// groupsRunningThisPackage returns, in run.sh order, the run_acceptance_*
+// functions that carry an AOF_GROUP_RUN filter for this package.
+func groupsRunningThisPackage(t *testing.T, runSh string) []packageGroup {
 	t.Helper()
 
 	lines := strings.Split(runSh, "\n")
 	var (
 		current string
-		groups  []string
-		seen    = map[string]struct{}{}
+		groups  []packageGroup
+		at      = map[string]int{}
 	)
 	for i, line := range lines {
 		if m := runShFunctionRe.FindStringSubmatch(line); m != nil {
 			current = m[1]
 			continue
 		}
-		if !aofGroupRunRe.MatchString(line) {
+		m := aofGroupRunRe.FindStringSubmatch(line)
+		if m == nil {
 			continue
 		}
 		scope := strings.Join(lines[i:min(i+4, len(lines))], "\n")
@@ -530,10 +574,13 @@ func groupsRunningThisPackage(t *testing.T, runSh string) []string {
 			"an AOF_GROUP_RUN filter for %s sits outside any run_acceptance_* function "+
 				"(test/run.sh line %d); this guard cannot trace it to a CI flag",
 			runShPackagePath, i+1)
-		if _, ok := seen[current]; !ok {
-			seen[current] = struct{}{}
-			groups = append(groups, current)
+		idx, seen := at[current]
+		if !seen {
+			idx = len(groups)
+			at[current] = idx
+			groups = append(groups, packageGroup{name: current})
 		}
+		groups[idx].tests = append(groups[idx].tests, parseExactNameAlternation(t, m[1])...)
 	}
 	return groups
 }

@@ -1054,21 +1054,25 @@ function run_acceptance_reindex_mt() {
 # listed itself to be able to run).
 #
 # Each group's budget is the sum of the deadlines its own tests wait on, which
-# is why they differ. The per-test worst cases:
+# is why they differ. A budget below that sum has go test killed by the runner
+# before it can panic with stacks, so TestCIGroupTimeoutFitsTheJobWindow reads
+# the per-test worst cases below and holds every budget to their sum. Keep the
+# AOF_TEST_BUDGET lines next to the derivation; the guard fails on a test that
+# has none.
 #
-#   TestBackupVsReindexSuite                  ~35m over 9 sequential subtests
-#   TestReindexRefusedWhileRestoreRuns         20m (three 5m waits + 60s + 60s + 180s)
-#   TestReindexBlockClearsAfterNodeCrash       18m (two 5m probes + a restart)
-#   TestReindexRefusedWhileBackupRuns        ~14m (two 5m waits + 30s + 60s + 180s)
-#   TestRestoreRefusedDuringInFlightReindex    ~6m (3m backup + 2m restore + 30s)
+#   AOF_TEST_BUDGET TestBackupVsReindexSuite 35m   9 sequential subtests
+#   AOF_TEST_BUDGET TestReindexRefusedWhileRestoreRuns 20m   three 5m waits + 60s + 60s + 180s
+#   AOF_TEST_BUDGET TestReindexBlockClearsAfterNodeCrash 18m   two 5m probes + a restart
+#   AOF_TEST_BUDGET TestReindexRefusedWhileBackupRuns 14m   two 5m waits + 30s + 60s + 180s
+#   AOF_TEST_BUDGET TestRestoreRefusedDuringInFlightReindex 6m   3m backup + 2m restore + 30s
+#   AOF_TEST_BUDGET TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp 26m   two 10m backup waits + six 60s waits
+#   AOF_TEST_BUDGET TestCIAllowlistCoversEveryTestInThisPackage 0m   no deadline; costs a package build
+#   AOF_TEST_BUDGET TestCIWorkflowInvokesEveryGroupThatRunsThisPackage 0m   no deadline
+#   AOF_TEST_BUDGET TestCIGroupTimeoutFitsTheJobWindow 0m   no deadline
 #
-# Those sum to ~93m, against a 45m job window that also has to fit the ~5m
-# image build. One group cannot cover that, and a budget shorter than the sum
-# lets the runner kill the job before go test can panic with stacks. Splitting
-# is the only way to keep every group's budget above its own worst case:
-# 35m + 27m + 32m all fit under 45m − 5m, and the split is balanced so no
-# group sits near the ceiling. TestCIGroupTimeoutFitsTheJobWindow pins each
-# budget against the window of the job that runs it.
+# Those sum to ~119m against a 45m job window that also has to fit the ~5m
+# image build, which is why the package is split over four entries rather than
+# run under one budget.
 
 function run_acceptance_reindex_backup_suite() {
   build_weaviate_test_image
@@ -1093,8 +1097,8 @@ function run_acceptance_reindex_backup_a() {
 function run_acceptance_reindex_backup_b() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-b (single-node backup guards)"
-  # 18m + 14m = 32m. Both tests share proveReindexBlockedDuringBackup and its
-  # 5m probe, so pairing them keeps that setup's worst case in one group.
+  # 18m + 14m = 32m. Both tests are backup-side guards, so a change to that
+  # side lands in one group rather than two.
   AOF_GROUP_TIMEOUT=32m \
     AOF_GROUP_RUN='^(TestReindexBlockClearsAfterNodeCrash|TestReindexRefusedWhileBackupRuns)$' \
     run_aof_group "reindex-backup-b" test/acceptance/reindex_backup
@@ -1103,10 +1107,9 @@ function run_acceptance_reindex_backup_b() {
 function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
-  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. See the siblings
-  # above for why it gets its own budget. Its deadlines sum to about 26m (two
-  # 10m backup waits plus six 60s cluster and reindex waits), so unlike the
-  # pre-split single-node group this budget does cover the worst case.
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only, at 26m of
+  # deadlines. The multi-node cluster also takes the longest to come up, which
+  # is the padding the extra 9m buys.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
