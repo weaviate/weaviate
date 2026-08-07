@@ -44,6 +44,13 @@ func grantKey(verb, resource string) string {
 	return verb + " on " + resource
 }
 
+// forbidden builds a denial the way both real authorizers do. Neither returns
+// the Forbidden bare — rbac prefixes "rbac:" and adminlist prefixes
+// "adminlist:" — so a caller that wants it has to unwrap.
+func forbidden(principal *models.Principal, verb, resource string) error {
+	return fmt.Errorf("rbac: %w", authzerrors.NewForbidden(principal, verb, resource))
+}
+
 func grantUpdateOn(classes ...string) *scopedAuthorizer {
 	granted := map[string]bool{}
 	for _, resource := range authorization.Collections(classes...) {
@@ -57,9 +64,7 @@ func (a *scopedAuthorizer) Authorize(ctx context.Context, principal *models.Prin
 ) error {
 	for _, resource := range resources {
 		if !a.granted[grantKey(verb, resource)] {
-			// Wrapped the way both real authorizers return it, so a caller
-			// reaching the Forbidden has to unwrap for it.
-			return fmt.Errorf("rbac: %w", authzerrors.NewForbidden(principal, verb, resource))
+			return forbidden(principal, verb, resource)
 		}
 	}
 	return nil
@@ -71,16 +76,13 @@ func (a *scopedAuthorizer) AuthorizeSilent(ctx context.Context, principal *model
 	return a.Authorize(ctx, principal, verb, resources...)
 }
 
+// FilterAuthorizedResources is here to satisfy the interface. No path under
+// test reaches it, so it errors rather than carrying a second copy of the grant
+// lookup that nothing would catch drifting.
 func (a *scopedAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal,
 	verb string, resources ...string,
 ) ([]string, error) {
-	var allowed []string
-	for _, resource := range resources {
-		if a.granted[grantKey(verb, resource)] {
-			allowed = append(allowed, resource)
-		}
-	}
-	return allowed, nil
+	return nil, errors.New("scopedAuthorizer.FilterAuthorizedResources is not wired for these tests")
 }
 
 // auditingAuthorizer records the way the RBAC authorizer does: the auditing
@@ -216,9 +218,8 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 			authorizer: func(logger logrus.FieldLogger) authorization.Authorizer {
 				return splitAuthorizer{
 					auditingAuthorizer: auditingAuthorizer{scopedAuthorizer: grantUpdateOn(), logger: logger},
-					audibleErr: fmt.Errorf("rbac: %w", authzerrors.NewForbidden(
-						&models.Principal{Username: "u1"},
-						authorization.UPDATE, authorization.Collections()[0])),
+					audibleErr: forbidden(&models.Principal{Username: "u1"},
+						authorization.UPDATE, authorization.Collections()[0]),
 				}
 			},
 			wantStatus: reindexCancelStatusNoOp,
@@ -279,14 +280,11 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 			require.Equalf(t, tc.wantErrorLog, errorLevel,
 				"an error-level record is a page for a human; entries were %q", entryMessages(hook))
 
-			grant := warned(hook, auditGranted)
+			grant := entryWithMessage(hook, auditGranted)
 			require.Equalf(t, tc.wantGrantLog, grant != nil,
 				"the audit stream has to carry the grant that let this cancel through, and nothing else; "+
 					"entries were %q", entryMessages(hook))
 			if tc.wantGrantVerb != "" {
-				require.NotNilf(t, grant,
-					"this row names the verb the grant record has to carry, but there is no grant "+
-						"record; entries were %q", entryMessages(hook))
 				require.Equal(t, tc.wantGrantVerb, grant.Data["verb"],
 					"the grant record names the privilege that was used; the wrong verb on it is "+
 						"what a compliance query reads")
@@ -294,8 +292,8 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 
 			event := audited(hook, tc.wantAuditEvent)
 			require.NotNilf(t, event,
-				"each outcome needs its own event name, or a SIEM rule counts two different facts "+
-					"as one; entries were %q", entryMessages(hook))
+				"a SIEM rule keys on audit_event, so this outcome has to file the one it declares; "+
+					"entries were %q", entryMessages(hook))
 			require.Equal(t, tc.wantEventLevel, event.Level,
 				"the level is the handler's own verdict on this outcome, and a denial filed at "+
 					"error level pages someone for a request that was answered correctly")

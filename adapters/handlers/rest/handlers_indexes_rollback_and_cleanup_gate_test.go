@@ -115,7 +115,7 @@ func TestRollbackRacedReindexTaskSurvivesRequestCancellation(t *testing.T) {
 		"the raced task must still be cancelled after the caller disconnected")
 	require.Equal(t, taskID, svc.cancelled[0].ID)
 	require.Equal(t, distributedtask.TaskStatusCancelled, svc.tasks[0].Status)
-	require.NotNil(t, warned(hook, "rollback: cancelled a reindex task"))
+	require.NotNil(t, entryWithMessage(hook, "rollback: cancelled a reindex task"))
 }
 
 // scriptedRollbackService answers the two cluster calls the rollback makes from
@@ -614,7 +614,7 @@ func TestAwaitOwnerCleanupGatesGivesEachOwnerItsOwnBudget(t *testing.T) {
 		UnitToNode: map[string]string{"u1": slowOwner, "u2": fastOwner, "u3": local},
 	}, collection, "task-1", true)
 
-	entry := warned(hook, "could not confirm")
+	entry := entryWithMessage(hook, "could not confirm")
 	require.NotNil(t, entry, "the owner that never answered has to be visible to the operator")
 	degraded, ok := entry.Data["nodes"].(map[string]string)
 	require.True(t, ok)

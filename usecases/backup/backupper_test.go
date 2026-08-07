@@ -918,14 +918,14 @@ func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBacke
 	classes []string, sourcePath string, descs ...backup.ClassDescriptor,
 ) (*Handler, backup.Status, string) {
 	t.Helper()
-	return runParticipantBackupFailingMetaWrite(t, sourcer, backend, classes, sourcePath, nil, descs...)
+	return runParticipantBackupWithMetaWriteErr(t, sourcer, backend, classes, sourcePath, nil, descs...)
 }
 
-// runParticipantBackupFailingMetaWrite wires the participant mocks, drives a
+// runParticipantBackupWithMetaWriteErr wires the participant mocks, drives a
 // backup to completion, and returns the handler alongside the stored meta.
 // metaWriteErr fails the descriptor write. Duration is an hour so the
 // pre-commit window can't expire under CI load.
-func runParticipantBackupFailingMetaWrite(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
+func runParticipantBackupWithMetaWriteErr(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
 	classes []string, sourcePath string, metaWriteErr error, descs ...backup.ClassDescriptor,
 ) (*Handler, backup.Status, string) {
 	t.Helper()
@@ -995,7 +995,7 @@ func TestRememberedFailureSurvivesTheProductionSlotRelease(t *testing.T) {
 	backend.On("GetObject", context.Background(), "1", BackupFile).Return(nil, errNotFound)
 
 	sourcePath := t.TempDir()
-	m, _, _ := runParticipantBackupFailingMetaWrite(t, sourcer, backend, []string{cls}, sourcePath,
+	m, _, _ := runParticipantBackupWithMetaWriteErr(t, sourcer, backend, []string{cls}, sourcePath,
 		errors.New("object storage unreachable"), genClassDescriptions(t, sourcePath, cls)...)
 
 	require.True(t, m.backupper.waitForSlotRelease(50, 100),
