@@ -755,14 +755,18 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 }
 
 // closeCause reports why the index is closing, or nil while it is still open.
-// Walking the shards of a closing index risks a panic, so every walk asks this
-// first. The cause tells a collection being deleted apart from a node shutting
-// down: a deleted collection takes its on-disk state with it, a shut-down one
-// leaves it for the next start. A close nobody signalled a cause for reads as
+// It tells a collection being deleted apart from a node shutting down: a
+// deleted collection takes its on-disk state with it, a shut-down one leaves it
+// for the next start. A close nobody signalled a cause for reads as
 // [errIndexClosed], which callers must treat like a shutdown.
 func (i *Index) closeCause() error {
 	if i.closingCtx.Err() == nil {
 		return nil
+	}
+	// context.Cause dereferences its argument, and an Index built without a
+	// closeRequestedCtx is still an index this has to answer for.
+	if i.closeRequestedCtx == nil {
+		return errIndexClosed
 	}
 	if cause := context.Cause(i.closeRequestedCtx); cause != nil {
 		return cause

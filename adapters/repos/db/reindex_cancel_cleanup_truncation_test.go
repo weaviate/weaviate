@@ -24,6 +24,95 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// ForEachShard is documented as safe on an index that is dropping or shutting
+// down, and about ten test builders in this package construct an Index with no
+// closeRequestedCtx at all. Asking such an index why it is closing has to
+// answer, and a shutdown is the answer that leaves the shards accounted for.
+func TestCloseCauseAnswersAnIndexBuiltWithoutOne(t *testing.T) {
+	tests := []struct {
+		name string
+		// wired builds the index with a closeRequestedCtx, as production does.
+		wired bool
+		// cause is signalled on that ctx before the close.
+		cause     error
+		closing   bool
+		wantCause error
+	}{
+		{
+			name:  "an open index is not closing, wired or not",
+			wired: true,
+		},
+		{
+			name: "an open index with no closeRequestedCtx is not closing either",
+		},
+		{
+			name:      "a wired index reports the cause it was closed with",
+			wired:     true,
+			cause:     errIndexDropped,
+			closing:   true,
+			wantCause: errIndexDropped,
+		},
+		{
+			name:      "a wired index closed with no cause reads as closed",
+			wired:     true,
+			closing:   true,
+			wantCause: errIndexClosed,
+		},
+		{
+			name:      "an index with no closeRequestedCtx reads as closed",
+			closing:   true,
+			wantCause: errIndexClosed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := logrus.New()
+			logger.SetOutput(io.Discard)
+			closingCtx, closeIndex := context.WithCancel(context.Background())
+			defer closeIndex()
+
+			idx := &Index{
+				Config:     IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				closingCtx: closingCtx,
+				logger:     logger,
+			}
+			if tc.wired {
+				closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
+				defer signalCloseRequested(nil)
+				idx.closeRequestedCtx = closeRequestedCtx
+				idx.signalCloseRequested = signalCloseRequested
+				if tc.cause != nil {
+					signalCloseRequested(tc.cause)
+				}
+			}
+			if tc.closing {
+				closeIndex()
+			}
+
+			var walked int
+			(*sync.Map)(&idx.shards).Store("shard-a", &LazyLoadShard{
+				shardOpts: &deferredShardOpts{name: "shard-a", index: idx, class: &models.Class{Class: "Movies"}},
+			})
+
+			require.NoError(t, idx.ForEachShard(func(string, ShardLike) error {
+				walked++
+				return nil
+			}), "ForEachShard absorbs a closing index rather than reporting it")
+
+			if tc.wantCause == nil {
+				require.NoError(t, idx.closeCause())
+				require.Equal(t, 1, walked, "an open index still walks its shards")
+				return
+			}
+			require.ErrorIs(t, idx.closeCause(), tc.wantCause)
+			require.Zero(t, walked, "a closing index walks nothing")
+			require.ErrorIs(t, idx.forEachShardStrict(func(string, ShardLike) error { return nil }),
+				tc.wantCause, "the strict walk reports what ForEachShard swallows")
+		})
+	}
+}
+
 // failToLoadMonitor makes every shard load fail, and cancels the sweep's
 // context on the nth attempt so the walk aborts on the shard after it.
 // cancelOnCall of 0 never cancels.
@@ -72,8 +161,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		closing    bool
 		closeCause error
 		// indexType "filterable" is one the bucket-name mapping knows, so no
-		// shard is loaded and the sweep is clean; anything else puts every
-		// shard on the list.
+		// shard is loaded.
 		indexType     string
 		wantErr       bool
 		wantTruncated bool
