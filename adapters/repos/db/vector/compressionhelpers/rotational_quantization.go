@@ -29,10 +29,43 @@ type RotationalQuantizer struct {
 	distancer distancer.Provider
 	bits      uint32 // The number of bits per entry used by Encode() to encode data vectors.
 
+	// Truncation (bench-only, see RQOptions): number of rotated dimensions
+	// kept in a code, and the sqrt(OutputDim/codeDim) factor folded into the
+	// encoded values so that dot products of truncated codes estimate the
+	// full-width dot product without query-time rescaling.
+	codeDim uint32
+	scale   float32
+
+	// Centering (bench-only, see RQOptions): dataset mean in input space, its
+	// rotation (subtracted from rotated vectors before quantization), and
+	// |mean|². When centered, the Norm2 slot of a code holds <mean, x> and the
+	// distance paths add the correction <mean,x> + <mean,q> - |mean|² so the
+	// estimate targets the uncentered dot product.
+	mean    []float32
+	meanRot []float32
+	mu2     float32
+	cent    float32 // Indicator: 1 when centering is active.
+
 	// Precomputed for faster distance computations.
 	err error   // Precomputed error returned by DistanceBetweenCompressedVectors.
 	cos float32 // Indicator for the cosine-dot distancer.
 	l2  float32 // Indicator for the l2-squared distancer.
+}
+
+// RQOptions carries the experimental knobs of the rotational quantizer. Both
+// are bench-only: they are not reachable from any user-facing config surface,
+// and codes written with either knob set cannot be restored from a commit log
+// (PersistCompression does not record them).
+type RQOptions struct {
+	// TruncatedDims, when non-zero, keeps only the first TruncatedDims rotated
+	// dimensions in each code. Must be in [1, OutputDim]. The retained prefix
+	// is scaled by sqrt(OutputDim/TruncatedDims) at encode time so code-code
+	// dot products remain unbiased estimates of the full-width dot product.
+	TruncatedDims int
+	// Mean, when non-nil, is the dataset mean (input space, len == inputDim).
+	// It is subtracted before quantization and corrected for in the distance
+	// estimates. Only supported for the cosine-dot and dot distancers.
+	Mean []float32
 }
 
 const (
@@ -67,12 +100,43 @@ func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer dista
 		rotation:  rotation,
 		bits:      uint32(bits),
 		distancer: distancer,
+		codeDim:   rotation.OutputDim,
+		scale:     1,
 		// Precomputed values for faster distance computation.
 		err: err,
 		cos: cos,
 		l2:  l2,
 	}
 	return rq
+}
+
+// NewRotationalQuantizerWithOptions is NewRotationalQuantizer plus the
+// bench-only truncation and centering knobs. Zero-valued options yield a
+// quantizer identical to NewRotationalQuantizer.
+func NewRotationalQuantizerWithOptions(inputDim int, seed uint64, bits int, distancer distancer.Provider, opts RQOptions) (*RotationalQuantizer, error) {
+	rq := NewRotationalQuantizer(inputDim, seed, bits, distancer)
+	if opts.TruncatedDims != 0 {
+		if opts.TruncatedDims < 0 || opts.TruncatedDims > int(rq.rotation.OutputDim) {
+			return nil, errors.Errorf("truncated dims %d outside [1, %d]",
+				opts.TruncatedDims, rq.rotation.OutputDim)
+		}
+		rq.codeDim = uint32(opts.TruncatedDims)
+		rq.scale = float32(math.Sqrt(float64(rq.rotation.OutputDim) / float64(opts.TruncatedDims)))
+	}
+	if opts.Mean != nil {
+		if len(opts.Mean) != inputDim {
+			return nil, errors.Errorf("centering mean has %d dims, input has %d",
+				len(opts.Mean), inputDim)
+		}
+		if t := distancer.Type(); t != "cosine-dot" && t != "dot" {
+			return nil, errors.Errorf("centering is only supported for dot-based distancers, got %s", t)
+		}
+		rq.mean = slices.Clone(opts.Mean)
+		rq.meanRot = rq.rotation.Rotate(rq.mean)
+		rq.mu2 = dotProduct(rq.mean, rq.mean)
+		rq.cent = 1
+	}
+	return rq, nil
 }
 
 func RestoreRotationalQuantizer(inputDim int, bits int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, distancer distancer.Provider) (*RotationalQuantizer, error) {
@@ -82,6 +146,8 @@ func RestoreRotationalQuantizer(inputDim int, bits int, outputDim int, rounds in
 		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
 		bits:      uint32(bits),
 		distancer: distancer,
+		codeDim:   uint32(outputDim),
+		scale:     1,
 		err:       err,
 		cos:       cos,
 		l2:        l2,
@@ -173,7 +239,28 @@ func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
 	// restore the vector from its compressed form, creating a new slice
 	// then un-rotate in place and return
-	return rq.rotation.UnRotateInPlace(rq.Restore(compressed))
+	restored := rq.Restore(compressed)
+	if rq.scale != 1 || rq.cent != 0 {
+		// Undo the truncation scaling and centering in rotated space. The
+		// dropped tail is reconstructed as the rotated mean (its expectation
+		// under centering, zero otherwise).
+		full := make([]float32, rq.rotation.OutputDim)
+		inv := 1 / rq.scale
+		for i, v := range restored {
+			full[i] = v * inv
+		}
+		if rq.cent != 0 {
+			for i := range full {
+				if i < len(restored) {
+					full[i] += rq.meanRot[i]
+				} else {
+					full[i] = rq.meanRot[i]
+				}
+			}
+		}
+		restored = full
+	}
+	return rq.rotation.UnRotateInPlace(restored)
 }
 
 func dotProduct(x, y []float32) float32 {
@@ -184,24 +271,35 @@ func dotProduct(x, y []float32) float32 {
 
 func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 	outDim := rq.OutputDimension()
+	codeDim := int(rq.codeDim)
 	if len(x) == 0 {
-		return ZeroRQCode(outDim)
+		return ZeroRQCode(codeDim)
 	}
 	if len(x) > outDim {
 		x = x[:outDim]
 	}
 
-	rx := rq.rotation.Rotate(x)
+	rx := rq.rotation.Rotate(x)[:codeDim]
+	if rq.cent != 0 {
+		for i := range rx {
+			rx[i] -= rq.meanRot[i]
+		}
+	}
+	if rq.scale != 1 {
+		for i := range rx {
+			rx[i] *= rq.scale
+		}
+	}
 	var maxCode uint8 = (1 << bits) - 1
 	lower, upper, _ := rq4MinMaxSumImpl(rx)
 	step := (upper - lower) / float32(maxCode)
 
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.
-		return ZeroRQCode(outDim)
+		return ZeroRQCode(codeDim)
 	}
 
-	code := NewRQCode(outDim)
+	code := NewRQCode(codeDim)
 	var codeSum float32
 	for i, v := range rx {
 		c := byte((v-lower)/step + 0.5)
@@ -211,7 +309,13 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 	code.setLower(lower)
 	code.setStep(step)
 	code.setCodeSum(step * codeSum)
-	code.setNorm2(dotProduct(x, x))
+	if rq.cent != 0 {
+		// The Norm2 slot is unused by the dot-based distancers (the l2
+		// indicator zeroes it out); centering repurposes it for <mean, x>.
+		code.setNorm2(dotProduct(rq.mean, x))
+	} else {
+		code.setNorm2(dotProduct(x, x))
+	}
 	return code
 }
 
@@ -245,12 +349,14 @@ type RQDistancer struct {
 	bytes   []byte
 	a       float32 // precomputed value from RQCode.
 
-	err error
-	cos float32
-	l2  float32
+	err   error
+	cos   float32
+	l2    float32
+	cent  float32 // Indicator: 1 when centering is active.
+	corrQ float32 // <mean, q> - |mean|², the query-side centering correction.
 }
 
-func (rq *RotationalQuantizer) newDistancer(q []float32, cq RQCode) *RQDistancer {
+func (rq *RotationalQuantizer) newDistancer(q []float32, cq RQCode, corrQ float32) *RQDistancer {
 	return &RQDistancer{
 		distancer: rq.distancer,
 		rq:        rq,
@@ -258,6 +364,8 @@ func (rq *RotationalQuantizer) newDistancer(q []float32, cq RQCode) *RQDistancer
 		err:       rq.err,
 		cos:       rq.cos,
 		l2:        rq.l2,
+		cent:      rq.cent,
+		corrQ:     corrQ,
 		// RQCode fields.
 		lower:   cq.Lower(),
 		step:    cq.Step(),
@@ -270,11 +378,19 @@ func (rq *RotationalQuantizer) newDistancer(q []float32, cq RQCode) *RQDistancer
 
 func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 	var cq RQCode = rq.Encode(q)
-	return rq.newDistancer(q, cq)
+	var corrQ float32
+	if rq.cent != 0 && len(q) > 0 {
+		corrQ = dotProduct(rq.mean, q) - rq.mu2
+	}
+	return rq.newDistancer(q, cq, corrQ)
 }
 
 // Optimized distance computation that precomputes as much as possible and
 // avoids conditional statements by using indicator variables.
+//
+// When centering is active (cent == 1, dot-based distancers only, so l2 == 0)
+// the code dot product estimates <x-mean, q-mean> and the Norm2 slots hold
+// <mean, ·>; the correction term restores an estimate of <x, q>.
 func (d *RQDistancer) Distance(x []byte) (float32, error) {
 	if len(x) != (len(d.bytes) + RQMetadataSize) {
 		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
@@ -282,7 +398,7 @@ func (d *RQDistancer) Distance(x []byte) (float32, error) {
 	}
 	cx := RQCode(x)
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.lower + cx.Step()*d.step*float32(dotByteImpl(cx.Bytes(), d.bytes))
-	return d.l2*(cx.Norm2()+d.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
+	return d.l2*(cx.Norm2()+d.norm2) + d.cos - (1.0+d.l2)*dotEstimate - d.cent*(cx.Norm2()+d.corrQ), d.err
 }
 
 func (d *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
@@ -300,17 +416,25 @@ func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (flo
 			len(x), len(y))
 	}
 	cx, cy := RQCode(x), RQCode(y)
-	a := float32(rq.rotation.OutputDim) * cx.Lower() * cy.Lower()
+	// The dimension term must come from the code itself, not the rotation
+	// width: truncated codes carry fewer entries than OutputDim.
+	a := float32(cx.Dimension()) * cx.Lower() * cy.Lower()
 	b := cx.Lower() * cy.CodeSum()
 	c := cy.Lower() * cx.CodeSum()
 	d := cx.Step() * cy.Step() * float32(dotByteImpl(cx.Bytes(), cy.Bytes()))
 	dotEstimate := a + b + c + d
-	return rq.l2*(cx.Norm2()+cy.Norm2()) + rq.cos - (1.0+rq.l2)*dotEstimate, rq.err
+	return rq.l2*(cx.Norm2()+cy.Norm2()) + rq.cos - (1.0+rq.l2)*dotEstimate -
+		rq.cent*(cx.Norm2()+cy.Norm2()-rq.mu2), rq.err
 }
 
 func (rq *RotationalQuantizer) NewCompressedQuantizerDistancer(c []byte) quantizerDistancer[byte] {
 	restored := rq.Restore(c)
-	return rq.newDistancer(restored, c)
+	var corrQ float32
+	if rq.cent != 0 {
+		// The Norm2 slot of a centered code holds <mean, original vector>.
+		corrQ = RQCode(c).Norm2() - rq.mu2
+	}
+	return rq.newDistancer(restored, c, corrQ)
 }
 
 type RQStats struct {
