@@ -121,11 +121,7 @@ func TestCancelRefusesATaskThatHasPassedThePointOfCancellation(t *testing.T) {
 					"the gate refuses backups of this collection and names cancel as the remedy; "+
 						"answering NO_OP leaves the operator looping between a refused backup and a "+
 						"cancel that reports nothing to do, got %T", responder)
-				require.Equal(t,
-					"cancel refused: the migration has finished building and is committing its result; "+
-						"it can no longer be cancelled. Poll GET /v1/schema/<class>/indexes until every "+
-						"index reports status=\"ready\".",
-					errorMessage(t, conflict.Payload))
+				require.Equal(t, pastCancellationRefusal(t), errorMessage(t, conflict.Payload))
 				require.Empty(t, svc.cancelled,
 					"DTM rejects a cancel in these states, so sending one turns a wrong answer into a 500")
 				return

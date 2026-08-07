@@ -92,9 +92,10 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 		taskID     = "t1"
 	)
 
-	const refusal = "cancel refused: the migration has finished building and is committing its result; " +
-		"it can no longer be cancelled. Poll GET /v1/schema/<class>/indexes until every " +
-		"index reports status=\"ready\"."
+	// Compared against the shared responder, not a literal: what this test is
+	// for is that both paths answer the same wording, and the wording itself is
+	// pinned by TestPastCancellationRefusalsDoNotPromiseThatPollingEndsIt.
+	refusal := pastCancellationRefusal(t)
 
 	// notRunning is what the FSM returns for a cancel of a task that is not
 	// STARTED: the specific sentinel and the umbrella, joined, as
