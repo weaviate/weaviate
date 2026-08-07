@@ -55,6 +55,27 @@ func TestSortTasksForDisplay(t *testing.T) {
 		require.Equal(t, []string{"started-old", "finished-recent"}, ids(got))
 	})
 
+	t.Run("PREPARING and SWAPPING rank with STARTED, not with terminal", func(t *testing.T) {
+		// Breaking change #5: the first sort key is "in flight", which is
+		// every non-terminal status, not STARTED alone. A task whose units
+		// are done but whose barrier or bucket swap is still outstanding is
+		// what the operator is waiting on, so it has to outrank a task that
+		// ended more recently.
+		for _, inFlight := range []TaskStatus{TaskStatusPreparing, TaskStatusSwapping} {
+			t.Run(string(inFlight), func(t *testing.T) {
+				// Zero FinishedAt, per the FinishedAt-iff-terminal invariant,
+				// so the sort falls back to this task's older StartedAt.
+				live := mk("live", inFlight, base, time.Time{})
+				done := mk("done", TaskStatusFinished, base.Add(time.Hour), base.Add(2*time.Hour))
+
+				got := []*Task{done, live}
+				sortTasksForDisplay(got)
+
+				require.Equal(t, []string{"live", "done"}, ids(got))
+			})
+		}
+	})
+
 	t.Run("within-priority recency DESC", func(t *testing.T) {
 		// Three terminal tasks at different FinishedAt: most recent first.
 		old := mk("a-old", TaskStatusFinished, base, base.Add(time.Minute))
