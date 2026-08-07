@@ -46,7 +46,7 @@ var ErrReindexPayloadNamesNoCollection = errors.New("reindex task payload names 
 func DecodeReindexTaskPayload(raw []byte) (ReindexTaskPayload, string, error) {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ReindexTaskPayload{}, ReindexTaskCollection(raw), err
+		return ReindexTaskPayload{}, reindexTaskCollection(raw), err
 	}
 	if payload.Collection == "" {
 		return ReindexTaskPayload{}, "", ErrReindexPayloadNamesNoCollection
@@ -70,15 +70,15 @@ func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	return collection, collection != ""
 }
 
-// ReindexTaskCollection reads just the collection out of a task payload,
+// reindexTaskCollection reads just the collection out of a task payload,
 // tolerating a payload the full [ReindexTaskPayload] decoder rejects — a field
 // retyped by a newer node during a rolling upgrade fails that decoder but
 // leaves the collection perfectly readable. Empty when even that fails.
 //
-// Every gate that fails closed on an undecodable payload consults this first,
-// so the refusal is scoped to the one collection the task names instead of
-// applying to all of them.
-func ReindexTaskCollection(raw []byte) string {
+// Unexported so no gate can consult it on its own: read alone it says the
+// payload is fine whenever the collection happens to be present, which is the
+// judgement [DecodeReindexTaskPayload] exists to make in one place.
+func reindexTaskCollection(raw []byte) string {
 	var probe struct {
 		Collection string `json:"collection"`
 	}
