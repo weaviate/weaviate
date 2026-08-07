@@ -42,9 +42,8 @@ import (
 //
 // The window between the units stopping and the flip is reported by the
 // PREPARING and SWAPPING statuses, not by FINISHED. The test also reads
-// `finishedAt` along the way: the zero time, rendered
-// `0001-01-01T00:00:00.000Z`, while the migration is in flight, and a sane
-// moment once FINISHED (weaviate/0-weaviate-issues#501).
+// `finishedAt` along the way: absent while the migration is in flight, and a
+// sane moment once FINISHED (weaviate/0-weaviate-issues#501).
 //
 // What one node cannot prove: that the stamp came off the RAFT request
 // rather than the applying node's own clock. Here the proposing node and
@@ -127,8 +126,8 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		}
 		if task.Status != "FINISHED" {
 			inFlightPolls++
-			if !time.Time(task.FinishedAt).IsZero() && inFlightWithAFinishTime == "" {
-				inFlightWithAFinishTime = fmt.Sprintf("%s carried finishedAt=%v", task.Status, task.FinishedAt)
+			if task.FinishedAt != nil && inFlightWithAFinishTime == "" {
+				inFlightWithAFinishTime = fmt.Sprintf("%s carried finishedAt=%v", task.Status, *task.FinishedAt)
 			}
 			return false
 		}
@@ -145,7 +144,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	// reason. "Non-terminal ⇒ no finish time" is pinned deterministically at
 	// the FSM (TestStructuralInvariant_FinishedAtIffTerminal, after every
 	// apply) and at the render layer
-	// (TestHandler_ListTasks_InFlightTaskRendersTheZeroFinishedAt).
+	// (TestHandler_ListTasks_InFlightTaskOmitsFinishedAt).
 	t.Logf("sampled %d in-flight polls of /v1/tasks", inFlightPolls)
 	require.Empty(t, inFlightWithAFinishTime,
 		"a migration in flight has not ended, so /v1/tasks must report no finish time for it")
@@ -154,8 +153,9 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	// earlier phase and not a placeholder. Bounded below by the task's own
 	// submit time (same clock, so no skew) and above by the moment we first
 	// saw FINISHED, plus slack for host-vs-container clock drift.
-	finishedAt := time.Time(finished.FinishedAt)
-	require.False(t, finishedAt.IsZero(), "a FINISHED task must carry its finish time")
+	require.NotNil(t, finished.FinishedAt, "a FINISHED task must carry its finish time")
+	finishedAt := time.Time(*finished.FinishedAt)
+	require.False(t, finishedAt.IsZero(), "a FINISHED task's finish time must not be the zero time")
 	require.False(t, finishedAt.Before(time.Time(finished.StartedAt)),
 		"the task cannot have ended before it was submitted (startedAt=%v, finishedAt=%v)",
 		finished.StartedAt, finishedAt)

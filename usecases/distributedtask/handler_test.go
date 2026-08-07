@@ -31,6 +31,8 @@ func TestHandler_ListTasks(t *testing.T) {
 		authorizer = authorization.NewMockAuthorizer(t)
 		now        = time.Now()
 
+		terminalAt = strfmt.DateTime(now)
+
 		namespace = "testNamespace"
 		lister    = taskListerStub{
 			items: map[string][]*distributedtask.Task{
@@ -66,7 +68,7 @@ func TestHandler_ListTasks(t *testing.T) {
 				Status:     "FAILED",
 				Error:      "server is on fire",
 				StartedAt:  strfmt.DateTime(now.Add(-time.Hour)),
-				FinishedAt: strfmt.DateTime(now),
+				FinishedAt: &terminalAt,
 				Payload:    map[string]interface{}{"hello": "world"},
 				Units:      []*models.DistributedTaskUnit{},
 			},
@@ -74,13 +76,13 @@ func TestHandler_ListTasks(t *testing.T) {
 	}, tasks)
 }
 
-// An in-flight task carries no finish time, and strfmt.DateTime is a value
-// type whose MarshalJSON always writes something — so `finishedAt` renders as
-// the zero time rather than being absent or empty. Pinned because the swagger
-// description promises exactly this string, and a client testing for an empty
-// value would otherwise render "finished 2024 years ago" for every running
-// migration.
-func TestHandler_ListTasks_InFlightTaskRendersTheZeroFinishedAt(t *testing.T) {
+// An in-flight task carries no finish time, and the field is absent from its
+// JSON rather than rendered as the zero time. strfmt.DateTime is a struct, so
+// a value field would serialize whatever it holds and omitempty could never
+// fire; the model declares a pointer (x-nullable in the spec) for that reason.
+// A client sorting the list by finishedAt would otherwise put every running
+// migration first, dated year 1.
+func TestHandler_ListTasks_InFlightTaskOmitsFinishedAt(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)
 
@@ -99,8 +101,9 @@ func TestHandler_ListTasks_InFlightTaskRendersTheZeroFinishedAt(t *testing.T) {
 
 	rendered, err := json.Marshal(tasks["ns"][0])
 	require.NoError(t, err)
-	require.Contains(t, string(rendered), `"finishedAt":"0001-01-01T00:00:00.000Z"`,
-		"the swagger description documents this exact value for a non-terminal task")
+	require.NotContains(t, string(rendered), `"finishedAt"`,
+		"a task that has not ended must not report a finish time; the swagger description "+
+			"documents the field as absent until the task is terminal")
 }
 
 type taskListerStub struct {

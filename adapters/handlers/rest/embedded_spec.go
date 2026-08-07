@@ -8322,9 +8322,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Reports the zero time (0001-01-01T00:00:00.000Z) until the task is terminal, including while it is finalizing.",
+          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Absent until the task is terminal, including while it is finalizing.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -8374,9 +8375,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit finished. Absent until it has.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",
@@ -20027,9 +20029,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Reports the zero time (0001-01-01T00:00:00.000Z) until the task is terminal, including while it is finalizing.",
+          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Absent until the task is terminal, including while it is finalizing.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -20079,9 +20082,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit finished. Absent until it has.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",
