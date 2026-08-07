@@ -24,7 +24,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// This package is split across two CI matrix entries, each passing an exact-name
+// This package is split across four CI matrix entries, each passing an exact-name
 // -run allowlist. A test added here but to neither list never runs, and the job
 // still reports green — the failure mode this guard exists to make loud.
 const runShPackagePath = "test/acceptance/reindex_backup"
@@ -149,8 +149,9 @@ func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 	}
 	require.Emptyf(t, missing,
 		"these tests in %s are in NO run.sh allowlist, so CI never runs them while reporting green: %s\n"+
-			"Add each to an AOF_GROUP_RUN filter in test/run.sh (run_acceptance_reindex_backup for "+
-			"single-node, run_acceptance_reindex_backup_cluster for multi-node).",
+			"Add each to an AOF_GROUP_RUN filter in test/run.sh (run_acceptance_reindex_backup_suite, "+
+			"_a or _b for single-node, run_acceptance_reindex_backup_cluster for multi-node), "+
+			"picking the group whose budget still covers its worst case.",
 		runShPackagePath, strings.Join(missing, ", "))
 
 	declaredSet := map[string]struct{}{}
