@@ -63,17 +63,35 @@ func TestSortTasksForDisplay(t *testing.T) {
 		// ended more recently.
 		for _, inFlight := range []TaskStatus{TaskStatusPreparing, TaskStatusSwapping} {
 			t.Run(string(inFlight), func(t *testing.T) {
-				// Zero FinishedAt, per the FinishedAt-iff-terminal invariant,
-				// so the sort falls back to this task's older StartedAt.
-				live := mk("live", inFlight, base, time.Time{})
+				// The in-flight task carries a finish time — the shape a
+				// snapshot from an older binary holds until
+				// [Task.clearNonTerminalStamp] runs on it. Its activity time is
+				// still its start, so a task that started later is the fresher
+				// thing to watch and outranks it.
+				live := mk("live", inFlight, base, base.Add(3*time.Hour))
+				fresher := mk("fresher", TaskStatusStarted, base.Add(time.Hour), time.Time{})
 				done := mk("done", TaskStatusFinished, base.Add(time.Hour), base.Add(2*time.Hour))
 
-				got := []*Task{done, live}
+				got := []*Task{done, live, fresher}
 				sortTasksForDisplay(got)
 
-				require.Equal(t, []string{"live", "done"}, ids(got))
+				require.Equal(t, []string{"fresher", "live", "done"}, ids(got))
 			})
 		}
+	})
+
+	t.Run("a terminal task with no finish time ranks on the stamp it lacks", func(t *testing.T) {
+		// The one input where "the task is terminal" and "the task carries a
+		// stamp" disagree: a task an older binary ended without stamping (see
+		// [Task.repairTerminalStamp]). Falling back to its start would float it
+		// above a task that actually finished later.
+		unstamped := mk("unstamped", TaskStatusFinished, base.Add(2*time.Hour), time.Time{})
+		stamped := mk("stamped", TaskStatusFinished, base, base.Add(time.Hour))
+
+		got := []*Task{unstamped, stamped}
+		sortTasksForDisplay(got)
+
+		require.Equal(t, []string{"stamped", "unstamped"}, ids(got))
 	})
 
 	t.Run("within-priority recency DESC", func(t *testing.T) {

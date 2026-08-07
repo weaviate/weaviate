@@ -601,6 +601,16 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 // so it predates the bucket swap that ran after it, and the backstop waives a
 // capture that spanned that swap.
 //
+// It runs only on snapshots below [snapshot.Version] 1, and it can be deleted
+// with that field. Until then it carries an obligation: a new [Task] field that
+// records a moment has to join the max below, or the stamp lands before a
+// moment the task reached and the backstop waives a capture that spanned it.
+//
+// The repaired stamp normally lives only in the restoring node's memory until
+// that node writes its own snapshot. raft.RecoverCluster is the exception: it
+// restores into a temporary FSM, replays, then snapshots and compacts, so on
+// that operator path the repair's output is what lands on disk.
+//
 // The value is a function of the task bytes alone — no node clock, no map
 // order — so every node restoring the same snapshot computes the same stamp and
 // the FSM stays identical across the cluster. The moments it picks between are

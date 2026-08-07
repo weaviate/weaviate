@@ -63,35 +63,30 @@ func TestManager_CleanUpTask_RefusesATerminalTaskWithoutAFinishTime(t *testing.T
 		version = uint64(7)
 	)
 
-	// The same request at wildly different local clocks. The apply runs on
-	// every node from one log entry, so a decision that moved with the local
-	// clock would delete the task on one node and keep it on another.
-	for _, tc := range []struct {
-		name    string
-		advance time.Duration
-	}{
-		{"at the moment of restore", 0},
-		{"a TTL later", 25 * time.Hour},
-		{"a century later", 100 * 365 * 24 * time.Hour},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newTestHarness(t).init(t)
-			defer h.manager.Close()
+	h := newTestHarness(t).init(t)
+	defer h.manager.Close()
 
-			seedTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
-			h.clock.Advance(tc.advance)
+	seedTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
 
-			err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Namespace: ns, Id: taskID, Version: version,
-			}))
-			require.ErrorContains(t, err, "carries no finish time")
+	// The apply runs on every node from one log entry, so a decision that moved
+	// with the local clock would delete the task on one node and keep it on
+	// another. The guard returns before the clock is read, so the same request
+	// a century apart refuses identically.
+	refuse := func(when string) {
+		err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+			Namespace: ns, Id: taskID, Version: version,
+		}))
+		require.ErrorContains(t, err, "carries no finish time", when)
 
-			tasks, listErr := h.manager.ListDistributedTasks(context.Background())
-			require.NoError(t, listErr)
-			require.Len(t, tasks[ns], 1,
-				"the task must survive so the backup overlap backstop can still refuse on it")
-		})
+		tasks, listErr := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, listErr)
+		require.Len(t, tasks[ns], 1,
+			"%s: the task must survive so the backup overlap backstop can still refuse on it", when)
 	}
+
+	refuse("at the moment of restore")
+	h.clock.Advance(100 * 365 * 24 * time.Hour)
+	refuse("a century later")
 }
 
 // The positive control for the guard above: a terminal task that does carry a

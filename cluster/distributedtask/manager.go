@@ -472,8 +472,12 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	}
 
 	// The scheduler still holds a handle for every task removed here; waking it
-	// terminates them on the next cycle instead of at the next tick.
-	m.notifySchedulerWithLock()
+	// terminates them on the next cycle instead of at the next tick. A delete
+	// that matched nothing leaves it nothing to converge on, so it costs no
+	// cycle.
+	if len(removed) > 0 {
+		m.notifySchedulerWithLock()
+	}
 	return removed
 }
 
@@ -1196,7 +1200,21 @@ func (m *Manager) setTaskWithLock(task *Task) {
 }
 
 type snapshot struct {
-	Tasks map[string][]*Task `json:"tasks,omitempty"`
+	// Version is the format of this payload, and it is what tells
+	// [Manager.Restore] whether the finish times in it still need normalizing.
+	//
+	//	0 — no version field in the payload: written by a build older than this
+	//	    one. It can carry a terminal task with a missing or early
+	//	    FinishedAt, and a running task carrying one, so Restore repairs
+	//	    both (see [Task.repairTerminalStamp], [Task.clearNonTerminalStamp]).
+	//	1 — written by this build. FinishedAt is already set iff the task is
+	//	    terminal and already sits at the newest moment the task records,
+	//	    so Restore leaves it alone.
+	//
+	// The repair, and this field with it, can be deleted once no supported
+	// upgrade path can still produce a version 0 snapshot.
+	Version int                `json:"version,omitempty"`
+	Tasks   map[string][]*Task `json:"tasks,omitempty"`
 }
 
 // Snapshot serialises the full task state to JSON for Raft snapshotting. The inverse
@@ -1208,7 +1226,8 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	}
 
 	bytes, err := json.Marshal(&snapshot{
-		Tasks: tasks,
+		Version: 1,
+		Tasks:   tasks,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot: %w", err)
@@ -1241,22 +1260,26 @@ func (m *Manager) Restore(bytes []byte) error {
 				m.tasks[namespace] = make(map[string]*Task)
 			}
 
-			// The snapshot is the one door a terminal task with a missing or
-			// stale finish time enters through; repairing it here is what lets
-			// it age out again and keeps the backup overlap backstop honest.
-			if task.repairTerminalStamp() {
-				m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
-					Warnf("task %s/%s/%d was restored %s carrying a finish time older than the task's own "+
-						"last recorded moment; stamping it %s. Expected after a rolling upgrade past a "+
-						"build that stamped the terminal transition differently or not at all",
-						namespace, task.ID, task.Version, task.Status, task.FinishedAt)
-			}
-			if task.clearNonTerminalStamp() {
-				m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
-					Warnf("task %s/%s/%d was restored %s carrying a finish time; clearing it, since the "+
-						"task is still running. Expected after a rolling upgrade past a build that "+
-						"stamped the moment the task's units stopped",
-						namespace, task.ID, task.Version, task.Status)
+			// A snapshot below version 1 is the one door a terminal task with a
+			// missing or stale finish time enters through; repairing it here is
+			// what lets it age out again and keeps the backup overlap backstop
+			// honest. Version 1 already holds both halves of the invariant, so
+			// there is nothing to normalize. See [snapshot.Version].
+			if s.Version < 1 {
+				if task.repairTerminalStamp() {
+					m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
+						Warnf("task %s/%s/%d was restored %s carrying a finish time older than the task's own "+
+							"last recorded moment; stamping it %s. Expected after a rolling upgrade past a "+
+							"build that stamped the terminal transition differently or not at all",
+							namespace, task.ID, task.Version, task.Status, task.FinishedAt)
+				}
+				if task.clearNonTerminalStamp() {
+					m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
+						Warnf("task %s/%s/%d was restored %s carrying a finish time; clearing it, since the "+
+							"task is still running. Expected after a rolling upgrade past a build that "+
+							"stamped the moment the task's units stopped",
+							namespace, task.ID, task.Version, task.Status)
+				}
 			}
 
 			m.tasks[namespace][task.ID] = task
