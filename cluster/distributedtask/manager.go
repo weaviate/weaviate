@@ -1043,6 +1043,19 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
+	// A terminal task without a stamp has no age, so the TTL check below would
+	// delete it on the first attempt. Refuse instead: deleting it also hides
+	// it from the backup overlap backstop, which refuses a capture on exactly
+	// this state. The refusal is a property of the task alone, so every node
+	// applying this entry reaches it, whatever its own clock says.
+	if task.FinishedAt.IsZero() {
+		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
+			Warnf("refusing to clean up task %s/%s/%d: it is %s but carries no finish time",
+				r.Namespace, r.Id, task.Version, task.Status)
+		return fmt.Errorf("task %s/%s/%d is %s but carries no finish time",
+			r.Namespace, r.Id, task.Version, task.Status)
+	}
+
 	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
 		return fmt.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
 	}
