@@ -244,3 +244,10 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 		})
 	}
 }
+
+func pastCancellationRefusal(t *testing.T) string {
+	t.Helper()
+	conflict, ok := reindexCancelPastCancellationPoint(&models.Principal{Username: "u1"}).(*schema.SchemaObjectsIndexesUpdateConflict)
+	require.True(t, ok)
+	return conflict.Payload.Error[0].Message
+}
