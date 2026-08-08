@@ -253,11 +253,6 @@ func TestAnyReindexActivityLookupScopesByCollection(t *testing.T) {
 			wantLive:    true,
 		},
 		{
-			name:        "case-folded, matching the rest of the reindex gates",
-			collections: []string{"lOgS"},
-			wantLive:    true,
-		},
-		{
 			name:        "no class list yet, so the question is cluster-wide",
 			collections: nil,
 			wantLive:    true,

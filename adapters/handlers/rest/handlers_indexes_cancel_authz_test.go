@@ -127,26 +127,10 @@ func (a splitAuthorizer) Authorize(ctx context.Context, principal *models.Princi
 	return a.audibleErr
 }
 
-// outageAuthorizer cannot answer at all. Its error is not a Forbidden, so the
-// caller's grant is unknown rather than absent — the one case where refusing
-// tells the operator nothing about the caller.
-type outageAuthorizer struct{}
-
+// errAuthorizerUnavailable is not a Forbidden, so the caller's grant is unknown
+// rather than absent — the one case where refusing tells the operator nothing
+// about the caller.
 var errAuthorizerUnavailable = errors.New("policy store unreachable")
-
-func (outageAuthorizer) Authorize(context.Context, *models.Principal, string, ...string) error {
-	return errAuthorizerUnavailable
-}
-
-func (outageAuthorizer) AuthorizeSilent(context.Context, *models.Principal, string, ...string) error {
-	return errAuthorizerUnavailable
-}
-
-func (outageAuthorizer) FilterAuthorizedResources(context.Context, *models.Principal, string,
-	...string,
-) ([]string, error) {
-	return nil, errAuthorizerUnavailable
-}
 
 // The cluster-wide check on the unattributable-task pass is a capability probe,
 // not something the caller asked for: an ordinary single-collection cancel that
@@ -203,7 +187,7 @@ func TestCancelCapabilityProbeAuditsTheGrantButNotTheDenial(t *testing.T) {
 		{
 			name: "an authorizer that cannot answer leaves the task running, loudly",
 			authorizer: func(logrus.FieldLogger) authorization.Authorizer {
-				return outageAuthorizer{}
+				return &recordingSubmitAuthorizer{err: errAuthorizerUnavailable}
 			},
 			wantStatus:     reindexCancelStatusNoOp,
 			wantErrorLog:   true,

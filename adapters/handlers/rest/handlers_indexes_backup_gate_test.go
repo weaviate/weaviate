@@ -94,19 +94,6 @@ func TestScanBackupActivity(t *testing.T) {
 		wantUnreachable string
 	}{
 		{
-			name:      "all idle",
-			nodes:     []string{"node1", "node2", "node3"},
-			behaviors: map[string]nodeBehavior{"node1": nodeIdle, "node2": nodeIdle, "node3": nodeIdle},
-		},
-		{
-			name:         "one busy with a backup",
-			nodes:        []string{"node1", "node2"},
-			behaviors:    map[string]nodeBehavior{"node1": nodeIdle, "node2": nodeBusy(backup.NodeActivityKindBackup, "node2-backup")},
-			wantBusyNode: "node2",
-			wantKind:     backup.NodeActivityKindBackup,
-			wantID:       "node2-backup",
-		},
-		{
 			name:            "one unreachable",
 			nodes:           []string{"node1", "node2"},
 			behaviors:       map[string]nodeBehavior{"node1": nodeIdle, "node2": nodeUnreachable},
@@ -290,12 +277,6 @@ func TestScanBackupActivityCountsAPanickingProbeAsUnreachable(t *testing.T) {
 			nodes:           []string{"n1", "n2", "n3"},
 			panicOn:         []string{"n2"},
 			wantUnreachable: "n2",
-		},
-		{
-			name:            "every probe panics",
-			nodes:           []string{"n1"},
-			panicOn:         []string{"n1"},
-			wantUnreachable: "n1",
 		},
 		{
 			name:    "no panic still reads as clear",

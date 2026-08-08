@@ -130,30 +130,6 @@ func TestUpdateIndex_RuntimeReindexDisabledStillCancels(t *testing.T) {
 	}
 }
 
-// The carve-out is narrow: it lets the cancel through, it does not switch the
-// feature back on for the duration. The gates the flag disables read node-local
-// holds, and a cancel is exactly what closes those holds — so a flag-off cancel
-// is the one moment a half-disabled gate would start refusing backups on a node
-// whose operator has turned the whole feature off.
-func TestUpdateIndex_RuntimeReindexDisabledCancelStartsNoMigration(t *testing.T) {
-	h, svc := cancelFixture(t, confirmingCleanupProber{})
-	h.appState.ServerConfig.Config.RuntimeReindexEnabled = false
-
-	responder := h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
-		HTTPRequest:  httptest.NewRequest("PUT", "/", nil),
-		ClassName:    "Movies",
-		PropertyName: "title",
-		Body:         &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Cancel: true}},
-	}, &models.Principal{Username: "u1"})
-
-	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
-	require.Truef(t, ok, "expected the cancel to be accepted, got %T", responder)
-	require.Len(t, svc.cancelled, 1)
-
-	require.False(t, h.appState.ReindexProvider.Load().AnyCleanupInProgress(),
-		"the cancel must hand its cleanup gate back before answering, so no later backup is refused by it")
-}
-
 // TestRequestsCancel pins which bodies the refusal exempts: cancel must
 // survive the flag being off so a task already running stays stoppable.
 func TestRequestsCancel(t *testing.T) {

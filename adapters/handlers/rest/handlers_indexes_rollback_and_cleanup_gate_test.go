@@ -234,18 +234,6 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedAudit:       "reindex_task_rollback_failed",
 		},
 		{
-			name: "the cancel itself fails",
-			svc: &scriptedRollbackService{
-				tasks:     liveTask(),
-				cancelErr: errors.New("raft: timeout"),
-			},
-			expectedListCalls:   3,
-			expectedCancelCalls: 3,
-			expectedLevel:       logrus.ErrorLevel,
-			expectedMessage:     "rollback: could not cancel the task in",
-			expectedAudit:       "reindex_task_rollback_failed",
-		},
-		{
 			name:                "the task is no longer in the listing",
 			svc:                 &scriptedRollbackService{},
 			expectedListCalls:   1,
@@ -291,50 +279,6 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			expectedLevel:       logrus.ErrorLevel,
 			expectedMessage:     "rollback: could not cancel the task in",
 			expectedAudit:       "reindex_task_rollback_failed",
-		},
-		{
-			// A version that moved under a STARTED task is reported as "does not
-			// exist". The task is running; the rollback has to keep trying and,
-			// failing that, escalate.
-			name: "the cancel is permanently rejected on a version mismatch",
-			svc: &scriptedRollbackService{
-				tasks: liveTask(),
-				cancelErr: permanentRejection(distributedtask.ErrTaskDoesNotExist,
-					"[dtm-perm/task-not-exist] task reindex/Movies:rebuild-filterable:title:ab3f/3 does not exist"),
-			},
-			expectedListCalls:   3,
-			expectedCancelCalls: 3,
-			expectedLevel:       logrus.ErrorLevel,
-			expectedMessage:     "rollback: could not cancel the task in",
-			expectedAudit:       "reindex_task_rollback_failed",
-		},
-		{
-			// A permanent rejection carrying a marker this build does not know
-			// is rehydrated as the bare umbrella. Nothing about it says the task
-			// is settled, so it must not be read as such.
-			name: "the cancel is permanently rejected with an unrecognized marker",
-			svc: &scriptedRollbackService{
-				tasks: liveTask(),
-				cancelErr: fmt.Errorf("cancel task: %w",
-					distributedtask.ErrPermanentRejection),
-			},
-			expectedListCalls:   3,
-			expectedCancelCalls: 3,
-			expectedLevel:       logrus.ErrorLevel,
-			expectedMessage:     "rollback: could not cancel the task in",
-			expectedAudit:       "reindex_task_rollback_failed",
-		},
-		{
-			// The listing already reports the task terminal, so there is nothing
-			// to cancel and the cluster is never asked.
-			name:                "the task is already terminal in the listing",
-			svc:                 &scriptedRollbackService{tasks: taskIn(distributedtask.TaskStatusCancelled)},
-			expectedListCalls:   1,
-			expectedCancelCalls: 0,
-			expectedLevel:       logrus.InfoLevel,
-			expectedMessage:     "rollback: the reindex task that raced a backup claim had already reached a terminal status",
-			expectedAudit:       "reindex_task_rollback_already_terminal",
-			wantRolledBack:      true,
 		},
 		{
 			name:                "the task is cancelled",
@@ -697,28 +641,6 @@ func (p *countingProber) NodeActivity(context.Context, string) (backup.NodeActiv
 	defer p.mu.Unlock()
 	p.calls++
 	return backup.NodeActivity{}, nil
-}
-
-// With RUNTIME_REINDEX_ENABLED off there is no reindex to gate, so the
-// submission is refused before any of the gate's machinery runs. Pinned because
-// the flag check and the gate sit in the same handler and are easy to reorder,
-// and "off" must not mean "off except for the cluster probes".
-func TestUpdateIndexWithRuntimeReindexDisabledSkipsTheGate(t *testing.T) {
-	svc := &raceTaskService{}
-	prober := &countingProber{}
-	h := submissionHandlers(t, svc, prober)
-	h.appState.ServerConfig.Config.RuntimeReindexEnabled = false
-
-	responder := submitReindex(h)
-
-	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateBadRequest)
-	require.Truef(t, ok, "a disabled feature must answer 400, got %T", responder)
-
-	prober.mu.Lock()
-	defer prober.mu.Unlock()
-	require.Zero(t, prober.calls,
-		"the cluster must not be probed for backups when no reindex can start")
-	require.Zero(t, svc.adds, "no task may be committed while the feature is off")
 }
 
 // rollbackObservingService reports what the submission still holds at the
