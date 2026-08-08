@@ -424,17 +424,27 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 	})
 
 	t.Run("deletable once the TTL has run from the repaired stamp", func(t *testing.T) {
-		clock := clockwork.NewFakeClockAt(lastAck.Add(30 * time.Minute))
-		m := restoreInto(t, clock)
-		cleanUp := func() error {
+		// The node's own clock is half a TTL past the repaired stamp and stays
+		// there: what decides is the sweep's measurements, and a sweep reads
+		// the repaired stamp off the task it is proposing for.
+		m := restoreInto(t, clockwork.NewFakeClockAt(lastAck.Add(30*time.Minute)))
+		cleanUpProposedAt := func(proposedAt time.Time) error {
 			return m.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
 				Namespace: "ns", Id: "unstamped", Version: 1,
+				FinishedAtUnixMillis: lastAck.UnixMilli(),
+				ProposedAtUnixMillis: proposedAt.UnixMilli(),
+				TtlMillis:            time.Hour.Milliseconds(),
 			}))
 		}
-		require.Error(t, cleanUp(), "half a TTL in, the task is still too fresh to clean up")
+		require.Error(t, m.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+			Namespace: "ns", Id: "unstamped", Version: 1,
+		})), "a proposer too old to send measurements is deferred however old the repaired stamp is")
 
-		clock.Advance(time.Hour)
-		require.NoError(t, cleanUp(), "past the TTL the repaired task must age out like any other")
+		require.Error(t, cleanUpProposedAt(lastAck.Add(30*time.Minute)),
+			"half a TTL in, the task is still too fresh to clean up")
+
+		require.NoError(t, cleanUpProposedAt(lastAck.Add(90*time.Minute)),
+			"past the TTL the repaired task must age out like any other")
 		tasks, err := m.ListDistributedTasks(context.Background())
 		require.NoError(t, err)
 		require.Empty(t, tasks["ns"], "the cleaned-up task must be gone")

@@ -14,9 +14,11 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -114,6 +116,21 @@ func requireStamp(t *testing.T, h *testHarness, want time.Time, node string) {
 	require.Truef(t, want.Equal(got), "%s: want finish time %s, got %s", node, want, got)
 }
 
+// stampMismatchWarns returns the warnings the node logged about holding a
+// different finish time than the proposer. It is the only operator-facing signal
+// that a rolling upgrade is producing divergent stamps, so the fixture pins both
+// that it fires on the node that differs and that it stays silent on the node
+// that agrees.
+func stampMismatchWarns(h *testHarness) []string {
+	var out []string
+	for _, entry := range h.logHook.AllEntries() {
+		if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, "but the cleanup proposer read") {
+			out = append(out, entry.Message)
+		}
+	}
+	return out
+}
+
 func taskCount(t *testing.T, h *testHarness) int {
 	t.Helper()
 	tasks, err := h.manager.ListDistributedTasks(context.Background())
@@ -122,14 +139,19 @@ func taskCount(t *testing.T, h *testHarness) int {
 }
 
 func TestManager_CleanUpTask_RestoredAndReplayedNodesReachTheSameState(t *testing.T) {
-	base := time.Date(2026, 8, 3, 22, 23, 17, 0, time.UTC)
+	// Anchor the fixture to the same clock the nodes get, so the two stamps
+	// straddle the TTL boundary measured from the applying node's own clock as
+	// well as from the proposer's numbers. That is what makes the arm below
+	// carrying no measurements decisive.
+	reference := newTestHarness(t)
+	ttl := reference.completedTaskTTL
+	base := reference.clock.Now().Add(-ttl - 2*time.Second).Truncate(time.Millisecond)
 	var (
 		startedAt      = base.Add(-time.Hour)
 		unitsStoppedAt = base
 		// The SWAPPING window: the finalize lands after the units stopped, so
 		// the two nodes' stamps sit this far apart.
 		finalizedAt = base.Add(5 * time.Second)
-		ttl         = 24 * time.Hour
 		// Chosen to land inside that window: past the TTL measured from the
 		// units-stopped stamp, still inside it measured from the finalize.
 		proposedAt = unitsStoppedAt.Add(ttl).Add(2 * time.Second)
@@ -142,17 +164,35 @@ func TestManager_CleanUpTask_RestoredAndReplayedNodesReachTheSameState(t *testin
 		// proposerStamp is the finish time the proposing node read off its own
 		// copy of the task. Either node can be the leader that sweeps.
 		proposerStamp time.Time
-		wantRemaining int
+		// noMeasurements sends the entry an old proposer writes: no finish
+		// time, no moment, no TTL.
+		noMeasurements bool
+		wantRemaining  int
+		// warningNode is the node whose own stamp differs from the proposer's,
+		// and so the only one that must log the mismatch warning.
+		warningNode string
 	}{
 		{
 			name:          "the restored node proposes, and both nodes delete",
 			proposerStamp: unitsStoppedAt,
 			wantRemaining: 0,
+			warningNode:   "replayed",
 		},
 		{
 			name:          "the replayed node proposes, and both nodes keep",
 			proposerStamp: finalizedAt,
 			wantRemaining: 1,
+			warningNode:   "restored",
+		},
+		{
+			// A proposer too old to send measurements. There is nothing on the
+			// entry to decide from, and the two nodes' own stamps sit either
+			// side of the TTL boundary, so an apply that fell back to its own
+			// age check would delete on the restored node and refuse on the
+			// replayed one. Both defer instead.
+			name:           "a proposer too old to send measurements leaves both nodes holding the task",
+			noMeasurements: true,
+			wantRemaining:  1,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -165,21 +205,38 @@ func TestManager_CleanUpTask_RestoredAndReplayedNodesReachTheSameState(t *testin
 			requireStamp(t, restored, unitsStoppedAt, "restored node")
 			requireStamp(t, replayed, finalizedAt, "replayed node")
 
-			entry := toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Namespace:            divergenceNamespace,
-				Id:                   divergenceTaskID,
-				Version:              divergenceVersion,
-				FinishedAtUnixMillis: tc.proposerStamp.UnixMilli(),
-				ProposedAtUnixMillis: proposedAt.UnixMilli(),
-				TtlMillis:            ttl.Milliseconds(),
-			})
+			req := &cmd.CleanUpDistributedTaskRequest{
+				Namespace: divergenceNamespace,
+				Id:        divergenceTaskID,
+				Version:   divergenceVersion,
+			}
+			if !tc.noMeasurements {
+				req.FinishedAtUnixMillis = tc.proposerStamp.UnixMilli()
+				req.ProposedAtUnixMillis = proposedAt.UnixMilli()
+				req.TtlMillis = ttl.Milliseconds()
+			}
+			entry := toCmd(t, req)
 			restoredErr := restored.manager.CleanUpTask(entry)
 			replayedErr := replayed.manager.CleanUpTask(entry)
 
+			require.Equal(t, taskCount(t, restored), taskCount(t, replayed),
+				"one entry, one outcome: the two nodes must hold the same number of tasks")
 			require.Equal(t, tc.wantRemaining, taskCount(t, restored), "restored node")
 			require.Equal(t, tc.wantRemaining, taskCount(t, replayed), "replayed node")
 			require.Equal(t, restoredErr == nil, replayedErr == nil,
 				"one log entry, one outcome: restored=%v replayed=%v", restoredErr, replayedErr)
+
+			for node, h := range map[string]*testHarness{"restored": restored, "replayed": replayed} {
+				warns := stampMismatchWarns(h)
+				if node == tc.warningNode {
+					require.Len(t, warns, 1,
+						"the %s node holds a different stamp than the proposer and must say so", node)
+					require.Contains(t, warns[0], divergenceTaskID)
+					continue
+				}
+				require.Empty(t, warns,
+					"the %s node agrees with the proposer's stamp and must stay silent", node)
+			}
 		})
 	}
 }

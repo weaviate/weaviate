@@ -1620,10 +1620,10 @@ type CleanUpDistributedTaskRequest struct {
 	//
 	// A zero finished_at_unix_millis means the request came from a binary that
 	// predates these fields — a sweep that sets them never proposes an unstamped
-	// task — and the apply falls back to the local age check that binary's sweep
-	// expects. The other direction does not converge: a binary that predates
-	// these fields ignores them and re-derives locally whatever the proposer
-	// measured.
+	// task. There is nothing on the entry to decide from, so the apply defers and
+	// keeps the task rather than substituting an operand of its own. The proposer
+	// still deletes it on its own local check; the entry that removes it on every
+	// node comes from the first upgraded proposer.
 	ProposedAtUnixMillis int64 `protobuf:"varint,4,opt,name=proposed_at_unix_millis,json=proposedAtUnixMillis,proto3" json:"proposed_at_unix_millis,omitempty"`
 	TtlMillis            int64 `protobuf:"varint,5,opt,name=ttl_millis,json=ttlMillis,proto3" json:"ttl_millis,omitempty"`
 	FinishedAtUnixMillis int64 `protobuf:"varint,6,opt,name=finished_at_unix_millis,json=finishedAtUnixMillis,proto3" json:"finished_at_unix_millis,omitempty"`

@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -90,6 +91,12 @@ type Manager struct {
 	clock clockwork.Clock
 
 	logger logrus.FieldLogger
+
+	// stampMismatchLogger bounds the warn in [Manager.ttlHasElapsed]. A
+	// rolling upgrade can hand this node a whole backlog of tasks whose
+	// stamps differ from the proposer's, and each one warns on the entry
+	// that deletes it, so the burst is as large as the backlog.
+	stampMismatchLogger *logrusext.Sampler
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
@@ -232,12 +239,17 @@ type ManagerParameters struct {
 	Logger logrus.FieldLogger
 }
 
+// stampMismatchWarnBudget is how many stamp-mismatch warns an hour carries. The
+// message is the same shape for every task in the backlog, so a handful is enough
+// to tell an operator the rolling upgrade is producing divergent stamps.
+const stampMismatchWarnBudget = 5
+
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
 	}
 
-	return &Manager{
+	m := &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
 		terminalObservers:    make(map[string]TerminalObserver),
@@ -249,6 +261,8 @@ func NewManager(params ManagerParameters) *Manager {
 		clock:  params.Clock,
 		logger: params.Logger,
 	}
+	m.stampMismatchLogger = logrusext.NewSampler(m.dispatchLogger(), stampMismatchWarnBudget, time.Hour)
+	return m
 }
 
 // RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
@@ -1033,7 +1047,8 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 // are still within the completed-task TTL — preventing premature removal of status
 // information that other nodes may still need to observe. The first two refusals are
 // properties of the local task, the same on every node; the third reads only the
-// request. See [Manager.ttlHasElapsed] for whose measurements decide it.
+// request, and a request carrying no measurements at all is deferred rather than
+// decided. See [Manager.ttlHasElapsed].
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1057,9 +1072,15 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	// A terminal task without a stamp has no age, so the TTL check below would
 	// delete it on the first attempt, hiding it from the backup overlap
 	// backstop. Refuse instead — a property of the task alone, so every node
-	// applying this entry reaches it whatever its own clock says. Reachable
-	// only until the next restore, which repairs the local map; see
-	// [Task.repairTerminalStamp].
+	// applying this entry reaches it whatever its own clock says.
+	//
+	// No released binary produces this state on its own: every version that has
+	// ever shipped stamps when the units stop, before the transitions that do
+	// not stamp. It takes both builds. This one leaves a SWAPPING task
+	// unstamped, that state reaches a node predating the change through a
+	// snapshot install or a rollback, and its finalize then writes a terminal
+	// status without a stamp. It clears on the next restore, which repairs the
+	// local map; see [Task.repairTerminalStamp].
 	if task.FinishedAt.IsZero() {
 		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
 			Warnf("refusing to clean up task %s/%s/%d: it is %s but carries no finish time",
@@ -1095,24 +1116,28 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // only; the effective cluster retention is whatever the proposing node had.
 //
 // A zero finished_at means the request came from a binary that predates these
-// fields — a sweep that sets them refuses to propose an unstamped task — and the
-// local age check that binary's sweep expects applies instead. The opposite
-// direction does not converge: an applier on such a binary discards the
-// measurements and re-derives locally whatever the proposer sent, so a
-// mixed-version cluster keeps forking until every node runs a binary that reads
-// them.
+// fields: a sweep on this build filters unstamped tasks out before proposing, so
+// nothing else produces one. There is nothing on the entry to decide from, and
+// the only operands a node could substitute are its own stamp and its own clock —
+// the two that differ between nodes. So this defers and the task stays. The old
+// proposer still deletes it on its own local check, every node on this build
+// keeps it, and the backlog ages out as soon as an upgraded node takes leadership
+// and proposes with measurements. Deferring also keeps the evidence the backup
+// overlap backstop reads, which is the fail-closed direction.
 func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinishedAt time.Time) bool {
 	if r.FinishedAtUnixMillis == 0 {
-		return m.completedTaskTTL < m.clock.Since(localFinishedAt)
+		return false
 	}
 
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 	if !finishedAt.Equal(localFinishedAt) {
-		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
-			Warnf("task %s/%s/%d carries finish time %s here but the cleanup proposer read %s; "+
-				"deciding from the proposer's so every node reaches the same verdict. Expected "+
-				"during a rolling upgrade past a build that stamped the terminal transition differently",
-				r.Namespace, r.Id, r.Version, localFinishedAt, finishedAt)
+		m.stampMismatchLogger.WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("namespace", r.Namespace).WithField("task_id", r.Id).
+				Warnf("task %s/%s/%d carries finish time %s here but the cleanup proposer read %s; "+
+					"deciding from the proposer's so every node reaches the same verdict. Expected "+
+					"during a rolling upgrade past a build that stamped the terminal transition differently",
+					r.Namespace, r.Id, r.Version, localFinishedAt, finishedAt)
+		})
 	}
 
 	elapsed := time.UnixMilli(r.ProposedAtUnixMillis).Sub(finishedAt)
@@ -1289,6 +1314,17 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // A payload from a newer format fails the restore, which cluster/store_snapshot.go
 // propagates. Only a downgrade produces one, and stopping there is what keeps a
 // build from reading a future FinishedAt convention under the old meaning.
+//
+// That refusal costs the node its startup. At boot hashicorp/raft walks the
+// retained snapshots newest-first, so an older one this build can still read is
+// used instead and the log replays from there. If every retained snapshot is from
+// the newer format, NewRaft fails, Store.Open fails, and adapters/handlers/rest/
+// configure_api.go calls Fatalf — the process exits, and a supervisor restarts it
+// into the same failure. On a node that is already up the refusal arrives on the
+// InstallSnapshot RPC instead: the node keeps running but never catches up,
+// because the leader retries the same payload. Recovery is to put the node back on
+// a build at or above the one that wrote the snapshot, or to remove the newer
+// snapshots from its raft directory so a readable older one is the newest retained.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {

@@ -34,7 +34,7 @@ import (
 // The tests below pin that the apply uses the proposer's numbers in both
 // directions, that two nodes holding different finish times still reach the same
 // state, that state invariants still refuse locally, and that a request carrying
-// no measurements keeps the local age check.
+// no measurements defers instead of deciding from anything local.
 
 // seedTerminalTaskStampedAt installs a single FINISHED task carrying the given
 // finish time straight into the task map.
@@ -94,19 +94,19 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 			proposerTTL:     24 * time.Hour,
 			wantKept:        false,
 		},
-		// The fallback arms keep stampAge within a few multiples of the
-		// harness TTL. A stamp centuries old lands before the Unix epoch, and
-		// a measurement path fed the request's zero fields would then read it
-		// as expired too and agree with the fallback by accident.
+		// The deferral arms. Both stamp ages are on the request-less path, one
+		// well inside the harness TTL and one well past it, because the point
+		// is that the local age the node would have computed does not enter
+		// into it either way.
 		{
-			name:     "no measurements on the request fall back to the local age check, which refuses a fresh task",
+			name:     "no measurements on the request defer, keeping a task this node reads as fresh",
 			stampAge: time.Minute,
 			wantKept: true,
 		},
 		{
-			name:     "no measurements on the request fall back to the local age check, which deletes an expired task",
+			name:     "no measurements on the request defer, keeping a task this node reads as long expired",
 			stampAge: 6 * 24 * time.Hour,
-			wantKept: false,
+			wantKept: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
