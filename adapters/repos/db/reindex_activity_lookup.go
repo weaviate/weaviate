@@ -255,9 +255,14 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 // above and then reads a list the peer's sweep has already emptied as
 // all-clear. The error text says "on every node" for that reason.
 //
+// A skewed clock has the same effect as a short TTL, and for the same reason:
+// the proposer's measuring moment is authoritative for everyone, so a node whose
+// clock jumped forward sweeps the whole cluster early rather than only its own
+// copy. Uniform clocks are part of the same requirement.
+//
 // Closing that needs the cluster minimum, which this node cannot see, or a
-// leader-gated sweep so one node's TTL governs. Until then the requirement is
-// documented rather than enforced.
+// leader-gated sweep so one node's TTL and clock govern. Until then the
+// requirement is documented rather than enforced.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
