@@ -180,8 +180,12 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
 //
-// Answers at LOCAL consistency, so the schema flags and the task list are
-// apply-ordered with respect to each other — see
+// Answers at LOCAL consistency: both the schema flags and the task list come
+// from this node's own FSM, so the skew between them is the gap between two
+// adjacent in-process reads rather than the leader's apply lag. It is not one
+// snapshot. The schema is read first and the task list second, so a flip and
+// the finalize that follows it can both land in between, and the handler then
+// renders newer tasks against an older schema for that instant. See
 // [cluster.Raft.ListDistributedTasksAtLocalConsistency]. The submit path and the backup
 // commit-time gate answer at the leader, so a lagging node can report an index
 // `ready` and then refuse the operator's follow-up write.

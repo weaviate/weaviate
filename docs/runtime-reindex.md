@@ -144,10 +144,12 @@ Per-property, per-index-type snapshot:
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
 The status is synthesized in `mergeReindexStatus` from a snapshot of
 the DTM task list crossed with the live schema flags. Both are read
-from the **local FSM**, so they come from one apply-ordered view: any
-schema flip a task makes commits to the RAFT log before the task is
-marked FINISHED, so a locally FINISHED task never renders against a
-flip this node has yet to apply. The window between the units stopping
+from the **local FSM**: any schema flip a task makes commits to the
+RAFT log before the task is marked FINISHED, so a locally FINISHED task
+never renders against a flip this node has yet to apply. The two are
+still two sequential reads, not one snapshot, so what this buys is a
+window of two adjacent in-process reads instead of the leader's apply
+lag. The window between the units stopping
 and the flip is reported by the `PREPARING` and `SWAPPING` statuses,
 which render as `indexing@100%`.
 

@@ -41,9 +41,11 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 // leader.
 //
 // Pick this one when the answer is rendered against other state read from this
-// same node, so the two are apply-ordered with respect to each other. Read from
-// the leader instead and a follower can report a task FINISHED before it has
-// applied the schema change that same task committed to the log first.
+// same node. Read from the leader instead and a follower can report a task
+// FINISHED before it has applied the schema change that same task committed to
+// the log first. Two local reads are still two reads and not a shared snapshot,
+// so a caller crossing them keeps a window; local only shrinks that window from
+// the leader's apply lag to the gap between the two calls.
 //
 // Pick [Raft.ListDistributedTasks] for anything that decides whether an
 // operation may proceed: a lagging follower's view admits work the leader

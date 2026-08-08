@@ -25,8 +25,9 @@ import (
 )
 
 // The index-status endpoint reads the task list from this method so the list
-// and the schema flags it renders against come from the same apply-ordered
-// view. Every handler-level test fakes the whole service, so this is the only
+// and the schema flags it renders against come from the same node, which is
+// what keeps their skew to two adjacent local reads rather than the leader's
+// apply lag. Every handler-level test fakes the whole service, so this is the only
 // place the real method's read is observable.
 //
 // The node here has never joined a cluster: it has FSM state but no raft, so
