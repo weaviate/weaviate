@@ -215,17 +215,5 @@ func TestInternalBackupsNodeActivityRejectsNonGET(t *testing.T) {
 	server := httptest.NewServer(handler.NodeActivity())
 	defer server.Close()
 
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
-		t.Run(method, func(t *testing.T) {
-			req, err := http.NewRequest(method, server.URL+"/backups/node-activity", nil)
-			require.NoError(t, err)
-
-			res, err := server.Client().Do(req)
-			require.NoError(t, err)
-			defer res.Body.Close()
-
-			assert.Equal(t, http.StatusMethodNotAllowed, res.StatusCode,
-				"a read-only probe must not answer writes")
-		})
-	}
+	assertRejectsNonGET(t, server, "/backups/node-activity")
 }

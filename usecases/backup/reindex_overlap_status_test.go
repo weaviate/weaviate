@@ -53,12 +53,7 @@ func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testin
 		observed = append(observed, observation{status: st, reason: reason})
 	}}
 
-	logger, _ := test.NewNullLogger()
-	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
-
-	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
-	err := uploader.all(context.Background(), nil, &desc, nil, "", "")
+	err := runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil, time.Now().UTC())
 	require.ErrorIs(t, err, backup.ErrBackupSpannedReindex)
 
 	storedStatus, storedReason := backend.getMetaStatus()
@@ -105,12 +100,7 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 
 	slot := &fakeStatusSlot{}
 
-	logger, _ := test.NewNullLogger()
-	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
-
-	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
-	err := uploader.all(ctx, nil, &desc, nil, "", "")
+	err := runOverlapBackup(ctx, backend, sourcer, slot, backupID, nil, time.Now().UTC())
 	require.ErrorIs(t, err, context.Canceled)
 
 	storedStatus, storedReason := backend.getMetaStatus()
@@ -147,13 +137,7 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	slot := &bp.lastOp
 	require.Empty(t, slot.renew(backupID, "bucket/backups/1", "", ""))
 
-	logger, _ := test.NewNullLogger()
-	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
-
-	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
-	err := uploader.all(context.Background(), nil, &desc, nil, "", "")
-
+	err := runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil, time.Now().UTC())
 	require.ErrorIs(t, err, backup.ErrBackupSpannedReindex)
 	require.Contains(t, err.Error(), "a runtime-reindex overlapped this backup",
 		"with the descriptor unwritten, the returned error is the only place the reason survives")
@@ -199,13 +183,8 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 
 	slot := &fakeStatusSlot{}
 
-	logger, _ := test.NewNullLogger()
-	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
-
 	ctx := context.Background()
-	desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
-	err := uploader.all(ctx, nil, &desc, nil, "", "")
+	err := runOverlapBackup(ctx, backend, sourcer, slot, backupID, nil, time.Now().UTC())
 	require.Error(t, err)
 	require.NoError(t, ctx.Err(), "the backup's own context was never cancelled")
 
@@ -275,13 +254,8 @@ func TestOverlapRefusalDistinguishesAnObservedMigrationFromAnUnansweredCheck(t *
 			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
 			sourcer.reindexOverlapErr = tc.overlapErr
 
-			logger, _ := test.NewNullLogger()
-			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID,
-				&fakeStatusSlot{}, logger)
-
-			desc := backup.BackupDescriptor{ID: backupID, StartedAt: time.Now().UTC()}
-			err := uploader.all(context.Background(), nil, &desc, nil, "", "")
+			err := runOverlapBackup(context.Background(), backend, sourcer, &fakeStatusSlot{},
+				backupID, nil, time.Now().UTC())
 			require.ErrorIs(t, err, backup.ErrBackupSpannedReindex,
 				"both refusals stay classifiable as this check's")
 
@@ -308,17 +282,12 @@ func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.
 	sourcer := &fakeSourcer{}
 	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
 
-	logger, _ := test.NewNullLogger()
-	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID,
-		&fakeStatusSlot{}, logger)
-
 	// Far enough back that "now" cannot be mistaken for it.
 	startedAt := time.Now().UTC().Add(-time.Hour)
-	desc := backup.BackupDescriptor{ID: backupID, StartedAt: startedAt}
 	classes := []string{"Movies"}
 
-	require.NoError(t, uploader.all(context.Background(), classes, &desc, nil, "", ""))
+	require.NoError(t, runOverlapBackup(context.Background(), backend, sourcer,
+		&fakeStatusSlot{}, backupID, classes, startedAt))
 
 	askedClasses, askedSince, calls := sourcer.lastOverlapQuery()
 	require.Equal(t, 1, calls, "every commit has to consult the overlap check exactly once")
@@ -421,4 +390,17 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 			require.Equal(t, tc.wantReason, gotReason)
 		})
 	}
+}
+
+// runOverlapBackup drives one commit through the uploader with the backend,
+// sourcer and status slot the caller wired for its scenario, and hands back what
+// that commit returned.
+func runOverlapBackup(ctx context.Context, backend *fakeBackend, sourcer *fakeSourcer,
+	slot statusPublisher, backupID string, classes []string, startedAt time.Time,
+) error {
+	logger, _ := test.NewNullLogger()
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
+	desc := backup.BackupDescriptor{ID: backupID, StartedAt: startedAt}
+	return uploader.all(ctx, classes, &desc, nil, "", "")
 }

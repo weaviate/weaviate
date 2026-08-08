@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -101,10 +100,7 @@ func TestCancelRefusesATaskThatHasPassedThePointOfCancellation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &raceTaskService{tasks: tc.tasks}
-			var busy atomic.Bool
-			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger,
-				fixtureNode, func() int { return 1 }, context.Background()))
+			h := cancelHandlers(t, svc)
 
 			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
 				&models.Principal{Username: "u1"})

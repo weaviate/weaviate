@@ -62,21 +62,10 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	const (
 		unknownID   = "no-such-backup"
 		backendName = "s3"
-		homePath    = "root/123"
 	)
 
-	newFixture := func(t *testing.T) *fakeScheduler {
-		t.Helper()
-		fs := newFakeScheduler(nil)
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(homePath)
-		fs.backend.On("GetObject", ctx, unknownID, GlobalBackupFile).
-			Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		fs.backend.On("GetObject", ctx, unknownID, BackupFile).Return(nil, backup.ErrNotFound{})
-		return fs
-	}
-
 	t.Run("live reindex outranks an unknown id", func(t *testing.T) {
-		fs := newFixture(t)
+		fs := unknownIDFixture(ctx, unknownID)
 		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
 
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
@@ -91,7 +80,7 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	})
 
 	t.Run("without a live reindex the unknown id still answers 404", func(t *testing.T) {
-		fs := newFixture(t)
+		fs := unknownIDFixture(ctx, unknownID)
 
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -108,7 +97,7 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	// authorize against and the broad grant is the only thing standing between a
 	// principal with no backup permission at all and that answer.
 	t.Run("an unauthorized caller is refused before the gate answers", func(t *testing.T) {
-		fs := newFixture(t)
+		fs := unknownIDFixture(ctx, unknownID)
 		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
 		authz := &recordingAuthorizer{err: errors.New("forbidden")}
 		fs.auth = authz
@@ -128,7 +117,7 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	// The same arm with the grant held: the gate is what answers, and it
 	// answers before existence.
 	t.Run("an authorized caller reaches the gate", func(t *testing.T) {
-		fs := newFixture(t)
+		fs := unknownIDFixture(ctx, unknownID)
 		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
 		authz := &recordingAuthorizer{}
 		fs.auth = authz
@@ -148,7 +137,7 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	// have touched — not even for a caller that named its own. The gate is asked
 	// cluster-wide, so a migration anywhere blocks it.
 	t.Run("the unknown-id arm asks the gate cluster-wide", func(t *testing.T) {
-		fs := newFixture(t)
+		fs := unknownIDFixture(ctx, unknownID)
 		fs.selector.reindexInFlightFor = func(collections []string) error {
 			if len(collections) == 0 {
 				return errors.New("runtime-reindex in flight")
@@ -176,7 +165,7 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 	// a mistyped id to every principal holding anything narrower than a grant on
 	// all collections, and the handler maps Forbidden ahead of NotFound.
 	t.Run("a per-class grant still gets the 404, not a 403", func(t *testing.T) {
-		fs := newFixture(t)
+		fs := unknownIDFixture(ctx, unknownID)
 		authz := &scopedAuthorizer{granted: authorization.Backups("Movies")}
 		fs.auth = authz
 
@@ -234,36 +223,12 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 	const (
 		backupID    = "1"
 		backendName = "s3"
-		homePath    = "bucket/backups/1"
 		node        = "Node-A"
 		class       = "Movies"
 	)
 
-	newFixture := func() *fakeScheduler {
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		meta := backup.DistributedBackupDescriptor{
-			ID:            backupID,
-			StartedAt:     time.Now().UTC(),
-			Version:       Version,
-			ServerVersion: "1.23",
-			Status:        backup.Success,
-			Nodes:         map[string]*backup.NodeDescriptor{node: {Classes: []string{class}}},
-		}
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(homePath)
-		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
-		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).
-			Return(marshalCoordinatorMeta(meta), nil)
-		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).
-			Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, backupID+"/"+node, BackupFile).
-			Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, backupID, BackupFile).
-			Return(nil, backup.ErrNotFound{})
-		return fs
-	}
-
 	t.Run("a live reindex refuses the restore", func(t *testing.T) {
-		fs := newFixture()
+		fs := restoreMetaFixture(ctx, backupID, class)
 		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
 
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
@@ -285,7 +250,7 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 	})
 
 	t.Run("without a live reindex the restore proceeds past the gate", func(t *testing.T) {
-		fs := newFixture()
+		fs := restoreMetaFixture(ctx, backupID, class)
 
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -404,11 +369,7 @@ func TestRestoreGateIsScopedPerArm(t *testing.T) {
 	})
 
 	t.Run("meta-not-found falls back to the blind check", func(t *testing.T) {
-		fs := newFakeScheduler(nil)
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("root/123")
-		fs.backend.On("GetObject", ctx, "no-such-backup", GlobalBackupFile).
-			Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		fs.backend.On("GetObject", ctx, "no-such-backup", BackupFile).Return(nil, backup.ErrNotFound{})
+		fs := unknownIDFixture(ctx, "no-such-backup")
 		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
 
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
@@ -421,6 +382,17 @@ func TestRestoreGateIsScopedPerArm(t *testing.T) {
 		require.Empty(t, fs.selector.reindexCollections[0],
 			"this arm answers before the meta is read, so it has no classes to scope by")
 	})
+}
+
+// unknownIDFixture builds a scheduler whose backend holds no meta at all for id,
+// so a restore of it runs into the not-found answer.
+func unknownIDFixture(ctx context.Context, id string) *fakeScheduler {
+	fs := newFakeScheduler(nil)
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("root/123")
+	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).
+		Return(nil, backup.NewErrNotFound(errors.New("not found")))
+	fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+	return fs
 }
 
 // restoreMetaFixture builds a scheduler whose backend serves a successful backup

@@ -42,14 +42,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 			updateProgress(t, h, ns, taskID, version, n, "u-"+n, 0.1)
 		}
 		for _, n := range nodes {
-			require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-				Namespace:            ns,
-				Id:                   taskID,
-				Version:              version,
-				NodeId:               n,
-				UnitId:               "u-" + n,
-				FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-			}), false))
+			completeUnit(t, h, ns, taskID, version, n, "u-"+n)
 		}
 	}
 
@@ -64,15 +57,7 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 			drive: func(t *testing.T, h *testHarness) {
 				addTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
 				updateProgress(t, h, ns, taskID, version, "node-1", "u-node-1", 0.1)
-				require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-					Namespace:            ns,
-					Id:                   taskID,
-					Version:              version,
-					NodeId:               "node-1",
-					UnitId:               "u-node-1",
-					Error:                "synthetic unit failure",
-					FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-				}), false))
+				failUnit(t, h, ns, taskID, version, "node-1", "u-node-1", "synthetic unit failure")
 			},
 		},
 		{
@@ -181,14 +166,7 @@ func TestFailedApplyDispatchIgnoresHowOldTheTaskLooks(t *testing.T) {
 			stage: func(t *testing.T, h *testHarness) {
 				addTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
 				updateProgress(t, h, ns, taskID, version, "node-1", "u-node-1", 0.1)
-				require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-					Namespace:            ns,
-					Id:                   taskID,
-					Version:              version,
-					NodeId:               "node-1",
-					UnitId:               "u-node-1",
-					FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-				}), false))
+				completeUnit(t, h, ns, taskID, version, "node-1", "u-node-1")
 			},
 			fail: func(t *testing.T, h *testHarness) {
 				require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
@@ -225,14 +203,7 @@ func TestFailedApplyDispatchIgnoresHowOldTheTaskLooks(t *testing.T) {
 			stage: func(t *testing.T, h *testHarness) {
 				addTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
 				updateProgress(t, h, ns, taskID, version, "node-1", "u-node-1", 0.1)
-				require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-					Namespace:            ns,
-					Id:                   taskID,
-					Version:              version,
-					NodeId:               "node-1",
-					UnitId:               "u-node-1",
-					FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-				}), false))
+				completeUnit(t, h, ns, taskID, version, "node-1", "u-node-1")
 			},
 			fail: func(t *testing.T, h *testHarness) {
 				require.NoError(t, h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{

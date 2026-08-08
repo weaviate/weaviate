@@ -15,7 +15,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,9 +78,7 @@ func TestClusterReindexCleanup(t *testing.T) {
 			}))
 			defer server.Close()
 
-			host, err := url.Parse(server.URL)
-			require.NoError(t, err)
-			client := NewClusterReindexCleanup(server.Client(), staticResolver{"node1": host.Host})
+			client := NewClusterReindexCleanup(server.Client(), resolverFor(t, "node1", server.URL))
 
 			got, err := client.CleanupInProgress(context.Background(), "node1", "Movies")
 

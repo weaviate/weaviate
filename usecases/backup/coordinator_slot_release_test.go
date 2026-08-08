@@ -108,31 +108,24 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			}
 
 			if tc.steal {
-				// assert, not require: a failure here must not skip the close
-				// below, which is what unparks the restore goroutine.
-				c.lastOp.set(backup.Cancelled)
-				assert.True(t, c.lastOp.resetIfCancelled(backupID))
-				assert.Empty(t, c.lastOp.renew("live-restore", "path", "", ""))
+				stealSlot(t, &c.lastOp, backup.Cancelled, backupID, "live-restore")
 			}
 			close(release)
 
-			probe := NewNodeActivityProbe(nil)
-			probe.AttachScheduler(&Scheduler{restorer: c})
 			if tc.steal {
 				require.Never(t, func() bool {
 					return c.lastOp.get().ID != tc.wantSlotID
 				}, time.Second, 10*time.Millisecond,
 					"the finished restore released a slot a newer restore owns")
-				require.Equal(t,
-					NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: tc.wantSlotID},
-					probe.Activity())
+				requireProbeSees(t, &Scheduler{restorer: c},
+					NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: tc.wantSlotID})
 				return
 			}
 			require.Eventually(t, func() bool {
 				return c.lastOp.get().ID == tc.wantSlotID
 			}, 10*time.Second, 10*time.Millisecond,
 				"the finished restore never released its own slot")
-			require.Equal(t, NodeActivity{}, probe.Activity())
+			requireProbeSees(t, &Scheduler{restorer: c}, NodeActivity{})
 		})
 	}
 }
@@ -182,15 +175,10 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 				fc.client.On("Status", anyArg, node, anyArg).Return(sresp, nil).
 					Run(func(mock.Arguments) {
 						// Runs on the backup goroutine, before its deferred release.
-						// assert, not require: require's Goexit would kill that
-						// goroutine mid-flight, surfacing as a hang or an unrelated
-						// downstream failure instead of this one.
 						if !tc.steal || !stolen.CompareAndSwap(false, true) {
 							return
 						}
-						c.lastOp.set(backup.Cancelled)
-						assert.True(t, c.lastOp.resetIfCancelled(backupID))
-						assert.Empty(t, c.lastOp.renew("live-backup", "path", "", ""))
+						stealSlot(t, &c.lastOp, backup.Cancelled, backupID, "live-backup")
 					})
 			}
 
@@ -204,24 +192,20 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 					"the newer backup never got to claim the slot")
 			}
 
-			probe := NewNodeActivityProbe(nil)
-			probe.AttachScheduler(&Scheduler{backupper: c})
-
 			if tc.steal {
 				require.Never(t, func() bool {
 					return c.lastOp.get().ID != tc.wantSlotID
 				}, 2*time.Second, 20*time.Millisecond,
 					"the finished backup released a slot a newer backup owns")
-				require.Equal(t,
-					NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: tc.wantSlotID},
-					probe.Activity())
+				requireProbeSees(t, &Scheduler{backupper: c},
+					NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: tc.wantSlotID})
 				return
 			}
 			require.Eventually(t, func() bool {
 				return c.lastOp.get().ID == tc.wantSlotID
 			}, 10*time.Second, 20*time.Millisecond,
 				"the finished backup never released its own slot")
-			require.Equal(t, NodeActivity{}, probe.Activity())
+			requireProbeSees(t, &Scheduler{backupper: c}, NodeActivity{})
 		})
 	}
 }
@@ -290,4 +274,29 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 			require.Equal(t, test.wantStatus, held.Status, test.reason)
 		})
 	}
+}
+
+// stealSlot reproduces a newer operation taking the slot over while the one
+// holding it is still in flight: heldID is cancelled, releases, and newID claims
+// what it freed.
+//
+// assert, not require: this runs on the in-flight operation's own goroutine, or
+// right before the step that unparks it. require's Goexit would abandon that
+// operation mid-flight, surfacing as a hang or an unrelated downstream failure
+// instead of this one.
+func stealSlot(t *testing.T, slot *backupStat, cancelStatus backup.Status, heldID, newID string) {
+	t.Helper()
+	slot.set(cancelStatus)
+	assert.True(t, slot.resetIfCancelled(heldID))
+	assert.Empty(t, slot.renew(newID, "path", "", ""))
+}
+
+// requireProbeSees pins what a probe attached to sched reports. The reindex gate
+// reads this answer, so reporting the node idle admits a migration on top of a
+// live operation.
+func requireProbeSees(t *testing.T, sched *Scheduler, want NodeActivity, msgAndArgs ...interface{}) {
+	t.Helper()
+	probe := NewNodeActivityProbe(nil)
+	probe.AttachScheduler(sched)
+	require.Equal(t, want, probe.Activity(), msgAndArgs...)
 }

@@ -25,10 +25,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
@@ -301,31 +299,10 @@ func TestBackupable_RefusalRedactsNodeAndShard(t *testing.T) {
 		node       = "weaviate-0"
 	)
 
-	logger, _ := logrustest.NewNullLogger()
-	shardState := &sharding.State{
-		IndexID:  collection,
-		Physical: map[string]sharding.Physical{shard: {Name: shard, BelongsToNodes: []string{node}}},
-	}
-
-	reader := schemaUC.NewMockSchemaReader(t)
-	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
-		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
-		require.NoError(t, fn(&models.Class{Class: collection}, shardState))
-	})
-	getter := schemaUC.NewMockSchemaGetter(t)
-	getter.On("NodeName").Return(node)
-
-	db := &DB{logger: logger, localNodeName: node}
+	db := backupableFixture(t, collection, node, shard)
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{collection, shard}: true,
 	}))
-	idx := &Index{
-		db:           db,
-		Config:       IndexConfig{ClassName: schema.ClassName(collection)},
-		schemaReader: reader,
-		getSchema:    getter,
-	}
-	db.indices = map[string]*Index{indexID(schema.ClassName(collection)): idx}
 
 	err := db.Backupable(context.Background(), []string{collection})
 	require.Error(t, err)
@@ -343,31 +320,7 @@ func TestBackupable_RefusalRedactsNodeAndShard(t *testing.T) {
 // whose sharding state lists the given local shards.
 func backupableFixture(t *testing.T, collection, node string, shards ...string) *DB {
 	t.Helper()
-
-	physical := make(map[string]sharding.Physical, len(shards))
-	for _, s := range shards {
-		physical[s] = sharding.Physical{Name: s, BelongsToNodes: []string{node}}
-	}
-	shardState := &sharding.State{IndexID: collection, Physical: physical}
-
-	reader := schemaUC.NewMockSchemaReader(t)
-	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
-		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
-		require.NoError(t, fn(&models.Class{Class: collection}, shardState))
-	})
-	getter := schemaUC.NewMockSchemaGetter(t)
-	getter.On("NodeName").Return(node)
-
-	logger, _ := logrustest.NewNullLogger()
-	db := &DB{logger: logger, localNodeName: node}
-	idx := &Index{
-		db:           db,
-		Config:       IndexConfig{ClassName: schema.ClassName(collection)},
-		schemaReader: reader,
-		getSchema:    getter,
-	}
-	db.indices = map[string]*Index{indexID(schema.ClassName(collection)): idx}
-	return db
+	return multiCollectionBackupableFixture(t, node, map[string][]string{collection: shards})
 }
 
 // Building the activity snapshot is a leader-forwarded RAFT query, so a

@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -67,17 +66,7 @@ func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			fc := newFakeCoordinator(newFakeNodeResolver(nodes))
-			desc := &backup.DistributedBackupDescriptor{
-				ID:      backupID,
-				Status:  backup.Started,
-				Version: Version,
-				Nodes: map[string]*backup.NodeDescriptor{
-					nodes[0]: {Classes: []string{"C1"}, Status: backup.Started},
-				},
-			}
-			fc.backend.On("HomeDir", anyArg, anyArg, anyArg).Return("bucket/" + backupID)
-			fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+			fc, desc := newRestoreCoordFixture(ctx, backupID, nodes)
 			fc.client.On("Abort", anyArg, anyArg, anyArg).Return(nil).Maybe()
 
 			c := fc.coordinator()
@@ -89,14 +78,10 @@ func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 			var stolen atomic.Bool
 			fc.client.On("CanCommit", anyArg, nodes[0], anyArg).Return(cresp, nil).
 				Run(func(mock.Arguments) {
-					// assert, not require: Goexit here would abandon Restore
-					// mid-flight and surface as a hang instead of this failure.
 					if !stolen.CompareAndSwap(false, true) {
 						return
 					}
-					c.lastOp.set(backup.Cancelling)
-					assert.True(t, c.lastOp.resetIfCancelled(backupID))
-					assert.Empty(t, c.lastOp.renew(newerID, "path", "", ""))
+					stealSlot(t, &c.lastOp, backup.Cancelling, backupID, newerID)
 				})
 			if tc.putMetaErr {
 				fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).
@@ -113,11 +98,8 @@ func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 			require.Equal(t, backup.Started, held.Status,
 				"the failed restore restamped the status of a slot the newer restore owns")
 
-			probe := NewNodeActivityProbe(nil)
-			probe.AttachScheduler(&Scheduler{restorer: c})
-			require.Equal(t,
+			requireProbeSees(t, &Scheduler{restorer: c},
 				NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: newerID},
-				probe.Activity(),
 				"the probe reports the node idle while a restore is live, so a reindex is admitted on top of it")
 		})
 	}
@@ -156,17 +138,7 @@ func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			fc := newFakeCoordinator(newFakeNodeResolver(nodes))
-			desc := &backup.DistributedBackupDescriptor{
-				ID:      backupID,
-				Status:  backup.Started,
-				Version: Version,
-				Nodes: map[string]*backup.NodeDescriptor{
-					nodes[0]: {Classes: []string{"C1"}, Status: backup.Started},
-				},
-			}
-			fc.backend.On("HomeDir", anyArg, anyArg, anyArg).Return("bucket/" + backupID)
-			fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+			fc, desc := newRestoreCoordFixture(ctx, backupID, nodes)
 			fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).Return(nil)
 			fc.client.On("CanCommit", anyArg, nodes[0], anyArg).Return(cresp, nil)
 			fc.client.On("Commit", anyArg, nodes[0], anyArg).Return(nil)
@@ -179,9 +151,7 @@ func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 					if !stolen.CompareAndSwap(false, true) {
 						return
 					}
-					c.lastOp.set(backup.Cancelling)
-					assert.True(t, c.lastOp.resetIfCancelled(backupID))
-					assert.Empty(t, c.lastOp.renew(newerID, "path", "", ""))
+					stealSlot(t, &c.lastOp, backup.Cancelling, backupID, newerID)
 					if tc.cancelledInStorage {
 						fc.backend.Lock()
 						fc.backend.glMeta.Status = backup.Cancelling
@@ -202,4 +172,23 @@ func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 				"the finished restore wrote a slot the newer restore owns")
 		})
 	}
+}
+
+// newRestoreCoordFixture builds a coordinator whose backend holds no restore
+// meta yet, plus the descriptor a fresh restore of backupID starts from.
+func newRestoreCoordFixture(ctx context.Context, backupID string, nodes []string,
+) (*fakeCoordinator, *backup.DistributedBackupDescriptor) {
+	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+	desc := &backup.DistributedBackupDescriptor{
+		ID:      backupID,
+		Status:  backup.Started,
+		Version: Version,
+		Nodes:   make(map[string]*backup.NodeDescriptor, len(nodes)),
+	}
+	for _, node := range nodes {
+		desc.Nodes[node] = &backup.NodeDescriptor{Classes: []string{"C1"}, Status: backup.Started}
+	}
+	fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+	fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+	return fc, desc
 }

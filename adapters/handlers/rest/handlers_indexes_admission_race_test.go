@@ -199,6 +199,18 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 	}
 }
 
+// cancelHandlers builds the handler the cancel path runs against: the same
+// fixture as submissionHandlers, plus a reindex provider the cancel path needs
+// to be present. The backup flag is never raised, so the probe stays idle.
+func cancelHandlers(t *testing.T, tasks reindexTaskService) *indexesHandlers {
+	t.Helper()
+	var busy atomic.Bool
+	h := submissionHandlers(t, tasks, togglingProber{busy: &busy})
+	h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
+		func() int { return 1 }, context.Background()))
+	return h
+}
+
 func submitReindex(h *indexesHandlers) middleware.Responder {
 	return submitReindexOn(h, context.Background())
 }

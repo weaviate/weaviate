@@ -177,17 +177,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 		// have to find another way through.
 		const overflow = 3
 		total := terminalDispatchQueueDepth + 1 + overflow
-		task := &Task{
-			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
-			Namespace:      observerNamespace,
-			Status:         TaskStatusCancelled,
-			FinishedAt:     h.clock.Now(),
-		}
-		h.manager.mu.Lock()
-		for range total {
-			h.manager.dispatchTerminalWithLock(task, false)
-		}
-		h.manager.mu.Unlock()
+		fillDispatchQueue(h.manager, terminalDispatchTask(h.manager), total)
 
 		close(release)
 		require.Eventually(t, func() bool { return rec.count() == total },
@@ -279,12 +269,7 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 	// Put an event on the queue by hand, bypassing the apply path's own guard:
 	// only a live drainer can take it off again, so this asks about the
 	// goroutine and nothing else.
-	h.manager.terminalDispatch <- &Task{
-		TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
-		Namespace:      observerNamespace,
-		Status:         TaskStatusCancelled,
-		FinishedAt:     h.clock.Now(),
-	}
+	h.manager.terminalDispatch <- terminalDispatchTask(h.manager)
 	require.Never(t, func() bool { return rec.count() > 0 },
 		300*time.Millisecond, 10*time.Millisecond,
 		"a queued event must not reach an observer after Close; the drainer has been told to exit")
@@ -316,6 +301,16 @@ func terminalDispatchTask(m *Manager) *Task {
 		Namespace:      observerNamespace,
 		Status:         TaskStatusCancelled,
 		FinishedAt:     m.clock.Now(),
+	}
+}
+
+// fillDispatchQueue hands the same terminal event to the dispatch path n times,
+// holding the Manager's lock the way the apply path does.
+func fillDispatchQueue(m *Manager, task *Task, n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for range n {
+		m.dispatchTerminalWithLock(task, false)
 	}
 }
 
@@ -470,17 +465,7 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 	// down the overflow arm — the path under test.
 	const overflow = 3
 	total := terminalDispatchQueueDepth + 1 + overflow
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
-		Namespace:      observerNamespace,
-		Status:         TaskStatusCancelled,
-		FinishedAt:     h.clock.Now(),
-	}
-	h.manager.mu.Lock()
-	for range total {
-		h.manager.dispatchTerminalWithLock(task, false)
-	}
-	h.manager.mu.Unlock()
+	fillDispatchQueue(h.manager, terminalDispatchTask(h.manager), total)
 
 	close(release)
 

@@ -239,10 +239,7 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 				listErrAfterCancel: tc.listErrAfterCancel,
 				dropAfterCancel:    tc.dropAfterCancel,
 			}
-			var busy atomic.Bool
-			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger,
-				fixtureNode, func() int { return 1 }, context.Background()))
+			h := cancelHandlers(t, svc)
 
 			responder := h.cancelReindexTask(context.Background(), collection, property, indexType,
 				&models.Principal{Username: "u1"})
