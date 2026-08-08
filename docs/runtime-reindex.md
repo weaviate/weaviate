@@ -220,11 +220,17 @@ Two things about it changed with the `finishedAt` work:
   old shorter one still wins on the nodes that have not restarted yet.
   A node old enough not to send the measurements sends nothing, and a
   proposal carrying none is deferred rather than decided: the old node
-  still drops the task from its own list on its local check, every node
-  on this version keeps it, and the backlog ages out normally as soon as
-  an upgraded node takes leadership and proposes with measurements.
+  still drops the task from its own list on its local check, and every
+  node on this version keeps it. The cleanup sweep runs on every node,
+  not only the leader, so the backlog normally ages out on the next tick
+  of any upgraded node — the one case that has to wait for an upgraded
+  node to take leadership is a task the old proposer's own entry already
+  removed from the leader's list, which is the list every node sweeps.
   Cleanup therefore lags for the length of the upgrade window, which
   keeps the backup overlap backstop's evidence instead of dropping it.
+  The defer is not logged: it is the expected state during an upgrade,
+  and on one that stalls with an old node still holding leadership the
+  retained tasks are bounded only by how many reindexes are submitted.
 
   A uniform TTL is a correctness requirement for the backup overlap
   backstop, not just a retention preference. That backstop refuses a
@@ -236,6 +242,14 @@ Two things about it changed with the `finishedAt` work:
   check and then reads an empty task list as all-clear. Set the same value
   everywhere, and treat a rolling restart that changes it as a window in
   which backups can be taken on stale evidence.
+
+  Gating the sweep on leadership would enforce both requirements instead
+  of documenting them, since one node's TTL and clock would then govern.
+  It is deliberately not done here. It does nothing for the mixed-version
+  window this section is about — an old follower keeps sweeping with its
+  own clock either way — so it is a steady-state simplification that
+  costs another change to the cleanup wire format, and it is worth
+  deciding on its own rather than as part of this one.
 
 ## 3. End-to-end lifecycle
 

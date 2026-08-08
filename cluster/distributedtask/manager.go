@@ -1108,10 +1108,18 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // nothing else produces one. There is nothing on the entry to decide from, and
 // the only operands a node could substitute are its own stamp and its own clock —
 // the two that differ between nodes. So this defers and the task stays. The old
-// proposer still deletes it on its own local check, every node on this build
-// keeps it, and the backlog ages out as soon as an upgraded node takes leadership
-// and proposes with measurements. Deferring also keeps the evidence the backup
+// proposer still deletes it on its own local check and every node on this build
+// keeps it. [Scheduler.tick] is not leader-gated, so the next tick of any
+// upgraded node re-proposes with measurements and the cluster converges — unless
+// the old proposer's own entry has already dropped the task from the leader's
+// list, which is the list every node sweeps. Then the deferred copies wait for an
+// upgraded node to take leadership. Deferring keeps the evidence the backup
 // overlap backstop reads, which is the fail-closed direction.
+//
+// The defer is deliberately silent: it is the expected state for the length of
+// an upgrade window, and the warn below reports the case worth an operator's
+// attention. On an upgrade that stalls with an old node holding leadership, the
+// retained backlog is bounded only by how many reindexes are submitted.
 //
 // A non-positive TTL defers for the same reason, and is the only other operand
 // needing a guard: nothing validates these numbers before they land here, since
@@ -1318,6 +1326,11 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // A payload from a newer format fails the restore, which cluster/store_snapshot.go
 // propagates. Only a downgrade produces one, and stopping there is what keeps a
 // build from reading a future FinishedAt convention under the old meaning.
+//
+// No writer produces a version above the current one yet, so the refusal is
+// dormant and its cost below is paid by no one today. It is here rather than
+// added alongside the first incompatible format because by then the build that
+// has to refuse is already in the field.
 //
 // That refusal costs the node its startup. At boot hashicorp/raft walks the
 // retained snapshots newest-first, so an older one this build can still read is
