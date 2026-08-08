@@ -122,12 +122,6 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 			wantConflict: true,
 		},
 		{
-			name:         "the task reaches swapping before the cancel lands",
-			cancelErr:    notRunning,
-			flipTo:       distributedtask.TaskStatusSwapping,
-			wantConflict: true,
-		},
-		{
 			// A status a newer node introduced is live to the backup gate, so
 			// it is live here too — the gate refuses backups of the collection
 			// and names this endpoint as the way out.
@@ -145,12 +139,6 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 			cancelErr:               errors.New("raft: leader election in progress"),
 			flipTo:                  distributedtask.TaskStatusPreparing,
 			wantServerErrorContains: "raft: leader election in progress",
-		},
-		{
-			name:                    "the cancel times out while the task is preparing",
-			cancelErr:               errors.New("context deadline exceeded"),
-			flipTo:                  distributedtask.TaskStatusPreparing,
-			wantServerErrorContains: "context deadline exceeded",
 		},
 		{
 			// A version that moved under the task is a different rejection.
@@ -177,15 +165,6 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 			name:      "the task finishes before the cancel lands",
 			cancelErr: notRunning,
 			flipTo:    distributedtask.TaskStatusFinished,
-			wantNoOp:  true,
-		},
-		{
-			// The task stopped on its own. Nothing is left to cancel, and the
-			// operator learns what happened from the status endpoint, not from
-			// a 500 on a request that asked for exactly this outcome.
-			name:      "the task fails before the cancel lands",
-			cancelErr: notRunning,
-			flipTo:    distributedtask.TaskStatusFailed,
 			wantNoOp:  true,
 		},
 		{

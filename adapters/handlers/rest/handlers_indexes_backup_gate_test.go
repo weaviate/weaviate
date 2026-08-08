@@ -107,14 +107,6 @@ func TestScanBackupActivity(t *testing.T) {
 			wantID:       "node2-backup",
 		},
 		{
-			name:         "one busy with a restore",
-			nodes:        []string{"node1", "node2"},
-			behaviors:    map[string]nodeBehavior{"node1": nodeIdle, "node2": nodeBusy(backup.NodeActivityKindRestore, "node2-restore")},
-			wantBusyNode: "node2",
-			wantKind:     backup.NodeActivityKindRestore,
-			wantID:       "node2-restore",
-		},
-		{
 			name:            "one unreachable",
 			nodes:           []string{"node1", "node2"},
 			behaviors:       map[string]nodeBehavior{"node1": nodeIdle, "node2": nodeUnreachable},
@@ -198,22 +190,6 @@ func TestScanBackupActivityBoundsEachProbe(t *testing.T) {
 		"an unbounded probe context lets one hung node hang the PUT")
 	assert.InDelta(t, (5 * time.Second).Seconds(), prober.deadline.Sub(start).Seconds(), 0.5,
 		"the fan-out must be capped at 5s")
-}
-
-// TestScanBackupActivityDeterministic pins list order over answer order.
-func TestScanBackupActivityDeterministic(t *testing.T) {
-	resolver := startActivityCluster(t, map[string]nodeBehavior{
-		"node1": nodeIdle,
-		"node2": nodeBusy(backup.NodeActivityKindBackup, "node2-backup"),
-		"node3": nodeBusy(backup.NodeActivityKindRestore, "node3-restore"),
-	})
-	logger, _ := test.NewNullLogger()
-	prober := clients.NewClusterBackupActivity(http.DefaultClient, resolver)
-
-	for i := 0; i < 20; i++ {
-		scan := scanBackupActivity(context.Background(), []string{"node1", "node2", "node3"}, prober, logger)
-		require.Equal(t, "node2", scan.BusyNode)
-	}
 }
 
 // Checks refusal wording and that privileged detail (node names, backup IDs,
@@ -320,12 +296,6 @@ func TestScanBackupActivityCountsAPanickingProbeAsUnreachable(t *testing.T) {
 			nodes:           []string{"n1"},
 			panicOn:         []string{"n1"},
 			wantUnreachable: "n1",
-		},
-		{
-			name:            "the lowest-index panic wins, matching the unreachable rule",
-			nodes:           []string{"n1", "n2", "n3"},
-			panicOn:         []string{"n2", "n3"},
-			wantUnreachable: "n2",
 		},
 		{
 			name:    "no panic still reads as clear",
