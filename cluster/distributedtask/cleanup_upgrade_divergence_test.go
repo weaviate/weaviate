@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -239,4 +240,53 @@ func TestManager_CleanUpTask_RestoredAndReplayedNodesReachTheSameState(t *testin
 			}
 		})
 	}
+}
+
+// The mismatch warn fires once per applied entry, and the state that produces
+// it is a whole backlog: a rolling upgrade hands this node every task whose
+// stamp differs from the proposer's. The sampler is the only thing between that
+// and one log line per task, so pin the budget it holds to.
+func TestManager_CleanUpTask_StampMismatchWarnKeepsToItsBudget(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	defer h.manager.Close()
+
+	// A fixed count, not one derived from the budget: deriving it would make
+	// the assertion hold for any budget, including one large enough to let the
+	// whole backlog through.
+	const entries = 20
+	require.Less(t, stampMismatchWarnBudget, entries, "the burst must be larger than the budget")
+
+	var (
+		ttl        = h.completedTaskTTL
+		finishedAt = h.clock.Now().Add(-2 * ttl).Truncate(time.Millisecond)
+	)
+
+	for i := 0; i < entries; i++ {
+		id := fmt.Sprintf("mismatched-%d", i)
+		seedTerminalTaskStampedAt(t, h.manager, divergenceNamespace, id, divergenceVersion, finishedAt)
+		require.NoError(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+			Namespace: divergenceNamespace,
+			Id:        id,
+			Version:   divergenceVersion,
+			// A second off this node's copy, which is what a node that
+			// restored a pre-stamp snapshot holds.
+			FinishedAtUnixMillis: finishedAt.Add(time.Second).UnixMilli(),
+			ProposedAtUnixMillis: h.clock.Now().UnixMilli(),
+			TtlMillis:            ttl.Milliseconds(),
+		})))
+	}
+
+	require.Len(t, stampMismatchWarns(h), stampMismatchWarnBudget,
+		"%d mismatched entries must produce exactly the budget's worth of warnings", entries)
+
+	// The budget spent above must be this sampler's own. The scheduler's sites
+	// share a different one and must still have all of theirs.
+	h.logHook.Reset()
+	for i := 0; i < 5; i++ {
+		h.scheduler.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+			l.Error("failed to start distributed task")
+		})
+	}
+	require.Len(t, h.logHook.AllEntries(), 5,
+		"the mismatch warn must not draw on the budget the scheduler's error sites share")
 }
