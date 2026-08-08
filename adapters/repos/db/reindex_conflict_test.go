@@ -737,6 +737,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				return provider.CheckPropertyUpdate("C", "name", tasks)
 			},
 		},
+		{name: "delete class", call: func(ts []*distributedtask.Task) error { return provider.CheckClassMutation("C", ts) }},
+		{name: "tenant mutation", call: func(ts []*distributedtask.Task) error { return provider.CheckTenantMutation("C", []string{"t1"}, ts) }},
 	}
 
 	cancelWorks := []string{

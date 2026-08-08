@@ -37,6 +37,12 @@ func TestTerminalTaskWithAnUnreadablePayloadReportsThatNothingToreItDown(t *test
 		wantLog bool
 	}{
 		{
+			name:    "failed, nothing decodes",
+			status:  distributedtask.TaskStatusFailed,
+			payload: []byte("{not json"),
+			wantLog: true,
+		},
+		{
 			name:    "cancelled, nothing decodes",
 			status:  distributedtask.TaskStatusCancelled,
 			payload: []byte("{not json"),
