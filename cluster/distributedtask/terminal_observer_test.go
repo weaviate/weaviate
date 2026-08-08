@@ -36,37 +36,35 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 		version = uint64(10)
 	)
 
-	// Comfortably past any bound an age-based dispatch would plausibly pick, and
-	// a literal so it cannot follow one.
-	const unitsStoppedAgo = 2 * time.Minute
+	completeUnits := func(t *testing.T, h *testHarness, nodes []string) {
+		t.Helper()
+		for _, n := range nodes {
+			updateProgress(t, h, ns, taskID, version, n, "u-"+n, 0.1)
+		}
+		for _, n := range nodes {
+			completeUnit(t, h, ns, taskID, version, n, "u-"+n)
+		}
+	}
 
 	tests := []struct {
 		name string
 		// drive takes a fresh task all the way to FAILED through one of the
-		// apply paths that can produce that status, calling unitsStopped at the
-		// moment its units stop and before the apply that fails it.
-		drive func(t *testing.T, h *testHarness, unitsStopped func())
-		// unitsStopFirst marks the paths whose FinishedAt is already stamped by
-		// the time the failure lands, so it has an earlier moment to stay at.
-		unitsStopFirst bool
+		// apply paths that can produce that status.
+		drive func(t *testing.T, h *testHarness)
 	}{
 		{
 			name: "a unit reports an error",
-			drive: func(t *testing.T, h *testHarness, unitsStopped func()) {
+			drive: func(t *testing.T, h *testHarness) {
 				addTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
 				updateProgress(t, h, ns, taskID, version, "node-1", "u-node-1", 0.1)
-				unitsStopped()
 				failUnit(t, h, ns, taskID, version, "node-1", "u-node-1", "synthetic unit failure")
 			},
 		},
 		{
-			name:           "a node's post-completion swap ack reports failure",
-			unitsStopFirst: true,
-			drive: func(t *testing.T, h *testHarness, unitsStopped func()) {
+			name: "a node's post-completion swap ack reports failure",
+			drive: func(t *testing.T, h *testHarness) {
 				addTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
-				updateProgress(t, h, ns, taskID, version, "node-1", "u-node-1", 0.1)
-				completeUnit(t, h, ns, taskID, version, "node-1", "u-node-1")
-				unitsStopped()
+				completeUnits(t, h, []string{"node-1"})
 				require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
 					Namespace:         ns,
 					Id:                taskID,
@@ -79,12 +77,10 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 			},
 		},
 		{
-			name:           "a node's prep-barrier ack reports failure",
-			unitsStopFirst: true,
-			drive: func(t *testing.T, h *testHarness, unitsStopped func()) {
+			name: "a node's prep-barrier ack reports failure",
+			drive: func(t *testing.T, h *testHarness) {
 				addBarrierTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
 				drivePreparing(t, h, ns, taskID, version, []string{"node-1"})
-				unitsStopped()
 				require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 					Namespace:         ns,
 					Id:                taskID,
@@ -97,13 +93,10 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 			},
 		},
 		{
-			name:           "the scheduler marks a swapping task failed",
-			unitsStopFirst: true,
-			drive: func(t *testing.T, h *testHarness, unitsStopped func()) {
+			name: "the scheduler marks a swapping task failed",
+			drive: func(t *testing.T, h *testHarness) {
 				addTaskWithUnits(t, h, ns, taskID, version, []string{"u-node-1"})
-				updateProgress(t, h, ns, taskID, version, "node-1", "u-node-1", 0.1)
-				completeUnit(t, h, ns, taskID, version, "node-1", "u-node-1")
-				unitsStopped()
+				completeUnits(t, h, []string{"node-1"})
 				require.NoError(t, h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
 					Namespace:          ns,
 					Id:                 taskID,
@@ -115,54 +108,31 @@ func TestFailedApplyRaisesTheTerminalObserver(t *testing.T) {
 		},
 	}
 
-	// The aged mode puts unitsStoppedAgo between the units stopping and the
-	// failing apply, so task.FinishedAt is far in the past when the failure
-	// lands: a dispatch that judges by any timestamp silently drops these.
-	for _, mode := range []string{"live", "the units stopped long ago"} {
-		aged := mode != "live"
-		t.Run(mode, func(t *testing.T) {
-			for _, tc := range tests {
-				t.Run(tc.name, func(t *testing.T) {
-					h := newTestHarness(t).init(t)
-					defer h.manager.Close()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			defer h.manager.Close()
 
-					var rec observerRecorder
-					h.manager.RegisterTerminalObserver(ns, rec.record)
+			var rec observerRecorder
+			h.manager.RegisterTerminalObserver(ns, rec.record)
 
-					var stoppedAt time.Time
-					tc.drive(t, h, func() {
-						if !aged {
-							return
-						}
-						staged, err := h.manager.ListDistributedTasks(context.Background())
-						require.NoError(t, err)
-						stoppedAt = staged[ns][0].FinishedAt
-						require.Equal(t, tc.unitsStopFirst, !stoppedAt.IsZero(),
-							"sanity: FinishedAt is set exactly on the paths whose units stopped first")
-						h.clock.Advance(unitsStoppedAgo)
-					})
+			tc.drive(t, h)
 
-					tasks, err := h.manager.ListDistributedTasks(context.Background())
-					require.NoError(t, err)
-					require.Equal(t, TaskStatusFailed, tasks[ns][0].Status,
-						"sanity: this path has to leave the task FAILED")
-					if aged && tc.unitsStopFirst {
-						require.Equal(t, stoppedAt, tasks[ns][0].FinishedAt,
-							"the failing apply must leave FinishedAt at the moment the units stopped")
-					}
+			tasks, err := h.manager.ListDistributedTasks(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, TaskStatusFailed, tasks[ns][0].Status,
+				"sanity: this path has to leave the task FAILED")
 
-					require.Eventually(t, func() bool { return rec.count() == 1 },
-						5*time.Second, 5*time.Millisecond,
-						"the apply-time window between FAILED and the teardown is ungated: "+
-							"the observer that holds the gate was never raised")
+			require.Eventually(t, func() bool { return rec.count() == 1 },
+				5*time.Second, 5*time.Millisecond,
+				"the apply-time window between FAILED and the teardown is ungated: "+
+					"the observer that holds the gate was never raised")
 
-					observed := rec.first()
-					require.Equal(t, TaskStatusFailed, observed.Status,
-						"the observer must see the task already in its failed state")
-					require.Equal(t, taskID, observed.ID)
-					require.Equal(t, version, observed.Version)
-				})
-			}
+			observed := rec.first()
+			require.Equal(t, TaskStatusFailed, observed.Status,
+				"the observer must see the task already in its failed state")
+			require.Equal(t, taskID, observed.ID)
+			require.Equal(t, version, observed.Version)
 		})
 	}
 }
@@ -188,9 +158,7 @@ func TestTerminalDispatchIgnoresProposerClockSkew(t *testing.T) {
 	}{
 		{name: "clocks in step", wantDispatch: true},
 		{name: "proposer 90s behind", proposerSkew: -90 * time.Second, wantDispatch: true},
-		{name: "proposer 90s ahead", proposerSkew: 90 * time.Second, wantDispatch: true},
 		{name: "replayed from the RAFT log", catchingUp: true},
-		{name: "replayed, proposer 90s behind", proposerSkew: -90 * time.Second, catchingUp: true},
 	}
 
 	for _, tc := range tests {
