@@ -57,6 +57,14 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			wantSlotID: "op-1",
 		},
 		{
+			name:       "freshly claimed op sharing the id being released",
+			claimedID:  "op-1",
+			status:     backup.Started,
+			resetID:    "op-1",
+			wantOK:     false,
+			wantSlotID: "op-1",
+		},
+		{
 			name:       "cancelled op under a different id",
 			claimedID:  "op-2",
 			status:     backup.Cancelled,
@@ -76,7 +84,13 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			}
 
 			require.Equal(t, tc.wantOK, s.resetIfCancelled(tc.resetID))
-			require.Equal(t, tc.wantSlotID, s.get().ID)
+			got := s.get()
+			require.Equal(t, tc.wantSlotID, got.ID)
+			if tc.wantSlotID != "" {
+				require.Equal(t, []string{"path", "bucket", "override"},
+					[]string{got.Path, got.OverrideBucket, got.OverridePath},
+					"a losing release must leave every field of the current claim intact")
+			}
 		})
 	}
 }
@@ -123,6 +137,13 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			setStatus:  backup.Cancelling,
 			wantOK:     false,
 			wantStatus: backup.Transferring,
+		},
+		{
+			name:      "slot is free",
+			claimedID: "",
+			setID:     "op-1",
+			setStatus: backup.Cancelling,
+			wantOK:    false,
 		},
 	}
 
