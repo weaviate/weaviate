@@ -150,11 +150,7 @@ func structuralInvariantClockHasWaiter(
 // the RAFT FSM Restore contract: post-Restore state == snapshot, not
 // pre-state ∪ snapshot. Exercises the two failure modes the merge
 // implementation allows: a different ID in a shared namespace, and an
-// unrelated namespace.
-//
-// Same fix as the still-open weaviate/weaviate#11416, which carries it
-// line-for-line; whichever lands first makes the other a no-op.
-// weaviate/0-weaviate-issues#245.
+// unrelated namespace. weaviate/0-weaviate-issues#245.
 func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
@@ -205,15 +201,12 @@ func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) 
 }
 
 // TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp pins the
-// repair a snapshot carrying a terminal task with a wrong finish time gets:
-// stamped with the newest moment the task itself records, identically on every
-// node, and deletable once the TTL has run from there.
-//
-// Both broken shapes are covered. A missing stamp never ages out (the TTL has
-// nothing to measure) and the backup overlap backstop refuses every capture of
-// its collection for good. A stamp that is merely early — an older binary
-// stamped when the units stopped, before the swap — lets the same backstop
-// waive a capture that spanned the swap. weaviate/0-weaviate-issues#501.
+// repair of a snapshot carrying a terminal task with a wrong finish time:
+// stamped to the newest moment the task itself records, identically on every
+// node. Covers both broken shapes — a missing stamp (never ages out) and an
+// early one from an older binary's units-stopped stamp (lets the backup
+// overlap backstop waive a capture that spanned the swap).
+// weaviate/0-weaviate-issues#501.
 func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.T) {
 	nullLogger, _ := logrustest.NewNullLogger()
 	started := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
@@ -512,18 +505,12 @@ func structuralInvariantSeedTask(
 	}
 }
 
-// TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter catches the
-// common way of breaking [Task.markTerminal]'s "only way" property: a line in
-// this package's non-test sources that names a terminal status constant on the
-// right of a `.Status =`, or that stamps `task.FinishedAt` directly.
-//
-// It is two line-regexes, so it is a tripwire, not a proof. It does NOT catch
-// a terminal status reached through a variable, a stamp written through a
-// receiver not named `task`, `_test.go` files, or the other packages holding a
-// *Task (both fields are exported). What actually defends the invariant on
-// every path the FSM replays is TestStructuralInvariant_FinishedAtIffTerminal,
-// which re-checks it after every apply; this scan only makes the cheap
-// regression cheap to catch.
+// TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter is a line-regex
+// tripwire, not a proof, for the common way of breaking [Task.markTerminal]'s
+// "only way" property: a direct `.Status = TaskStatus<Terminal>` or
+// `task.FinishedAt =` outside it. TestStructuralInvariant_FinishedAtIffTerminal
+// is what actually defends the invariant on every FSM-replayed path; this scan
+// just makes the cheap regression cheap to catch.
 func TestStructuralInvariant_MarkTerminalIsTheOnlyTerminalWriter(t *testing.T) {
 	forbidden := []*regexp.Regexp{
 		regexp.MustCompile(`\.Status\s*=\s*TaskStatus(Finished|Failed|Cancelled)\b`),

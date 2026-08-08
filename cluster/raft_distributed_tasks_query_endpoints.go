@@ -37,29 +37,20 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 	return response.Tasks, nil
 }
 
-// ListDistributedTasksAtLocalConsistency answers from this node's own FSM instead of the
-// leader.
+// ListDistributedTasksAtLocalConsistency answers from this node's own FSM instead
+// of the leader. Use it when rendering against other state also read from this
+// node: reading from the leader instead, a follower could report a task FINISHED
+// before applying the schema change that task committed first. Two local reads
+// are still two reads, not a shared snapshot, but this shrinks the window from
+// the leader's apply lag to the gap between the calls.
 //
-// Pick this one when the answer is rendered against other state read from this
-// same node. Read from the leader instead and a follower can report a task
-// FINISHED before it has applied the schema change that same task committed to
-// the log first. Two local reads are still two reads and not a shared snapshot,
-// so a caller crossing them keeps a window; local only shrinks that window from
-// the leader's apply lag to the gap between the two calls.
-//
-// Pick [Raft.ListDistributedTasks] for anything that decides whether an
-// operation may proceed: a lagging follower's view admits work the leader
+// Use [Raft.ListDistributedTasks] instead for anything gating whether an
+// operation may proceed — a lagging follower's view can admit work the leader
 // already knows conflicts.
 //
-// Neither is a claim about what a FINISHED task implies about the schema. A
-// task can finish without flipping anything — change-algorithm defers its
-// class-level flip until every searchable property has migrated. The ordering
-// here only says this node cannot see the task before the flip it did make.
-//
-// It cannot fail today — the call under it clones a locked map. Growing a real
-// error return means revisiting what the REST handler does with it: the 500 arm
-// renders the error with errPayloadFromSingleErr, which strips namespace
-// prefixes but not node names.
+// A FINISHED task does not imply the schema flipped: change-algorithm defers
+// its class-level flip until every searchable property has migrated. The
+// ordering guarantee here only covers a flip this node already made.
 func (s *Raft) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return s.store.distributedTasksManager.ListDistributedTasks(ctx)
 }

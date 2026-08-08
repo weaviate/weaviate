@@ -25,24 +25,11 @@ import (
 )
 
 // Two nodes running this binary can hold different finish times for the same
-// task, and one replicated cleanup entry still has to leave them in the same
-// state.
-//
-// The two routes to one terminal task:
-//
-//	restored — the node came up on a snapshot written before finish times were
-//	           stamped at the finalize. [Manager.Restore] repairs the stamp to
-//	           the newest moment the task records, and no field records the
-//	           finalize, so the repaired value is the moment the units stopped.
-//	replayed — the node applied the log with this binary, so
-//	           [Manager.MarkTaskFinalized] stamped the finalize.
-//
-// The difference is the SWAPPING window. A proposal whose age lands inside it
-// is past the TTL measured from one stamp and inside it measured from the
-// other, so an apply that subtracted its own copy would delete the task on one
-// node and refuse on the other. Nothing repairs that afterwards: the sweep
-// proposes from the leader's list, so once the leader has dropped the task no
-// further entry is ever proposed and the peer keeps it forever.
+// task — one restored from a pre-upgrade snapshot ([Manager.Restore] repairs it
+// to the units-stopped moment), one that replayed the log and got the finalize
+// moment from [Manager.MarkTaskFinalized]. A proposal whose age lands in that
+// SWAPPING-window gap must still leave both nodes in the same state; see
+// [Manager.ttlHasElapsed] for why the apply doesn't fall back to its own copy.
 
 const (
 	divergenceNamespace = "tasks-namespace"
@@ -242,12 +229,8 @@ func TestManager_CleanUpTask_RestoredAndReplayedNodesReachTheSameState(t *testin
 	}
 }
 
-// The mismatch warn fires once per applied entry, and the state that produces
-// it is a whole backlog: a rolling upgrade hands this node every task whose
-// stamp differs from the proposer's. The sampler is the only thing between that
-// and one log line per task, so pin that it is there and that it keeps the
-// burst under the backlog. It does not pin the budget's exact value: raising it
-// short of the entry count still passes.
+// A rolling upgrade can hand this node a whole backlog of mismatched stamps;
+// pin that the sampler caps the resulting warns, not the exact budget value.
 func TestManager_CleanUpTask_StampMismatchWarnKeepsToItsBudget(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	defer h.manager.Close()

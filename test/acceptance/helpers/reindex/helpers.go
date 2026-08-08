@@ -341,21 +341,13 @@ func AwaitTokenizationVisible(t *testing.T, restURI, className, propName, wantTo
 // polls, rather than the task status AwaitReindexFinished reads. Default
 // timeout 120s.
 //
-// `ready` is a necessary condition for the migration having landed, never a
-// sufficient one, for three separate reasons:
-//
-//   - It returns on the first poll that sees `ready`, so on a verb whose
-//     per-property flag was already on before the migration it can be
-//     satisfied immediately and prove nothing.
-//   - The handler answers from the node it is asked, off that node's own FSM.
-//     On a cluster the polled node can still be behind the apply that ended
-//     the task.
-//   - For change-algorithm, `ready` says nothing about the algorithm: the
-//     class-level flip defers until every searchable bucket on the class is
-//     blockmax, so the entry renders `ready` with `wand`.
-//
-// Pair it with AwaitReindexFinished, or assert the migrated data, when the
-// test needs to know the migration actually ran.
+// `ready` is necessary but not sufficient for the migration having landed:
+// it can be satisfied immediately if the flag was already on pre-migration,
+// the handler answers from whichever node it's asked and that node's apply
+// can lag, and for change-algorithm the class-level flip defers until every
+// searchable bucket is blockmax, so `ready` can still mean `wand`. Pair with
+// AwaitReindexFinished, or assert the migrated data, when the test needs to
+// know the migration actually ran.
 func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)

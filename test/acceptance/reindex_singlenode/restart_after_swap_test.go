@@ -30,28 +30,15 @@ import (
 // TestRestartAfterSwapCompletes SIGKILLs the node the moment a migration is
 // reported FINISHED, then writes and queries. FINISHED lands strictly after
 // every node has acked its bucket swap — [Manager.MarkTaskFinalized] refuses
-// from any status but SWAPPING and the FSM only reaches SWAPPING once every
-// expected ack landed — so the kill point is the completion boundary and the
-// write below lands in the new bucket.
+// from any status but SWAPPING, reached only once every expected ack has
+// landed — so the kill point is the completion boundary and the write below
+// lands in the new bucket.
 //
-// This is not the swap-recovery window. That window — restart after the
-// units are COMPLETED but before OnGroupCompleted fires — cannot be reached
-// from outside the process. The FSM wakes the scheduler on the unit-completion
-// apply instead of waiting for the next tick, so PREPARING and SWAPPING pass in
-// a few milliseconds; a 20 ms poll of /v1/tasks across a full run never
-// observed either. Reaching it needs an in-process hook that holds the swap
-// open.
-//
-// Inside that window a write would be lost: ReindexProvider's per-task cache of
-// *ShardReindexTaskGeneric holds the double-write callbacks, the cache is empty
-// after a restart, the scheduler does not re-StartTask a task whose units are
-// terminal, and OnGroupCompleted then builds fresh task instances with no
-// callbacks registered. The write goes only to the old main bucket, which the
-// swap replaces. Tracked as https://github.com/weaviate/weaviate/issues/10675;
-// the fix is to register in-flight runtime tasks with the static
-// ShardReindexerV3 at startup so OnAfterLsmInit fires during shard load. The
-// static reindexer is NewShardReindexerV3Noop today, so that hook does not
-// fire.
+// This is not the swap-recovery window (restart after units COMPLETED but
+// before OnGroupCompleted fires): that window is reached only through an
+// in-process hook, since the reactive scheduler wake-up passes PREPARING and
+// SWAPPING in milliseconds. Inside it a write would be lost — see
+// https://github.com/weaviate/weaviate/issues/10675.
 func TestRestartAfterSwapCompletes(t *testing.T) {
 	ctx := context.Background()
 

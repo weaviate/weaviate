@@ -20,21 +20,10 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// CleanUpTask decides a replicated command's outcome from what the proposing
-// sweep measured: the finish time it read, the moment it looked, and the TTL it
-// looked against. All three travel with the log entry, so every node reaches the
-// same answer without reading state of its own.
-//
-// Reading anything local instead would fork two nodes on whether the entry
-// deletes, and since GET /v1/schema/{class}/indexes reads locally the fork is
-// visible to the caller. Two things can differ: the wall clock, and the stored
-// finish time itself, on a node that restored a snapshot written before finish
-// times were stamped at the finalize.
-//
-// The tests below pin that the apply uses the proposer's numbers in both
-// directions, that two nodes holding different finish times still reach the same
-// state, that state invariants still refuse locally, and that a request carrying
-// no measurements defers instead of deciding from anything local.
+// Pins [Manager.ttlHasElapsed]'s determinism contract: CleanUpTask decides
+// purely from the proposer's measurements on the log entry (finish time,
+// proposal moment, TTL), never from local clock or local stamp, so every node
+// applying the same entry reaches the same verdict.
 
 // seedTerminalTaskStampedAt installs a single FINISHED task carrying the given
 // finish time straight into the task map.
@@ -55,13 +44,11 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		// stampAge is how far in the past the task's finish time sits,
-		// measured from this node's clock at the moment the command applies.
+		// stampAge is the task's finish time, measured back from this node's
+		// clock at apply time.
 		stampAge time.Duration
-		// proposerElapsed is the age the proposer measured (its measuring
-		// moment minus the task's finish time) and proposerTTL is the TTL it
-		// measured against. A zero proposerTTL means the request carries no
-		// measurements at all.
+		// proposerElapsed/proposerTTL are the proposer's own measurements; a
+		// zero proposerTTL means the request carries none.
 		proposerElapsed time.Duration
 		proposerTTL     time.Duration
 		wantKept        bool
@@ -94,10 +81,7 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 			proposerTTL:     24 * time.Hour,
 			wantKept:        false,
 		},
-		// The deferral arms. Both stamp ages are on the request-less path, one
-		// well inside the harness TTL and one well past it, because the point
-		// is that the local age the node would have computed does not enter
-		// into it either way.
+		// Deferral: no measurements on the request, regardless of local age.
 		{
 			name:     "no measurements on the request defer, keeping a task this node reads as fresh",
 			stampAge: time.Minute,
@@ -113,9 +97,8 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 			h := newTestHarness(t).init(t)
 			defer h.manager.Close()
 
-			// FinishedAt is millisecond-aligned in production (the FSM stamps
-			// it from a *_unix_millis field), so align the fixture the same
-			// way — the wire carries the proposer's moment in milliseconds too.
+			// Millisecond-aligned to match production (FSM stamps from a
+			// *_unix_millis field).
 			finishedAt := h.clock.Now().Add(-tc.stampAge).Truncate(time.Millisecond)
 			seedTerminalTaskStampedAt(t, h.manager, ns, taskID, version, finishedAt)
 
@@ -140,8 +123,8 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 	}
 }
 
-// The determinism property itself: the same log entry applied to two nodes whose
-// wall clocks are more than a TTL apart still leaves both maps in the same state.
+// Same log entry, two nodes with wall clocks more than a TTL apart: both must
+// end in the same state.
 func TestManager_CleanUpTask_DivergentClocksReachTheSameState(t *testing.T) {
 	const (
 		ns      = "tasks-namespace"
@@ -155,9 +138,6 @@ func TestManager_CleanUpTask_DivergentClocksReachTheSameState(t *testing.T) {
 	defer ahead.manager.Close()
 	ahead.clock.Advance(3 * ahead.completedTaskTTL)
 
-	// One replicated finish time, two nodes that disagree about what time it is
-	// by more than the TTL. Reading the local clock, one would call the task
-	// fresh and the other long expired.
 	finishedAt := behind.clock.Now().Truncate(time.Millisecond)
 	seedTerminalTaskStampedAt(t, behind.manager, ns, taskID, version, finishedAt)
 	seedTerminalTaskStampedAt(t, ahead.manager, ns, taskID, version, finishedAt)
@@ -181,9 +161,8 @@ func TestManager_CleanUpTask_DivergentClocksReachTheSameState(t *testing.T) {
 	}
 }
 
-// The proposer's measurements do not override the task's own state. Both refusals
-// below are properties of the task alone, so they are the same answer on every
-// node whatever its clock says.
+// A task's own state (running, or terminal with no stamp) refuses cleanup
+// regardless of the proposer's measurements.
 func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersMeasurements(t *testing.T) {
 	const (
 		ns      = "tasks-namespace"
@@ -225,10 +204,8 @@ func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersMeasurements(t *t
 	})
 }
 
-// The entry is the only input, so a nonsense operand on it has no local
-// substitute. Each of these deletes on arrival if the subtraction is trusted
-// blindly, which is the one direction this change is not allowed to fail in:
-// the backup overlap backstop reads the list the deletion would empty.
+// A nonsense operand on the entry must defer, not delete — the backup overlap
+// backstop reads the list a wrongful delete would empty.
 func TestManager_CleanUpTask_DefersAnEntryWhoseMeasurementsAreNonsense(t *testing.T) {
 	const (
 		ns      = "tasks-namespace"

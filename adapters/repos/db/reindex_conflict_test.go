@@ -443,13 +443,9 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 
 // TestCheckPropertyUpdate_EveryMigrationTypeRejects walks
 // [AllReindexMigrationTypes] and confirms the guard rejects an external update
-// on a property a task of that type is reindexing. This is the "blanket policy"
-// guarantee — once any reindex is in flight, no schema mutation on that
+// on a property a task of that type is reindexing — the "blanket policy"
+// guarantee that once any reindex is in flight, no schema mutation on that
 // property is allowed.
-//
-// Symmetry test for the matrix QA Claude is enumerating; failure of any
-// row here means the corresponding combination in the QA matrix would
-// pass through to the bucket↔schema inversion path.
 func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -769,13 +765,10 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	}
 }
 
-// TestTouchesTables_CoverEveryMigrationType is what makes the exhaustive
-// switches in TouchesSearchable/TouchesFilterable safe to rely on: the tables
-// are checked against [AllReindexMigrationTypes], the production registry, which
-// TestReindexMigrationTypeRegistryMatchesTheConstants ties to the declared
-// constants. So a newly declared type fails here instead of reaching a switch
-// default, where the panic is recovered by the RAFT apply wrapper and the task
-// silently dropped on that node.
+// TestTouchesTables_CoverEveryMigrationType checks TouchesSearchable/
+// TouchesFilterable against every type in [AllReindexMigrationTypes], so a
+// newly declared type fails here instead of reaching the switch default (whose
+// panic the RAFT apply wrapper recovers, silently dropping the task).
 func TestTouchesTables_CoverEveryMigrationType(t *testing.T) {
 	searchable := map[ReindexMigrationType]bool{
 		ReindexTypeChangeAlgorithm:              true,

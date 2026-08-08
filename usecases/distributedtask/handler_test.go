@@ -76,13 +76,10 @@ func TestHandler_ListTasks(t *testing.T) {
 	}, tasks)
 }
 
-// An in-flight task carries no finish time, and the field is absent from its
-// JSON rather than rendered as the zero time. strfmt.DateTime is a struct, so
-// a value field would serialize whatever it holds and omitempty could never
-// fire; the model declares a pointer (x-nullable in the spec) for that reason.
-// A client sorting the list by finishedAt would otherwise put every running
-// migration first, dated year 1. The task's units render under the same rule,
-// so the fixture carries a running one.
+// An in-flight task's finish time must be absent from its JSON, not rendered
+// as the zero time — a value strfmt.DateTime field would always serialize, so
+// the model uses a pointer (x-nullable) instead. Units render under the same
+// rule.
 func TestHandler_ListTasks_InFlightTaskOmitsFinishedAt(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)

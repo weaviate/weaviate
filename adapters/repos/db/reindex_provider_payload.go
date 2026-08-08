@@ -140,32 +140,22 @@ const (
 )
 
 // AllReindexMigrationTypes is the registry of every declared
-// [ReindexMigrationType], in declaration order. Three switches are checked
-// against it by tests that walk the registry: [TouchesSearchable],
-// [TouchesFilterable] and createReindexTasks. A constant added here without an
-// arm in those three fails the tests rather than reaching a switch default at
-// runtime.
+// [ReindexMigrationType], in declaration order. Tests walk it against
+// [TouchesSearchable], [TouchesFilterable], and createReindexTasks, so a
+// constant added here without an arm in those three fails the tests instead of
+// hitting a switch default at runtime.
 //
-// Seven more functions branch on the type without such a test. Six of them —
-// semanticMigrationIndexTypes, semanticMigrationIndexTypesForAudit,
-// [IsSemanticMigration], [IsTokenizationChangingMigration], and the REST
-// handler's migrationTypeTargetsIndex and indexTypesFromMigrationType — cover
-// every current type by inspection only, and an unrecognized type gets the zero
-// value (nil, false) rather than a panic, so a missed arm degrades quietly
-// instead of crashing.
+// Other functions branch on the type without such a test: most degrade quietly
+// on a missed arm (zero value instead of panic), but buildRecoveryTasks
+// (reindex_recovery.go) has no arm for [ReindexTypeRebuildSearchable], so a
+// crash mid-swap on that migration is logged and skipped rather than
+// recovered — a pre-existing gap.
 //
-// The seventh, buildRecoveryTasks (reindex_recovery.go), behaves neither way:
-// its default returns a hard error, and it has no arm for
-// [ReindexTypeRebuildSearchable], so a crash mid-swap on that migration is
-// logged and skipped rather than recovered. That gap predates this registry.
-//
-// TestReindexMigrationTypeRegistryMatchesTheConstants scans the package's
-// non-test files and requires the constants and this list to agree. It is a
-// line regex, so it is a tripwire rather than a proof: it matches
-// `ReindexType<Name> ReindexMigrationType = "value"` and misses a declaration
-// that uses conversion syntax, a `var`, or a name not starting with
-// ReindexType. Declare new types in that one shape and the scan catches an
-// omission from this list.
+// TestReindexMigrationTypeRegistryMatchesTheConstants scans non-test files for
+// `ReindexType<Name> ReindexMigrationType = "value"` and checks this list
+// against them; it's a tripwire, not a proof — declarations via conversion
+// syntax, `var`, or an off-pattern name aren't caught. Declare new types in
+// that shape.
 var AllReindexMigrationTypes = []ReindexMigrationType{
 	ReindexTypeChangeAlgorithm,
 	ReindexTypeRebuildSearchable,

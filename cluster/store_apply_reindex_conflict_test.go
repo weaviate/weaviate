@@ -24,15 +24,10 @@ import (
 )
 
 // TestStoreApply_RefusesAReindexConflictForEveryMigrationType drives the
-// conflict check at the tier that decides whether a task exists: the RAFT
-// AddTask apply. The tier matters because Store.Apply runs the command body
-// through enterrors.GoWrapper, so anything the check panics on is recovered and
-// the response carries no error — the submit reports success and the task is
-// absent from this node's FSM.
-//
-// Every declared migration type is exercised as the in-flight one, so a type
-// missing from either bucket-touch switch shows up here as a refusal that never
-// arrives, rather than as a lost entry in production.
+// conflict check at the RAFT AddTask apply, where a panic is recovered by
+// enterrors.GoWrapper and the response carries no error — a type missing from
+// either bucket-touch switch would otherwise reach production as a silently
+// dropped task rather than a refusal that never arrives.
 func TestStoreApply_RefusesAReindexConflictForEveryMigrationType(t *testing.T) {
 	addTask := func(t *testing.T, ms MockStore, index uint64, id string,
 		mt db.ReindexMigrationType,

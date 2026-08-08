@@ -87,10 +87,8 @@ type Manager struct {
 
 	logger logrus.FieldLogger
 
-	// stampMismatchLogger bounds the warn in [Manager.ttlHasElapsed]. A
-	// rolling upgrade can hand this node a whole backlog of tasks whose
-	// stamps differ from the proposer's, and each one warns on the entry
-	// that deletes it, so the burst is as large as the backlog.
+	// stampMismatchLogger rate-limits the warn in [Manager.ttlHasElapsed]; a
+	// rolling upgrade can produce one mismatch per task in the backlog.
 	stampMismatchLogger *logrusext.Sampler
 
 	// notifier is signalled after every state-changing apply
@@ -226,17 +224,15 @@ func (m *Manager) notifySchedulerWithLock() {
 	m.notifier.Wake()
 }
 
-// ManagerParameters carries no clock and no TTL: the FSM decides every cleanup
-// from the numbers on the log entry, so a Manager that could read either would
-// only give a future change somewhere to diverge. Both live on the Scheduler,
-// which is what measures and proposes.
+// ManagerParameters carries no clock and no TTL: the FSM decides cleanup only from
+// the numbers on the log entry, never from local state. Both live on the Scheduler,
+// which measures and proposes.
 type ManagerParameters struct {
 	Logger logrus.FieldLogger
 }
 
-// stampMismatchWarnBudget is how many stamp-mismatch warns an hour carries. The
-// message is the same shape for every task in the backlog, so a handful is enough
-// to tell an operator the rolling upgrade is producing divergent stamps.
+// stampMismatchWarnBudget is how many stamp-mismatch warns an hour carries — enough
+// to alert an operator without flooding on a large backlog.
 const stampMismatchWarnBudget = 5
 
 func NewManager(params ManagerParameters) *Manager {
@@ -473,10 +469,8 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 		}
 	}
 
-	// The scheduler still holds a handle for every task removed here; waking it
-	// terminates them on the next cycle instead of at the next tick. A delete
-	// that matched nothing leaves it nothing to converge on, so it costs no
-	// cycle.
+	// Wake the scheduler so it terminates the removed tasks' handles now
+	// instead of at the next tick.
 	if len(removed) > 0 {
 		m.notifySchedulerWithLock()
 	}
@@ -1031,12 +1025,9 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 }
 
 // CleanUpTask removes a terminal task from the Manager's state. It refuses tasks that are
-// still running, tasks carrying no finish time, and tasks the proposer's measurements say
-// are still within the completed-task TTL — preventing premature removal of status
-// information that other nodes may still need to observe. The first two refusals are
-// properties of the local task, the same on every node; the third reads only the
-// request, and a request carrying no measurements at all is deferred rather than
-// decided. See [Manager.ttlHasElapsed].
+// still running, carry no finish time, or (per the proposer's measurements) haven't
+// cleared the completed-task TTL — preventing premature removal of status other nodes may
+// still need to observe. See [Manager.ttlHasElapsed] for the TTL determinism contract.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1057,18 +1048,11 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
-	// A terminal task without a stamp has no age, so the TTL check below would
-	// delete it on the first attempt, hiding it from the backup overlap
-	// backstop. Refuse instead — a property of the task alone, so every node
-	// applying this entry reaches it whatever its own clock says.
-	//
-	// No released binary produces this state on its own: every version that has
-	// ever shipped stamps when the units stop, before the transitions that do
-	// not stamp. It takes both builds. This one leaves a SWAPPING task
-	// unstamped, that state reaches a node predating the change through a
-	// snapshot install or a rollback, and its finalize then writes a terminal
-	// status without a stamp. It clears on the next restore, which repairs the
-	// local map; see [Task.repairTerminalStamp].
+	// A terminal task with no stamp has infinite age under the TTL check below;
+	// refuse instead, since every node must reach the same answer regardless of
+	// its own clock. Only a rolling upgrade past the build that added stamping
+	// produces this state, and it self-heals on the next restore (see
+	// [Task.repairTerminalStamp]).
 	if task.FinishedAt.IsZero() {
 		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
 			Warnf("refusing to clean up task %s/%s/%d: it is %s but carries no finish time",
@@ -1086,72 +1070,47 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 }
 
 // ttlHasElapsed reports whether the proposing sweep's measurements say the task is
-// old enough to delete. All three operands — the moment the sweep looked, the TTL
-// it looked against, and the finish time it read — travel on the log entry, so the
-// answer is a function of the entry alone and every node reaches it.
+// old enough to delete. All three operands — the sweep's moment, the TTL it used, and
+// the finish time it read — travel on the log entry, so every node computes the same
+// answer from the entry alone.
 //
-// localFinishedAt is not an operand. It is passed only for the mismatch warning
-// below, which reports a node whose own copy of the stamp differs from the
-// proposer's. Subtracting it instead would fork two nodes on the same entry, and
-// there are two ways for the copies to differ: skewed clocks, and a node that
-// restored a snapshot written before finish times were stamped at the finalize,
-// whose repaired stamp is the earlier units-stopped moment (see
-// [Task.repairTerminalStamp]). GET /v1/schema/{class}/indexes reads locally, so a
-// fork would be visible to the caller.
+// localFinishedAt is not an operand, only the basis for the mismatch warning below: a
+// node's own stamp can differ from the proposer's under clock skew or a repaired
+// snapshot stamp (see [Task.repairTerminalStamp]), and GET /v1/schema/{class}/indexes
+// reads locally, so a fork there would be visible to the caller.
 //
-// The TTL applied is the proposer's. DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is
-// a per-node setting, so raising it on one node governs that node's own proposals
-// only; the effective cluster retention is whatever the proposing node had.
+// The TTL applied is the proposer's: DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is a
+// per-node setting, so the effective cluster retention is whatever the proposing node
+// had configured.
 //
-// A finished_at of zero or less means the proposer had no stamp to send: a
-// binary predating these fields sends zero, and a stamp taken from a zero
-// time.Time is a large negative rather than zero. A sweep on this build filters
-// unstamped tasks out before proposing, so nothing else produces one. There is
-// nothing on the entry to decide from, and the only operands a node could
-// substitute are its own stamp and its own clock, the two that differ between
-// nodes. So this defers and the task stays. The old proposer still deletes it
-// on its own local check and every node on this build keeps it.
-// [Scheduler.tick] is not leader-gated, so the next tick of any upgraded node
-// re-proposes with measurements and the cluster converges, unless the old
-// proposer's own entry has already dropped the task from the leader's list,
-// which is the list every node sweeps. Then the deferred copies wait for an
-// upgraded node to take leadership. Deferring converges the FSM; it does not
-// preserve the backup overlap backstop's evidence, because that backstop reads
-// the leader's list, and the case that persists here is exactly the one where
-// an old leader has already emptied it.
+// finished_at <= 0 means the proposer had nothing to send — a build predating these
+// fields, since a same-build sweep filters unstamped tasks out before proposing. There
+// is no other operand to decide from (a node's own stamp/clock are exactly what must
+// stay out of this), so the entry is deferred and the task stays here; the old proposer
+// still deletes it under its own local check. [Scheduler.tick] is not leader-gated, so
+// the cluster converges on the next tick from an upgraded node — unless the old
+// proposer's entry already dropped the task from the leader's list, in which case the
+// deferred copies wait for an upgraded node to take leadership. This converges the FSM
+// but not the backup overlap backstop's evidence, which reads that same leader list.
+// The defer is silent: it's the expected shape of an upgrade window, and the mismatch
+// warn covers the case worth flagging.
 //
-// The defer is deliberately silent: it is the expected state for the length of
-// an upgrade window, and the warn below reports the case worth an operator's
-// attention. On an upgrade that stalls with an old node holding leadership, the
-// retained backlog is bounded only by how many reindexes are submitted.
+// A non-positive TTL defers for the same reason (no fallback operand). Two other
+// nonsense inputs fail closed for free: a non-positive proposal moment, or a finish
+// time after it, both make the age negative, which no positive TTL clears.
 //
-// A non-positive TTL defers for the same reason, and is the only other operand
-// needing a guard: nothing validates these numbers before they land here, since
-// only [Scheduler.tick] can propose and a proposer that disagrees with the
-// applier is the case this whole change exists for. Two of the three remaining
-// nonsense values fall out fail-closed without one: a non-positive proposal
-// moment, or a finish time later than the moment the sweep looked, both make
-// the age negative, and no positive TTL clears a negative age.
-//
-// The third is trusted rather than guarded. A proposal moment far in the
-// future makes the age enormous and positive, so every terminal task clears
-// its TTL and is deleted on every node. There is no sound bound to guard it
-// with, because a task legitimately deferred for a long time reports the same
-// enormous age. The jump has to exceed the TTL to change any verdict, so an
-// hour of clock skew against a 24h TTL is harmless; past that, one
-// forward-stepped node empties every terminal task in a single tick. Uniform
-// clocks are therefore a requirement here in the same way a uniform TTL is,
-// and the backup overlap backstop documents both from its own side.
+// A proposal moment far in the future is trusted rather than guarded: it makes the age
+// enormous and positive, clearing every task's TTL cluster-wide, and there's no sound
+// bound to guard it with since a legitimately long-deferred task reports the same
+// enormous age. The jump must exceed the TTL to flip any verdict — an hour of skew
+// against a 24h TTL is harmless — so uniform clocks across nodes are a requirement here,
+// same as a uniform TTL; the backup overlap backstop documents both.
 func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinishedAt time.Time) bool {
 	if r.FinishedAtUnixMillis <= 0 {
 		return false
 	}
 
-	// A TTL of zero or less clears against any age. One entry still deletes
-	// only the task it names, but a proposer sending one sends one per
-	// terminal task, since its own sweep filter admits everything at that TTL.
-	// It defers for the same reason the zero stamp does: the entry is the only
-	// input, so there is no better operand to reach for.
+	// Defers for the same no-fallback-operand reason as the zero stamp above.
 	if r.TtlMillis <= 0 {
 		return false
 	}
@@ -1286,27 +1245,23 @@ func (m *Manager) setTaskWithLock(task *Task) {
 }
 
 type snapshot struct {
-	// Version is the format of this payload, and it is what tells
-	// [Manager.Restore] whether the finish times in it still need normalizing.
+	// Version is the payload format, telling [Manager.Restore] whether the
+	// finish times in it still need normalizing.
 	//
-	//	0 — no version field in the payload: written by a build older than this
-	//	    one. It can carry a terminal task with a missing or early
-	//	    FinishedAt, and a running task carrying one, so Restore repairs
-	//	    both (see [Task.repairTerminalStamp], [Task.clearNonTerminalStamp]).
-	//	1 — written by this build. FinishedAt is already set iff the task is
-	//	    terminal and already sits at the newest moment the task records,
-	//	    so Restore leaves it alone.
+	//	0 — no version field: written by an older build. May carry a terminal
+	//	    task with a missing/early FinishedAt or a running task with one
+	//	    set; Restore repairs both (see [Task.repairTerminalStamp],
+	//	    [Task.clearNonTerminalStamp]).
+	//	1 — written by this build. FinishedAt already holds the invariant, so
+	//	    Restore leaves it alone.
 	//
-	// Only 0 is repaired: a version this build writes already holds both halves
-	// of the invariant, and rewriting its finish times would be worse than
-	// trusting them. A version above [currentSnapshotVersion] is refused rather
-	// than read as the newest one this build knows — a future format is free to
-	// change what FinishedAt means, and silently reading it under the old
-	// meaning would feed the wrong number to the cleanup TTL and to the backup
+	// A version above [currentSnapshotVersion] is refused rather than read under
+	// the current meaning — a future format could redefine FinishedAt, and
+	// misreading it would feed the wrong age to the cleanup TTL and the backup
 	// overlap backstop.
 	//
-	// The repair, and this field with it, can be deleted once no supported
-	// upgrade path can still produce a version 0 snapshot.
+	// This field (and the repair) can go once no supported upgrade path can
+	// still produce a version-0 snapshot.
 	Version int                `json:"version,omitempty"`
 	Tasks   map[string][]*Task `json:"tasks,omitempty"`
 }
@@ -1338,29 +1293,24 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
 // a snapshot from the leader.
 //
-// A payload from a newer format fails the restore, which cluster/store_snapshot.go
-// propagates. Only a downgrade produces one, and stopping there is what keeps a
-// build from reading a future FinishedAt convention under the old meaning.
+// A payload from a newer format is refused (propagated by cluster/store_snapshot.go) —
+// only a downgrade produces one, and refusing keeps this build from reading a future
+// FinishedAt convention under the old meaning. No writer produces one today, so the
+// refusal is currently dormant; it's added now rather than alongside the first
+// incompatible format, since by then the build that has to refuse is already in the
+// field.
 //
-// No writer produces a version above the current one yet, so the refusal is
-// dormant and its cost below is paid by no one today. It is here rather than
-// added alongside the first incompatible format because by then the build that
-// has to refuse is already in the field.
-//
-// That refusal costs the node its startup. At boot hashicorp/raft walks the
-// retained snapshots newest-first, so an older one this build can still read is
-// used instead and the log replays from there. If every retained snapshot is from
-// the newer format, NewRaft fails, Store.Open fails, and adapters/handlers/rest/
-// configure_api.go calls Fatalf — the process exits, and a supervisor restarts it
-// into the same failure. On a node that is already up the refusal arrives on the
-// InstallSnapshot RPC instead: the node keeps running but never catches up,
-// because the leader retries the same payload. Recovery is to put the node back on
-// a build at or above the one that wrote the snapshot. Deleting snapshots is a
-// last resort and reaches exactly one back: raft keeps only TrailingLogs entries
-// past the newest snapshot (10240 by default, against a SnapshotThreshold of
-// 8192), so a node whose log no longer reaches the snapshot it restores panics in
-// NewRaft, and deleting all three (cluster/store.go retains 3) does the same via
-// a GetLog on a compacted log.
+// The refusal costs the node its startup: hashicorp/raft walks retained snapshots
+// newest-first at boot, so if an older, readable one exists it's used instead; if every
+// retained snapshot is the newer format, NewRaft/Store.Open fail and
+// adapters/handlers/rest/configure_api.go calls Fatalf, exiting the process (a
+// supervisor restart hits the same failure). On an already-running node the refusal
+// arrives via InstallSnapshot instead: the node stays up but never catches up, since the
+// leader keeps retrying the same payload. Recovery is a build at or above the one that
+// wrote the snapshot; deleting snapshots is a last resort, since raft only retains
+// TrailingLogs past the newest one (10240 default vs. SnapshotThreshold 8192), so a log
+// that no longer reaches the restored snapshot panics in NewRaft — deleting all three
+// (cluster/store.go retains 3) hits the same panic via a GetLog on a compacted log.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {

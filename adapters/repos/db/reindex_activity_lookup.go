@@ -247,26 +247,15 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 // absence stops being evidence; the lookup refuses outright rather than read an
 // empty list as all-clear.
 //
-// completedTaskTTL here is the local node's setting, but the deletion is decided
-// by whichever node's sweep proposed it, so the retention that actually governs
-// is the shortest TTL configured anywhere in the cluster. A uniform TTL is
-// therefore a correctness requirement for this backstop, not a retention
-// preference: with 24h here and 1h on a peer, a 3-hour backup clears the check
-// above and then reads a list the peer's sweep has already emptied as
-// all-clear. The error text says "on every node" for that reason.
-//
-// A skewed clock has the same effect as a short TTL, and for the same reason:
-// the proposer's measuring moment is authoritative for everyone, so a node whose
-// clock jumped forward sweeps the whole cluster early rather than only its own
-// copy. Uniform clocks are part of the same requirement. The bound is the TTL:
-// a jump smaller than it changes no verdict, and one larger than it empties
-// every terminal task in every namespace in a single tick. The applier trusts
-// the proposal moment rather than guarding it because a task legitimately
-// deferred for a long time reports the same oversized age.
-//
-// Closing that needs the cluster minimum, which this node cannot see, or a
-// leader-gated sweep so one node's TTL and clock govern. Until then the
-// requirement is documented rather than enforced.
+// completedTaskTTL is the local node's setting, but deletion is decided by
+// whichever node's sweep proposed it, so the retention that actually governs is
+// the shortest TTL configured anywhere in the cluster — a uniform TTL is a
+// correctness requirement for this backstop, not a preference (a 24h local
+// value doesn't help if a peer's 1h sweep already emptied the list). A skewed
+// clock has the same effect as a short TTL, for the same reason: the proposer's
+// measuring moment governs every node's sweep. Neither is enforced today, only
+// documented and required; closing that needs either cluster-visible TTL
+// minimums or a leader-gated sweep.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
@@ -339,13 +328,10 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 			// the submit path's post-commit rollback.
 			return "", false, nil
 		}
-		// A terminal task carries a finish time, so a zero one means the
-		// invariant broke and the comparison below would waive every backup.
-		// Reachable during a rolling upgrade: an old binary finalizes a task a
-		// new node left zero-stamped mid-swap. The restore repair would fix
-		// that, but it runs on restore only, and this lookup reads the
-		// leader's list — a leader that has not restarted still serves the
-		// zero. Refuse rather than publish a torn backup.
+		// A zero FinishedAt on a terminal task means the invariant broke, and
+		// the comparison below would waive every backup. Reachable during a
+		// rolling upgrade until the leader restarts and the restore repair
+		// runs; refuse rather than publish a torn backup.
 		if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
 			return "", false, nil
 		}

@@ -152,12 +152,10 @@ func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace,
 }
 
 // CleanUpDistributedTask removes a terminal task from the cluster list.
-// finishedAt, proposedAt and ttl are the three operands the caller compared: the
-// task's finish time as the caller read it, the moment it looked, and the TTL it
-// looked against. All three travel on the request and the apply decides from
-// them alone. The caller must pass what it actually measured — the apply cannot
-// re-derive any of them, and re-reading one locally is what lets two nodes
-// disagree about a single log entry.
+// finishedAt, proposedAt, and ttl are the caller's own measurements and travel on
+// the request; the apply decides from them alone. Pass what was actually
+// measured — re-deriving any of them locally is what lets two nodes disagree
+// about a single log entry.
 func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error {
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP, &cmd.CleanUpDistributedTaskRequest{
 		Namespace:            namespace,

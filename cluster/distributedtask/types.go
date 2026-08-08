@@ -56,12 +56,10 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // replayed from the RAFT log at startup are skipped.
 type TerminalObserver func(task *Task)
 
-// TaskCleaner is an interface for issuing a request to clean up a distributed
-// task. finishedAt is the task's finish time as the caller read it, proposedAt
-// the moment it measured the task's age at, and ttl the completed-task TTL it
-// measured against. The apply decides from those three numbers alone rather
-// than from any state of its own, which is what stops two nodes forking on
-// whether one log entry deletes.
+// TaskCleaner issues a request to clean up a distributed task. finishedAt,
+// proposedAt, and ttl are the caller's measurements; the apply decides from
+// those three numbers alone, never local state, so every node reaches the same
+// verdict on one log entry.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error
 }
@@ -499,22 +497,17 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time the task reached a terminal status, stamped
-	// exactly once at that transition and zero before it:
+	// FinishedAt is the time the task reached a terminal status, stamped exactly
+	// once at that transition and zero before it: FinishedAt.IsZero() ⟺
+	// !Status.IsTerminal(). Always taken off the RAFT request that caused the
+	// transition, never the applying node's clock, so every node agrees.
 	//
-	//	FinishedAt.IsZero()  ⟺  !Status.IsTerminal()
+	// This is not when the task's units stopped ([Unit.FinishedAt], per unit) —
+	// on the success path the PREP barrier and bucket swap sit between the two.
+	// A task that fails on a unit report ends right there, so its FinishedAt is
+	// that unit's.
 	//
-	// The value always comes off the RAFT request that caused the transition,
-	// never from the applying node's clock, so every node computes the same
-	// state from the same log entry.
-	//
-	// When the task's units stopped is [Unit.FinishedAt], per unit. On the
-	// success path the two differ: between them sit the PREP barrier and the
-	// bucket swap, which the PREPARING and SWAPPING statuses report. A task
-	// that fails on a unit report ends right there, so its FinishedAt is that
-	// unit's.
-	//
-	// Also used to schedule task clean up.
+	// Also used to schedule task cleanup.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
@@ -560,27 +553,18 @@ type PostCompletionAck struct {
 	// Empty when Success==true.
 	Error string `json:"error,omitempty"`
 	// AckedAt is the wall-clock time the acking node stamped on its RAFT
-	// request, not a clock read on the applying node. Useful for
-	// forensics — the gap between the last unit's FinishedAt and the last
-	// AckedAt is the SWAPPING window's wall-clock duration on this cluster.
-	// On the failing ack of a PREP or SWAP barrier it is also the task's own
-	// [Task.FinishedAt].
+	// request, not a clock read on the applying node. The gap between the last
+	// unit's FinishedAt and the last AckedAt is the SWAPPING window's
+	// wall-clock duration. On a failing PREP/SWAP barrier ack it also becomes
+	// the task's own [Task.FinishedAt].
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// markTerminal ends the task, setting the status and the matching FinishedAt
-// in one step. It is the only place in this package that assigns a terminal
-// status, which is what pairs the status and the stamp: they cannot drift
-// apart.
-//
-// at must be the timestamp carried on the RAFT request that caused the
-// transition, never the applying node's clock: two nodes applying this same
-// log entry have to arrive at the same state.
-//
-// A task already terminal is left untouched, so the stamp records the first
-// terminal transition and no later apply can move it. Callers guard the
-// transition too; this guard makes exactly-once a property of the task rather
-// than of every caller.
+// markTerminal ends the task, setting the status and matching FinishedAt in one
+// step — the only place in this package that assigns a terminal status, so the
+// two can't drift apart. at must come from the RAFT request that caused the
+// transition, never the applying node's clock. A task already terminal is left
+// untouched, so the stamp records the first terminal transition only.
 func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 	if t.Status.IsTerminal() {
 		return
@@ -590,39 +574,24 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 }
 
 // repairTerminalStamp moves a terminal task's finish time forward to the latest
-// moment the task itself records, and reports whether it changed anything. With
-// [Task.clearNonTerminalStamp] it is the only writer of [Task.FinishedAt]
-// besides [Task.markTerminal], and it runs on one path only: [Manager.Restore].
-//
-// It runs only on snapshots below [snapshot.Version] 1, and it can be deleted
-// with that field. Until then it carries an obligation: a new [Task] field that
-// records a moment has to join the max below, or the stamp lands before a
-// moment the task reached and the backup overlap backstop waives a capture that
-// spanned it.
-//
-// The repaired stamp normally lives only in the restoring node's memory until
-// that node writes its own snapshot. raft.RecoverCluster is the exception: it
-// restores into a temporary FSM, replays, then snapshots and compacts, so on
-// that operator path the repair's output is what lands on disk.
+// moment the task itself records, and reports whether it changed anything. Runs
+// only on snapshots below [snapshot.Version] 1 (deletable once that field is);
+// until then, any new [Task] field recording a moment must join the max below,
+// or the stamp lands early and the backup overlap backstop waives a capture
+// that spanned it.
 //
 // The value is a function of the task bytes alone — no node clock, no map
-// order — so every node restoring the same snapshot computes the same stamp and
-// the FSM stays identical across the cluster.
+// order — so every node restoring the same snapshot computes the same stamp.
+// The repair normally lives only in the restoring node's memory until it next
+// snapshots; raft.RecoverCluster is the exception, writing it straight to disk.
 //
-// Two qualifiers, and they err in opposite directions. The moments it picks
-// between are each some other node's time.Now(), so an acker whose clock ran
-// ahead of the finalizer's moves the stamp later than the real finish. That is
-// the safe direction: the backup overlap backstop waives a capture that started
-// after FinishedAt, so a later stamp waives less.
-//
-// The other errs earlier, which is the waiving direction. The gap between the
-// last ack and an unstamped finalize is not recovered: up to one scheduler tick
-// (see DefaultDistributedTasksSchedulerTickInterval), sub-second in practice.
-// What the stamp lands on instead is the last post-completion ack, which a node
-// only sends once its bucket swap is done, so the window given up contains no
-// writes to the shard. That holds only while every terminal task records an ack:
-// a namespace whose tasks record none leaves the max at the units-stopped
-// moment, which does precede the swap.
+// It can err in both directions, safely. An acker's clock running ahead of the
+// finalizer's moves the stamp later than the real finish — safe, since the
+// backup backstop waives less the later FinishedAt is. It can also land early,
+// up to one scheduler tick short of the real unstamped finalize (the gap being
+// waived is the last post-completion ack to finalize, which contains no shard
+// writes once every task records an ack — a namespace whose tasks record none
+// falls back to the units-stopped moment, which does precede the swap).
 func (t *Task) repairTerminalStamp() bool {
 	if !t.Status.IsTerminal() {
 		return false

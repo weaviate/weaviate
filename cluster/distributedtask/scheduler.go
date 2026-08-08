@@ -123,12 +123,9 @@ type Scheduler struct {
 	logger        logrus.FieldLogger
 	sampledLogger *logrusext.Sampler
 
-	// unstampedLogger keeps the zero-stamp warn off sampledLogger's budget.
-	// The tasks it reports are never cleaned up, so the sweep meets them again
-	// on every tick for as long as the rolling upgrade that produced them
-	// lasts; sharing one budget would let them crowd out a genuine error.
-	// Its own budget is one line an hour, since nothing about the state
-	// changes in between.
+	// unstampedLogger keeps the zero-stamp warn off sampledLogger's budget: it
+	// re-fires every tick for the length of a rolling upgrade and would
+	// otherwise crowd out genuine errors.
 	unstampedLogger *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
@@ -631,17 +628,12 @@ func (s *Scheduler) tick() {
 			s.runFinalizePhase(namespace, tasks, providerIsUnitAware)
 		}
 
-		// TTL-cleanup of finished tasks. Both guards exist because the age
-		// check reads a zero FinishedAt as ~2000 years old, which clears any
-		// TTL. This list is the leader's, and the restore repair runs on
-		// restore only, so a leader that has not restarted still serves the
-		// zero and the guard is live for a whole rolling upgrade — see
-		// [Task.repairTerminalStamp] for where the state comes from.
-		//
-		// sweptAt is measured once and both filtered on and sent, and the
-		// finish time sent is the one filtered on, so the request carries
-		// exactly the comparison that selected the task and the apply can
-		// redo it without reading anything of its own.
+		// TTL-cleanup of finished tasks. A zero FinishedAt reads as ~2000 years
+		// old, so it's excluded explicitly; the restore repair
+		// ([Task.repairTerminalStamp]) only runs on restore, so a leader that
+		// hasn't restarted keeps serving zero stamps for a whole rolling
+		// upgrade. sweptAt is measured once and sent on the request so the
+		// apply can redo the same comparison without reading its own clock.
 		sweptAt := s.clock.Now()
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() || task.FinishedAt.IsZero() {
@@ -688,12 +680,9 @@ func (s *Scheduler) tick() {
 	}
 }
 
-// warnAboutUnstampedTasks reports the terminal tasks the sweep keeps because
-// their age cannot be established: a zero finish time reads as roughly two
-// thousand years old and would clear any TTL. Nothing removes them, so the
-// sweep meets the same set on every tick until the rolling upgrade that
-// produced it ends. One line an hour off a budget of its own, counting them
-// and naming the lowest ID as the handle to start from.
+// warnAboutUnstampedTasks reports terminal tasks the sweep keeps because their
+// age cannot be established (a zero finish time would otherwise clear any
+// TTL). Logs once an hour, naming the count and the lowest task ID.
 func (s *Scheduler) warnAboutUnstampedTasks(namespace string, tasks map[TaskDescriptor]*Task) {
 	var (
 		count   int
