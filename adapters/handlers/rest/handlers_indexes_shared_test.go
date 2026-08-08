@@ -11,17 +11,22 @@
 
 package rest
 
+// Shared harness builders and log-inspection helpers for the
+// handlers_indexes test files.
+
 import (
 	"context"
 	"encoding/json"
 	"io"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -142,8 +147,20 @@ func (p togglingProber) NodeActivity(context.Context, string) (backup.NodeActivi
 // fixtureNode is the single node submissionHandlers puts in the cluster.
 const fixtureNode = "node1"
 
-// submissionHandlers builds the handler the submission path runs against: one
-// collection with one filterable text property, owned by one node.
+// recordingCleanupProber records which node/collection pairs the cleanup gate
+// probes and answers "no cleanup running" for each.
+type recordingCleanupProber struct {
+	mu      sync.Mutex
+	queried []string
+}
+
+func (p *recordingCleanupProber) CleanupInProgress(_ context.Context, node, collection string) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.queried = append(p.queried, node+"/"+collection)
+	return false, nil
+}
+
 func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActivityProber) *indexesHandlers {
 	t.Helper()
 	const (
@@ -199,9 +216,6 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 	}
 }
 
-// cancelHandlers builds the handler the cancel path runs against: the same
-// fixture as submissionHandlers, plus a reindex provider the cancel path needs
-// to be present. The backup flag is never raised, so the probe stays idle.
 func cancelHandlers(t *testing.T, tasks reindexTaskService) *indexesHandlers {
 	t.Helper()
 	var busy atomic.Bool
@@ -215,8 +229,6 @@ func submitReindex(h *indexesHandlers) middleware.Responder {
 	return submitReindexOn(h, context.Background())
 }
 
-// submitReindexOn submits on a context the test controls, which is how a client
-// disconnect mid-submission is reproduced.
 func submitReindexOn(h *indexesHandlers, ctx context.Context) middleware.Responder {
 	return h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
 		HTTPRequest:  httptest.NewRequest("PUT", "/", nil).WithContext(ctx),
@@ -228,83 +240,30 @@ func submitReindexOn(h *indexesHandlers, ctx context.Context) middleware.Respond
 	}, &models.Principal{Username: "u1"})
 }
 
-// Pins: a backup and a reindex submitted at the same instant can never both
-// be admitted, at any point in the submission sequence.
-func TestUpdateIndexAdmissionRaceAgainstBackup(t *testing.T) {
-	tests := []struct {
-		name string
-		// claimAt says when the backup takes its slot, relative to the
-		// reindex submission.
-		claimAt string
-	}{
-		{name: "backup claims first, before the submission is probed", claimAt: "before"},
-		{name: "exact tie: backup claims while the task is being committed", claimAt: "on-commit"},
-		{name: "reindex is alone", claimAt: "never"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var busy atomic.Bool
-			svc := &raceTaskService{}
-			if tc.claimAt == "before" {
-				busy.Store(true)
-			}
-			if tc.claimAt == "on-commit" {
-				svc.onCommitted = func() { busy.Store(true) }
-			}
-
-			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-			responder := submitReindex(h)
-
-			if tc.claimAt == "never" {
-				_, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
-				require.Truef(t, ok, "an unopposed reindex must be accepted, got %T", responder)
-				require.Empty(t, svc.cancelled, "nothing raced it; the task must stand")
-				require.Len(t, svc.startedTasks(), 1)
-				return
-			}
-
-			conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
-			require.Truef(t, ok, "a racing backup must be refused with 409, got %T", responder)
-			require.Equal(t,
-				"reindex blocked: a backup is running in the cluster; retry after it finishes",
-				errorMessage(t, conflict.Payload))
-
-			switch tc.claimAt {
-			case "before":
-				require.Zero(t, svc.adds, "the backup was already visible; no task should be written")
-			case "on-commit":
-				require.Equal(t, 1, svc.adds, "the task is written before the race is detectable")
-				require.Len(t, svc.cancelled, 1,
-					"a refused submission must not leave its task running")
-				require.Equal(t, uint64(3), svc.cancelled[0].Version)
-			}
-			require.Empty(t, svc.startedTasks(),
-				"the caller was told the migration did not start; no task may remain STARTED")
-		})
-	}
+func gateHandlers(prober reindexCleanupProber, nodes ...string) (*indexesHandlers, *logrustest.Hook) {
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	return &indexesHandlers{
+		appState:       &state.State{Logger: logger},
+		cluster:        fixedMembership(nodes),
+		reindexCleanup: prober,
+	}, hook
 }
 
-// Pins: a submission refused by the race must leave nothing behind that
-// blocks the retry.
-func TestUpdateIndexRefusedByRaceIsRetryable(t *testing.T) {
-	var busy atomic.Bool
-	svc := &raceTaskService{}
-	svc.onCommitted = func() { busy.Store(true) }
+func entryWithMessage(hook *logrustest.Hook, fragment string) *logrus.Entry {
+	for _, e := range hook.AllEntries() {
+		if strings.Contains(e.Message, fragment) {
+			return e
+		}
+	}
+	return nil
+}
 
-	h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-
-	first := submitReindex(h)
-	_, refused := first.(*schema.SchemaObjectsIndexesUpdateConflict)
-	require.Truef(t, refused, "expected the tie to be refused, got %T", first)
-	require.Empty(t, svc.startedTasks())
-
-	svc.onCommitted = nil
-	busy.Store(false)
-
-	second := submitReindex(h)
-	_, accepted := second.(*schema.SchemaObjectsIndexesUpdateAccepted)
-	require.Truef(t, accepted,
-		"the retry must succeed; the refused attempt left state behind, got %T", second)
-	require.Len(t, svc.startedTasks(), 1)
+func audited(hook *logrustest.Hook, auditEvent string) *logrus.Entry {
+	for _, e := range hook.AllEntries() {
+		if e.Data["audit_event"] == auditEvent {
+			return e
+		}
+	}
+	return nil
 }

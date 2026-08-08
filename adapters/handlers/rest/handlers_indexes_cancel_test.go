@@ -152,7 +152,7 @@ func (p *stubCleanupGateProvider) ReleaseCleanupGateOnWorkerExit(
 // exists for: it has to be handed to the worker-exit watcher rather than
 // released with the request.
 func TestCancelDrainTimeoutHandsTheGateToTheWorkerExitWatcher(t *testing.T) {
-	h, _ := cancelFixture(t, &scriptedCleanupProber{})
+	h, _ := cancelFixture(t, &recordingCleanupProber{})
 	provider := &stubCleanupGateProvider{drainErr: context.DeadlineExceeded}
 
 	release := h.drainAndCleanupCancelledTask(context.Background(), provider,
@@ -188,7 +188,7 @@ func (h panicOnMessageHook) Fire(entry *logrus.Entry) error {
 // net/http recovers and the process survives, but the collection's backups and
 // restores stay refused until it is restarted.
 func TestCancelReleasesTheCleanupGateWhenTheCleanupPanics(t *testing.T) {
-	h, _ := cancelFixture(t, &scriptedCleanupProber{})
+	h, _ := cancelFixture(t, &recordingCleanupProber{})
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 	logger.AddHook(panicOnMessageHook{substr: "cancel: drain complete"})
@@ -215,7 +215,7 @@ func TestCancelReleasesTheCleanupGateWhenTheCleanupPanics(t *testing.T) {
 // goroutine open forever, and it must stay short enough that "let the next
 // submit clean up" is still a fallback rather than a theory.
 func TestCancelDrainRunsUnderItsOwnBound(t *testing.T) {
-	h, _ := cancelFixture(t, &scriptedCleanupProber{})
+	h, _ := cancelFixture(t, &recordingCleanupProber{})
 	// Stops at the drain: the on-disk sweep past it needs a real DB.
 	provider := &stubCleanupGateProvider{drainErr: context.DeadlineExceeded}
 
@@ -234,7 +234,7 @@ func TestCancelDrainRunsUnderItsOwnBound(t *testing.T) {
 // A cancel with nothing to cancel must not probe anyone: there is no teardown
 // for an owner to confirm.
 func TestCancelReindexTaskNoOpDoesNotProbeOwners(t *testing.T) {
-	prober := &scriptedCleanupProber{}
+	prober := &recordingCleanupProber{}
 	h, _ := cancelFixture(t, prober)
 
 	responder := h.cancelReindexTask(context.Background(), "Movies", "description", "filterable",
@@ -251,7 +251,7 @@ func TestCancelReindexTaskNoOpDoesNotProbeOwners(t *testing.T) {
 // the same "cleanup complete" line as the exact match tells an operator the
 // disk is clean when the task's own sidecars may be untouched.
 func TestCancelCleanupLogSaysWhenTheSweptTupleWasGuessed(t *testing.T) {
-	h, _ := cancelFixture(t, &scriptedCleanupProber{})
+	h, _ := cancelFixture(t, &recordingCleanupProber{})
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 	h.appState.Logger = logger

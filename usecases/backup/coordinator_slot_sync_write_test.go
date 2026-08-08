@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -191,4 +192,27 @@ func newRestoreCoordFixture(ctx context.Context, backupID string, nodes []string
 	fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 	fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 	return fc, desc
+}
+
+// stealSlot cancels the operation holding the slot and claims it for newID.
+//
+// assert, not require: this runs on the in-flight operation's own goroutine, or
+// right before the step that unparks it. require's Goexit would abandon that
+// operation mid-flight, surfacing as a hang or an unrelated downstream failure
+// instead of this one.
+func stealSlot(t *testing.T, slot *backupStat, cancelStatus backup.Status, heldID, newID string) {
+	t.Helper()
+	slot.set(cancelStatus)
+	assert.True(t, slot.resetIfCancelled(heldID))
+	assert.Empty(t, slot.renew(newID, "path", "", ""))
+}
+
+// requireProbeSees pins what a probe attached to sched reports. The reindex gate
+// reads this answer, so reporting the node idle admits a migration on top of a
+// live operation.
+func requireProbeSees(t *testing.T, sched *Scheduler, want NodeActivity, msgAndArgs ...interface{}) {
+	t.Helper()
+	probe := NewNodeActivityProbe(nil)
+	probe.AttachScheduler(sched)
+	require.Equal(t, want, probe.Activity(), msgAndArgs...)
 }
