@@ -48,8 +48,7 @@ func TestRefuseIfAnyReindexInFlight_Unwired(t *testing.T) {
 }
 
 func TestRefuseIfAnyReindexInFlight(t *testing.T) {
-	// The message shape a real RAFT failure carries: the redaction receipt
-	// below only bites if the cause actually names nodes.
+	// A real RAFT failure names nodes; the redaction receipt only bites if the cause does too.
 	lookupErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
 
 	tests := []struct {
@@ -116,8 +115,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			}
 			if tc.wantCause != nil {
 				assert.ErrorIs(t, err, tc.wantCause, "the underlying cause must stay reachable")
-				// The body hides the cause by design, so the log is the
-				// operator's only channel to the real error.
+				// The body hides the cause by design; the log is the operator's only channel.
 				var logged bool
 				for _, e := range hook.AllEntries() {
 					logged = logged || strings.Contains(e.Message, tc.wantCause.Error())

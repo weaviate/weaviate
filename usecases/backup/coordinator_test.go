@@ -1092,6 +1092,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 //     public coordinator path that consumes a remote CanCommitResponse.
 //  2. Asserting errors.Is succeeds against backup.ErrBackupBlockedByInFlightReindex
 //     (the entities/backup symbol).
+//  3. Asserting the promoter states the condition once, not once per wrap,
+//     when the participant's message already opens with the sentinel.
 //
 // Identity from the adapters/repos/db side is enforced by
 // reindex_inflight_test.go, which calls errors.Is against the same shared
