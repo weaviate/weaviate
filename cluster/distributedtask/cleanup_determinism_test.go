@@ -255,6 +255,14 @@ func TestManager_CleanUpTask_DefersAnEntryWhoseMeasurementsAreNonsense(t *testin
 			},
 		},
 		{
+			// The TTL stays positive here, which is what separates this row
+			// from the two above: the zero stamp has to be caught on its own.
+			name: "a zero finish time",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.FinishedAtUnixMillis = 0
+			},
+		},
+		{
 			name: "a zero proposal moment",
 			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
 				r.ProposedAtUnixMillis = 0
