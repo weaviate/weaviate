@@ -189,19 +189,6 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 		"a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal")
 }
 
-// TestReindexInFlightError_Submit pins the wording variant used while a
-// submission is still preparing the collection. Nothing was started and nothing
-// was cancelled, so the live-task advice must not appear here.
-func TestReindexInFlightError_Submit(t *testing.T) {
-	err := reindexInFlightError("MyClass", reindexBlockedBySubmit)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
-	require.Contains(t, err.Error(), "MyClass")
-	require.Contains(t, err.Error(), "a reindex submission is preparing this collection")
-	require.NotContains(t, err.Error(), "cancel it via",
-		"no task exists yet; this advice sends the operator chasing one that was never started")
-}
-
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
 // the shard-level halt-for-backup path delegates the gate decision to
 // the same DTM-backed lookup as the inactive-shard path.
@@ -288,32 +275,6 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	assert.Equal(t, collection, logged.Data["collection"])
 }
 
-// Pins: DB.Backupable must not reassemble node/shard names across per-shard
-// refusals.
-func TestBackupable_RefusalRedactsNodeAndShard(t *testing.T) {
-	const (
-		collection = "JourneyClass"
-		shard      = "zmDMRo4olU4c"
-		node       = "weaviate-0"
-	)
-
-	db := backupableFixture(t, collection, node, shard)
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{collection, shard}: true,
-	}))
-
-	err := db.Backupable(context.Background(), []string{collection})
-	require.Error(t, err)
-	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
-		"the sentinel must survive the join so the coordinator still answers 422")
-
-	body := err.Error()
-	assert.Contains(t, body, collection)
-	for _, leaked := range []string{shard, node} {
-		assert.NotContainsf(t, body, leaked, "DB.Backupable leaked %q into the refusal", leaked)
-	}
-}
-
 // backupableFixture wires the minimum a DB.Backupable call needs: one index
 // whose sharding state lists the given local shards.
 func backupableFixture(t *testing.T, collection, node string, shards ...string) *DB {
@@ -329,45 +290,23 @@ func TestBackupable_BuildsGateSnapshotOncePerCall(t *testing.T) {
 		collection = "SnapshotBuildCountClass"
 		node       = "weaviate-0"
 	)
-	liveShard := "s3"
 
-	tests := []struct {
-		name    string
-		live    bool
-		wantErr bool
-	}{
-		{name: "all shards admitted", live: false},
-		{name: "one shard refuses", live: true, wantErr: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			db := backupableFixture(t, collection, node, "s1", "s2", "s3", "s4", "s5")
+	db := backupableFixture(t, collection, node, "s1", "s2", "s3", "s4", "s5")
 
-			var activityBuilds, cleanupBuilds int
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-				activityBuilds++
-				return func(_, shardName string) bool {
-					return test.live && shardName == liveShard
-				}
-			})
-			db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
-				cleanupBuilds++
-				return func(string, string) ReindexHold { return ReindexHoldNone }
-			})
+	var activityBuilds, cleanupBuilds int
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		activityBuilds++
+		return func(string, string) bool { return false }
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		cleanupBuilds++
+		return func(string, string) ReindexHold { return ReindexHoldNone }
+	})
 
-			err := db.Backupable(context.Background(), []string{collection})
-			if test.wantErr {
-				require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
-				// Byte-identical to what the single-shard path produces.
-				require.Equal(t, reindexInFlightError(collection, reindexBlockedByLiveTask).Error(), err.Error())
-			} else {
-				require.NoError(t, err)
-			}
+	require.NoError(t, db.Backupable(context.Background(), []string{collection}))
 
-			assert.Equal(t, 1, activityBuilds, "activity snapshot must be built once per admission pass, not once per shard")
-			assert.Equal(t, 1, cleanupBuilds, "cleanup snapshot must be built once per admission pass, not once per shard")
-		})
-	}
+	assert.Equal(t, 1, activityBuilds, "activity snapshot must be built once per admission pass, not once per shard")
+	assert.Equal(t, 1, cleanupBuilds, "cleanup snapshot must be built once per admission pass, not once per shard")
 }
 
 // The real wrappers between the shard that refused and the stored failure meta

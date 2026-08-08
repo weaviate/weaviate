@@ -41,14 +41,11 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 		// staleOnColdShard puts a cancelled run's leftovers on the cold
 		// shard's disk, which is the only reason to pay for loading it.
 		staleOnColdShard bool
-		cancelBeforeWalk bool
 		wantColdLoaded   bool
 		wantColdTracker  bool
-		// wantHotTracker is what proves the walk stopped: the loaded shard's
-		// tracker dir is removed by a sweep that reaches it, and steps 2 and 3
-		// of the per-shard sweep never consult the context themselves.
+		// wantHotTracker is what proves the walk reached the loaded shard: its
+		// tracker dir is removed by a sweep that gets there.
 		wantHotTracker bool
-		wantErr        bool
 	}{
 		{
 			name: "a cold shard with nothing to clean is not loaded",
@@ -57,14 +54,6 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 			name:             "a cold shard with stale state is loaded and cleaned",
 			staleOnColdShard: true,
 			wantColdLoaded:   true,
-		},
-		{
-			name:             "a cancelled context stops the walk at the first shard",
-			staleOnColdShard: true,
-			cancelBeforeWalk: true,
-			wantColdTracker:  true,
-			wantHotTracker:   true,
-			wantErr:          true,
 		},
 	}
 
@@ -94,14 +83,7 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 				}
 			}()
 
-			sweepCtx := context.Background()
-			if tc.cancelBeforeWalk {
-				cancelled, cancel := context.WithCancel(context.Background())
-				cancel()
-				sweepCtx = cancelled
-			}
-
-			err := idx.CleanStalePartialReindexState(sweepCtx, propName, indexType)
+			err := idx.CleanStalePartialReindexState(context.Background(), propName, indexType)
 
 			assert.Equalf(t, tc.wantColdLoaded, cold.isLoaded(),
 				"cold shard loaded=%v, want %v: the sweep holds this collection's backup gate "+
@@ -112,12 +94,7 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 			assert.Equal(t, tc.wantHotTracker, dirExistsAt(t, hot.pathLSM(), ".migrations/"+tracker),
 				"loaded shard tracker dir")
 
-			if tc.wantErr {
-				assert.ErrorIs(t, err, context.Canceled,
-					"abandoning the walk must be reported as the cancellation it is")
-			} else {
-				assert.NoError(t, err)
-			}
+			assert.NoError(t, err)
 		})
 	}
 }

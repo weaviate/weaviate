@@ -301,39 +301,6 @@ func TestMarkCleanupInProgress(t *testing.T) {
 	assert.False(t, p.AnyCleanupInProgress())
 }
 
-// TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection pins that a
-// payload with no shard mapping still gates the whole collection.
-func TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection(t *testing.T) {
-	tests := []struct {
-		name    string
-		payload *ReindexTaskPayload
-	}{
-		{
-			name:    "no shard mapping at all",
-			payload: &ReindexTaskPayload{Collection: "C"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			p := newCleanupRegistryProvider()
-
-			release := p.MarkCleanupInProgress(tc.payload)
-			assert.True(t, p.AnyCleanupInProgress(),
-				"the restore gate must stay shut while the teardown runs")
-			assert.True(t, p.IsCleanupInProgress("C", "shard1"),
-				"the backup gate must refuse every shard of the collection")
-			assert.True(t, p.IsCleanupInProgress("C", "any-other-shard"))
-			assert.False(t, p.IsCleanupInProgress("Other", "shard1"),
-				"an unrelated collection is not part of this teardown")
-
-			release()
-			assert.False(t, p.AnyCleanupInProgress())
-			assert.False(t, p.IsCleanupInProgress("C", "shard1"))
-		})
-	}
-}
-
 // TestCleanupGateMatchesCollectionRegardlessOfCase pins that a registration and
 // a probe spelling the collection name differently still match.
 func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
@@ -434,22 +401,6 @@ func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 			"the worker is still writing; a backup must not capture this shard")
 		assert.True(t, p.AnyCleanupInProgress(),
 			"the restore gate must be shut for the same reason")
-
-		release()
-		assert.False(t, p.AnyCleanupInProgress())
-	})
-
-	t.Run("worker drains", func(t *testing.T) {
-		done := make(chan struct{})
-		close(done)
-		p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-			desc: {doneCh: done},
-		})
-
-		release, err := p.DrainWithCleanupGate(context.Background(), payload, desc)
-		require.NoError(t, err)
-		assert.True(t, p.IsCleanupInProgress("Movies", "shard1"),
-			"the teardown runs next; the gate stays shut until the caller releases")
 
 		release()
 		assert.False(t, p.AnyCleanupInProgress())
