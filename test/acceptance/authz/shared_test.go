@@ -99,6 +99,11 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 		WithMCP().
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
+		// The tasks RBAC arms need a real distributed task to compare payloads
+		// against, and the reindex routes are the only way to create one. The
+		// short tick keeps it terminal inside the test's wait.
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateWithGRPC().WithRBAC().WithApiKey().WithDbUsers().
 		WithBackendFilesystem().
 		WithUserApiKey(sharedRootUser, sharedRootKey).

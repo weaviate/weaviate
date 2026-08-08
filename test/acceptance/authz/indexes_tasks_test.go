@@ -14,7 +14,9 @@ package authz
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/distributed_tasks"
@@ -96,6 +98,20 @@ func TestAuthzIndexesGet(t *testing.T) {
 	}
 }
 
+// terminalTaskIDs returns the IDs of the tasks that have stopped moving.
+func terminalTaskIDs(tasks models.DistributedTasks) []string {
+	var ids []string
+	for _, namespace := range tasks {
+		for _, task := range namespace {
+			switch task.Status {
+			case "FINISHED", "FAILED", "CANCELLED":
+				ids = append(ids, task.ID)
+			}
+		}
+	}
+	return ids
+}
+
 // TestAuthzDistributedTasksGet covers GET /v1/tasks, which requires READ on the
 // cluster resource (read_cluster).
 func TestAuthzDistributedTasksGet(t *testing.T) {
@@ -105,6 +121,35 @@ func TestAuthzDistributedTasksGet(t *testing.T) {
 
 	_, down := composeUpShared(t)
 	defer down()
+
+	// A real task on the list. Without one both sides of the allow arm's
+	// comparison are empty, and an implementation that answered every caller
+	// with an empty stand-in would pass.
+	const className = "AuthzTasksReindex"
+	helper.CreateClassAuth(t, &models.Class{
+		Class:      className,
+		Properties: []*models.Property{{Name: "score", DataType: []string{"int"}}},
+	}, sharedRootKey)
+	defer helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(sharedRootKey))
+
+	accepted, err := helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
+		schema.NewSchemaObjectsIndexesUpdateParams().
+			WithClassName(className).WithPropertyName("score").
+			WithBody(&models.IndexUpdateRequest{Rangeable: &models.IndexUpdateRangeable{Enabled: true}}),
+		helper.CreateAuth(sharedRootKey))
+	require.NoError(t, err)
+	require.NotEmpty(t, accepted.Payload.TaskID)
+
+	// Let it reach a terminal status before comparing payloads: a task still
+	// running reports progress that moves between the two calls below.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := helper.Client(t).DistributedTasks.DistributedTasksGet(
+			distributed_tasks.NewDistributedTasksGetParams(), helper.CreateAuth(sharedRootKey))
+		if !assert.NoError(ct, err) {
+			return
+		}
+		assert.Contains(ct, terminalTaskIDs(resp.Payload), accepted.Payload.TaskID)
+	}, 2*time.Minute, time.Second, "the reindex task must reach a terminal status")
 
 	tests := []struct {
 		name       string
@@ -155,6 +200,8 @@ func TestAuthzDistributedTasksGet(t *testing.T) {
 				distributed_tasks.NewDistributedTasksGetParams(), helper.CreateAuth(sharedRootKey))
 			require.NoError(t, rootErr)
 			require.Equal(t, rootResp.Payload, resp.Payload)
+			require.Contains(t, terminalTaskIDs(resp.Payload), accepted.Payload.TaskID,
+				"the comparison only discriminates while a real task is on the list")
 		})
 	}
 }
