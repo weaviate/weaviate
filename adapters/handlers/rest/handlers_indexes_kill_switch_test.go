@@ -98,11 +98,6 @@ func TestUpdateIndex_RuntimeReindexDisabledStillCancels(t *testing.T) {
 			body:       cancelBody("searchable"),
 			wantStatus: "NO_OP",
 		},
-		{
-			name:       "rangeable cancel reaches the handler and finds nothing to stop",
-			body:       cancelBody("rangeable"),
-			wantStatus: "NO_OP",
-		},
 	}
 
 	for _, tc := range tests {

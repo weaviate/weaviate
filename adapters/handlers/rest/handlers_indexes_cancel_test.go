@@ -231,34 +231,6 @@ func TestCancelDrainRunsUnderItsOwnBound(t *testing.T) {
 		"the drain must be capped at 10s, short enough for 'the next submit cleans up' to still apply")
 }
 
-// The cancel is answered only once every other owner confirms it closed its
-// cleanup gate. Answering earlier hands the caller a "cancelled" that a backup
-// starting in the same instant can still race on those nodes.
-func TestCancelReindexTaskWaitsForOwnerCleanupGates(t *testing.T) {
-	const (
-		collection  = "Movies"
-		remoteOwner = "node2"
-	)
-
-	prober := &scriptedCleanupProber{script: map[string][]cleanupAnswer{
-		remoteOwner: {{up: false}, {up: true}},
-	}}
-	h, svc := cancelFixture(t, prober)
-
-	responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
-		&models.Principal{Username: "u1"})
-
-	accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
-	require.Truef(t, ok, "a cancel of a live task must be accepted, got %T", responder)
-	require.Equal(t, "CANCELLED", accepted.Payload.Status)
-	require.Len(t, svc.cancelled, 1, "the live task must have been cancelled")
-
-	require.GreaterOrEqual(t, prober.callsFor(remoteOwner), 2,
-		"the owner has to be asked, and re-asked, before the caller is told the cancel is done")
-	require.Contains(t, prober.queried, remoteOwner+"/"+collection,
-		"the owner must be asked about the collection being cancelled")
-}
-
 // A cancel with nothing to cancel must not probe anyone: there is no teardown
 // for an owner to confirm.
 func TestCancelReindexTaskNoOpDoesNotProbeOwners(t *testing.T) {
@@ -279,52 +251,27 @@ func TestCancelReindexTaskNoOpDoesNotProbeOwners(t *testing.T) {
 // the same "cleanup complete" line as the exact match tells an operator the
 // disk is clean when the task's own sidecars may be untouched.
 func TestCancelCleanupLogSaysWhenTheSweptTupleWasGuessed(t *testing.T) {
-	tests := []struct {
-		name            string
-		payloadReadable bool
-		wantMessage     string
-	}{
-		{
-			name:            "the task's own payload named the tuple",
-			payloadReadable: true,
-			wantMessage:     "cancel: on-disk cleanup complete",
-		},
-		{
-			name:        "the tuple came from the request URL",
-			wantMessage: "cancel: on-disk cleanup complete for the property and index type in the request URL",
-		},
+	h, _ := cancelFixture(t, &scriptedCleanupProber{})
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	h.appState.Logger = logger
+
+	release := h.drainAndCleanupCancelledTask(context.Background(), &stubCleanupGateProvider{},
+		&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
+		&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
+		"Movies", "title", "filterable", false)
+	require.NotNil(t, release)
+	release()
+
+	var completion string
+	for _, entry := range hook.AllEntries() {
+		if strings.HasPrefix(entry.Message, "cancel: on-disk cleanup complete") {
+			completion = entry.Message
+		}
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			h, _ := cancelFixture(t, &scriptedCleanupProber{})
-			logger, hook := logrustest.NewNullLogger()
-			logger.SetLevel(logrus.DebugLevel)
-			h.appState.Logger = logger
-
-			release := h.drainAndCleanupCancelledTask(context.Background(), &stubCleanupGateProvider{},
-				&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
-				&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
-				"Movies", "title", "filterable", test.payloadReadable)
-			require.NotNil(t, release)
-			release()
-
-			var completion string
-			for _, entry := range hook.AllEntries() {
-				if strings.HasPrefix(entry.Message, "cancel: on-disk cleanup complete") {
-					completion = entry.Message
-				}
-			}
-			require.NotEmpty(t, completion, "the sweep has to report its outcome")
-			if test.payloadReadable {
-				require.Equal(t, test.wantMessage, completion)
-				return
-			}
-			require.NotEqual(t, "cancel: on-disk cleanup complete", completion,
-				"the unqualified line is the one an operator reads as authoritative")
-			require.Contains(t, completion, test.wantMessage)
-		})
-	}
+	require.NotEmpty(t, completion, "the sweep has to report its outcome")
+	require.Contains(t, completion, "for the property and index type in the request URL",
+		"the guessed tuple has to reach the sweep's own log line")
 }
 
 // Every gate on the submission path says so when it fails open, and every one

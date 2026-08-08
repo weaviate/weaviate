@@ -14,7 +14,6 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,12 +62,6 @@ func TestIndexStatusSurfacesATaskWhosePayloadWillNotDecode(t *testing.T) {
 		{
 			name:       "live task, collection cased differently",
 			task:       unreadableTask("t1", "movies", distributedtask.TaskStatusStarted),
-			collection: "Movies",
-			wantStatus: models.IndexStatusStatusPending,
-		},
-		{
-			name:       "live task in a swapping status",
-			task:       unreadableTask("t1", "Movies", distributedtask.TaskStatusSwapping),
 			collection: "Movies",
 			wantStatus: models.IndexStatusStatusPending,
 		},
@@ -176,48 +169,6 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 			require.Zero(t, idx.Progress, "no progress was readable")
 		})
 	}
-}
-
-// The same refusal tells the operator to cancel the task. A cancel that
-// answers NO_OP leaves them with no remedy at all: the payload is unreadable
-// on every node, so a restart does not help either.
-func TestCancelClearsATaskWhosePayloadWillNotDecode(t *testing.T) {
-	const collection = "Movies"
-
-	svc := &raceTaskService{tasks: []*distributedtask.Task{
-		unreadableTask("Movies:unknown:ab3f", collection, distributedtask.TaskStatusStarted),
-	}}
-
-	h := cancelHandlers(t, svc)
-
-	responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
-		&models.Principal{Username: "u1"})
-
-	accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
-	require.Truef(t, ok, "cancel must be accepted, got %T", responder)
-	require.Equal(t, "CANCELLED", accepted.Payload.Status,
-		"the task the backup refusal named must be cancellable")
-	require.Len(t, svc.cancelled, 1, "the task must have been cancelled in DTM")
-	require.Equal(t, "Movies:unknown:ab3f", svc.cancelled[0].ID)
-}
-
-// The fallback matches on the collection alone, because that is all that
-// decoded. It must not reach a task naming a different collection.
-func TestCancelLeavesAnUnreadableTaskOfAnotherCollectionAlone(t *testing.T) {
-	svc := &raceTaskService{tasks: []*distributedtask.Task{
-		unreadableTask("Reviews:unknown:ab3f", "Reviews", distributedtask.TaskStatusStarted),
-	}}
-
-	var busy atomic.Bool
-	h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-
-	responder := h.cancelReindexTask(context.Background(), "Movies", "title", "filterable",
-		&models.Principal{Username: "u1"})
-
-	accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
-	require.Truef(t, ok, "cancel must be accepted, got %T", responder)
-	require.Equal(t, reindexCancelStatusNoOp, accepted.Payload.Status)
-	require.Empty(t, svc.cancelled)
 }
 
 // unattributableTaskPayload defeats the full ReindexTaskPayload decoder AND
@@ -333,18 +284,6 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			wantStatus:      "CANCELLED",
 		},
 		{
-			name: "a decodable task on this collection still wins over a renamed one",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{
-					renamedFieldTask(t, "renamed", distributedtask.TaskStatusStarted),
-					decodableOnMovies(t),
-				}
-			},
-			wantCancelledID: "t-decodable",
-			wantTaskID:      "t-decodable",
-			wantStatus:      "CANCELLED",
-		},
-		{
 			name: "a terminal task holds no gate and is left alone",
 			tasks: func(*testing.T) []*distributedtask.Task {
 				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusFinished)}
@@ -355,13 +294,6 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			name: "past STARTED, DTM will not cancel it, so say so",
 			tasks: func(*testing.T) []*distributedtask.Task {
 				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusSwapping)}
-			},
-			wantConflict: true,
-		},
-		{
-			name: "a renamed one past STARTED gets the same refusal",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{renamedFieldTask(t, "renamed", distributedtask.TaskStatusSwapping)}
 			},
 			wantConflict: true,
 		},

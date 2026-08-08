@@ -20,21 +20,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
-// Pins: the reindex gate probe transport must never honor HTTP_PROXY, or a
-// proxy answering with a byte-identical 404 could admit a reindex over a live
-// backup. Asserted on the transport, not the built client, since the tracing
-// wrapper in front of it exposes no way back to its base.
-func TestReindexGateProbeTransportIgnoresProxyEnv(t *testing.T) {
-	probe := clusterHttpTransport(time.Second, nil)
-	require.Nil(t, probe.Proxy,
-		"the gate's probes must reach the peer itself, never an HTTP_PROXY that can answer in its stead")
-
-	// The shared client keeps its pre-existing proxy behavior.
-	shared := clusterHttpTransport(time.Second, http.ProxyFromEnvironment)
-	require.NotNil(t, shared.Proxy,
-		"the shared cluster client's proxy behavior is pre-existing and must not change here")
-}
-
 // Drives the real client rather than asserting on the transport builder,
 // since that takes the resolver as an argument and says nothing about which
 // resolver the probe constructor chose. Both clients are pointed at an

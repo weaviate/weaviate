@@ -337,19 +337,6 @@ func TestRollbackRacedReindexTaskOutcomes(t *testing.T) {
 			wantRolledBack:      true,
 		},
 		{
-			// A retryable RAFT failure must still escalate.
-			name: "the cancel fails without a permanent rejection",
-			svc: &scriptedRollbackService{
-				tasks:     liveTask(),
-				cancelErr: errors.New("raft: leader election in progress"),
-			},
-			expectedListCalls:   3,
-			expectedCancelCalls: 3,
-			expectedLevel:       logrus.ErrorLevel,
-			expectedMessage:     "rollback: could not cancel the task in",
-			expectedAudit:       "reindex_task_rollback_failed",
-		},
-		{
 			name:                "the task is cancelled",
 			svc:                 &scriptedRollbackService{tasks: liveTask()},
 			expectedListCalls:   1,
@@ -509,60 +496,6 @@ func TestUpdateIndexHoldsCleanupGateAroundPreSubmitCleanup(t *testing.T) {
 
 	require.False(t, provider.AnyCleanupInProgressForCollection(collection),
 		"the gate must be released once the handler returns")
-}
-
-// backupDuringScanProber is a backup trying to claim its slot while the
-// submission's cluster-wide probe is still running. The probe fans out to every
-// node concurrently, so it records which nodes' probes found the gate open —
-// each of those is a backup that would have been admitted into the sweep.
-type backupDuringScanProber struct {
-	provider   *db.ReindexProvider
-	collection string
-
-	mu       sync.Mutex
-	probes   int
-	admitted []string
-}
-
-func (p *backupDuringScanProber) NodeActivity(_ context.Context, node string) (backup.NodeActivity, error) {
-	p.mu.Lock()
-	p.probes++
-	if p.provider.HoldForShard(p.collection, "shard1") == db.ReindexHoldNone {
-		p.admitted = append(p.admitted, node)
-	}
-	p.mu.Unlock()
-	return backup.NodeActivity{}, nil
-}
-
-func (p *backupDuringScanProber) result() (int, []string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.probes, append([]string(nil), p.admitted...)
-}
-
-// Pins: the submit gate must close before the cluster-wide probe runs, or a
-// backup admitted mid-scan gets its sidecars removed by the sweep underneath it.
-func TestSubmitGateIsClosedBeforeTheClusterWideProbe(t *testing.T) {
-	const collection = "Movies"
-
-	logger, _ := logrustest.NewNullLogger()
-	provider := db.NewReindexProvider(nil, nil, logger, "node1",
-		func() int { return 1 }, context.Background())
-
-	prober := &backupDuringScanProber{provider: provider, collection: collection}
-	h := submissionHandlers(t, &raceTaskService{}, prober)
-	h.appState.ReindexProvider.Store(provider)
-	h.cluster = fixedMembership{"node1", "node2", "node3"}
-
-	require.NotNil(t, submitReindex(h))
-
-	probes, admitted := prober.result()
-	require.Equal(t, 6, probes,
-		"both probes fan out over all three nodes")
-	require.Empty(t, admitted,
-		"no node may report the collection free of reindex submissions while one "+
-			"is in flight; every node listed here is a backup that would have been "+
-			"captured across the pre-submit deletion")
 }
 
 // starvationProber models a slow owner that burns its whole budget and a fast

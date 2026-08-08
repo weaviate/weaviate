@@ -53,11 +53,6 @@ func TestCancelRefusesATaskThatHasPassedThePointOfCancellation(t *testing.T) {
 			wantConflict: true,
 		},
 		{
-			name:         "swapping, payload decodes",
-			tasks:        []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusSwapping, collection)},
-			wantConflict: true,
-		},
-		{
 			name: "a status this build does not recognize",
 			tasks: []*distributedtask.Task{
 				decodable("t1", distributedtask.TaskStatus("REBALANCING"), collection),

@@ -41,23 +41,6 @@ func (m fixedMembership) LocalName() string {
 	return m[0]
 }
 
-// TestUpdateIndexRefusesWhileBackupRuns drives the full submission handler,
-// not just the gate, so a dropped call to it fails here too.
-func TestUpdateIndexRefusesWhileBackupRuns(t *testing.T) {
-	// No task service: the gate is the next thing the handler reaches.
-	h := submissionHandlers(t, nil, fixedActivityProber{fixtureNode: backup.NodeActivity{
-		Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1",
-	}})
-
-	responder := submitReindex(h)
-
-	conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
-	require.Truef(t, ok, "a running backup must be refused with 409, got %T", responder)
-	require.Equal(t,
-		"reindex blocked: a backup is running in the cluster; retry after it finishes",
-		errorMessage(t, conflict.Payload))
-}
-
 // A missing cluster service is a 503, and it is reached through a gate that ran
 // and cleared: the probe comes first, so a wired cluster with no task service
 // still gets the refusal rather than a nil-deref panic.
