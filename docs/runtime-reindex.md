@@ -205,10 +205,13 @@ Two things about it changed with the `finishedAt` work:
   `finishedAt`.
 - **The completed-task TTL is now decided by the node that proposes the
   deletion.** The cleanup request carries the moment that node's sweep
-  measured the task's age at and the TTL it measured against, and every
-  node applies that rather than re-measuring against its own wall clock.
-  Two nodes therefore agree on whether a task is still listed, which they
-  did not before. The consequence for operators:
+  measured the task's age at, the TTL it measured against, and the finish
+  time it read off the task, and every node applies those three numbers
+  rather than any state of its own. Two nodes therefore agree on whether a
+  task is still listed, which they did not before — including two nodes
+  that hold different finish times for it, which happens when one restored
+  a snapshot written before `finishedAt` was the terminal transition. The
+  consequence for operators:
   `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` is a per-node setting, and
   each node's sweep proposes with its own value, so **the effective
   cluster retention is the shortest value configured on any node**. Raise
@@ -219,6 +222,17 @@ Two things about it changed with the `finishedAt` work:
   applying node falls back to its own age check — so during an upgrade
   from such a version the two nodes can still disagree, in both
   directions, until every node runs a binary that carries them.
+
+  A uniform TTL is a correctness requirement for the backup overlap
+  backstop, not just a retention preference. That backstop refuses a
+  backup that ran longer than the completed-task TTL, because past it a
+  finished reindex task is gone from the list and its absence stops being
+  evidence. The threshold it checks is the local node's TTL, but the
+  retention that actually governs is the cluster minimum: with 24h on the
+  node taking the backup and 1h somewhere else, a 3-hour backup passes the
+  check and then reads an empty task list as all-clear. Set the same value
+  everywhere, and treat a rolling restart that changes it as a window in
+  which backups can be taken on stale evidence.
 
 ## 3. End-to-end lifecycle
 

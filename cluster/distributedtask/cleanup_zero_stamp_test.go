@@ -33,10 +33,11 @@ import (
 //
 // The state itself is only reachable across server versions: a node old enough
 // to end a task without stamping it, applying against state a newer node
-// produced. [Manager.Restore] repairs the local map, but both guards read a
-// list the repair never reaches — the sweep reads the leader's — so they are
-// live for a whole rolling upgrade. The tests below seed the map directly
-// rather than through Restore for that reason.
+// produced. [Manager.Restore] repairs the stamp, but it runs on restore only,
+// so a node that has not restarted keeps the zero — including a leader, whose
+// list is the one both guards read. They stay live for a whole rolling upgrade
+// for that reason. The tests below seed the map directly rather than through
+// Restore, which would repair the state under test.
 
 // seedTerminalTaskWithoutAStamp installs a single FINISHED task carrying no
 // finish time straight into the task map.

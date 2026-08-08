@@ -70,7 +70,7 @@ func TestRaft_CleanUpDistributedTask_CarriesTheProposersMeasurements(t *testing.
 	require.NoError(t, srv.store.distributedTasksManager.Restore(snap))
 
 	require.NoError(t, srv.CleanUpDistributedTask(ctx, "reindex", "just-finished", 1,
-		finishedAt.Add(time.Minute), time.Second),
+		finishedAt, finishedAt.Add(time.Minute), time.Second),
 		"the apply must decide from the proposer's measurements; without them on the "+
 			"request the node re-measures the age itself and refuses this task as too fresh")
 

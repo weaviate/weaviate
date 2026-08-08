@@ -57,12 +57,13 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed
-// task. proposedAt is the moment the caller measured the task's age at and ttl
-// is the completed-task TTL it measured against; the apply decides from those
-// two numbers and the task's stored finish time rather than from its own wall
-// clock, which would let two nodes fork on whether the entry deletes.
+// task. finishedAt is the task's finish time as the caller read it, proposedAt
+// the moment it measured the task's age at, and ttl the completed-task TTL it
+// measured against. The apply decides from those three numbers alone rather
+// than from any state of its own, which is what stops two nodes forking on
+// whether one log entry deletes.
 type TaskCleaner interface {
-	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, proposedAt time.Time, ttl time.Duration) error
+	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error
 }
 
 // TaskFinalizer is how the [Scheduler] transitions a task out of
@@ -608,13 +609,20 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 // order — so every node restoring the same snapshot computes the same stamp and
 // the FSM stays identical across the cluster.
 //
-// Two qualifiers on "never past the real finish". The moments it picks between
-// are each some other node's time.Now(), so an acker whose clock ran ahead of
-// the finalizer's moves the stamp by that difference. And the gap between the
+// Two qualifiers, and they err in opposite directions. The moments it picks
+// between are each some other node's time.Now(), so an acker whose clock ran
+// ahead of the finalizer's moves the stamp later than the real finish. That is
+// the safe direction: the backup overlap backstop waives a capture that started
+// after FinishedAt, so a later stamp waives less.
+//
+// The other errs earlier, which is the waiving direction. The gap between the
 // last ack and an unstamped finalize is not recovered: up to one scheduler tick
 // (see DefaultDistributedTasksSchedulerTickInterval), sub-second in practice.
-// Both err later, which is the fail-closed direction — the backstop waives a
-// capture that starts after FinishedAt, and the TTL only defers.
+// What the stamp lands on instead is the last post-completion ack, which a node
+// only sends once its bucket swap is done, so the window given up contains no
+// writes to the shard. That holds only while every terminal task records an ack:
+// a namespace whose tasks record none leaves the max at the units-stopped
+// moment, which does precede the swap.
 func (t *Task) repairTerminalStamp() bool {
 	if !t.Status.IsTerminal() {
 		return false

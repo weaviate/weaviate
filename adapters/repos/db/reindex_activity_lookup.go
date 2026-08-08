@@ -249,8 +249,15 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 //
 // completedTaskTTL here is the local node's setting, but the deletion is decided
 // by whichever node's sweep proposed it, so the retention that actually governs
-// is the shortest TTL configured anywhere in the cluster. The error text says
-// "on every node" for that reason.
+// is the shortest TTL configured anywhere in the cluster. A uniform TTL is
+// therefore a correctness requirement for this backstop, not a retention
+// preference: with 24h here and 1h on a peer, a 3-hour backup clears the check
+// above and then reads a list the peer's sweep has already emptied as
+// all-clear. The error text says "on every node" for that reason.
+//
+// Closing that needs the cluster minimum, which this node cannot see, or a
+// leader-gated sweep so one node's TTL governs. Until then the requirement is
+// documented rather than enforced.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
@@ -326,9 +333,10 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 		// A terminal task carries a finish time, so a zero one means the
 		// invariant broke and the comparison below would waive every backup.
 		// Reachable during a rolling upgrade: an old binary finalizes a task a
-		// new node left zero-stamped mid-swap. This lookup reads the leader's
-		// list, which the restore repair never touches, so the guard is live
-		// for the whole upgrade. Refuse rather than publish a torn backup.
+		// new node left zero-stamped mid-swap. The restore repair would fix
+		// that, but it runs on restore only, and this lookup reads the
+		// leader's list — a leader that has not restarted still serves the
+		// zero. Refuse rather than publish a torn backup.
 		if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
 			return "", false, nil
 		}

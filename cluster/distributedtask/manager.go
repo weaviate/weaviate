@@ -1031,8 +1031,9 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 // CleanUpTask removes a terminal task from the Manager's state. It refuses tasks that are
 // still running, tasks carrying no finish time, and tasks the proposer's measurements say
 // are still within the completed-task TTL — preventing premature removal of status
-// information that other nodes may still need to observe. See [Manager.ttlHasElapsed] for
-// which TTL and which clock decide that last one.
+// information that other nodes may still need to observe. The first two refusals are
+// properties of the local task, the same on every node; the third reads only the
+// request. See [Manager.ttlHasElapsed] for whose measurements decide it.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1075,31 +1076,43 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	return nil
 }
 
-// ttlHasElapsed reports whether a task stamped finishedAt is old enough to delete,
-// from the proposer's measurements rather than this node's clock: the moment the
-// scheduler sweep looked, and the TTL it looked against. Both operands come from
-// the log entry and the FSM state, so every node reaches the same verdict.
+// ttlHasElapsed reports whether the proposing sweep's measurements say the task is
+// old enough to delete. All three operands — the moment the sweep looked, the TTL
+// it looked against, and the finish time it read — travel on the log entry, so the
+// answer is a function of the entry alone and every node reaches it.
 //
-// Re-measuring locally instead would read the applying node's wall clock against
-// the applying node's stored stamp, and two nodes would fork on whether the entry
-// deletes. Skewed clocks do that, and so does a rolling upgrade, where the same
-// task carries stamps a whole PREPARING-through-SWAPPING window apart depending on
-// which binary stamped it. GET /v1/schema/{class}/indexes reads locally, so the
-// fork is visible to the caller.
+// localFinishedAt is not an operand. It is passed only for the mismatch warning
+// below, which reports a node whose own copy of the stamp differs from the
+// proposer's. Subtracting it instead would fork two nodes on the same entry, and
+// there are two ways for the copies to differ: skewed clocks, and a node that
+// restored a snapshot written before finish times were stamped at the finalize,
+// whose repaired stamp is the earlier units-stopped moment (see
+// [Task.repairTerminalStamp]). GET /v1/schema/{class}/indexes reads locally, so a
+// fork would be visible to the caller.
 //
 // The TTL applied is the proposer's. DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is
 // a per-node setting, so raising it on one node governs that node's own proposals
 // only; the effective cluster retention is whatever the proposing node had.
 //
-// Both measurements zero means the request came from a binary that predates the
-// fields, and the local age check that binary's sweep expects applies instead.
-// The opposite direction does not converge: an applier on such a binary discards
-// the measurements and re-derives locally whatever the proposer sent, so a
+// A zero finished_at means the request came from a binary that predates these
+// fields — a sweep that sets them refuses to propose an unstamped task — and the
+// local age check that binary's sweep expects applies instead. The opposite
+// direction does not converge: an applier on such a binary discards the
+// measurements and re-derives locally whatever the proposer sent, so a
 // mixed-version cluster keeps forking until every node runs a binary that reads
 // them.
-func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, finishedAt time.Time) bool {
-	if r.ProposedAtUnixMillis == 0 && r.TtlMillis == 0 {
-		return m.completedTaskTTL < m.clock.Since(finishedAt)
+func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinishedAt time.Time) bool {
+	if r.FinishedAtUnixMillis == 0 {
+		return m.completedTaskTTL < m.clock.Since(localFinishedAt)
+	}
+
+	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
+	if !finishedAt.Equal(localFinishedAt) {
+		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
+			Warnf("task %s/%s/%d carries finish time %s here but the cleanup proposer read %s; "+
+				"deciding from the proposer's so every node reaches the same verdict. Expected "+
+				"during a rolling upgrade past a build that stamped the terminal transition differently",
+				r.Namespace, r.Id, r.Version, localFinishedAt, finishedAt)
 	}
 
 	elapsed := time.UnixMilli(r.ProposedAtUnixMillis).Sub(finishedAt)
@@ -1232,15 +1245,23 @@ type snapshot struct {
 	//	    terminal and already sits at the newest moment the task records,
 	//	    so Restore leaves it alone.
 	//
-	// Only 0 is repaired. Any version above it is left alone, including one
-	// this build does not know: a future format owns its own finish times, and
-	// rewriting them would be worse than trusting them.
+	// Only 0 is repaired: a version this build writes already holds both halves
+	// of the invariant, and rewriting its finish times would be worse than
+	// trusting them. A version above [currentSnapshotVersion] is refused rather
+	// than read as the newest one this build knows — a future format is free to
+	// change what FinishedAt means, and silently reading it under the old
+	// meaning would feed the wrong number to the cleanup TTL and to the backup
+	// overlap backstop.
 	//
 	// The repair, and this field with it, can be deleted once no supported
 	// upgrade path can still produce a version 0 snapshot.
 	Version int                `json:"version,omitempty"`
 	Tasks   map[string][]*Task `json:"tasks,omitempty"`
 }
+
+// currentSnapshotVersion is the format [Manager.Snapshot] writes and the
+// highest [Manager.Restore] will read.
+const currentSnapshotVersion = 1
 
 // Snapshot serialises the full task state to JSON for Raft snapshotting. The inverse
 // operation is [Manager.Restore].
@@ -1251,7 +1272,7 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	}
 
 	bytes, err := json.Marshal(&snapshot{
-		Version: 1,
+		Version: currentSnapshotVersion,
 		Tasks:   tasks,
 	})
 	if err != nil {
@@ -1264,10 +1285,19 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // Restore replaces the Manager's in-memory state from a Raft snapshot produced by
 // [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
 // a snapshot from the leader.
+//
+// A payload from a newer format fails the restore, which cluster/store_snapshot.go
+// propagates. Only a downgrade produces one, and stopping there is what keeps a
+// build from reading a future FinishedAt convention under the old meaning.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
+	}
+
+	if s.Version > currentSnapshotVersion {
+		return fmt.Errorf("restore distributed task snapshot: format version %d is newer than the %d this build understands; "+
+			"run a build at or above the one that wrote it", s.Version, currentSnapshotVersion)
 	}
 
 	m.mu.Lock()
