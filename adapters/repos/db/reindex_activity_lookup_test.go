@@ -93,7 +93,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := logrustest.NewNullLogger()
+			logger, hook := logrustest.NewNullLogger()
 			db := &DB{logger: logger}
 			db.SetAnyReindexActivityLookup(tc.lookup)
 			if tc.cleanup != nil {
@@ -116,6 +116,13 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			}
 			if tc.wantCause != nil {
 				assert.ErrorIs(t, err, tc.wantCause, "the underlying cause must stay reachable")
+				// The body hides the cause by design, so the log is the
+				// operator's only channel to the real error.
+				var logged bool
+				for _, e := range hook.AllEntries() {
+					logged = logged || strings.Contains(e.Message, tc.wantCause.Error())
+				}
+				assert.True(t, logged, "the full lookup error must reach the node's own log")
 			}
 
 			// The per-shard backup vocabulary doesn't apply to the cluster-wide gate.
