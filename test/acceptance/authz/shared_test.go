@@ -101,7 +101,10 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		// The tasks RBAC arms need a real distributed task to compare payloads
 		// against, and the reindex routes are the only way to create one. The
-		// short tick keeps it terminal inside the test's wait.
+		// short tick keeps it terminal inside the test's wait. The task cannot
+		// outlive its test and leak into the other tests on this container: the
+		// arms delete the class they named, and deleting a class cascades to
+		// every task registered against it.
 		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateWithGRPC().WithRBAC().WithApiKey().WithDbUsers().
