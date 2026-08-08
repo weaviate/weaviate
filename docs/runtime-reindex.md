@@ -228,8 +228,13 @@ Two things about it changed with the `finishedAt` work:
   of any upgraded node — the one case that has to wait for an upgraded
   node to take leadership is a task the old proposer's own entry already
   removed from the leader's list, which is the list every node sweeps.
-  Cleanup therefore lags for the length of the upgrade window, which
-  keeps the backup overlap backstop's evidence instead of dropping it.
+  Cleanup therefore lags for the length of the upgrade window. That lag
+  converges the cluster's own state, but it does **not** preserve the
+  backup overlap backstop's evidence: that backstop queries the leader,
+  so an old leader that already deleted the task has emptied the list it
+  reads, and the copies the upgraded nodes deferred sit where nothing
+  consults them. Prefer moving leadership to an upgraded node before
+  running a backup during the window.
   The defer is not logged: it is the expected state during an upgrade,
   and on one that stalls with an old node still holding leadership the
   retained tasks are bounded only by how many reindexes are submitted.

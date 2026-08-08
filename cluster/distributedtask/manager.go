@@ -1107,16 +1107,18 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // binary predating these fields sends zero, and a stamp taken from a zero
 // time.Time is a large negative rather than zero. A sweep on this build filters
 // unstamped tasks out before proposing, so nothing else produces one. There is
-// nothing on the entry to decide from, and
-// the only operands a node could substitute are its own stamp and its own clock —
-// the two that differ between nodes. So this defers and the task stays. The old
-// proposer still deletes it on its own local check and every node on this build
-// keeps it. [Scheduler.tick] is not leader-gated, so the next tick of any
-// upgraded node re-proposes with measurements and the cluster converges — unless
-// the old proposer's own entry has already dropped the task from the leader's
-// list, which is the list every node sweeps. Then the deferred copies wait for an
-// upgraded node to take leadership. Deferring keeps the evidence the backup
-// overlap backstop reads, which is the fail-closed direction.
+// nothing on the entry to decide from, and the only operands a node could
+// substitute are its own stamp and its own clock, the two that differ between
+// nodes. So this defers and the task stays. The old proposer still deletes it
+// on its own local check and every node on this build keeps it.
+// [Scheduler.tick] is not leader-gated, so the next tick of any upgraded node
+// re-proposes with measurements and the cluster converges, unless the old
+// proposer's own entry has already dropped the task from the leader's list,
+// which is the list every node sweeps. Then the deferred copies wait for an
+// upgraded node to take leadership. Deferring converges the FSM; it does not
+// preserve the backup overlap backstop's evidence, because that backstop reads
+// the leader's list, and the case that persists here is exactly the one where
+// an old leader has already emptied it.
 //
 // The defer is deliberately silent: it is the expected state for the length of
 // an upgrade window, and the warn below reports the case worth an operator's
