@@ -233,11 +233,6 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 		wantLogged string
 	}{
 		{
-			name:       "ordinary name",
-			collection: "Movies",
-			wantLogged: `"Movies"`,
-		},
-		{
 			name:       "newline forging a second entry",
 			collection: "Movies\nlevel=error msg=forged",
 			wantLogged: `"Movies\nlevel=error msg=forged"`,

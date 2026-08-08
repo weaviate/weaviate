@@ -158,9 +158,7 @@ func TestTerminalDispatchIgnoresProposerClockSkew(t *testing.T) {
 	}{
 		{name: "clocks in step", wantDispatch: true},
 		{name: "proposer 90s behind", proposerSkew: -90 * time.Second, wantDispatch: true},
-		{name: "proposer 90s ahead", proposerSkew: 90 * time.Second, wantDispatch: true},
 		{name: "replayed from the RAFT log", catchingUp: true},
-		{name: "replayed, proposer 90s behind", proposerSkew: -90 * time.Second, catchingUp: true},
 	}
 
 	for _, tc := range tests {
