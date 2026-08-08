@@ -74,8 +74,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			// Never answer "not cleaning up" from a node that cannot tell:
-			// a cancel's response depends on this.
+			// Must not answer "not cleaning up" from a node that cannot tell.
 			name:       "probe not wired",
 			prober:     nil,
 			query:      "?collection=Movies",
@@ -120,9 +119,8 @@ func TestInternalReindexCleanupActivityRejectsNonGET(t *testing.T) {
 	assertRejectsNonGET(t, server, "/reindex/cleanup-activity?collection=Movies")
 }
 
-// The route reports cluster-internal state, so it must sit behind the same
-// basic auth as every other internal route: an unauthenticated caller is
-// refused before the prober is ever asked.
+// Cluster-internal state must sit behind the same basic auth as every other
+// internal route.
 func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
 	const (
 		user = "alice"
@@ -174,10 +172,8 @@ func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
 	}
 }
 
-// The route serves ~200 lines of startup before bootstrap assigns the
-// provider, so the resolver reads the field on request goroutines while the
-// startup goroutine writes it. Acceptance images are built with -race, where
-// an unsynchronized pair aborts the process.
+// Pins that the resolver's read of the bootstrap-assigned field is race-free
+// against the startup goroutine's write (-race aborts on an unsynchronized pair).
 func TestInternalReindexCleanupActivityWiringIsRaceFree(t *testing.T) {
 	appState := &state.State{}
 
@@ -222,10 +218,8 @@ func TestInternalReindexCleanupActivityWiringIsRaceFree(t *testing.T) {
 		"the readers must observe the write, not a stale nil")
 }
 
-// The collection comes off the query string, so an unauthorized caller decides
-// its bytes. A newline in a logrus field ends the line and everything after it
-// reads as a second, fully forged entry; an unbounded one lets a single request
-// write as much of the log as it likes.
+// Pins that a user-controlled collection name cannot forge log entries via
+// newlines or blow out log size unbounded.
 func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T) {
 	tests := []struct {
 		name       string

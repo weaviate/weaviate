@@ -25,10 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// Pins: coordinator.Restore's synchronous error returns run on the caller's
-// goroutine after the slot may have changed hands (cancel frees it, a newer
-// restore claims it), so writing it unconditionally would clobber the newer
-// restore's claim and let the reindex gate admit a migration over it.
+// Pins: Restore's synchronous error path must not clobber a slot the newer
+// restore has since claimed after cancel freed it.
 func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 	t.Parallel()
 	const (
@@ -44,11 +42,9 @@ func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// canCommitErr fails the canCommit phase, which is the reset at the
-		// top of Restore's error handling.
+		// canCommitErr fails the canCommit phase.
 		canCommitErr bool
-		// putMetaErr fails the initial PutMeta, which is reached only after
-		// the status write that precedes it.
+		// putMetaErr fails the initial PutMeta.
 		putMetaErr bool
 		reason     string
 	}{
@@ -106,10 +102,8 @@ func TestCoordinatorRestoreSyncErrorsOnlyWriteTheSlotTheyOwn(t *testing.T) {
 	}
 }
 
-// Same rule for the status writes the restore goroutine makes after commit
-// (the release is already ownership-checked, but these weren't): a finished
-// restore could restamp whatever the newer one holds, and a stale Cancelled
-// write makes commit() abort a restore nobody cancelled.
+// Same rule for the post-commit status writes the restore goroutine makes:
+// a finished restore must not restamp a slot the newer one now owns.
 func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 	t.Parallel()
 	const (
@@ -127,9 +121,7 @@ func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// cancelledInStorage makes the goroutine's post-commit storage read
-		// report the restore cancelled, which is the arm that stamps the slot
-		// Cancelled — the one status commit() reads as "cancelled externally".
+		// cancelledInStorage exercises the arm that stamps the slot Cancelled.
 		cancelledInStorage bool
 	}{
 		{name: "the restore runs to completion"},
@@ -195,11 +187,9 @@ func newRestoreCoordFixture(ctx context.Context, backupID string, nodes []string
 }
 
 // stealSlot cancels the operation holding the slot and claims it for newID.
-//
-// assert, not require: this runs on the in-flight operation's own goroutine, or
-// right before the step that unparks it. require's Goexit would abandon that
-// operation mid-flight, surfacing as a hang or an unrelated downstream failure
-// instead of this one.
+// Uses assert, not require: this runs on the in-flight operation's own
+// goroutine, where require's Goexit would abandon it mid-flight and surface
+// as an unrelated failure.
 func stealSlot(t *testing.T, slot *backupStat, cancelStatus backup.Status, heldID, newID string) {
 	t.Helper()
 	slot.set(cancelStatus)
@@ -207,9 +197,7 @@ func stealSlot(t *testing.T, slot *backupStat, cancelStatus backup.Status, heldI
 	assert.Empty(t, slot.renew(newID, "path", "", ""))
 }
 
-// requireProbeSees pins what a probe attached to sched reports. The reindex gate
-// reads this answer, so reporting the node idle admits a migration on top of a
-// live operation.
+// requireProbeSees pins what a probe attached to sched reports.
 func requireProbeSees(t *testing.T, sched *Scheduler, want NodeActivity, msgAndArgs ...interface{}) {
 	t.Helper()
 	probe := NewNodeActivityProbe(nil)

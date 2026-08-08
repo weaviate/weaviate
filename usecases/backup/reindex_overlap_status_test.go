@@ -26,10 +26,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// The observable status and the stored failure reason are written by two
-// different steps, and GET /v1/backups/{backend}/{id} reads both. A poll landing
-// between them would report FAILED with an empty reason, which is the headline
-// failure of this feature reported as nothing at all.
+// Pins: a status poll must never observe FAILED with an empty reason, since
+// the status and the reason are written by two separate steps.
 func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testing.T) {
 	const backupID, wantReason = "1", "a runtime-reindex overlapped this backup"
 	any := mock.Anything
@@ -60,11 +58,8 @@ func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testin
 	require.True(t, sawFailed, "the refused backup has to end up observably FAILED")
 }
 
-// An operator abort cancels the same context the commit-time overlap lookup
-// runs on, so the lookup comes back with the cancellation instead of an answer.
-// That must stay a cancellation: reporting FAILED with "a runtime-reindex
-// overlapped this backup" names a migration that never happened, and leaves the
-// status API disagreeing with the stored descriptor.
+// Pins: an operator abort during the overlap lookup must publish as CANCELLED,
+// not FAILED for a reindex that never happened.
 func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 	const backupID = "1"
 	any := mock.Anything
@@ -78,9 +73,7 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 	sourcer := &fakeSourcer{}
 	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
 	sourcer.reindexOverlapFn = func(context.Context) error {
-		// The abort lands while the lookup's RAFT query is in flight, so the
-		// query fails with the cancellation and the lookup reports it as
-		// "cannot rule out a runtime-reindex".
+		// The abort lands while the lookup's RAFT query is in flight.
 		cancel()
 		return fmt.Errorf("cannot rule out a runtime-reindex during this backup: "+
 			"the cluster task manager could not be queried: %w", context.Canceled)
@@ -102,10 +95,8 @@ func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
 		"the last status an operator can poll has to be the cancellation they caused")
 }
 
-// The refusal's status flip waits for the meta write, so object storage failing
-// that write is exactly when the flip is at risk of being skipped. Leaving the
-// slot at Transferring publishes a finished operation as still running, and the
-// operator loses the reason for the one failure mode this feature adds.
+// Pins: the refusal must still flip the slot to FAILED even when the meta
+// write itself fails, so it never stays stuck at Transferring.
 func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	const backupID = "1"
 	any := mock.Anything
@@ -119,8 +110,7 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
 		backup.ErrBackupSpannedReindex, "Movies")
 
-	// The real slot on a real backupper, not a stub: this is what OnStatus
-	// serves from, so the whole path from the refusal to the wire is exercised.
+	// Real slot on a real backupper, not a stub, to exercise what OnStatus serves.
 	bp := &backupper{}
 	slot := &bp.lastOp
 	require.Empty(t, slot.renew(backupID, "bucket/backups/1", "", ""))
@@ -144,16 +134,11 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	require.Equal(t, backup.Failed, res.Status)
 	require.Contains(t, res.Err, "a runtime-reindex overlapped this backup",
 		"the reason must survive the hop to the coordinator, which latches this answer")
-	// TestRememberedFailureSurvivesTheProductionSlotRelease covers the poll
-	// that lands after the operation releases the slot.
+	// TestRememberedFailureSurvivesTheProductionSlotRelease covers the post-release poll.
 }
 
-// A cancellation that is not the caller's is not an abort. The lookup is a
-// leader-forwarded RAFT query, and a client that gives up on its own derived
-// context hands back an error carrying context.Canceled while this backup's
-// context is still live. That is the lookup failing to answer, which is what
-// the check fails closed on, so it has to publish as FAILED with the refusal
-// text — not as an operator cancellation.
+// Pins: a foreign context.Canceled from the RAFT client (not the backup's own
+// context) must publish as FAILED, not as an operator cancellation.
 func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.T) {
 	const backupID = "1"
 	any := mock.Anything
@@ -164,8 +149,7 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 	sourcer := &fakeSourcer{}
 	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
 	sourcer.reindexOverlapFn = func(context.Context) error {
-		// The backup's own context is untouched; the cancellation belongs to
-		// whatever the RAFT client ran the query on.
+		// The backup's own context is untouched here.
 		return undeterminedOverlapErr{cause: context.Canceled}
 	}
 
@@ -190,9 +174,8 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 		"the last status an operator can poll has to be the failure")
 }
 
-// undeterminedOverlapErr is the shape the storage layer gives a commit-time
-// refusal that never observed an overlap: both sentinels reachable through
-// errors.Is, neither of their texts printed.
+// undeterminedOverlapErr is a refusal that never observed an overlap: both
+// sentinels reachable via errors.Is, neither text printed.
 type undeterminedOverlapErr struct{ cause error }
 
 func (e undeterminedOverlapErr) Error() string {
@@ -203,10 +186,8 @@ func (e undeterminedOverlapErr) Unwrap() []error {
 	return []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined, e.cause}
 }
 
-// The check is a backstop only because it is asked about the whole capture
-// window. Handed the commit instant instead, it would ask "is a reindex running
-// right now", which is the question the pre-capture gates already answered, and
-// a migration that started and finished inside the window would read as clean.
+// Pins: the overlap check must be asked about the whole capture window, not
+// the commit instant, or a migration inside the window would read as clean.
 func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.T) {
 	const backupID = "1"
 	any := mock.Anything
@@ -232,10 +213,8 @@ func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.
 		"the check must be asked about the classes this backup captured")
 }
 
-// The remembered failure is what a poll reads once the slot is released. It has
-// to answer for exactly the backup that failed: for any other id the slot has
-// nothing to say, and answering anyway would report a stranger's failure as
-// that backup's own — which the coordinator latches and stops asking about.
+// Pins: the remembered failure must answer only for the backup that failed,
+// never for another id polling the same slot.
 func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 	const (
 		failedID = "backup-a"
@@ -327,9 +306,8 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 	}
 }
 
-// runOverlapBackup drives one commit through the uploader with the backend,
-// sourcer and status slot the caller wired for its scenario, and hands back what
-// that commit returned.
+// runOverlapBackup drives one commit through the uploader with the given
+// backend, sourcer and status slot.
 func runOverlapBackup(ctx context.Context, backend *fakeBackend, sourcer *fakeSourcer,
 	slot statusPublisher, backupID string, classes []string, startedAt time.Time,
 ) error {

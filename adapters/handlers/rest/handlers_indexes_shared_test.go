@@ -42,9 +42,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// raceTaskService stands in for the RAFT task service. onCommitted fires where
-// the real leader would make the task visible to every backup's check, which
-// is what lets tests place the race at that exact point.
+// raceTaskService stands in for the RAFT task service; onCommitted fires where
+// the real leader would make the task visible, letting tests place a race there.
 type raceTaskService struct {
 	mu          sync.Mutex
 	tasks       []*distributedtask.Task
@@ -125,9 +124,8 @@ func (s *raceTaskService) startedTasks() []*distributedtask.Task {
 	return out
 }
 
-// togglingProber answers the backup probe from a flag the test flips, so a
-// backup claim can be placed at an exact point in the submission sequence.
-// An unset kind reports a backup.
+// togglingProber lets a test flip busy at an exact point in the submission
+// sequence. An unset kind reports a backup.
 type togglingProber struct {
 	busy *atomic.Bool
 	kind string
@@ -148,8 +146,7 @@ func (p togglingProber) NodeActivity(context.Context, string) (backup.NodeActivi
 const fixtureNode = "node1"
 
 // cancelFixture builds the cancel handler over one STARTED task whose units
-// live on remoteOwner, which is the only shape in which the cancel has an owner
-// to wait for.
+// live on remoteOwner, giving the cancel an owner to wait for.
 func cancelFixture(t *testing.T, prober reindexCleanupProber) (*indexesHandlers, *raceTaskService) {
 	t.Helper()
 	const (
@@ -231,9 +228,7 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 			Authorizer:         &authorization.DummyAuthorizer{},
 			ReindexSubmitLocks: state.NewReindexSubmitLocks(),
 			Logger:             logger,
-			// These tests exercise the gate machinery, which only runs when the
-			// feature is on; with RUNTIME_REINDEX_ENABLED off every submit is a
-			// 400 before any gate is consulted.
+			// Off makes every submit a 400 before any gate runs.
 			ServerConfig: &config.WeaviateConfig{Config: config.Config{
 				RuntimeReindexEnabled: true,
 			}},
