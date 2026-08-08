@@ -263,6 +263,20 @@ func TestManager_CleanUpTask_DefersAnEntryWhoseMeasurementsAreNonsense(t *testin
 			},
 		},
 		{
+			name: "a negative finish time",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.FinishedAtUnixMillis = -1
+			},
+		},
+		{
+			// What a writer stamping from a zero time.Time sends: far from
+			// zero, and far in the past.
+			name: "a finish time taken from a zero time.Time",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.FinishedAtUnixMillis = time.Time{}.UnixMilli()
+			},
+		},
+		{
 			name: "a zero proposal moment",
 			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
 				r.ProposedAtUnixMillis = 0
