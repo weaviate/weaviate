@@ -1147,10 +1147,11 @@ func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinis
 		return false
 	}
 
-	// A TTL of zero or less clears against any age, so one such entry would
-	// delete every terminal task on every node. It defers for the same reason
-	// the zero stamp does: the entry is the only input, so there is no better
-	// operand to reach for.
+	// A TTL of zero or less clears against any age. One entry still deletes
+	// only the task it names, but a proposer sending one sends one per
+	// terminal task, since its own sweep filter admits everything at that TTL.
+	// It defers for the same reason the zero stamp does: the entry is the only
+	// input, so there is no better operand to reach for.
 	if r.TtlMillis <= 0 {
 		return false
 	}
