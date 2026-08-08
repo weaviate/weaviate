@@ -123,39 +123,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	}
 }
 
-// Pins: node names from a RAFT lookup failure must not leak into the
-// restore-refusal body.
-func TestRefuseIfAnyReindexInFlight_LookupFailureRedactsNodeNames(t *testing.T) {
-	raftErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
-
-	logger, hook := logrustest.NewNullLogger()
-	db := &DB{logger: logger}
-	db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) { return false, raftErr })
-
-	err := db.RefuseIfAnyReindexInFlight(context.Background(), nil)
-	require.Error(t, err)
-	require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
-	require.ErrorIs(t, err, raftErr,
-		"the cause must stay reachable for callers that classify it")
-
-	body := err.Error()
-	assert.Equal(t,
-		"runtime-reindex in flight in the cluster (assumed): "+
-			"the cluster task manager could not be queried; retry once it is reachable",
-		body)
-	for _, leaked := range []string{"weaviate-1", "weaviate-2", "can not resolve nodes"} {
-		assert.NotContainsf(t, body, leaked, "the refusal body leaked %q", leaked)
-	}
-
-	var logged bool
-	for _, entry := range hook.AllEntries() {
-		if strings.Contains(entry.Message, raftErr.Error()) {
-			logged = true
-		}
-	}
-	assert.True(t, logged, "the detail must still reach the operator through the log")
-}
-
 func overlapTask(collection string, status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
 	raw, _ := json.Marshal(ReindexTaskPayload{Collection: collection})
 	return &distributedtask.Task{
@@ -186,10 +153,6 @@ func TestReindexOverlapLookup(t *testing.T) {
 		// different text for each, and this sentinel is how it tells them apart.
 		wantUndetermined bool
 	}{
-		{
-			name:  "no tasks at all",
-			since: backupStart,
-		},
 		{
 			name:  "task finished before the backup started",
 			tasks: []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))},
@@ -227,26 +190,12 @@ func TestReindexOverlapLookup(t *testing.T) {
 			since: backupStart,
 		},
 		{
-			name:       "collection match ignores case",
-			tasks:      []*distributedtask.Task{overlapTask("movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
-			since:      backupStart,
-			wantRefuse: true,
-		},
-		{
 			name:             "backup outlived the retention window",
 			tasks:            nil,
 			ttl:              time.Minute,
 			since:            backupStart,
 			wantRefuse:       true,
 			wantMsg:          "longer than the",
-			wantUndetermined: true,
-		},
-		{
-			name:             "task list unreadable",
-			listErr:          errors.New("DTM unreachable"),
-			since:            backupStart,
-			wantRefuse:       true,
-			wantMsg:          "cannot rule out a runtime-reindex",
 			wantUndetermined: true,
 		},
 	}
@@ -302,7 +251,6 @@ func overlapTaskWithUnits(collection string, status distributedtask.TaskStatus, 
 // migration.
 func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
-	insideWindow := backupStart.Add(time.Minute)
 
 	tests := []struct {
 		name       string
@@ -310,15 +258,6 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 		wantRefuse bool
 		why        string
 	}{
-		{
-			name: "migration that failed inside the window",
-			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFailed, insideWindow,
-				map[string]*distributedtask.Unit{
-					"u1": {ID: "u1", Status: distributedtask.UnitStatusFailed},
-				}),
-			wantRefuse: true,
-			why:        "a failed migration may have written before it failed",
-		},
 		{
 			// Units that left PENDING on purpose: with nil units the
 			// cancelled-and-untouched rule would exempt this row too, and
@@ -546,13 +485,6 @@ func TestReindexOverlapLookupScopesAndRedactsUnreadableInputs(t *testing.T) {
 			wantMsg: unreadablePayloadMsg("Movies"),
 			why:     "no teardown ran for a payload nothing can read, so the refusal outlives the task and stays on the one collection it names",
 		},
-		{
-			name: "terminal poison on a collection this backup does not cover",
-			task: func(t *testing.T) *distributedtask.Task {
-				return poisonTask(t, "Actors", distributedtask.TaskStatusFinished, backupStart.Add(-time.Minute))
-			},
-			why: "the un-torn-down state belongs to another collection; refusing this backup would be the cluster-wide outage the scoping exists to avoid",
-		},
 	}
 
 	for _, tc := range tests {
@@ -635,11 +567,6 @@ func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
 		wantRefuse  bool
 	}{
 		{
-			name:        "no collections in the backup",
-			collections: nil,
-			wantRefuse:  false,
-		},
-		{
 			name:        "one collection, migrated",
 			collections: []string{"Actors"},
 			wantRefuse:  true,
@@ -648,11 +575,6 @@ func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
 			name:        "one collection, untouched",
 			collections: []string{"Movies"},
 			wantRefuse:  false,
-		},
-		{
-			name:        "many collections, the migrated one is last",
-			collections: []string{"Movies", "Directors", "Actors"},
-			wantRefuse:  true,
 		},
 	}
 

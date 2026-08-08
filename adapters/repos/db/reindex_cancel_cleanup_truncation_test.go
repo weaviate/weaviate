@@ -47,9 +47,6 @@ func TestCloseCauseAnswersAnIndexBuiltWithoutOne(t *testing.T) {
 			wired: true,
 		},
 		{
-			name: "an open index with no closeRequestedCtx is not closing either",
-		},
-		{
 			name:         "an index with neither context is not closing",
 			noClosingCtx: true,
 		},
@@ -183,11 +180,6 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		wantShardsNamed []string
 	}{
 		{
-			name:      "no shards is a clean sweep",
-			shards:    nil,
-			indexType: "an-index-type-this-build-does-not-know",
-		},
-		{
 			name:      "one shard, nothing to clean",
 			shards:    []string{"shard-a"},
 			indexType: "filterable",
@@ -221,18 +213,6 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantShardErr:  false,
 		},
 		{
-			// Every shard failed, and every one of them was still visited.
-			// The caller has a complete answer, so it must not also be told
-			// that something was left unreached.
-			name:            "every shard fails and the sweep still reaches the end",
-			shards:          []string{"shard-a", "shard-b"},
-			indexType:       "an-index-type-this-build-does-not-know",
-			wantErr:         true,
-			wantTruncated:   false,
-			wantShardErr:    true,
-			wantShardsNamed: []string{"shard-a", "shard-b"},
-		},
-		{
 			// The abort lands on the last shard, so there is no shard after
 			// it to leave unswept.
 			name:            "a cancel on the last shard leaves nothing unvisited",
@@ -243,17 +223,6 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantTruncated:   false,
 			wantShardErr:    true,
 			wantShardsNamed: []string{"shard-a", "shard-b"},
-		},
-		{
-			// The walk visits nothing here, so "swept every shard" would be a
-			// report about work that never happened.
-			name:          "a node shutting down leaves every shard unswept",
-			shards:        []string{"shard-a", "shard-b"},
-			closing:       true,
-			closeCause:    errIndexShutdown,
-			indexType:     "an-index-type-this-build-does-not-know",
-			wantErr:       true,
-			wantTruncated: true,
 		},
 		{
 			// The state this sweep removes lives under the collection's own

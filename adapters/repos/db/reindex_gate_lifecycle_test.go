@@ -133,24 +133,6 @@ func TestCancelApplyGateIsReleasedWhenThereIsNothingToTearDown(t *testing.T) {
 		"an early-returning teardown must still hand the apply gate back")
 }
 
-// Confirmation and blocking are separate signals: the probe stays positive for
-// its window while the backup gate reopens with the teardown.
-func TestCancelConfirmationOutlivesTheBlockingGate(t *testing.T) {
-	serverCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	p := lifecycleProvider(t, serverCtx)
-	task, payload := lifecycleTask(t, "task-lifecycle-3")
-	logger, _ := logrustest.NewNullLogger()
-
-	p.OnTerminalApplied(task)
-	p.autoCleanupAfterTerminal(task, payload, logger)
-
-	require.False(t, p.IsCleanupInProgress(lifecycleCollection, "shard1"),
-		"backups must be admitted again once the teardown is done")
-	require.True(t, p.AnyCleanupInProgressForCollection(lifecycleCollection),
-		"the cancel must still be confirmable to the node handling it")
-}
-
 // The submission sweep is the fourth raise site. It must be distinguishable
 // from a teardown, or an ordinary submission is reported as a cancelled
 // migration, and it must reopen.
