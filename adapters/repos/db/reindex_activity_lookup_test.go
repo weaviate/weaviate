@@ -48,7 +48,9 @@ func TestRefuseIfAnyReindexInFlight_Unwired(t *testing.T) {
 }
 
 func TestRefuseIfAnyReindexInFlight(t *testing.T) {
-	lookupErr := errors.New("DTM unreachable")
+	// The message shape a real RAFT failure carries: the redaction receipt
+	// below only bites if the cause actually names nodes.
+	lookupErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
 
 	tests := []struct {
 		name         string
@@ -84,6 +86,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			lookup:       func(context.Context, []string) (bool, error) { return false, lookupErr },
 			wantRefusal:  true,
 			wantContains: "the cluster task manager could not be queried",
+			wantAbsent:   []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
 			wantCause:    lookupErr,
 		},
 	}
@@ -121,6 +124,22 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			assert.NotContains(t, err.Error(), "this shard")
 		})
 	}
+}
+
+// TestRefuseIfAnyReindexInFlight_PropagatesContext pins that the caller's context reaches the lookup.
+func TestRefuseIfAnyReindexInFlight_PropagatesContext(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{logger: logger}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	db.SetAnyReindexActivityLookup(func(ctx context.Context, _ []string) (bool, error) {
+		return false, ctx.Err()
+	})
+
+	err := db.RefuseIfAnyReindexInFlight(ctx, nil)
+	require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func overlapTask(collection string, status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
@@ -251,6 +270,7 @@ func overlapTaskWithUnits(collection string, status distributedtask.TaskStatus, 
 // migration.
 func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
+	insideWindow := backupStart.Add(time.Minute)
 
 	tests := []struct {
 		name       string
@@ -258,6 +278,15 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 		wantRefuse bool
 		why        string
 	}{
+		{
+			name: "migration that failed inside the window",
+			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFailed, insideWindow,
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusFailed},
+				}),
+			wantRefuse: true,
+			why:        "a failed migration may have written before it failed",
+		},
 		{
 			// Units that left PENDING on purpose: with nil units the
 			// cancelled-and-untouched rule would exempt this row too, and

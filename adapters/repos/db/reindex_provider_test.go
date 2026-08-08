@@ -385,26 +385,24 @@ func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 		UnitToShard: map[string]string{"u1": "shard1"},
 	}
 
-	t.Run("worker never drains", func(t *testing.T) {
-		// A handle whose Done() never fires models the stuck worker.
-		p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-			desc: {doneCh: make(chan struct{})},
-		})
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
-
-		release, err := p.DrainWithCleanupGate(ctx, payload, desc)
-		require.Error(t, err, "the drain must report that it gave up")
-		require.NotNil(t, release, "the release must be usable even on timeout")
-
-		assert.True(t, p.IsCleanupInProgress("Movies", "shard1"),
-			"the worker is still writing; a backup must not capture this shard")
-		assert.True(t, p.AnyCleanupInProgress(),
-			"the restore gate must be shut for the same reason")
-
-		release()
-		assert.False(t, p.AnyCleanupInProgress())
+	// A handle whose Done() never fires models the stuck worker.
+	p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+		desc: {doneCh: make(chan struct{})},
 	})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	release, err := p.DrainWithCleanupGate(ctx, payload, desc)
+	require.Error(t, err, "the drain must report that it gave up")
+	require.NotNil(t, release, "the release must be usable even on timeout")
+
+	assert.True(t, p.IsCleanupInProgress("Movies", "shard1"),
+		"the worker is still writing; a backup must not capture this shard")
+	assert.True(t, p.AnyCleanupInProgress(),
+		"the restore gate must be shut for the same reason")
+
+	release()
+	assert.False(t, p.AnyCleanupInProgress())
 }
 
 // The node handling a cancel may own none of the collection's shards, so it

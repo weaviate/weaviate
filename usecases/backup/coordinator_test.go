@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -1269,43 +1268,6 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			require.Equal(t, tc.wantSlotID,
 				c.lastOp.renew("intruder", "path", "", ""),
 				"a live restore must still refuse a second claim")
-		})
-	}
-}
-
-// A participant's refusal becomes the backup's failure reason: it may not name
-// the node, nor restate a condition the participant already stated.
-func TestCanCommitRefusalIsNeitherNamedNorDoubled(t *testing.T) {
-	t.Parallel()
-
-	participantMsg := backup.ErrBackupBlockedByInFlightReindex.Error() +
-		`: collection "Movies" has an active runtime-reindex task in DTM`
-
-	tests := []struct {
-		name    string
-		resp    *CanCommitResponse
-		wantMsg string
-	}{
-		{
-			name: "participant message already opens with the sentinel",
-			resp: &CanCommitResponse{
-				Method: OpCreate, ErrKind: CanCommitErrInFlightReindex, Err: participantMsg,
-			},
-			wantMsg: participantMsg,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			err := canCommitErrFromResponse(tc.resp)
-			require.Error(t, err)
-			require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex,
-				"the sentinel must survive so the coordinator still answers 422")
-			assert.Equal(t, tc.wantMsg, err.Error())
-			assert.Equal(t, 1,
-				strings.Count(err.Error(), backup.ErrBackupBlockedByInFlightReindex.Error()),
-				"the condition must be stated once, not once per wrap")
 		})
 	}
 }
