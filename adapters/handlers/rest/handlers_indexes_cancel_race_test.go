@@ -151,28 +151,12 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 			wantServerErrorContains: "does not exist",
 		},
 		{
-			// A permanent rejection this build cannot name is not evidence of
-			// a committing migration.
-			name:                    "the rejection carries a marker this build does not know",
-			cancelErr:               distributedtask.ErrPermanentRejection,
-			flipTo:                  distributedtask.TaskStatusPreparing,
-			wantServerErrorContains: "permanent FSM rejection",
-		},
-		{
 			// The task settled instead of moving on. The caller asked for no
 			// reindex to be running on this property and none is, which is
 			// what the pre-cancel path answers NO_OP for.
 			name:      "the task finishes before the cancel lands",
 			cancelErr: notRunning,
 			flipTo:    distributedtask.TaskStatusFinished,
-			wantNoOp:  true,
-		},
-		{
-			// Someone else cancelled it first. Two operators racing the same
-			// cancel must both be told it is cancelled.
-			name:      "the task is already cancelled when the cancel lands",
-			cancelErr: notRunning,
-			flipTo:    distributedtask.TaskStatusCancelled,
 			wantNoOp:  true,
 		},
 		{

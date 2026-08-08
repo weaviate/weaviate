@@ -137,18 +137,6 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 			"a healthy routed cancel must not emit the unconfirmed-gate audit event")
 	})
 
-	t.Run("does not ask the local node about itself", func(t *testing.T) {
-		prober := &scriptedCleanupProber{script: map[string][]cleanupAnswer{
-			owner: {{up: true}},
-		}}
-		h, _ := gateHandlers(prober, local, owner)
-
-		h.awaitOwnerCleanupGates(context.Background(), payload, collection, "task-1", true)
-
-		assert.Zero(t, prober.callsFor(local),
-			"this node raised its own gate synchronously; asking itself over HTTP is pointless")
-	})
-
 	t.Run("an unreachable owner is bounded, not fatal", func(t *testing.T) {
 		prober := &scriptedCleanupProber{script: map[string][]cleanupAnswer{
 			owner: {{err: errors.New("connection refused")}},

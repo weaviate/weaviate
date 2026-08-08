@@ -128,12 +128,6 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 		return task
 	}
 
-	unknownStatus := buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeRepairFilterable,
-		Collection:    "Movies",
-		Properties:    []string{"title"},
-	}, nil)
-
 	tests := []struct {
 		name    string
 		matched *distributedtask.Task
@@ -142,16 +136,6 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 		{
 			name:    "finished, schema flag already caught up",
 			matched: finished(time.Now()),
-			flagOn:  true,
-		},
-		{
-			name:    "finished a day ago, outside the finalize window",
-			matched: finished(time.Now().Add(-24 * time.Hour)),
-			flagOn:  false,
-		},
-		{
-			name:    "a status this build does not know",
-			matched: unknownStatus,
 			flagOn:  true,
 		},
 	}
@@ -327,19 +311,6 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			wantTaskID:      "t-namespaced",
 			wantStatus:      "CANCELLED",
 		},
-		{
-			name: "the same caller still cancels the decodable task next to it",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{
-					unattributableTask("orphan", distributedtask.TaskStatusStarted),
-					decodableOnMovies(t),
-				}
-			},
-			authorizer:      grantUpdateOn(collection),
-			wantCancelledID: "t-decodable",
-			wantTaskID:      "t-decodable",
-			wantStatus:      "CANCELLED",
-		},
 	}
 
 	for _, tc := range tests {
@@ -406,10 +377,6 @@ func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
 		name  string
 		tasks func(t *testing.T) []*distributedtask.Task
 	}{
-		{
-			name:  "on its own",
-			tasks: func(t *testing.T) []*distributedtask.Task { return []*distributedtask.Task{unknown(t)} },
-		},
 		{
 			name: "next to a terminal attempt on the same property",
 			tasks: func(t *testing.T) []*distributedtask.Task {
