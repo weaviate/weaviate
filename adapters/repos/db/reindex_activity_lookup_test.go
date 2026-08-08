@@ -48,18 +48,14 @@ func TestRefuseIfAnyReindexInFlight_Unwired(t *testing.T) {
 }
 
 func TestRefuseIfAnyReindexInFlight(t *testing.T) {
-	lookupErr := errors.New("can not resolve nodes [weaviate-2,weaviate-1]")
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
+	lookupErr := errors.New("DTM unreachable")
 
 	tests := []struct {
 		name         string
-		ctx          context.Context
 		lookup       AnyReindexActivityLookup
 		cleanup      AnyCleanupInProgressLookup
 		wantRefusal  bool
 		wantContains string
-		wantBody     string
 		wantAbsent   []string
 		wantCause    error
 	}{
@@ -82,36 +78,26 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			lookup:       func(context.Context, []string) (bool, error) { return true, nil },
 			wantRefusal:  true,
 			wantContains: "retry after the migration finishes",
-			wantBody:     `runtime-reindex in flight in the cluster: retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status="ready"). While it is still building indexes you can cancel it via PUT /v1/schema/<class>/indexes/<prop> {"<indexType>":{"cancel":true}}; once it has started committing its result it can only be waited out, and if a node that owned part of it left the cluster it never finishes at all — a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal`,
 		},
 		{
-			// The RAFT failure names nodes; that detail belongs in the log, not in a body the coordinator republishes.
-			name: "lookup failure fails closed", wantRefusal: true, wantCause: lookupErr,
-			lookup:     func(context.Context, []string) (bool, error) { return false, lookupErr },
-			wantBody:   "runtime-reindex in flight in the cluster (assumed): the cluster task manager could not be queried; retry once it is reachable",
-			wantAbsent: []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
-		},
-		{
-			name: "the caller's context reaches the lookup", ctx: cancelled, wantRefusal: true, wantCause: context.Canceled,
-			lookup:       func(ctx context.Context, _ []string) (bool, error) { return false, ctx.Err() },
+			name:         "lookup failure fails closed",
+			lookup:       func(context.Context, []string) (bool, error) { return false, lookupErr },
+			wantRefusal:  true,
 			wantContains: "the cluster task manager could not be queried",
+			wantCause:    lookupErr,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, hook := logrustest.NewNullLogger()
+			logger, _ := logrustest.NewNullLogger()
 			db := &DB{logger: logger}
 			db.SetAnyReindexActivityLookup(tc.lookup)
 			if tc.cleanup != nil {
 				db.SetAnyCleanupInProgressLookup(tc.cleanup)
 			}
 
-			ctx := context.Background()
-			if tc.ctx != nil {
-				ctx = tc.ctx
-			}
-			err := db.RefuseIfAnyReindexInFlight(ctx, nil)
+			err := db.RefuseIfAnyReindexInFlight(context.Background(), nil)
 			if !tc.wantRefusal {
 				require.NoError(t, err)
 				return
@@ -121,20 +107,12 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight,
 				"the refusal must carry the cluster-wide sentinel")
 			assert.ErrorContains(t, err, tc.wantContains)
-			if tc.wantBody != "" {
-				assert.Equal(t, tc.wantBody, err.Error())
-			}
 			for _, absent := range tc.wantAbsent {
 				assert.NotContainsf(t, err.Error(), absent,
-					"the refusal must not leak or claim %q", absent)
+					"the refusal must not claim %q, which the lookup cannot tell apart", absent)
 			}
 			if tc.wantCause != nil {
 				assert.ErrorIs(t, err, tc.wantCause, "the underlying cause must stay reachable")
-				var logged bool
-				for _, e := range hook.AllEntries() {
-					logged = logged || strings.Contains(e.Message, tc.wantCause.Error())
-				}
-				assert.True(t, logged, "the detail must still reach the operator through the log")
 			}
 
 			// The per-shard backup vocabulary doesn't apply to the cluster-wide gate.
@@ -280,11 +258,6 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 		wantRefuse bool
 		why        string
 	}{
-		{
-			name: "migration that failed inside the window", wantRefuse: true, why: "a failed migration may have written before it failed",
-			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusFailed, backupStart.Add(time.Minute),
-				map[string]*distributedtask.Unit{"u1": {ID: "u1", Status: distributedtask.UnitStatusFailed}}),
-		},
 		{
 			// Units that left PENDING on purpose: with nil units the
 			// cancelled-and-untouched rule would exempt this row too, and

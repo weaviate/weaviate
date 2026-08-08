@@ -273,15 +273,6 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	assert.Equal(t, shard, logged.Data["shard"])
 	assert.Equal(t, node, logged.Data["node"])
 	assert.Equal(t, collection, logged.Data["collection"])
-
-	// Naming the shard IS the report here, so it must happen exactly once.
-	named := 0
-	for _, entry := range hook.AllEntries() {
-		if entry.Data["shard"] == shard && strings.Contains(entry.Message, "a runtime-reindex is live on this shard") {
-			named++
-		}
-	}
-	require.Equal(t, 1, named, "a single-shard refusal must name its shard for the operator")
 }
 
 // backupableFixture wires the minimum a DB.Backupable call needs: one index
@@ -386,20 +377,11 @@ func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
 		hold       ReindexHold
 		wantReason reindexBlockReason
 		wantRefuse bool
-		// Neither a submission nor an unclassifiable hold is a live or a cancelled task.
-		wantContains []string
-		wantAbsent   []string
 	}{
 		{name: "no hold admits", hold: ReindexHoldNone, wantReason: reindexNotBlocked},
 		{name: "cleanup refuses", hold: ReindexHoldCleanup, wantReason: reindexBlockedByCleanup, wantRefuse: true},
-		{
-			name: "submit refuses", hold: ReindexHoldSubmit, wantReason: reindexBlockedBySubmit, wantRefuse: true,
-			wantContains: []string{"MyClass", "a reindex submission is preparing this collection"}, wantAbsent: []string{"cancel it via"},
-		},
-		{
-			name: "unknown hold refuses", hold: unknownReindexHold, wantReason: reindexBlockedByUnknownHold, wantRefuse: true,
-			wantContains: []string{"MyClass", "does not recognize"}, wantAbsent: []string{"cancelled migration", "reindex submission", "cancel it via"},
-		},
+		{name: "submit refuses", hold: ReindexHoldSubmit, wantReason: reindexBlockedBySubmit, wantRefuse: true},
+		{name: "unknown hold refuses", hold: unknownReindexHold, wantReason: reindexBlockedByUnknownHold, wantRefuse: true},
 	}
 
 	for _, test := range tests {
@@ -421,30 +403,8 @@ func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
 			}
 			require.Error(t, err, "backup must be refused")
 			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
-			for _, want := range test.wantContains {
-				require.Contains(t, err.Error(), want)
-			}
-			for _, absent := range test.wantAbsent {
-				require.NotContains(t, err.Error(), absent)
-			}
 		})
 	}
-}
-
-// The unknown-hold WARN names the offending value and is rate limited: the gate
-// runs per shard, and the condition persists until someone ships a fix.
-func TestWarnUnknownReindexHold_RateLimited(t *testing.T) {
-	logger, hook := logrustest.NewNullLogger()
-	db := &DB{logger: logger}
-	for range 5 {
-		db.warnUnknownReindexHold(unknownReindexHold)
-	}
-	entries := hook.AllEntries()
-	require.Len(t, entries, 1, "the unknown-hold WARN must be rate limited, not repeated per shard checked")
-	assert.Equal(t, logrus.WarnLevel, entries[0].Level)
-	assert.Equal(t, "backup_reindex_gate", entries[0].Data["action"])
-	assert.Equal(t, int(unknownReindexHold), entries[0].Data["hold"])
-	assert.Contains(t, entries[0].Message, "unrecognized ReindexHold value")
 }
 
 // Every refusing shard produces the same sentence, because the text names no

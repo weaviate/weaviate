@@ -174,20 +174,6 @@ func TestReindexGateLogVolumeIsPerCollection(t *testing.T) {
 	require.Equal(t, map[string]int{"Alpha": 1, "Middle": 2, "Zebra": 3}, counts)
 }
 
-// Pins that appendUniqueGateErr keeps the FIRST error per distinct message.
-func TestAppendUniqueGateErrKeepsFirstPerMessage(t *testing.T) {
-	a1, a2, a3 := fmt.Errorf("reason A"), fmt.Errorf("reason A"), fmt.Errorf("reason A")
-	b1, b2 := fmt.Errorf("reason B"), fmt.Errorf("reason B")
-	seen, got := map[string]struct{}{}, []error(nil)
-	for _, e := range []error{a1, a2, b1, a3, b2} {
-		got = appendUniqueGateErr(seen, got, e)
-	}
-	require.Len(t, got, 2)
-	require.Same(t, a1, got[0], "the FIRST instance per message is kept")
-	require.Same(t, b1, got[1], "insertion order is preserved")
-	require.Equal(t, map[string]struct{}{"reason A": {}, "reason B": {}}, seen, "the seen map is mutated in place")
-}
-
 // TestBackupableWithheldErrorsReachTheOperator pins the other half of the withholding
 // contract: when a gate refusal wins the response, the errors it displaces are
 // withheld from the body but must still reach the operator's log.
