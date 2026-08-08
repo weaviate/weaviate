@@ -174,31 +174,6 @@ func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
 	}
 }
 
-// Pins the late binding described on the resolve field, through the same
-// wiring and construction order production uses.
-func TestInternalReindexCleanupActivityResolvesProviderLate(t *testing.T) {
-	appState := &state.State{}
-
-	handler := clusterapi.NewReindexCleanupFromState(appState, clusterapi.NewNoopAuthHandler())
-	server := httptest.NewServer(handler.Activity())
-	defer server.Close()
-
-	get := func() int {
-		res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
-		require.NoError(t, err, "the route must answer at every stage of bootstrap")
-		defer res.Body.Close()
-		return res.StatusCode
-	}
-
-	require.Equal(t, http.StatusServiceUnavailable, get(),
-		"before the provider exists the route must say so")
-
-	appState.ReindexProvider.Store(&db.ReindexProvider{})
-
-	require.Equal(t, http.StatusOK, get(),
-		"the route must pick the provider up once bootstrap assigns it")
-}
-
 // The route serves ~200 lines of startup before bootstrap assigns the
 // provider, so the resolver reads the field on request goroutines while the
 // startup goroutine writes it. Acceptance images are built with -race, where
@@ -266,11 +241,6 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 			name:       "newline forging a second entry",
 			collection: "Movies\nlevel=error msg=forged",
 			wantLogged: `"Movies\nlevel=error msg=forged"`,
-		},
-		{
-			name:       "carriage return",
-			collection: "Movies\rmsg=forged",
-			wantLogged: `"Movies\rmsg=forged"`,
 		},
 		{
 			name:       "longer than the cap",

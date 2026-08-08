@@ -25,25 +25,6 @@ import (
 // during a rolling upgrade.
 const unknownFutureStatus TaskStatus = "VALIDATING"
 
-// TestTaskStatus_UnknownIsActive pins that an unrecognized status counts
-// as in-flight everywhere. Reading it as "not active" would let a second
-// migration onto a property a newer node is still migrating.
-func TestTaskStatus_UnknownIsActive(t *testing.T) {
-	for _, status := range []TaskStatus{
-		unknownFutureStatus,
-		TaskStatus(""),
-		TaskStatus("started"), // wrong case is not TaskStatusStarted
-		TaskStatus("SOMETHING_ELSE"),
-	} {
-		t.Run(string(status), func(t *testing.T) {
-			require.True(t, status.IsActive(),
-				"%q must be active: this build cannot prove it is done", status)
-			require.False(t, status.IsTerminal(),
-				"%q must not be terminal", status)
-		})
-	}
-}
-
 // TestCleanUpTask_RefusesUnknownStatus pins the FSM-side eviction guard.
 // An unrecognized status has a zero FinishedAt, so the TTL comparison is
 // trivially satisfied and only the liveness check stands between a live

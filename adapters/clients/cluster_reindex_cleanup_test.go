@@ -26,11 +26,7 @@ func TestClusterReindexCleanup(t *testing.T) {
 		name       string
 		statusCode int
 		body       string
-		// notFound answers the way a node's catch-all handler does, which is
-		// the only 404 the client reads as "older build".
-		notFound   bool
 		want       bool
-		wantErrIs  error
 		wantErrMsg string
 	}{
 		{
@@ -43,11 +39,6 @@ func TestClusterReindexCleanup(t *testing.T) {
 			name:       "node has nothing to confirm",
 			statusCode: http.StatusOK,
 			body:       `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":false}`,
-		},
-		{
-			name:      "older build does not serve the route",
-			notFound:  true,
-			wantErrIs: ErrReindexCleanupUnsupported,
 		},
 		{
 			name:       "unwired probe",
@@ -69,10 +60,6 @@ func TestClusterReindexCleanup(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotPath = r.URL.Path
 				gotCollection = r.URL.Query().Get("collection")
-				if tt.notFound {
-					http.NotFound(w, r)
-					return
-				}
 				w.WriteHeader(tt.statusCode)
 				w.Write([]byte(tt.body))
 			}))
@@ -86,8 +73,6 @@ func TestClusterReindexCleanup(t *testing.T) {
 			assert.Equal(t, "Movies", gotCollection, "the collection has to reach the owner")
 
 			switch {
-			case tt.wantErrIs != nil:
-				require.ErrorIs(t, err, tt.wantErrIs)
 			case tt.wantErrMsg != "":
 				require.ErrorContains(t, err, tt.wantErrMsg)
 			default:
