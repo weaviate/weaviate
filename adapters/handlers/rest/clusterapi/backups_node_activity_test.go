@@ -72,9 +72,7 @@ func (fakeDynUserSnapshotter) Snapshot(...string) ([]byte, error) { return nil, 
 func (fakeDynUserSnapshotter) Restore([]byte, bool) error         { return nil }
 
 // busyBackupProbe returns the production probe with a participant backup slot
-// genuinely held. NodeActivityProbe owns no state and has no setter — it reads
-// slots the backup subsystem manages — so taking one through OnCanCommit is the
-// only way it ever answers busy.
+// genuinely held, taken via OnCanCommit since the probe has no setter.
 func busyBackupProbe(t *testing.T, backupID string) *backup.NodeActivityProbe {
 	t.Helper()
 
@@ -100,8 +98,7 @@ func busyBackupProbe(t *testing.T, backupID string) *backup.NodeActivityProbe {
 		ID:      backupID,
 		Classes: []string{"Movies"},
 		Backend: "filesystem",
-		// Long enough that the slot cannot lapse mid-request; the pre-commit
-		// window self-clears it, which usecases/backup pins separately.
+		// Long enough that the slot cannot lapse mid-request.
 		Duration: time.Minute,
 	})
 	require.Empty(t, resp.Err)
@@ -122,9 +119,7 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 			wantBody:   `{"probe":"weaviate/backup-node-activity","busy":false}`,
 		},
 		{
-			// The answer a reindex gate must refuse to start on. Every field is
-			// pinned: the caller formats kind and id into the 409 it raises, and
-			// a node that always answers idle turns the whole gate into a no-op.
+			// kind/id are pinned: the caller formats them into the 409 it raises.
 			name:       "busy with a backup",
 			probe:      func(t *testing.T) *backup.NodeActivityProbe { return busyBackupProbe(t, "backup-1") },
 			wantStatus: http.StatusOK,
@@ -160,9 +155,7 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 	}
 }
 
-// The route reports whether this node is part of a backup, which is
-// cluster-internal state: an unauthenticated caller must be refused rather
-// than answered.
+// Cluster-internal state: an unauthenticated caller must be refused.
 func TestInternalBackupsNodeActivityRequiresAuth(t *testing.T) {
 	const (
 		user = "alice"
