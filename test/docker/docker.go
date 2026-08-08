@@ -303,6 +303,55 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	return nil
 }
 
+// PauseAt freezes a container via `docker pause` (cgroup freezer): the kernel
+// still accepts TCP connections but userspace never responds, so requests to
+// the node hang instead of failing fast. Deliberately does NOT poll /v1/nodes
+// health — a paused node stays reported HEALTHY until memberlist evicts it,
+// which is exactly the state hang-injection tests need to hold.
+func (d *DockerCompose) PauseAt(ctx context.Context, nodeIndex int) error {
+	if nodeIndex >= len(d.containers) {
+		return errors.Errorf("node index is greater than available nodes")
+	}
+	c := d.containers[nodeIndex]
+	cmd := exec.CommandContext(ctx, "docker", "pause", c.container.GetContainerID())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("PauseAt[%s]: docker pause failed: %w (output: %s)", c.name, err, string(out))
+	}
+	return nil
+}
+
+// UnpauseAt resumes a container previously frozen with PauseAt. Ports stay
+// mapped across pause/unpause, so no endpoint re-resolution is needed.
+func (d *DockerCompose) UnpauseAt(ctx context.Context, nodeIndex int) error {
+	if nodeIndex >= len(d.containers) {
+		return errors.Errorf("node index is greater than available nodes")
+	}
+	c := d.containers[nodeIndex]
+	cmd := exec.CommandContext(ctx, "docker", "unpause", c.container.GetContainerID())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("UnpauseAt[%s]: docker unpause failed: %w (output: %s)", c.name, err, string(out))
+	}
+	return nil
+}
+
+// PauseNode pauses the node with cluster hostname weaviate-<n>.
+func (d *DockerCompose) PauseNode(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.PauseAt(ctx, idx)
+}
+
+// UnpauseNode unpauses the node with cluster hostname weaviate-<n>.
+func (d *DockerCompose) UnpauseNode(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.UnpauseAt(ctx, idx)
+}
+
 // weaviateNodeIndex resolves the containers-slice position of weaviate node n
 // (1-based) by name, so callers are unaffected by sidecar containers (e.g.
 // MinIO) that may precede the cluster nodes in the slice.
