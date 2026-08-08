@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1121,6 +1122,14 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
 			"if this fails, a parallel declaration has been re-introduced")
+
+	// A participant message that already opens with the sentinel must not
+	// have it stated a second time by the promoter's wrap.
+	resp.Err = backup.ErrBackupBlockedByInFlightReindex.Error() + `: collection "Movies" is migrating`
+	err = canCommitErrFromResponse(resp)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+	require.Equal(t, 1, strings.Count(err.Error(), backup.ErrBackupBlockedByInFlightReindex.Error()),
+		"the condition must be stated once, not once per wrap")
 }
 
 // TestCommitAllManyFailures verifies commitAll does not deadlock when the number
