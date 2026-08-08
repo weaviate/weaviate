@@ -329,6 +329,11 @@ func gateRefusal() error {
 	return fmt.Errorf("%w: retry after the migration finishes", backup.ErrReindexInFlight)
 }
 
+// restoreGateRefusalMsg is exactly what an operator reads when the cluster-wide
+// gate refuses a restore, on either side of the RPC.
+const restoreGateRefusalMsg = "restore blocked: runtime-reindex in flight in the cluster: " +
+	"retry after the migration finishes"
+
 // TestOnCanCommitRestoreGatesOnTheRequestedClasses pins the participant half of
 // the restore gate to the class list the coordinator resolved. Asking it about
 // anything else — a wildcard pattern, an empty list — makes the check answer a
@@ -339,7 +344,7 @@ func TestOnCanCommitRestoreGatesOnTheRequestedClasses(t *testing.T) {
 	sourcer := &fakeSourcer{reindexInFlightErr: gateRefusal()}
 	classes := []string{"Movies", "Actors"}
 
-	createManager(sourcer, nil, newFakeBackend(), nil).OnCanCommit(context.Background(), &Request{
+	resp := createManager(sourcer, nil, newFakeBackend(), nil).OnCanCommit(context.Background(), &Request{
 		Method:   OpRestore,
 		ID:       "1",
 		Classes:  classes,
@@ -349,4 +354,16 @@ func TestOnCanCommitRestoreGatesOnTheRequestedClasses(t *testing.T) {
 
 	require.Equal(t, [][]string{classes}, sourcer.reindexInFlightCollections(),
 		"the participant must ask about exactly the classes the restore names")
+
+	// The refusal still has to read as one after the coordinator rebuilds it
+	// from the RPC response.
+	err := canCommitErrFromResponse(resp)
+	require.ErrorIs(t, err, backup.ErrReindexInFlight,
+		"the sentinel must survive the RPC, or the coordinator answers 500 instead of 422")
+	assert.Equal(t, restoreGateRefusalMsg, err.Error(),
+		"the sentinel rides along for errors.Is; it must not be printed twice")
+	assert.NotContains(t, err.Error(), "backup blocked",
+		"a restore refusal must not be worded as a backup refusal")
+	assert.NotContains(t, err.Error(), "this shard",
+		"the gate is cluster-wide; no shard is involved")
 }
