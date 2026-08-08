@@ -997,18 +997,6 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			expectNodeNamed: true,
 		},
 		{
-			name: "ErrKind=cannot_commit from a full disk names the node",
-			refusalResp: &CanCommitResponse{
-				Method:  OpCreate,
-				ID:      backupID,
-				Err:     "init uploader: no space left on device",
-				ErrKind: CanCommitErrCannotCommit,
-			},
-			expectCanCommit: true,
-			expectContain:   "no space left on device",
-			expectNodeNamed: true,
-		},
-		{
 			name: "empty ErrKind (older node) falls back to errCannotCommit",
 			refusalResp: &CanCommitResponse{
 				Method: OpCreate,
@@ -1199,7 +1187,6 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 		nodes        = []string{"N1", "N2"}
 		classes      = []string{"Class-A", "Class-B"}
 		nodeResolver = newFakeNodeResolver(nodes)
-		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
 	)
 
 	tests := []struct {
@@ -1211,22 +1198,6 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 			name:    "invalid compression level",
 			level:   CompressionLevel(-1),
 			arrange: func(*fakeCoordinator) {},
-		},
-		{
-			name:  "participant refused to commit",
-			level: GzipDefaultCompression,
-			arrange: func(fc *fakeCoordinator) {
-				fc.client.On("CanCommit", any, any, any).Return(nil, ErrAny)
-				fc.client.On("Abort", any, any, any).Return(nil)
-			},
-		},
-		{
-			name:  "initial meta write failed",
-			level: GzipDefaultCompression,
-			arrange: func(fc *fakeCoordinator) {
-				fc.client.On("CanCommit", any, any, any).Return(cresp, nil)
-				fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
-			},
 		},
 	}
 

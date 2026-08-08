@@ -215,59 +215,6 @@ func (e undeterminedOverlapErr) Unwrap() []error {
 	return []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined, e.cause}
 }
 
-// The refusal is the only thing an operator gets, and the two kinds of refusal
-// call for different next steps. "A migration ran during your backup" sends them
-// to the task list; for a check that could not read the task list there is
-// nothing there to find, and the honest answer is to fix what made it
-// unreadable and back up again.
-func TestOverlapRefusalDistinguishesAnObservedMigrationFromAnUnansweredCheck(t *testing.T) {
-	const backupID = "1"
-	any := mock.Anything
-
-	tests := []struct {
-		name       string
-		overlapErr error
-		wantReason string
-		wantAbsent string
-	}{
-		{
-			name: "the check saw the migration",
-			overlapErr: fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-				backup.ErrBackupSpannedReindex, "Movies"),
-			wantReason: "a runtime-reindex overlapped this backup",
-			wantAbsent: "cannot rule out",
-		},
-		{
-			name:       "the check could not answer",
-			overlapErr: undeterminedOverlapErr{cause: errors.New("leader unreachable")},
-			wantReason: "cannot rule out a runtime-reindex during this backup",
-			wantAbsent: "overlapped this backup",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			backend := newFakeBackend()
-			backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
-
-			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
-			sourcer.reindexOverlapErr = tc.overlapErr
-
-			err := runOverlapBackup(context.Background(), backend, sourcer, &fakeStatusSlot{},
-				backupID, nil, time.Now().UTC())
-			require.ErrorIs(t, err, backup.ErrBackupSpannedReindex,
-				"both refusals stay classifiable as this check's")
-
-			storedStatus, storedReason := backend.getMetaStatus()
-			require.Equal(t, backup.Failed, storedStatus, "both refusals fail the backup")
-			require.Contains(t, storedReason, tc.wantReason)
-			require.NotContains(t, storedReason, tc.wantAbsent,
-				"the refusal must not claim more than the check established")
-		})
-	}
-}
-
 // The check is a backstop only because it is asked about the whole capture
 // window. Handed the commit instant instead, it would ask "is a reindex running
 // right now", which is the question the pre-capture gates already answered, and

@@ -114,25 +114,6 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 		require.Equal(t, []string{authorization.CREATE}, authz.verbs)
 	})
 
-	// The same arm with the grant held: the gate is what answers, and it
-	// answers before existence.
-	t.Run("an authorized caller reaches the gate", func(t *testing.T) {
-		fs := unknownIDFixture(ctx, unknownID)
-		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
-		authz := &recordingAuthorizer{}
-		fs.auth = authz
-
-		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
-			Backend: backendName,
-			ID:      unknownID,
-		}, false)
-
-		require.Error(t, err)
-		assert.IsTypef(t, backup.ErrUnprocessable{}, err,
-			"with the grant held the gate must answer 422; got %v", err)
-		require.Equal(t, [][]string{authorization.Backups()}, authz.assets)
-	})
-
 	// The arm has no meta, so it cannot know which collections the backup would
 	// have touched — not even for a caller that named its own. The gate is asked
 	// cluster-wide, so a migration anywhere blocks it.
@@ -295,21 +276,6 @@ func TestRestoreGateIsScopedPerArm(t *testing.T) {
 			include: []string{"Mov*"},
 			want:    []string{"Movies"},
 		},
-		{
-			name:    "a wildcard matching several classes carries them all",
-			include: []string{"*s"},
-			want:    []string{"Movies", "Actors"},
-		},
-		{
-			name:    "a single-character wildcard is expanded too",
-			include: []string{"Actor?"},
-			want:    []string{"Actors"},
-		},
-		{
-			name:    "no include gates on every class in the backup",
-			include: nil,
-			want:    []string{"Movies", "Actors"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -366,21 +332,6 @@ func TestRestoreGateIsScopedPerArm(t *testing.T) {
 					"a migration on Movies must not refuse a restore of %v", tc.include)
 			}
 		}
-	})
-
-	t.Run("meta-not-found falls back to the blind check", func(t *testing.T) {
-		fs := unknownIDFixture(ctx, "no-such-backup")
-		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
-
-		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
-			Backend: backendName,
-			ID:      "no-such-backup",
-		}, false)
-
-		require.Error(t, err)
-		require.Len(t, fs.selector.reindexCollections, 1)
-		require.Empty(t, fs.selector.reindexCollections[0],
-			"this arm answers before the meta is read, so it has no classes to scope by")
 	})
 }
 

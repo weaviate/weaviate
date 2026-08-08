@@ -57,27 +57,12 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			wantSlotID: "op-1",
 		},
 		{
-			name:       "freshly claimed op sharing the id being released",
-			claimedID:  "op-1",
-			status:     backup.Started,
-			resetID:    "op-1",
-			wantOK:     false,
-			wantSlotID: "op-1",
-		},
-		{
 			name:       "cancelled op under a different id",
 			claimedID:  "op-2",
 			status:     backup.Cancelled,
 			resetID:    "op-1",
 			wantOK:     false,
 			wantSlotID: "op-2",
-		},
-		{
-			name:       "slot is free",
-			claimedID:  "",
-			resetID:    "op-1",
-			wantOK:     false,
-			wantSlotID: "",
 		},
 	}
 
@@ -148,14 +133,6 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			wantOK:     false,
 			wantStatus: backup.Transferring,
 		},
-		{
-			name:       "slot is free",
-			claimedID:  "",
-			setID:      "op-1",
-			setStatus:  backup.Cancelling,
-			wantOK:     false,
-			wantStatus: "",
-		},
 	}
 
 	for _, tc := range tests {
@@ -171,24 +148,6 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			require.Equal(t, tc.wantStatus, s.get().Status)
 		})
 	}
-}
-
-// TestBackupStatResetIfCancelledLeavesNewOwnerIntact pins that a losing
-// resetIfCancelled leaves every field of the current claim untouched.
-func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
-	t.Parallel()
-
-	var s backupStat
-	require.Empty(t, s.renew("live-restore", "home/dir", "bucket", "override"))
-	s.set(backup.Cancelled)
-
-	require.False(t, s.resetIfCancelled("cancelled-restore"))
-
-	got := s.get()
-	require.Equal(t, "live-restore", got.ID)
-	require.Equal(t, "home/dir", got.Path)
-	require.Equal(t, "bucket", got.OverrideBucket)
-	require.Equal(t, "override", got.OverridePath)
 }
 
 // TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew pins that a

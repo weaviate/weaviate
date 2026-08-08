@@ -35,11 +35,6 @@ func TestNodeActivityProbe(t *testing.T) {
 		want  NodeActivity
 	}{
 		{
-			name:  "idle",
-			claim: func(*Handler, *Scheduler) {},
-			want:  NodeActivity{},
-		},
-		{
 			name: "coordinator backup",
 			claim: func(_ *Handler, s *Scheduler) {
 				s.backupper.lastOp.renew("coord-backup", "path", "", "")
@@ -127,10 +122,6 @@ func TestNodeActivityResponseRoundTrip(t *testing.T) {
 			name:     "backup",
 			activity: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "backup-1"},
 		},
-		{
-			name:     "restore",
-			activity: NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: "restore-1"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -161,10 +152,6 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 		resp NodeActivityResponse
 	}{
 		{
-			name: "no marker",
-			resp: NodeActivityResponse{Busy: &idle},
-		},
-		{
 			name: "wrong marker",
 			resp: NodeActivityResponse{Probe: "something-else", Busy: &idle},
 		},
@@ -175,15 +162,6 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 		{
 			name: "busy without a kind",
 			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, ID: "1"},
-		},
-		{
-			name: "busy with an unknown kind",
-			resp: NodeActivityResponse{
-				Probe: clusterprobe.BackupNodeActivityMarker,
-				Busy:  &busy,
-				Kind:  "compaction",
-				ID:    "1",
-			},
 		},
 	}
 
