@@ -313,9 +313,13 @@ func (d *DockerCompose) PauseAt(ctx context.Context, nodeIndex int) error {
 		return errors.Errorf("node index is greater than available nodes")
 	}
 	c := d.containers[nodeIndex]
-	cmd := exec.CommandContext(ctx, "docker", "pause", c.container.GetContainerID())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("PauseAt[%s]: docker pause failed: %w (output: %s)", c.name, err, string(out))
+	cli, err := testcontainers.NewDockerClientWithOpts(ctx)
+	if err != nil {
+		return fmt.Errorf("PauseAt[%s]: create docker client: %w", c.name, err)
+	}
+	defer cli.Close()
+	if err := cli.ContainerPause(ctx, c.container.GetContainerID()); err != nil {
+		return fmt.Errorf("PauseAt[%s]: %w", c.name, err)
 	}
 	return nil
 }
@@ -327,9 +331,13 @@ func (d *DockerCompose) UnpauseAt(ctx context.Context, nodeIndex int) error {
 		return errors.Errorf("node index is greater than available nodes")
 	}
 	c := d.containers[nodeIndex]
-	cmd := exec.CommandContext(ctx, "docker", "unpause", c.container.GetContainerID())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("UnpauseAt[%s]: docker unpause failed: %w (output: %s)", c.name, err, string(out))
+	cli, err := testcontainers.NewDockerClientWithOpts(ctx)
+	if err != nil {
+		return fmt.Errorf("UnpauseAt[%s]: create docker client: %w", c.name, err)
+	}
+	defer cli.Close()
+	if err := cli.ContainerUnpause(ctx, c.container.GetContainerID()); err != nil {
+		return fmt.Errorf("UnpauseAt[%s]: %w", c.name, err)
 	}
 	return nil
 }
