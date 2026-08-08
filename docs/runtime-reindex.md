@@ -207,21 +207,24 @@ Two things about it changed with the `finishedAt` work:
   deletion.** The cleanup request carries the moment that node's sweep
   measured the task's age at, the TTL it measured against, and the finish
   time it read off the task, and every node applies those three numbers
-  rather than any state of its own. Two nodes therefore agree on whether a
-  task is still listed, which they did not before — including two nodes
-  that hold different finish times for it, which happens when one restored
-  a snapshot written before `finishedAt` was the terminal transition. The
-  consequence for operators:
+  rather than any state of its own. Two nodes on this version therefore
+  agree on whether a task is still listed, which they did not before —
+  including two nodes that hold different finish times for it, which
+  happens when one restored a snapshot written before `finishedAt` was
+  the terminal transition. The consequence for operators:
   `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` is a per-node setting, and
   each node's sweep proposes with its own value, so **the effective
   cluster retention is the shortest value configured on any node**. Raise
   it on every node; raising it on one changes only what that node
   proposes, and during the rolling restart that applies the new value the
   old shorter one still wins on the nodes that have not restarted yet.
-  A node old enough not to send the measurements sends nothing, and the
-  applying node falls back to its own age check — so during an upgrade
-  from such a version the two nodes can still disagree, in both
-  directions, until every node runs a binary that carries them.
+  A node old enough not to send the measurements sends nothing, and a
+  proposal carrying none is deferred rather than decided: the old node
+  still drops the task from its own list on its local check, every node
+  on this version keeps it, and the backlog ages out normally as soon as
+  an upgraded node takes leadership and proposes with measurements.
+  Cleanup therefore lags for the length of the upgrade window, which
+  keeps the backup overlap backstop's evidence instead of dropping it.
 
   A uniform TTL is a correctness requirement for the backup overlap
   backstop, not just a retention preference. That backstop refuses a
@@ -1368,7 +1371,12 @@ configuration:
   the stamp on the restoring node, but the gate reads the leader's list,
   so the window lasts as long as an old node holds leadership.
 - *Old node ending a task without stamping it at all during a rolling
-  upgrade.* A terminal task carrying no `finishedAt` has no age, so both
+  upgrade.* It takes both versions to produce this, and in this order:
+  a node on this version leaves a task unstamped while it swaps, that
+  state reaches an older node through a snapshot install or a rollback,
+  and the older node's finalize writes the terminal status without a
+  stamp. No version on its own does it — every older one stamps when the
+  units stop. A terminal task carrying no `finishedAt` has no age, so both
   the sweep and the cleanup apply refuse it rather than delete it — the
   alternative is treating a zero stamp as ~2000 years old and hiding the
   task from the backup overlap check. The task stays listed and the

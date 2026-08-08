@@ -568,11 +568,13 @@ type testHarness struct {
 	schedulerTickInterval time.Duration
 	clock                 *clockwork.FakeClock
 	logger                logrus.FieldLogger
-	completionRecorder    *MockTaskCompletionRecorder
-	cleaner               *MockTaskCleaner
-	provider              *testTaskProvider
-	registeredProviders   map[string]Provider
-	testProviders         []*testTaskProvider
+	// logHook captures everything the harness's manager and scheduler log.
+	logHook             *logrustest.Hook
+	completionRecorder  *MockTaskCompletionRecorder
+	cleaner             *MockTaskCleaner
+	provider            *testTaskProvider
+	registeredProviders map[string]Provider
+	testProviders       []*testTaskProvider
 
 	manager   *Manager
 	scheduler *Scheduler
@@ -584,7 +586,7 @@ func newTestHarness(t *testing.T) *testHarness {
 	var (
 		defaultNamespace = "tasks-namespace"
 		defaultProvider  = newTestTaskProvider(t, nil)
-		logger, _        = logrustest.NewNullLogger()
+		logger, hook     = logrustest.NewNullLogger()
 	)
 
 	return &testHarness{
@@ -595,6 +597,7 @@ func newTestHarness(t *testing.T) *testHarness {
 		schedulerTickInterval: 30 * time.Second,
 		clock:                 clockwork.NewFakeClock(),
 		logger:                logger,
+		logHook:               hook,
 		completionRecorder:    NewMockTaskCompletionRecorder(t),
 		cleaner:               NewMockTaskCleaner(t),
 		provider:              defaultProvider,
