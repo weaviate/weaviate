@@ -1126,10 +1126,20 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // A non-positive TTL defers for the same reason, and is the only other operand
 // needing a guard: nothing validates these numbers before they land here, since
 // only [Scheduler.tick] can propose and a proposer that disagrees with the
-// applier is the case this whole change exists for. The remaining nonsense
-// values fall out fail-closed without one — a non-positive proposal moment, or
-// a finish time later than the moment the sweep looked, both make the age
-// negative, and no positive TTL clears a negative age.
+// applier is the case this whole change exists for. Two of the three remaining
+// nonsense values fall out fail-closed without one: a non-positive proposal
+// moment, or a finish time later than the moment the sweep looked, both make
+// the age negative, and no positive TTL clears a negative age.
+//
+// The third is trusted rather than guarded. A proposal moment far in the
+// future makes the age enormous and positive, so every terminal task clears
+// its TTL and is deleted on every node. There is no sound bound to guard it
+// with, because a task legitimately deferred for a long time reports the same
+// enormous age. The jump has to exceed the TTL to change any verdict, so an
+// hour of clock skew against a 24h TTL is harmless; past that, one
+// forward-stepped node empties every terminal task in a single tick. Uniform
+// clocks are therefore a requirement here in the same way a uniform TTL is,
+// and the backup overlap backstop documents both from its own side.
 func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinishedAt time.Time) bool {
 	if r.FinishedAtUnixMillis <= 0 {
 		return false

@@ -258,7 +258,11 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 // A skewed clock has the same effect as a short TTL, and for the same reason:
 // the proposer's measuring moment is authoritative for everyone, so a node whose
 // clock jumped forward sweeps the whole cluster early rather than only its own
-// copy. Uniform clocks are part of the same requirement.
+// copy. Uniform clocks are part of the same requirement. The bound is the TTL:
+// a jump smaller than it changes no verdict, and one larger than it empties
+// every terminal task in every namespace in a single tick. The applier trusts
+// the proposal moment rather than guarding it because a task legitimately
+// deferred for a long time reports the same oversized age.
 //
 // Closing that needs the cluster minimum, which this node cannot see, or a
 // leader-gated sweep so one node's TTL and clock govern. Until then the
