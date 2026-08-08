@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -71,6 +72,13 @@ func TestAuthzIndexesGet(t *testing.T) {
 			allowed:    true,
 		},
 	}
+
+	t.Run("unauthenticated callers get 401, not 403", func(t *testing.T) {
+		_, err := helper.Client(t).Schema.SchemaObjectsIndexesGet(
+			schema.NewSchemaObjectsIndexesGetParams().WithClassName(className), nil)
+		var parsed *schema.SchemaObjectsIndexesGetUnauthorized
+		require.True(t, errors.As(err, &parsed), "expected unauthorized, got %T: %v", err, err)
+	})
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -172,6 +180,17 @@ func TestAuthzDistributedTasksGet(t *testing.T) {
 			allowed:    true,
 		},
 	}
+
+	// Asserted on the status code rather than a typed response: /tasks is the
+	// one endpoint here whose swagger spec declares no 401, so the generated
+	// client has no type for it.
+	t.Run("unauthenticated callers get 401, not 403", func(t *testing.T) {
+		_, err := helper.Client(t).DistributedTasks.DistributedTasksGet(
+			distributed_tasks.NewDistributedTasksGetParams(), nil)
+		var parsed *runtime.APIError
+		require.True(t, errors.As(err, &parsed), "expected an API error, got %T: %v", err, err)
+		require.Equal(t, 401, parsed.Code)
+	})
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
