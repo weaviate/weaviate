@@ -115,7 +115,7 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 	)
 	payload := &db.ReindexTaskPayload{
 		Collection: collection,
-		UnitToNode: map[string]string{"u1": owner, "u2": local},
+		UnitToNode: map[string]string{"u1": owner, "u2": local, "u3": ""},
 	}
 
 	t.Run("waits until the owner has raised its gate", func(t *testing.T) {
@@ -128,6 +128,10 @@ func TestAwaitOwnerCleanupGates(t *testing.T) {
 
 		assert.GreaterOrEqual(t, prober.callsFor(owner), 3,
 			"the owner must be re-asked until its gate is up")
+		require.Zero(t, prober.callsFor(local),
+			"this node raised its own gate synchronously; asking itself over HTTP is pointless")
+		require.Zero(t, prober.callsFor(""), "a blank node name is not a node to probe")
+		require.NotContains(t, prober.queried, owner+"/", "every probe has to name the collection")
 		// The WARN is only a signal if a healthy cancel stays quiet. When the
 		// owner raises its gate after its drain instead of before, every routed
 		// cancel trips it and it degrades into noise nobody reads.

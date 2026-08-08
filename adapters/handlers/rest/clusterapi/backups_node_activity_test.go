@@ -164,48 +164,23 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 // cluster-internal state: an unauthenticated caller must be refused rather
 // than answered.
 func TestInternalBackupsNodeActivityRequiresAuth(t *testing.T) {
-	const (
-		user = "alice"
-		pass = "s3cret"
-	)
 	auth := clusterapi.NewBasicAuthHandler(cluster.AuthConfig{
-		BasicAuth: cluster.BasicAuth{Username: user, Password: pass},
+		BasicAuth: cluster.BasicAuth{Username: probeUser, Password: probePass},
 	})
 
-	tests := []struct {
-		name       string
-		setAuth    bool
-		user, pass string
-		wantStatus int
-	}{
-		{name: "no credentials", wantStatus: http.StatusUnauthorized},
-		{name: "correct credentials", setAuth: true, user: user, pass: pass, wantStatus: http.StatusOK},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil), auth)
-			server := httptest.NewServer(handler.NodeActivity())
-			defer server.Close()
-
-			req, err := http.NewRequest(http.MethodGet, server.URL+"/backups/node-activity", nil)
-			require.NoError(t, err)
-			if tt.setAuth {
-				req.SetBasicAuth(tt.user, tt.pass)
+	assertRequiresBasicAuth(t, "/backups/node-activity",
+		func(*testing.T) *httptest.Server {
+			return httptest.NewServer(
+				clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil), auth).NodeActivity())
+		},
+		func(t *testing.T, res *http.Response, authorized bool) {
+			if authorized {
+				return
 			}
-
-			res, err := server.Client().Do(req)
+			body, err := io.ReadAll(res.Body)
 			require.NoError(t, err)
-			defer res.Body.Close()
-
-			require.Equal(t, tt.wantStatus, res.StatusCode)
-			if tt.wantStatus != http.StatusOK {
-				body, err := io.ReadAll(res.Body)
-				require.NoError(t, err)
-				assert.Empty(t, body, "a refused caller must not be told what this node is doing")
-			}
+			assert.Empty(t, body, "a refused caller must not be told what this node is doing")
 		})
-	}
 }
 
 func TestInternalBackupsNodeActivityRejectsNonGET(t *testing.T) {
