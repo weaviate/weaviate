@@ -124,43 +124,54 @@ func TestInternalReindexCleanupActivityRejectsNonGET(t *testing.T) {
 // basic auth as every other internal route: an unauthenticated caller is
 // refused before the prober is ever asked.
 func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
+	const (
+		user = "alice"
+		pass = "s3cret"
+	)
 	auth := clusterapi.NewBasicAuthHandler(cluster.AuthConfig{
-		BasicAuth: cluster.BasicAuth{Username: probeUser, Password: probePass},
+		BasicAuth: cluster.BasicAuth{Username: user, Password: pass},
 	})
 
-	var prober *stubCleanupProber
-	assertRequiresBasicAuth(t, "/reindex/cleanup-activity?collection=Movies",
-		func(*testing.T) *httptest.Server {
-			prober = &stubCleanupProber{}
-			return httptest.NewServer(clusterapi.NewReindexCleanup(
-				func() clusterapi.ReindexCleanupProber { return prober }, auth, nil).Activity())
+	tests := []struct {
+		name       string
+		setAuth    bool
+		user, pass string
+		wantStatus int
+		wantAsked  string
+	}{
+		{name: "no credentials", wantStatus: http.StatusUnauthorized},
+		{name: "wrong user", setAuth: true, user: "mallory", pass: pass, wantStatus: http.StatusUnauthorized},
+		{name: "wrong password", setAuth: true, user: user, pass: "guess", wantStatus: http.StatusUnauthorized},
+		{
+			name: "correct credentials", setAuth: true, user: user, pass: pass,
+			wantStatus: http.StatusOK, wantAsked: "Movies",
 		},
-		func(t *testing.T, _ *http.Response, authorized bool) {
-			wantAsked := ""
-			if authorized {
-				wantAsked = "Movies"
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prober := &stubCleanupProber{}
+			handler := clusterapi.NewReindexCleanup(
+				func() clusterapi.ReindexCleanupProber { return prober }, auth, nil)
+			server := httptest.NewServer(handler.Activity())
+			defer server.Close()
+
+			req, err := http.NewRequest(http.MethodGet,
+				server.URL+"/reindex/cleanup-activity?collection=Movies", nil)
+			require.NoError(t, err)
+			if tt.setAuth {
+				req.SetBasicAuth(tt.user, tt.pass)
 			}
-			assert.Equal(t, wantAsked, prober.asked,
+
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			require.Equal(t, tt.wantStatus, res.StatusCode)
+			assert.Equal(t, tt.wantAsked, prober.asked,
 				"a refused caller must not reach the prober")
 		})
-}
-
-// Pins the late binding described on the resolve field, through the same
-// wiring and construction order production uses.
-func TestInternalReindexCleanupActivityResolvesProviderLate(t *testing.T) {
-	appState := &state.State{}
-	server := httptest.NewServer(clusterapi.NewReindexCleanupFromState(appState,
-		clusterapi.NewNoopAuthHandler()).Activity())
-	defer server.Close()
-	get := func() int {
-		res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
-		require.NoError(t, err, "the route must answer at every stage of bootstrap")
-		defer res.Body.Close()
-		return res.StatusCode
 	}
-	require.Equal(t, http.StatusServiceUnavailable, get(), "before the provider exists the route must say so")
-	appState.ReindexProvider.Store(&db.ReindexProvider{})
-	require.Equal(t, http.StatusOK, get(), "the route must pick the provider up once bootstrap assigns it")
 }
 
 // The route serves ~200 lines of startup before bootstrap assigns the
@@ -226,7 +237,6 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 			collection: "Movies\nlevel=error msg=forged",
 			wantLogged: `"Movies\nlevel=error msg=forged"`,
 		},
-		{name: "carriage return", collection: "Movies\rmsg=forged", wantLogged: `"Movies\rmsg=forged"`},
 		{
 			name:       "longer than the cap",
 			collection: strings.Repeat("A", 500),

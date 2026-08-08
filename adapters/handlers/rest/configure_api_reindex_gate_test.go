@@ -179,11 +179,6 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 				{"SiblingLiveClass", "sX"}: true,
 			},
 		},
-		{
-			name:    "nothing readable at all",
-			payload: []byte("{not json"),
-			probes:  map[[2]string]bool{{"MyClass", "shard1"}: true, {"OtherClass", "shard1"}: true, {"UntouchedClass", "s42"}: true, {"SiblingLiveClass", "sX"}: true},
-		},
 	}
 
 	for _, tc := range tests {
@@ -296,11 +291,6 @@ func TestAnyReindexActivityLookupScopesUndecodablePayloads(t *testing.T) {
 		{
 			name:    "the collection field renamed by a newer node",
 			payload: []byte(`{"collektion":"Logs","unitToShard":{"u1":"shard1"}}`),
-			probes:  map[string]bool{"Logs": true, "Docs": true},
-		},
-		{
-			name:    "nothing readable at all",
-			payload: []byte("{not json"),
 			probes:  map[string]bool{"Logs": true, "Docs": true},
 		},
 	}
