@@ -452,7 +452,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient, cfg.QueryHedgedTimeout),
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient, cfg.QueryHedgedTimeout, logger),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),

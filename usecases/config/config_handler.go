@@ -281,6 +281,7 @@ type Config struct {
 	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 
+	// QueryHedgedTimeout is the delay before a remote replica search is hedged to the next replica; 0 disables hedging.
 	QueryHedgedTimeout *runtime.DynamicValue[time.Duration] `json:"query_hedged_timeout" yaml:"query_hedged_timeout"`
 
 	// New classes will be created with the default quantization
