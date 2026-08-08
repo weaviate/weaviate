@@ -26,8 +26,17 @@ func TestClusterReindexCleanup(t *testing.T) {
 		name       string
 		statusCode int
 		body       string
-		want       bool
+		// notFound answers the way a node's catch-all handler does, which is
+		// the only 404 the client reads as "older build".
+		notFound  bool
+		want      bool
+		wantErrIs error
 	}{
+		{
+			name:      "older build does not serve the route",
+			notFound:  true,
+			wantErrIs: ErrReindexCleanupUnsupported,
+		},
 		{
 			name:       "node still confirming the cancel",
 			statusCode: http.StatusOK,
@@ -47,6 +56,10 @@ func TestClusterReindexCleanup(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotPath = r.URL.Path
 				gotCollection = r.URL.Query().Get("collection")
+				if tt.notFound {
+					http.NotFound(w, r)
+					return
+				}
 				w.WriteHeader(tt.statusCode)
 				w.Write([]byte(tt.body))
 			}))
@@ -59,6 +72,10 @@ func TestClusterReindexCleanup(t *testing.T) {
 			assert.Equal(t, "/reindex/cleanup-activity", gotPath)
 			assert.Equal(t, "Movies", gotCollection, "the collection has to reach the owner")
 
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, err, tt.wantErrIs)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
