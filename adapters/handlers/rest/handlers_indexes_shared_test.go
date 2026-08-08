@@ -147,18 +147,48 @@ func (p togglingProber) NodeActivity(context.Context, string) (backup.NodeActivi
 // fixtureNode is the single node submissionHandlers puts in the cluster.
 const fixtureNode = "node1"
 
-// recordingCleanupProber records which node/collection pairs the cleanup gate
-// probes and answers "no cleanup running" for each.
-type recordingCleanupProber struct {
-	mu      sync.Mutex
-	queried []string
+// cancelFixture builds the cancel handler over one STARTED task whose units
+// live on remoteOwner, which is the only shape in which the cancel has an owner
+// to wait for.
+func cancelFixture(t *testing.T, prober reindexCleanupProber) (*indexesHandlers, *raceTaskService) {
+	t.Helper()
+	const (
+		collection  = "Movies"
+		remoteOwner = "node2"
+		taskID      = "Movies:repair-filterable:title:ab3f"
+	)
+
+	payload, err := json.Marshal(db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeRepairFilterable,
+		Collection:    collection,
+		Properties:    []string{"title"},
+		UnitToNode:    map[string]string{"u1": remoteOwner},
+		UnitToShard:   map[string]string{"u1": "shard1"},
+	})
+	require.NoError(t, err)
+
+	svc := &raceTaskService{tasks: []*distributedtask.Task{{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: taskID, Version: 3},
+		Namespace:      db.ReindexNamespace,
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        payload,
+	}}}
+
+	var busy atomic.Bool
+	h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+	h.reindexCleanup = prober
+	// A real provider, so the gates the cancel closes are the ones a backup
+	// would consult.
+	h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, "node1",
+		func() int { return 1 }, context.Background()))
+	return h, svc
 }
 
-func (p *recordingCleanupProber) CleanupInProgress(_ context.Context, node, collection string) (bool, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.queried = append(p.queried, node+"/"+collection)
-	return false, nil
+func errorMessage(t *testing.T, payload *models.ErrorResponse) string {
+	t.Helper()
+	require.NotNil(t, payload)
+	require.Len(t, payload.Error, 1)
+	return payload.Error[0].Message
 }
 
 func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActivityProber) *indexesHandlers {
