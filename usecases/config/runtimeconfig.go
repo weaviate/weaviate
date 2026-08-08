@@ -57,6 +57,7 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogEnabled                       *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold                     *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled                    *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	QueryHedgedTimeout                        *runtime.DynamicValue[time.Duration] `json:"query_hedged_timeout" yaml:"query_hedged_timeout"`
 	QueryBatchedContainsEnabled               *runtime.DynamicValue[bool]          `json:"query_batched_contains_enabled" yaml:"query_batched_contains_enabled"`
 	LazyPropertyLengthsEnabled                *runtime.DynamicValue[bool]          `json:"lazy_property_lengths_enabled" yaml:"lazy_property_lengths_enabled"`
 	BM25FilterTombMergeGateRatio              *runtime.DynamicValue[float64]       `json:"bm25_filter_tombstone_merge_gate_ratio" yaml:"bm25_filter_tombstone_merge_gate_ratio"`

@@ -55,7 +55,7 @@ func refCountTestIndex(t *testing.T, className string) (*Index, *Shard) {
 		enthnsw.NewDefaultUserConfig(), false, false, false, func(i *Index) {
 			i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
 			i.remote = sharding.NewRemoteIndex(className, i.getSchema,
-				nodeResolver, &FakeRemoteClient{})
+				nodeResolver, &FakeRemoteClient{}, nil, nil)
 		})
 
 	localShard := underlyingShard(t, shard)

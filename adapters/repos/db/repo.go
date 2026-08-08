@@ -483,6 +483,7 @@ type Config struct {
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	QueryHedgedTimeout          *configRuntime.DynamicValue[time.Duration]
 	QueryBatchedContainsEnabled *configRuntime.DynamicValue[bool]
 	LazyPropertyLengthsEnabled  *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool

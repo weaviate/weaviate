@@ -526,6 +526,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryHedgedTimeout:                           appState.ServerConfig.Config.QueryHedgedTimeout,
 		QueryBatchedContainsEnabled:                  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
 		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
@@ -2694,6 +2695,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.QueryHedgedTimeout = appState.ServerConfig.Config.QueryHedgedTimeout
 		registered.QueryBatchedContainsEnabled = appState.ServerConfig.Config.QueryBatchedContainsEnabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
