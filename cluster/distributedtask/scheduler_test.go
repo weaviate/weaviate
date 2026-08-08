@@ -621,16 +621,14 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	}
 
 	h.manager = NewManager(ManagerParameters{
-		Clock:            h.clock,
-		CompletedTaskTTL: h.completedTaskTTL,
-		Logger:           h.logger,
+		Logger: h.logger,
 	})
 
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
 		TaskLister:         h.manager,
 		TaskCleaner:        h.cleaner,
-		TaskFinalizer:      newDirectFinalizer(t, h.manager),
+		TaskFinalizer:      newDirectFinalizer(t, h.manager, h.clock),
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		Logger:             h.logger,
@@ -661,10 +659,11 @@ func (h *testHarness) Close() {
 type directFinalizer struct {
 	t       *testing.T
 	manager *Manager
+	clock   clockwork.Clock
 }
 
-func newDirectFinalizer(t *testing.T, manager *Manager) *directFinalizer {
-	return &directFinalizer{t: t, manager: manager}
+func newDirectFinalizer(t *testing.T, manager *Manager, clock clockwork.Clock) *directFinalizer {
+	return &directFinalizer{t: t, manager: manager, clock: clock}
 }
 
 func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namespace, taskID string, taskVersion uint64) error {
@@ -672,7 +671,7 @@ func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namesp
 		Namespace:             namespace,
 		Id:                    taskID,
 		Version:               taskVersion,
-		FinalizedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+		FinalizedAtUnixMillis: d.clock.Now().UnixMilli(),
 	}))
 }
 
@@ -682,7 +681,7 @@ func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace
 		Id:                 taskID,
 		Version:            taskVersion,
 		Error:              errMsg,
-		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+		FailedAtUnixMillis: d.clock.Now().UnixMilli(),
 	}), false)
 }
 

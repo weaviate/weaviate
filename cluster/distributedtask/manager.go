@@ -20,7 +20,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -85,10 +84,6 @@ type Manager struct {
 	terminalDrainerRunning bool
 	// terminalDispatchClosed makes Close idempotent. Guarded by mu.
 	terminalDispatchClosed bool
-
-	completedTaskTTL time.Duration
-
-	clock clockwork.Clock
 
 	logger logrus.FieldLogger
 
@@ -231,11 +226,11 @@ func (m *Manager) notifySchedulerWithLock() {
 	m.notifier.Wake()
 }
 
+// ManagerParameters carries no clock and no TTL: the FSM decides every cleanup
+// from the numbers on the log entry, so a Manager that could read either would
+// only give a future change somewhere to diverge. Both live on the Scheduler,
+// which is what measures and proposes.
 type ManagerParameters struct {
-	Clock clockwork.Clock
-
-	CompletedTaskTTL time.Duration
-
 	Logger logrus.FieldLogger
 }
 
@@ -245,10 +240,6 @@ type ManagerParameters struct {
 const stampMismatchWarnBudget = 5
 
 func NewManager(params ManagerParameters) *Manager {
-	if params.Clock == nil {
-		params.Clock = clockwork.NewRealClock()
-	}
-
 	m := &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
@@ -256,9 +247,6 @@ func NewManager(params ManagerParameters) *Manager {
 		terminalDispatch:     make(chan *Task, terminalDispatchQueueDepth),
 		terminalDispatchDone: make(chan struct{}),
 
-		completedTaskTTL: params.CompletedTaskTTL,
-
-		clock:  params.Clock,
 		logger: params.Logger,
 	}
 	m.stampMismatchLogger = logrusext.NewSampler(m.dispatchLogger(), stampMismatchWarnBudget, time.Hour)

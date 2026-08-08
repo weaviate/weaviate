@@ -52,7 +52,7 @@ func seedTerminalTaskWithoutAStamp(t *testing.T, m *Manager, namespace, taskID s
 		Namespace:      namespace,
 		TaskDescriptor: TaskDescriptor{ID: taskID, Version: version},
 		Status:         TaskStatusFinished,
-		StartedAt:      m.clock.Now().Add(-time.Hour),
+		StartedAt:      time.Now().Add(-time.Hour),
 		Units:          map[string]*Unit{"u": {ID: "u", Status: UnitStatusCompleted, Progress: 1}},
 	}
 }
