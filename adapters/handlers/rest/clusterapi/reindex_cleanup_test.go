@@ -237,6 +237,7 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 			collection: "Movies\nlevel=error msg=forged",
 			wantLogged: `"Movies\nlevel=error msg=forged"`,
 		},
+		{name: "carriage return", collection: "Movies\rmsg=forged", wantLogged: `"Movies\rmsg=forged"`},
 		{
 			name:       "longer than the cap",
 			collection: strings.Repeat("A", 500),
