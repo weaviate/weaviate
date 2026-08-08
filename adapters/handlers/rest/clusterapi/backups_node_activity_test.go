@@ -179,6 +179,8 @@ func TestInternalBackupsNodeActivityRequiresAuth(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "no credentials", wantStatus: http.StatusUnauthorized},
+		{name: "wrong user", setAuth: true, user: "mallory", pass: pass, wantStatus: http.StatusUnauthorized},
+		{name: "wrong password", setAuth: true, user: user, pass: "guess", wantStatus: http.StatusUnauthorized},
 		{name: "correct credentials", setAuth: true, user: user, pass: pass, wantStatus: http.StatusOK},
 	}
 
