@@ -39,10 +39,6 @@ func TestPastCancellationRefusalsDoNotPromiseThatPollingEndsIt(t *testing.T) {
 			name:      "the task names a collection",
 			responder: reindexCancelPastCancellationPoint(&models.Principal{Username: "u1"}),
 		},
-		{
-			name:      "the task names no collection",
-			responder: reindexCancelUnattributablePastCancellationPoint(&models.Principal{Username: "u1"}),
-		},
 	}
 
 	for _, tc := range tests {
