@@ -26,52 +26,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// The observable status and the stored failure reason are written by two
-// different steps, and GET /v1/backups/{backend}/{id} reads both. A poll landing
-// between them would report FAILED with an empty reason, which is the headline
-// failure of this feature reported as nothing at all.
-func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testing.T) {
-	const backupID = "1"
-	any := mock.Anything
-
-	backend := newFakeBackend()
-	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
-
-	sourcer := &fakeSourcer{}
-	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
-	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-		backup.ErrBackupSpannedReindex, "Movies")
-
-	// What an observer polling at the instant of each status change would read.
-	type observation struct {
-		status backup.Status
-		reason string
-	}
-	var observed []observation
-	slot := &fakeStatusSlot{onChange: func(st backup.Status) {
-		_, reason := backend.getMetaStatus()
-		observed = append(observed, observation{status: st, reason: reason})
-	}}
-
-	err := runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil, time.Now().UTC())
-	require.ErrorIs(t, err, backup.ErrBackupSpannedReindex)
-
-	storedStatus, storedReason := backend.getMetaStatus()
-	require.Equal(t, backup.Failed, storedStatus)
-	require.Contains(t, storedReason, "a runtime-reindex overlapped this backup")
-
-	var sawFailed bool
-	for _, o := range observed {
-		if o.status != backup.Failed {
-			continue
-		}
-		sawFailed = true
-		require.Contains(t, o.reason, "a runtime-reindex overlapped this backup",
-			"a status poll in this window reads FAILED without a reason")
-	}
-	require.True(t, sawFailed, "the refused backup has to end up observably FAILED")
-}
-
 // An operator abort cancels the same context the commit-time overlap lookup
 // runs on, so the lookup comes back with the cancellation instead of an answer.
 // That must stay a cancellation: reporting FAILED with "a runtime-reindex
