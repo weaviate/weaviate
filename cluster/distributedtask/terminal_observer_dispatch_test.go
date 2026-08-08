@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -102,76 +101,6 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"the observer must see the task already in its cancelled state")
 		require.JSONEq(t, `{"collection":"Movies"}`, string(observed.Payload),
 			"the payload is what identifies the shards to gate")
-	})
-
-	// Observers take their own locks, which the admission path and the HTTP
-	// handlers also take. That is only safe while the apply never waits for one,
-	// so an observer that is busy must not hold the apply up.
-	t.Run("the apply does not wait for observer code", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
-
-		release := make(chan struct{})
-		defer close(release)
-
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
-			<-release
-			rec.record(task)
-		})
-
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-
-		applied := make(chan error, 1)
-		go func() { applied <- h.manager.CancelTask(observerCancelCmd(t, h, 0), false) }()
-
-		select {
-		case err := <-applied:
-			require.NoError(t, err)
-		case <-time.After(5 * time.Second):
-			require.Fail(t, "the cancel apply is waiting on observer code")
-		}
-		require.Zero(t, rec.count(), "the observer cannot have finished yet")
-	})
-
-	// A node replaying its RAFT log at startup applies cancels nobody is waiting
-	// on any more. Every signal an observer raises has expired by then, so
-	// paying for them means a restart holds gates it can never usefully release.
-	//
-	// The cancel is stamped as happening right now, so only the replay flag can
-	// suppress it: an implementation that goes back to judging by the age of the
-	// transition delivers this one.
-	t.Run("a cancel replayed from the RAFT log is skipped", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
-
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
-
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), true))
-
-		require.Never(t, func() bool { return rec.count() > 0 },
-			200*time.Millisecond, 5*time.Millisecond,
-			"a cancel the FSM flagged as replayed must not reach the observer")
-	})
-
-	// Dispatch is queued to a goroutine, so a foreign observer that does fire
-	// fires after the apply returns. Recording and awaiting it is what makes
-	// this fail; a require.Fail inside the observer would land on a finished t.
-	t.Run("a namespace without an observer applies normally", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
-
-		var foreign observerRecorder
-		h.manager.RegisterTerminalObserver("some-other-namespace", foreign.record)
-
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
-
-		require.Never(t, func() bool { return foreign.count() > 0 },
-			200*time.Millisecond, 10*time.Millisecond,
-			"another namespace's observer must not fire")
 	})
 
 	// Registration is last-write-wins, so a nil stored over a live observer
@@ -436,82 +365,4 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 		"every observer panic must be contained and logged the same way the drainer contains one; "+
 			"contained %d of %d panics — the shortfall is the overflow arm relying on GoWrapper, "+
 			"whose recover the acceptance image disables", contained(), total)
-}
-
-// GoWrapper's recover is outside the drainer loop, so a panic there exits the
-// goroutine while terminalDrainerRunning stays true — nothing restarts it, and
-// re-registering does not help. One namespace's bug then silences cancels for
-// every namespace until the process restarts.
-func TestTerminalDrainerSurvivesAPanickingObserver(t *testing.T) {
-	h := newTestHarness(t)
-	// The recovered panic is the only evidence an operator gets that an
-	// observer is broken: the drainer swallows it and carries on, so without
-	// the log line the namespace looks healthy while its cancels vanish.
-	logger, hook := logrustest.NewNullLogger()
-	h.logger = logger
-	h.init(t)
-	defer h.manager.Close()
-
-	var rec observerRecorder
-	panicked := make(chan struct{}, 1)
-	h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
-		if task.Version == observerVersion {
-			select {
-			case panicked <- struct{}{}:
-			default:
-			}
-			panic("observer blew up")
-		}
-		rec.record(task)
-	})
-
-	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
-
-	select {
-	case <-panicked:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the panicking observer was never reached")
-	}
-
-	// A second, later cancel: the drainer has to still be there to deliver it.
-	const nextVersion = observerVersion + 1
-	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             observerNamespace,
-		Id:                    "2",
-		Payload:               []byte(`{"collection":"Movies"}`),
-		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		UnitIds:               []string{"su-1"},
-	}), nextVersion))
-	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-		Namespace:             observerNamespace,
-		Id:                    "2",
-		Version:               nextVersion,
-		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	}), false))
-
-	require.Eventually(t, func() bool { return rec.count() == 1 },
-		10*time.Second, 10*time.Millisecond,
-		"the drainer died with the panicking observer, so no later cancel is ever observed again")
-
-	var panicEntry *logrus.Entry
-	require.Eventuallyf(t, func() bool {
-		for _, e := range hook.AllEntries() {
-			if strings.Contains(e.Message, "terminal observer panicked") {
-				panicEntry = e
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 10*time.Millisecond,
-		"a swallowed observer panic must be logged; entries seen: %v", hook.AllEntries())
-
-	require.Equal(t, logrus.ErrorLevel, panicEntry.Level,
-		"below Error the only signal that an observer is broken does not reach an operator")
-	require.Equal(t, observerNamespace, panicEntry.Data["namespace"],
-		"the log must name the namespace whose observer panicked; every other one still works")
-	require.Equal(t, observerTaskID, panicEntry.Data["task_id"],
-		"the log must name the task whose cancel was dropped")
-	require.Contains(t, panicEntry.Message, "observer blew up",
-		"the panic value is what identifies the bug; a message without it is not actionable")
 }

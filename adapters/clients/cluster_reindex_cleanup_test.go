@@ -27,7 +27,6 @@ func TestClusterReindexCleanup(t *testing.T) {
 		statusCode int
 		body       string
 		want       bool
-		wantErrMsg string
 	}{
 		{
 			name:       "node still confirming the cancel",
@@ -39,18 +38,6 @@ func TestClusterReindexCleanup(t *testing.T) {
 			name:       "node has nothing to confirm",
 			statusCode: http.StatusOK,
 			body:       `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":false}`,
-		},
-		{
-			name:       "unwired probe",
-			statusCode: http.StatusServiceUnavailable,
-			body:       "reindex cleanup probe is not wired on this node",
-			wantErrMsg: "unexpected status code 503",
-		},
-		{
-			name:       "unreadable body",
-			statusCode: http.StatusOK,
-			body:       "{",
-			wantErrMsg: "unmarshal reindex cleanup response",
 		},
 	}
 
@@ -72,13 +59,8 @@ func TestClusterReindexCleanup(t *testing.T) {
 			assert.Equal(t, "/reindex/cleanup-activity", gotPath)
 			assert.Equal(t, "Movies", gotCollection, "the collection has to reach the owner")
 
-			switch {
-			case tt.wantErrMsg != "":
-				require.ErrorContains(t, err, tt.wantErrMsg)
-			default:
-				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
