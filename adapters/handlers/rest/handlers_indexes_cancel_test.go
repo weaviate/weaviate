@@ -251,27 +251,40 @@ func TestCancelReindexTaskNoOpDoesNotProbeOwners(t *testing.T) {
 // the same "cleanup complete" line as the exact match tells an operator the
 // disk is clean when the task's own sidecars may be untouched.
 func TestCancelCleanupLogSaysWhenTheSweptTupleWasGuessed(t *testing.T) {
-	h, _ := cancelFixture(t, &scriptedCleanupProber{})
-	logger, hook := logrustest.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-	h.appState.Logger = logger
-
-	release := h.drainAndCleanupCancelledTask(context.Background(), &stubCleanupGateProvider{},
-		&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
-		&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
-		"Movies", "title", "filterable", false)
-	require.NotNil(t, release)
-	release()
-
-	var completion string
-	for _, entry := range hook.AllEntries() {
-		if strings.HasPrefix(entry.Message, "cancel: on-disk cleanup complete") {
-			completion = entry.Message
-		}
+	tests := []struct {
+		name            string
+		payloadReadable bool
+		wantMessage     string
+	}{
+		{"the task's own payload named the tuple", true, "cancel: on-disk cleanup complete"},
+		{"the tuple came from the request URL", false, "cancel: on-disk cleanup complete for the property and index type in the request URL"},
 	}
-	require.NotEmpty(t, completion, "the sweep has to report its outcome")
-	require.Contains(t, completion, "for the property and index type in the request URL",
-		"the guessed tuple has to reach the sweep's own log line")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h, _ := cancelFixture(t, &scriptedCleanupProber{})
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			h.appState.Logger = logger
+			release := h.drainAndCleanupCancelledTask(context.Background(), &stubCleanupGateProvider{},
+				&distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "Movies:repair-filterable:title:ab3f", Version: 3}},
+				&db.ReindexTaskPayload{MigrationType: db.ReindexTypeRepairFilterable, Collection: "Movies"},
+				"Movies", "title", "filterable", test.payloadReadable)
+			require.NotNil(t, release)
+			release()
+			var completion string
+			for _, entry := range hook.AllEntries() {
+				if strings.HasPrefix(entry.Message, "cancel: on-disk cleanup complete") {
+					completion = entry.Message
+				}
+			}
+			require.NotEmpty(t, completion, "the sweep has to report its outcome")
+			require.Contains(t, completion, test.wantMessage)
+			if test.payloadReadable {
+				// The unqualified line is the one an operator reads as authoritative.
+				require.Equal(t, test.wantMessage, completion)
+			}
+		})
+	}
 }
 
 // Every gate on the submission path says so when it fails open, and every one

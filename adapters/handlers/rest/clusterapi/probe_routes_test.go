@@ -96,6 +96,52 @@ func assertRejectsNonGET(t *testing.T, server *httptest.Server, path string) {
 	}
 }
 
+// The four callers every internal probe route has to tell apart. Sharing them
+// keeps a route from being added with only the easy two.
+const probeUser, probePass = "alice", "s3cret"
+
+var probeAuthCallers = []struct {
+	name       string
+	setAuth    bool
+	user, pass string
+	wantStatus int
+}{
+	{name: "no credentials", wantStatus: http.StatusUnauthorized},
+	{name: "wrong user", setAuth: true, user: "mallory", pass: probePass, wantStatus: http.StatusUnauthorized},
+	{name: "wrong password", setAuth: true, user: probeUser, pass: "guess", wantStatus: http.StatusUnauthorized},
+	{name: "correct credentials", setAuth: true, user: probeUser, pass: probePass, wantStatus: http.StatusOK},
+}
+
+// assertRequiresBasicAuth drives those four callers at path against a route
+// mount builds fresh per caller, then hands each answer to check along with
+// whether that caller was the authorized one — which is where a route pins what
+// a refused caller must not have reached.
+func assertRequiresBasicAuth(t *testing.T, path string,
+	mount func(t *testing.T) *httptest.Server,
+	check func(t *testing.T, res *http.Response, authorized bool),
+) {
+	t.Helper()
+	for _, tt := range probeAuthCallers {
+		t.Run(tt.name, func(t *testing.T) {
+			server := mount(t)
+			defer server.Close()
+
+			req, err := http.NewRequest(http.MethodGet, server.URL+path, nil)
+			require.NoError(t, err)
+			if tt.setAuth {
+				req.SetBasicAuth(tt.user, tt.pass)
+			}
+
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			require.Equal(t, tt.wantStatus, res.StatusCode)
+			check(t, res, tt.wantStatus == http.StatusOK)
+		})
+	}
+}
+
 func mustHost(t *testing.T, rawURL string) string {
 	t.Helper()
 	parsed, err := url.Parse(rawURL)

@@ -159,6 +159,10 @@ func TestCancelThatRacesTheCommitAnswersLikeTheCheckThatMissedIt(t *testing.T) {
 			flipTo:    distributedtask.TaskStatusFinished,
 			wantNoOp:  true,
 		},
+		// A task that stopped on its own, or that another operator already
+		// cancelled, leaves nothing to cancel.
+		{name: "the task fails before the cancel lands", cancelErr: notRunning, flipTo: distributedtask.TaskStatusFailed, wantNoOp: true},
+		{name: "the task is already cancelled when the cancel lands", cancelErr: notRunning, flipTo: distributedtask.TaskStatusCancelled, wantNoOp: true},
 		{
 			// The listing still reports the task running, which contradicts
 			// the rejection. Nothing here says the task settled, so claiming

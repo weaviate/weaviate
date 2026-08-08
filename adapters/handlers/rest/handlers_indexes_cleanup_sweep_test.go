@@ -140,6 +140,13 @@ func TestPreSubmitCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T
 			wantContains: "operator inspection recommended",
 		},
 		{
+			name:         "a shutting-down node left shards unswept",
+			err:          fmt.Errorf("%w: node is shutting down", db.ErrCleanupSweepTruncated),
+			wantEntries:  1,
+			wantLevel:    logrus.ErrorLevel,
+			wantContains: "operator inspection recommended",
+		},
+		{
 			name:         "a collection being deleted has no stale state to leave behind",
 			err:          fmt.Errorf("%w: collection is being deleted", db.ErrCleanupCollectionDropped),
 			wantEntries:  1,

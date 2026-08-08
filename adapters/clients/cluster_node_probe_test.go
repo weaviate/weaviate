@@ -53,6 +53,10 @@ func TestNodeProbeOnly404sFromTheNodeMeanUnsupported(t *testing.T) {
 			},
 		},
 		{
+			name:    "proxy with an empty 404",
+			handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) },
+		},
+		{
 			// The common shape: an nginx with `add_header X-Content-Type-Options
 			// nosniff` at the http{} level, which makes the header alone say
 			// nothing about who wrote the 404.
@@ -101,6 +105,9 @@ func TestNodeProbeOnly200sFromTheNodeMeanFree(t *testing.T) {
 		name string
 		body string
 	}{
+		{name: "empty object", body: `{}`},
+		{name: "json null", body: `null`},
+		{name: "an intermediary's error object", body: `{"error":"no route matched"}`},
 		{name: "the answer's fields without the marker", body: `{"busy":false,"cleaningUp":false}`},
 		{
 			name: "another route's marker",

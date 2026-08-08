@@ -155,6 +155,20 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 	}
 }
 
+// The fallback matches on the collection alone, because that is all that
+// decoded. It must not reach a task naming a different collection.
+func TestCancelLeavesAnUnreadableTaskOfAnotherCollectionAlone(t *testing.T) {
+	svc := &raceTaskService{tasks: []*distributedtask.Task{
+		unreadableTask("Reviews:unknown:ab3f", "Reviews", distributedtask.TaskStatusStarted),
+	}}
+	responder := cancelHandlers(t, svc).cancelReindexTask(context.Background(), "Movies", "title",
+		"filterable", &models.Principal{Username: "u1"})
+	accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
+	require.Truef(t, ok, "cancel must be accepted, got %T", responder)
+	require.Equal(t, reindexCancelStatusNoOp, accepted.Payload.Status)
+	require.Empty(t, svc.cancelled)
+}
+
 // unattributableTaskPayload defeats the full ReindexTaskPayload decoder AND
 // the lenient collection reader. Nothing in it says which shards the task
 // holds, so the backup gate refuses every collection in the cluster rather
