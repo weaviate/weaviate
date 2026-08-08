@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -164,8 +163,7 @@ func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) 
 	// Build a manager and ingest two pre-existing tasks: one in
 	// namespace "ns-shared" and one in namespace "ns-orphan".
 	preRestore := NewManager(ManagerParameters{
-		CompletedTaskTTL: 24 * time.Hour,
-		Logger:           nullLogger,
+		Logger: nullLogger,
 	})
 	structuralInvariantSeedTask(t, preRestore, "ns-shared", "pre-existing-task", []byte("pre"), now, 1)
 	structuralInvariantSeedTask(t, preRestore, "ns-orphan", "orphan-task", []byte("orph"), now, 2)
@@ -174,8 +172,7 @@ func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) 
 	// DIFFERENT task in "ns-shared" (different ID, so a merge would
 	// keep both) and nothing in "ns-orphan".
 	snapshotSource := NewManager(ManagerParameters{
-		CompletedTaskTTL: 24 * time.Hour,
-		Logger:           nullLogger,
+		Logger: nullLogger,
 	})
 	structuralInvariantSeedTask(t, snapshotSource, "ns-shared", "snapshot-task", []byte("snap"), now, 3)
 
@@ -238,9 +235,9 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 	}})
 	require.NoError(t, err)
 
-	restoreInto := func(t *testing.T, clock clockwork.Clock) *Manager {
+	restoreInto := func(t *testing.T) *Manager {
 		t.Helper()
-		m := NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: time.Hour, Logger: nullLogger})
+		m := NewManager(ManagerParameters{Logger: nullLogger})
 		t.Cleanup(m.Close)
 		require.NoError(t, m.Restore(snapBytes))
 		return m
@@ -255,17 +252,18 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 	}
 
 	t.Run("stamped with the newest moment the task records", func(t *testing.T) {
-		task := restoredTask(t, restoreInto(t, clockwork.NewFakeClockAt(lastAck)))
+		task := restoredTask(t, restoreInto(t))
 		require.True(t, task.FinishedAt.Equal(lastAck),
 			"the stamp must be the last ack, the newest moment on the task: an earlier one "+
 				"makes the backup overlap backstop waive a capture the migration may have torn")
 	})
 
 	t.Run("every node restoring the snapshot computes the same stamp", func(t *testing.T) {
-		// Different clocks on purpose: the value must come off the task, not
-		// off the applying node, or the FSM diverges.
-		first := restoredTask(t, restoreInto(t, clockwork.NewFakeClockAt(lastAck)))
-		second := restoredTask(t, restoreInto(t, clockwork.NewFakeClockAt(lastAck.Add(9*time.Hour))))
+		// The stamp has to be a pure function of the payload, or the FSM
+		// diverges. The Manager takes no clock at all, so the only way two
+		// nodes could differ is the payload itself.
+		first := restoredTask(t, restoreInto(t))
+		second := restoredTask(t, restoreInto(t))
 		require.True(t, first.FinishedAt.Equal(second.FinishedAt),
 			"the stamp must be identical on every node applying this snapshot")
 	})
@@ -290,9 +288,7 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 		}})
 		require.NoError(t, err)
 
-		m := NewManager(ManagerParameters{
-			Clock: clockwork.NewFakeClockAt(unitsStopped), CompletedTaskTTL: time.Hour, Logger: nullLogger,
-		})
+		m := NewManager(ManagerParameters{Logger: nullLogger})
 		t.Cleanup(m.Close)
 		require.NoError(t, m.Restore(failedBytes))
 
@@ -321,9 +317,7 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 		}})
 		require.NoError(t, err)
 
-		m := NewManager(ManagerParameters{
-			Clock: clockwork.NewFakeClockAt(lastAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
-		})
+		m := NewManager(ManagerParameters{Logger: nullLogger})
 		t.Cleanup(m.Close)
 		require.NoError(t, m.Restore(earlyBytes))
 
@@ -353,9 +347,7 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 		}})
 		require.NoError(t, err)
 
-		m := NewManager(ManagerParameters{
-			Clock: clockwork.NewFakeClockAt(prepAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
-		})
+		m := NewManager(ManagerParameters{Logger: nullLogger})
 		t.Cleanup(m.Close)
 		require.NoError(t, m.Restore(prepBytes))
 
@@ -384,9 +376,7 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 		}})
 		require.NoError(t, err)
 
-		m := NewManager(ManagerParameters{
-			Clock: clockwork.NewFakeClockAt(lastAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
-		})
+		m := NewManager(ManagerParameters{Logger: nullLogger})
 		t.Cleanup(m.Close)
 		require.NoError(t, m.Restore(versionedBytes))
 
@@ -411,9 +401,7 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 		}})
 		require.NoError(t, err)
 
-		m := NewManager(ManagerParameters{
-			Clock: clockwork.NewFakeClockAt(lastAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
-		})
+		m := NewManager(ManagerParameters{Logger: nullLogger})
 		t.Cleanup(m.Close)
 
 		require.ErrorContains(t, m.Restore(futureBytes), "newer than the")
@@ -424,10 +412,9 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 	})
 
 	t.Run("deletable once the TTL has run from the repaired stamp", func(t *testing.T) {
-		// The node's own clock is half a TTL past the repaired stamp and stays
-		// there: what decides is the sweep's measurements, and a sweep reads
-		// the repaired stamp off the task it is proposing for.
-		m := restoreInto(t, clockwork.NewFakeClockAt(lastAck.Add(30*time.Minute)))
+		// What decides is the sweep's measurements, and a sweep reads the
+		// repaired stamp off the task it is proposing for.
+		m := restoreInto(t)
 		cleanUpProposedAt := func(proposedAt time.Time) error {
 			return m.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
 				Namespace: "ns", Id: "unstamped", Version: 1,

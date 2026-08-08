@@ -742,8 +742,7 @@ func TestOverlapBackstopReadsTheSwapMomentNotTheUnitMoment(t *testing.T) {
 	newManager := func(t *testing.T) *distributedtask.Manager {
 		t.Helper()
 		m := distributedtask.NewManager(distributedtask.ManagerParameters{
-			CompletedTaskTTL: time.Hour,
-			Logger:           logrus.New(),
+			Logger: logrus.New(),
 		})
 		t.Cleanup(m.Close)
 		return m

@@ -24,7 +24,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -356,9 +355,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
-		Clock:            clockwork.NewRealClock(),
-		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		Logger:           cfg.Logger,
+		Logger: cfg.Logger,
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)
