@@ -45,6 +45,7 @@ type RemoteIndex struct {
 	client        RemoteIndexClient
 	nodeResolver  nodeResolver
 	hedgedTimeout *configRuntime.DynamicValue[time.Duration]
+	logger        logrus.FieldLogger
 }
 
 type shardingStateGetter interface {
@@ -57,13 +58,18 @@ func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
 	client RemoteIndexClient,
 	hedgedTimeout *configRuntime.DynamicValue[time.Duration],
+	logger logrus.FieldLogger,
 ) *RemoteIndex {
+	if logger == nil {
+		logger = logrus.StandardLogger()
+	}
 	return &RemoteIndex{
 		class:         className,
 		stateGetter:   stateGetter,
 		client:        client,
 		nodeResolver:  nodeResolver,
 		hedgedTimeout: hedgedTimeout,
+		logger:        logger,
 	}
 }
 
@@ -571,6 +577,12 @@ func (ri *RemoteIndex) queryReplicas(
 	hedgeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	logger := ri.logger
+	if logger == nil {
+		logger = logrus.StandardLogger()
+	}
+	logger = logger.WithFields(logrus.Fields{"class": ri.class, "shard": shard})
+
 	launchQuery := func(n string) {
 		// The outer GoWrapper goroutine always sends to resultCh.
 		// GoWrapperWithBlock runs queryOne in an inner goroutine: if queryOne
@@ -582,11 +594,11 @@ func (ri *RemoteIndex) queryReplicas(
 			var e error
 			if panicErr := enterrors.GoWrapperWithBlock(func() {
 				r, e = queryOne(hedgeCtx, n)
-			}, logrus.StandardLogger()); panicErr != nil {
+			}, logger); panicErr != nil {
 				e = panicErr
 			}
 			resultCh <- result{r, n, e}
-		}, logrus.StandardLogger())
+		}, logger)
 	}
 
 	launchQuery(ordered[0])
