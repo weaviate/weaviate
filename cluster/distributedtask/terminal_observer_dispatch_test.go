@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -101,6 +102,45 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"the observer must see the task already in its cancelled state")
 		require.JSONEq(t, `{"collection":"Movies"}`, string(observed.Payload),
 			"the payload is what identifies the shards to gate")
+	})
+
+	// Dispatch is queued, so a foreign observer that does fire fires after the
+	// apply returns: recording and awaiting it is what makes this fail.
+	t.Run("a namespace without an observer applies normally", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		defer h.manager.Close()
+
+		var foreign observerRecorder
+		h.manager.RegisterTerminalObserver("some-other-namespace", foreign.record)
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+
+		require.Never(t, func() bool { return foreign.count() > 0 },
+			200*time.Millisecond, 10*time.Millisecond,
+			"another namespace's observer must not fire")
+	})
+
+	t.Run("an observer registered under an empty namespace never runs", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		defer h.manager.Close()
+
+		var live, empty observerRecorder
+		h.manager.RegisterTerminalObserver(observerNamespace, live.record)
+		h.manager.RegisterTerminalObserver("", empty.record)
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+		require.Eventually(t, func() bool { return live.count() == 1 },
+			5*time.Second, 5*time.Millisecond)
+
+		// Dispatched by hand: no task reaches apply with an empty namespace, so
+		// this is the only way to ask whether such a registration is reachable.
+		task := terminalDispatchTask(h.manager)
+		task.Namespace = ""
+		fillDispatchQueue(h.manager, task, 1)
+
+		require.Never(t, func() bool { return empty.count() > 0 },
+			200*time.Millisecond, 10*time.Millisecond,
+			"an observer registered under an empty namespace must never fire")
 	})
 
 	// Registration is last-write-wins, so a nil stored over a live observer
@@ -345,11 +385,13 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 	// queued events alone and says nothing about the overflow arm. Only the
 	// total distinguishes them: every dispatch panics once, so all of them
 	// contained means the overflow arm is contained too.
+	var panicEntry *logrus.Entry
 	contained := func() int {
 		n := 0
 		for _, e := range hook.AllEntries() {
 			if strings.Contains(e.Message, "terminal observer panicked") &&
 				strings.Contains(e.Message, "overflow observer blew up") {
+				panicEntry = e
 				n++
 			}
 		}
@@ -365,4 +407,13 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 		"every observer panic must be contained and logged the same way the drainer contains one; "+
 			"contained %d of %d panics — the shortfall is the overflow arm relying on GoWrapper, "+
 			"whose recover the acceptance image disables", contained(), total)
+
+	// The recovered panic is the only evidence an operator gets that an observer
+	// is broken, so the shape of that line is part of the containment.
+	require.Equal(t, logrus.ErrorLevel, panicEntry.Level,
+		"below Error the only signal that an observer is broken does not reach an operator")
+	require.Equal(t, observerNamespace, panicEntry.Data["namespace"],
+		"the log must name the namespace whose observer panicked; every other one still works")
+	require.Equal(t, observerTaskID, panicEntry.Data["task_id"],
+		"the log must name the task whose cancel was dropped")
 }
