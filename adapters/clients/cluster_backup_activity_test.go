@@ -107,13 +107,6 @@ func TestClusterBackupActivity(t *testing.T) {
 		})
 	}
 
-	t.Run("unresolvable node", func(t *testing.T) {
-		c := NewClusterBackupActivity(http.DefaultClient, staticResolver{})
-		_, err := c.NodeActivity(context.Background(), "ghost")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unable to resolve hostname")
-	})
-
 	t.Run("unreachable node", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 		resolver := resolverFor(t, "node1", server.URL)

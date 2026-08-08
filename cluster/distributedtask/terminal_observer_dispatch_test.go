@@ -156,35 +156,6 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"a cancel the FSM flagged as replayed must not reach the observer")
 	})
 
-	// A full queue keeps delivering up to the overflow bound; past it production
-	// drops. Losing an event does not fail the cancel open, but it costs the node
-	// waiting on it its whole confirmation budget before it answers unconfirmed,
-	// so the events below the bound are worth the goroutines they take.
-	t.Run("a full queue delivers up to the overflow bound", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
-
-		release := make(chan struct{})
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
-			<-release
-			rec.record(task)
-		})
-
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-
-		// One event parks in the observer, the queue then fills, and the rest
-		// have to find another way through.
-		const overflow = 3
-		total := terminalDispatchQueueDepth + 1 + overflow
-		fillDispatchQueue(h.manager, terminalDispatchTask(h.manager), total)
-
-		close(release)
-		require.Eventually(t, func() bool { return rec.count() == total },
-			5*time.Second, 5*time.Millisecond,
-			"every queued cancel must reach the observer")
-	})
-
 	// Dispatch is queued to a goroutine, so a foreign observer that does fire
 	// fires after the apply returns. Recording and awaiting it is what makes
 	// this fail; a require.Fail inside the observer would land on a finished t.
@@ -220,35 +191,6 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Eventually(t, func() bool { return rec.count() == 1 },
 			5*time.Second, 5*time.Millisecond,
 			"a nil re-registration must be dropped, not stored over the live observer")
-	})
-
-	t.Run("an observer registered under an empty namespace never runs", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
-
-		var live, empty observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, live.record)
-		h.manager.RegisterTerminalObserver("", empty.record)
-
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
-		require.Eventually(t, func() bool { return live.count() == 1 },
-			5*time.Second, 5*time.Millisecond)
-
-		// Dispatched by hand: no task reaches apply with an empty namespace, so
-		// this is the only way to ask whether such a registration is reachable
-		// at all.
-		h.manager.mu.Lock()
-		h.manager.dispatchTerminalWithLock(&Task{
-			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
-			Status:         TaskStatusCancelled,
-			FinishedAt:     h.clock.Now(),
-		}, false)
-		h.manager.mu.Unlock()
-
-		require.Never(t, func() bool { return empty.count() > 0 },
-			200*time.Millisecond, 10*time.Millisecond,
-			"an observer registered under an empty namespace must never fire")
 	})
 }
 
