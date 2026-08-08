@@ -289,16 +289,10 @@ func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket,
 type fakeStatusSlot struct {
 	statuses []backup.Status
 	reason   string
-	// onChange runs at each status change, for a test that has to read some
-	// other state at exactly that instant.
-	onChange func(backup.Status)
 }
 
 func (f *fakeStatusSlot) set(st backup.Status) {
 	f.statuses = append(f.statuses, st)
-	if f.onChange != nil {
-		f.onChange(st)
-	}
 }
 
 func (f *fakeStatusSlot) setFailed(reason string) {

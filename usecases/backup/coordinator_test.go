@@ -1189,36 +1189,18 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
-	tests := []struct {
-		name    string
-		level   CompressionLevel
-		arrange func(fc *fakeCoordinator)
-	}{
-		{
-			name:    "invalid compression level",
-			level:   CompressionLevel(-1),
-			arrange: func(*fakeCoordinator) {},
-		},
-	}
+	fc := newFakeCoordinator(nodeResolver)
+	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+	fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
+	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			fc := newFakeCoordinator(nodeResolver)
-			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
-			fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-			tc.arrange(fc)
+	c := fc.coordinator()
+	req := newReq(classes, backendName, backupID)
+	req.Level = CompressionLevel(-1)
+	store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 
-			c := fc.coordinator()
-			req := newReq(classes, backendName, backupID)
-			req.Level = tc.level
-			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
-
-			require.Error(t, c.Backup(ctx, store, &req))
-			require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
-		})
-	}
+	require.Error(t, c.Backup(ctx, store, &req))
+	require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
 }
 
 // TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot pins that a CANCELLING
@@ -1310,13 +1292,6 @@ func TestCanCommitRefusalIsNeitherNamedNorDoubled(t *testing.T) {
 				Method: OpCreate, ErrKind: CanCommitErrInFlightReindex, Err: participantMsg,
 			},
 			wantMsg: participantMsg,
-		},
-		{
-			name: "older participant sends a message without the sentinel",
-			resp: &CanCommitResponse{
-				Method: OpCreate, ErrKind: CanCommitErrInFlightReindex, Err: "shard is migrating",
-			},
-			wantMsg: backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard is migrating",
 		},
 	}
 

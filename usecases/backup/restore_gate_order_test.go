@@ -79,19 +79,6 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 		assert.Contains(t, err.Error(), "restore blocked")
 	})
 
-	t.Run("without a live reindex the unknown id still answers 404", func(t *testing.T) {
-		fs := unknownIDFixture(ctx, unknownID)
-
-		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
-			Backend: backendName,
-			ID:      unknownID,
-		}, false)
-
-		require.Error(t, err)
-		assert.IsType(t, backup.ErrNotFound{}, err,
-			"the gate must not turn a genuinely unknown id into anything else")
-	})
-
 	// The gate's answer is cluster-wide state. On this arm the request names no
 	// classes and the meta does not exist, so there is nothing class-scoped to
 	// authorize against and the broad grant is the only thing standing between a

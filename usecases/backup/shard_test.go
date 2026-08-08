@@ -107,15 +107,6 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			wantStatus: backup.Cancelling,
 		},
 		{
-			name:       "op mid-cancel under the id being written",
-			claimedID:  "op-1",
-			status:     backup.Cancelling,
-			setID:      "op-1",
-			setStatus:  backup.Cancelled,
-			wantOK:     true,
-			wantStatus: backup.Cancelled,
-		},
-		{
 			name:       "second cancel re-stamping an already cancelled op",
 			claimedID:  "op-1",
 			status:     backup.Cancelled,

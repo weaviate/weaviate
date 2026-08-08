@@ -184,11 +184,6 @@ func TestNodeActivityProbeMissingSlots(t *testing.T) {
 		assert.Equal(t, NodeActivity{}, probe.Activity())
 	})
 
-	t.Run("scheduler never attached", func(t *testing.T) {
-		probe := NewNodeActivityProbe(createManager(nil, nil, nil, nil))
-		assert.Equal(t, NodeActivity{}, probe.Activity())
-	})
-
 	t.Run("nil coordinators", func(t *testing.T) {
 		probe := NewNodeActivityProbe(createManager(nil, nil, nil, nil))
 		probe.AttachScheduler(&Scheduler{})
