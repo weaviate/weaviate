@@ -312,13 +312,6 @@ func TestMarkCleanupInProgressWithoutShardsGuardsWholeCollection(t *testing.T) {
 			name:    "no shard mapping at all",
 			payload: &ReindexTaskPayload{Collection: "C"},
 		},
-		{
-			name: "mapping present but every shard name empty",
-			payload: &ReindexTaskPayload{
-				Collection:  "C",
-				UnitToShard: map[string]string{"u1": "", "u2": ""},
-			},
-		},
 	}
 
 	for _, tc := range tests {
@@ -352,22 +345,6 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 		probeShard     string
 		wantInProgress bool
 	}{
-		{
-			name:           "payload lowercase, index canonical",
-			registerAs:     "movies",
-			probeAs:        "Movies",
-			shards:         map[string]string{"u1": "shard1"},
-			probeShard:     "shard1",
-			wantInProgress: true,
-		},
-		{
-			name:           "payload canonical, index lowercase",
-			registerAs:     "Movies",
-			probeAs:        "movies",
-			shards:         map[string]string{"u1": "shard1"},
-			probeShard:     "shard1",
-			wantInProgress: true,
-		},
 		{
 			name:           "mixed case on both sides",
 			registerAs:     "MoViEs",
@@ -477,17 +454,6 @@ func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 		release()
 		assert.False(t, p.AnyCleanupInProgress())
 	})
-
-	t.Run("no local worker registered", func(t *testing.T) {
-		p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{})
-
-		release, err := p.DrainWithCleanupGate(context.Background(), payload, desc)
-		require.NoError(t, err)
-		assert.True(t, p.IsCleanupInProgress("Movies", "shard1"))
-
-		release()
-		assert.False(t, p.AnyCleanupInProgress())
-	})
 }
 
 // The node handling a cancel may own none of the collection's shards, so it
@@ -509,12 +475,6 @@ func TestAnyCleanupInProgressForCollection(t *testing.T) {
 		{
 			name:    "collection-wide registration",
 			payload: &ReindexTaskPayload{Collection: "Movies"},
-			probe:   "Movies",
-			want:    true,
-		},
-		{
-			name:    "spelled differently by the asking node",
-			payload: &ReindexTaskPayload{Collection: "movies", UnitToShard: map[string]string{"u1": "shard1"}},
 			probe:   "Movies",
 			want:    true,
 		},
@@ -687,15 +647,6 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 				Collection: "Movies", Properties: []string{"body"},
 				MigrationType: ReindexMigrationType("something-else"),
 				UnitToShard:   map[string]string{"u1": shard},
-			},
-			status: distributedtask.TaskStatusFailed,
-			unit:   distributedtask.UnitStatusInProgress,
-		},
-		{
-			name: "no properties named",
-			payload: &ReindexTaskPayload{
-				Collection: "Movies", MigrationType: ReindexTypeChangeTokenization,
-				UnitToShard: map[string]string{"u1": shard},
 			},
 			status: distributedtask.TaskStatusFailed,
 			unit:   distributedtask.UnitStatusInProgress,

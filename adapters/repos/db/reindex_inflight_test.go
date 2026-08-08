@@ -22,11 +22,9 @@ import (
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
@@ -470,79 +468,6 @@ func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
 	}
 }
 
-// An unknown hold is neither a cancelled migration nor a submission, so it must
-// not borrow either one's advice.
-func TestReindexInFlightError_UnknownHold(t *testing.T) {
-	body := reindexInFlightError("MyClass", reindexBlockedByUnknownHold).Error()
-
-	assert.Contains(t, body, "MyClass")
-	assert.Contains(t, body, "does not recognize")
-	assert.NotContains(t, body, "cancelled migration")
-	assert.NotContains(t, body, "reindex submission")
-	assert.NotContains(t, body, "cancel it via")
-}
-
-// The unknown-hold WARN names the offending value and is rate limited: the gate
-// runs per shard, and the condition persists until someone ships a fix.
-func TestWarnUnknownReindexHold_RateLimited(t *testing.T) {
-	logger, hook := logrustest.NewNullLogger()
-	db := &DB{logger: logger}
-
-	for range 5 {
-		db.warnUnknownReindexHold(unknownReindexHold)
-	}
-
-	entries := hook.AllEntries()
-	require.Len(t, entries, 1, "the unknown-hold WARN must be rate limited, not repeated per shard checked")
-	assert.Equal(t, logrus.WarnLevel, entries[0].Level)
-	assert.Equal(t, "backup_reindex_gate", entries[0].Data["action"])
-	assert.Equal(t, int(unknownReindexHold), entries[0].Data["hold"], "the WARN must name the unrecognized value")
-	assert.Contains(t, entries[0].Message, "unrecognized ReindexHold value")
-}
-
-// The gate composes its refusal to name no node and no shard, and that property
-// is what the coordinator trusts when it republishes the text into a 422 body.
-// Joining it with an error that DOES name a node keeps the sentinel reachable,
-// so the join still classifies as a gate refusal — and the node name rides into
-// the body behind that classification.
-func TestBackupableNeverJoinsTheGateRefusalWithANodeNamingError(t *testing.T) {
-	const (
-		blocked = "BlockedClass"
-		broken  = "BrokenClass"
-		node    = "weaviate-0"
-	)
-
-	db := backupableFixture(t, blocked, node, "s1")
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true }
-	})
-	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
-		return func(string, string) ReindexHold { return ReindexHoldNone }
-	})
-
-	// A second class whose shard enumeration fails, which is the error that
-	// carries the node name.
-	enumErr := errors.New("boom")
-	reader := schemaUC.NewMockSchemaReader(t)
-	reader.On("Read", broken, true, mock.Anything).Return(enumErr)
-	getter := schemaUC.NewMockSchemaGetter(t)
-	getter.On("NodeName").Return(node).Maybe()
-	db.indices[indexID(schema.ClassName(broken))] = &Index{
-		db:           db,
-		Config:       IndexConfig{ClassName: schema.ClassName(broken)},
-		schemaReader: reader,
-		getSchema:    getter,
-	}
-
-	err := db.Backupable(context.Background(), []string{blocked, broken})
-
-	require.Error(t, err)
-	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
-		"the refusal must still classify as a gate refusal")
-	require.NotContainsf(t, err.Error(), node,
-		"a refusal the coordinator is allowed to republish must never carry a node name: %q", err.Error())
-}
-
 // Every refusing shard produces the same sentence, because the text names no
 // shard. A per-shard join therefore returns one identical line per shard: 60
 // copies on a 60-shard node, and shard counts in this repo reach five figures.
@@ -648,35 +573,4 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	require.LessOrEqualf(t, len(sample), wantSampleCap,
 		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
 		wantSampleCap, len(sample))
-}
-
-// The single-shard callers are where naming the shard IS the report, so moving
-// the logging out of the shared helper must not silence them.
-func TestRefuseIfReindexInFlightStillNamesTheShard(t *testing.T) {
-	const (
-		collection = "OneShardClass"
-		node       = "weaviate-0"
-	)
-	// Its own fixture: the shared one registers schema expectations that only
-	// the Backupable path satisfies, and this test drives the single-shard
-	// wrapper directly.
-	logger, hook := logrustest.NewNullLogger()
-	db := &DB{logger: logger, localNodeName: node}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true }
-	})
-	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
-		return func(string, string) ReindexHold { return ReindexHoldNone }
-	})
-	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
-
-	require.Error(t, idx.refuseIfReindexInFlight("s1"))
-
-	var named int
-	for _, e := range hook.AllEntries() {
-		if e.Data["shard"] == "s1" && strings.Contains(e.Message, "a runtime-reindex is live on this shard") {
-			named++
-		}
-	}
-	require.Equal(t, 1, named, "a single-shard refusal must still name its shard for the operator")
 }

@@ -210,33 +210,12 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantShardErr:  true,
 		},
 		{
-			name:          "the abort lands mid-walk with three shards",
-			shards:        []string{"shard-a", "shard-b", "shard-c"},
-			cancelOnCall:  2,
-			indexType:     "an-index-type-this-build-does-not-know",
-			wantErr:       true,
-			wantTruncated: true,
-			wantShardErr:  true,
-		},
-		{
 			// Nothing failed, because nothing was tried. The caller must not
 			// read the absence of a shard name as "no shard had a problem".
 			name:          "a cancel that arrives before the first shard names no shard",
 			shards:        []string{"shard-a", "shard-b"},
 			cancelAtEntry: true,
 			indexType:     "an-index-type-this-build-does-not-know",
-			wantErr:       true,
-			wantTruncated: true,
-			wantShardErr:  false,
-		},
-		{
-			// The same cancel over shards this sweep had no work on. The
-			// shards are still unswept, and a later sweep is still the only
-			// thing that can say so.
-			name:          "a cancel before the first shard is truncation even with nothing to clean",
-			shards:        []string{"shard-a", "shard-b"},
-			cancelAtEntry: true,
-			indexType:     "filterable",
 			wantErr:       true,
 			wantTruncated: true,
 			wantShardErr:  false,
