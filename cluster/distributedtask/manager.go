@@ -1103,9 +1103,11 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // a per-node setting, so raising it on one node governs that node's own proposals
 // only; the effective cluster retention is whatever the proposing node had.
 //
-// A zero finished_at means the request came from a binary that predates these
-// fields: a sweep on this build filters unstamped tasks out before proposing, so
-// nothing else produces one. There is nothing on the entry to decide from, and
+// A finished_at of zero or less means the proposer had no stamp to send: a
+// binary predating these fields sends zero, and a stamp taken from a zero
+// time.Time is a large negative rather than zero. A sweep on this build filters
+// unstamped tasks out before proposing, so nothing else produces one. There is
+// nothing on the entry to decide from, and
 // the only operands a node could substitute are its own stamp and its own clock —
 // the two that differ between nodes. So this defers and the task stays. The old
 // proposer still deletes it on its own local check and every node on this build
@@ -1129,7 +1131,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // a finish time later than the moment the sweep looked, both make the age
 // negative, and no positive TTL clears a negative age.
 func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinishedAt time.Time) bool {
-	if r.FinishedAtUnixMillis == 0 {
+	if r.FinishedAtUnixMillis <= 0 {
 		return false
 	}
 
