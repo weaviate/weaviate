@@ -70,12 +70,30 @@ func newSingleTenantValidator(className string) *singleTenantValidator {
 func (v *singleTenantValidator) ValidateTenants(ctx context.Context, tenants ...string) error {
 	for _, tenant := range tenants {
 		if tenant != "" {
-			return objects.NewErrMultiTenancy(
-				fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", v.className),
-			)
+			return v.tenantNotAllowedError()
 		}
 	}
 	return nil
+}
+
+func (v *singleTenantValidator) tenantNotAllowedError() error {
+	return objects.NewErrMultiTenancy(
+		fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", v.className),
+	)
+}
+
+// ValidateTenantsIndividually returns validation failures by tenant while
+// allowing valid tenants in the same batch to proceed. A single-tenant class
+// has no schema lookup to share, so each non-empty tenant receives the same
+// validation error it would get from ValidateTenants.
+func (v *singleTenantValidator) ValidateTenantsIndividually(_ context.Context, tenants ...string) map[string]error {
+	failures := make(map[string]error)
+	for _, tenant := range tenants {
+		if tenant != "" {
+			failures[tenant] = v.tenantNotAllowedError()
+		}
+	}
+	return failures
 }
 
 // multiTenantValidator validates requests for collections with multi-tenancy enabled.
@@ -119,15 +137,11 @@ func newMultiTenantValidator(className string, schemaReader schemaReader) *multi
 // Returns an error on the first validation failure, nil if all tenants are valid.
 func (v *multiTenantValidator) ValidateTenants(ctx context.Context, tenants ...string) error {
 	if len(tenants) == 0 {
-		return objects.NewErrMultiTenancy(fmt.Errorf(
-			"class %s has multi-tenancy enabled, but request was without tenant", v.className,
-		))
+		return v.tenantRequiredError()
 	}
 	for _, tenant := range tenants {
 		if tenant == "" {
-			return objects.NewErrMultiTenancy(fmt.Errorf(
-				"class %s has multi-tenancy enabled, but request was without tenant", v.className,
-			))
+			return v.tenantRequiredError()
 		}
 	}
 
@@ -149,6 +163,59 @@ func (v *multiTenantValidator) ValidateTenants(ctx context.Context, tenants ...s
 		}
 	}
 	return nil
+}
+
+func (v *multiTenantValidator) tenantRequiredError() error {
+	return objects.NewErrMultiTenancy(fmt.Errorf(
+		"class %s has multi-tenancy enabled, but request was without tenant", v.className,
+	))
+}
+
+// ValidateTenantsIndividually validates all unique non-empty tenants in one
+// schema lookup and returns the failures keyed by tenant. Unlike
+// ValidateTenants, this method does not turn one invalid tenant into a
+// batch-wide failure: callers can retain their per-object error contract while
+// still sharing the leader status lookup across a batch.
+//
+// Empty tenants have no status to fetch and receive the same required-tenant
+// error as ValidateTenants. If the shared schema lookup itself fails, each
+// non-empty tenant receives the same wrapped lookup error.
+func (v *multiTenantValidator) ValidateTenantsIndividually(ctx context.Context, tenants ...string) map[string]error {
+	failures := make(map[string]error)
+	uniqueTenants := make([]string, 0, len(tenants))
+	seen := make(map[string]struct{}, len(tenants))
+	for _, tenant := range tenants {
+		if _, ok := seen[tenant]; ok {
+			continue
+		}
+		seen[tenant] = struct{}{}
+		if tenant == "" {
+			failures[tenant] = v.tenantRequiredError()
+			continue
+		}
+		uniqueTenants = append(uniqueTenants, tenant)
+	}
+
+	if len(uniqueTenants) == 0 {
+		return failures
+	}
+
+	statusMap, err := v.schemaReader.TenantsShards(ctx, v.className, uniqueTenants...)
+	if err != nil {
+		err = fmt.Errorf("fetch tenant status for class %q: %w", v.className, err)
+		for _, tenant := range uniqueTenants {
+			failures[tenant] = err
+		}
+		return failures
+	}
+
+	for _, tenant := range uniqueTenants {
+		status := statusMap[tenant]
+		if err := v.validateTenantStatus(tenant, status); err != nil {
+			failures[tenant] = err
+		}
+	}
+	return failures
 }
 
 // validateTenantStatus validates a tenant's status and existence.
@@ -201,7 +268,8 @@ func deduplicateTenants(tenants []string) []string {
 // of the collection's multi-tenancy configuration. It delegates to the appropriate
 // validation strategy based on the collection's settings.
 type TenantValidator struct {
-	validateTenants func(ctx context.Context, tenants ...string) error
+	validateTenants             func(ctx context.Context, tenants ...string) error
+	validateTenantsIndividually func(ctx context.Context, tenants ...string) map[string]error
 }
 
 // ValidateTenants validates the provided tenant parameters according to the
@@ -215,6 +283,13 @@ type TenantValidator struct {
 // Returns an error if validation fails, nil if all tenants are valid.
 func (v *TenantValidator) ValidateTenants(ctx context.Context, tenants ...string) error {
 	return v.validateTenants(ctx, tenants...)
+}
+
+// ValidateTenantsIndividually validates a batch of tenant names in bulk and
+// reports failures by tenant. It is intended for callers that need to preserve
+// per-object errors while sharing one schema status lookup for the batch.
+func (v *TenantValidator) ValidateTenantsIndividually(ctx context.Context, tenants ...string) map[string]error {
+	return v.validateTenantsIndividually(ctx, tenants...)
 }
 
 // NewTenantValidator constructs a TenantValidator with the appropriate validation strategy
@@ -234,12 +309,14 @@ func NewTenantValidator(className string, multiTenancyEnabled bool, schemaReader
 	if multiTenancyEnabled {
 		validator := newMultiTenantValidator(className, schemaReader)
 		return &TenantValidator{
-			validateTenants: validator.ValidateTenants,
+			validateTenants:             validator.ValidateTenants,
+			validateTenantsIndividually: validator.ValidateTenantsIndividually,
 		}
 	}
 	validator := newSingleTenantValidator(className)
 	return &TenantValidator{
-		validateTenants: validator.ValidateTenants,
+		validateTenants:             validator.ValidateTenants,
+		validateTenantsIndividually: validator.ValidateTenantsIndividually,
 	}
 }
 
@@ -247,6 +324,7 @@ func NewTenantValidator(className string, multiTenancyEnabled bool, schemaReader
 // This interface ensures consistency across different validation approaches.
 type validatorStrategy interface {
 	ValidateTenants(ctx context.Context, tenants ...string) error
+	ValidateTenantsIndividually(ctx context.Context, tenants ...string) map[string]error
 }
 
 // Interface compliance checks at compile time.

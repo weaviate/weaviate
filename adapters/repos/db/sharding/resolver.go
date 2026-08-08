@@ -226,6 +226,24 @@ func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*stor
 	return targets, nil
 }
 
+// ResolveShardsWithErrors resolves each object independently and returns a
+// target and error at every input position. UUID-based routing has no shared
+// lookup to optimize, but the positional result preserves the batch API used
+// by both shard resolution strategies.
+func (r *byUUIDShardResolver) ResolveShardsWithErrors(ctx context.Context, objects []*storobj.Object) (ShardTargets, []error) {
+	targets := make(ShardTargets, len(objects))
+	errs := make([]error, len(objects))
+	for pos, object := range objects {
+		target, err := r.ResolveShard(ctx, object)
+		if err != nil {
+			errs[pos] = err
+			continue
+		}
+		targets[pos] = target
+	}
+	return targets, errs
+}
+
 // byTenantShardResolver implements shard resolution using tenant names as shard identifiers.
 // This strategy is used for multi-tenant collections where each tenant's data is
 // isolated in its own shard, with the tenant name directly mapping to the shard name.
@@ -334,6 +352,29 @@ func (r *byTenantShardResolver) ResolveShards(ctx context.Context, objects []*st
 	return targets, nil
 }
 
+// ResolveShardsWithErrors resolves all objects with one bulk tenant-status
+// lookup. The returned targets and errors are aligned with objects: an invalid
+// tenant has a nil target and its own error while valid objects retain targets
+// that can be written in the same batch.
+func (r *byTenantShardResolver) ResolveShardsWithErrors(ctx context.Context, objects []*storobj.Object) (ShardTargets, []error) {
+	targets := make(ShardTargets, len(objects))
+	errs := make([]error, len(objects))
+	if len(objects) == 0 {
+		return targets, errs
+	}
+
+	failures := r.tenantValidator.ValidateTenantsIndividually(ctx, r.extractUniqueTenants(objects)...)
+	for pos, object := range objects {
+		tenant := object.Object.Tenant
+		if err, failed := failures[tenant]; failed {
+			errs[pos] = err
+			continue
+		}
+		targets[pos] = &ShardTarget{Shard: tenant, Object: object}
+	}
+	return targets, errs
+}
+
 // extractUniqueTenants extracts unique tenant names from a collection of objects.
 // This method performs deduplication to minimize the work required for bulk
 // tenant validation and schema operations.
@@ -360,9 +401,10 @@ func (r *byTenantShardResolver) extractUniqueTenants(objects []*storobj.Object) 
 // the collection's multi-tenancy configuration. It delegates to the appropriate
 // resolution strategy (UUID-based or tenant-based) selected at construction time.
 type ShardResolver struct {
-	resolveShard           func(ctx context.Context, object *storobj.Object) (*ShardTarget, error)
-	resolveShards          func(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
-	resolveShardByObjectID func(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
+	resolveShard            func(ctx context.Context, object *storobj.Object) (*ShardTarget, error)
+	resolveShards           func(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
+	resolveShardsWithErrors func(ctx context.Context, objects []*storobj.Object) (ShardTargets, []error)
+	resolveShardByObjectID  func(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
 }
 
 // ResolveShardByObjectID resolves the target shard for an object using its UUID and tenant information.
@@ -424,6 +466,14 @@ func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Ob
 	return r.resolveShards(ctx, objects)
 }
 
+// ResolveShardsWithErrors resolves all objects and retains a result for every
+// input position. Targets and errors are aligned with objects; an error at a
+// position means its target is nil. This lets batch callers preserve partial
+// success when shard resolution fails for only some objects.
+func (r *ShardResolver) ResolveShardsWithErrors(ctx context.Context, objects []*storobj.Object) (ShardTargets, []error) {
+	return r.resolveShardsWithErrors(ctx, objects)
+}
+
 // NewShardResolver constructs a ShardResolver with the appropriate resolution strategy
 // based on the collection's multi-tenancy configuration.
 //
@@ -442,16 +492,18 @@ func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader s
 	if multiTenancyEnabled {
 		resolver := newByTenantShardResolver(className, schemaReader)
 		return &ShardResolver{
-			resolveShard:           resolver.ResolveShard,
-			resolveShards:          resolver.ResolveShards,
-			resolveShardByObjectID: resolver.ResolveShardByObjectID,
+			resolveShard:            resolver.ResolveShard,
+			resolveShards:           resolver.ResolveShards,
+			resolveShardsWithErrors: resolver.ResolveShardsWithErrors,
+			resolveShardByObjectID:  resolver.ResolveShardByObjectID,
 		}
 	}
 	resolver := newByUUIDShardResolver(className, schemaReader)
 	return &ShardResolver{
-		resolveShard:           resolver.ResolveShard,
-		resolveShards:          resolver.ResolveShards,
-		resolveShardByObjectID: resolver.ResolveShardByObjectID,
+		resolveShard:            resolver.ResolveShard,
+		resolveShards:           resolver.ResolveShards,
+		resolveShardsWithErrors: resolver.ResolveShardsWithErrors,
+		resolveShardByObjectID:  resolver.ResolveShardByObjectID,
 	}
 }
 
@@ -461,6 +513,7 @@ func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader s
 type resolverStrategy interface {
 	ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error)
 	ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
+	ResolveShardsWithErrors(ctx context.Context, objects []*storobj.Object) (ShardTargets, []error)
 	ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
 }
 
