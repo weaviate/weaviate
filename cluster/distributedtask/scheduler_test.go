@@ -692,8 +692,8 @@ func (h *testHarness) advanceClock(duration time.Duration) {
 }
 
 func (h *testHarness) expectCleanUpTask(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
-	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, proposedAt time.Time, ttl time.Duration) error {
+	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error {
 			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
 			require.Equal(t, expectTaskVersion, taskVersion)
@@ -704,6 +704,7 @@ func (h *testHarness) expectCleanUpTask(t *testing.T, expectNamespace, expectTas
 				Namespace:            namespace,
 				Id:                   taskID,
 				Version:              taskVersion,
+				FinishedAtUnixMillis: finishedAt.UnixMilli(),
 				ProposedAtUnixMillis: proposedAt.UnixMilli(),
 				TtlMillis:            ttl.Milliseconds(),
 			}))

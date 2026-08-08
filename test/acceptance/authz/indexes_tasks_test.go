@@ -44,8 +44,9 @@ func TestAuthzIndexesGet(t *testing.T) {
 			Class:      name,
 			Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
 		}, sharedRootKey)
-		t.Cleanup(func() { helper.DeleteClassWithAuthz(t, name, helper.CreateAuth(sharedRootKey)) })
 	}
+	defer helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(sharedRootKey))
+	defer helper.DeleteClassWithAuthz(t, otherName, helper.CreateAuth(sharedRootKey))
 
 	tests := []struct {
 		name       string
@@ -147,6 +148,13 @@ func TestAuthzDistributedTasksGet(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, resp.Payload)
+
+			// read_cluster grants the whole task list, so the answer has to be
+			// the one root gets, not a filtered or empty stand-in.
+			rootResp, rootErr := helper.Client(t).DistributedTasks.DistributedTasksGet(
+				distributed_tasks.NewDistributedTasksGetParams(), helper.CreateAuth(sharedRootKey))
+			require.NoError(t, rootErr)
+			require.Equal(t, rootResp.Payload, resp.Payload)
 		})
 	}
 }

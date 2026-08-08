@@ -34,17 +34,17 @@ func (_m *MockTaskCleaner) EXPECT() *MockTaskCleaner_Expecter {
 	return &MockTaskCleaner_Expecter{mock: &_m.Mock}
 }
 
-// CleanUpDistributedTask provides a mock function with given fields: ctx, namespace, taskID, taskVersion, proposedAt, ttl
-func (_m *MockTaskCleaner) CleanUpDistributedTask(ctx context.Context, namespace string, taskID string, taskVersion uint64, proposedAt time.Time, ttl time.Duration) error {
-	ret := _m.Called(ctx, namespace, taskID, taskVersion, proposedAt, ttl)
+// CleanUpDistributedTask provides a mock function with given fields: ctx, namespace, taskID, taskVersion, finishedAt, proposedAt, ttl
+func (_m *MockTaskCleaner) CleanUpDistributedTask(ctx context.Context, namespace string, taskID string, taskVersion uint64, finishedAt time.Time, proposedAt time.Time, ttl time.Duration) error {
+	ret := _m.Called(ctx, namespace, taskID, taskVersion, finishedAt, proposedAt, ttl)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CleanUpDistributedTask")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64, time.Time, time.Duration) error); ok {
-		r0 = rf(ctx, namespace, taskID, taskVersion, proposedAt, ttl)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64, time.Time, time.Time, time.Duration) error); ok {
+		r0 = rf(ctx, namespace, taskID, taskVersion, finishedAt, proposedAt, ttl)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -62,15 +62,16 @@ type MockTaskCleaner_CleanUpDistributedTask_Call struct {
 //   - namespace string
 //   - taskID string
 //   - taskVersion uint64
+//   - finishedAt time.Time
 //   - proposedAt time.Time
 //   - ttl time.Duration
-func (_e *MockTaskCleaner_Expecter) CleanUpDistributedTask(ctx interface{}, namespace interface{}, taskID interface{}, taskVersion interface{}, proposedAt interface{}, ttl interface{}) *MockTaskCleaner_CleanUpDistributedTask_Call {
-	return &MockTaskCleaner_CleanUpDistributedTask_Call{Call: _e.mock.On("CleanUpDistributedTask", ctx, namespace, taskID, taskVersion, proposedAt, ttl)}
+func (_e *MockTaskCleaner_Expecter) CleanUpDistributedTask(ctx interface{}, namespace interface{}, taskID interface{}, taskVersion interface{}, finishedAt interface{}, proposedAt interface{}, ttl interface{}) *MockTaskCleaner_CleanUpDistributedTask_Call {
+	return &MockTaskCleaner_CleanUpDistributedTask_Call{Call: _e.mock.On("CleanUpDistributedTask", ctx, namespace, taskID, taskVersion, finishedAt, proposedAt, ttl)}
 }
 
-func (_c *MockTaskCleaner_CleanUpDistributedTask_Call) Run(run func(ctx context.Context, namespace string, taskID string, taskVersion uint64, proposedAt time.Time, ttl time.Duration)) *MockTaskCleaner_CleanUpDistributedTask_Call {
+func (_c *MockTaskCleaner_CleanUpDistributedTask_Call) Run(run func(ctx context.Context, namespace string, taskID string, taskVersion uint64, finishedAt time.Time, proposedAt time.Time, ttl time.Duration)) *MockTaskCleaner_CleanUpDistributedTask_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64), args[4].(time.Time), args[5].(time.Duration))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64), args[4].(time.Time), args[5].(time.Time), args[6].(time.Duration))
 	})
 	return _c
 }
@@ -80,7 +81,7 @@ func (_c *MockTaskCleaner_CleanUpDistributedTask_Call) Return(_a0 error) *MockTa
 	return _c
 }
 
-func (_c *MockTaskCleaner_CleanUpDistributedTask_Call) RunAndReturn(run func(context.Context, string, string, uint64, time.Time, time.Duration) error) *MockTaskCleaner_CleanUpDistributedTask_Call {
+func (_c *MockTaskCleaner_CleanUpDistributedTask_Call) RunAndReturn(run func(context.Context, string, string, uint64, time.Time, time.Time, time.Duration) error) *MockTaskCleaner_CleanUpDistributedTask_Call {
 	_c.Call.Return(run)
 	return _c
 }

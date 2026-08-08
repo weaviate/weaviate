@@ -633,13 +633,15 @@ func (s *Scheduler) tick() {
 
 		// TTL-cleanup of finished tasks. Both guards exist because the age
 		// check reads a zero FinishedAt as ~2000 years old, which clears any
-		// TTL. This list is the leader's, which [Manager.Restore]'s repair
-		// never touches, so the zero-stamp guard is live for a whole rolling
-		// upgrade — see [Task.repairTerminalStamp] for where the state comes
-		// from.
+		// TTL. This list is the leader's, and the restore repair runs on
+		// restore only, so a leader that has not restarted still serves the
+		// zero and the guard is live for a whole rolling upgrade — see
+		// [Task.repairTerminalStamp] for where the state comes from.
 		//
-		// sweptAt is measured once and both filtered on and sent, so the
-		// request reproduces exactly the comparison that selected the task.
+		// sweptAt is measured once and both filtered on and sent, and the
+		// finish time sent is the one filtered on, so the request carries
+		// exactly the comparison that selected the task and the apply can
+		// redo it without reading anything of its own.
 		sweptAt := s.clock.Now()
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() || task.FinishedAt.IsZero() {
@@ -649,7 +651,7 @@ func (s *Scheduler) tick() {
 		})
 		s.warnAboutUnstampedTasks(namespace, tasks)
 		for _, task := range cleanableTasks {
-			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version, sweptAt, s.completedTaskTTL)
+			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version, task.FinishedAt, sweptAt, s.completedTaskTTL)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					s.loggerWithTask(namespace, task.TaskDescriptor).

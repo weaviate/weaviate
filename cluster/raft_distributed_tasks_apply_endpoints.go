@@ -152,15 +152,18 @@ func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace,
 }
 
 // CleanUpDistributedTask removes a terminal task from the cluster list.
-// proposedAt is the moment the caller measured the task's age at and ttl is the
-// completed-task TTL it measured against; both travel on the request, and the
-// apply decides from them instead of its own clock. The caller must pass what it
-// actually measured — the apply cannot re-derive either one.
-func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, proposedAt time.Time, ttl time.Duration) error {
+// finishedAt, proposedAt and ttl are the three operands the caller compared: the
+// task's finish time as the caller read it, the moment it looked, and the TTL it
+// looked against. All three travel on the request and the apply decides from
+// them alone. The caller must pass what it actually measured — the apply cannot
+// re-derive any of them, and re-reading one locally is what lets two nodes
+// disagree about a single log entry.
+func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error {
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP, &cmd.CleanUpDistributedTaskRequest{
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              taskVersion,
+		FinishedAtUnixMillis: finishedAt.UnixMilli(),
 		ProposedAtUnixMillis: proposedAt.UnixMilli(),
 		TtlMillis:            ttl.Milliseconds(),
 	})

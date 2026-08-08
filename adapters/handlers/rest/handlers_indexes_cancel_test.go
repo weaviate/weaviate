@@ -352,3 +352,44 @@ func TestEveryGateReportsWhenItFailsOpen(t *testing.T) {
 		})
 	}
 }
+
+// Each fail-open site gets its own hourly budget: one site spending its slot
+// must not silence a different site on the same handler.
+func TestGateWarnBudgetIsPerSite(t *testing.T) {
+	var busy atomic.Bool
+	h := submissionHandlers(t, &raceTaskService{}, togglingProber{busy: &busy})
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	h.appState.Logger = logger
+
+	// Two fail-open sites on one submission: the submit gate and the backup probe.
+	h.appState.ReindexProvider.Store(nil)
+	h.backupActivity = nil
+
+	const (
+		submitWarn = "reindex provider is not wired"
+		probeWarn  = "backup activity probe is not wired"
+	)
+
+	countWarns := func(want string) int {
+		var n int
+		for _, entry := range hook.AllEntries() {
+			if strings.Contains(entry.Message, want) {
+				require.Equal(t, logrus.WarnLevel, entry.Level)
+				n++
+			}
+		}
+		return n
+	}
+
+	require.IsType(t, &schema.SchemaObjectsIndexesUpdateAccepted{}, submitReindex(h),
+		"both gates fail open, so the submission still goes through")
+	require.Equal(t, 1, countWarns(submitWarn), "the submit gate spends its own slot")
+	require.Equal(t, 1, countWarns(probeWarn),
+		"the probe has its own budget, so the submit gate cannot have spent it")
+
+	// A second submission is inside the same hour, so neither site logs again.
+	submitReindex(h)
+	require.Equal(t, 1, countWarns(submitWarn))
+	require.Equal(t, 1, countWarns(probeWarn))
+}

@@ -21,17 +21,20 @@ import (
 )
 
 // CleanUpTask decides a replicated command's outcome from what the proposing
-// sweep measured — the moment it looked and the TTL it looked against — plus the
-// task's own finish time. Both operands travel with the log entry or live in the
-// FSM, so every node reaches the same answer.
+// sweep measured: the finish time it read, the moment it looked, and the TTL it
+// looked against. All three travel with the log entry, so every node reaches the
+// same answer without reading state of its own.
 //
-// Reading the applying node's wall clock instead would fork two nodes on whether
-// the entry deletes, and since GET /v1/schema/{class}/indexes reads locally the
-// fork is visible to the caller.
+// Reading anything local instead would fork two nodes on whether the entry
+// deletes, and since GET /v1/schema/{class}/indexes reads locally the fork is
+// visible to the caller. Two things can differ: the wall clock, and the stored
+// finish time itself, on a node that restored a snapshot written before finish
+// times were stamped at the finalize.
 //
 // The tests below pin that the apply uses the proposer's numbers in both
-// directions, that it still refuses on the task's own state, and that a request
-// carrying no measurements keeps the local age check.
+// directions, that two nodes holding different finish times still reach the same
+// state, that state invariants still refuse locally, and that a request carrying
+// no measurements keeps the local age check.
 
 // seedTerminalTaskStampedAt installs a single FINISHED task carrying the given
 // finish time straight into the task map.
@@ -72,9 +75,9 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 		},
 		{
 			name:            "a task this node reads as long expired is kept when the proposer's TTL is longer",
-			stampAge:        100 * 365 * 24 * time.Hour,
-			proposerElapsed: 100 * 365 * 24 * time.Hour,
-			proposerTTL:     200 * 365 * 24 * time.Hour,
+			stampAge:        30 * 24 * time.Hour,
+			proposerElapsed: 30 * 24 * time.Hour,
+			proposerTTL:     60 * 24 * time.Hour,
 			wantKept:        true,
 		},
 		{
@@ -91,6 +94,10 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 			proposerTTL:     24 * time.Hour,
 			wantKept:        false,
 		},
+		// The fallback arms keep stampAge within a few multiples of the
+		// harness TTL. A stamp centuries old lands before the Unix epoch, and
+		// a measurement path fed the request's zero fields would then read it
+		// as expired too and agree with the fallback by accident.
 		{
 			name:     "no measurements on the request fall back to the local age check, which refuses a fresh task",
 			stampAge: time.Minute,
@@ -98,7 +105,7 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 		},
 		{
 			name:     "no measurements on the request fall back to the local age check, which deletes an expired task",
-			stampAge: 100 * 365 * 24 * time.Hour,
+			stampAge: 6 * 24 * time.Hour,
 			wantKept: false,
 		},
 	} {
@@ -114,6 +121,7 @@ func TestManager_CleanUpTask_DecidesFromTheProposersMeasurements(t *testing.T) {
 
 			req := &cmd.CleanUpDistributedTaskRequest{Namespace: ns, Id: taskID, Version: version}
 			if tc.proposerTTL != 0 {
+				req.FinishedAtUnixMillis = finishedAt.UnixMilli()
 				req.ProposedAtUnixMillis = finishedAt.Add(tc.proposerElapsed).UnixMilli()
 				req.TtlMillis = tc.proposerTTL.Milliseconds()
 			}
@@ -158,6 +166,7 @@ func TestManager_CleanUpTask_DivergentClocksReachTheSameState(t *testing.T) {
 		Namespace:            ns,
 		Id:                   taskID,
 		Version:              version,
+		FinishedAtUnixMillis: finishedAt.UnixMilli(),
 		ProposedAtUnixMillis: finishedAt.Add(2 * time.Hour).UnixMilli(),
 		TtlMillis:            time.Hour.Milliseconds(),
 	}
@@ -186,6 +195,7 @@ func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersMeasurements(t *t
 			Namespace:            ns,
 			Id:                   id,
 			Version:              version,
+			FinishedAtUnixMillis: h.clock.Now().Add(-time.Hour).UnixMilli(),
 			ProposedAtUnixMillis: h.clock.Now().UnixMilli(),
 			TtlMillis:            time.Second.Milliseconds(),
 		}

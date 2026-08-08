@@ -395,6 +395,34 @@ func TestStructuralInvariant_ManagerRestore_RepairsTerminalTaskStamp(t *testing.
 				"would leave the repair with no state that can retire it")
 	})
 
+	t.Run("a snapshot from a newer format is refused", func(t *testing.T) {
+		// Only a downgrade produces one. A future version is free to redefine
+		// what FinishedAt means, so reading it as the newest format this build
+		// knows would feed the wrong number to the cleanup TTL and to the
+		// backup overlap backstop. Failing the restore stops there instead.
+		futureBytes, err := json.Marshal(&snapshot{Version: currentSnapshotVersion + 1, Tasks: map[string][]*Task{
+			"ns": {{
+				Namespace:      "ns",
+				TaskDescriptor: TaskDescriptor{ID: "from-the-future", Version: 1},
+				Status:         TaskStatusFinished,
+				StartedAt:      started,
+				FinishedAt:     unitsStopped,
+			}},
+		}})
+		require.NoError(t, err)
+
+		m := NewManager(ManagerParameters{
+			Clock: clockwork.NewFakeClockAt(lastAck), CompletedTaskTTL: time.Hour, Logger: nullLogger,
+		})
+		t.Cleanup(m.Close)
+
+		require.ErrorContains(t, m.Restore(futureBytes), "newer than the")
+
+		tasks, err := m.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Empty(t, tasks["ns"], "a refused restore must not leave the payload's tasks behind")
+	})
+
 	t.Run("deletable once the TTL has run from the repaired stamp", func(t *testing.T) {
 		clock := clockwork.NewFakeClockAt(lastAck.Add(30 * time.Minute))
 		m := restoreInto(t, clock)

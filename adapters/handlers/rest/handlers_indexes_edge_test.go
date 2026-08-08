@@ -561,6 +561,45 @@ func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
 	require.Equal(t, "indexing", idx.Status, "collection name match is case-insensitive")
 }
 
+// parseReindexTasks keeps the tasks naming the wanted collection, comparing
+// the name case-insensitively, and drops the rest.
+func TestParseReindexTasks_CollectionFilter(t *testing.T) {
+	mkTask := func(collection string) *distributedtask.Task {
+		return buildTask(t, collection+":enable-filterable:foo:abcd",
+			distributedtask.TaskStatusStarted,
+			db.ReindexTaskPayload{
+				MigrationType: db.ReindexTypeEnableFilterable,
+				Collection:    collection,
+				Properties:    []string{"foo"},
+			},
+			nil,
+		)
+	}
+
+	tests := []struct {
+		name   string
+		wanted string
+		want   []string
+	}{
+		{name: "empty keeps everything", wanted: "", want: []string{"MyClass", "Other"}},
+		{name: "exact name", wanted: "MyClass", want: []string{"MyClass"}},
+		{name: "name differing only in case", wanted: "myclass", want: []string{"MyClass"}},
+		{name: "name nobody carries", wanted: "Missing", want: nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed := parseReindexTasks([]*distributedtask.Task{mkTask("MyClass"), mkTask("Other")}, test.wanted)
+
+			kept := make([]string, 0, len(parsed))
+			for _, pt := range parsed {
+				kept = append(kept, pt.payload.Collection)
+			}
+			require.ElementsMatch(t, test.want, kept)
+		})
+	}
+}
+
 // repair-searchable on a property must surface TargetAlgorithm="blockmax"
 // on the IndexStatus while the task is in flight. This is the algorithm
 // equivalent of change-tokenization's TargetTokenization and is what lets

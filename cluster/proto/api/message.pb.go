@@ -1602,22 +1602,31 @@ type CleanUpDistributedTaskRequest struct {
 	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Id        string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	Version   uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
-	// The moment the proposer measured the task's age at, and the TTL it
-	// measured against. The apply compares them to the task's own finish time
-	// rather than reading its local clock, so every node reaches the same
-	// verdict from the log entry and the FSM state alone.
+	// The three operands of the TTL comparison, all measured by the proposing
+	// sweep: the moment it looked, the TTL it looked against, and the finish
+	// time it read off the task. The apply subtracts and compares these and
+	// reads no state of its own, so one log entry deletes the task on every
+	// node or on none.
+	//
+	// finished_at_unix_millis is on the wire because the applying node's own
+	// copy is not guaranteed to match: a node that restored a snapshot written
+	// before finish times were stamped at the finalize carries the earlier
+	// units-stopped moment instead, and subtracting that would reach a
+	// different verdict on the same entry.
 	//
 	// The TTL that governs a deletion is the proposer's.
 	// DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is per-node, so raising it on
 	// one node changes only what that node's own sweeps propose.
 	//
-	// Both fields zero means the request came from a binary that predates them,
-	// and the apply falls back to the local age check that binary's sweep
+	// A zero finished_at_unix_millis means the request came from a binary that
+	// predates these fields — a sweep that sets them never proposes an unstamped
+	// task — and the apply falls back to the local age check that binary's sweep
 	// expects. The other direction does not converge: a binary that predates
 	// these fields ignores them and re-derives locally whatever the proposer
 	// measured.
 	ProposedAtUnixMillis int64 `protobuf:"varint,4,opt,name=proposed_at_unix_millis,json=proposedAtUnixMillis,proto3" json:"proposed_at_unix_millis,omitempty"`
 	TtlMillis            int64 `protobuf:"varint,5,opt,name=ttl_millis,json=ttlMillis,proto3" json:"ttl_millis,omitempty"`
+	FinishedAtUnixMillis int64 `protobuf:"varint,6,opt,name=finished_at_unix_millis,json=finishedAtUnixMillis,proto3" json:"finished_at_unix_millis,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1683,6 +1692,13 @@ func (x *CleanUpDistributedTaskRequest) GetProposedAtUnixMillis() int64 {
 func (x *CleanUpDistributedTaskRequest) GetTtlMillis() int64 {
 	if x != nil {
 		return x.TtlMillis
+	}
+	return 0
+}
+
+func (x *CleanUpDistributedTaskRequest) GetFinishedAtUnixMillis() int64 {
+	if x != nil {
+		return x.FinishedAtUnixMillis
 	}
 	return 0
 }
@@ -2667,14 +2683,15 @@ const file_api_message_proto_rawDesc = "" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x127\n" +
-	"\x18cancelled_at_unix_millis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"\xbd\x01\n" +
+	"\x18cancelled_at_unix_millis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"\xf4\x01\n" +
 	"\x1dCleanUpDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x125\n" +
 	"\x17proposed_at_unix_millis\x18\x04 \x01(\x03R\x14proposedAtUnixMillis\x12\x1d\n" +
 	"\n" +
-	"ttl_millis\x18\x05 \x01(\x03R\tttlMillis\"a\n" +
+	"ttl_millis\x18\x05 \x01(\x03R\tttlMillis\x125\n" +
+	"\x17finished_at_unix_millis\x18\x06 \x01(\x03R\x14finishedAtUnixMillis\"a\n" +
 	"\x10SyncShardRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
