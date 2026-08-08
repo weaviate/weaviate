@@ -185,9 +185,6 @@ type Config struct {
 	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
 	ReplicationEngineMaxWorkers int
 
-	// DistributedTasks is the configuration for the distributed task manager.
-	DistributedTasks config.DistributedTasksConfig
-
 	// DistributedTaskCollectionExtractors are registered on the
 	// distributed-task Manager at FSM construction time, BEFORE RAFT
 	// replay runs, so the DELETE_CLASS cascade fires on catchup-replay

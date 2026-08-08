@@ -1327,8 +1327,12 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // into the same failure. On a node that is already up the refusal arrives on the
 // InstallSnapshot RPC instead: the node keeps running but never catches up,
 // because the leader retries the same payload. Recovery is to put the node back on
-// a build at or above the one that wrote the snapshot, or to remove the newer
-// snapshots from its raft directory so a readable older one is the newest retained.
+// a build at or above the one that wrote the snapshot. Deleting snapshots is a
+// last resort and reaches exactly one back: raft keeps only TrailingLogs entries
+// past the newest snapshot (10240 by default, against a SnapshotThreshold of
+// 8192), so a node whose log no longer reaches the snapshot it restores panics in
+// NewRaft, and deleting all three (cluster/store.go retains 3) does the same via
+// a GetLog on a compacted log.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
