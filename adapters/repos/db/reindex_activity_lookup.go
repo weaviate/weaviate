@@ -246,12 +246,23 @@ type ReindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.
 // Past completedTaskTTL a finished task is dropped from the list, so its
 // absence stops being evidence; the lookup refuses outright rather than read an
 // empty list as all-clear.
+//
+// completedTaskTTL is the local node's setting, but deletion is decided by
+// whichever node's sweep proposed it, so the retention that actually governs is
+// the shortest TTL configured anywhere in the cluster — a uniform TTL is a
+// correctness requirement for this backstop, not a preference (a 24h local
+// value doesn't help if a peer's 1h sweep already emptied the list). A skewed
+// clock has the same effect as a short TTL, for the same reason: the proposer's
+// measuring moment governs every node's sweep. Neither is enforced today, only
+// documented and required; closing that needs either cluster-visible TTL
+// minimums or a leader-gated sweep.
 func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Duration) ReindexOverlapLookup {
 	return func(ctx context.Context, collections []string, since time.Time) error {
 		if completedTaskTTL > 0 && time.Since(since) >= completedTaskTTL {
 			return redactedOverlapErr(fmt.Sprintf(
-				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s the cluster keeps finished tasks for; "+
-					"retry the backup, and raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS if backups here routinely take that long",
+				"cannot rule out a runtime-reindex during this backup: it ran longer than the %s this node keeps finished tasks for; "+
+					"retry the backup, and if backups here routinely take that long raise "+
+					"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS on every node — the effective retention is the shortest value configured in the cluster",
 				completedTaskTTL), nil)
 		}
 		tasksByNamespace, err := list(ctx)
@@ -304,6 +315,9 @@ func lowercasedSet(collections []string) map[string]struct{} {
 // The "already over before the capture began" waiver applies to readable
 // payloads only: nothing tore an unreadable one down, so its sidecar state
 // may still be on disk regardless of what the timestamps say.
+//
+// FinishedAt post-dates the bucket swap, so a migration whose units stopped
+// before the capture but whose swap ran inside it is not waived.
 func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{}, since time.Time) (string, bool, error) {
 	_, collection, decodeErr := DecodeReindexTaskPayload(task.Payload)
 
@@ -314,6 +328,10 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 			// the submit path's post-commit rollback.
 			return "", false, nil
 		}
+		// A zero FinishedAt on a terminal task means the invariant broke, and
+		// the comparison below would waive every backup. Reachable during a
+		// rolling upgrade until the leader restarts and the restore repair
+		// runs; refuse rather than publish a torn backup.
 		if !task.FinishedAt.IsZero() && task.FinishedAt.Before(since) {
 			return "", false, nil
 		}

@@ -441,30 +441,15 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 	require.NoError(t, provider.CheckPropertyUpdate("B", "name", tasks))
 }
 
-// TestCheckPropertyUpdate_EveryMigrationTypeRejects walks every reindex
-// type that can be in flight (per ReindexTypeChangeTokenization etc.)
-// and confirms the guard rejects an external update on the same
-// property. This is the "blanket policy" guarantee — once any reindex
-// is in flight, no schema mutation on that property is allowed.
-//
-// Symmetry test for the matrix QA Claude is enumerating; failure of any
-// row here means the corresponding combination in the QA matrix would
-// pass through to the bucket↔schema inversion path.
+// TestCheckPropertyUpdate_EveryMigrationTypeRejects walks
+// [AllReindexMigrationTypes] and confirms the guard rejects an external update
+// on a property a task of that type is reindexing — the "blanket policy"
+// guarantee that once any reindex is in flight, no schema mutation on that
+// property is allowed.
 func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
-	migrationTypes := []ReindexMigrationType{
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeChangeAlgorithm,
-		ReindexTypeRepairFilterable,
-		ReindexTypeRepairRangeable,
-	}
-
 	provider := &ReindexProvider{}
 
-	for _, mt := range migrationTypes {
+	for _, mt := range AllReindexMigrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
 			payload, _ := json.Marshal(ReindexTaskPayload{
 				Collection:    "C",
@@ -777,5 +762,94 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestTouchesTables_CoverEveryMigrationType checks TouchesSearchable/
+// TouchesFilterable against every type in [AllReindexMigrationTypes], so a
+// newly declared type fails here instead of reaching the switch default (whose
+// panic the RAFT apply wrapper recovers, silently dropping the task).
+func TestTouchesTables_CoverEveryMigrationType(t *testing.T) {
+	searchable := map[ReindexMigrationType]bool{
+		ReindexTypeChangeAlgorithm:              true,
+		ReindexTypeChangeTokenization:           true,
+		ReindexTypeEnableSearchable:             true,
+		ReindexTypeRebuildSearchable:            true,
+		ReindexTypeRepairFilterable:             false,
+		ReindexTypeChangeTokenizationFilterable: false,
+		ReindexTypeEnableFilterable:             false,
+		ReindexTypeEnableRangeable:              false,
+		ReindexTypeRepairRangeable:              false,
+	}
+	filterable := map[ReindexMigrationType]bool{
+		ReindexTypeRepairFilterable:             true,
+		ReindexTypeChangeTokenization:           true,
+		ReindexTypeChangeTokenizationFilterable: true,
+		ReindexTypeEnableFilterable:             true,
+		ReindexTypeChangeAlgorithm:              false,
+		ReindexTypeEnableSearchable:             false,
+		ReindexTypeRebuildSearchable:            false,
+		ReindexTypeEnableRangeable:              false,
+		ReindexTypeRepairRangeable:              false,
+	}
+
+	known := AllReindexMigrationTypes
+	require.Len(t, searchable, len(known), "every declared migration type needs a searchable row")
+	require.Len(t, filterable, len(known), "every declared migration type needs a filterable row")
+
+	for _, mt := range known {
+		t.Run(string(mt), func(t *testing.T) {
+			want, ok := searchable[mt]
+			require.True(t, ok, "no searchable row for %q", mt)
+			require.Equal(t, want, TouchesSearchable(mt))
+
+			want, ok = filterable[mt]
+			require.True(t, ok, "no filterable row for %q", mt)
+			require.Equal(t, want, TouchesFilterable(mt))
+		})
+	}
+}
+
+func TestTouchesTables_PanicOnUnknownType(t *testing.T) {
+	require.PanicsWithValue(t,
+		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { TouchesSearchable(ReindexMigrationType("phantom")) })
+	require.PanicsWithValue(t,
+		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { TouchesFilterable(ReindexMigrationType("phantom")) })
+}
+
+// TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty checks the
+// detector in isolation: every declared type must refuse a new task on an
+// overlapping property. The same journey through the real RAFT AddTask apply,
+// where a panic in the detector is swallowed by the apply wrapper, is
+// TestStoreApply_RefusesAReindexConflictForEveryMigrationType in cluster/.
+func TestCheckConflict_RefusesEveryMigrationTypeOnAnOverlappingProperty(t *testing.T) {
+	provider := &ReindexProvider{}
+
+	newPayload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeAlgorithm,
+		Properties:    []string{"prop"},
+	})
+	require.NoError(t, err)
+
+	for _, mt := range AllReindexMigrationTypes {
+		t.Run(string(mt), func(t *testing.T) {
+			existPayload, err := json.Marshal(ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: mt,
+				Properties:    []string{"prop"},
+			})
+			require.NoError(t, err)
+
+			err = provider.CheckConflict(newPayload, []*distributedtask.Task{{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+				Status:         distributedtask.TaskStatusStarted,
+				Payload:        existPayload,
+			}})
+			require.Error(t, err, "a live %s on the same property must refuse the submit", mt)
+			require.Contains(t, err.Error(), "conflicts")
+		})
 	}
 }

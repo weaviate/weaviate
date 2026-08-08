@@ -55,6 +55,45 @@ func TestSortTasksForDisplay(t *testing.T) {
 		require.Equal(t, []string{"started-old", "finished-recent"}, ids(got))
 	})
 
+	t.Run("PREPARING and SWAPPING rank with STARTED, not with terminal", func(t *testing.T) {
+		// The first sort key is "in flight", which is every non-terminal
+		// status, not STARTED alone. A task whose units
+		// are done but whose barrier or bucket swap is still outstanding is
+		// what the operator is waiting on, so it has to outrank a task that
+		// ended more recently.
+		for _, inFlight := range []TaskStatus{TaskStatusPreparing, TaskStatusSwapping} {
+			t.Run(string(inFlight), func(t *testing.T) {
+				// The in-flight task carries a finish time — the shape a
+				// snapshot from an older binary holds until
+				// [Task.clearNonTerminalStamp] runs on it. Its activity time is
+				// still its start, so a task that started later is the fresher
+				// thing to watch and outranks it.
+				live := mk("live", inFlight, base, base.Add(3*time.Hour))
+				fresher := mk("fresher", TaskStatusStarted, base.Add(time.Hour), time.Time{})
+				done := mk("done", TaskStatusFinished, base.Add(time.Hour), base.Add(2*time.Hour))
+
+				got := []*Task{done, live, fresher}
+				sortTasksForDisplay(got)
+
+				require.Equal(t, []string{"fresher", "live", "done"}, ids(got))
+			})
+		}
+	})
+
+	t.Run("a terminal task with no finish time ranks on the stamp it lacks", func(t *testing.T) {
+		// The one input where "the task is terminal" and "the task carries a
+		// stamp" disagree: a task an older binary ended without stamping (see
+		// [Task.repairTerminalStamp]). Falling back to its start would float it
+		// above a task that actually finished later.
+		unstamped := mk("unstamped", TaskStatusFinished, base.Add(2*time.Hour), time.Time{})
+		stamped := mk("stamped", TaskStatusFinished, base, base.Add(time.Hour))
+
+		got := []*Task{unstamped, stamped}
+		sortTasksForDisplay(got)
+
+		require.Equal(t, []string{"stamped", "unstamped"}, ids(got))
+	})
+
 	t.Run("within-priority recency DESC", func(t *testing.T) {
 		// Three terminal tasks at different FinishedAt: most recent first.
 		old := mk("a-old", TaskStatusFinished, base, base.Add(time.Minute))

@@ -12,6 +12,10 @@
 package db
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -25,21 +29,39 @@ import (
 // error. A new constant without a matching case fails the loop below
 // instead of silently producing "unknown migration type" at runtime.
 
-// allKnownMigrationTypes is the authoritative enumeration; sorted to
-// match the declaration order in reindex_provider_payload.go.
-// New type? Add here AND in createReindexTasksEnumerationCase.
-func allKnownMigrationTypes() []ReindexMigrationType {
-	return []ReindexMigrationType{
-		ReindexTypeChangeAlgorithm,
-		ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
+// TestReindexMigrationTypeRegistryMatchesTheConstants ties
+// [AllReindexMigrationTypes] to the constants it claims to enumerate — every
+// exhaustiveness test in this package walks the registry, so an unregistered
+// constant would otherwise be invisible to all of them.
+//
+// It's a line regex over the package's non-test .go files, so it's a tripwire,
+// not a proof: conversion syntax, a `var` instead of a const, or a name not
+// starting with ReindexType all slip past it.
+func TestReindexMigrationTypeRegistryMatchesTheConstants(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	require.NoError(t, err)
+
+	// The optional `const` prefix catches a one-line declaration outside a
+	// const block, which is otherwise indistinguishable to the scan.
+	re := regexp.MustCompile(`(?m)^\s*(?:const\s+)?ReindexType\w+\s+ReindexMigrationType\s*=\s*"([^"]+)"`)
+
+	declared := make([]ReindexMigrationType, 0, len(AllReindexMigrationTypes))
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		require.NoError(t, err)
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			declared = append(declared, ReindexMigrationType(m[1]))
+		}
 	}
+	require.NotEmpty(t, declared, "sanity: the scan must find the const block")
+
+	require.ElementsMatch(t, declared, AllReindexMigrationTypes,
+		"AllReindexMigrationTypes must list exactly the declared ReindexMigrationType constants; "+
+			"a missing one silently opts out of every exhaustiveness test in this package, which "+
+			"is how a type reaches an exhaustive switch's default in production")
 }
 
 // createReindexTasksEnumerationCase describes the expected dispatch for
@@ -48,7 +70,7 @@ func allKnownMigrationTypes() []ReindexMigrationType {
 // expected outcome: either a positive number of tasks, or an explicit
 // error substring.
 //
-// Adding a new ReindexMigrationType to allKnownMigrationTypes() without
+// Adding a new ReindexMigrationType to AllReindexMigrationTypes without
 // adding a matching case here fails TestCreateReindexTasks_EnumerationExhaustive.
 type createReindexTasksEnumerationCase struct {
 	mt           ReindexMigrationType
@@ -166,13 +188,13 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 }
 
 // TestCreateReindexTasks_EnumerationExhaustive verifies that every type
-// in allKnownMigrationTypes() has at least one happy-path case in
+// in AllReindexMigrationTypes has at least one happy-path case in
 // enumerationCases(). The test FAILS if you add a new type to the
 // enumeration without describing its expected dispatch.
 //
 // Pair-test with TestCreateReindexTasks_AllKnownTypesDispatched below
 // to catch the inverse drift (a case in enumerationCases for a type
-// not in allKnownMigrationTypes).
+// not in AllReindexMigrationTypes).
 func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 	hasHappyPath := map[ReindexMigrationType]bool{}
 	for _, c := range enumerationCases() {
@@ -180,7 +202,7 @@ func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 			hasHappyPath[c.mt] = true
 		}
 	}
-	for _, mt := range allKnownMigrationTypes() {
+	for _, mt := range AllReindexMigrationTypes {
 		assert.Truef(t, hasHappyPath[mt],
 			"ReindexMigrationType %q has no happy-path case in enumerationCases(); "+
 				"every type the production code can dispatch must be exercised here",
@@ -193,7 +215,7 @@ func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 // the load-bearing structural pin: a new ReindexMigrationType constant
 // without a matching `case` in the dispatch switch produces "unknown
 // migration type %q" — which this test would catch immediately for the
-// new type (added to allKnownMigrationTypes), since the corresponding
+// new type (added to AllReindexMigrationTypes), since the corresponding
 // enumerationCase would fail with the unknown-type error string.
 func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 	logger, _ := test.NewNullLogger()
@@ -283,7 +305,7 @@ func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 	tmpLsmPath := t.TempDir()
 	p := &ReindexProvider{logger: logger}
 
-	for _, mt := range allKnownMigrationTypes() {
+	for _, mt := range AllReindexMigrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
 			tasks, err := p.createReindexTasks(&ReindexTaskPayload{
 				MigrationType: mt,

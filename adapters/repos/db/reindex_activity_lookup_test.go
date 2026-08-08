@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
@@ -203,6 +204,10 @@ func TestReindexOverlapLookup(t *testing.T) {
 			wantRefuse: true,
 		},
 		{
+			// A terminal task always carries a finish time, so this state
+			// only exists once the invariant has broken — reachable during a
+			// rolling upgrade. The backstop must answer "torn" rather than
+			// waive a backup on a timestamp it does not have.
 			name:       "terminal task with no finish time is treated as overlapping",
 			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFailed, time.Time{})},
 			since:      backupStart,
@@ -682,4 +687,224 @@ func TestRefuseIfAnyReindexInFlightScopesTheClusterCheckByCollection(t *testing.
 		"with no class list yet the question stays cluster-wide")
 	require.Equal(t, [][]string{{"Docs"}, {"Docs", "Logs"}, nil}, asked,
 		"the gate must forward the restore's class list unchanged")
+}
+
+// The bug that motivated weaviate/0-weaviate-issues#501: the units of a
+// migration stopped before the capture began, but its bucket swap ran inside
+// the capture window. Driven through the real FSM rather than a hand-built
+// task, because the whole question is which moment the FSM records.
+func TestOverlapBackstopReadsTheSwapMomentNotTheUnitMoment(t *testing.T) {
+	const (
+		node = "node-1"
+		unit = "u1"
+	)
+
+	unitsStopped := time.Now().Add(-5 * time.Minute)
+	backupStart := unitsStopped.Add(time.Minute)
+
+	// seedFinishedTask drives one task through the FSM to FINISHED, with its
+	// units stopping before the capture and its swap acked at swapDone.
+	seedFinishedTask := func(t *testing.T, m *distributedtask.Manager,
+		taskID, collection string, version uint64, swapDone time.Time,
+	) {
+		t.Helper()
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: collection})
+		require.NoError(t, err)
+
+		require.NoError(t, m.AddTask(applyReq(t, &api.AddDistributedTaskRequest{
+			Namespace:             ReindexNamespace,
+			Id:                    taskID,
+			Payload:               payload,
+			SubmittedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
+			UnitIds:               []string{unit},
+		}), version))
+		require.NoError(t, m.UpdateUnitProgress(applyReq(t, &api.UpdateDistributedTaskUnitProgressRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			NodeId: node, UnitId: unit, Progress: 0.1,
+			UpdatedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
+		})))
+		require.NoError(t, m.RecordUnitCompletion(applyReq(t, &api.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			NodeId: node, UnitId: unit,
+			FinishedAtUnixMillis: unitsStopped.UnixMilli(),
+		}), false))
+		require.NoError(t, m.RecordPostCompletionAck(applyReq(t, &api.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			NodeId: node, Success: true,
+			AckedAtUnixMillis: swapDone.UnixMilli(),
+		}), false))
+		require.NoError(t, m.MarkTaskFinalized(applyReq(t, &api.MarkTaskFinalizedRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			FinalizedAtUnixMillis: swapDone.UnixMilli(),
+		})))
+	}
+
+	newManager := func(t *testing.T) *distributedtask.Manager {
+		t.Helper()
+		m := distributedtask.NewManager(distributedtask.ManagerParameters{
+			Logger: logrus.New(),
+		})
+		t.Cleanup(m.Close)
+		return m
+	}
+
+	t.Run("swap inside the capture window tears it", func(t *testing.T) {
+		m := newManager(t)
+		seedFinishedTask(t, m, "movies:task", "Movies", 1, backupStart.Add(time.Minute))
+
+		err := NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart)
+		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+			"the swap ran while the backup was being captured, so the capture is torn")
+	})
+
+	t.Run("swap before the capture began is waived", func(t *testing.T) {
+		m := newManager(t)
+		seedFinishedTask(t, m, "movies:task", "Movies", 1, backupStart.Add(-time.Second))
+
+		require.NoError(t, NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart),
+			"a migration entirely over before the capture began cannot have torn it")
+	})
+
+	// seedUntouchedCancelledTask drives a task to CANCELLED without any unit
+	// ever leaving PENDING, which the backstop waives on unit state alone —
+	// no timestamp involved. Cancelling later than the overlapping task's swap
+	// is what puts it first in the FinishedAt-descending scan order.
+	seedUntouchedCancelledTask := func(t *testing.T, m *distributedtask.Manager,
+		taskID, collection string, version uint64, cancelledAt time.Time,
+	) {
+		t.Helper()
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: collection})
+		require.NoError(t, err)
+
+		require.NoError(t, m.AddTask(applyReq(t, &api.AddDistributedTaskRequest{
+			Namespace:             ReindexNamespace,
+			Id:                    taskID,
+			Payload:               payload,
+			SubmittedAtUnixMillis: unitsStopped.Add(-time.Minute).UnixMilli(),
+			UnitIds:               []string{unit},
+		}), version))
+		require.NoError(t, m.CancelTask(applyReq(t, &api.CancelDistributedTaskRequest{
+			Namespace: ReindexNamespace, Id: taskID, Version: version,
+			CancelledAtUnixMillis: cancelledAt.UnixMilli(),
+		}), false))
+	}
+
+	t.Run("a task behind a waivable one is examined too", func(t *testing.T) {
+		// The scan reads the manager's display order, which puts the newest
+		// terminal task first. A cancelled task that never claimed a unit is
+		// waived on unit state rather than on its stamp, so cancelling it
+		// after the overlapping task's swap puts a waivable task first and a
+		// scan that stopped there would publish the torn capture.
+		m := newManager(t)
+		seedFinishedTask(t, m, "movies:late", "Movies", 1, backupStart.Add(time.Minute))
+		seedUntouchedCancelledTask(t, m, "movies:cancelled", "Movies", 2, backupStart.Add(5*time.Minute))
+
+		tasks, err := m.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, "movies:cancelled", tasks[ReindexNamespace][0].ID,
+			"the waivable task must be examined first, or this subtest cannot fail")
+
+		err = NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart)
+		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+			"every task has to be examined, not just the first")
+	})
+
+	// restoredWithStamp seeds one FINISHED task whose swap acked at swapAck,
+	// rewrites its stamp to what an older binary would have written, restores
+	// the result into a fresh manager and returns it.
+	restoredWithStamp := func(t *testing.T, taskID string, swapAck, oldStamp time.Time) *distributedtask.Manager {
+		t.Helper()
+		src := newManager(t)
+		seedFinishedTask(t, src, taskID, "Movies", 1, swapAck)
+		snapBytes := restampTerminalTasks(t, src, oldStamp)
+
+		m := newManager(t)
+		require.NoError(t, m.Restore(snapBytes))
+		return m
+	}
+
+	// requireStampIs asserts what the restore actually wrote. Without it the
+	// subtests below also pass on an unrepaired zero stamp, which the backstop
+	// refuses on separately.
+	requireStampIs := func(t *testing.T, m *distributedtask.Manager, want time.Time) {
+		t.Helper()
+		tasks, err := m.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Len(t, tasks[ReindexNamespace], 1)
+		require.True(t, tasks[ReindexNamespace][0].FinishedAt.Equal(want),
+			"restore must stamp the task from the swap ack, got %s want %s",
+			tasks[ReindexNamespace][0].FinishedAt, want)
+	}
+
+	t.Run("a terminal task restored without a stamp still refuses an overlapping capture", func(t *testing.T) {
+		// The state an older binary produces when it finalizes a task this
+		// build left unstamped: FINISHED, no finish time. The restore stamps it
+		// from the newest moment the task carries — here the swap ack inside
+		// the capture window — so the backstop still refuses.
+		swapAck := backupStart.Add(time.Minute)
+		m := restoredWithStamp(t, "movies:unstamped", swapAck, time.Time{})
+		requireStampIs(t, m, time.UnixMilli(swapAck.UnixMilli()))
+
+		err := NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart)
+		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+			"the repaired stamp must keep the swap inside the capture window")
+	})
+
+	t.Run("a terminal task restored with an older binary's units-stopped stamp still refuses", func(t *testing.T) {
+		// The common upgrade shape: older builds stamped FinishedAt when the
+		// units stopped, so the value predates the swap that ran after it. Here
+		// the units stopped before the capture began and the swap ran inside
+		// it, so a repair that only fills a missing stamp leaves this task
+		// waiving a capture it may have torn.
+		swapAck := backupStart.Add(time.Minute)
+		m := restoredWithStamp(t, "movies:stale", swapAck, unitsStopped)
+		requireStampIs(t, m, time.UnixMilli(swapAck.UnixMilli()))
+
+		err := NewReindexOverlapLookup(m.ListDistributedTasks, time.Hour)(
+			context.Background(), []string{"Movies"}, backupStart)
+		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+			"the restore must advance a stale stamp to the swap ack, or every capture "+
+				"that spanned a pre-upgrade swap publishes as clean for the whole TTL")
+	})
+}
+
+// restampTerminalTasks snapshots a manager and rewrites FinishedAt on every
+// terminal task in the JSON, producing the bytes an older binary's snapshot
+// carries: a task that reached a terminal status recording either nothing or
+// the moment its units stopped.
+func restampTerminalTasks(t *testing.T, m *distributedtask.Manager, at time.Time) []byte {
+	t.Helper()
+	raw, err := m.Snapshot()
+	require.NoError(t, err)
+
+	var decoded struct {
+		Tasks map[string][]map[string]any `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+
+	cleared := 0
+	for _, tasks := range decoded.Tasks {
+		for _, task := range tasks {
+			if distributedtask.TaskStatus(task["status"].(string)).IsTerminal() {
+				task["finishedAt"] = at
+				cleared++
+			}
+		}
+	}
+	require.NotZero(t, cleared, "sanity: the snapshot must carry a terminal task to restamp")
+
+	out, err := json.Marshal(decoded)
+	require.NoError(t, err)
+	return out
+}
+
+func applyReq[T any](t *testing.T, subCommand T) *api.ApplyRequest {
+	t.Helper()
+	raw, err := json.Marshal(subCommand)
+	require.NoError(t, err)
+	return &api.ApplyRequest{SubCommand: raw}
 }

@@ -394,10 +394,11 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 		"refused backup must not leave a staging dir at %s", stagingPath)
 
 	// Wait via the index-status surface (status:"ready") rather than DTM
-	// task status. With the DTM-backed gate, FINISHED already releases
-	// the gate, but status:"ready" additionally confirms the underlying
-	// index has flipped to the new tokenization, which is closer to the
-	// queryable end-state operators care about.
+	// task status. Both say the migration is no longer in flight, so the
+	// backup gate is open; "ready" is the surface an operator polls. It does
+	// not confirm the tokenization flip — the handler answers from the node's
+	// own FSM, and for change-algorithm it renders "ready" without any flip at
+	// all. Safe here because this is a single node, so there is no FSM lag.
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable",
 		reindexhelpers.WithTimeout(120*time.Second))
 
@@ -445,9 +446,10 @@ func testBackupSucceedsAfterMigrationFinishes(t *testing.T, restURI string) {
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 	// Use the index-status surface (status:"ready") rather than DTM
-	// FINISHED: both signal the gate is open, but status:"ready" is
-	// closer to operator expectations and survives future DTM-status
-	// reshuffles.
+	// FINISHED: both signal the gate is open, and "ready" is the surface an
+	// operator polls. It says nothing about the tokenization flip; see the
+	// note at the AwaitReindexViaIndexes call in
+	// testBackupRefusedDuringInFlightMigration.
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable",
 		reindexhelpers.WithTimeout(60*time.Second))
 
@@ -831,13 +833,22 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	// on timeout we t.Fatalf with the last observed survivors so the
 	// diagnostic matches the original (the message args of require.Eventually
 	// are captured up-front, before any survivors are known).
-	var lastMatches string
+	var (
+		lastMatches string
+		// Recorded rather than asserted inline: testify runs the condition on
+		// its own goroutine, where a failed require would only surface as a
+		// 30s timeout.
+		lsErr error
+	)
 	drained := assert.Eventually(t, func() bool {
 		code, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c",
 			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`, migsPath, propName),
 		})
-		require.NoError(t, execErr)
+		if execErr != nil {
+			lsErr = execErr
+			return true
+		}
 		out := new(strings.Builder)
 		if reader != nil {
 			_, _ = io.Copy(out, reader)
@@ -846,6 +857,7 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		// grep exit 1 (no match) or empty stdout means cleanup is done.
 		return code != 0 || lastMatches == ""
 	}, 30*time.Second, 50*time.Millisecond)
+	require.NoError(t, lsErr, "listing %s in the container failed", migsPath)
 	if !drained {
 		t.Fatalf("cancel-cleanup did not remove %s/.migrations/*_%s_* within 30s; survivors:\n%s",
 			lsmPath, propName, lastMatches)
@@ -867,11 +879,16 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 
 	// Class-dir removal is async and lags the DELETE 200 under load;
 	// poll instead of checking once.
+	var statErr error
 	removed := assert.Eventually(t, func() bool {
 		code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
-		require.NoError(t, execErr)
+		if execErr != nil {
+			statErr = execErr
+			return true
+		}
 		return code == 1 // test -d exit 1 == class dir gone
 	}, 30*time.Second, 50*time.Millisecond)
+	require.NoError(t, statErr, "stat of %s in the container failed", classPath)
 	if !removed {
 		_, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c", fmt.Sprintf("ls -la %s 2>&1", classPath),

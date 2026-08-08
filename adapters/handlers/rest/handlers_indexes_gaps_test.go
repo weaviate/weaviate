@@ -818,66 +818,6 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown ReindexMigrationType so a future type cannot silently
-// bypass the conflict check.
-// -----------------------------------------------------------------------------
-
-func TestTouchesSearchable(t *testing.T) {
-	cases := []struct {
-		t    db.ReindexMigrationType
-		want bool
-	}{
-		{db.ReindexTypeChangeAlgorithm, true},
-		{db.ReindexTypeChangeTokenization, true},
-		{db.ReindexTypeEnableSearchable, true},
-		{db.ReindexTypeRepairFilterable, false},
-		{db.ReindexTypeEnableFilterable, false},
-		{db.ReindexTypeEnableRangeable, false},
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesSearchable(tc.t))
-		})
-	}
-}
-
-func TestTouchesFilterable(t *testing.T) {
-	cases := []struct {
-		t    db.ReindexMigrationType
-		want bool
-	}{
-		{db.ReindexTypeRepairFilterable, true},
-		{db.ReindexTypeChangeTokenization, true},
-		{db.ReindexTypeEnableFilterable, true},
-		{db.ReindexTypeChangeAlgorithm, false},
-		{db.ReindexTypeEnableSearchable, false},
-		{db.ReindexTypeEnableRangeable, false},
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesFilterable(tc.t))
-		})
-	}
-}
-
-func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
-}
-
-func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
-}
-
-// -----------------------------------------------------------------------------
 // validateBodyExclusivity — switch-shadow guard.
 //
 // updateIndex dispatches on a Go switch where the FIRST truthy arm wins.

@@ -70,7 +70,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	// advance the clock just before expected clean up time to check whether it respects it
-	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar - time.Minute)
+	h.advanceToCleanUpDeadline(t, h.tasksNamespace, taskID, time.Minute)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, taskID, version)
 	h.advanceClock(h.schedulerTickInterval + time.Minute)
@@ -392,10 +392,10 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 
 	recvWithTimeout(t, h.provider.completedCh)
 
-	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
-	h.advanceClock(h.completedTaskTTL)
+	h.advanceToCleanUpDeadline(t, h.tasksNamespace, startedTask.ID, time.Minute)
 
-	h.advanceClock(h.schedulerTickInterval)
+	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
+	h.advanceClock(h.schedulerTickInterval + time.Minute)
 	cleanedDesc := recvWithTimeout(t, h.provider.cleanedUpCh)
 	require.Equal(t, startedTask.TaskDescriptor, cleanedDesc)
 }
@@ -568,11 +568,13 @@ type testHarness struct {
 	schedulerTickInterval time.Duration
 	clock                 *clockwork.FakeClock
 	logger                logrus.FieldLogger
-	completionRecorder    *MockTaskCompletionRecorder
-	cleaner               *MockTaskCleaner
-	provider              *testTaskProvider
-	registeredProviders   map[string]Provider
-	testProviders         []*testTaskProvider
+	// logHook captures everything the harness's manager and scheduler log.
+	logHook             *logrustest.Hook
+	completionRecorder  *MockTaskCompletionRecorder
+	cleaner             *MockTaskCleaner
+	provider            *testTaskProvider
+	registeredProviders map[string]Provider
+	testProviders       []*testTaskProvider
 
 	manager   *Manager
 	scheduler *Scheduler
@@ -584,7 +586,7 @@ func newTestHarness(t *testing.T) *testHarness {
 	var (
 		defaultNamespace = "tasks-namespace"
 		defaultProvider  = newTestTaskProvider(t, nil)
-		logger, _        = logrustest.NewNullLogger()
+		logger, hook     = logrustest.NewNullLogger()
 	)
 
 	return &testHarness{
@@ -595,6 +597,7 @@ func newTestHarness(t *testing.T) *testHarness {
 		schedulerTickInterval: 30 * time.Second,
 		clock:                 clockwork.NewFakeClock(),
 		logger:                logger,
+		logHook:               hook,
 		completionRecorder:    NewMockTaskCompletionRecorder(t),
 		cleaner:               NewMockTaskCleaner(t),
 		provider:              defaultProvider,
@@ -618,16 +621,14 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	}
 
 	h.manager = NewManager(ManagerParameters{
-		Clock:            h.clock,
-		CompletedTaskTTL: h.completedTaskTTL,
-		Logger:           h.logger,
+		Logger: h.logger,
 	})
 
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
 		TaskLister:         h.manager,
 		TaskCleaner:        h.cleaner,
-		TaskFinalizer:      newDirectFinalizer(t, h.manager),
+		TaskFinalizer:      newDirectFinalizer(t, h.manager, h.clock),
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		Logger:             h.logger,
@@ -658,10 +659,11 @@ func (h *testHarness) Close() {
 type directFinalizer struct {
 	t       *testing.T
 	manager *Manager
+	clock   clockwork.Clock
 }
 
-func newDirectFinalizer(t *testing.T, manager *Manager) *directFinalizer {
-	return &directFinalizer{t: t, manager: manager}
+func newDirectFinalizer(t *testing.T, manager *Manager, clock clockwork.Clock) *directFinalizer {
+	return &directFinalizer{t: t, manager: manager, clock: clock}
 }
 
 func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namespace, taskID string, taskVersion uint64) error {
@@ -669,7 +671,7 @@ func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namesp
 		Namespace:             namespace,
 		Id:                    taskID,
 		Version:               taskVersion,
-		FinalizedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+		FinalizedAtUnixMillis: d.clock.Now().UnixMilli(),
 	}))
 }
 
@@ -679,7 +681,7 @@ func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace
 		Id:                 taskID,
 		Version:            taskVersion,
 		Error:              errMsg,
-		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+		FailedAtUnixMillis: d.clock.Now().UnixMilli(),
 	}), false)
 }
 
@@ -692,16 +694,21 @@ func (h *testHarness) advanceClock(duration time.Duration) {
 }
 
 func (h *testHarness) expectCleanUpTask(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
-	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
+	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error {
 			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
 			require.Equal(t, expectTaskVersion, taskVersion)
 
+			// Forward what the sweep measured, the way Raft.CleanUpDistributedTask
+			// does, so these tests exercise the path production takes.
 			err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Namespace: namespace,
-				Id:        taskID,
-				Version:   taskVersion,
+				Namespace:            namespace,
+				Id:                   taskID,
+				Version:              taskVersion,
+				FinishedAtUnixMillis: finishedAt.UnixMilli(),
+				ProposedAtUnixMillis: proposedAt.UnixMilli(),
+				TtlMillis:            ttl.Milliseconds(),
 			}))
 			require.NoError(t, err)
 			return nil
@@ -713,6 +720,26 @@ func (h *testHarness) startScheduler(t *testing.T) {
 
 	// give some time for the newly launched goroutines to start
 	time.Sleep(50 * time.Millisecond)
+}
+
+// advanceToCleanUpDeadline moves the fake clock to `slack` short of the task's
+// clean-up deadline. The TTL counts from FinishedAt, which is only stamped once
+// the task goes terminal — several scheduler ticks after its units stopped — so
+// tests cannot count from the moment they submitted.
+func (h *testHarness) advanceToCleanUpDeadline(t *testing.T, namespace, taskID string, slack time.Duration) {
+	var finishedAt time.Time
+	require.Eventually(t, func() bool {
+		for _, task := range h.listManagerTasks(t)[namespace] {
+			if task.ID == taskID && task.Status.IsTerminal() {
+				finishedAt = task.FinishedAt
+				return true
+			}
+		}
+		h.advanceClock(h.schedulerTickInterval)
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "task %s never reached a terminal status", taskID)
+
+	h.advanceClock(h.completedTaskTTL - h.clock.Now().Sub(finishedAt) - slack)
 }
 
 func (h *testHarness) listManagerTasks(t *testing.T) map[string][]*Task {
@@ -944,6 +971,69 @@ func TestReactiveFiring_TerminalUnitWakesScheduler(t *testing.T) {
 	// recvWithTimeout has a 5s budget; tick interval is 30s. If we receive
 	// the completion within 5s, reactive firing worked.
 	require.Equal(t, "1234", recvWithTimeout(t, h.provider.completedCh).ID)
+}
+
+// TestReactiveFiring_DeleteTasksForCollectionWakesScheduler: DELETE_CLASS
+// drops the task from the FSM while the scheduler is still running its units
+// against shards the drop is about to remove. The wake is what terminates them
+// this cycle instead of up to a tick later.
+func TestReactiveFiring_DeleteTasksForCollectionWakesScheduler(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+	h.manager.RegisterCollectionExtractor(h.tasksNamespace, func(payload []byte) (string, bool) {
+		return string(payload), true
+	})
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		Payload:               []byte("Foo"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
+
+	require.Len(t, h.manager.DeleteTasksForCollection("Foo"), 1)
+
+	// CRUCIAL: no clock advance. recvWithTimeout gives up after 5s, the tick
+	// interval is 30s, so arriving at all means the wake carried it.
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.cancelledCh).ID)
+}
+
+// TestReactiveFiring_RestoreWakesScheduler: a restored snapshot replaces the
+// whole task map, so the scheduler can be left running a task the cluster no
+// longer has. The wake is what terminates it this cycle instead of up to a tick
+// later.
+func TestReactiveFiring_RestoreWakesScheduler(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
+
+	// A snapshot that does not carry the running task: the cluster cleaned it
+	// up while this node was behind.
+	empty, err := json.Marshal(&snapshot{Version: 1})
+	require.NoError(t, err)
+	require.NoError(t, h.manager.Restore(empty))
+
+	// CRUCIAL: no clock advance, same 5s-against-30s budget as above.
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.cancelledCh).ID)
 }
 
 // TestReactiveFiring_WakeIsCoalesced verifies that rapid-fire wake-up

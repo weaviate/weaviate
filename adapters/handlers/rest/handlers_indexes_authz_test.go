@@ -14,8 +14,10 @@ package rest
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -177,5 +179,126 @@ func TestUpdateIndexAuthorization(t *testing.T) {
 				"a read verb is not enough to authorize it")
 		require.Equal(t, [][]string{authorization.Collections("Movies")}, f.authz.resources,
 			"the check must be scoped to the collection being reindexed")
+	})
+
+	// Every arm above names a collection the fixture registers, so a handler
+	// that answered 404 first would still refuse them with 403. This one names
+	// a collection that does not exist: under the check-after-lookup ordering
+	// it comes back 404, which tells an unauthorized caller which collections
+	// are real, and it takes the per-property submit lock on the way there.
+	t.Run("a refused caller cannot tell an absent collection from a present one", func(t *testing.T) {
+		forbidden := authzerrors.NewForbidden(principal, authorization.UPDATE,
+			authorization.Collections("Absent")...)
+		f := newAuthzSubmitFixture(t, forbidden)
+
+		responder := submitReindexForClass(f.handlers, context.Background(), "Absent")
+
+		f.requireNothingBehindTheCheckRan(t)
+		_, ok := responder.(*schema.SchemaObjectsIndexesUpdateForbidden)
+		require.Truef(t, ok,
+			"authorization must run before the collection lookup, so both answers are 403, got %T",
+			responder)
+	})
+}
+
+// getIndexesResponder drives GET /v1/schema/Movies/indexes and hands back the
+// raw responder, so a deny arm can assert on the type rather than on a payload
+// that only exists when the read was allowed.
+func getIndexesResponder(t *testing.T, h *indexesHandlers, principal *models.Principal) middleware.Responder {
+	t.Helper()
+	return getIndexesResponderFor(t, h, principal, "Movies")
+}
+
+func getIndexesResponderFor(t *testing.T, h *indexesHandlers, principal *models.Principal, collection string) middleware.Responder {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "/v1/schema/"+collection+"/indexes", nil)
+	require.NoError(t, err)
+	return h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+		HTTPRequest: req,
+		ClassName:   collection,
+	}, principal)
+}
+
+// The status route exposes per-property index state, which is
+// collection-internal. Deleting its whole authorization block leaves the rest
+// of this package green, so these arms are the only thing standing between the
+// route and an unauthorized reader.
+func TestGetIndexesAuthorization(t *testing.T) {
+	principal := &models.Principal{Username: "u1"}
+
+	newFixture := func(t *testing.T, authzErr error) (*indexesHandlers, *recordingSubmitAuthorizer, *raceTaskService) {
+		t.Helper()
+		svc := &raceTaskService{}
+		h, _ := gatePriorityHandlers(t, svc)
+		authz := &recordingSubmitAuthorizer{err: authzErr}
+		h.appState.Authorizer = authz
+		return h, authz, svc
+	}
+
+	t.Run("an unauthorized caller is refused before the task list is read", func(t *testing.T) {
+		forbidden := authzerrors.NewForbidden(principal, authorization.READ,
+			authorization.CollectionsMetadata("Movies")...)
+		h, _, svc := newFixture(t, forbidden)
+
+		responder := getIndexesResponder(t, h, principal)
+
+		require.Zerof(t, svc.lists,
+			"a refused caller made the handler read the cluster's task list")
+
+		refused, ok := responder.(*schema.SchemaObjectsIndexesGetForbidden)
+		require.Truef(t, ok, "a caller without read_collections must be refused with 403, got %T", responder)
+		require.Equal(t, forbidden.Error(), errorMessage(t, refused.Payload))
+	})
+
+	t.Run("an authorizer that errors refuses too, and just as early", func(t *testing.T) {
+		h, _, svc := newFixture(t, errors.New("policy store unreachable"))
+
+		responder := getIndexesResponder(t, h, principal)
+
+		require.Zerof(t, svc.lists, "an authorizer that cannot answer must not admit the read")
+		_, ok := responder.(*schema.SchemaObjectsIndexesGetInternalServerError)
+		require.Truef(t, ok, "an unanswerable authorizer must not be read as a grant, got %T", responder)
+	})
+
+	// The allow arm is what makes the two above discriminate: it proves the task
+	// read does happen when the check passes.
+	t.Run("an authorized caller reaches the task read", func(t *testing.T) {
+		h, _, svc := newFixture(t, nil)
+
+		responder := getIndexesResponder(t, h, principal)
+
+		_, ok := responder.(*schema.SchemaObjectsIndexesGetOK)
+		require.Truef(t, ok, "a caller holding read_collections must be answered, got %T", responder)
+		require.Equal(t, 1, svc.lists,
+			"this is the observation the deny arms require to be absent")
+	})
+
+	// Weakening the verb or the resource still refuses some callers, so the arms
+	// above would keep passing.
+	t.Run("the check demands READ on the collection's metadata", func(t *testing.T) {
+		h, authz, _ := newFixture(t, nil)
+
+		getIndexesResponder(t, h, principal)
+
+		require.Equal(t, []string{authorization.READ}, authz.verbs)
+		require.Equal(t, [][]string{authorization.CollectionsMetadata("Movies")}, authz.resources,
+			"the check must be scoped to the collection whose index state is exposed")
+	})
+
+	// The absent-collection arm, same reasoning as the submit route's.
+	t.Run("a refused caller cannot tell an absent collection from a present one", func(t *testing.T) {
+		forbidden := authzerrors.NewForbidden(principal, authorization.READ,
+			authorization.CollectionsMetadata("Absent")...)
+		h, _, svc := newFixture(t, forbidden)
+
+		responder := getIndexesResponderFor(t, h, principal, "Absent")
+
+		require.Zerof(t, svc.lists,
+			"a refused caller made the handler read the cluster's task list")
+
+		_, ok := responder.(*schema.SchemaObjectsIndexesGetForbidden)
+		require.Truef(t, ok,
+			"authorization must run before the collection lookup, so both answers are 403, got %T",
+			responder)
 	})
 }

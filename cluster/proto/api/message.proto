@@ -254,6 +254,21 @@ message CleanUpDistributedTaskRequest {
   string namespace = 1;
   string id = 2;
   uint64 version = 3;
+  // The three operands of the TTL comparison, all measured by the proposing
+  // sweep: the moment it looked, the TTL it looked against, and the finish
+  // time it read off the task. The apply compares these alone, reading no
+  // local state, so one log entry deletes the task on every node or none.
+  //
+  // finished_at_unix_millis travels on the wire because the applying node's
+  // own copy isn't guaranteed to match (e.g. a restored snapshot predating
+  // finalize-time stamping). The TTL that governs is the proposer's, since
+  // DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is per-node. A zero
+  // finished_at_unix_millis means the request predates these fields; the
+  // apply defers rather than substitute its own operand, and the task is
+  // removed once an upgraded proposer re-sweeps it.
+  int64 proposed_at_unix_millis = 4;
+  int64 ttl_millis = 5;
+  int64 finished_at_unix_millis = 6;
 }
 
 message SyncShardRequest {

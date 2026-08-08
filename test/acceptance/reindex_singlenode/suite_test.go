@@ -191,14 +191,11 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	})
 
 	// --- Subtest 13b: GET /indexes bleed after DELETE→re-enable cycles ---
-	// Frontend repro 2026-05-14 (https://github.com/weaviate/weaviate/issues/10675): after multiple
-	// enable→DELETE cycles on the same property, GET /indexes shows a
-	// phantom "indexing(1)" entry for the deleted index, "carrying over
-	// from the previous FINISHED task". mergeReindexStatus's
-	// finalize-window override reclassifies a stale FINISHED task as
-	// "still finalizing" because it only gates on flagOn==false, not on
-	// whether the swap that flipped the flag for THIS task has already
-	// completed and been undone by DELETE.
+	// After multiple enable→DELETE cycles on the same property, GET /indexes
+	// must carry no phantom "indexing(1)" entry for the deleted index: a
+	// FINISHED task produces no synthetic entry, so a flag left off by a
+	// DELETE cannot be read as a swap still in flight.
+	// https://github.com/weaviate/weaviate/issues/10675.
 	t.Run("DeleteThenReEnableIndexingBleed", func(t *testing.T) {
 		testDeleteThenReEnableIndexingBleed(t, restURI)
 	})

@@ -190,24 +190,29 @@ func errorMessage(t *testing.T, payload *models.ErrorResponse) string {
 
 func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActivityProber) *indexesHandlers {
 	t.Helper()
+	indexFilterable := true
+	return submissionHandlersForClass(t, tasks, prober, &models.Class{
+		Class: "Movies",
+		Properties: []*models.Property{{
+			Name:            "title",
+			DataType:        []string{"text"},
+			IndexFilterable: &indexFilterable,
+		}},
+	})
+}
+
+// submissionHandlersForClass is submissionHandlers over a caller-supplied
+// class, for tests whose subject is how the schema flags themselves render.
+func submissionHandlersForClass(t *testing.T, tasks reindexTaskService, prober nodeActivityProber, class *models.Class) *indexesHandlers {
+	t.Helper()
 	const (
 		collection = "Movies"
-		property   = "title"
 		node       = fixtureNode
 	)
 
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
-	indexFilterable := true
-	class := &models.Class{
-		Class: collection,
-		Properties: []*models.Property{{
-			Name:            property,
-			DataType:        []string{"text"},
-			IndexFilterable: &indexFilterable,
-		}},
-	}
 	shardState := &sharding.State{
 		IndexID:  collection,
 		Physical: map[string]sharding.Physical{"shard1": {Name: "shard1", BelongsToNodes: []string{node}}},
@@ -215,6 +220,10 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.On("ReadOnlyClass", collection).Return(class).Maybe()
+	// Any other name is a collection that does not exist, which is how a test
+	// drives the 404 path.
+	reader.On("ReadOnlyClass", mock.Anything).Return(nil).Maybe()
+	reader.On("ResolveAlias", mock.Anything).Return("").Maybe()
 	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
 		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
 		require.NoError(t, fn(class, shardState))
@@ -255,9 +264,13 @@ func submitReindex(h *indexesHandlers) middleware.Responder {
 }
 
 func submitReindexOn(h *indexesHandlers, ctx context.Context) middleware.Responder {
+	return submitReindexForClass(h, ctx, "Movies")
+}
+
+func submitReindexForClass(h *indexesHandlers, ctx context.Context, collection string) middleware.Responder {
 	return h.updateIndex(schema.SchemaObjectsIndexesUpdateParams{
 		HTTPRequest:  httptest.NewRequest("PUT", "/", nil).WithContext(ctx),
-		ClassName:    "Movies",
+		ClassName:    collection,
 		PropertyName: "title",
 		Body: &models.IndexUpdateRequest{
 			Filterable: &models.IndexUpdateFilterable{Rebuild: true},
@@ -291,4 +304,10 @@ func audited(hook *logrustest.Hook, auditEvent string) *logrus.Entry {
 		}
 	}
 	return nil
+}
+
+// The status endpoint reads the local FSM; these fakes have one view, so it
+// answers the same as the leader query.
+func (s *raceTaskService) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return s.ListDistributedTasks(ctx)
 }

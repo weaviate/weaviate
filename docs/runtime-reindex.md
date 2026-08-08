@@ -143,15 +143,120 @@ Per-property, per-index-type snapshot:
 
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
 The status is synthesized in `mergeReindexStatus` from a snapshot of
-the active DTM task list crossed with the live schema flags. A short
-**finalize-window override** lets a FINISHED-but-schema-not-yet-flipped
-entry render as `indexing@100%` for up to 10s (the bound, see
-`finalizeWindowMax`); without that override the UI would briefly show
-"None" between task FINISHED and the schema-flag flip, which was the
-user-visible face of weaviate/weaviate#10675.
+the DTM task list crossed with the live schema flags. Both are read
+from the **local FSM**: any schema flip a task makes commits to the
+RAFT log before the task is marked FINISHED, so a locally FINISHED task
+never renders against a flip this node has yet to apply. The two are
+still two sequential reads, not one snapshot, so what this buys is a
+window of two adjacent in-process reads instead of the leader's apply
+lag. The window between the units stopping
+and the flip is reported by the `PREPARING` and `SWAPPING` statuses,
+which render as `indexing@100%`.
+
+Whether an entry is emitted at all is decided by the **per-property**
+flag (`indexSearchable`, `indexFilterable`, `indexRangeFilters`). For
+the migrations that turn it on — the `enable-*` types and
+`change-tokenization` — FINISHED with it still off means it was turned
+back off since (an index DELETE), i.e. a stale task, and produces no
+entry; this is weaviate/weaviate#10675.
+
+`change-algorithm` is different: it never touches the per-property
+flag, and the class-level `usingBlockMaxWAND` it does flip is deferred
+until every searchable property on the class has migrated. So a class
+can sit FINISHED with `"algorithm": "wand"` reported on a property
+whose buckets are already blockmax, until the last sibling property
+migrates. The entry is still `ready`, and `wand` is the honest answer
+while queries remain class-wide WAND. There is currently no way to
+tell that state apart from "no migration has run" at this endpoint.
+
+This endpoint answers at **local** consistency while `POST`/`PUT`
+submits and the backup commit-time gate answer at the leader, so the
+advised "poll until ready, then act" loop can read `ready` on a node
+whose apply loop is behind and then have the follow-up write refused
+with a 409 or `ErrBackupSpannedReindex`. Normally tens to hundreds of
+milliseconds; unbounded on a node with a stalled apply loop. It is
+still an improvement over the leader query it replaced, which degraded
+to "no active tasks" whenever the query failed and so rendered every
+index `ready` — a worse answer than a stale one.
 
 Read-access is gated on `READ` of `CollectionsMetadata`; `PUT`/`DELETE`
 require the stronger `UPDATE` on `Collections`.
+
+### `GET /v1/tasks`
+
+The cluster-wide task list, grouped by namespace. Gated on `READ` of
+the cluster resource.
+
+Two things about it changed with the `finishedAt` work:
+
+- **Ordering is now defined.** Within a namespace, in-flight tasks come
+  first, then terminal ones, each group newest-first, ties broken by
+  task ID. "In flight" is every non-terminal status, so a task whose
+  units are done but whose barrier or bucket swap is still outstanding
+  ranks with the running ones, not with the finished ones. A client
+  that relied on Go's randomized map order will see a different (and
+  now stable) sequence.
+- **`finishedAt` is the terminal transition, not the moment the units
+  stopped.** Between the two sit the PREP barrier and the bucket swap,
+  so the value moved later by however long those took — seconds to
+  minutes on a large collection. The completed-task TTL measures from
+  it, so at an unchanged `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
+  tasks now linger by that same amount. A task that has not ended omits
+  `finishedAt` entirely, so a client sorting on the field no longer sees
+  every running migration dated year 1. The same applies to each unit's
+  `finishedAt`.
+- **The completed-task TTL is now decided by the node that proposes the
+  deletion.** The cleanup request carries the moment that node's sweep
+  measured the task's age at, the TTL it measured against, and the finish
+  time it read off the task, and every node applies those three numbers
+  rather than any state of its own. Two nodes on this version therefore
+  agree on whether a task is still listed, which they did not before —
+  including two nodes that hold different finish times for it, which
+  happens when one restored a snapshot written before `finishedAt` was
+  the terminal transition. The consequence for operators:
+  `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` is a per-node setting, and
+  each node's sweep proposes with its own value, so **the effective
+  cluster retention is the shortest value configured on any node**. Raise
+  it on every node; raising it on one changes only what that node
+  proposes, and during the rolling restart that applies the new value the
+  old shorter one still wins on the nodes that have not restarted yet.
+  A node old enough not to send the measurements sends nothing, and a
+  proposal carrying none is deferred rather than decided: the old node
+  still drops the task from its own list on its local check, and every
+  node on this version keeps it. The cleanup sweep runs on every node,
+  not only the leader, so the backlog normally ages out on the next tick
+  of any upgraded node — the one case that has to wait for an upgraded
+  node to take leadership is a task the old proposer's own entry already
+  removed from the leader's list, which is the list every node sweeps.
+  Cleanup therefore lags for the length of the upgrade window. That lag
+  converges the cluster's own state, but it does **not** preserve the
+  backup overlap backstop's evidence: that backstop queries the leader,
+  so an old leader that already deleted the task has emptied the list it
+  reads, and the copies the upgraded nodes deferred sit where nothing
+  consults them. Prefer moving leadership to an upgraded node before
+  running a backup during the window.
+  The defer is not logged: it is the expected state during an upgrade,
+  and on one that stalls with an old node still holding leadership the
+  retained tasks are bounded only by how many reindexes are submitted.
+
+  A uniform TTL is a correctness requirement for the backup overlap
+  backstop, not just a retention preference. That backstop refuses a
+  backup that ran longer than the completed-task TTL, because past it a
+  finished reindex task is gone from the list and its absence stops being
+  evidence. The threshold it checks is the local node's TTL, but the
+  retention that actually governs is the cluster minimum: with 24h on the
+  node taking the backup and 1h somewhere else, a 3-hour backup passes the
+  check and then reads an empty task list as all-clear. Set the same value
+  everywhere, and treat a rolling restart that changes it as a window in
+  which backups can be taken on stale evidence.
+
+  Gating the sweep on leadership would enforce both requirements instead
+  of documenting them, since one node's TTL and clock would then govern.
+  It is deliberately not done here. It does nothing for the mixed-version
+  window this section is about — an old follower keeps sweeping with its
+  own clock either way — so it is a steady-state simplification that
+  costs another change to the cleanup wire format, and it is worth
+  deciding on its own rather than as part of this one.
 
 ## 3. End-to-end lifecycle
 
@@ -1278,6 +1383,28 @@ configuration:
   invisible to the reindex gate. The commit-time overlap check is the
   backstop on the backup side: a backup whose capture window overlapped
   a reindex fails at commit rather than being stored as good.
+- *Old node stamping a task during a rolling upgrade.* A leader that
+  predates this feature stamps `FinishedAt` when the task's units stop,
+  not at the terminal transition — so the stamp predates the bucket swap
+  that ran after it. It is non-zero, so the zero-stamp guard lets it
+  through, and `FinishedAt.Before(backupStart)` then clears a capture
+  whose window contained that swap. Restoring the RAFT snapshot repairs
+  the stamp on the restoring node, but the gate reads the leader's list,
+  so the window lasts as long as an old node holds leadership.
+- *Old node ending a task without stamping it at all during a rolling
+  upgrade.* It takes both versions to produce this, and in this order:
+  a node on this version leaves a task unstamped while it swaps, that
+  state reaches an older node through a snapshot install or a rollback,
+  and the older node's finalize writes the terminal status without a
+  stamp. No version on its own does it — every older one stamps when the
+  units stop. A terminal task carrying no `finishedAt` has no age, so both
+  the sweep and the cleanup apply refuse it rather than delete it — the
+  alternative is treating a zero stamp as ~2000 years old and hiding the
+  task from the backup overlap check. The task stays listed and the
+  scheduler logs `... carry no finish time` once an hour. There is no
+  config change and no API call that clears it: the state goes away when
+  leadership moves to an upgraded node, because the sweep reads the
+  leader's list and only that node's list is repaired on restore.
 - *`RUNTIME_REINDEX_ENABLED=false`, the default.* Every gate returns
   before it looks at anything, so no gate refuses and none of them logs:
   this window is silent by design, and it is the shipped default. It is
@@ -1295,12 +1422,14 @@ configuration:
   state.
 
 **The commit-time backstop compares two clocks.** `RefuseIfReindexOverlapped`
-clears a task when its `FinishedAt` is before the backup's start time. Those two
-stamps come from different machines: the start time from the node capturing the
-backup, `FinishedAt` from whichever node proposed the task to RAFT. If the
-proposer's clock runs far enough behind, a migration that really did finish
-inside the backup window reads as having finished before it, and the backup is
-published as clean while it is torn.
+clears a task when its `FinishedAt` is before the backup's start time.
+`FinishedAt` is stamped at the terminal transition, so it post-dates the bucket
+swap and a migration that swapped inside the capture window is not cleared. But
+the two stamps still come from different machines: the start time from the node
+capturing the backup, `FinishedAt` from whichever node proposed the terminal
+transition to RAFT. If the proposer's clock runs far enough behind, a migration
+that really did end inside the backup window reads as having ended before it,
+and the backup is published as clean while it is torn.
 
 This is accepted, not a bug to be worked around here. Backup state is not
 tracked in RAFT, so there is no cluster-wide consistent answer to "when did this
@@ -1392,13 +1521,12 @@ with the modern testcontainer style.
   `roaring_set_test`).
 - `delete_then_reenable_test` / `delete_reenable_multicycle_test` /
   `delete_reenable_indexing_bleed_test` / `delete_reenable_shortcircuit_test`
-  — the #10675 family + the `mergeReindexStatus` finalize-window
-  override bound test.
+  — the #10675 family.
 - `change_tok_delete_journeys_test` — the cross-strategy clobber +
   `cleanStaleMigrationDirs` family.
 - `cancel_test` / `cancel_then_retry_test` — cancel + the
   defense-in-depth cleanup.
-- `torn_resume_test` / `restart_during_swap_test` — crash recovery in
+- `torn_resume_test` / `restart_after_swap_test` — crash recovery in
   every phase boundary.
 - `property_state_migration_matrix_test` — exhaustive matrix
   (~510 cells × 6 data types × 15 body shapes).

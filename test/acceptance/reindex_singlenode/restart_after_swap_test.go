@@ -27,53 +27,21 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestRestartDuringSwap verifies that a NEW write submitted between the moment
-// the reindex unit is COMPLETED (and the container is restarted) and the moment
-// OnGroupCompleted fires the swap on the next scheduler tick is NOT lost.
+// TestRestartAfterSwapCompletes SIGKILLs the node the moment a migration is
+// reported FINISHED, then writes and queries. FINISHED lands strictly after
+// every node has acked its bucket swap — [Manager.MarkTaskFinalized] refuses
+// from any status but SWAPPING, reached only once every expected ack has
+// landed — so the kill point is the completion boundary and the write below
+// lands in the new bucket.
 //
-// The concern: ReindexProvider keeps a per-task cache of
-// *ShardReindexTaskGeneric instances. These instances hold the registered
-// double-write callbacks (OnAfterLsmInit registers them via
-// registerDoubleWriteCallbacks). If Weaviate restarts after the reindex unit
-// is COMPLETED but before OnGroupCompleted fires:
-//
-//   - The cache is empty (only populated in StartTask / processOneUnit).
-//   - The scheduler does NOT call StartTask for terminal-units tasks
-//     (scheduler.go: filterStartedTasks requires NodeHasNonTerminalUnits).
-//   - OnGroupCompleted falls back to createReindexTasks → fresh task instances
-//     with NO double-write callbacks registered.
-//   - Writes during the swap-recovery window therefore go ONLY to the OLD main
-//     bucket. After the swap replaces the main bucket with the ingest bucket,
-//     those writes are lost.
-//
-// Test strategy:
-//  1. Create a collection with tokenization=word.
-//  2. Insert baseline objects.
-//  3. Submit a change-tokenization reindex (word → field).
-//  4. Poll /v1/tasks until the task is FINISHED (RAFT-level: all units
-//     terminal). At this moment the swap has likely NOT yet completed
-//     (see TestSingleNode_FinishedStatusRaceWithSchemaFlag — the swap
-//     fires on the next scheduler tick, up to 1s later).
-//  5. Stop the container immediately (SIGKILL via 0 timeout).
-//  6. Start the container again.
-//  7. As soon as the container is ready, write a NEW object with a unique
-//     marker that requires FIELD tokenization to be retrievable as a single
-//     token.
-//  8. Wait for the schema tokenization to flip to "field" (swap complete).
-//  9. Query with field-tokenization-style BM25 and EQUAL filter — the new
-//     object must appear in the new bucket.
-//
-// If this test PASSES, the cache-loss is harmless (some other recovery path
-// re-registers callbacks, e.g. via OnAfterLsmInit during shard startup).
-// If this test FAILS, the cache-loss is a real bug: writes during the
-// swap-recovery window are not double-written and are lost on swap.
-func TestRestartDuringSwap(t *testing.T) {
+// This is not the swap-recovery window (restart after units COMPLETED but
+// before OnGroupCompleted fires): that window is reached only through an
+// in-process hook, since the reactive scheduler wake-up passes PREPARING and
+// SWAPPING in milliseconds. Inside it a write would be lost — see
+// https://github.com/weaviate/weaviate/issues/10675.
+func TestRestartAfterSwapCompletes(t *testing.T) {
 	ctx := context.Background()
 
-	// The shared config's 1s scheduler tick gives us up to ~1s after
-	// FINISHED is reported in RAFT before OnGroupCompleted fires —
-	// comfortably wider than the time needed to issue StopAt(... 0
-	// timeout) and kill the container.
 	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -131,7 +99,7 @@ func TestRestartDuringSwap(t *testing.T) {
 		}
 	}()
 
-	const className = "RestartDuringSwapTest"
+	const className = "RestartAfterSwapTest"
 
 	// Step 1: create collection with word tokenization.
 	class := &models.Class{
@@ -144,8 +112,7 @@ func TestRestartDuringSwap(t *testing.T) {
 	helper.CreateClass(t, class)
 
 	// Step 2: insert baseline objects. Keep the count modest — the reindex
-	// itself does not need to be slow for the test to work. Once unit
-	// completion is in RAFT, the swap is deferred to the next tick.
+	// itself does not need to be slow for the test to work.
 	for i := 0; i < 20; i++ {
 		obj := &models.Object{Class: className, Properties: map[string]interface{}{
 			"description": fmt.Sprintf("baseline document number %d", i),
@@ -158,30 +125,37 @@ func TestRestartDuringSwap(t *testing.T) {
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	// Step 4: poll /v1/tasks until FINISHED. Keep a tight 20ms tick: this
-	// test SIGKILLs at the FINISHED boundary, so the poll cadence is
-	// load-bearing for hitting the swap-recovery window.
-	var sawFinishedAt time.Time
+	// Step 4: poll /v1/tasks until FINISHED, then kill on that boundary. See
+	// the SCOPE note above for why this is the completion boundary and not
+	// the swap-recovery window.
+	var (
+		killAt    time.Time
+		sawFailed bool
+		fetchErr  error
+	)
 	require.Eventually(t, func() bool {
 		status, err := fetchTaskStatus(restURI, taskID)
-		require.NoError(t, err)
+		if err != nil {
+			fetchErr = err
+			return true
+		}
 		if status == "FAILED" {
-			t.Fatalf("task FAILED before reaching FINISHED")
+			// Stop polling and report below rather than failing here:
+			// testify runs this condition on its own goroutine, where a
+			// t.Fatalf surfaces as a 120s timeout instead of the message.
+			sawFailed = true
+			return true
 		}
 		if status == "FINISHED" {
-			sawFinishedAt = time.Now()
+			killAt = time.Now()
 			return true
 		}
 		return false
 	}, 120*time.Second, 20*time.Millisecond)
-	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED before deadline")
-	t.Logf("task observed FINISHED at %v — initiating immediate container stop", sawFinishedAt)
-
-	// Check schema right after FINISHED — if tokenization is already "field"
-	// the swap already ran and we lost the race. We still proceed to test
-	// the write path, but log it for diagnosis.
-	preStopTokenization := getTokenization(t, className, "description")
-	t.Logf("pre-stop tokenization (right after FINISHED): %q", preStopTokenization)
+	require.NoError(t, fetchErr, "polling /v1/tasks failed")
+	require.False(t, sawFailed, "task FAILED before reaching FINISHED")
+	require.False(t, killAt.IsZero(), "task never reached FINISHED before deadline")
+	t.Logf("task observed FINISHED at %v — initiating immediate container stop", killAt)
 
 	// Step 5: stop the container immediately with 0 timeout (SIGKILL).
 	zeroTimeout := time.Duration(0)
@@ -193,13 +167,12 @@ func TestRestartDuringSwap(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	restURI = compose.GetWeaviate().URI()
 	t.Logf("container restarted at %v (elapsed since stop trigger: %v)",
-		time.Now(), time.Since(sawFinishedAt))
+		time.Now(), time.Since(killAt))
 
-	// Step 7: write the NEW object IMMEDIATELY after the container is ready.
-	// This is the race we are targeting: the OnGroupCompleted swap fires on
-	// the next scheduler tick (1s after the scheduler's loop started post-
-	// restart). We want to land the write before that tick.
-	const marker = "uniquemarkerxyz12345restartduringswap"
+	// Step 7: write the NEW object as soon as the container is ready. The swap
+	// is already done, so this write has to survive on its own merits — it is
+	// the post-restart write path being exercised, not a race.
+	const marker = "uniquemarkerxyz12345restartafterswap"
 	newObj := &models.Object{Class: className, Properties: map[string]interface{}{
 		"description": marker,
 	}}
@@ -236,44 +209,29 @@ func TestRestartDuringSwap(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("post-restart task status: %q", finalStatus)
 
-	// Step 9: query with FIELD-tokenization-style queries.
+	// Step 9: the post-restart write must be retrievable through both the
+	// searchable index (BM25) and the filterable one (Equal).
 	//
-	// Currently RED on purpose. The new object was written DURING the
-	// rehydrate window (after restart, before OnGroupCompleted re-loaded
-	// ingest buckets and re-registered double-write callbacks). Without
-	// callbacks active, the write went through the normal write path with
-	// the old (pre-flip) schema flag still in place, was tokenized with the
-	// old configuration, and was NEVER inserted into the migration's ingest
-	// bucket. After the rehydrate-driven swap completes, the new bucket
-	// only contains the data that was already there at the time of the
-	// reindex iteration; the post-restart write is lost.
-	//
-	// Fix requires: registering the in-flight runtime reindex tasks with
-	// the static ShardReindexerV3 at startup so OnAfterLsmInit fires during
-	// shard load — before any writes reach the shard. Currently the static
-	// reindexer is NewShardReindexerV3Noop, so this hook does not fire.
-	// Tracked as follow-up on issue https://github.com/weaviate/weaviate/issues/10675 ("register runtime tasks at
-	// shard init for restart resilience").
-	//
-	// The schema-flip assertion above (step 8) is the part the rehydrate
-	// fix in OnGroupCompleted DOES make pass — that piece is the bulk of
-	// what was broken before; this remaining write-loss gap is narrower.
-	t.Run("WritesDuringRehydrateWindowAreLost_KnownGap", func(t *testing.T) {
-		bm25IDs := restartSwapBM25Query(t, className, "description", marker)
+	// Which bucket serves it is deliberately not claimed here: the marker is a
+	// single lowercase token, so word and field tokenization produce the same
+	// term for it and no query can tell the two buckets apart. What an empty
+	// result would prove is that the write reached neither.
+	t.Run("PostRestartWriteIsQueryable", func(t *testing.T) {
+		bm25IDs := restartAfterSwapBM25Query(t, className, "description", marker)
 		assert.NotEmpty(t, bm25IDs,
-			"post-restart BM25(%q) returned no results — write during swap-recovery window was lost",
+			"post-restart BM25(%q) returned no results — the write is missing from the searchable index",
 			marker)
-		equalIDs := restartSwapFilterQuery(t, className, "description", "Equal", marker)
+		equalIDs := restartAfterSwapFilterQuery(t, className, "description", "Equal", marker)
 		assert.NotEmpty(t, equalIDs,
-			"post-restart Equal(description, %q) returned no results — write during swap-recovery window was lost",
+			"post-restart Equal(description, %q) returned no results — the write is missing from the filterable index",
 			marker)
 	})
 }
 
-// restartSwapBM25Query runs a BM25 query against an arbitrary class. The
+// restartAfterSwapBM25Query runs a BM25 query against an arbitrary class. The
 // existing retokenizeBM25Query helper hardcodes the retokenize class name; we
 // need our own.
-func restartSwapBM25Query(t *testing.T, className, property, query string) []string {
+func restartAfterSwapBM25Query(t *testing.T, className, property, query string) []string {
 	t.Helper()
 	gqlQuery := fmt.Sprintf(`{
 		Get {
@@ -288,7 +246,7 @@ func restartSwapBM25Query(t *testing.T, className, property, query string) []str
 	return ids
 }
 
-func restartSwapFilterQuery(t *testing.T, className, property, operator, value string) []string {
+func restartAfterSwapFilterQuery(t *testing.T, className, property, operator, value string) []string {
 	t.Helper()
 	gqlQuery := fmt.Sprintf(`{
 		Get {
