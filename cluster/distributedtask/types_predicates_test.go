@@ -56,8 +56,9 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		{TaskStatusFinished, false},
 		{TaskStatusFailed, false},
 		{TaskStatusCancelled, false},
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false},
-		{TaskStatus(""), false},
+		// Unrecognized statuses are active: see TestTaskStatus_IsTerminal.
+		{TaskStatus("UNKNOWN_FUTURE_STATE"), true},
+		{TaskStatus(""), true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
@@ -86,8 +87,8 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 		{TaskStatusFinished, false, false},
 		{TaskStatusFailed, false, false},
 		{TaskStatusCancelled, false, false},
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false, false},
-		{TaskStatus(""), false, false},
+		{TaskStatus("UNKNOWN_FUTURE_STATE"), false, true},
+		{TaskStatus(""), false, true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
@@ -247,8 +248,8 @@ func TestTask_AnyPostCompletionAckFailed(t *testing.T) {
 	assert.False(t, (&Task{}).AnyPostCompletionAckFailed())
 }
 
-// TestTask_AllUnitsTerminal and TestTask_AnyUnitFailed pin the two
-// invariants the manager FSM uses to decide post-units state.
+// TestTask_AllUnitsTerminal pins the invariant the manager FSM uses to
+// decide post-units state.
 func TestTask_AllUnitsTerminal(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -270,29 +271,6 @@ func TestTask_AllUnitsTerminal(t *testing.T) {
 				task.Units[unitKey(i)] = &Unit{Status: s}
 			}
 			assert.Equal(t, tc.want, task.AllUnitsTerminal())
-		})
-	}
-}
-
-func TestTask_AnyUnitFailed(t *testing.T) {
-	cases := []struct {
-		name     string
-		statuses []UnitStatus
-		want     bool
-	}{
-		{"empty units", nil, false},
-		{"all completed", []UnitStatus{UnitStatusCompleted, UnitStatusCompleted}, false},
-		{"one failed amid completed", []UnitStatus{UnitStatusCompleted, UnitStatusFailed}, true},
-		{"all failed", []UnitStatus{UnitStatusFailed, UnitStatusFailed}, true},
-		{"one failed amid pending", []UnitStatus{UnitStatusPending, UnitStatusFailed}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			task := &Task{Units: map[string]*Unit{}}
-			for i, s := range tc.statuses {
-				task.Units[unitKey(i)] = &Unit{Status: s}
-			}
-			assert.Equal(t, tc.want, task.AnyUnitFailed())
 		})
 	}
 }

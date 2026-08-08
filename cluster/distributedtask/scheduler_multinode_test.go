@@ -186,7 +186,7 @@ func (r *fanoutRecorder) RecordDistributedTaskUnitCompletion(_ context.Context, 
 		NodeId:               node,
 		UnitId:               unit,
 		FinishedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
-	}))
+	}), false)
 }
 
 func (r *fanoutRecorder) RecordDistributedTaskUnitFailure(_ context.Context, ns, id string, version uint64, node, unit, errMsg string) error {
@@ -198,7 +198,7 @@ func (r *fanoutRecorder) RecordDistributedTaskUnitFailure(_ context.Context, ns,
 		UnitId:               unit,
 		Error:                errMsg,
 		FinishedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
-	}))
+	}), false)
 }
 
 func (r *fanoutRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, ns, id string, version uint64, node, unit string, progress float32) error {
@@ -241,7 +241,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
 		Success:           success,
 		Error:             errMsg,
 		AckedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
-	}))
+	}), false)
 }
 
 func (r *fanoutAckRecorder) RecordDistributedTaskPreparationCompleteAck(
@@ -260,7 +260,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPreparationCompleteAck(
 		Success:           success,
 		Error:             errMsg,
 		AckedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
-	}))
+	}), false)
 }
 
 // directCleaner routes CleanUp calls into the shared Manager so cleanup
@@ -547,7 +547,7 @@ func TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode(t *testing.
 		Id:                    taskID,
 		Version:               1,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 	tasks := h.listManagerTasks(t)[h.namespace]
 	require.Equal(t, TaskStatusCancelled, tasks[0].Status,
 		"CancelTask must transition FSM to CANCELLED")

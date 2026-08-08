@@ -252,7 +252,7 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 }
 
 // TestCreateReindexTasks_UnknownTypeRejected pins the catch-all behavior:
-// an unrecognised ReindexMigrationType must error explicitly, not
+// an unrecognized ReindexMigrationType must error explicitly, not
 // silently return an empty slice. The catch-all is what protects
 // against forgetting a `case` after adding a new type — without this
 // rejection, a missed case would dispatch nothing and the unit would

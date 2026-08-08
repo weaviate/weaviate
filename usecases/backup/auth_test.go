@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,10 @@ func Test_Authorization(t *testing.T) {
 		expectedVerb     string
 		expectedResource string
 		ignoreAuthZ      bool
+		// reindexGate marks methods that consult the cluster-wide reindex gate.
+		// For those the gate expectation is strict: it must run, and it must run
+		// after authorization.
+		reindexGate bool
 	}
 
 	// The expected verb/resource below is the *first* authz call made by the
@@ -74,6 +79,7 @@ func Test_Authorization(t *testing.T) {
 			expectedVerb:     authorization.CREATE,
 			expectedResource: authorization.Backups("ABC")[0],
 			classes:          []string{"ABC"},
+			reindexGate:      true,
 		},
 		{
 			// RestorationStatus authorizes against the backup's actual classes
@@ -190,15 +196,33 @@ func Test_Authorization(t *testing.T) {
 				selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
 				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
 
+				// The gate's refusal and its latency disclose cluster-wide
+				// reindex state, so it must never run for a caller the
+				// authorizer has not yet cleared.
+				var authorized atomic.Bool
+				gate := selector.On("RefuseIfAnyReindexInFlight", mock.Anything, mock.Anything).
+					Run(func(mock.Arguments) {
+						assert.True(t, authorized.Load(),
+							"the reindex gate ran before authorization: a principal without any backup grant can probe cluster-wide reindex state")
+					}).Return(nil)
+				if test.reindexGate {
+					gate.Once()
+				} else {
+					gate.Maybe()
+				}
+
 				s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, logger)
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {
-					authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
+					markAuthorized := func(mock.Arguments) { authorized.Store(true) }
+					authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).
+						Run(markAuthorized).Return(nil).Once()
 					// Subsequent fine-grained authz calls (e.g. Backup/Restore
 					// re-authorizing on resolved classes, Cancel re-authorizing
 					// on meta classes) are allowed but not required.
-					authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+					authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+						Run(markAuthorized).Return(nil).Maybe()
 				}
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)

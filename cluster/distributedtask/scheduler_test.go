@@ -168,7 +168,8 @@ func TestTaskCancellation(t *testing.T) {
 		Id:                    taskID,
 		Version:               version,
 		CancelledAtUnixMillis: cancellationTime,
-	}))
+	}), false)
+
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -484,7 +485,8 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Id:                    "cancel",
 		Version:               12,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
+	}), false)
+
 	require.NoError(t, err)
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -678,7 +680,7 @@ func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace
 		Version:            taskVersion,
 		Error:              errMsg,
 		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
-	}))
+	}), false)
 }
 
 func (h *testHarness) advanceClock(duration time.Duration) {
@@ -1711,4 +1713,68 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	require.True(t, errors.As(inflightErr, &unprocessable),
 		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
 	require.Contains(t, unprocessable.Error(), expectedReason)
+}
+
+// failingFinalizer refuses every SWAPPING → FINISHED write, which is the state
+// the rollback below exists for.
+type failingFinalizer struct{ calls atomic.Int64 }
+
+func (f *failingFinalizer) MarkDistributedTaskFinalized(context.Context, string, string, uint64) error {
+	f.calls.Add(1)
+	return errors.New("synthetic finalize failure")
+}
+
+func (f *failingFinalizer) MarkDistributedTaskFailed(context.Context, string, string, uint64, string) error {
+	return nil
+}
+
+// Pins: a failed finalize write must leave OnTaskCompleted able to run
+// again, since it's the only thing that collects the gate a cancel apply
+// parked — leaving the fired mark set would keep that gate closed until its
+// cap expires. Driven phase by phase rather than through ticks: this only
+// asks whether the second tick is allowed to fire the callback at all.
+func TestFinalizeFailureLetsTheCompletedCallbackRunAgain(t *testing.T) {
+	const ns = "ns"
+	desc := TaskDescriptor{ID: "swapping-task", Version: 3}
+
+	provider := newUnitAwareTestProvider(t)
+	finalizer := &failingFinalizer{}
+
+	s := NewScheduler(SchedulerParams{
+		Logger:            func() logrus.FieldLogger { l, _ := logrustest.NewNullLogger(); return l }(),
+		Providers:         map[string]Provider{ns: provider},
+		TaskFinalizer:     finalizer,
+		MetricsRegisterer: monitoring.NoopRegisterer,
+		LocalNode:         "node-a",
+		CompletedTaskTTL:  24 * time.Hour,
+		TickInterval:      30 * time.Second,
+	})
+
+	task := &Task{
+		TaskDescriptor: desc,
+		Namespace:      ns,
+		Status:         TaskStatusSwapping,
+		Units: map[string]*Unit{
+			"u-0": {ID: "u-0", NodeID: "node-a", Status: UnitStatusCompleted},
+		},
+	}
+	tick := func() {
+		s.runCompletedCallbackPhase(ns, desc, task, provider, TaskStatusSwapping)
+		s.runFinalizePhase(ns, map[TaskDescriptor]*Task{desc: task}, true)
+	}
+
+	tick()
+	_, completed := provider.snapshotCalls()
+	require.Len(t, completed, 1, "sanity: the first tick has to fire the callback and attempt the finalize")
+	require.EqualValues(t, 1, finalizer.calls.Load())
+
+	tick()
+
+	_, completed = provider.snapshotCalls()
+	require.Len(t, completed, 2,
+		"the finalize failed, so the fired mark had to be cleared: without that the "+
+			"callback never runs again, the gate the cancel apply parked is never "+
+			"collected, and backups on those shards are refused until its cap expires")
+	require.EqualValues(t, 2, finalizer.calls.Load(),
+		"and the finalize itself must be retried on the next tick")
 }

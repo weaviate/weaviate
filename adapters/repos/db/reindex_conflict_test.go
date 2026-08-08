@@ -715,3 +715,67 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 		})
 	}
 }
+
+// Pins that all three schema gates only offer cancel while STARTED, and
+// never promise the wait ends past that point.
+func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
+	provider := &ReindexProvider{}
+
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+
+	gates := []struct {
+		name string
+		call func(tasks []*distributedtask.Task) error
+	}{
+		{
+			name: "property update",
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate("C", "name", tasks)
+			},
+		},
+	}
+
+	cancelWorks := []string{
+		`{"<indexType>":{"cancel":true}}`,
+		"or wait for it to finish",
+	}
+	cancelRefused := []string{
+		"past the point where cancel works",
+		"can only be waited out",
+		"wedges it here for good",
+	}
+
+	statuses := []struct {
+		status     distributedtask.TaskStatus
+		wantText   []string
+		refuseText []string
+	}{
+		{distributedtask.TaskStatusStarted, cancelWorks, cancelRefused},
+		{distributedtask.TaskStatusPreparing, cancelRefused, cancelWorks},
+		{distributedtask.TaskStatusSwapping, cancelRefused, cancelWorks},
+	}
+
+	for _, gate := range gates {
+		for _, st := range statuses {
+			t.Run(gate.name+"/"+string(st.status), func(t *testing.T) {
+				tasks := []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy", Version: 1},
+					Status:         st.status,
+					Payload:        payload,
+				}}
+				err := gate.call(tasks)
+				require.Error(t, err)
+				for _, want := range st.wantText {
+					require.Contains(t, err.Error(), want)
+				}
+				for _, unwanted := range st.refuseText {
+					require.NotContains(t, err.Error(), unwanted)
+				}
+			})
+		}
+	}
+}

@@ -214,12 +214,22 @@ type uploader struct {
 	backend  nodeStore
 	backupID string
 	zipConfig
-	setStatus func(st backup.Status)
-	log       logrus.FieldLogger
+	// slot is the node's own operation slot, which is what a status poll reads
+	// until the descriptor is written to the backend.
+	slot statusPublisher
+	log  logrus.FieldLogger
+}
+
+// statusPublisher is the observable half of a node's operation slot. Failing
+// goes through its own method so a failure can never be published without the
+// reason that belongs to it; see [backupStat.setFailed].
+type statusPublisher interface {
+	set(st backup.Status)
+	setFailed(reason string)
 }
 
 func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,
-	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
+	backupID string, slot statusPublisher, l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
 		cfg:            cfg,
@@ -234,8 +244,8 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setStatus: setstatus,
-		log:       l,
+		slot: slot,
+		log:  l,
 	}
 }
 
@@ -246,10 +256,15 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
-	u.setStatus(backup.Transferring)
+	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
+
+	// The commit-time overlap backstop is the only failure that makes FAILED
+	// observable while the operation is still running, so its flip waits for the
+	// deferred meta write below: a poll that sees FAILED must be able to read why.
+	var overlapRefused bool
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
@@ -266,16 +281,19 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
 				desc.Status = backup.Transferred
 			}
-			u.setStatus(backup.Success)
+			u.slot.set(backup.Success)
 			u.log.Info("finish uploading metadata")
 			return
 		}
 
-		desc.Error = err.Error()
+		// The caller has already logged the full chain, shard id and all.
+		desc.Error = publishableErrMsg(err)
 
-		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			u.setStatus(backup.Cancelled)
+		// overlapRefused wins over the cancellation classification: the refusal's
+		// own cause may itself wrap a cancellation from an unrelated context,
+		// which would otherwise get published as an operator abort.
+		if !overlapRefused && errors.Is(err, context.Canceled) {
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
 			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
@@ -287,13 +305,18 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
+		// After the meta write either way, since it's the operation that may
+		// have just failed and the reason must survive it.
+		if overlapRefused {
+			u.slot.setFailed(desc.Error)
+		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
 
 	contextChecker := func(ctx context.Context) error {
 		ctxerr := ctx.Err()
 		if ctxerr != nil {
-			u.setStatus(backup.Cancelled)
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 			u.releaseIndexes(classes, desc.ID)
 		}
@@ -352,11 +375,50 @@ Loop:
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
-	u.setStatus(backup.Transferred)
+	// Commit-time backstop: per-shard checks ran before capture, so a reindex
+	// admitted during capture was invisible to them. Failing the backup beats a
+	// SUCCESS that silently spans a migration.
+	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
+		// If this context itself is cancelled, that's an operator abort, not
+		// an overlap — reporting it as one would flip the status to FAILED
+		// behind the operator's back for a migration that never ran.
+		if ctx.Err() != nil {
+			return contextChecker(ctx)
+		}
+		overlapRefused = true
+		desc.Status = backup.Failed
+		if errors.Is(err, backup.ErrReindexOverlapUndetermined) {
+			// The check's own text already states it couldn't answer and
+			// carries the remedy; prefixing "overlapped" here would assert a
+			// migration that may never have existed.
+			return err
+		}
+		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)
+	}
+
+	u.slot.set(backup.Transferred)
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
+}
+
+// publishableErrMsg is the failure text safe to serve from the status API. A
+// gate refusal arrives wrapped in the shard it came from; backing up a
+// collection grants nothing on shard ids, so the refusal's own message is
+// published rather than the traversal that found it.
+func publishableErrMsg(err error) string {
+	msg := err.Error()
+	var blocked backup.ReindexBlockedError
+	if errors.As(err, &blocked) {
+		msg = blocked.Error()
+	}
+	if msg == "" {
+		// A failure published with no text at all reads as no failure; say at
+		// least that there was one.
+		return "backup failed without a reported reason"
+	}
+	return msg
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {

@@ -445,6 +445,13 @@ func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, ex
 	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
 }
 
+// RegisterDistributedTaskTerminalObserver installs a namespace's
+// [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
+// see that type for the apply-path contract.
+func (st *Store) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
+	st.distributedTasksManager.RegisterTerminalObserver(namespace, observer)
+}
+
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
 // this method work as a protection from applying anything was applied to the db
@@ -628,6 +635,10 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 
 func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
+		// The Manager is built in New, before Open, so a Store that never
+		// opened still owns a drainer goroutine. Nothing can have applied
+		// here, so there is no shutdown ordering left to respect.
+		st.distributedTasksManager.Close()
 		return nil
 	}
 
@@ -661,6 +672,9 @@ func (st *Store) Close(ctx context.Context) error {
 	}
 
 	st.open.Store(false)
+
+	// Stop the terminal-observer drainer once no further apply can enqueue.
+	st.distributedTasksManager.Close()
 
 	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")

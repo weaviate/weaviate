@@ -331,14 +331,14 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !matches {
 			continue
 		}
+		// Mirrors [db.ReindexProvider.CheckPropertyUpdate] so pre-check and
+		// apply-path gate agree.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
-				"schema mutations on this property are blocked until "+
-				"the reindex completes or is cancelled — wait for the "+
-				"task to reach a terminal state, or cancel it via the "+
-				"reindex REST API before retrying",
+				"schema mutations on this property are blocked until the "+
+				"reindex reaches a terminal state — %s",
 			task.ID, payload.MigrationType, payload.Collection,
-			propertyName, task.Status)
+			propertyName, task.Status, db.ReindexGateRemedy(task.Status))
 	}
 	return ""
 }

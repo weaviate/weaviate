@@ -622,9 +622,12 @@ func (s *Scheduler) tick() {
 			s.runFinalizePhase(namespace, tasks, providerIsUnitAware)
 		}
 
-		// TTL-cleanup of finished tasks. IsActive() excludes PREPARING and
-		// SWAPPING explicitly — their FinishedAt is zero-time, so
-		// clock.Since(zero) would otherwise mis-classify them as expired.
+		// TTL-cleanup of finished tasks. IsActive() excludes every
+		// non-terminal status. PREPARING and SWAPPING do carry a FinishedAt,
+		// but it is stamped when their units stopped and so is already in the
+		// past while the swap still runs; a status a newer node introduced may
+		// carry a zero one. Either way the age check below would read a live
+		// task as expired.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
 				return false

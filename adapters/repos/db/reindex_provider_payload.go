@@ -11,10 +11,45 @@
 
 package db
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // ReindexNamespace is the DTM namespace for reindex tasks.
 const ReindexNamespace = "reindex"
+
+// ErrReindexPayloadNamesNoCollection is [DecodeReindexTaskPayload]'s answer for
+// a payload the decoder accepted but that names no collection.
+var ErrReindexPayloadNamesNoCollection = errors.New("reindex task payload names no collection")
+
+// DecodeReindexTaskPayload is the one place that decides whether a reindex
+// task payload can be acted on. Every gate, status view and cancel pass reads
+// it through here so they cannot disagree.
+//
+// "Unreadable" keys on the collection being absent, not on the decoder
+// erroring: a renamed field on a newer node's payload unmarshals silently
+// into an empty collection (Go ignores unknown fields), which a naive
+// decoder would then register as a free shard.
+//
+// The returned collection is the best name anything can recover, "" when
+// nothing can:
+//
+//   - err == nil: act on the payload.
+//   - err != nil, collection != "": scope the refusal to that collection.
+//   - err != nil, collection == "": nothing says what the task holds, so the
+//     only honest answer is cluster-wide, cancellable from any collection's
+//     cancel endpoint.
+func DecodeReindexTaskPayload(raw []byte) (ReindexTaskPayload, string, error) {
+	var payload ReindexTaskPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ReindexTaskPayload{}, reindexTaskCollection(raw), err
+	}
+	if payload.Collection == "" {
+		return ReindexTaskPayload{}, "", ErrReindexPayloadNamesNoCollection
+	}
+	return payload, payload.Collection, nil
+}
 
 // ExtractReindexTaskCollection decodes the class name a reindex task is
 // bound to. Registered on startup via
@@ -22,12 +57,32 @@ const ReindexNamespace = "reindex"
 // cascades into reindex task GC (weaviate/0-weaviate-issues#231). Lives
 // next to [ReindexTaskPayload] so the payload format and its
 // scoping-decoder evolve together.
+//
+// Reads through [DecodeReindexTaskPayload], so it recovers the collection from
+// payloads the full decoder rejects. Without that fallback the one task an
+// operator most needs to delete — the one no node can read — is the one
+// deletion silently skips, leaving only the completed-task TTL to clear it.
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
-	var p ReindexTaskPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return "", false
+	_, collection, _ := DecodeReindexTaskPayload(payload)
+	return collection, collection != ""
+}
+
+// reindexTaskCollection reads just the collection out of a task payload,
+// tolerating a payload the full [ReindexTaskPayload] decoder rejects — a field
+// retyped by a newer node during a rolling upgrade fails that decoder but
+// leaves the collection perfectly readable. Empty when even that fails.
+//
+// Unexported so no gate can consult it on its own: read alone it says the
+// payload is fine whenever the collection happens to be present, which is the
+// judgement [DecodeReindexTaskPayload] exists to make in one place.
+func reindexTaskCollection(raw []byte) string {
+	var probe struct {
+		Collection string `json:"collection"`
 	}
-	return p.Collection, p.Collection != ""
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return ""
+	}
+	return probe.Collection
 }
 
 // ReindexMigrationType identifies which migration strategy a reindex task uses.

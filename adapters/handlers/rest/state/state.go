@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/cron"
@@ -81,6 +82,7 @@ type State struct {
 	HTTPServerMetrics  *monitoring.HTTPServerMetrics
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
+	BackupActivity     *backup.NodeActivityProbe
 	ExportParticipant  *exportUsecase.Participant
 	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB
@@ -106,7 +108,12 @@ type State struct {
 	// can wait for a cancelled task's local goroutine to drain before
 	// triggering the on-disk state cleanup — see
 	// [db.ReindexProvider.WaitForLocalTaskDrain].
-	ReindexProvider *db.ReindexProvider
+	//
+	// Atomic because it is assigned well after the cluster API server starts
+	// serving, and the /reindex/cleanup-activity route reads it per request:
+	// the two run on different goroutines with no other edge between them.
+	// Nil until bootstrap assigns it, which that route reports as "not wired".
+	ReindexProvider atomic.Pointer[db.ReindexProvider]
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit

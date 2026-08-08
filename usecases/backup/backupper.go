@@ -57,6 +57,12 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
+	// Before the backend, because the backend has nothing to say about the
+	// failure remembered here.
+	if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
+		return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
+	}
+
 	// The backup might have been already created.
 	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
@@ -113,7 +119,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, &b.lastOp, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)

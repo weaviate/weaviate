@@ -29,9 +29,13 @@ const (
 )
 
 type reqState struct {
-	Starttime      time.Time
-	ID             string
-	Status         backup.Status
+	Starttime time.Time
+	ID        string
+	Status    backup.Status
+	// Err is why the operation ended, for the statuses that need one. It lives
+	// only as long as the slot; a poll arriving after that is answered from
+	// backupStat.rememberedFailure.
+	Err            string
 	Path           string
 	OverrideBucket string
 	OverridePath   string
@@ -40,6 +44,14 @@ type reqState struct {
 type backupStat struct {
 	sync.Mutex
 	reqState
+
+	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
+	// for the one failure that leaves nothing else to read: the slot is
+	// released as soon as the operation returns, and a later poll is answered
+	// from the descriptor on the backend, which does not exist when writing it
+	// is what failed.
+	rememberedFailureID     string
+	rememberedFailureReason string
 }
 
 func (s *backupStat) get() reqState {
@@ -62,17 +74,92 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	s.reqState.OverridePath = overridePath
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
+	s.reqState.Err = ""
+	if s.rememberedFailureID == id {
+		// A retry under the same id: the earlier failure is no longer the
+		// answer to a poll for it.
+		s.rememberedFailureID, s.rememberedFailureReason = "", ""
+	}
 	return ""
 }
 
 func (s *backupStat) reset() {
 	s.Lock()
+	s.clear()
+	s.Unlock()
+}
+
+// clear must be called with the lock held.
+func (s *backupStat) clear() {
 	s.reqState.ID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
+	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
-	s.Unlock()
+}
+
+// resetIfCancelled clears the slot only if id owns it and its status is
+// cancelled; an operation still running must keep its slot. Check-and-clear
+// happens under one lock so a concurrent renew can't be lost. Reports whether it cleared.
+func (s *backupStat) resetIfCancelled(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	if s.reqState.Status != backup.Cancelling && s.reqState.Status != backup.Cancelled {
+		return false
+	}
+	s.clear()
+	return true
+}
+
+// resetIfOwned clears the slot only if id still holds it. An operation whose
+// slot was already handed to a newer one must not free the newcomer's claim:
+// the slot is the node's busy signal, so a false idle lets a runtime-reindex
+// start on top of a live backup or restore. Check-and-clear happens under one
+// lock so a concurrent renew can't be lost. Reports whether it cleared.
+func (s *backupStat) resetIfOwned(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	s.clear()
+	return true
+}
+
+// setFailed ends the operation as failed together with the reason. Failed with
+// no reason is worse than useless to a poller: the coordinator latches whatever
+// a participant reports and stops asking, so an empty reason becomes the
+// permanent answer for a failure that does have one.
+func (s *backupStat) setFailed(reason string) {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.Status == backup.Cancelled {
+		return
+	}
+	s.reqState.Status = backup.Failed
+	s.reqState.Err = reason
+	if reason == "" {
+		return
+	}
+	s.rememberedFailureID = s.reqState.ID
+	s.rememberedFailureReason = reason
+}
+
+// rememberedFailure reports why the operation with this id ended failed, for
+// polls arriving after the slot was released. Absent for anything that did not
+// end failed with a reason. The id has to match: a poll for one backup must
+// never be answered with what happened to another.
+func (s *backupStat) rememberedFailure(id string) (string, bool) {
+	s.Lock()
+	defer s.Unlock()
+	if id == "" || s.rememberedFailureID != id {
+		return "", false
+	}
+	return s.rememberedFailureReason, true
 }
 
 func (s *backupStat) set(st backup.Status) {
@@ -83,6 +170,26 @@ func (s *backupStat) set(st backup.Status) {
 		return
 	}
 	s.reqState.Status = st
+}
+
+// setIfOwned writes the status only if id still holds the slot, the write half
+// of the same ownership rule as [backupStat.resetIfOwned]. A caller that does
+// not derive id from the slot itself — a cancel, which takes it from object
+// storage — would otherwise stamp whichever operation happens to hold it, and a
+// slot reading Cancelled makes coordinator.commit abort the operation as
+// "cancelled externally". Reports whether it wrote.
+func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	// Cancelled is terminal - don't allow overwriting
+	if s.reqState.Status == backup.Cancelled {
+		return false
+	}
+	s.reqState.Status = st
+	return true
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.

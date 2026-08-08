@@ -233,7 +233,7 @@ func (o *SchemaObjectsIndexesUpdateNotFound) WriteResponse(rw http.ResponseWrite
 const SchemaObjectsIndexesUpdateConflictCode int = 409
 
 /*
-SchemaObjectsIndexesUpdateConflict Conflicting reindex task already running.
+SchemaObjectsIndexesUpdateConflict Conflicting reindex task already running, or a backup or restore is in progress on some node.
 
 swagger:response schemaObjectsIndexesUpdateConflict
 */
@@ -323,7 +323,7 @@ func (o *SchemaObjectsIndexesUpdateInternalServerError) WriteResponse(rw http.Re
 const SchemaObjectsIndexesUpdateServiceUnavailableCode int = 503
 
 /*
-SchemaObjectsIndexesUpdateServiceUnavailable Distributed tasks not enabled.
+SchemaObjectsIndexesUpdateServiceUnavailable Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.
 
 swagger:response schemaObjectsIndexesUpdateServiceUnavailable
 */
