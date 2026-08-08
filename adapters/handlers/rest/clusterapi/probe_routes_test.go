@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -73,6 +74,26 @@ func TestProbeRoutesAnswerTheClientsThatCallThem(t *testing.T) {
 		require.NoError(t, err, "the client must reach the route the mux mounts")
 		require.True(t, cleaningUp)
 	})
+}
+
+// assertRejectsNonGET checks that a probe route mounted at path answers every
+// write method with 405. Each method is its own subtest, so a route that
+// answers one of them names it.
+func assertRejectsNonGET(t *testing.T, server *httptest.Server, path string) {
+	t.Helper()
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			req, err := http.NewRequest(method, server.URL+path, nil)
+			require.NoError(t, err)
+
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			assert.Equal(t, http.StatusMethodNotAllowed, res.StatusCode,
+				"a read-only probe must not answer writes")
+		})
+	}
 }
 
 func mustHost(t *testing.T, rawURL string) string {

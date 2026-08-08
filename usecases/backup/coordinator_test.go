@@ -1307,14 +1307,11 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
 			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
 
-			probe := NewNodeActivityProbe(nil)
-			probe.AttachScheduler(&Scheduler{restorer: c})
 			want := NodeActivity{}
 			if tc.wantSlotID != "" {
 				want = NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: tc.wantSlotID}
 			}
-			require.Equal(t, want, probe.Activity(),
-				"the reindex gate reads this probe; reporting idle admits a reindex on top of a live restore")
+			requireProbeSees(t, &Scheduler{restorer: c}, want)
 
 			require.Equal(t, tc.wantSlotID,
 				c.lastOp.renew("intruder", "path", "", ""),

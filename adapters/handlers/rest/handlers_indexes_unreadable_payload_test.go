@@ -188,10 +188,7 @@ func TestCancelClearsATaskWhosePayloadWillNotDecode(t *testing.T) {
 		unreadableTask("Movies:unknown:ab3f", collection, distributedtask.TaskStatusStarted),
 	}}
 
-	var busy atomic.Bool
-	h := submissionHandlers(t, svc, togglingProber{busy: &busy})
-	h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
-		func() int { return 1 }, context.Background()))
+	h := cancelHandlers(t, svc)
 
 	responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
 		&models.Principal{Username: "u1"})
@@ -416,13 +413,10 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &raceTaskService{tasks: tc.tasks(t)}
-			var busy atomic.Bool
-			h := submissionHandlers(t, svc, togglingProber{busy: &busy})
+			h := cancelHandlers(t, svc)
 			if tc.authorizer != nil {
 				h.appState.Authorizer = tc.authorizer
 			}
-			h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
-				func() int { return 1 }, context.Background()))
 
 			principal := tc.principal
 			if principal == nil {
