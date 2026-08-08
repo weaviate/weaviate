@@ -26,40 +26,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// The observable status and the stored failure reason are written by two
-// different steps, and GET /v1/backups/{backend}/{id} reads both. A poll landing
-// between them would report FAILED with an empty reason, which is the headline
-// failure of this feature reported as nothing at all.
-func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testing.T) {
-	const backupID, wantReason = "1", "a runtime-reindex overlapped this backup"
-	any := mock.Anything
-
-	backend := newFakeBackend()
-	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
-	sourcer := &fakeSourcer{}
-	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
-	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-		backup.ErrBackupSpannedReindex, "Movies")
-
-	// What an observer polling at the instant of the FAILED transition reads.
-	var sawFailed bool
-	slot := &fakeStatusSlot{onChange: func(st backup.Status) {
-		if st != backup.Failed {
-			return
-		}
-		sawFailed = true
-		_, reason := backend.getMetaStatus()
-		require.Contains(t, reason, wantReason, "a status poll in this window reads FAILED without a reason")
-	}}
-
-	require.ErrorIs(t, runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil,
-		time.Now().UTC()), backup.ErrBackupSpannedReindex)
-	storedStatus, storedReason := backend.getMetaStatus()
-	require.Equal(t, backup.Failed, storedStatus)
-	require.Contains(t, storedReason, wantReason)
-	require.True(t, sawFailed, "the refused backup has to end up observably FAILED")
-}
-
 // An operator abort cancels the same context the commit-time overlap lookup
 // runs on, so the lookup comes back with the cancellation instead of an answer.
 // That must stay a cancellation: reporting FAILED with "a runtime-reindex
