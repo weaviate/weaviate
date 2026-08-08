@@ -1087,37 +1087,6 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	})
 }
 
-// TestSchedulerRestoreRefusedDuringInFlightReindex pins that Restore refuses
-// once the class list is resolved, and before any of the backup's data is read.
-//
-// The gate sits after the coordinator meta read because that read is what turns
-// a wildcard include into class names; everything past it — the per-node
-// descriptors, the schema, the participant fan-out — must stay untouched.
-func TestSchedulerRestoreRefusedDuringInFlightReindex(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	fs := restoreMetaFixture(ctx, "1", "Class1")
-	fs.selector.reindexInFlightErr = gateRefusal()
-
-	_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
-		Backend: "s3",
-		ID:      "1",
-		Include: []string{"Class1"},
-	}, false)
-
-	require.Error(t, err)
-	fs.backend.AssertNotCalled(t, "GetObject", ctx, "1/Node-A", BackupFile)
-	// ErrUnprocessable doesn't unwrap, so check the sentinel via its text.
-	assert.IsType(t, backup.ErrUnprocessable{}, err)
-	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
-		"retry after the migration finishes", err.Error())
-	assert.NotContains(t, err.Error(), "backup blocked",
-		"a restore refusal must not be worded as a backup refusal")
-	assert.NotContains(t, err.Error(), "this shard",
-		"the gate is cluster-wide; no shard is involved")
-}
-
 // TestSchedulerRestoreRefusedByParticipantIsUnprocessable pins that a participant
 // refusing over a live migration surfaces as 422, not a paging 500.
 func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {

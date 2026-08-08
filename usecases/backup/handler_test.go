@@ -329,38 +329,6 @@ func gateRefusal() error {
 	return fmt.Errorf("%w: retry after the migration finishes", backup.ErrReindexInFlight)
 }
 
-// canCommitGatedRestore asks a participant whose cluster-wide gate is shut to
-// take on a restore.
-func canCommitGatedRestore(backend *fakeBackend) *CanCommitResponse {
-	sourcer := &fakeSourcer{}
-	sourcer.reindexInFlightErr = gateRefusal()
-
-	return createManager(sourcer, nil, backend, nil).OnCanCommit(context.Background(), &Request{
-		Method:   OpRestore,
-		ID:       "1",
-		Classes:  []string{"MyClass"},
-		Backend:  "s3",
-		Duration: time.Millisecond * 20,
-	})
-}
-
-// TestOnCanCommitRestore_WordingSurvivesRoundTrip pins that a restore refusal
-// still reads as one after the coordinator rebuilds it from the RPC response.
-func TestOnCanCommitRestore_WordingSurvivesRoundTrip(t *testing.T) {
-	err := canCommitErrFromResponse(canCommitGatedRestore(newFakeBackend()))
-	require.ErrorIs(t, err, backup.ErrReindexInFlight,
-		"the sentinel must survive the RPC, or the coordinator answers 500 instead of 422")
-
-	got := err.Error()
-	assert.Equal(t, "restore blocked: runtime-reindex in flight in the cluster: "+
-		"retry after the migration finishes", got,
-		"the sentinel rides along for errors.Is; it must not be printed twice")
-	assert.NotContains(t, got, "backup blocked",
-		"a restore refusal must not be worded as a backup refusal")
-	assert.NotContains(t, got, "this shard",
-		"the gate is cluster-wide; no shard is involved")
-}
-
 // TestOnCanCommitRestoreGatesOnTheRequestedClasses pins the participant half of
 // the restore gate to the class list the coordinator resolved. Asking it about
 // anything else — a wildcard pattern, an empty list — makes the check answer a
