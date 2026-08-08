@@ -245,7 +245,9 @@ func TestManager_CleanUpTask_RestoredAndReplayedNodesReachTheSameState(t *testin
 // The mismatch warn fires once per applied entry, and the state that produces
 // it is a whole backlog: a rolling upgrade hands this node every task whose
 // stamp differs from the proposer's. The sampler is the only thing between that
-// and one log line per task, so pin the budget it holds to.
+// and one log line per task, so pin that it is there and that it keeps the
+// burst under the backlog. It does not pin the budget's exact value: raising it
+// short of the entry count still passes.
 func TestManager_CleanUpTask_StampMismatchWarnKeepsToItsBudget(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	defer h.manager.Close()
