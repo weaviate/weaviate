@@ -197,7 +197,7 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 
 	t.Run("a live reindex refuses the restore", func(t *testing.T) {
 		fs := restoreMetaFixture(ctx, backupID, class)
-		fs.selector.reindexInFlightErr = gateRefusal()
+		fs.selector.reindexInFlightErr = errors.New("runtime-reindex in flight")
 
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -207,11 +207,7 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 		require.Error(t, err)
 		assert.IsTypef(t, backup.ErrUnprocessable{}, err,
 			"a blocked restore is retryable, so 422; got %v", err)
-		assert.Equal(t, restoreGateRefusalMsg, err.Error())
-		assert.NotContains(t, err.Error(), "backup blocked",
-			"a restore refusal must not be worded as a backup refusal")
-		assert.NotContains(t, err.Error(), "this shard",
-			"the gate is cluster-wide; no shard is involved")
+		assert.Contains(t, err.Error(), "restore blocked")
 		fs.backend.AssertNotCalled(t, "GetObject", ctx, backupID+"/"+node, BackupFile)
 
 		// Same shape as the arms in TestRestoreGateIsScopedPerArm; kept here

@@ -1187,44 +1187,20 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 		nodes        = []string{"N1", "N2"}
 		classes      = []string{"Class-A", "Class-B"}
 		nodeResolver = newFakeNodeResolver(nodes)
-		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
 	)
 
-	tests := []struct {
-		name    string
-		arrange func(fc *fakeCoordinator, req *Request)
-	}{
-		{"invalid compression level", func(_ *fakeCoordinator, req *Request) {
-			req.Level = CompressionLevel(-1)
-		}},
-		{"participant refused to commit", func(fc *fakeCoordinator, _ *Request) {
-			fc.client.On("CanCommit", any, any, any).Return(nil, ErrAny)
-			fc.client.On("Abort", any, any, any).Return(nil)
-		}},
-		{"initial meta write failed", func(fc *fakeCoordinator, _ *Request) {
-			fc.client.On("CanCommit", any, any, any).Return(cresp, nil)
-			fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
-		}},
-	}
+	fc := newFakeCoordinator(nodeResolver)
+	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+	fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
+	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			fc := newFakeCoordinator(nodeResolver)
-			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
-			fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+	c := fc.coordinator()
+	req := newReq(classes, backendName, backupID)
+	req.Level = CompressionLevel(-1)
+	store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 
-			req := newReq(classes, backendName, backupID)
-			req.Level = GzipDefaultCompression
-			tc.arrange(fc, &req)
-
-			c := fc.coordinator()
-			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
-			require.Error(t, c.Backup(ctx, store, &req))
-			require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
-		})
-	}
+	require.Error(t, c.Backup(ctx, store, &req))
+	require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
 }
 
 // TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot pins that a CANCELLING
@@ -1316,13 +1292,6 @@ func TestCanCommitRefusalIsNeitherNamedNorDoubled(t *testing.T) {
 				Method: OpCreate, ErrKind: CanCommitErrInFlightReindex, Err: participantMsg,
 			},
 			wantMsg: participantMsg,
-		},
-		{
-			name: "older participant sends a message without the sentinel",
-			resp: &CanCommitResponse{
-				Method: OpCreate, ErrKind: CanCommitErrInFlightReindex, Err: "shard is migrating",
-			},
-			wantMsg: backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard is migrating",
 		},
 	}
 

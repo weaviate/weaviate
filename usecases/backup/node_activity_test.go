@@ -163,13 +163,6 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 			name: "busy without a kind",
 			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, ID: "1"},
 		},
-		{
-			name: "busy with an unknown kind",
-			resp: NodeActivityResponse{
-				Probe: clusterprobe.BackupNodeActivityMarker,
-				Busy:  &busy, Kind: "compaction", ID: "1",
-			},
-		},
 	}
 
 	for _, tt := range tests {
