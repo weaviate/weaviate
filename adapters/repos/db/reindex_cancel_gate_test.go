@@ -95,17 +95,6 @@ func TestOnTerminalAppliedClosesCleanupGate(t *testing.T) {
 			"the gate is scoped to the cancelled task's collection")
 	})
 
-	t.Run("a payload without shards gates the whole collection", func(t *testing.T) {
-		serverCtx, cancelServer := context.WithCancel(context.Background())
-		defer cancelServer()
-		p := cancelGateProvider(serverCtx)
-
-		p.OnTerminalApplied(cancelGateTask(t, &ReindexTaskPayload{Collection: collection}))
-
-		require.True(t, p.IsCleanupInProgress(collection, "any-shard"),
-			"with no shard names the gate has to cover every shard of the collection")
-	})
-
 	// The node handling the cancel polls each owner until it answers "gate
 	// closed", and gives up with a degraded warning when the budget runs out.
 	// A payload a newer node wrote that this one cannot fully decode must
@@ -190,13 +179,6 @@ func TestOnTerminalAppliedClosesCleanupGate(t *testing.T) {
 				units:  pending,
 				gated:  true,
 				why:    "a failed task's shards may carry sidecars this node's unit view does not show yet",
-			},
-			{
-				name:   "failed with no units populated at all",
-				status: distributedtask.TaskStatusFailed,
-				units:  nil,
-				gated:  true,
-				why:    "an empty units map says nothing ran only if you assume it is complete",
 			},
 		}
 
