@@ -30,18 +30,13 @@ import (
 // instead of silently producing "unknown migration type" at runtime.
 
 // TestReindexMigrationTypeRegistryMatchesTheConstants ties
-// [AllReindexMigrationTypes] to the constants it claims to enumerate. Every
-// exhaustiveness test in this package walks the registry, so without this scan
-// a constant declared and never registered would be invisible to all of them —
-// which is how the ninth type reached a switch default in production.
+// [AllReindexMigrationTypes] to the constants it claims to enumerate — every
+// exhaustiveness test in this package walks the registry, so an unregistered
+// constant would otherwise be invisible to all of them.
 //
-// It is a line regex over the package's non-test .go files, so it is a
-// tripwire, not a proof: it reads the wire value on the right of each
-// `ReindexMigrationType = ` declaration and requires exactly that set in the
-// registry, no matter which file declares it. Three shapes slip past it —
-// conversion syntax (`= ReindexMigrationType("x")`), a `var` instead of a
-// const, and a name that does not start with ReindexType. Closing them means
-// moving to go/ast.
+// It's a line regex over the package's non-test .go files, so it's a tripwire,
+// not a proof: conversion syntax, a `var` instead of a const, or a name not
+// starting with ReindexType all slip past it.
 func TestReindexMigrationTypeRegistryMatchesTheConstants(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	require.NoError(t, err)

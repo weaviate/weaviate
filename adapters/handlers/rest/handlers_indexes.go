@@ -180,23 +180,18 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
 //
-// Answers at LOCAL consistency: both the schema flags and the task list come
-// from this node's own FSM, so the skew between them is the gap between two
-// adjacent in-process reads rather than the leader's apply lag. It is not one
-// snapshot. The schema is read first and the task list second, so a flip and
-// the finalize that follows it can both land in between, and the handler then
-// renders newer tasks against an older schema for that instant. See
-// [cluster.Raft.ListDistributedTasksAtLocalConsistency]. The submit path and the backup
-// commit-time gate answer at the leader, so a lagging node can report an index
-// `ready` and then refuse the operator's follow-up write.
+// Answers at LOCAL consistency: schema flags and task list both come from this
+// node's own FSM, so the skew between them is the gap between two adjacent
+// in-process reads, not the leader's apply lag — not one snapshot, since the
+// schema is read first. See [cluster.Raft.ListDistributedTasksAtLocalConsistency].
+// The submit path and the backup gate answer at the leader instead, so a
+// lagging node can report an index `ready` here and then refuse the follow-up
+// write.
 //
-// That lag is the failure mode this endpoint cannot report: a node still
-// replaying the log answers with a partial task list and no error, and renders
-// every index `ready`. There is no readiness precondition to check it against.
-// The 500 below is defensive only — the local read has no error return today.
-// An unwired task service gives the same `ready` answer, since a status read is
-// better answered than refused, and warns so the operator can tell the two
-// apart.
+// A node still replaying the log renders every index `ready` with no error —
+// there's no readiness precondition to check the partial task list against.
+// The same happens if the task service is unwired, since a status read is
+// better answered than refused; a warn tells the two apart.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
@@ -2033,8 +2028,8 @@ type parsedReindexTask struct {
 }
 
 // parseReindexTasks unmarshals every reindex task's payload once. A non-empty
-// `wanted` keeps only the tasks naming that collection, so the per-property
-// merge does not rescan the rest; the empty string keeps everything.
+// `wanted` filters to that collection so the per-property merge doesn't rescan
+// the rest; empty string keeps everything.
 //
 // A live task whose payload [db.DecodeReindexTaskPayload] cannot read is kept,
 // flagged unreadable, with just the collection recovered — the backup gate
@@ -2203,23 +2198,15 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// No synthetic entry. FINISHED means every post-completion callback
+		// No synthetic entry: FINISHED means every post-completion callback
 		// committed, and any schema flip the task made commits to the RAFT log
-		// before it — so on the local FSM this handler reads, the base "ready"
-		// entry is the truth.
-		//
-		// The flag that decides whether an entry is emitted at all is the
-		// per-property one (IndexSearchable and friends). For the enable-* and
-		// change-tokenization types, which are the ones that turn it on,
-		// FINISHED with it still off means it was turned back off since (an
-		// index DELETE), i.e. a stale task. change-algorithm does not touch it
-		// and can finish without flipping anything: the class-level
-		// UsingBlockMaxWAND defers until every searchable bucket on the class
-		// is blockmax (shouldDeferBlockmaxFlip), so the class can sit FINISHED
-		// with wand still reported, which is what
-		// testMapToBlockmaxMultiPropertyDefersFlip pins. The entry still
-		// renders "ready" with the class's current algorithm, which is the
-		// honest answer while queries are still class-wide WAND.
+		// before it — so on this handler's local FSM read, base "ready" is the
+		// truth. For enable-*/change-tokenization types, FINISHED with the
+		// per-property flag still off means it was turned back off since (a
+		// stale task after an index DELETE). change-algorithm doesn't touch that
+		// flag and can finish before UsingBlockMaxWAND flips class-wide (see
+		// shouldDeferBlockmaxFlip / testMapToBlockmaxMultiPropertyDefersFlip);
+		// "ready" with the current algorithm is still the honest answer there.
 	default:
 		// A status a newer node introduced is still live to the backup gate;
 		// leaving it "ready" would make the operator's advised poll a loop.

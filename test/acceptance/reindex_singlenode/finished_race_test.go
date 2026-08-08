@@ -28,29 +28,15 @@ import (
 
 // TestSingleNode_FinishedStatusRaceWithSchemaFlag pins the ordering between
 // the distributed-task FINISHED status and the schema-flag flip for a semantic
-// migration (change-tokenization) under the canonical single-node wiring.
-//
-// The flip is not something FINISHED races: MarkTaskFinalized is only proposed
-// after OnTaskCompleted has returned nil, and OnTaskCompleted's schema update
-// is itself a RAFT apply. The flip therefore commits to the log strictly
-// before FINISHED does, and on one node it is applied first.
-//
-// That ordering is what lets the index-status endpoint read both signals from
-// the local FSM: for a migration that turns a per-property flag on, FINISHED
-// with the flag off is a stale task rather than a pending swap. This test pins it end to end: at the first observation of
-// FINISHED the schema must ALREADY report the new tokenization.
-//
-// The window between the units stopping and the flip is reported by the
-// PREPARING and SWAPPING statuses, not by FINISHED. The test also reads
-// `finishedAt` along the way: absent while the migration is in flight, and a
-// sane moment once FINISHED (weaviate/0-weaviate-issues#501).
-//
-// What one node cannot prove: that the stamp came off the RAFT request
-// rather than the applying node's own clock. Here the proposing node and
-// the applying node are the same machine, so the two are indistinguishable
-// by observation. The wire-vs-local-clock provenance is pinned at the FSM
-// level instead, by TestManager_FinishedAt_StampedAtTheTerminalTransition,
-// which sets the request timestamp an hour off the harness clock.
+// migration (change-tokenization): MarkTaskFinalized is only proposed after
+// OnTaskCompleted's schema-update RAFT apply returns nil, so the flip commits
+// strictly before FINISHED and, on one node, applies first. At the first
+// observation of FINISHED the schema must already report the new
+// tokenization; the window before that is reported by PREPARING/SWAPPING, not
+// FINISHED. Also checks `finishedAt`: absent in flight, sane once FINISHED
+// (weaviate/0-weaviate-issues#501) — though stamp provenance (wire vs. local
+// clock) can't be proven on one node and is pinned instead at the FSM level by
+// TestManager_FinishedAt_StampedAtTheTerminalTransition.
 //
 // It also reads FINISHED from /v1/tasks (which answers at the leader) and
 // the schema from the local node. Sound only because leader and local are

@@ -244,22 +244,12 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
-// Edge case 5: a FINISHED task never produces a synthetic entry, however
-// recently it finished.
-//
-// The handler reads the task list from the local FSM, and a task's schema flip
-// commits to the RAFT log before the task is marked FINISHED — so a locally
-// FINISHED task always renders against a flag that has already flipped. The
-// flag being off means it was flipped back since (an index DELETE), i.e. a
-// stale task, and painting "indexing" for it is the bleed of
-// https://github.com/weaviate/weaviate/issues/10675.
-//
-// The "still finalizing" window lives in the PREPARING / SWAPPING statuses,
-// pinned by TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing.
-//
-// Both rows below carry the same expectation at different finish times on
-// purpose: a status that varied with the age of the stamp is exactly the
-// time-bounded override this case exists to keep out.
+// Edge case 5: a FINISHED task never produces a synthetic entry, regardless of
+// how recently it finished — the schema flip commits to the RAFT log before
+// FINISHED, so a locally-read flag is already caught up; a flag still off means
+// a stale task (https://github.com/weaviate/weaviate/issues/10675). The "still
+// finalizing" window lives in PREPARING/SWAPPING instead (see
+// TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing).
 func TestMergeReindexStatus_FinishedNeverSurfacesASyntheticEntry(t *testing.T) {
 	mkTask := func(status distributedtask.TaskStatus, finishedAt time.Time) *distributedtask.Task {
 		task := buildTask(t, "C:enable-filterable:foo:abcd",

@@ -24,19 +24,10 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// A terminal task with no finish time has no age, and both TTL predicates
-// measure age from FinishedAt — on a zero stamp that is roughly two thousand
-// years, which clears every TTL. Deleting the task on that arithmetic
-// would also hide it from the backup overlap backstop
-// (adapters/repos/db/reindex_activity_lookup.go), which refuses a capture on
-// exactly this state. Both sites therefore keep the task.
-//
-// The state itself is only reachable across server versions: a node old enough
-// to end a task without stamping it, applying against state a newer node
-// produced. [Manager.Restore] repairs the stamp, but it runs on restore only,
-// so a node that has not restarted keeps the zero — including a leader, whose
-// list is the one both guards read. They stay live for a whole rolling upgrade
-// for that reason. The tests below seed the map directly rather than through
+// A zero FinishedAt reads as ~2000 years old under both TTL predicates, which
+// would wrongly clear the task for cleanup and hide it from the backup overlap
+// backstop. Reachable during a rolling upgrade until the leader restarts and
+// [Manager.Restore] repairs it. Tests seed the map directly rather than through
 // Restore, which would repair the state under test.
 
 // seedTerminalTaskWithoutAStamp installs a single FINISHED task carrying no
@@ -69,10 +60,8 @@ func TestManager_CleanUpTask_RefusesATerminalTaskWithoutAFinishTime(t *testing.T
 
 	seedTerminalTaskWithoutAStamp(t, h.manager, ns, taskID, version)
 
-	// The apply runs on every node from one log entry, so a decision that moved
-	// with the local clock would delete the task on one node and keep it on
-	// another. The guard returns before the clock is read, so the same request
-	// a century apart refuses identically.
+	// Same request a century apart must refuse identically: the guard returns
+	// before the clock is read.
 	refuse := func(when string) {
 		err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
 			Namespace: ns, Id: taskID, Version: version,

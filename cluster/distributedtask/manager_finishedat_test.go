@@ -138,14 +138,9 @@ func applyFailingPrepAckFrom(node string) terminalApply {
 	}
 }
 
-// Task.FinishedAt is stamped exactly once, at the transition into a terminal
-// status, from the timestamp on the RAFT request that caused it — never from
-// the applying node's clock, which would let two nodes compute different state
-// from the same log entry. weaviate/0-weaviate-issues#501.
-//
-// One case per way a task can end. Each drives the task to the edge of the
-// transition, moves the clock so a stamp taken any earlier is distinguishable,
-// then applies the terminal request.
+// Task.FinishedAt must come off the RAFT request that caused the terminal
+// transition, never the applying node's clock. weaviate/0-weaviate-issues#501.
+// One case per way a task can end.
 func TestManager_FinishedAt_StampedAtTheTerminalTransition(t *testing.T) {
 	tests := []struct {
 		name string
@@ -217,12 +212,9 @@ func TestTask_MarkTerminal_LeavesAnEndedTaskAlone(t *testing.T) {
 	}
 }
 
-// The other half of "stamped exactly once": a second terminal command against
-// an already-ended task must leave the stamp where it is, whether the FSM
-// treats it as an idempotent no-op or refuses it outright. RAFT redelivers
-// entries and multiple nodes propose terminal transitions concurrently, so
-// duplicates are routine. A node that restamped on the second one would
-// disagree with a node restored from a snapshot taken between the two.
+// A second terminal command against an already-ended task must leave the stamp
+// alone, whether treated as a no-op or refused: RAFT redelivers entries and
+// duplicates are routine.
 func TestManager_FinishedAt_NotRestampedByASecondTerminalApply(t *testing.T) {
 	tests := []struct {
 		name     string

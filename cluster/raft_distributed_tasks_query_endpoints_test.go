@@ -24,17 +24,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
-// The index-status endpoint reads the task list from this method so the list
-// and the schema flags it renders against come from the same node, which is
-// what keeps their skew to two adjacent local reads rather than the leader's
-// apply lag. Every handler-level test fakes the whole service, so this is the only
-// place the real method's read is observable.
-//
-// The node here has never joined a cluster: it has FSM state but no raft, so
-// nothing can answer at the leader. A local read still answers; a read routed
-// to the leader cannot. That asymmetry is what makes the two reads observable
-// without a second node — on one node they hold identical state, so state
-// alone could never tell them apart.
+// Every handler-level test fakes this service, so this is the only place the
+// real method's read is observable. The node here has never joined a cluster
+// (FSM state but no raft), so a local read still answers while a
+// leader-routed one cannot — the asymmetry that makes the two reads
+// distinguishable without a second node.
 func TestRaft_ListDistributedTasksAtLocalConsistency_AnswersFromThisNodesFSM(t *testing.T) {
 	ctx := context.Background()
 

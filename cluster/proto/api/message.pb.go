@@ -1604,26 +1604,16 @@ type CleanUpDistributedTaskRequest struct {
 	Version   uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	// The three operands of the TTL comparison, all measured by the proposing
 	// sweep: the moment it looked, the TTL it looked against, and the finish
-	// time it read off the task. The apply subtracts and compares these and
-	// reads no state of its own, so one log entry deletes the task on every
-	// node or on none.
+	// time it read off the task. The apply compares these alone, reading no
+	// local state, so one log entry deletes the task on every node or none.
 	//
-	// finished_at_unix_millis is on the wire because the applying node's own
-	// copy is not guaranteed to match: a node that restored a snapshot written
-	// before finish times were stamped at the finalize carries the earlier
-	// units-stopped moment instead, and subtracting that would reach a
-	// different verdict on the same entry.
-	//
-	// The TTL that governs a deletion is the proposer's.
-	// DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is per-node, so raising it on
-	// one node changes only what that node's own sweeps propose.
-	//
-	// A zero finished_at_unix_millis means the request came from a binary that
-	// predates these fields — a sweep that sets them never proposes an unstamped
-	// task. There is nothing on the entry to decide from, so the apply defers and
-	// keeps the task rather than substituting an operand of its own. The proposer
-	// still deletes it on its own local check; the entry that removes it on every
-	// node comes from the first upgraded proposer.
+	// finished_at_unix_millis travels on the wire because the applying node's
+	// own copy isn't guaranteed to match (e.g. a restored snapshot predating
+	// finalize-time stamping). The TTL that governs is the proposer's, since
+	// DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is per-node. A zero
+	// finished_at_unix_millis means the request predates these fields; the
+	// apply defers rather than substitute its own operand, and the task is
+	// removed once an upgraded proposer re-sweeps it.
 	ProposedAtUnixMillis int64 `protobuf:"varint,4,opt,name=proposed_at_unix_millis,json=proposedAtUnixMillis,proto3" json:"proposed_at_unix_millis,omitempty"`
 	TtlMillis            int64 `protobuf:"varint,5,opt,name=ttl_millis,json=ttlMillis,proto3" json:"ttl_millis,omitempty"`
 	FinishedAtUnixMillis int64 `protobuf:"varint,6,opt,name=finished_at_unix_millis,json=finishedAtUnixMillis,proto3" json:"finished_at_unix_millis,omitempty"`
