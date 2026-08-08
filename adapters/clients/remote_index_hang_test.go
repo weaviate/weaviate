@@ -75,7 +75,7 @@ func newHangAndHealthyRemoteIndex(t *testing.T) (*sharding.RemoteIndex, *atomic.
 			"N0": strings.TrimPrefix(hangSrv.URL, "http://"),
 			"N1": strings.TrimPrefix(healthySrv.URL, "http://"),
 		}},
-		cl, nil)
+		cl, nil, nil)
 	return ri, &hangCalls, &healthyCalls
 }
 
