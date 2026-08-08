@@ -224,3 +224,76 @@ func TestManager_CleanUpTask_StateInvariantsOutrankTheProposersMeasurements(t *t
 			h.manager.CleanUpTask(toCmd(t, elapsed(h, "unstamped"))), "carries no finish time")
 	})
 }
+
+// The entry is the only input, so a nonsense operand on it has no local
+// substitute. Each of these deletes on arrival if the subtraction is trusted
+// blindly, which is the one direction this change is not allowed to fail in:
+// the backup overlap backstop reads the list the deletion would empty.
+func TestManager_CleanUpTask_DefersAnEntryWhoseMeasurementsAreNonsense(t *testing.T) {
+	const (
+		ns      = "tasks-namespace"
+		taskID  = "stamped"
+		version = uint64(7)
+	)
+
+	for _, tc := range []struct {
+		name string
+		// mangle rewrites an otherwise-expired request into the nonsense one
+		// under test.
+		mangle func(r *cmd.CleanUpDistributedTaskRequest)
+	}{
+		{
+			name: "a zero TTL",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.TtlMillis = 0
+			},
+		},
+		{
+			name: "a negative TTL",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.TtlMillis = -1
+			},
+		},
+		{
+			name: "a zero proposal moment",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.ProposedAtUnixMillis = 0
+			},
+		},
+		{
+			name: "a negative proposal moment",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.ProposedAtUnixMillis = -1
+			},
+		},
+		{
+			name: "a finish time later than the moment the sweep looked",
+			mangle: func(r *cmd.CleanUpDistributedTaskRequest) {
+				r.FinishedAtUnixMillis = r.ProposedAtUnixMillis + time.Hour.Milliseconds()
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			defer h.manager.Close()
+
+			finishedAt := h.clock.Now().Add(-30 * 24 * time.Hour).Truncate(time.Millisecond)
+			seedTerminalTaskStampedAt(t, h.manager, ns, taskID, version, finishedAt)
+
+			req := &cmd.CleanUpDistributedTaskRequest{
+				Namespace:            ns,
+				Id:                   taskID,
+				Version:              version,
+				FinishedAtUnixMillis: finishedAt.UnixMilli(),
+				ProposedAtUnixMillis: h.clock.Now().UnixMilli(),
+				TtlMillis:            h.completedTaskTTL.Milliseconds(),
+			}
+			tc.mangle(req)
+
+			require.ErrorContains(t, h.manager.CleanUpTask(toCmd(t, req)), "too fresh to clean up")
+			tasks, err := h.manager.ListDistributedTasks(context.Background())
+			require.NoError(t, err)
+			require.Len(t, tasks[ns], 1, "the task must survive an entry it cannot be decided from")
+		})
+	}
+}

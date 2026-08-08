@@ -1112,8 +1112,24 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // keeps it, and the backlog ages out as soon as an upgraded node takes leadership
 // and proposes with measurements. Deferring also keeps the evidence the backup
 // overlap backstop reads, which is the fail-closed direction.
+//
+// A non-positive TTL defers for the same reason, and is the only other operand
+// needing a guard: nothing validates these numbers before they land here, since
+// only [Scheduler.tick] can propose and a proposer that disagrees with the
+// applier is the case this whole change exists for. The remaining nonsense
+// values fall out fail-closed without one — a non-positive proposal moment, or
+// a finish time later than the moment the sweep looked, both make the age
+// negative, and no positive TTL clears a negative age.
 func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinishedAt time.Time) bool {
 	if r.FinishedAtUnixMillis == 0 {
+		return false
+	}
+
+	// A TTL of zero or less clears against any age, so one such entry would
+	// delete every terminal task on every node. It defers for the same reason
+	// the zero stamp does: the entry is the only input, so there is no better
+	// operand to reach for.
+	if r.TtlMillis <= 0 {
 		return false
 	}
 

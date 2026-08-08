@@ -30,14 +30,13 @@ import (
 // The TTL decision belongs to the sweep that proposes the cleanup, not to each
 // node that applies it — an apply that reads the local wall clock forks the
 // FSM. CleanUpDistributedTask therefore has to put the measurements the sweep
-// made on the request. The task seeded here finished a moment ago and the
-// node's TTL is an hour, so a request carrying no measurements is refused; the
-// cleanup only lands because the proposer's numbers travel with it.
+// made on the request: the moment it looked, the TTL it looked against, and the
+// finish time it read. The two arms below share one task age and differ only in
+// the TTL on the request, so the TTL is what decides.
 func TestRaft_CleanUpDistributedTask_CarriesTheProposersMeasurements(t *testing.T) {
 	ctx := context.Background()
 
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
-	m.cfg.DistributedTasks.CompletedTaskTTL = time.Hour
 	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(schema.NewMockreplicationFSM(t))
 	m.store = &s
@@ -54,27 +53,46 @@ func TestRaft_CleanUpDistributedTask_CarriesTheProposersMeasurements(t *testing.
 	require.True(t, tryNTimesWithWait(20, 200*time.Millisecond, srv.store.IsLeader))
 	require.True(t, tryNTimesWithWait(10, 200*time.Millisecond, srv.Ready))
 
+	// Both tasks finished a minute before the sweep looked.
+	const age = time.Minute
 	finishedAt := time.Now()
-	snap, err := json.Marshal(map[string]any{
-		"tasks": map[string][]*distributedtask.Task{
-			"reindex": {{
-				Namespace:      "reindex",
-				TaskDescriptor: distributedtask.TaskDescriptor{ID: "just-finished", Version: 1},
-				Status:         distributedtask.TaskStatusFinished,
-				StartedAt:      finishedAt.Add(-time.Minute),
-				FinishedAt:     finishedAt,
-			}},
-		},
-	})
-	require.NoError(t, err)
-	require.NoError(t, srv.store.distributedTasksManager.Restore(snap))
+	proposedAt := finishedAt.Add(age)
 
-	require.NoError(t, srv.CleanUpDistributedTask(ctx, "reindex", "just-finished", 1,
-		finishedAt, finishedAt.Add(time.Minute), time.Second),
-		"the apply must decide from the proposer's measurements; without them on the "+
-			"request the node re-measures the age itself and refuses this task as too fresh")
+	for _, tc := range []struct {
+		name     string
+		taskID   string
+		ttl      time.Duration
+		wantKept bool
+	}{
+		{name: "a TTL the age has run past deletes", taskID: "expired", ttl: time.Second},
+		{name: "a TTL the age has not reached keeps", taskID: "still-retained", ttl: time.Hour, wantKept: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := json.Marshal(map[string]any{
+				"tasks": map[string][]*distributedtask.Task{
+					"reindex": {{
+						Namespace:      "reindex",
+						TaskDescriptor: distributedtask.TaskDescriptor{ID: tc.taskID, Version: 1},
+						Status:         distributedtask.TaskStatusFinished,
+						StartedAt:      finishedAt.Add(-time.Minute),
+						FinishedAt:     finishedAt,
+					}},
+				},
+			})
+			require.NoError(t, err)
+			require.NoError(t, srv.store.distributedTasksManager.Restore(snap))
 
-	got, err := srv.ListDistributedTasksAtLocalConsistency(ctx)
-	require.NoError(t, err)
-	require.Empty(t, got["reindex"], "the cleaned-up task must be gone")
+			err = srv.CleanUpDistributedTask(ctx, "reindex", tc.taskID, 1, finishedAt, proposedAt, tc.ttl)
+			got, listErr := srv.ListDistributedTasksAtLocalConsistency(ctx)
+			require.NoError(t, listErr)
+
+			if tc.wantKept {
+				require.ErrorContains(t, err, "too fresh to clean up")
+				require.Len(t, got["reindex"], 1, "the TTL on the request must be what decides")
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, got["reindex"], "the cleaned-up task must be gone")
+		})
+	}
 }
