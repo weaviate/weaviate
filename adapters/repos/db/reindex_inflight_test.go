@@ -22,9 +22,13 @@ import (
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
@@ -512,4 +516,33 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	require.LessOrEqualf(t, len(sample), wantSampleCap,
 		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
 		wantSampleCap, len(sample))
+}
+
+func multiCollectionBackupableFixture(t *testing.T, node string, byCollection map[string][]string) *DB {
+	t.Helper()
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{logger: logger, localNodeName: node}
+	db.indices = map[string]*Index{}
+	for collection, shards := range byCollection {
+		physical := make(map[string]sharding.Physical, len(shards))
+		for _, s := range shards {
+			physical[s] = sharding.Physical{Name: s, BelongsToNodes: []string{node}}
+		}
+		shardState := &sharding.State{IndexID: collection, Physical: physical}
+		reader := schemaUC.NewMockSchemaReader(t)
+		reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+			fn := args.Get(2).(func(*models.Class, *sharding.State) error)
+			require.NoError(t, fn(&models.Class{Class: collection}, shardState))
+		})
+		getter := schemaUC.NewMockSchemaGetter(t)
+		getter.On("NodeName").Return(node)
+		idx := &Index{
+			db:           db,
+			Config:       IndexConfig{ClassName: schema.ClassName(collection)},
+			schemaReader: reader,
+			getSchema:    getter,
+		}
+		db.indices[indexID(schema.ClassName(collection))] = idx
+	}
+	return db
 }
