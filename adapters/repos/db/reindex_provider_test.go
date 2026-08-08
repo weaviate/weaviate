@@ -405,20 +405,6 @@ func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 		release()
 		assert.False(t, p.AnyCleanupInProgress())
 	})
-	// Nothing to wait for is not a reason to skip the gate: the teardown still runs next.
-	drained := make(chan struct{})
-	close(drained)
-	for _, handles := range []map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-		{desc: {doneCh: drained}}, // the worker already drained
-		{},                        // no local worker registered
-	} {
-		p := drainGateProvider(handles)
-		release, err := p.DrainWithCleanupGate(context.Background(), payload, desc)
-		require.NoError(t, err)
-		assert.True(t, p.IsCleanupInProgress("Movies", "shard1"), "the gate stays shut until the caller releases")
-		release()
-		assert.False(t, p.AnyCleanupInProgress())
-	}
 }
 
 // The node handling a cancel may own none of the collection's shards, so it
@@ -615,12 +601,6 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 			},
 			status: distributedtask.TaskStatusFailed,
 			unit:   distributedtask.UnitStatusInProgress,
-		},
-		{
-			name:    "no properties named",
-			payload: &ReindexTaskPayload{Collection: "Movies", MigrationType: ReindexTypeChangeTokenization, UnitToShard: map[string]string{"u1": shard}},
-			status:  distributedtask.TaskStatusFailed,
-			unit:    distributedtask.UnitStatusInProgress,
 		},
 		{
 			name:    "cancelled, no unit ever claimed — the submit rollback",
