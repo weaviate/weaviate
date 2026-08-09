@@ -46,6 +46,7 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 	}
 	rangeableBucket := helpers.BucketRangeableFromPropNameLSM("score")
 	trackerDir := migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{"score"}) + "_1"
+	trackerDirGen2 := migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{"score"}) + "_2"
 	multiPropTrackerDir := migrationDirWithProps(
 		MigrationDirPrefixFilterableToRangeable, []string{"depth", "score", "weight"}) + "_1"
 	otherPropTrackerDir := migrationDirWithProps(
@@ -112,12 +113,29 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "mid-migration: swap committed, rename deferred to this startup",
+			// The audit runs right after FinalizeCompletedMigrations, which
+			// promotes every tidied generation and removes its tracker. A
+			// tidied tracker that is still here means that promotion failed,
+			// and the empty index is what the failure left behind.
+			name: "failed promotion: a tidied tracker survived this startup's finalize",
 			layout: map[string]string{
 				helpers.ObjectsBucketLSM + "/segment-001.db": "objects",
 				rangeableBucket + "/":                        "",
 				".migrations/" + trackerDir + "/started.mig": "x",
 				".migrations/" + trackerDir + "/tidied.mig":  "x",
+			},
+			want: []string{"score"},
+		},
+		{
+			// A generation still running explains the empty index no matter
+			// what an older, unpromotable one left behind.
+			name: "mid-migration: a running generation outranks a failed older one",
+			layout: map[string]string{
+				helpers.ObjectsBucketLSM + "/segment-001.db":     "objects",
+				rangeableBucket + "/":                            "",
+				".migrations/" + trackerDir + "/started.mig":     "x",
+				".migrations/" + trackerDir + "/tidied.mig":      "x",
+				".migrations/" + trackerDirGen2 + "/started.mig": "x",
 			},
 			want: nil,
 		},
@@ -287,4 +305,59 @@ func TestShardInit_WarnsOnUnexplainedEmptyRangeableIndex(t *testing.T) {
 	require.Contains(t, entry.Message,
 		`PUT /v1/schema/`+className+`/indexes/`+propName+` {"rangeable":{"rebuild":true}}`,
 		"the repair command must stay copy-pasteable")
+}
+
+// TestShardInit_WarnsOnFailedPromotion pins the second audit message: when
+// the reason the index is empty is a promotion this startup's finalize pass
+// could not complete, the WARN must say so and point at the retry rather
+// than tell the operator to rebuild an index that is already built and only
+// needs to be moved into place.
+//
+// The tracker that survives the failed promotion is also what would silence
+// the audit if a finished migration still counted as an explanation.
+func TestShardInit_WarnsOnFailedPromotion(t *testing.T) {
+	ctx := testCtx()
+	className := "RangeableAuditRetry_" + uuid.NewString()[:8]
+	propName := filterableToRangeablePropName
+
+	shd, idx := testShardWithSettings(t, ctx, newFilterableToRangeableTestClass(className),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	for _, obj := range makeFilterableToRangeableTestObjects(t, 5, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+	shardName, lsmPath := shard.Name(), shard.pathLSM()
+	require.NoError(t, shard.Shutdown(ctx))
+
+	// A tidied tracker whose generation cannot be promoted: finalize needs
+	// swapped.mig too, so it fails, keeps the tracker and writes no marker.
+	trackerDir := filepath.Join(lsmPath, ".migrations",
+		migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName})+"_1")
+	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "tidied.mig"), []byte("x"), 0o644))
+
+	logger, hook := logrustest.NewNullLogger()
+	idx.logger = logger
+
+	enabled := true
+	restartClass := newFilterableToRangeableTestClass(className)
+	restartClass.Properties[0].IndexRangeFilters = &enabled
+	shd2, err := idx.initShard(ctx, shardName, restartClass, nil, true, true)
+	require.NoError(t, err)
+	defer shd2.Shutdown(ctx)
+
+	require.DirExists(t, trackerDir, "the failed promotion must keep its tracker for the retry")
+
+	var audits []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "rangeable_index_audit" {
+			audits = append(audits, entry)
+		}
+	}
+	require.Len(t, audits, 1,
+		"a tracker left behind by a failed promotion must not silence the audit")
+	require.Equal(t, logrus.WarnLevel, audits[0].Level)
+	require.Equal(t, propName, audits[0].Data["property"])
+	require.Contains(t, audits[0].Message, "could not be promoted to its canonical directory")
+	require.Contains(t, audits[0].Message, "retried at every startup")
 }
