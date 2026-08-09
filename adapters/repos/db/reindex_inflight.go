@@ -121,11 +121,12 @@ const (
 // so per-shard rebuilds cost one round trip per shard — and judges every
 // shard the pass checks against that one answer.
 //
-// Resolution is lazy: a pass that reaches no shard never queries. The
-// admission pass ([DB.Backupable]) and the execution pass
-// ([DB.BackupDescriptors]) each own one; the execution pass resolves up
-// front and carries it in ctx, so the query happens before any shard's
-// write-blocking backup lock is taken.
+// The admission pass ([DB.Backupable]) and the capture pass
+// ([DB.BackupDescriptors]) each own one, and they resolve at different
+// points. The admission pass resolves lazily, on its first shard check, so
+// a pass that reaches no shard never queries. The capture pass resolves up
+// front and carries the gate in ctx, so the query happens before any
+// shard's write-blocking backup lock is taken.
 //
 // Shards checked late in a pass therefore miss a task that appeared
 // mid-pass. The pass was never atomic anyway, and

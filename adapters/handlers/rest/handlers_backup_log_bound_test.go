@@ -24,19 +24,21 @@ import (
 )
 
 // TestBackupRequestsTotal_LogErrorIsBounded pins that this logger no
-// longer prints a refusal's whole body (7 MB on 20,000 shards).
+// longer prints a refusal's whole body, which carries one line per
+// blocked collection and so has no fixed size.
 func TestBackupRequestsTotal_LogErrorIsBounded(t *testing.T) {
+	// One line per blocked collection, which is what DB.Backupable joins.
 	lines := make([]string, 20000)
 	for i := range lines {
-		lines[i] = fmt.Sprintf("node1/Cls: %v: shard %q (collection \"Cls\") has an active runtime-reindex task in DTM",
-			backup.ErrBackupBlockedByInFlightReindex, fmt.Sprintf("shard-%d", i))
+		lines[i] = fmt.Sprintf("%v: collection %q has an active runtime-reindex task in DTM",
+			backup.ErrBackupBlockedByInFlightReindex, fmt.Sprintf("Cls-%d", i))
 	}
 
 	tests := []struct {
 		name string
 		err  error
 	}{
-		{name: "genuine reindex blocking every shard", err: errors.New(strings.Join(lines, "\n"))},
+		{name: "genuine reindex blocking every collection", err: errors.New(strings.Join(lines, "\n"))},
 		{
 			name: "cluster leader unreachable",
 			err: fmt.Errorf("%w: the cluster leader could not be reached, so runtime-reindex state is unknown",
@@ -51,14 +53,20 @@ func TestBackupRequestsTotal_LogErrorIsBounded(t *testing.T) {
 
 			e.logError("Cls", tt.err)
 
+			var sawRefusal bool
 			for _, entry := range hook.AllEntries() {
-				logged := entry.Message
-				if loggedErr, ok := entry.Data["error"]; ok {
-					logged += fmt.Sprint(loggedErr)
+				loggedErr, ok := entry.Data["error"]
+				if !ok {
+					continue
 				}
+				sawRefusal = true
+				logged := entry.Message + fmt.Sprint(loggedErr)
 				require.LessOrEqual(t, len(logged), 8<<10,
-					"log line must not grow with the number of refused shards")
+					"log line must not grow with the number of refused collections")
 			}
+			require.True(t, sawRefusal,
+				"a refused backup must reach the log with its error attached; "+
+					"a bound proves nothing about a line nobody writes")
 		})
 	}
 }

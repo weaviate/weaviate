@@ -558,13 +558,16 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 }
 
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
-// node and no shard, and so can be served to a backup caller as-is. Only the
-// two reindex refusals are; everything else is an operator-facing failure
-// whose first question is "which node?", so [coordinator.canCommit] keeps
-// the node prefix on those.
+// node and no shard, and so can be served to a backup caller as-is. Every
+// reindex refusal is written that way on purpose, because a backup or
+// restore caller is granted nothing on cluster internals. Everything else is
+// an operator-facing failure whose first question is "which node?", so
+// [coordinator.canCommit] keeps the node prefix on those.
 func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
 	switch kind {
-	case CanCommitErrInFlightReindex, CanCommitErrRestoreBlockedByReindex:
+	case CanCommitErrInFlightReindex,
+		CanCommitErrReindexStateUnknown,
+		CanCommitErrRestoreBlockedByReindex:
 		return true
 	default:
 		return false

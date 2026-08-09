@@ -438,8 +438,8 @@ func TestRefuseIfReindexInFlight_UnreachableLeaderStatesTheCause(t *testing.T) {
 	assert.NotContains(t, err.Error(), "cancel")
 }
 
-// TestReindexGate_UnreachableLeaderIsBlocked pins that the
-// boolean form stays fail-closed when cluster state cannot be read.
+// TestReindexGate_UnreachableLeaderIsBlocked pins that the gate stays
+// fail-closed when cluster state cannot be read.
 func TestReindexGate_UnreachableLeaderIsBlocked(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
@@ -603,7 +603,7 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 
 	logger, hook := logrustest.NewNullLogger()
 	// Debug on, so nothing hides behind the level. The per-shard Debug lines in
-	// reindexBlockReasonIn are O(shards) and stay that way on purpose: they are the
+	// reindexGate.blockReason are O(shards) and stay that way on purpose: they are the
 	// only per-shard visibility into which side of the gate fired, Debug is off in
 	// production, and the bound that matters is on what an operator actually sees.
 	// That is what the warn-and-above count below pins.
@@ -620,7 +620,7 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	require.Error(t, db.Backupable(context.Background(), []string{collection}))
 
 	// Counted by LEVEL, not by message. The per-shard risk is that some future
-	// edit promotes one of the per-shard Debug lines in refuseIfReindexInFlightIn
+	// edit promotes one of the per-shard Debug lines in reindexGate.blockReason
 	// to Warn — a 60-shard refusal is then 61 operator-facing entries for a
 	// 1-line body. Matching a message string cannot catch that: the only string
 	// naming a single shard at Warn comes from logReindexRefusal, which this

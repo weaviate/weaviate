@@ -65,8 +65,9 @@ const reindexRefusalShardSample = 10
 // wrapped sentinel (e.g. ErrBackupBlockedByInFlightReindex).
 //
 // The one case that does short circuit is an unreachable cluster leader:
-// reindex state is then unknown for every shard, so a single refusal is
-// returned instead of a per-shard list.
+// reindex state is then unknown for every shard, so the pass stops at the
+// first shard rather than logging every shard as held and collecting
+// findings it cannot trust.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One gate for the whole admission pass; resolving it is a cluster-wide

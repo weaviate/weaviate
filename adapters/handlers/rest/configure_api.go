@@ -1111,12 +1111,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 }
 
 // newShardReindexActivityBuilder builds the backup gate's per-shard lookup.
-// One DTM snapshot per admission pass, scoped to the (collection, shard)
-// tuples the live tasks name.
+// One DTM snapshot per backup pass — the admission pass and the capture pass
+// each take their own — scoped to the (collection, shard) tuples the live
+// tasks name.
 //
 // A DTM it cannot reach returns an error, since the gate must not read
 // "free" from a question it could not ask; the gate turns that into one
-// refusal for the whole pass rather than one per shard. A live task whose
+// refusal that stops the whole pass, so no shard is separately named as
+// held. A live task whose
 // payload will not decode is the same uncertainty, but scoped by
 // [db.DecodeReindexTaskPayload], which recovers the collection from an
 // otherwise-unreadable payload (what a rolling upgrade produces); only a
