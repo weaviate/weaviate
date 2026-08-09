@@ -283,7 +283,7 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
   - **Format-only migrations** (`repair-filterable`,
-    `repair-searchable`, `roaring-set refresh`):
+    `repair-searchable`, `repair-rangeable`, `roaring-set refresh`):
     `STARTED → SWAPPING → FINISHED`.
     `PREPARING` is skipped because there is no cross-replica
     state alignment to bound — each shard's `RunOnShard`
@@ -395,9 +395,10 @@ preceding a transition on the per-task field. Annotations
 ```
 
 Format-only migrations (`repair-filterable`, `repair-searchable`,
-`roaring-set refresh`) skip the OnGroupCompleted barrier — each shard
-runs the full lifecycle inside its own `RunOnShard` and there is no
-cluster-wide schema flip. The flow is otherwise identical.
+`repair-rangeable`, `roaring-set refresh`) skip the OnGroupCompleted
+barrier — each shard runs the full lifecycle inside its own
+`RunOnShard` and there is no cluster-wide schema flip. The flow is
+otherwise identical.
 
 ### What goes through RAFT vs. what is local-only
 
@@ -871,13 +872,16 @@ change-tokenization-filterable   ✓                ✓ (tokenization)
 enable-filterable                ✓                ✓ (ForceFilterable)
 enable-searchable                ✓                ✓ (ForceSearchable + tokenization)
 enable-rangeable                 ✓                ✓ (ForceRangeable)
+change-algorithm                 ✓
 repair-rangeable                                  ✓ (ForceRangeable)
 repair-filterable                                 
 repair-searchable                                 
 ```
 
-The semantic migrations need both the cluster-wide barrier and the
-per-shard analyzer overlay; the format-only ones need neither.
+The semantic migrations all need the cluster-wide barrier. All of them
+except `change-algorithm` also need the per-shard analyzer overlay;
+`change-algorithm` does not, because its properties are already indexed
+under the old algorithm. The format-only ones need neither.
 `repair-rangeable` is format-only but still carries the overlay it
 inherits from the shared strategy; with its flag already true the
 overlay is a harmless no-op.
@@ -1346,6 +1350,33 @@ If the drain times out, return 202 anyway — the next submit's
 defense-in-depth cleanup will pick up the work. If the node crashes
 mid-cancel, the on-disk state survives; the next submit's pre-cleanup
 catches that gap.
+
+A cancel (or failure) between `markMerged` and `markTidied` leaves a
+merged-but-untidied generation that nothing will ever complete. Startup
+finalization (`mergedPromotionDecision` in
+[`inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go))
+decides its fate from the task identity in `payload.mig` plus the
+collection schema:
+
+- **Promote** if the schema confirms the migration, or if the tracker
+  has no readable `payload.mig` (nothing to verify against).
+- **Refuse** (`mergedPromotionRefuse`) if the task is proven dead AND
+  the schema does not reflect the migration. The working dirs are
+  discarded. Refusal is lossless: the swap never renamed the old
+  canonical dir away, so the property keeps serving its complete
+  pre-migration data. The ingest dir stops being updated the moment the
+  task dies, because the double-write mirror dies with it, so a later
+  startup must not promote it either.
+- **Leave** everything in place if the task is still live, or if its
+  liveness cannot be established yet (unreadable task list, or a shard
+  that started before the task-list lookup was installed). The next
+  startup or the orphan audit revisits it.
+
+Shards loaded eagerly during startup are always in that last case:
+they initialize before `configure_api` calls `SetReindexAuditDeps`, so
+their liveness answer is unknown and they take the Leave arm. Refusal
+is reached by shards that load afterwards, in practice lazily-loaded
+and multi-tenant ones.
 
 **DELETE `/properties/{p}/index/{name}`:**
 

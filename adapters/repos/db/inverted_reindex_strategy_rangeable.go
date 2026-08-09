@@ -198,15 +198,10 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 
 // OnMigrationComplete is a no-op for both migration types this strategy
 // serves. enable-rangeable is semantic: its IndexRangeFilters=true flip
-// happens once cluster-wide from [ReindexProvider.OnTaskCompleted], after
-// every node's local swap has committed. repair-rangeable has no schema
-// change to make at all.
-//
-// Flipping per shard here was the first-shard-flips problem in its
-// sharpest form: the cluster-wide flag went true while most shards still
-// held an empty pre-created bucket, and the in-memory gate that
-// compensated for that did not survive a restart
-// (weaviate/0-weaviate-issues#464).
+// happens once cluster-wide at task completion, in
+// [ReindexProvider.flipSemanticMigrationSchema], after every node's local
+// swap has committed. repair-rangeable has no schema change to make at
+// all.
 func (s *FilterableToRangeableStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	return nil
 }
