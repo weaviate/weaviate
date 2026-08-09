@@ -21,12 +21,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func shardRefusals(n int) []error {
+// collectionRefusals is the shape DB.Backupable joins: one line per
+// blocked collection, naming no shard and no node.
+func collectionRefusals(n int) []error {
 	errs := make([]error, n)
 	for i := range errs {
 		errs[i] = fmt.Errorf(
-			"node1/Cls: %w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes",
-			ErrBackupBlockedByInFlightReindex, fmt.Sprintf("shard-%d", i), "Cls")
+			"%w: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes",
+			ErrBackupBlockedByInFlightReindex, fmt.Sprintf("Cls-%d", i))
 	}
 	return errs
 }
@@ -41,23 +43,23 @@ func TestErrorForLog(t *testing.T) {
 		{name: "nil"},
 		{
 			name:          "single refusal",
-			err:           errors.Join(shardRefusals(1)...),
+			err:           errors.Join(collectionRefusals(1)...),
 			wantUnchanged: true,
 		},
 		{
 			name:          "at the line bound",
-			err:           errors.Join(shardRefusals(logErrMaxLines)...),
+			err:           errors.Join(collectionRefusals(logErrMaxLines)...),
 			wantUnchanged: true,
 		},
 		{
 			name:         "one line past the bound",
-			err:          errors.Join(shardRefusals(logErrMaxLines + 1)...),
-			wantContains: []string{"shard-0", "and 1 more of 6"},
+			err:          errors.Join(collectionRefusals(logErrMaxLines + 1)...),
+			wantContains: []string{"Cls-0", "and 1 more of 6"},
 		},
 		{
-			name:         "twenty thousand shards",
-			err:          errors.Join(shardRefusals(20000)...),
-			wantContains: []string{"shard-0", "and 19995 more of 20000"},
+			name:         "twenty thousand collections",
+			err:          errors.Join(collectionRefusals(20000)...),
+			wantContains: []string{"Cls-0", "and 19995 more of 20000"},
 		},
 		{
 			name:         "one very long line",
@@ -79,12 +81,12 @@ func TestErrorForLog(t *testing.T) {
 				return
 			}
 			assert.LessOrEqual(t, len(got.Error()), logErrMaxBytes+64,
-				"a log line must not grow with the number of shards")
+				"a log line must not grow with the number of blocked collections")
 			for _, want := range tt.wantContains {
 				assert.Contains(t, got.Error(), want)
 			}
-			// The last shard is the part a full body would carry and a
-			// bounded one must not.
+			// The last collection is the part a full body would carry and
+			// a bounded one must not.
 			assert.NotEqual(t, tt.err.Error(), got.Error())
 		})
 	}

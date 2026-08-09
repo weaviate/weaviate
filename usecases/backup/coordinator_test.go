@@ -985,6 +985,19 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			expectContain:  backup.ErrBackupBlockedByInFlightReindex.Error(),
 		},
 		{
+			// The participant composes this one to name no node either, so
+			// it must reach the caller unprefixed like the other reindex
+			// refusals.
+			name: "ErrKind=reindex_state_unknown names no node",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "backup blocked: the cluster leader could not be reached, so runtime-reindex state is unknown for every shard on this node",
+				ErrKind: CanCommitErrReindexStateUnknown,
+			},
+			expectContain: "runtime-reindex state is unknown",
+		},
+		{
 			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,

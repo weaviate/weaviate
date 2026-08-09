@@ -294,7 +294,7 @@ func TestBackupable_IndexWithoutDBRefusesThePass(t *testing.T) {
 
 // TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards pins that
 // a failed leader query produces one constant-size refusal, not a naming
-// of every shard (a 7 MB body on a 20,000-shard node).
+// of every shard.
 func TestBackupable_UnreachableLeaderRefusesOnceWithoutNamingShards(t *testing.T) {
 	leaderErr := errors.New("list DTM tasks: leader not found")
 

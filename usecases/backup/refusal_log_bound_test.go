@@ -27,18 +27,20 @@ import (
 )
 
 // logBoundBytes is the largest log line a refusal may produce. Well
-// above what five shard refusals need, well below what a per-shard
-// listing produces on a node with thousands of them.
+// above what five refusals need, well below what one line per blocked
+// collection produces on a node holding thousands of them.
 const logBoundBytes = 8 << 10
 
+// massRefusal is the shape DB.Backupable joins: one line per blocked
+// collection, naming no shard and no node.
 func massRefusal(n int) []string {
 	lines := make([]string, n)
 	for i := range lines {
 		lines[i] = fmt.Sprintf(
-			"node1/Cls: %v: shard %q (collection \"Cls\") has an active runtime-reindex task in DTM; "+
+			"%v: collection %q has an active runtime-reindex task in DTM; "+
 				"retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes "+
 				"report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop>",
-			backup.ErrBackupBlockedByInFlightReindex, fmt.Sprintf("shard-%d", i))
+			backup.ErrBackupBlockedByInFlightReindex, fmt.Sprintf("Cls-%d", i))
 	}
 	return lines
 }
@@ -55,11 +57,11 @@ func TestBackupRefusalLogIsBounded(t *testing.T) {
 		mustSurviveInResponse string
 	}{
 		{
-			name: "genuine reindex blocking every shard",
-			// Assembled in-process by DB.Backupable: one joined error
-			// per blocked shard.
+			name: "genuine reindex blocking every collection",
+			// Assembled in-process by DB.Backupable: one joined error per
+			// distinct refusal, which is one per blocked collection.
 			refusal:               errors.New(strings.Join(massRefusal(20000), "\n")),
-			mustSurviveInResponse: "shard-19999",
+			mustSurviveInResponse: "Cls-19999",
 		},
 		{
 			name: "refusal flattened by the participant RPC",
@@ -69,7 +71,7 @@ func TestBackupRefusalLogIsBounded(t *testing.T) {
 			refusal: fmt.Errorf("node %q: %w: %s", "node2",
 				backup.ErrBackupBlockedByInFlightReindex,
 				strings.Join(massRefusal(20000), "\n")),
-			mustSurviveInResponse: "shard-19999",
+			mustSurviveInResponse: "Cls-19999",
 		},
 		{
 			name: "cluster leader unreachable",
@@ -104,7 +106,7 @@ func TestBackupRefusalLogIsBounded(t *testing.T) {
 			require.NotEmpty(t, entries, "a refused backup must be logged at all")
 			for _, entry := range entries {
 				require.LessOrEqual(t, len(entry.Message), logBoundBytes,
-					"log line must not grow with the number of refused shards")
+					"log line must not grow with the number of refused collections")
 			}
 		})
 	}
@@ -152,7 +154,7 @@ func TestCoordinatorFailureLogIsBounded(t *testing.T) {
 	require.NoError(t, coordinator.Backup(ctx, store, &req))
 	<-fc.backend.doneChan
 
-	require.Contains(t, fc.backend.glMeta.Error, "shard-19999",
+	require.Contains(t, fc.backend.glMeta.Error, "Cls-19999",
 		"the stored descriptor keeps the whole refusal for the status API")
 
 	// Two sites log this failure: the per-participant line inside commitAll and
@@ -161,7 +163,7 @@ func TestCoordinatorFailureLogIsBounded(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var sawParticipant, sawSummary bool
 		for _, entry := range hook.AllEntries() {
-			if strings.Contains(entry.Message, "shard-0") {
+			if strings.Contains(entry.Message, "Cls-0") {
 				sawParticipant = true
 			}
 			if strings.Contains(entry.Message, "coordinator: ") {
@@ -187,13 +189,13 @@ func TestParticipantFailureLogIsBounded(t *testing.T) {
 	_, _, errMsg, hook := runParticipantBackupWithMetaWriteErr(t, &fakeSourcer{}, newFakeBackend(),
 		[]string{cls}, t.TempDir(), nil, backup.ClassDescriptor{Name: cls, Error: wide})
 
-	require.Contains(t, errMsg, "shard-19999",
+	require.Contains(t, errMsg, "Cls-19999",
 		"the stored failure meta keeps the whole refusal for the status API")
 	var sawFailure bool
 	for _, entry := range hook.AllEntries() {
 		require.LessOrEqual(t, len(entry.Message), logBoundBytes,
 			"log line must not grow with the size of the refusal")
-		if strings.Contains(entry.Message, "shard-0") {
+		if strings.Contains(entry.Message, "Cls-0") {
 			sawFailure = true
 		}
 	}
