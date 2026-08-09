@@ -218,14 +218,21 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //     swap on this node crashed AFTER `markMerged` but BEFORE
 //     `markTidied`, so the ingest dir at gen M holds a complete dataset
 //     under the target encoding while the canonical-name rename never
-//     ran. Whether that dataset may be promoted depends on the task
-//     that produced it — see [mergedPromotionDecision]. When it may,
-//     `swapped.mig` + `tidied.mig` sentinels are written into gen-M's
-//     tracker dir (so the namespace becomes self-consistent on disk and
-//     the same finalize path runs) and gen M is promoted the same way.
+//     ran. What happens to that dataset — see
+//     [swappedOrMergedPromotionDecision]. A generation carrying
+//     `swapped.mig` is promoted unconditionally: the swap already
+//     committed and there is no other complete copy left. Only a
+//     generation without `swapped.mig` is weighed against the task that
+//     produced it. When a generation is promoted, `swapped.mig` +
+//     `tidied.mig` sentinels are written into gen-M's tracker dir (so
+//     the namespace becomes self-consistent on disk and the same
+//     finalize path runs) and gen M is promoted the same way.
 //   - Remove every dir on disk (sidecars + tracker) with gen < effective
 //     — these are pre-`effective` data, no longer referenced.
-//   - Remove the tracker dir for `effective` itself.
+//   - Remove the tracker dir for `effective` itself, leaving a
+//     `<dirName>.finalized.mig` marker in its place so a task callback
+//     that arrives afterwards can tell "already done" from "never ran"
+//     (see [migrationFinalizedMarkerPath]).
 //   - If neither `T` nor `M` exists, do nothing — any earlier-stage
 //     in-flight migration on disk is the recovery path's
 //     responsibility ([DiscoverInFlightReindexTasks]).
@@ -235,9 +242,10 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // `class` is the collection schema this shard is being loaded with (the
 // restored schema on a restore path) and `taskLiveness` resolves the
 // task identity in a tracker's payload.mig against the distributed task
-// list. Both are only consulted on the merged-without-tidied branch;
-// passing nil for either makes that branch keep its historical
-// promote-unconditionally behavior.
+// list. Both are only consulted for a merged-without-tidied generation
+// that does not carry `swapped.mig`; passing nil for either makes that
+// case keep its historical promote-unconditionally behavior. A swapped
+// generation is promoted without consulting either.
 //
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
@@ -366,11 +374,14 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
 				finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
 				// finalizeMigrationDir performs the ingest→canonical
 				// rename + backup removal. We also remove the tracker
-				// dir itself: its sentinels have done their job.
+				// dir itself: its sentinels have done their job. The
+				// marker takes its place so a task still running for
+				// this generation can recognize its work as done.
 				if err := os.RemoveAll(migDir); err != nil {
 					logger.WithField("path", migDir).
 						Warnf("reindex finalize: failed to remove finalized tracker dir: %v", err)
 				}
+				writeMigrationFinalizedMarker(lsmPath, g.dirName, logger)
 			case g.gen < effective:
 				// Stale older gen: remove tracker dir AND its sidecar
 				// dirs (their backup/ingest/reindex dirs on disk are
@@ -389,6 +400,87 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
 				// before markMerged); recovery handles via its own
 				// payload.mig read.
 			}
+		}
+
+		removeStaleFinalizedMarkers(migrationsDir, entries, namespace, effective, logger)
+	}
+}
+
+// migrationFinalizedMarkerSuffix names the file [FinalizeCompletedMigrations]
+// leaves behind when it removes a tracker dir it just promoted.
+const migrationFinalizedMarkerSuffix = ".finalized.mig"
+
+// migrationFinalizedMarkerPath is the marker recording that the given
+// migration generation was promoted and its tracker removed.
+//
+// Removing the tracker is what makes the deferred rename visible to the
+// next boot, but it also erases the only on-disk evidence that this
+// generation ever existed. A task that is still running when startup
+// promotes its generation calls back into the shard afterwards and finds
+// nothing — indistinguishable from a shard that never ran the migration,
+// which is a hard error ([ShardReindexTaskGeneric.enterDTMPhase]). The
+// marker keeps those two apart so the task acks success instead of
+// failing the whole cluster's migration on a shard whose data is correct.
+//
+// It is a file, not a directory, so the scans that enumerate migration
+// state (all of which skip non-directories) do not see a finished
+// migration as an in-flight one. The startup audit in
+// [unexplainedEmptyRangeableProps] depends on that: a marker must not
+// suppress its damage warning.
+//
+// Markers for superseded generations are swept by
+// [removeStaleFinalizedMarkers], so at most one survives per namespace.
+func migrationFinalizedMarkerPath(lsmPath, dirName string) string {
+	return filepath.Join(lsmPath, ".migrations", dirName+migrationFinalizedMarkerSuffix)
+}
+
+// writeMigrationFinalizedMarker records that dirName's generation was
+// promoted. Best-effort: a missing marker only costs the pre-existing
+// failure mode it exists to prevent, so it must not abort finalize.
+func writeMigrationFinalizedMarker(lsmPath, dirName string, logger logrus.FieldLogger) {
+	path := migrationFinalizedMarkerPath(lsmPath, dirName)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		logger.WithField("path", path).
+			Warnf("reindex finalize: failed to write finalized marker; a task still running for this generation may fail its swap callback: %v", err)
+	}
+}
+
+// dirHoldsAnyFile reports whether a directory holds at least one regular
+// file. Used to tell a migration tracker that carries state from an empty
+// leftover dir, which some code paths create before finding there is
+// nothing to do.
+func dirHoldsAnyFile(dirPath string) bool {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// removeStaleFinalizedMarkers drops the markers of generations older than
+// effective in one namespace. Their tasks cannot still be running: a
+// newer generation of the same namespace has completed since.
+func removeStaleFinalizedMarkers(migrationsDir string, entries []os.DirEntry,
+	namespace string, effective int, logger logrus.FieldLogger,
+) {
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), migrationFinalizedMarkerSuffix) {
+			continue
+		}
+		base := strings.TrimSuffix(entry.Name(), migrationFinalizedMarkerSuffix)
+		ns, gen, ok := parseMigrationDirName(base)
+		if !ok || ns != namespace || gen >= effective {
+			continue
+		}
+		path := filepath.Join(migrationsDir, entry.Name())
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logger.WithField("path", path).
+				Warnf("reindex finalize: failed to remove stale finalized marker: %v", err)
 		}
 	}
 }

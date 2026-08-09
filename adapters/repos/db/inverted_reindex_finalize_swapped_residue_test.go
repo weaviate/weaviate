@@ -138,6 +138,61 @@ func TestFinalize_SwappedResidueWritesTidiedBeforePromoting(t *testing.T) {
 	require.NoError(t, err, "without its sentinels the generation must be left untouched for the next startup")
 }
 
+// TestFinalize_PromotionLeavesAFinalizedMarker pins the record the
+// promotion leaves in place of the tracker it removes. Without it a task
+// still running for that generation cannot tell "startup did my work"
+// from "this shard never ran the migration", and fails the cluster's
+// migration on a shard whose data is correct. Older generations' markers
+// are swept at the same time, so they cannot accumulate.
+func TestFinalize_PromotionLeavesAFinalizedMarker(t *testing.T) {
+	shape := repairRangeableSwappedResidue()
+	lsmPath, _ := writeSwappedResidue(t, shape)
+
+	logger, _ := test.NewNullLogger()
+	FinalizeCompletedMigrations(lsmPath, classWith(shape.agreeing), fixedLiveness(ReindexTaskLivenessLive), logger)
+
+	require.FileExists(t, migrationFinalizedMarkerPath(lsmPath, shape.dirName),
+		"the promoted generation must leave a marker behind")
+}
+
+// TestRemoveStaleFinalizedMarkers pins the sweep that keeps markers from
+// accumulating: one namespace's markers below the generation just
+// promoted are gone, everything else is left alone.
+func TestRemoveStaleFinalizedMarkers(t *testing.T) {
+	namespace := "filterable_to_rangeable_price"
+	tests := []struct {
+		name     string
+		marker   string
+		survives bool
+	}{
+		{name: "superseded generation", marker: namespace + "_1", survives: false},
+		{name: "the generation just promoted", marker: namespace + "_3", survives: true},
+		{name: "a later generation", marker: namespace + "_4", survives: true},
+		{name: "another namespace", marker: "filterable_to_rangeable_weight_1", survives: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsmPath := t.TempDir()
+			migrationsDir := filepath.Join(lsmPath, ".migrations")
+			require.NoError(t, os.MkdirAll(migrationsDir, 0o755))
+			path := migrationFinalizedMarkerPath(lsmPath, tc.marker)
+			touchSentinel(t, path)
+			entries, err := os.ReadDir(migrationsDir)
+			require.NoError(t, err)
+
+			logger, _ := test.NewNullLogger()
+			removeStaleFinalizedMarkers(migrationsDir, entries, namespace, 3, logger)
+
+			if tc.survives {
+				require.FileExists(t, path)
+				return
+			}
+			require.NoFileExists(t, path)
+		})
+	}
+}
+
 // TestSwappedResidueRecordShape guards the fixture against drift: the
 // payload the helper writes must be the one the production loader reads.
 func TestSwappedResidueRecordShape(t *testing.T) {

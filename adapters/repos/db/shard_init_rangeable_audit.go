@@ -128,8 +128,14 @@ func bucketDirHoldsData(bucketDir string) bool {
 // too: the question here is "is there a migration that explains the
 // state", and one whose rename is deferred to the next startup explains
 // it just as well as one still running.
+//
+// An empty tracker dir explains nothing and is not counted. Several
+// paths create the dir before deciding there is nothing to do, and a
+// leftover would otherwise suppress this warning on every boot from
+// then on.
 func hasAnyMigrationTracker(lsmPath string, families []string, propName string) bool {
-	entries, err := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
+	migrationsDir := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		return false
 	}
@@ -142,7 +148,8 @@ func hasAnyMigrationTracker(lsmPath string, families []string, propName string) 
 			continue
 		}
 		for _, family := range families {
-			if trackerCoversProp(base, family, propName) {
+			if trackerCoversProp(base, family, propName) &&
+				dirHoldsAnyFile(filepath.Join(migrationsDir, entry.Name())) {
 				return true
 			}
 		}

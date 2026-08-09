@@ -36,7 +36,10 @@ import (
 //
 // This is the reachable half of a repair-rangeable restart: the shards
 // that reach it are the ones whose liveness lookup answers Live, which
-// after this PR means lazily-loaded and multi-tenant ones.
+// after this PR means lazily-loaded and multi-tenant ones. Only the
+// "task still running" arm is a receipt for that; the "task already
+// gone" arm restarts with a schema that agrees, which the old code
+// promoted anyway, so it is a control.
 
 func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 	const (
@@ -118,6 +121,20 @@ func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 			require.Empty(t, dirsWithPrefix(t, lsmPath, bucketName+"__rangeable_ingest"),
 				"the ingest dir was promoted to canonical, so it is gone")
 			require.False(t, fileExists(migrationPath), "the tracker has done its job")
+			require.True(t, fileExists(migrationFinalizedMarkerPath(lsmPath, task.MigrationDirName())),
+				"the promotion must record itself, or the task below cannot tell done from never-ran")
+
+			// The task the cluster is still waiting on now runs its swap
+			// phase against a shard whose migration startup already
+			// finished. It must ack success: failing here would report
+			// the migration as failed cluster-wide on a shard whose data
+			// is correct.
+			require.NoError(t, task.RunSwapOnShard(ctx, shard2),
+				"the swap phase must ack work startup already did")
+			require.Equal(t, wantFingerprint, filterableToRangeableFingerprint(t, shard2.store.Bucket(bucketName)),
+				"the ack must not have disturbed the promoted data")
+			require.False(t, fileExists(migrationPath),
+				"the swap phase must not leave an empty tracker dir behind — it would blind the startup audit")
 		})
 	}
 }

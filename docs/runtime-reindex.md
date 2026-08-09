@@ -1234,10 +1234,31 @@ Per namespace (strategy-prefix + props-suffix):
      `swapped.mig` + `tidied.mig` sentinels and promote the same way.
      **CRITICAL:** otherwise this node serves the old data under the
      new schema → divergence vs other replicas → #10675-shape bug.
+
+     Whether gen M may be promoted is a decision only while it carries
+     no `swapped.mig`: then the canonical dir still holds the
+     pre-migration data, and a task known to be dead gets its ingest
+     dir discarded instead (`mergedPromotionDecision`). A gen carrying
+     `swapped.mig` is promoted unconditionally — the swap committed,
+     the canonical dir is gone, and the ingest dir is the only complete
+     copy left.
 5. Remove every dir on disk with gen < effective.
-6. Remove the tracker dir for `effective`.
+6. Remove the tracker dir for `effective`, leaving a
+   `<dirName>.finalized.mig` marker file in its place.
 7. Leave gens > effective alone (in-flight; `DiscoverInFlightReindexTasks`
    handles them).
+
+Step 6 can land while the task that produced the generation is still
+running — that is the normal case for the swapped-gen promotion, whose
+whole point is that the task did not get to finish. The task's next
+call into the shard then finds no tracker at all, which is otherwise a
+hard error ("not in reindexed state and has no started sentinel") that
+fails the migration cluster-wide on a shard whose data is correct. The
+marker is what keeps "startup already did this" apart from "this shard
+never ran the migration": `enterDTMPhase` sees it and the phase acks
+success. It is a file, not a directory, so nothing that scans for
+in-flight migrations — including the startup damage audit — mistakes a
+finished migration for a live one.
 
 ### 9.6 Hard rules
 
