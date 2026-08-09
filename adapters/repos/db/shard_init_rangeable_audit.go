@@ -148,8 +148,14 @@ func hasAnyMigrationTracker(lsmPath string, families []string, propName string) 
 			continue
 		}
 		for _, family := range families {
-			if trackerCoversProp(base, family, propName) &&
-				dirHoldsAnyFile(filepath.Join(migrationsDir, entry.Name())) {
+			if !trackerCoversProp(base, family, propName) {
+				continue
+			}
+			// An unreadable tracker dir reads as empty and so explains
+			// nothing, which leaves the caller's damage warning in place.
+			// That is the safe direction here: one warning too many is
+			// better than one too few.
+			if holds, _ := dirHoldsAnyFile(filepath.Join(migrationsDir, entry.Name())); holds {
 				return true
 			}
 		}

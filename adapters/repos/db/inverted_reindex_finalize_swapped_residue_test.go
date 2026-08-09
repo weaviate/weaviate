@@ -193,6 +193,92 @@ func TestRemoveStaleFinalizedMarkers(t *testing.T) {
 	}
 }
 
+// TestMigrationAlreadyFinalized covers the rule that keeps a marker from
+// acking a migration that never ran.
+//
+// A marker outlives its generation: generation numbers are reused, and a
+// namespace with no tracker dir is never swept. So a later migration can
+// find a marker carrying its own exact name. What separates it from a
+// generation startup really did promote is the tracker dir: production
+// writes payload.mig into it before any phase runs, so a live generation
+// always has a file there.
+func TestMigrationAlreadyFinalized(t *testing.T) {
+	tests := []struct {
+		name string
+		// marker is the <dirName>.finalized.mig file a promotion leaves.
+		marker bool
+		// trackerFiles are laid down in the tracker dir; a non-nil empty
+		// slice creates the dir and leaves it empty.
+		trackerFiles       []string
+		want               bool
+		wantTrackerDirGone bool
+	}{
+		{
+			name:         "no marker, live tracker",
+			trackerFiles: []string{reindexRecoveryPayloadFile},
+			want:         false,
+		},
+		{
+			name:         "marker plus a tracker that already holds payload.mig",
+			marker:       true,
+			trackerFiles: []string{reindexRecoveryPayloadFile},
+			want:         false,
+		},
+		{
+			name:         "marker plus a tracker mid-reindex",
+			marker:       true,
+			trackerFiles: []string{reindexRecoveryPayloadFile, "started.mig"},
+			want:         false,
+		},
+		{
+			name:               "marker plus an empty tracker dir",
+			marker:             true,
+			trackerFiles:       []string{},
+			want:               true,
+			wantTrackerDirGone: true,
+		},
+		{
+			name:               "marker, tracker dir gone",
+			marker:             true,
+			want:               true,
+			wantTrackerDirGone: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			task := &ShardReindexTaskGeneric{
+				logger: logger,
+				strategy: &FilterableToRangeableStrategy{
+					propNames:  []string{filterableToRangeablePropName},
+					generation: 1,
+				},
+			}
+
+			lsmPath := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, ".migrations"), 0o755))
+			migDir := filepath.Join(lsmPath, ".migrations", task.MigrationDirName())
+			if tc.trackerFiles != nil {
+				require.NoError(t, os.MkdirAll(migDir, 0o755))
+				for _, name := range tc.trackerFiles {
+					touchSentinel(t, filepath.Join(migDir, name))
+				}
+			}
+			if tc.marker {
+				touchSentinel(t, migrationFinalizedMarkerPath(lsmPath, task.MigrationDirName()))
+			}
+
+			require.Equal(t, tc.want, task.migrationAlreadyFinalized(lsmPath))
+
+			if tc.wantTrackerDirGone {
+				require.NoDirExists(t, migDir,
+					"an empty tracker dir must not survive — it blinds the startup damage audit")
+			}
+		})
+	}
+}
+
 // TestSwappedResidueRecordShape guards the fixture against drift: the
 // payload the helper writes must be the one the production loader reads.
 func TestSwappedResidueRecordShape(t *testing.T) {

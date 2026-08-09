@@ -243,9 +243,10 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // restored schema on a restore path) and `taskLiveness` resolves the
 // task identity in a tracker's payload.mig against the distributed task
 // list. Both are only consulted for a merged-without-tidied generation
-// that does not carry `swapped.mig`; passing nil for either makes that
-// case keep its historical promote-unconditionally behavior. A swapped
-// generation is promoted without consulting either.
+// that does not carry `swapped.mig`. A nil lookup answers Unknown and a
+// nil class confirms nothing, so nil does not mean "promote" — it means
+// the decision falls back to Leave, or to Refuse for a task known to be
+// dead. A swapped generation is promoted without consulting either.
 //
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
@@ -430,6 +431,20 @@ const migrationFinalizedMarkerSuffix = ".finalized.mig"
 //
 // Markers for superseded generations are swept by
 // [removeStaleFinalizedMarkers], so at most one survives per namespace.
+//
+// A marker carrying my dirName does NOT prove that my generation was
+// promoted, for two reasons:
+//
+//   - Generation numbers are reused. [nextMigrationGeneration] counts
+//     directories, and a promoted generation leaves none behind, so the
+//     next migration on the same namespace is handed the same number and
+//     with it the same marker name.
+//   - A marker whose namespace has no tracker dir never expires. The
+//     sweep runs inside the per-namespace loop, and that loop is built
+//     from tracker dirs only, so a lone marker survives every later boot.
+//
+// What makes reading the marker safe is that a tracker dir holding files
+// overrides it — see [ShardReindexTaskGeneric.migrationAlreadyFinalized].
 func migrationFinalizedMarkerPath(lsmPath, dirName string) string {
 	return filepath.Join(lsmPath, ".migrations", dirName+migrationFinalizedMarkerSuffix)
 }
@@ -449,17 +464,21 @@ func writeMigrationFinalizedMarker(lsmPath, dirName string, logger logrus.FieldL
 // file. Used to tell a migration tracker that carries state from an empty
 // leftover dir, which some code paths create before finding there is
 // nothing to do.
-func dirHoldsAnyFile(dirPath string) bool {
+//
+// A directory that cannot be read reports as empty. The error is returned
+// alongside so callers for which "empty" is the unsafe answer can say so;
+// a missing directory is empty and reports [os.ErrNotExist].
+func dirHoldsAnyFile(dirPath string) (bool, error) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // removeStaleFinalizedMarkers drops the markers of generations older than

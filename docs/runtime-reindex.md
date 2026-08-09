@@ -1260,6 +1260,17 @@ success. It is a file, not a directory, so nothing that scans for
 in-flight migrations — including the startup damage audit — mistakes a
 finished migration for a live one.
 
+The marker on its own is not proof, for two reasons. Generation numbers
+are reused (`nextMigrationGeneration` counts directories, and a promoted
+generation leaves none behind), and a marker whose namespace has no
+tracker dir is never swept, so it survives every later boot. A migration
+submitted months later can therefore find a marker carrying its exact
+name. What makes reading it safe is that `migrationAlreadyFinalized`
+lets a tracker dir holding files override the marker, and every phase of
+a live migration is preceded by a write into that dir: `payload.mig`
+before the reindex iteration, `started.mig` during it, both before
+prepare and swap.
+
 ### 9.6 Hard rules
 
 - **Do not** call `Store.FinalizeBucketSwap` at runtime. Single
