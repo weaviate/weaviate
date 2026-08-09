@@ -270,6 +270,7 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
 		gen     int
 		tidied  bool
 		merged  bool
+		swapped bool
 	}
 	groups := map[string][]genInfo{}
 	for _, entry := range entries {
@@ -285,11 +286,13 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
 		}
 		tidied := fileExists(filepath.Join(migrationsDir, name, "tidied.mig"))
 		merged := fileExists(filepath.Join(migrationsDir, name, "merged.mig"))
+		swapped := fileExists(filepath.Join(migrationsDir, name, "swapped.mig"))
 		groups[namespace] = append(groups[namespace], genInfo{
 			dirName: name,
 			gen:     gen,
 			tidied:  tidied,
 			merged:  merged,
+			swapped: swapped,
 		})
 	}
 
@@ -328,7 +331,7 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
 					continue
 				}
 				migDir := filepath.Join(migrationsDir, g.dirName)
-				switch mergedPromotionDecision(migDir, g.dirName, class, taskLiveness, logger) {
+				switch swappedOrMergedPromotionDecision(g.swapped, migDir, g.dirName, class, taskLiveness, logger) {
 				case mergedPromotionPromote:
 					if err := writeRecoveryTidiedSentinels(migDir); err != nil {
 						logger.WithField("migration", g.dirName).
@@ -406,9 +409,34 @@ const (
 	mergedPromotionRefuse
 )
 
+// swappedOrMergedPromotionDecision decides what may happen to a
+// generation that never reached tidied.mig.
+//
+// Everything [mergedPromotionDecision] weighs assumes the swap has not
+// happened yet, so the canonical dir still holds the pre-migration data
+// and declining to promote costs nothing. Once swapped.mig is on disk
+// that assumption is gone: the swap renamed the canonical dir to
+// backup_<gen> and flipped the in-memory pointer, so declining leaves no
+// dir under the canonical name at all. Shard init then creates an empty
+// one ([Shard.createPropertyValueIndex] does that for any property the
+// schema says has an index), and the property serves zero rows until
+// some later startup promotes the ingest dir.
+//
+// So swapped.mig makes the promotion the deferred second half of an
+// operation that already committed, not a decision. The task's liveness
+// and the schema only get a say before that point.
+func swappedOrMergedPromotionDecision(swapped bool, migDir, dirName string, class *models.Class,
+	taskLiveness ReindexTaskLivenessLookup, logger logrus.FieldLogger,
+) mergedPromotion {
+	if swapped {
+		return mergedPromotionPromote
+	}
+	return mergedPromotionDecision(migDir, dirName, class, taskLiveness, logger)
+}
+
 // mergedPromotionDecision decides what may happen to a
-// merged-but-untidied generation, from the task identity in its
-// payload.mig plus the collection schema.
+// merged-but-unswapped, untidied generation, from the task identity in
+// its payload.mig plus the collection schema.
 //
 // The dangerous case this exists for: a task that was cancelled or
 // failed between markMerged and markTidied leaves an ingest dir that
@@ -417,8 +445,10 @@ const (
 // disagrees with it — for change-tokenization that is live-wrong data
 // on this replica only.
 //
-// Refusal is lossless: the swap never renamed the old canonical dir
-// away, so the property keeps serving its complete pre-migration data.
+// Refusal is lossless, and that rests on the caller only asking about
+// generations without swapped.mig: the swap has not renamed the old
+// canonical dir away yet, so the property keeps serving its complete
+// pre-migration data.
 // The ingest dir stops being updated the moment the task dies, because
 // the double-write mirror dies with it, so a later startup must never
 // promote it either.

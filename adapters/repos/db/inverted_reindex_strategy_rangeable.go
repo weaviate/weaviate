@@ -161,8 +161,13 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 // Under enable-rangeable the empty bucket is unreachable by queries while
 // the migration runs: IndexRangeFilters stays false until the task
 // completes cluster-wide, so the query planner takes the filterable walk.
-// Under repair-rangeable the skip-if-exists below leaves the existing
-// populated bucket in place, and it keeps serving until the atomic swap.
+// Under repair-rangeable the skip-if-exists below keeps whatever bucket
+// is already there, which on the shards repair exists for is the empty
+// one that is the damage. Those shards return zero rows for range
+// filters until the atomic swap lands, exactly as they did before the
+// repair started. On a shard whose bucket is populated the existing data
+// keeps serving until the swap, and if the swap never lands the backup
+// dir is what holds it — nothing in this hook protects it.
 func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
@@ -180,8 +185,8 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 
 // AnalyzerOverlay forces IndexRangeFilters=true on the targeted properties
 // while the backfill iterator scans the objects bucket. Until
-// OnMigrationComplete flips the RAFT-stored schema flag, the analyzer would
-// otherwise emit the property with HasRangeableIndex=false (and skip it
+// flipSemanticMigrationSchema flips the RAFT-stored schema flag, the analyzer
+// would otherwise emit the property with HasRangeableIndex=false (and skip it
 // entirely via HasAnyInvertedIndex when IndexFilterable is also false),
 // leaving the new rangeable bucket empty — the silent-FINISHED data-loss
 // failure mode pinned by the property-state matrix.

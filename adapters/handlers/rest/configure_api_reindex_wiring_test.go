@@ -77,3 +77,70 @@ func TestCleanupLookupsAreInstalledBeforeTheBootstrapWait(t *testing.T) {
 				"while HTTP already serves", name)
 	}
 }
+
+// Pins the opposite half of the same wiring: the reindex audit deps must
+// land only AFTER the metastore is ready, because opening the metastore is
+// what replays RAFT and loads the existing indices. Every shard that
+// initializes in that window resolves task liveness as Unknown, which
+// decides Leave rather than Refuse — the contract documented on
+// [db.mergedPromotionDecision] and in docs/runtime-reindex.md.
+//
+// Moving the install above the wait would silently flip eager shards onto
+// the refusal arm, so the order is what this asserts, not merely that both
+// calls exist. Source-level check since MakeAppState needs a real cluster
+// to run.
+func TestReindexAuditDepsAreInstalledAfterTheMetaStoreWait(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "configure_api.go", nil, 0)
+	require.NoError(t, err)
+
+	var makeAppState *ast.FuncDecl
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "MakeAppState" {
+			makeAppState = fn
+		}
+	}
+	require.NotNil(t, makeAppState, "MakeAppState is where the audit deps are wired")
+
+	// Positions of the two calls within the one function literal that
+	// holds both. Zero means "not seen yet".
+	var waitPos, installPos token.Pos
+	ast.Inspect(makeAppState.Body, func(node ast.Node) bool {
+		lit, ok := node.(*ast.FuncLit)
+		if !ok {
+			return true
+		}
+		var wait, install token.Pos
+		ast.Inspect(lit.Body, func(inner ast.Node) bool {
+			sel, ok := inner.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "waitForMetaStore":
+				if wait == 0 {
+					wait = sel.Pos()
+				}
+			case "SetReindexAuditDeps":
+				if install == 0 {
+					install = sel.Pos()
+				}
+			}
+			return true
+		})
+		if install != 0 {
+			waitPos, installPos = wait, install
+			return false
+		}
+		return true
+	})
+
+	require.NotZero(t, installPos,
+		"SetReindexAuditDeps must be called from a goroutine in MakeAppState")
+	require.NotZero(t, waitPos,
+		"the goroutine installing SetReindexAuditDeps must wait for the metastore first; "+
+			"without that wait, eager shard init races the deps install")
+	require.Less(t, int(waitPos), int(installPos),
+		"SetReindexAuditDeps must come after waitForMetaStore, or shards loaded during "+
+			"RAFT replay start resolving task liveness as Dead instead of Unknown")
+}
