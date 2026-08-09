@@ -130,3 +130,37 @@ func TestReindexTaskLivenessLookup_BoundsTheLeaderQuery(t *testing.T) {
 	require.Less(t, deadline.Sub(start), 2*reindexLivenessQueryTimeout,
 		"the deadline must be the bound this package sets, not one inherited from elsewhere")
 }
+
+// TestReindexTaskLivenessLookup_ShutdownReleasesTheLeaderQuery pins the
+// other end of the same bound. Shard init reaches this lookup from the
+// RAFT apply goroutine, so with an unreachable leader a node keeps
+// applying for up to one bound per batch of such shards past the point
+// shutdown was requested — past a default Kubernetes grace period on a
+// node with many of them. The bound has to stay; a SIGTERM has to be
+// able to cut it short.
+func TestReindexTaskLivenessLookup_ShutdownReleasesTheLeaderQuery(t *testing.T) {
+	shutdownCtx, shutdown := context.WithCancel(context.Background())
+	db := &DB{}
+	logger, _ := test.NewNullLogger()
+
+	var (
+		queryErr    error
+		hasDeadline bool
+	)
+	db.SetReindexAuditDeps(shutdownCtx, func(ctx context.Context) (KnownReindexTaskLookup, error) {
+		queryErr = ctx.Err()
+		_, hasDeadline = ctx.Deadline()
+		return nil, errors.New("leader is reachable but never answers")
+	}, logger)
+
+	// SIGTERM lands while a shard init is still deciding.
+	shutdown()
+
+	require.Equal(t, ReindexTaskLivenessUnknown,
+		db.reindexTaskLivenessLookup().Answer(deadTaskID, deadTaskVersion),
+		"a released query must degrade to unknown, which is the non-destructive arm")
+	require.ErrorIs(t, queryErr, context.Canceled,
+		"the query must run under the server shutdown context, not a fresh root one")
+	require.True(t, hasDeadline,
+		"cancellability must not cost the bound — an unreachable leader still has to time out")
+}

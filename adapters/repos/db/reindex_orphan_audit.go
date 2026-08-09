@@ -111,10 +111,17 @@ type AuditOutcome struct {
 // The replay runs on ctx: it makes a leader query and then a full
 // sweep, and a SIGTERM must be able to release both. Whatever the
 // cancellation cuts short is retried by the next process restart.
+//
+// ctx is also kept as the parent of the bounded leader query in
+// [DB.reindexTaskLivenessLookup], which shard init reaches from the same
+// apply path. Storing a context is normally wrong; here the stored value
+// is the process-lifetime shutdown context, and its only use is to let a
+// SIGTERM shorten that query.
 func (db *DB) SetReindexAuditDeps(ctx context.Context, builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
 	db.reindexAuditLookupBuilder = builder
 	db.reindexAuditLogger = logger
+	db.reindexAuditCtx = ctx
 	deferred := db.reindexAuditDeferredRequests
 	db.reindexAuditDeferredRequests = 0
 	db.reindexAuditMu.Unlock()
