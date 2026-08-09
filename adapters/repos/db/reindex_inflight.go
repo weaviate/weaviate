@@ -86,7 +86,7 @@ func warnUnwiredGate(sampler *logrusext.Sampler, action, msg string) {
 func (db *DB) warnUnwiredReindexGate() {
 	warnUnwiredGate(db.gateSamplers().unwiredGate, "backup_reindex_gate",
 		"backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. "+
-			"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
+			"Expected briefly during startup; if it persists past bootstrap the node never finished wiring its backup gate: restart the node, and report this to Weaviate if it recurs.")
 }
 
 // warnUnknownReindexHold reports a hold kind the gate cannot classify.
@@ -424,7 +424,7 @@ func (i *Index) logReindexRefusal(shardName string) {
 		WithField("collection", i.Config.ClassName.String()).
 		WithField("shard", shardName).
 		WithField("node", i.db.localNodeName).
-		Warn("backup-reindex gate: refused a backup; a runtime-reindex is live on this shard")
+		Warn("backup-reindex gate: refused a replica movement; a runtime-reindex is live on this shard")
 }
 
 // reindexInFlightError formats the operator-facing rejection. reason picks the
@@ -433,8 +433,10 @@ func (i *Index) logReindexRefusal(shardName string) {
 //
 // Names no shard and no node: this text reaches an API response body, and
 // backing up a collection grants nothing on either. The caller already named
-// the collection, and the shard and node reach the operator through the log in
-// [Index.refuseIfReindexInFlight].
+// the collection; the shard and node reach the operator through the log the
+// caller writes: [DB.logReindexRefusals] for the admission pass,
+// [reindexGate.logRefusals] for the capture pass, and [Index.logReindexRefusal]
+// for a replica movement, which runs outside both.
 func reindexInFlightError(collection string, reason reindexBlockReason) error {
 	var advice string
 	switch reason {
@@ -475,7 +477,8 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 func reindexStateUnknownError(cause error) error {
 	return reindexStateUnknown{
 		ReindexBlockedError: entitiesbackup.ReindexBlockedError{Msg: "backup blocked: the cluster leader " +
-			"could not be reached, so runtime-reindex state is unknown for every shard on this node; " +
+			"could not be reached, so runtime-reindex state is unknown for every shard on the node " +
+			"handling this request; " +
 			"refusing the backup rather than risk snapshotting a shard mid-reindex. Retry once the leader is reachable"},
 		cause: cause,
 	}

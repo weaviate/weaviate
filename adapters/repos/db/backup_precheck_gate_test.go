@@ -440,7 +440,7 @@ func TestBackupable_UnknownStateRefusesTheWholePass(t *testing.T) {
 		"a pass that stopped at the leader never got far enough to judge the other class")
 
 	for _, entry := range hook.AllEntries() {
-		require.NotContains(t, entry.Message, "are held by the reindex gate",
+		require.NotContains(t, entry.Message, "are held;",
 			"no shard was seen holding anything, so none may be reported as held")
 	}
 }

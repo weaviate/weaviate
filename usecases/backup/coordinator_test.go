@@ -992,7 +992,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,
 				ID:      backupID,
-				Err:     "backup blocked: the cluster leader could not be reached, so runtime-reindex state is unknown for every shard on this node",
+				Err:     "backup blocked: the cluster leader could not be reached, so runtime-reindex state is unknown for every shard on the node handling this request",
 				ErrKind: CanCommitErrReindexStateUnknown,
 			},
 			expectContain: "runtime-reindex state is unknown",

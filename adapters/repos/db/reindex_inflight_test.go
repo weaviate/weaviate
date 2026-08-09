@@ -313,7 +313,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 
 	var logged *logrus.Entry
 	for _, entry := range hook.AllEntries() {
-		if strings.Contains(entry.Message, "refused a backup") {
+		if strings.Contains(entry.Message, "refused a replica movement") {
 			logged = entry
 		}
 	}
@@ -691,7 +691,7 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 		if e.Level <= logrus.WarnLevel {
 			warnAndAbove++
 		}
-		if strings.Contains(e.Message, "are held by the reindex gate") {
+		if strings.Contains(e.Message, "are held;") {
 			aggregate++
 			aggregateMsg = e.Message
 			if v, ok := e.Data["blocked_shards"].([]string); ok {

@@ -288,7 +288,7 @@ func TestBackupDescriptors_RefusalNamesTheBlockedShardInTheLog(t *testing.T) {
 
 	var logged *logrus.Entry
 	for _, entry := range hook.AllEntries() {
-		if entry.Level <= logrus.WarnLevel && strings.Contains(entry.Message, "are held by the reindex gate") {
+		if entry.Level <= logrus.WarnLevel && strings.Contains(entry.Message, "are held;") {
 			logged = entry
 		}
 	}
@@ -329,7 +329,7 @@ func TestBackupDescriptors_UnknownStateNamesNoShard(t *testing.T) {
 		"the pass must refuse for the reason it actually has")
 
 	for _, entry := range hook.AllEntries() {
-		require.NotContains(t, entry.Message, "are held by the reindex gate",
+		require.NotContains(t, entry.Message, "are held;",
 			"no shard was seen holding anything, so none may be reported as held")
 		require.NotContains(t, entry.Data, "blocked_shards")
 	}

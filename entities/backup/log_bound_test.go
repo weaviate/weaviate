@@ -80,7 +80,7 @@ func TestErrorForLog(t *testing.T) {
 				require.Equal(t, tt.err.Error(), got.Error())
 				return
 			}
-			assert.LessOrEqual(t, len(got.Error()), logErrMaxBytes+64,
+			assert.LessOrEqual(t, len(got.Error()), logErrMaxBytes+96,
 				"a log line must not grow with the number of blocked collections")
 			for _, want := range tt.wantContains {
 				assert.Contains(t, got.Error(), want)
