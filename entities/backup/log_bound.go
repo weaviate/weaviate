@@ -65,7 +65,7 @@ func TextForLog(msg string) string {
 		for cut > 0 && !utf8.RuneStart(out[cut]) {
 			cut--
 		}
-		out = out[:cut] + fmt.Sprintf("... (truncated, %d bytes total)", len(msg))
+		out = out[:cut] + fmt.Sprintf("... (truncated, %d bytes total; the full list is in the API response)", len(msg))
 	}
 	return out
 }

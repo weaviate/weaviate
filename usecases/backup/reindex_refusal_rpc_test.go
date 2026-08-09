@@ -41,7 +41,7 @@ var _ causeFirstRefusal = unknownStateRefusal{}
 
 func (e unknownStateRefusal) Error() string {
 	return fmt.Sprintf("backup blocked: the cluster leader could not be reached, "+
-		"so runtime-reindex state is unknown for every shard on this node: %v", e.cause)
+		"so runtime-reindex state is unknown for every shard on the node handling this request: %v", e.cause)
 }
 
 func (e unknownStateRefusal) Unwrap() []error {
@@ -120,7 +120,7 @@ func TestReindexRefusalRebuildKeepsTheParticipantsFirstLine(t *testing.T) {
 	genuine := fmt.Sprintf("%s: collection %q has an active runtime-reindex task in DTM",
 		sentinel, "MyClass")
 	unknown := "backup blocked: the cluster leader could not be reached, so runtime-reindex " +
-		"state is unknown for every shard on this node: list DTM tasks: leader not found"
+		"state is unknown for every shard on the node handling this request: list DTM tasks: leader not found"
 
 	t.Run("genuine keeps the prefix byte for byte", func(t *testing.T) {
 		rebuilt := canCommitErrFromResponse(&CanCommitResponse{

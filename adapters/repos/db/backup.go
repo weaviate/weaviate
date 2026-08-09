@@ -163,13 +163,13 @@ func (db *DB) logReindexRefusals(phase, nodeName string, blockedShards map[strin
 			WithField("node", nodeName).
 			WithField("blocked_shards", sample).
 			WithField("blocked_shard_count", len(shardNames)).
-			Warnf("%s refused: %d shard(s) of %q are held by the reindex gate; "+
+			Warnf("backup-reindex gate: %s refused: %d shard(s) of %q are held; "+
 				"blocked_shards lists the first %d", phase, len(shardNames), c, len(sample))
 	}
 	if len(errs) > 0 {
 		// Withheld from the response, not from the operator.
 		db.logger.WithField("action", "backup_reindex_gate").
-			Warnf("%s refused by the reindex gate; also hit %d other error(s), "+
+			Warnf("backup-reindex gate: %s refused; also hit %d other error(s), "+
 				"reported here only: %v", phase, len(errs), stderrors.Join(errs...))
 	}
 }

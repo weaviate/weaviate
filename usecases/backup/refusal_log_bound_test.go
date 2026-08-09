@@ -76,7 +76,7 @@ func TestBackupRefusalLogIsBounded(t *testing.T) {
 		{
 			name: "cluster leader unreachable",
 			refusal: fmt.Errorf("%w: the cluster leader could not be reached, so runtime-reindex "+
-				"state is unknown for every shard on this node", backup.ErrBackupBlockedByInFlightReindex),
+				"state is unknown for every shard on the node handling this request", backup.ErrBackupBlockedByInFlightReindex),
 			mustSurviveInResponse: "cluster leader could not be reached",
 		},
 	}
