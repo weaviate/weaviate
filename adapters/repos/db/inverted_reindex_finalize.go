@@ -419,15 +419,22 @@ const (
 //
 // Refusal is lossless: the swap never renamed the old canonical dir
 // away, so the property keeps serving its complete pre-migration data.
-// It is also mandatory rather than deferrable, because the task's
-// double-write mirror stopped when the task died — the ingest dir goes
-// stale from that moment and must never be promoted by a later startup.
+// The ingest dir stops being updated the moment the task dies, because
+// the double-write mirror dies with it, so a later startup must never
+// promote it either.
 //
-// Refusal is deliberately narrow. It requires proof of death: a live
-// task keeps its state, and so does a task whose liveness cannot be
-// established (early startup, unreadable task list). A tracker with no
-// readable payload.mig keeps the historical behavior of promoting,
-// since without the task identity there is no proof of anything.
+// Refusal is deliberately narrow. It fires only for a task that is known
+// to be dead: a live task keeps its state, and so does a task whose
+// liveness cannot be established. A tracker with no readable payload.mig
+// keeps the historical behavior of promoting, since without the task
+// identity nothing about it is known.
+//
+// When liveness is unknown the outcome is Leave, and the working dirs
+// wait for a later startup or the orphan audit. Shards loaded eagerly
+// during startup are in exactly that position: they initialize before
+// [SetReindexAuditDeps] installs the task-list lookup, so refusal is
+// reached only by shards loaded later, which in practice means
+// lazily-loaded and multi-tenant ones.
 func mergedPromotionDecision(migDir, dirName string, class *models.Class,
 	taskLiveness ReindexTaskLivenessLookup, logger logrus.FieldLogger,
 ) mergedPromotion {
@@ -436,7 +443,8 @@ func mergedPromotionDecision(migDir, dirName string, class *models.Class,
 	rec, ok := loadAuditRecord(migDir)
 	if !ok {
 		logger.Warn("reindex finalize: merged-but-untidied tracker has no readable payload.mig; " +
-			"promoting it unverified, as pre-payload builds and operator surgery both produce this shape")
+			"promoting it unverified. A tracker written by an older version, or one edited by hand, " +
+			"has this shape")
 		return mergedPromotionPromote
 	}
 
@@ -524,19 +532,50 @@ func propertyByName(class *models.Class, propName string) *models.Property {
 // crash in between re-enters the same refusal on the next startup, and
 // both steps are idempotent.
 //
-// A backup dir is only removed when the property has a canonical dir to
-// serve from. A backup with no canonical name beside it is the last copy
-// of that property's data — a swap that renamed old-main away and died
-// before renaming ingest in — and deleting it is the one thing this
-// branch must never do.
+// Takes the backup guard, since a refused generation may be the one that
+// left the property with no canonical dir at all. See
+// [removeGenerationSidecars].
 func discardRefusedMergedGen(lsmPath, namespace, migDir, dirName string, logger logrus.FieldLogger) {
-	suffixes := migrationSuffixes(dirName)
-	_, gen, ok := parseMigrationDirName(dirName)
-	props, propsErr := readMigrationProps(migDir)
-	if suffixes == nil || !ok || propsErr != nil {
+	if err := removeGenerationSidecars(lsmPath, namespace, dirName, true, logger); err != nil {
 		logger.WithField("path", migDir).
-			Warnf("reindex finalize: cannot enumerate the refused migration's dirs; leaving them on disk for the orphan audit: %v", propsErr)
+			Warnf("reindex finalize: cannot enumerate the refused migration's dirs; leaving them on disk for the orphan audit: %v", err)
 		return
+	}
+
+	if err := os.RemoveAll(migDir); err != nil {
+		logger.WithField("path", migDir).
+			Warnf("reindex finalize: failed to remove refused merged tracker dir: %v", err)
+	}
+}
+
+// removeGenerationSidecars removes the ingest, reindex and backup dirs
+// of one generation of a migration. The generation is the `_<N>` tail of
+// dirName; the suffix bases come from the strategy behind namespace.
+//
+// guardBackup keeps a backup dir that has no canonical dir beside it.
+// That shape means a swap renamed the old main dir away and died before
+// renaming ingest in, so the backup is the last copy of the property's
+// data. Callers trimming a generation that finalized successfully pass
+// false: their canonical dir is already in place.
+//
+// Returns an error only when the generation's dirs cannot be enumerated,
+// in which case nothing was removed. Individual removal failures are
+// logged and skipped, since the orphan audit picks them up later.
+func removeGenerationSidecars(
+	lsmPath, namespace, dirName string, guardBackup bool, logger logrus.FieldLogger,
+) error {
+	migDir := filepath.Join(lsmPath, ".migrations", dirName)
+	suffixes := migrationSuffixes(dirName)
+	if suffixes == nil {
+		return fmt.Errorf("no known suffixes for migration dir %q", dirName)
+	}
+	_, gen, ok := parseMigrationDirName(dirName)
+	if !ok {
+		return fmt.Errorf("cannot parse generation out of migration dir %q", dirName)
+	}
+	props, err := readMigrationProps(migDir)
+	if err != nil {
+		return fmt.Errorf("read properties.mig: %w", err)
 	}
 
 	genTail := "_" + strconv.Itoa(gen)
@@ -549,23 +588,17 @@ func discardRefusedMergedGen(lsmPath, namespace, migDir, dirName string, logger 
 			}
 			removeDirIfPresent(filepath.Join(lsmPath, main+suff+genTail), logger)
 		}
+
 		backupDir := filepath.Join(lsmPath, main+suffixes.backupSuffix+genTail)
-		if !fileExists(backupDir) {
-			continue
-		}
-		if !fileExists(filepath.Join(lsmPath, main)) {
+		if guardBackup && fileExists(backupDir) && !fileExists(filepath.Join(lsmPath, main)) {
 			logger.WithField("property", propName).WithField("backup_dir", backupDir).
-				Warn("reindex finalize: refused migration left a backup dir with no canonical dir beside it; " +
+				Warn("reindex finalize: migration left a backup dir with no canonical dir beside it; " +
 					"keeping it, it may be the only copy of this property's data")
 			continue
 		}
 		removeDirIfPresent(backupDir, logger)
 	}
-
-	if err := os.RemoveAll(migDir); err != nil {
-		logger.WithField("path", migDir).
-			Warnf("reindex finalize: failed to remove refused merged tracker dir: %v", err)
-	}
+	return nil
 }
 
 func removeDirIfPresent(path string, logger logrus.FieldLogger) {
@@ -610,47 +643,13 @@ func writeRecoveryTidiedSentinels(migDir string) error {
 	return nil
 }
 
-// removeStaleSidecarsForGen removes the `__<...>_<gen>` sidecar dirs
-// (reindex/ingest/backup) belonging to an older, superseded generation
-// of a finalized migration. Looks up the per-strategy suffix bases via
-// `migrationSuffixes` (which now returns the suffix bases without the
-// `_<N>` part) and removes any matching dir for the specific `_<gen>`.
-//
-// Props are read from the older gen's `properties.mig` (or recovered
-// from the on-disk dirs themselves if properties.mig is missing — the
-// latter is defensive against partial pre-migration state).
+// removeStaleSidecarsForGen removes the sidecar dirs belonging to an
+// older, superseded generation of a finalized migration. That generation
+// has a canonical dir already in place, so its backup dir needs no guard.
 func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus.FieldLogger) {
-	migDir := filepath.Join(lsmPath, ".migrations", dirName)
-	suffixes := migrationSuffixes(dirName)
-	if suffixes == nil {
-		return
-	}
-	props, err := readMigrationProps(migDir)
-	if err != nil {
-		logger.WithField("path", migDir).
-			Debugf("reindex finalize: stale-gen cleanup: properties.mig missing/unreadable; sidecars (if any) will be left as orphans: %v", err)
-		return
-	}
-	// The gen suffix is implicit in `dirName`'s trailing `_<N>`; the
-	// strategy's suffix methods compute IngestSuffix/etc. as
-	// `<base>_<N>`. We don't have the strategy instance here, so emulate
-	// by appending the same gen to each suffix base.
-	_, gen, ok := parseMigrationDirName(dirName)
-	if !ok {
-		return
-	}
-	genTail := "_" + strconv.Itoa(gen)
-	for _, propName := range props {
-		main := suffixes.sourceBucketName(propName)
-		for _, suff := range []string{suffixes.ingestSuffix, suffixes.backupSuffix, reindexSuffixForFinalize(namespace)} {
-			path := filepath.Join(lsmPath, main+suff+genTail)
-			if fileExists(path) {
-				if err := os.RemoveAll(path); err != nil {
-					logger.WithField("path", path).
-						Warnf("reindex finalize: failed to remove stale older-gen sidecar dir: %v", err)
-				}
-			}
-		}
+	if err := removeGenerationSidecars(lsmPath, namespace, dirName, false, logger); err != nil {
+		logger.WithField("path", filepath.Join(lsmPath, ".migrations", dirName)).
+			Debugf("reindex finalize: stale-gen cleanup: cannot enumerate the generation's dirs; sidecars (if any) will be left as orphans: %v", err)
 	}
 }
 
