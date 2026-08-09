@@ -350,6 +350,28 @@ func TestMergedPromotionAgreesWithSchema(t *testing.T) {
 			want: false,
 		},
 		{
+			// A tracker that names no properties is the whole-collection
+			// shape the repair-guidance path also produces. Nothing about
+			// it is confirmed, so it must not promote.
+			name:    "a tracker naming no properties confirms nothing",
+			payload: ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable},
+			class:   classWith(intProp("a", &yes)),
+			want:    false,
+		},
+		{
+			// A tracker that lost its target would agree with any
+			// property whose tokenization is also empty unless the
+			// target is checked for itself.
+			name: "change-tokenization with no target tokenization",
+			payload: ReindexTaskPayload{
+				MigrationType: ReindexTypeChangeTokenization, Properties: []string{"a"},
+			},
+			class: classWith(&models.Property{
+				Name: "a", DataType: []string{string(schema.DataTypeText)},
+			}),
+			want: false,
+		},
+		{
 			name:    "no schema at all",
 			payload: ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a"}},
 			class:   nil,

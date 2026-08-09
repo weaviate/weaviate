@@ -29,8 +29,8 @@ typical journeys it unlocks:
 - Add a missing inverted index after the fact: `enable-filterable`,
   `enable-searchable`, `enable-rangeable`.
 - Repair a bucket suspected of corruption: `repair-filterable`,
-  `repair-searchable` (which is also the Map → Blockmax format
-  upgrade), `repair-rangeable`.
+  `rebuild-searchable`, `repair-rangeable`. The Map → Blockmax format
+  upgrade is a separate type, `change-algorithm`.
 - Cancel an in-flight migration; the cluster cleans up the partial
   state and the property is back to its pre-submit on-disk shape.
 
@@ -83,7 +83,8 @@ Submit a migration. Body shape selects which one:
 | `{"rangeable":{"enabled":true}}` | `enable-rangeable` | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). |
 | `{"searchable":{"tokenization":"trigram"}}` | `change-tokenization` | Rewrites BOTH searchable and filterable buckets when both exist. |
 | `{"filterable":{"tokenization":"word"}}` | `change-tokenization-filterable` | Filterable-only retokenize variant. Use when the property has no searchable index. |
-| `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
+| `{"searchable":{"rebuild":true}}` | `rebuild-searchable` | Rebuild the searchable bucket in place. Blockmax only; preserves the current algorithm and tokenization. |
+| `{"searchable":{"algorithm":"blockmax"}}` | `change-algorithm` | Map → Blockmax upgrade. `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property is on Blockmax. Semantic: `?tenants` is rejected. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
 | `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a STARTED task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled). |
@@ -283,7 +284,7 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
   - **Format-only migrations** (`repair-filterable`,
-    `repair-searchable`, `repair-rangeable`, `roaring-set refresh`):
+    `rebuild-searchable`, `repair-rangeable`, `roaring-set refresh`):
     `STARTED → SWAPPING → FINISHED`.
     `PREPARING` is skipped because there is no cross-replica
     state alignment to bound — each shard's `RunOnShard`
@@ -394,7 +395,7 @@ preceding a transition on the per-task field. Annotations
         └────────────────────────────────────────────────────────────────┘
 ```
 
-Format-only migrations (`repair-filterable`, `repair-searchable`,
+Format-only migrations (`repair-filterable`, `rebuild-searchable`,
 `repair-rangeable`, `roaring-set refresh`) skip the OnGroupCompleted
 barrier — each shard runs the full lifecycle inside its own
 `RunOnShard` and there is no cluster-wide schema flip. The flow is
@@ -735,11 +736,12 @@ tidied / lower-gen sidecars / in-flight gens left alone for
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
-Seven strategy implementations, one file each:
+Eight strategy implementations, one file each:
 
 | Strategy | Type | Source bucket | Target bucket | OnMigrationComplete |
 |---|---|---|---|---|
-| `MapToBlockmaxStrategy` | `repair-searchable` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `MapToBlockmaxStrategy` | `change-algorithm` (semantic) | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Blockmax) | `searchable` (Blockmax) | No-op (format unchanged). |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
 | `FilterableToRangeableStrategy` | `enable-rangeable` (semantic) / `repair-rangeable` (format-only) | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | No-op. For enable, the cluster-wide `IndexRangeFilters=true` flip happens in `OnTaskCompleted`; repair flips nothing. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
@@ -875,7 +877,7 @@ enable-rangeable                 ✓                ✓ (ForceRangeable)
 change-algorithm                 ✓
 repair-rangeable                                  ✓ (ForceRangeable)
 repair-filterable                                 
-repair-searchable                                 
+rebuild-searchable                                
 ```
 
 The semantic migrations all need the cluster-wide barrier. All of them

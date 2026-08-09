@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -46,7 +47,9 @@ func writeSwappedResidue(t *testing.T, shape residueShape) (lsmPath, backupDir s
 	lsmPath = writeMergedResidue(t, shape, true)
 	touchSentinel(t, filepath.Join(lsmPath, ".migrations", shape.dirName, "swapped.mig"))
 
-	backupDir = shape.canonicalDir + backupSuffixForShape(shape) + "_1"
+	_, gen, ok := parseMigrationDirName(shape.dirName)
+	require.True(t, ok, "a shape's dir name must carry its generation")
+	backupDir = shape.canonicalDir + backupSuffixForShape(shape) + "_" + strconv.Itoa(gen)
 	require.NoError(t, os.Rename(
 		filepath.Join(lsmPath, shape.canonicalDir), filepath.Join(lsmPath, backupDir)))
 	return lsmPath, backupDir
@@ -146,14 +149,29 @@ func TestFinalize_SwappedResidueWritesTidiedBeforePromoting(t *testing.T) {
 // generation are swept at the same time, so they do not pile up within a
 // rising sequence of generations.
 func TestFinalize_PromotionLeavesAFinalizedMarker(t *testing.T) {
+	// Generation 2 so there is a lower generation for the sweep to find.
 	shape := repairRangeableSwappedResidue()
+	shape.dirName = "filterable_to_rangeable_price_2"
+	shape.ingestDir = "property_price_rangeable__rangeable_ingest_2"
 	lsmPath, _ := writeSwappedResidue(t, shape)
+
+	// The sweep runs on the pre-promotion dir listing and on the
+	// generation finalize settled on. The helper's own test supplies
+	// both by hand; only this path derives them.
+	superseded := migrationFinalizedMarkerPath(lsmPath, "filterable_to_rangeable_price_1")
+	otherNamespace := migrationFinalizedMarkerPath(lsmPath, "filterable_to_rangeable_weight_1")
+	touchSentinel(t, superseded)
+	touchSentinel(t, otherNamespace)
 
 	logger, _ := test.NewNullLogger()
 	FinalizeCompletedMigrations(lsmPath, classWith(shape.agreeing), fixedLiveness(ReindexTaskLivenessLive), logger)
 
 	require.FileExists(t, migrationFinalizedMarkerPath(lsmPath, shape.dirName),
 		"the promoted generation must leave a marker behind")
+	require.NoFileExists(t, superseded,
+		"a marker below the promoted generation must be swept, or markers pile up")
+	require.FileExists(t, otherNamespace,
+		"another namespace's marker is not this promotion's business")
 }
 
 // TestRemoveStaleFinalizedMarkers pins how narrow the sweep is: one
