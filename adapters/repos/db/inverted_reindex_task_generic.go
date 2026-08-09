@@ -332,16 +332,33 @@ func (t *ShardReindexTaskGeneric) migrationPath(lsmPath string) string {
 //
 // A tracker dir that still holds files wins over the marker: those files
 // describe live state, the marker only records that an earlier
-// generation of state is gone. An empty tracker dir is removed on the
-// way through — it carries no state, and while it exists it suppresses
-// the startup damage warning in [unexplainedEmptyRangeableProps], which
-// matches tracker dirs by name alone.
+// generation of state is gone. This is the whole safety argument for
+// reading the marker, because the marker alone can belong to an earlier
+// migration that reused the same generation number (see
+// [migrationFinalizedMarkerPath]).
+//
+// The ordering invariant it rests on: every phase of a live migration is
+// preceded by a write into the tracker dir. [ReindexProvider] writes
+// payload.mig before the reindex iteration, and the iteration adds
+// started.mig, both of which come before prepare and swap. So a
+// generation that is actually running always has a file here, and only a
+// generation that is not can be acked off the marker.
+//
+// An empty tracker dir is removed on the way through — it carries no
+// state, and while it exists it suppresses the startup damage warning in
+// [unexplainedEmptyRangeableProps], which matches tracker dirs by name
+// alone.
 func (t *ShardReindexTaskGeneric) migrationAlreadyFinalized(lsmPath string) bool {
 	if !fileExists(migrationFinalizedMarkerPath(lsmPath, t.strategy.MigrationDirName())) {
 		return false
 	}
 	migDir := t.migrationPath(lsmPath)
-	if dirHoldsAnyFile(migDir) {
+	holdsFiles, err := dirHoldsAnyFile(migDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.logger.WithField("path", migDir).
+			Warnf("reading migration tracker dir; treating it as carrying no state: %v", err)
+	}
+	if holdsFiles {
 		return false
 	}
 	if err := os.Remove(migDir); err != nil && !os.IsNotExist(err) {
@@ -639,9 +656,13 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return err
 	}
 	if entry.alreadyFinalized {
-		// Same reasoning as the IsTidied branch below: the data work is
-		// done on disk, only the in-process strategy state may still
-		// need aligning, and OnMigrationComplete is idempotent.
+		// The data work is done on disk, only the in-process strategy
+		// state may still need aligning, and OnMigrationComplete is
+		// idempotent. Unlike the IsTidied branch below this needs no
+		// in-memory rebuild — the promotion ran before bucket loading,
+		// so shard init opened the canonical bucket itself and it
+		// already carries its in-memory rep — and no generation trim,
+		// because finalize trimmed the older generations already.
 		if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 			return fmt.Errorf("on migration complete: %w", err)
 		}

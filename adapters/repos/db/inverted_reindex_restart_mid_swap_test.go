@@ -129,6 +129,8 @@ func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 			// finished. It must ack success: failing here would report
 			// the migration as failed cluster-wide on a shard whose data
 			// is correct.
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard2),
+				"the prepare phase must ack work startup already did")
 			require.NoError(t, task.RunSwapOnShard(ctx, shard2),
 				"the swap phase must ack work startup already did")
 			require.Equal(t, wantFingerprint, filterableToRangeableFingerprint(t, shard2.store.Bucket(bucketName)),
