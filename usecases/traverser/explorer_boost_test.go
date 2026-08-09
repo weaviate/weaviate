@@ -376,6 +376,78 @@ func Test_Explorer_BoostThenMMR(t *testing.T) {
 }
 
 // Test_Explorer_BoostDepthUnderMMR: Boost.Depth sets the fetch/rerank pool; the query Limit is the MMR pool.
+func Test_Explorer_HybridBoostDepthBeyondHybridMaximum(t *testing.T) {
+	t.Run("hybrid legs fetch Boost.Depth deep when it exceeds QueryHybridMaximumResults", func(t *testing.T) {
+		searcher := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		metrics := &fakeMetrics{}
+		metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		conf := config.Config{
+			QueryDefaults:             config.QueryDefaults{Limit: 100},
+			QueryMaximumResults:       10000,
+			QueryHybridMaximumResults: 100,
+		}
+		explorer := NewExplorer(searcher, log, getFakeModulesProvider(), metrics, conf)
+		explorer.SetSchemaGetter(newFakeSchemaGetter("TestClass"))
+
+		var fetchLimit int
+		searcher.On("VectorSearch", mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) {
+				fetchLimit = args.Get(0).(dto.GetParams).Pagination.Limit
+			}).
+			Return(makeHybridVectorResults(10), nil)
+
+		params := dto.GetParams{
+			ClassName:    "TestClass",
+			Pagination:   &filters.Pagination{Offset: 0, Limit: 1},
+			HybridSearch: &searchparams.HybridSearch{Query: "needle", Alpha: 1, Vector: []float32{0.1, 0.2, 0.3}},
+			Boost:        likesBoost(1.0, 150),
+		}
+
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NoError(t, err)
+
+		// A candidate can only be boosted if a leg fetched it: with depth=150 the
+		// legs must fetch 150, not silently stop at QueryHybridMaximumResults=100
+		// (which would make e.g. a top-boost candidate at BM25 rank 121 unreachable).
+		assert.Equal(t, 150, fetchLimit,
+			"hybrid sub-searches must fetch Boost.Depth deep, not stop at QueryHybridMaximumResults")
+	})
+
+	t.Run("without boost, hybrid legs keep the QueryHybridMaximumResults floor", func(t *testing.T) {
+		searcher := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		metrics := &fakeMetrics{}
+		metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		conf := config.Config{
+			QueryDefaults:             config.QueryDefaults{Limit: 100},
+			QueryMaximumResults:       10000,
+			QueryHybridMaximumResults: 100,
+		}
+		explorer := NewExplorer(searcher, log, getFakeModulesProvider(), metrics, conf)
+		explorer.SetSchemaGetter(newFakeSchemaGetter("TestClass"))
+
+		var fetchLimit int
+		searcher.On("VectorSearch", mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) {
+				fetchLimit = args.Get(0).(dto.GetParams).Pagination.Limit
+			}).
+			Return(makeHybridVectorResults(10), nil)
+
+		params := dto.GetParams{
+			ClassName:    "TestClass",
+			Pagination:   &filters.Pagination{Offset: 0, Limit: 1},
+			HybridSearch: &searchparams.HybridSearch{Query: "needle", Alpha: 1, Vector: []float32{0.1, 0.2, 0.3}},
+		}
+
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NoError(t, err)
+
+		assert.Equal(t, 100, fetchLimit,
+			"without boost the legs fetch the QueryHybridMaximumResults floor")
+	})
+}
+
 func Test_Explorer_BoostDepthUnderMMR(t *testing.T) {
 	t.Run("nearVector: Depth deepens fetch/rerank, MMR over top Limit", func(t *testing.T) {
 		searcher := &fakeVectorSearcher{}
