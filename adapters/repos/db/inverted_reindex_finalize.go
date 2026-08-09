@@ -248,10 +248,11 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // combined with a lookup that returns a definite Dead answer it turns a
 // known-dead task into a refusal. Neither nil is an opt-out from
 // promotion: for the content-equivalent types (repair-rangeable,
-// repair-filterable, rebuild-searchable, change-algorithm) the decision
-// promotes regardless of class or lookup, because agreement with the
-// schema is decided before either is read. A swapped generation is
-// promoted without consulting either.
+// repair-filterable, rebuild-searchable, change-algorithm) any non-Live
+// answer promotes regardless of class, because agreement with the schema
+// is decided before the class is read — but the lookup is read first, and
+// a Live answer leaves the dirs to the running task. A swapped generation
+// is promoted without consulting either.
 //
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
