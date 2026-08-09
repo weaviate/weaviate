@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -376,7 +377,7 @@ func TestReindexTaskLivenessLookup_UnknownWithoutDeps(t *testing.T) {
 	require.Equal(t, ReindexTaskLivenessUnknown,
 		db.reindexTaskLivenessLookup().Answer("t", 1))
 
-	db.SetReindexAuditDeps(func() (KnownReindexTaskLookup, error) {
+	db.SetReindexAuditDeps(func(context.Context) (KnownReindexTaskLookup, error) {
 		return func(taskID string, taskVersion uint64) bool { return taskID == "live" }, nil
 	}, nil)
 	lookup := db.reindexTaskLivenessLookup()

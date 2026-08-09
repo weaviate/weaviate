@@ -1036,8 +1036,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// "treat every tracker as known" closure, which silently
 		// misclassified orphans during a DTM partition. Explicit
 		// error makes the failure path operator-observable.
-		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
+		//
+		// The query runs on the caller's ctx: on a follower it leaves
+		// the node, and shard init consults it from the RAFT apply
+		// goroutine, so the caller is the only one that knows how long
+		// it may block.
+		buildKnownTask := func(ctx context.Context) (db.KnownReindexTaskLookup, error) {
+			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
@@ -1077,7 +1082,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
 		}
-		startupLookup, startupBuildErr := buildKnownTask()
+		startupLookup, startupBuildErr := buildKnownTask(auditCtx)
 		if startupBuildErr != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("reindex orphan audit: builder failed; skipping startup audit. The next process restart will retry: %v", startupBuildErr)
