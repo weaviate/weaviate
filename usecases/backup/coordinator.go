@@ -259,7 +259,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
 		} else {
-			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+			c.log.WithFields(logFields).Errorf("coordinator: %s", backup.TextForLog(c.descriptor.Error))
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -524,6 +524,9 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 // survive the RPC boundary:
 //
 //   - [CanCommitErrInFlightReindex] carries [backup.ErrBackupBlockedByInFlightReindex].
+//   - [CanCommitErrReindexStateUnknown] carries the same sentinel, but the
+//     participant's message is republished verbatim: it denies that a reindex
+//     was seen, so a sentinel prefix would contradict it.
 //   - [CanCommitErrRestoreBlockedByReindex] carries [backup.ErrReindexInFlight],
 //     not [errCannotCommit] — mapping it to that would answer 500 for what the
 //     scheduler answers 422.
@@ -540,7 +543,13 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 			// would print the whole condition twice.
 			return backup.ReindexBlockedError{Msg: resp.Err}
 		}
+		// An older participant sends a message that names no condition, so
+		// the coordinator names it.
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	case CanCommitErrReindexStateUnknown:
+		// This message already says what happened, and what happened is not
+		// a reindex. Prefixing the sentinel would contradict its own text.
+		return backup.ReindexBlockedError{Msg: resp.Err}
 	case CanCommitErrRestoreBlockedByReindex:
 		return remoteReindexInFlightErr{msg: resp.Err}
 	default:

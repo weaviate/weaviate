@@ -1091,11 +1091,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
 
 		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built per
-		// backup precheck so the snapshot is fresh; on list failure we
-		// fall back to refusing every backup until DTM is reachable, to
-		// avoid races against in-flight reindexes that the local node
-		// cannot see.
+		// consults DTM rather than per-shard filesystem markers. A list
+		// failure is returned as an error so the gate can refuse the whole
+		// pass with one message instead of naming shards individually.
 		repo.SetShardReindexActivityLookup(newShardReindexActivityBuilder(
 			auditCtx, appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// Asks the cluster rather than this node: a class being restored has no
@@ -1116,9 +1114,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 // One DTM snapshot per admission pass, scoped to the (collection, shard)
 // tuples the live tasks name.
 //
-// A DTM it cannot reach refuses every backup, since the gate must not read
-// "free" from a question it could not ask. A live task whose payload will
-// not decode is the same uncertainty, but scoped by
+// A DTM it cannot reach returns an error, since the gate must not read
+// "free" from a question it could not ask; the gate turns that into one
+// refusal for the whole pass rather than one per shard. A live task whose
+// payload will not decode is the same uncertainty, but scoped by
 // [db.DecodeReindexTaskPayload], which recovers the collection from an
 // otherwise-unreadable payload (what a rolling upgrade produces); only a
 // payload naming no collection refuses every backup in the cluster. The
@@ -1133,12 +1132,10 @@ func newShardReindexActivityBuilder(
 		collection string
 		shardName  string
 	}
-	return func() db.ShardReindexActivityLookup {
+	return func() (db.ShardReindexActivityLookup, error) {
 		tasksByNamespace, err := listTasks(ctx)
 		if err != nil {
-			logger.WithField("action", "backup_reindex_gate").
-				Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-			return func(string, string) bool { return true }
+			return nil, fmt.Errorf("list DTM tasks: %w", err)
 		}
 		live := make(map[shardKey]bool)
 		// Collections held whole because a live task names them but its payload
@@ -1154,7 +1151,7 @@ func newShardReindexActivityBuilder(
 					logger.WithField("action", "backup_reindex_gate").
 						WithField("task_id", task.ID).
 						Warnf("backup-reindex gate: cannot read task payload and it names no collection; refusing all backups until it is readable or evicted: %v", err)
-					return func(string, string) bool { return true }
+					return func(string, string) bool { return true }, nil
 				}
 				logger.WithField("action", "backup_reindex_gate").
 					WithField("task_id", task.ID).
@@ -1169,7 +1166,7 @@ func newShardReindexActivityBuilder(
 		}
 		return func(collection, shardName string) bool {
 			return blocked[strings.ToLower(collection)] || live[shardKey{collection, shardName}]
-		}
+		}, nil
 	}
 }
 

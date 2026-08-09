@@ -25,7 +25,7 @@ import (
 // Pins: with RUNTIME_REINDEX_ENABLED off, the backup gate must consult
 // nothing (the stub lookup reports every shard as reindexing, so a gate
 // that still ran would refuse and bump the counter).
-func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
+func TestReindexGate_RuntimeReindexDisabled(t *testing.T) {
 	tests := []struct {
 		name       string
 		disabled   bool
@@ -40,12 +40,13 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var lookups atomic.Int64
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 				lookups.Add(1)
-				return func(string, string) bool { return true }
+				return func(string, string) bool { return true }, nil
 			})
 
-			require.Equal(t, tt.wantBlock, db.AnyLiveReindexForShard("MyClass", "shard1"))
+			gate := newReindexGate(db)
+			require.Equal(t, tt.wantBlock, gate.anyLiveReindexForShard("MyClass", "shard1"))
 			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
 				"the backup path must make no reindex lookup while the feature is off")
 		})
@@ -158,12 +159,12 @@ func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
 // activity lookup would mean every flag-off cancel refuses this node's backups
 // for the length of its teardown, through a gate the flag is meant to have
 // turned off. Sibling of the restore-side pin in the table above.
-func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
+func TestReindexGate_DisabledIgnoresACleanupHold(t *testing.T) {
 	var activityBuilds, cleanupBuilds atomic.Int64
 	db := &DB{config: Config{RuntimeReindexDisabled: true}}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		activityBuilds.Add(1)
-		return func(string, string) bool { return false }
+		return func(string, string) bool { return false }, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		cleanupBuilds.Add(1)
@@ -171,7 +172,7 @@ func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
 		return func(string, string) ReindexHold { return ReindexHoldCleanup }
 	})
 
-	require.False(t, db.AnyLiveReindexForShard("Movies", "shard1"),
+	require.False(t, newReindexGate(db).anyLiveReindexForShard("Movies", "shard1"),
 		"with the feature off a cancel's cleanup hold must not refuse this node's backup")
 	require.Zero(t, cleanupBuilds.Load(),
 		"the flag check must precede the cleanup lookup, or the gate is only half disabled")
@@ -195,12 +196,13 @@ func TestReindexGateReadsTheSubmitHoldBeforeTheActivityLookupIsWired(t *testing.
 		return provider.HoldForShard
 	})
 
-	snap := db.newReindexGateSnapshot()
-	require.NotNil(t, snap.cleanup,
+	gate := newReindexGate(db)
+	gate.resolve()
+	require.NotNil(t, gate.cleanup,
 		"the cleanup lookup must install even when the activity builder is not yet wired; "+
 			"it is a local map read and needs nothing from DTM")
 
-	require.Equal(t, reindexBlockedBySubmit, db.reindexBlockReasonIn(snap, "Movies", "shard1"),
+	require.Equal(t, reindexBlockedBySubmit, gate.blockReason("Movies", "shard1"),
 		"a submission that is already deleting sidecars must block a backup of the same shard "+
 			"during the post-bootstrap wait, not only after the activity lookup lands")
 }
