@@ -71,6 +71,10 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 		// class defaults to the shared multi-property class above.
 		class *models.Class
 		want  []string
+		// wantState is the tracker state the enumerator must report for
+		// every prop in want. It decides which of the two WARNs fires, so
+		// it is pinned here rather than only at the shard-init call site.
+		wantState rangeableMigrationExplanation
 	}{
 		{
 			name: "464-damaged: schema promises the index, bucket dir is empty, no tracker",
@@ -124,11 +128,15 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 				".migrations/" + trackerDir + "/started.mig": "x",
 				".migrations/" + trackerDir + "/tidied.mig":  "x",
 			},
-			want: []string{"score"},
+			want:      []string{"score"},
+			wantState: rangeableMigrationPromotionFailed,
 		},
 		{
 			// A generation still running explains the empty index no matter
-			// what an older, unpromotable one left behind.
+			// what an older, unpromotable one left behind. ReadDir returns
+			// the older one first, so this is what stops the tidied arm
+			// from short-circuiting the scan: it goes red if that arm
+			// returns instead of recording the state and reading on.
 			name: "mid-migration: a running generation outranks a failed older one",
 			layout: map[string]string{
 				helpers.ObjectsBucketLSM + "/segment-001.db":     "objects",
@@ -247,7 +255,14 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 			if tcClass == nil {
 				tcClass = class
 			}
-			require.Equal(t, tc.want, unexplainedEmptyRangeableProps(lsmPath, tcClass))
+			got := unexplainedEmptyRangeableProps(lsmPath, tcClass)
+			var gotNames []string
+			for _, prop := range got {
+				gotNames = append(gotNames, prop.name)
+				require.Equal(t, tc.wantState, prop.state,
+					"the enumerator must hand its caller the state that picks the WARN")
+			}
+			require.Equal(t, tc.want, gotNames)
 		})
 	}
 }
