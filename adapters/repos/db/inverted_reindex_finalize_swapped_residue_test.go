@@ -142,8 +142,9 @@ func TestFinalize_SwappedResidueWritesTidiedBeforePromoting(t *testing.T) {
 // promotion leaves in place of the tracker it removes. Without it a task
 // still running for that generation cannot tell "startup did my work"
 // from "this shard never ran the migration", and fails the cluster's
-// migration on a shard whose data is correct. Older generations' markers
-// are swept at the same time, so they cannot accumulate.
+// migration on a shard whose data is correct. Markers below the promoted
+// generation are swept at the same time, so they do not pile up within a
+// rising sequence of generations.
 func TestFinalize_PromotionLeavesAFinalizedMarker(t *testing.T) {
 	shape := repairRangeableSwappedResidue()
 	lsmPath, _ := writeSwappedResidue(t, shape)
@@ -155,9 +156,10 @@ func TestFinalize_PromotionLeavesAFinalizedMarker(t *testing.T) {
 		"the promoted generation must leave a marker behind")
 }
 
-// TestRemoveStaleFinalizedMarkers pins the sweep that keeps markers from
-// accumulating: one namespace's markers below the generation just
-// promoted are gone, everything else is left alone.
+// TestRemoveStaleFinalizedMarkers pins how narrow the sweep is: one
+// namespace's markers below the generation just promoted are gone,
+// everything else is left alone, including a higher generation of the
+// same namespace.
 func TestRemoveStaleFinalizedMarkers(t *testing.T) {
 	namespace := "filterable_to_rangeable_price"
 	tests := []struct {
