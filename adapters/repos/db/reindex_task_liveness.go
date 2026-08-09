@@ -11,7 +11,19 @@
 
 package db
 
-import "sync"
+import (
+	"context"
+	"sync"
+	"time"
+)
+
+// reindexLivenessQueryTimeout bounds the leader round trip the first
+// consulted lookup makes. Shard init runs on the RAFT apply goroutine
+// for lazily loaded and multi-tenant shards, so a leader that is
+// reachable but not answering would otherwise stall RAFT apply on this
+// node for as long as it stays that way. A timeout answers "unknown",
+// which is the non-destructive arm at every call site.
+const reindexLivenessQueryTimeout = 3 * time.Second
 
 // ReindexTaskLiveness is the three-way answer to "does the distributed
 // task that wrote this on-disk migration state still own it?".
@@ -70,10 +82,16 @@ func (s *Shard) reindexTaskLivenessLookup() ReindexTaskLivenessLookup {
 }
 
 // reindexTaskLivenessLookup returns a lookup backed by the same
-// distributed-task snapshot the orphan audit uses. The snapshot is
-// fetched at most once, and only if a caller actually asks — shard
-// startup normally has no merged-but-untidied migration to decide
+// distributed-task snapshot the orphan audit uses. Each returned lookup
+// fetches at most one snapshot, and only if a caller actually asks —
+// shard startup normally has no merged-but-untidied migration to decide
 // about, and must not pay a cluster round trip for it.
+//
+// One lookup is minted per shard, so the snapshot is per-shard rather
+// than per-process. That is deliberate: a shard activated hours after
+// startup must not classify a task created since then as dead, which is
+// the destructive arm. The cost of not sharing is one bounded query per
+// shard that actually has such a migration to decide about.
 //
 // The snapshot is unavailable while the audit deps are not installed
 // yet (early startup) or when the task list cannot be read; both answer
@@ -95,7 +113,9 @@ func (db *DB) reindexTaskLivenessLookup() ReindexTaskLivenessLookup {
 			if builder == nil {
 				return
 			}
-			lookup, err := builder()
+			ctx, cancel := context.WithTimeout(context.Background(), reindexLivenessQueryTimeout)
+			defer cancel()
+			lookup, err := builder(ctx)
 			if err != nil {
 				if logger != nil {
 					logger.Warnf("reindex task liveness: distributed task list unreadable, "+

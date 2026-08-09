@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ import (
 // task list would.
 func installTaskLiveness(t *testing.T, idx *Index, taskID string, version uint64, live bool) {
 	t.Helper()
-	idx.db.SetReindexAuditDeps(func() (KnownReindexTaskLookup, error) {
+	idx.db.SetReindexAuditDeps(func(context.Context) (KnownReindexTaskLookup, error) {
 		return func(gotID string, gotVersion uint64) bool {
 			return live && gotID == taskID && gotVersion == version
 		}, nil

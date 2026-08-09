@@ -12,8 +12,10 @@
 package db
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -35,7 +37,7 @@ import (
 func TestReindexTaskLivenessLookup_ProductionWiringOrder(t *testing.T) {
 	shape := rangeableResidue()
 
-	deadBuilder := func() (KnownReindexTaskLookup, error) {
+	deadBuilder := func(context.Context) (KnownReindexTaskLookup, error) {
 		return func(taskID string, taskVersion uint64) bool { return false }, nil
 	}
 
@@ -88,4 +90,33 @@ func TestReindexTaskLivenessLookup_ProductionWiringOrder(t *testing.T) {
 			db.reindexTaskLivenessLookup().Answer(deadTaskID, deadTaskVersion),
 			"the next shard to start must see the installed task list")
 	})
+}
+
+// TestReindexTaskLivenessLookup_BoundsTheLeaderQuery pins that a leader
+// which is reachable but never answers cannot hold up the caller. Shard
+// init consults this lookup from the RAFT apply goroutine for lazily
+// loaded and multi-tenant shards, so an unbounded query would stall
+// RAFT apply on this node.
+func TestReindexTaskLivenessLookup_BoundsTheLeaderQuery(t *testing.T) {
+	db := &DB{}
+	logger, _ := test.NewNullLogger()
+
+	var deadline time.Time
+	db.SetReindexAuditDeps(func(ctx context.Context) (KnownReindexTaskLookup, error) {
+		deadline, _ = ctx.Deadline()
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, logger)
+
+	start := time.Now()
+	require.Equal(t, ReindexTaskLivenessUnknown,
+		db.reindexTaskLivenessLookup().Answer(deadTaskID, deadTaskVersion),
+		"a query that never answers must degrade to unknown, not block")
+	elapsed := time.Since(start)
+
+	require.False(t, deadline.IsZero(), "the query ctx must carry a deadline")
+	require.Less(t, deadline.Sub(start), 2*reindexLivenessQueryTimeout,
+		"the deadline must be the bound this package sets, not one inherited from elsewhere")
+	require.Less(t, elapsed, 2*reindexLivenessQueryTimeout,
+		"the caller must be released at the bound")
 }
