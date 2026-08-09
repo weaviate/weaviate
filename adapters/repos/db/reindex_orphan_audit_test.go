@@ -15,6 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
@@ -406,6 +409,63 @@ func TestSetReindexAuditDeps_ReplayHonorsCallerCancellation(t *testing.T) {
 
 	require.ErrorIs(t, seen, context.Canceled,
 		"the replay's leader query must run on the installer's context")
+}
+
+// TestSetReindexAuditDeps_ReplayRunsBothHalvesOnCallerContext pins the
+// other half of the replay. The sweep is the longer of the two — it walks
+// every shard and pauses compaction per shard — so it is the half where
+// cancellation matters most, but the behavioral test above can only reach
+// the leader query. Source-level check for the sweep.
+func TestSetReindexAuditDeps_ReplayRunsBothHalvesOnCallerContext(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "reindex_orphan_audit.go", nil, 0)
+	require.NoError(t, err)
+
+	var install *ast.FuncDecl
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "SetReindexAuditDeps" {
+			install = fn
+		}
+	}
+	require.NotNil(t, install, "SetReindexAuditDeps is what runs the replay")
+
+	// The names are read off the signature rather than hard-coded, so a
+	// rename moves the assertion with it.
+	require.Len(t, install.Type.Params.List[0].Names, 1)
+	ctxName := install.Type.Params.List[0].Names[0].Name
+	builderName := install.Type.Params.List[1].Names[0].Name
+
+	// The replay's two halves: building the lookup, then sweeping with it.
+	onCallerCtx := map[string]bool{}
+	ast.Inspect(install.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		var half string
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
+			if fn.Name == builderName {
+				half = "builder"
+			}
+		case *ast.SelectorExpr:
+			if fn.Sel.Name == "AuditOrphanReindexTrackers" {
+				half = "sweep"
+			}
+		}
+		if half == "" {
+			return true
+		}
+		arg, isIdent := call.Args[0].(*ast.Ident)
+		onCallerCtx[half] = isIdent && arg.Name == ctxName
+		return true
+	})
+
+	for _, half := range []string{"builder", "sweep"} {
+		require.Containsf(t, onCallerCtx, half, "the replay's %s half must be called here", half)
+		require.Truef(t, onCallerCtx[half],
+			"the replay's %s half must run on %s, or a SIGTERM cannot release it", half, ctxName)
+	}
 }
 
 // TestSetReindexAuditDeps_NoReplayWhenCounterZero pins that a normal

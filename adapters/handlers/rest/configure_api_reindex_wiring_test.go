@@ -15,6 +15,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -168,8 +169,8 @@ func TestReindexAuditCallsAreCancellableOnShutdown(t *testing.T) {
 	}
 	require.NotNil(t, makeAppState, "MakeAppState is where the audit calls are wired")
 
-	// The identifier each call passes as its context argument.
-	ctxArg := map[string]string{}
+	// The context expression each call passes.
+	ctxArg := map[string]ast.Expr{}
 	ast.Inspect(makeAppState.Body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok || len(call.Args) == 0 {
@@ -179,24 +180,40 @@ func TestReindexAuditCallsAreCancellableOnShutdown(t *testing.T) {
 		if !ok {
 			return true
 		}
-		ident, ok := call.Args[0].(*ast.Ident)
-		if !ok {
-			return true
-		}
 		for _, name := range calls {
 			if sel.Sel.Name == name {
-				ctxArg[name] = ident.Name
+				ctxArg[name] = call.Args[0]
 			}
 		}
 		return true
 	})
 
-	// serverShutdownCtx itself, or auditCtx which MakeAppState derives
-	// from it. context.Background() is a SelectorExpr, never an Ident,
-	// so it cannot satisfy this.
-	cancellable := map[string]bool{"serverShutdownCtx": true, "auditCtx": true}
+	// The property is "not a fresh root context", not any particular
+	// variable name: `context.WithTimeout(serverShutdownCtx, …)` stored in
+	// a local is a better call than passing serverShutdownCtx straight
+	// through, and must pass too.
 	for _, name := range calls {
-		require.Containsf(t, cancellable, ctxArg[name],
-			"%s must run on a context a server shutdown cancels, got %q", name, ctxArg[name])
+		require.NotNilf(t, ctxArg[name], "%s must be called in MakeAppState", name)
+		require.Falsef(t, isFreshRootContext(ctxArg[name]),
+			"%s must run on a context a server shutdown cancels, got %s",
+			name, types.ExprString(ctxArg[name]))
 	}
+}
+
+// isFreshRootContext reports whether expr is a literal call to
+// context.Background() or context.TODO() — a context nothing can cancel.
+func isFreshRootContext(expr ast.Expr) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok || pkg.Name != "context" {
+		return false
+	}
+	return sel.Sel.Name == "Background" || sel.Sel.Name == "TODO"
 }

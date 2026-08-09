@@ -27,8 +27,11 @@ import (
 // 8s clears the cluster's own leader-discovery budget (≈5.55s at the
 // default 1s election timeout, see backoffConfig in cluster/backoff.go).
 // A shorter bound would expire inside leader discovery, so every lookup
-// taken during an election would answer unknown and the residue would
-// wait for the next shard load — and nothing re-runs this in between.
+// taken during an election would answer unknown. With an agreeing schema
+// unknown promotes where live would have left the dirs alone, so such a
+// bound would promote a merged-but-untidied generation out from under a
+// task that is still running — exactly during a rolling restart, which is
+// the window this path exists for.
 // The cost of the higher bound is paid only when the leader is
 // unreachable, where it lengthens the per-apply stall described on
 // [DB.reindexTaskLivenessLookup]; a reachable leader answers in
@@ -121,11 +124,20 @@ func (db *DB) reindexTaskLivenessLookup() ReindexTaskLivenessLookup {
 			db.reindexAuditMu.RLock()
 			builder := db.reindexAuditLookupBuilder
 			logger := db.reindexAuditLogger
+			parent := db.reindexAuditCtx
 			db.reindexAuditMu.RUnlock()
 			if builder == nil {
 				return
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), reindexLivenessQueryTimeout)
+			// Bounded AND shutdown-cancellable: the bound caps a leader
+			// that never answers, the parent lets a SIGTERM cut the wait
+			// short instead of holding RAFT apply for the full bound.
+			// A cancelled parent degrades correctly — the builder errors,
+			// known stays nil, and the answer is the unknown arm.
+			if parent == nil {
+				parent = context.Background()
+			}
+			ctx, cancel := context.WithTimeout(parent, reindexLivenessQueryTimeout)
 			defer cancel()
 			lookup, err := builder(ctx)
 			if err != nil {
