@@ -28,9 +28,9 @@ const (
 )
 
 // ErrorForLog renders err for a log line with a size that does not grow
-// with the number of shards: an admission refusal can carry one line per
-// blocked shard, producing a multi-MB error that gets dropped or
-// truncated somewhere the operator doesn't control.
+// with the number of collections: an admission refusal carries one line
+// per blocked collection, so a wide pass produces an error that gets
+// dropped or truncated somewhere the operator doesn't control.
 //
 // Keeps the first few lines plus a count of what was dropped. Log only:
 // the HTTP response keeps every line for the caller that asked for it.

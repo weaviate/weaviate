@@ -293,9 +293,45 @@ func TestBackupDescriptors_RefusalNamesTheBlockedShardInTheLog(t *testing.T) {
 		}
 	}
 	require.NotNil(t, logged, "the operator needs a warn-level line naming the blocked shard")
+	assert.Contains(t, logged.Message, "backup capture refused",
+		"the phase label is how an operator tells this line apart from the admission pass")
 	assert.Equal(t, className, logged.Data["collection"])
 	assert.Equal(t, node, logged.Data["node"])
 	assert.Equal(t, []string{blocked}, logged.Data["blocked_shards"],
 		"only the shard with a live task may be named")
 	assert.Equal(t, 1, logged.Data["blocked_shard_count"])
+}
+
+// TestBackupDescriptors_UnknownStateNamesNoShard pins that a capture pass that
+// could not read cluster state lists no shard as held. It refuses every shard
+// on the node without having seen a single reindex, so naming them would assert
+// a migration the gate never observed — on a node with thousands of shards,
+// thousands of times over.
+func TestBackupDescriptors_UnknownStateNamesNoShard(t *testing.T) {
+	const className = "CaptureUnknownStateCls"
+	idx, names := coldTenantIndex(t, className, 6)
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.InfoLevel)
+	db := &DB{indices: map[string]*Index{}, localNodeName: "weaviate-0", logger: logger}
+	idx.db = db
+	db.indices[indexID(schema.ClassName(className))] = idx
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, fmt.Errorf("list DTM tasks: leader not found")
+	})
+
+	var passErr error
+	for desc := range db.BackupDescriptors(testCtx(), "gate-backup", []string{className}, nil) {
+		passErr = desc.Error
+	}
+	require.Error(t, passErr)
+	require.ErrorIs(t, passErr, backup.ErrReindexStateUnknown,
+		"the pass must refuse for the reason it actually has")
+
+	for _, entry := range hook.AllEntries() {
+		require.NotContains(t, entry.Message, "are held by the reindex gate",
+			"no shard was seen holding anything, so none may be reported as held")
+		require.NotContains(t, entry.Data, "blocked_shards")
+	}
+	require.False(t, namesAnyShard(passErr, names))
 }

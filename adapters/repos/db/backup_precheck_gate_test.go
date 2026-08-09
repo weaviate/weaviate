@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
@@ -412,5 +413,34 @@ func TestBackupableRefusalsAreBoundedForLogging(t *testing.T) {
 				len(bounded.Error()) < len(err.Error()),
 				"a bounded refusal is either the original error or a strictly shorter rendering")
 		})
+	}
+}
+
+// TestBackupable_UnknownStateRefusesTheWholePass pins the short circuit an
+// admission pass takes when it could not read cluster state: it knows nothing
+// about any shard, so it must neither list shards as held nor mix other
+// findings into a refusal that has one reason.
+func TestBackupable_UnknownStateRefusesTheWholePass(t *testing.T) {
+	classes := []precheckClass{{name: "UnknownStateCls", shards: precheckShards("UnknownStateCls", 4)}}
+	db := precheckDB(t, classes)
+	logger, hook := logrustest.NewNullLogger()
+	db.logger = logger
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, errors.New("list DTM tasks: leader not found")
+	})
+
+	// A class that does not exist, so the pass has a second finding to
+	// withhold. Without the short circuit it rides along in the response.
+	err := db.Backupable(testCtx(), append(precheckClassNames(classes), "GhostCls"))
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrReindexStateUnknown)
+	require.Equal(t, 1, refusalCount(err), "one unknown state is one refusal, not one per shard")
+	require.NotContains(t, err.Error(), "doesn't exist",
+		"a pass that stopped at the leader never got far enough to judge the other class")
+
+	for _, entry := range hook.AllEntries() {
+		require.NotContains(t, entry.Message, "are held by the reindex gate",
+			"no shard was seen holding anything, so none may be reported as held")
 	}
 }

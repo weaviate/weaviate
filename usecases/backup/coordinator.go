@@ -895,9 +895,11 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 			st.Status = backup.Failed
 		}
 		c.Participants[x.node] = st
+		// Bounded: this is the participant's own refusal verbatim, and the
+		// caller still gets all of it through the status endpoint.
 		c.log.WithField("action", req.Method).
 			WithField("backup_id", req.ID).
-			WithField("node", x.node).Error(x.err)
+			WithField("node", x.node).Error(backup.ErrorForLog(x.err))
 		delete(nodes, x.node)
 		nFailures++
 		continue

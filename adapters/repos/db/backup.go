@@ -184,6 +184,10 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
+		// Registered first so LIFO runs it last: a consumer ranging the
+		// channel is released the moment it closes, so closing before the
+		// drain lets the caller read the log before the summary is in it.
+		defer close(ds)
 		// The refusals name the shards their bodies redact, so an operator
 		// can tell which shard held the backup up.
 		defer gate.logRefusals("backup capture")
@@ -221,7 +225,6 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				break
 			}
 		}
-		close(ds)
 	}
 	enterrors.GoWrapper(f, db.logger)
 	return ds

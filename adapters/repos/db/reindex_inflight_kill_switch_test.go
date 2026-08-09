@@ -46,7 +46,7 @@ func TestReindexGate_RuntimeReindexDisabled(t *testing.T) {
 			})
 
 			gate := newReindexGate(db)
-			require.Equal(t, tt.wantBlock, gate.anyLiveReindexForShard("MyClass", "shard1"))
+			require.Equal(t, tt.wantBlock, gateRefuses(gate, "MyClass", "shard1"))
 			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
 				"the backup path must make no reindex lookup while the feature is off")
 		})
@@ -172,7 +172,7 @@ func TestReindexGate_DisabledIgnoresACleanupHold(t *testing.T) {
 		return func(string, string) ReindexHold { return ReindexHoldCleanup }
 	})
 
-	require.False(t, newReindexGate(db).anyLiveReindexForShard("Movies", "shard1"),
+	require.False(t, gateRefuses(newReindexGate(db), "Movies", "shard1"),
 		"with the feature off a cancel's cleanup hold must not refuse this node's backup")
 	require.Zero(t, cleanupBuilds.Load(),
 		"the flag check must precede the cleanup lookup, or the gate is only half disabled")

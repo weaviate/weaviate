@@ -928,14 +928,14 @@ func TestMidPassSubmissionIsCaughtByTheCommitBackstop(t *testing.T) {
 
 	since := time.Now().UTC() // desc.StartedAt, stamped before the gate resolves
 	gate := newReindexGate(db)
-	require.False(t, gate.anyLiveReindexForShard("Movies", "shard-early"),
+	require.False(t, gateRefuses(gate, "Movies", "shard-early"),
 		"the pass starts clean")
 
 	// Mid-pass: a task is submitted, runs, and finishes.
 	live.Store(true)
 	finished := time.Now().UTC().Add(time.Millisecond)
 
-	require.False(t, gate.anyLiveReindexForShard("Movies", "shard-late"),
+	require.False(t, gateRefuses(gate, "Movies", "shard-late"),
 		"the pass snapshot is expected to be stale here; the backstop covers it")
 
 	tests := []struct {

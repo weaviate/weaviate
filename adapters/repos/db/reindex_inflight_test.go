@@ -43,6 +43,14 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
+// gateRefuses asks the gate about one shard through the same call the
+// admission and capture passes make, so a gate verdict cannot be asserted
+// against a route production never takes.
+func gateRefuses(gate *reindexGate, collection, shardName string) bool {
+	idx := &Index{db: gate.db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+	return idx.refuseIfReindexInFlightWithGate(gate, shardName) != nil
+}
+
 // countingActivityBuilder counts snapshot builds and probed shards.
 // Production meters the same count as
 // schema_reads_leader_seconds_count{type="TYPE_DISTRIBUTED_TASK_LIST"}.
@@ -87,7 +95,7 @@ func TestReindexGate_LiveTask(t *testing.T) {
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"MyClass", "shard1"}: true,
 	}))
-	assert.True(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
+	assert.True(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"gate must refuse when DTM reports a live task on the tuple")
 }
 
@@ -100,7 +108,7 @@ func TestReindexGate_TerminalTask(t *testing.T) {
 	// containing only Finished/Cancelled/Failed tasks after the
 	// configure_api filter.
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
-	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"gate must allow when no live task targets the tuple")
 }
 
@@ -118,7 +126,7 @@ func TestReindexGate_TerminalTask(t *testing.T) {
 // the only signal a backup took it (see [DB.SetShardReindexActivityLookup]).
 func TestReindexGate_BuilderUnwired(t *testing.T) {
 	db := &DB{}
-	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"unwired gate must allow (with WARN); production gates HTTP on bootstrap")
 }
 
@@ -130,7 +138,7 @@ func TestReindexGate_BuilderReturnsNil(t *testing.T) {
 	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		return nil, nil
 	})
-	assert.False(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"nil lookup must allow (same path as unwired)")
 }
 
@@ -437,15 +445,15 @@ func TestReindexGate_UnreachableLeaderIsBlocked(t *testing.T) {
 	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		return nil, errors.New("leader not found")
 	})
-	assert.True(t, newReindexGate(db).anyLiveReindexForShard("MyClass", "shard1"),
+	assert.True(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"unknown reindex state must block, not allow")
 }
 
 // causeFirstRefusal is the shape of a refusal whose message states what
 // actually happened, keeping the sentinel reachable through Unwrap so
-// errors.Is still matches across the canCommit RPC. The stand-in that drives
-// that boundary in usecases/backup is held to the same shape, so narrowing
-// either one's Unwrap breaks a build.
+// errors.Is still matches across the canCommit RPC. This pins
+// reindexStateUnknown only; usecases/backup pins its own stand-in against its
+// own copy of this interface, and nothing compares the two.
 type causeFirstRefusal interface {
 	error
 	Unwrap() []error
@@ -620,12 +628,14 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	var warnAndAbove, aggregate int
 	var sample []string
 	var reportedCount int
+	var aggregateMsg string
 	for _, e := range hook.AllEntries() {
 		if e.Level <= logrus.WarnLevel {
 			warnAndAbove++
 		}
 		if strings.Contains(e.Message, "are held by the reindex gate") {
 			aggregate++
+			aggregateMsg = e.Message
 			if v, ok := e.Data["blocked_shards"].([]string); ok {
 				sample = v
 			}
@@ -640,6 +650,8 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 			"%d shards produced %d warn-or-above entries, so the per-shard growth is back",
 		shardCount, warnAndAbove)
 	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
+	require.Contains(t, aggregateMsg, "backup precheck refused",
+		"the phase label is how an operator tells this line apart from the capture pass")
 	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
 	// A literal, not the constant the code caps with: asserting the bound
 	// against itself cannot fail, so raising the constant to 100000 would keep

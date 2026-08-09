@@ -275,18 +275,6 @@ func (g *reindexGate) stateUnknown() bool {
 	return g.unknown != nil
 }
 
-// anyLiveReindexForShard is [reindexGate.blockReason] as a yes/no.
-// Unknown cluster state counts as blocked: the gate is fail-closed, and
-// callers building an operator-facing refusal ask
-// [reindexGate.stateUnknownErr] first so the message can say so.
-func (g *reindexGate) anyLiveReindexForShard(collection, shardName string) bool {
-	g.resolve()
-	if g.unknown != nil {
-		return true
-	}
-	return g.blockReason(collection, shardName) != reindexNotBlocked
-}
-
 // blockReason answers for one shard against the gate's resolved view,
 // keeping the branch so the refusal can match its advice to what actually
 // blocked.
@@ -475,9 +463,9 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 }
 
 // reindexStateUnknownError is the refusal for "the cluster leader could
-// not be reached": it names no shard and suggests cancelling nothing,
-// replacing what used to be a refusal per shard (a 7 MB body on a
-// 20,000-shard node).
+// not be reached": it names no shard and suggests cancelling nothing.
+// [DB.Backupable] returns it for the whole pass, so it stays one line
+// however many collections the pass covers.
 func reindexStateUnknownError(cause error) error {
 	return reindexStateUnknown{
 		ReindexBlockedError: entitiesbackup.ReindexBlockedError{Msg: "backup blocked: the cluster leader " +
