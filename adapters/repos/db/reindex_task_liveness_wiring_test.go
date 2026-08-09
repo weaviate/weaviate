@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func TestReindexTaskLivenessLookup_ProductionWiringOrder(t *testing.T) {
 	t.Run("a shard loaded after the deps land", func(t *testing.T) {
 		db := &DB{}
 		logger, _ := test.NewNullLogger()
-		db.SetReindexAuditDeps(deadBuilder, logger)
+		db.SetReindexAuditDeps(context.Background(), deadBuilder, logger)
 
 		lookup := db.reindexTaskLivenessLookup()
 		require.Equal(t, ReindexTaskLivenessDead,
@@ -82,7 +83,7 @@ func TestReindexTaskLivenessLookup_ProductionWiringOrder(t *testing.T) {
 		early := db.reindexTaskLivenessLookup()
 		require.Equal(t, ReindexTaskLivenessUnknown, early.Answer(deadTaskID, deadTaskVersion))
 
-		db.SetReindexAuditDeps(deadBuilder, logger)
+		db.SetReindexAuditDeps(context.Background(), deadBuilder, logger)
 
 		require.Equal(t, ReindexTaskLivenessUnknown, early.Answer(deadTaskID, deadTaskVersion),
 			"a lookup that already resolved keeps its answer for the shard that took it")
@@ -97,26 +98,35 @@ func TestReindexTaskLivenessLookup_ProductionWiringOrder(t *testing.T) {
 // init consults this lookup from the RAFT apply goroutine for lazily
 // loaded and multi-tenant shards, so an unbounded query would stall
 // RAFT apply on this node.
+//
+// The bound also has a floor. The query reaches the leader through the
+// cluster's leader-discovery backoff, which is documented to take up to
+// ≈5.55s at the default election timeout. A deadline below that expires
+// before the query is even sent, so every shard loaded during an
+// election would answer unknown, and nothing re-runs the decision until
+// the next shard load.
 func TestReindexTaskLivenessLookup_BoundsTheLeaderQuery(t *testing.T) {
+	// The worst case cluster.backoffConfig documents for a 1s election
+	// timeout, which is the raft default.
+	const leaderDiscoveryBudget = 5555 * time.Millisecond
+
 	db := &DB{}
 	logger, _ := test.NewNullLogger()
 
 	var deadline time.Time
-	db.SetReindexAuditDeps(func(ctx context.Context) (KnownReindexTaskLookup, error) {
+	db.SetReindexAuditDeps(context.Background(), func(ctx context.Context) (KnownReindexTaskLookup, error) {
 		deadline, _ = ctx.Deadline()
-		<-ctx.Done()
-		return nil, ctx.Err()
+		return nil, errors.New("leader is reachable but never answers")
 	}, logger)
 
 	start := time.Now()
 	require.Equal(t, ReindexTaskLivenessUnknown,
 		db.reindexTaskLivenessLookup().Answer(deadTaskID, deadTaskVersion),
 		"a query that never answers must degrade to unknown, not block")
-	elapsed := time.Since(start)
 
 	require.False(t, deadline.IsZero(), "the query ctx must carry a deadline")
+	require.Greater(t, deadline.Sub(start), leaderDiscoveryBudget,
+		"the deadline must outlast leader discovery, or an election makes every answer unknown")
 	require.Less(t, deadline.Sub(start), 2*reindexLivenessQueryTimeout,
 		"the deadline must be the bound this package sets, not one inherited from elsewhere")
-	require.Less(t, elapsed, 2*reindexLivenessQueryTimeout,
-		"the caller must be released at the bound")
 }
