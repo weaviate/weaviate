@@ -26,7 +26,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -52,9 +51,7 @@ import (
 func TestMultiTenant_EnableRangeable_CancelRestartJourney(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
+	compose, err := reindexhelpers.SingleNodeCompose().
 		WithWeaviateEnv("REINDEX_CONCURRENCY", "2").
 		Start(ctx)
 	require.NoError(t, err)
