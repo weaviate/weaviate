@@ -424,11 +424,11 @@ type Shard struct {
 	//      ordering edge case.
 	//
 	// Read on every query that touches the affected property, so kept
-	// under a fast RWMutex rather than a sync.Map (consistent with
-	// rangeableLocalReady above). Per-shard, in-memory only — the
-	// cluster-wide schema flip is the authoritative cross-replica
-	// signal; this overlay just bridges the local seconds-long gap
-	// between bucket-swap-here and schema-flip-observed-here.
+	// under a fast RWMutex rather than a sync.Map. Per-shard, in-memory
+	// only. The cluster-wide schema flip is the authoritative
+	// cross-replica signal; this overlay just bridges the local
+	// seconds-long gap between bucket-swap-here and
+	// schema-flip-observed-here.
 	tokenizationOverlayMu sync.RWMutex
 	tokenizationOverlay   map[string]string
 
@@ -662,9 +662,9 @@ func (s *Shard) isFallbackToSearchable() bool {
 // It exists so a shard whose schema says IndexRangeFilters=true but whose
 // bucket is missing degrades to the filterable walk instead of failing the
 // query with "bucket for prop %s not found". There is no longer a
-// migration-progress component to this answer: enable-rangeable and
-// repair-rangeable are semantic migrations, so the schema flag flips once,
-// after every shard has swapped.
+// migration-progress component to this answer: enable-rangeable is a
+// semantic migration, so the schema flag flips once, after every shard has
+// swapped. repair-rangeable is format-only and writes no schema at all.
 func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	return s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)) != nil
 }
