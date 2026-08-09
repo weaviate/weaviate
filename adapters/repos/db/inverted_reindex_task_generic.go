@@ -691,7 +691,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		// need OnMigrationComplete (e.g. analyzer overlay clears) —
 		// OnMigrationComplete is idempotent for the strategies we
 		// support. Trim is best-effort and also idempotent.
-		if err := t.assertTidiedGenerationServed(concreteShard, props); err != nil {
+		if err := t.assertTidiedGenerationServed(ctx, concreteShard, props); err != nil {
 			return err
 		}
 		logger.WithField("props", props).Info("RunSwapOnShard: already tidied on disk; running OnMigrationComplete only")
@@ -811,12 +811,20 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 // already true, so shard init opens an empty canonical bucket over the
 // missing dir and a store-only check passes.
 //
-// The error is deliberately not a context.Canceled wrap, so the ack records
-// Success=false and the task goes FAILED without flipping the schema. The
-// in-process retry the transient path offers cannot help: only the next
-// shard init retries the promotion, and the tracker this error leaves in
-// place is what keeps that retry alive.
-func (t *ShardReindexTaskGeneric) assertTidiedGenerationServed(shard *Shard, props []string) error {
+// A shutdown drain presents as the same shape: [lsmkv.Store.Shutdown]
+// clears the bucket lookup before draining, so the store answers nil for
+// the canonical name while the deferred dir is still there. That one is
+// transient, so the context is checked first — the same discriminator
+// [ShardReindexTaskGeneric.rebuildRangeableInMemoryReps] uses for the same
+// signal, and the wrap keeps runPerUnitPhase routing to the transient ack
+// path so SWAP re-fires after the restart.
+//
+// With a live context the error is deliberately not a context.Canceled
+// wrap, so the ack records Success=false and the task goes FAILED without
+// flipping the schema. The in-process retry the transient path offers
+// cannot help: only the next shard init retries the promotion, and the
+// tracker this error leaves in place is what keeps that retry alive.
+func (t *ShardReindexTaskGeneric) assertTidiedGenerationServed(ctx context.Context, shard *Shard, props []string) error {
 	lsmPath := shard.pathLSM()
 	for _, propName := range props {
 		mainName := t.strategy.SourceBucketName(propName)
@@ -829,11 +837,15 @@ func (t *ShardReindexTaskGeneric) assertTidiedGenerationServed(shard *Shard, pro
 			filepath.Clean(bucket.GetDir()) == filepath.Clean(ingestDir) {
 			continue
 		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("swap check aborted for property %q: %w", propName, ctxErr)
+		}
 		return fmt.Errorf(
 			"stale migration state on shard %q: the tidied sentinel claims property %q is migrated, "+
-				"but its data was never promoted to %q and no in-memory swap is serving it — the "+
-				"startup promotion failed and is retried at the next shard init; refusing to report "+
-				"success for a swap that did not land",
+				"but its data was never promoted to %q and no in-memory swap is serving it — usually "+
+				"caused by a startup promotion that failed and is retried at the next shard init, or "+
+				"by a DELETE that removed the property mid-migration; refusing to report success for "+
+				"a swap that did not land",
 			shard.Name(), propName, mainName)
 	}
 	return nil

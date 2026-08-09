@@ -40,14 +40,15 @@ import (
 // serving.
 func warnOnUnexplainedEmptyRangeableIndex(s *Shard, class *models.Class) {
 	lsmPath := s.pathLSM()
-	for _, propName := range unexplainedEmptyRangeableProps(lsmPath, class) {
+	for _, prop := range unexplainedEmptyRangeableProps(lsmPath, class) {
+		propName := prop.name
 		entry := s.index.logger.WithFields(map[string]any{
 			"action":     "rangeable_index_audit",
 			"collection": s.index.Config.ClassName.String(),
 			"shard":      s.name,
 			"property":   propName,
 		})
-		if rangeableMigrationState(lsmPath, propName) == rangeableMigrationPromotionFailed {
+		if prop.state == rangeableMigrationPromotionFailed {
 			entry.Warnf(
 				"shard %q: the schema says property %q has a range index, but the migration that "+
 					"built it could not be promoted to its canonical directory, so range filters on "+
@@ -63,6 +64,15 @@ func warnOnUnexplainedEmptyRangeableIndex(s *Shard, class *models.Class) {
 				`PUT /v1/schema/%s/indexes/%s {"rangeable":{"rebuild":true}}`,
 			s.name, propName, s.index.Config.ClassName.String(), propName)
 	}
+}
+
+// unexplainedRangeableProp is one property reported by
+// [unexplainedEmptyRangeableProps], carrying the tracker state that got it
+// reported so the caller can pick its message without walking
+// `.migrations/` again.
+type unexplainedRangeableProp struct {
+	name  string
+	state rangeableMigrationExplanation
 }
 
 // unexplainedEmptyRangeableProps returns the properties of class whose
@@ -83,7 +93,7 @@ func warnOnUnexplainedEmptyRangeableIndex(s *Shard, class *models.Class) {
 //     mid-flight is the explanation — reporting those would fire on every
 //     healthy run. A migration whose swap already finished is not an
 //     explanation: see [rangeableMigrationState].
-func unexplainedEmptyRangeableProps(lsmPath string, class *models.Class) []string {
+func unexplainedEmptyRangeableProps(lsmPath string, class *models.Class) []unexplainedRangeableProp {
 	if class == nil {
 		return nil
 	}
@@ -93,7 +103,7 @@ func unexplainedEmptyRangeableProps(lsmPath string, class *models.Class) []strin
 		return nil
 	}
 
-	var out []string
+	var out []unexplainedRangeableProp
 	for _, prop := range class.Properties {
 		if prop == nil || !inverted.HasRangeableIndex(prop) {
 			continue
@@ -102,10 +112,11 @@ func unexplainedEmptyRangeableProps(lsmPath string, class *models.Class) []strin
 		if bucketDirHoldsData(bucketDir) {
 			continue
 		}
-		if rangeableMigrationState(lsmPath, prop.Name) == rangeableMigrationInFlight {
+		state := rangeableMigrationState(lsmPath, prop.Name)
+		if state == rangeableMigrationInFlight {
 			continue
 		}
-		out = append(out, prop.Name)
+		out = append(out, unexplainedRangeableProp{name: prop.Name, state: state})
 	}
 	return out
 }

@@ -44,7 +44,13 @@ func TestRunSwapOnShard_TidiedWithoutPromotion_DoesNotAck(t *testing.T) {
 		// failed promotion leaves. It runs after the migration reached
 		// tidied.mig and before RunSwapOnShard is called a second time.
 		breakPromotion func(t *testing.T, ctx context.Context, shard *Shard)
-		wantErr        bool
+		// cancelCtx cancels the context of the second RunSwapOnShard call
+		// only, after the setup ran to completion under a live one.
+		cancelCtx bool
+		wantErr   bool
+		// wantTransient expects an error the scheduler retries after a
+		// restart rather than a permanent FAILED.
+		wantTransient bool
 	}{
 		{
 			// Control: the mainline post-swap state. The ingest dir is still
@@ -77,6 +83,21 @@ func TestRunSwapOnShard_TidiedWithoutPromotion_DoesNotAck(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			// A graceful shutdown produces the same shape: Store.Shutdown
+			// clears the bucket lookup before draining, so the canonical
+			// name resolves to nil while the deferred dir is still intact.
+			// That one resolves itself — the next shard init promotes the
+			// generation — so it must stay on the transient path the
+			// scheduler re-fires after the restart.
+			name: "shutdown drain under a cancelled context",
+			breakPromotion: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.store.ShutdownBucket(ctx, mainName))
+			},
+			cancelCtx:     true,
+			wantErr:       true,
+			wantTransient: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -108,15 +129,30 @@ func TestRunSwapOnShard_TidiedWithoutPromotion_DoesNotAck(t *testing.T) {
 				tc.breakPromotion(t, ctx, shard)
 			}
 
-			err = task.RunSwapOnShard(ctx, shard)
+			swapCtx := ctx
+			if tc.cancelCtx {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				swapCtx = cancelled
+			}
+
+			err = task.RunSwapOnShard(swapCtx, shard)
 			if !tc.wantErr {
 				require.NoError(t, err)
 				return
 			}
 			require.Error(t, err,
 				"a tidied generation whose data never reached the canonical name must not ack success")
-			require.False(t, errors.Is(err, context.Canceled),
-				"the ack must record a permanent failure, not a shutdown the scheduler would retry in place")
+			if tc.wantTransient {
+				require.ErrorIs(t, err, context.Canceled,
+					"a drain during shutdown must stay transient so SWAP re-fires after the restart")
+			} else {
+				require.False(t, errors.Is(err, context.Canceled),
+					"the ack must record a permanent failure, not a shutdown the scheduler would retry in place")
+				require.ErrorContains(t, err, `property "`+propName+`" is migrated`)
+				require.ErrorContains(t, err, "usually caused by",
+					"the message must not pin one cause: a DELETE mid-migration produces the same shape")
+			}
 			require.NoFileExists(t, migrationFinalizedMarkerPath(shard.pathLSM(), task.MigrationDirName()),
 				"nothing may claim this generation was promoted")
 			_, statErr := os.Stat(filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName()))
