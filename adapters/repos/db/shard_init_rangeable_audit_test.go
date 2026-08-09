@@ -169,6 +169,29 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 			want: []string{"score"},
 		},
 		{
+			// Several paths create the tracker dir before finding there
+			// is nothing to do. A leftover explains nothing, and counting
+			// it would suppress this warning on every boot from then on.
+			name: "an empty tracker dir explains nothing",
+			layout: map[string]string{
+				helpers.ObjectsBucketLSM + "/segment-001.db": "objects",
+				rangeableBucket + "/":                        "",
+				".migrations/" + trackerDir + "/":            "",
+			},
+			want: []string{"score"},
+		},
+		{
+			// The marker the finalizer leaves behind records a migration
+			// that is over; it must not stand in for one in flight.
+			name: "a finalized marker does not explain it",
+			layout: map[string]string{
+				helpers.ObjectsBucketLSM + "/segment-001.db":   "objects",
+				rangeableBucket + "/":                          "",
+				".migrations/" + trackerDir + ".finalized.mig": "",
+			},
+			want: []string{"score"},
+		},
+		{
 			name: "empty shard: no objects, so an empty index is correct",
 			layout: map[string]string{
 				helpers.ObjectsBucketLSM + "/": "",

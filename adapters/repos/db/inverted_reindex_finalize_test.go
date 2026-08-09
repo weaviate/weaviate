@@ -24,6 +24,22 @@ import (
 // https://github.com/weaviate/weaviate/issues/10675. The functions under test live in
 // inverted_reindex_finalize.go and inverted_reindex_strategy_dir_names.go.
 
+// remainingTrackerDirs lists the tracker directories left under a
+// shard's .migrations. Files there (the finalized markers) are not
+// trackers and are deliberately not counted.
+func remainingTrackerDirs(t *testing.T, migsDir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(migsDir)
+	require.NoError(t, err)
+	var out []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			out = append(out, entry.Name())
+		}
+	}
+	return out
+}
+
 func TestParseMigrationDirName(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -201,9 +217,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 
 	// All tracker dirs should be gone — gen 3's was promoted, older
 	// gens were cleaned as stale.
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "tracker dirs should all be removed")
+	require.Empty(t, remainingTrackerDirs(t, migsDir), "tracker dirs should all be removed")
 }
 
 // TestFinalizeCompletedMigrations_TidiedPlusInFlight verifies that a
@@ -370,9 +384,8 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 	}
 
 	// Tracker dirs gone.
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "both tracker dirs must be removed after recovery finalize")
+	require.Empty(t, remainingTrackerDirs(t, migsDir),
+		"both tracker dirs must be removed after recovery finalize")
 }
 
 // TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers
@@ -600,9 +613,8 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("data"), got)
 
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "no trackers should remain after a successful recovery")
+	require.Empty(t, remainingTrackerDirs(t, migsDir),
+		"no trackers should remain after a successful recovery")
 }
 
 // TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge
@@ -704,10 +716,9 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 
 	// All four .migrations/ tracker dirs must be removed (recovery completes
 	// the full promotion and trims their entries).
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries,
-		"every tracker must be cleared after multi-prop recovery — got %v", migEntries)
+	remaining := remainingTrackerDirs(t, migsDir)
+	require.Empty(t, remaining,
+		"every tracker must be cleared after multi-prop recovery — got %v", remaining)
 }
 
 // TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge
@@ -799,8 +810,8 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		}
 		// The migrations dir, if it existed, must be empty after finalize.
 		if sh.stage != "no_migrations" {
-			migEntries, _ := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
-			require.Emptyf(t, migEntries, "%s: tracker dirs must be cleared after finalize", sh.name)
+			require.Emptyf(t, remainingTrackerDirs(t, filepath.Join(lsmPath, ".migrations")),
+				"%s: tracker dirs must be cleared after finalize", sh.name)
 		}
 	}
 }

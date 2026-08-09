@@ -326,6 +326,31 @@ func (t *ShardReindexTaskGeneric) migrationPath(lsmPath string) string {
 	return filepath.Join(lsmPath, ".migrations", t.strategy.MigrationDirName())
 }
 
+// migrationAlreadyFinalized reports whether this task's generation was
+// promoted by [FinalizeCompletedMigrations], which removes the tracker
+// dir and leaves a marker in its place.
+//
+// A tracker dir that still holds files wins over the marker: those files
+// describe live state, the marker only records that an earlier
+// generation of state is gone. An empty tracker dir is removed on the
+// way through — it carries no state, and while it exists it suppresses
+// the startup damage warning in [unexplainedEmptyRangeableProps], which
+// matches tracker dirs by name alone.
+func (t *ShardReindexTaskGeneric) migrationAlreadyFinalized(lsmPath string) bool {
+	if !fileExists(migrationFinalizedMarkerPath(lsmPath, t.strategy.MigrationDirName())) {
+		return false
+	}
+	migDir := t.migrationPath(lsmPath)
+	if dirHoldsAnyFile(migDir) {
+		return false
+	}
+	if err := os.Remove(migDir); err != nil && !os.IsNotExist(err) {
+		t.logger.WithField("path", migDir).
+			Warnf("removing empty migration tracker dir: %v", err)
+	}
+	return true
+}
+
 // reindexRecoveryPayloadFile is the filename of the on-disk JSON record
 // describing the in-flight reindex task. Written by [ReindexProvider]
 // before the reindex iteration starts; read at startup by
@@ -456,6 +481,9 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	if err != nil {
 		return err
 	}
+	if entry.alreadyFinalized {
+		return nil
+	}
 	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	// Idempotent fast-path: already merged means prep was already
@@ -487,12 +515,23 @@ type dtmPhaseEntry struct {
 	shard  *Shard
 	logger logrus.FieldLogger
 	rt     reindexTracker
+
+	// alreadyFinalized means the startup finalizer promoted this
+	// generation and removed its tracker while this task was still
+	// running. There is no on-disk state left to act on and rt is nil;
+	// both callers return success. See [migrationFinalizedMarkerPath].
+	alreadyFinalized bool
 }
 
 // enterDTMPhase unwraps the shard, opens the guarded tracker (DTM callbacks
 // run under no closeLock; see newReindexTrackerGuarded), and — if on-disk
 // state trails RAFT ("started but not reindexed" after a rolling restart) —
 // resumes the iteration before returning.
+//
+// A generation the startup finalizer already promoted returns an entry
+// with alreadyFinalized set and no tracker: the work is done, and the
+// caller must ack success rather than report a shard with no migration
+// on disk.
 func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -504,6 +543,14 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 		"shard":      concreteShard.Name(),
 		"method":     method,
 	})
+
+	// MUST come before the tracker is opened: opening it re-creates the
+	// dir the finalizer removed, and an empty tracker dir is itself a
+	// problem (see [ShardReindexTaskGeneric.migrationAlreadyFinalized]).
+	if t.migrationAlreadyFinalized(concreteShard.pathLSM()) {
+		logger.Info(method + ": generation was already promoted at startup; nothing left to do on disk")
+		return &dtmPhaseEntry{shard: concreteShard, logger: logger, alreadyFinalized: true}, nil
+	}
 
 	rt, err := t.newReindexTrackerGuarded(concreteShard)
 	if err != nil {
@@ -590,6 +637,15 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	entry, err := t.enterDTMPhase(ctx, shard, "RunSwapOnShard")
 	if err != nil {
 		return err
+	}
+	if entry.alreadyFinalized {
+		// Same reasoning as the IsTidied branch below: the data work is
+		// done on disk, only the in-process strategy state may still
+		// need aligning, and OnMigrationComplete is idempotent.
+		if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+			return fmt.Errorf("on migration complete: %w", err)
+		}
+		return nil
 	}
 	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
