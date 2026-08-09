@@ -139,6 +139,13 @@ type reindexGate struct {
 	// cluster-wide reindex state. The gate stays fail-closed, but the
 	// refusal has to say that rather than claim a reindex it never saw.
 	unknown error
+
+	// refusalsMu guards refusals, which the capture pass fills from one
+	// goroutine per shard.
+	refusalsMu sync.Mutex
+	// refusals maps a collection to the shards this pass refused; see
+	// [reindexGate.logRefusals].
+	refusals map[string][]string
 }
 
 func newReindexGate(db *DB) *reindexGate {
@@ -154,8 +161,9 @@ func contextWithReindexGate(ctx context.Context, gate *reindexGate) context.Cont
 	return context.WithValue(ctx, reindexGateCtxKey{}, gate)
 }
 
-// reindexGateFromContext returns nil outside a backup pass; replica
-// movement and offload resolve a fresh gate per call instead.
+// reindexGateFromContext returns nil outside a backup pass; replica movement
+// resolves a fresh gate per call instead. Offload never reaches the gate at
+// all.
 func reindexGateFromContext(ctx context.Context) *reindexGate {
 	gate, _ := ctx.Value(reindexGateCtxKey{}).(*reindexGate)
 	return gate
@@ -220,6 +228,31 @@ func (g *reindexGate) resolve() {
 			g.cleanup = cleanupBuilder()
 		}
 	})
+}
+
+// noteRefusal records a shard this pass refused, for the summary
+// [reindexGate.logRefusals] emits once the pass is done.
+func (g *reindexGate) noteRefusal(collection, shardName string) {
+	g.refusalsMu.Lock()
+	defer g.refusalsMu.Unlock()
+	if g.refusals == nil {
+		g.refusals = map[string][]string{}
+	}
+	g.refusals[collection] = append(g.refusals[collection], shardName)
+}
+
+// logRefusals reports the shards this pass refused, one line per collection,
+// through [DB.logReindexRefusals]. phase names the pass for the message.
+//
+// Emitted once at the end rather than per refusal: the capture pass checks
+// shards in parallel, so a line per refusal would grow with shard count.
+func (g *reindexGate) logRefusals(phase string) {
+	g.refusalsMu.Lock()
+	defer g.refusalsMu.Unlock()
+	if len(g.refusals) == 0 || g.db == nil {
+		return
+	}
+	g.db.logReindexRefusals(phase, g.db.localNodeName, g.refusals, nil)
 }
 
 // stateUnknownErr returns the pass-wide refusal to use when cluster-wide
@@ -365,8 +398,26 @@ func (i *Index) refuseIfReindexInFlightWithGate(gate *reindexGate, shardName str
 	}
 	// Deliberately silent here: a multi-shard pass calls this once per shard,
 	// so each caller logs at its own granularity instead
-	// ([Index.refuseIfReindexInFlight], [DB.Backupable]).
+	// ([Index.refuseIfReindexInFlight], [Index.refuseIfReindexInFlightInPass],
+	// [DB.Backupable]).
 	return reindexInFlightError(collection, reason)
+}
+
+// refuseIfReindexInFlightInPass is [Index.refuseIfReindexInFlightWithGate] for
+// the capture pass, which records the refused shard on the pass gate so
+// [reindexGate.logRefusals] can name it at the end of the pass. Without that
+// the shard reaches no one: the refusal body redacts it on purpose.
+//
+// An unknown cluster state is not recorded. It refuses every shard on the node
+// without knowing anything about any of them, so listing them as held would
+// claim a reindex the gate never saw; that case warns from
+// [reindexGate.resolve] instead.
+func (i *Index) refuseIfReindexInFlightInPass(gate *reindexGate, shardName string) error {
+	err := i.refuseIfReindexInFlightWithGate(gate, shardName)
+	if err != nil && !gate.stateUnknown() {
+		gate.noteRefusal(i.Config.ClassName.String(), shardName)
+	}
+	return err
 }
 
 // logReindexRefusal records the shard the body withholds. Callers that check a
