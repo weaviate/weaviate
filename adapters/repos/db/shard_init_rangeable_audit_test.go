@@ -16,10 +16,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestUnexplainedEmptyRangeableProps drives the startup audit against real
@@ -234,4 +238,53 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 // must not panic on a class the schema could not supply.
 func TestUnexplainedEmptyRangeableProps_NoClass(t *testing.T) {
 	require.Nil(t, unexplainedEmptyRangeableProps(t.TempDir(), nil))
+}
+
+// TestShardInit_WarnsOnUnexplainedEmptyRangeableIndex pins the audit's
+// call site and the WARN an operator greps for. The table above drives
+// the pure decision helper; nothing else reaches shard init, and the
+// message is the branch's only operator-facing deliverable.
+//
+// The damage state is reproduced the way #464 produces it: a shard that
+// holds objects is restarted under a schema that has since turned the
+// range index on, with no migration to explain the missing data.
+func TestShardInit_WarnsOnUnexplainedEmptyRangeableIndex(t *testing.T) {
+	ctx := testCtx()
+	className := "RangeableAudit_" + uuid.NewString()[:8]
+	propName := filterableToRangeablePropName
+
+	shd, idx := testShardWithSettings(t, ctx, newFilterableToRangeableTestClass(className),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	for _, obj := range makeFilterableToRangeableTestObjects(t, 5, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+	shardName := shard.Name()
+	require.NoError(t, shard.Shutdown(ctx))
+
+	logger, hook := logrustest.NewNullLogger()
+	idx.logger = logger
+
+	enabled := true
+	restartClass := newFilterableToRangeableTestClass(className)
+	restartClass.Properties[0].IndexRangeFilters = &enabled
+	shd2, err := idx.initShard(ctx, shardName, restartClass, nil, true, true)
+	require.NoError(t, err)
+	defer shd2.Shutdown(ctx)
+
+	var audits []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "rangeable_index_audit" {
+			audits = append(audits, entry)
+		}
+	}
+	require.Len(t, audits, 1, "shard init must emit exactly one audit WARN for the damaged property")
+	entry := audits[0]
+	require.Equal(t, logrus.WarnLevel, entry.Level)
+	require.Equal(t, className, entry.Data["collection"])
+	require.Equal(t, shardName, entry.Data["shard"])
+	require.Equal(t, propName, entry.Data["property"])
+	require.Contains(t, entry.Message,
+		`PUT /v1/schema/`+className+`/indexes/`+propName+` {"rangeable":{"rebuild":true}}`,
+		"the repair command must stay copy-pasteable")
 }
