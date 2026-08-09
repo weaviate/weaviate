@@ -144,3 +144,59 @@ func TestReindexAuditDepsAreInstalledAfterTheMetaStoreWait(t *testing.T) {
 		"SetReindexAuditDeps must come after waitForMetaStore, or shards loaded during "+
 			"RAFT replay start resolving task liveness as Dead instead of Unknown")
 }
+
+// Pins the context both post-startup audit entry points run on. Each one
+// starts with a query to the leader, and both are reached from the RAFT
+// FSM apply path — the class-dir restore hook directly, the deferred
+// replay through the audits that hook requested before the deps landed.
+// A background context there leaves a leader that is reachable but not
+// answering holding up RAFT apply with nothing, not even SIGTERM, to
+// release it. Source-level check since MakeAppState needs a real cluster
+// to run.
+func TestReindexAuditCallsAreCancellableOnShutdown(t *testing.T) {
+	calls := []string{"AuditOrphanReindexTrackersIfReady", "SetReindexAuditDeps"}
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "configure_api.go", nil, 0)
+	require.NoError(t, err)
+
+	var makeAppState *ast.FuncDecl
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "MakeAppState" {
+			makeAppState = fn
+		}
+	}
+	require.NotNil(t, makeAppState, "MakeAppState is where the audit calls are wired")
+
+	// The identifier each call passes as its context argument.
+	ctxArg := map[string]string{}
+	ast.Inspect(makeAppState.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := call.Args[0].(*ast.Ident)
+		if !ok {
+			return true
+		}
+		for _, name := range calls {
+			if sel.Sel.Name == name {
+				ctxArg[name] = ident.Name
+			}
+		}
+		return true
+	})
+
+	// serverShutdownCtx itself, or auditCtx which MakeAppState derives
+	// from it. context.Background() is a SelectorExpr, never an Ident,
+	// so it cannot satisfy this.
+	cancellable := map[string]bool{"serverShutdownCtx": true, "auditCtx": true}
+	for _, name := range calls {
+		require.Containsf(t, cancellable, ctxArg[name],
+			"%s must run on a context a server shutdown cancels, got %q", name, ctxArg[name])
+	}
+}

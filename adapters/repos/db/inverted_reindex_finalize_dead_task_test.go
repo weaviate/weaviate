@@ -399,7 +399,7 @@ func TestReindexTaskLivenessLookup_UnknownWithoutDeps(t *testing.T) {
 	require.Equal(t, ReindexTaskLivenessUnknown,
 		db.reindexTaskLivenessLookup().Answer("t", 1))
 
-	db.SetReindexAuditDeps(func(context.Context) (KnownReindexTaskLookup, error) {
+	db.SetReindexAuditDeps(context.Background(), func(context.Context) (KnownReindexTaskLookup, error) {
 		return func(taskID string, taskVersion uint64) bool { return taskID == "live" }, nil
 	}, nil)
 	lookup := db.reindexTaskLivenessLookup()

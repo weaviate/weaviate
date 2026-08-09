@@ -693,9 +693,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := classDirMover(class); err != nil {
 			return err
 		}
-		// Background ctx: invoked from the RAFT FSM apply path,
-		// which does not propagate an audit-scoped ctx.
-		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
+		// serverShutdownCtx, not Background: this runs on the RAFT FSM
+		// apply path, and the audit's first step is a leader query that
+		// only a cancellable ctx releases on SIGTERM.
+		outcome, err := repo.AuditOrphanReindexTrackersIfReady(serverShutdownCtx)
 		if err != nil {
 			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
 				WithField("class", class).
@@ -1093,7 +1094,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		// Install the audit deps so the post-restore-class-dir hook
 		// (wired into RestoreClassDir above) can run the audit.
-		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
+		repo.SetReindexAuditDeps(auditCtx, buildKnownTask, appState.Logger)
 
 		// Install the backup-gate activity lookup so refuseIfReindexInFlight
 		// consults DTM rather than per-shard filesystem markers. A list

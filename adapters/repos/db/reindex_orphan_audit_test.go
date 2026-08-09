@@ -371,7 +371,7 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	// counter and replay the audit synchronously.
 	knownNothing := func(string, uint64) bool { return false }
 	builder := func(context.Context) (KnownReindexTaskLookup, error) { return knownNothing, nil }
-	db.SetReindexAuditDeps(builder, logrus.New())
+	db.SetReindexAuditDeps(context.Background(), builder, logrus.New())
 
 	// Replay must have cleaned the orphan AND reset the counter.
 	_, err = os.Stat(dir)
@@ -382,6 +382,30 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	deferred = db.reindexAuditDeferredRequests
 	db.reindexAuditMu.RUnlock()
 	assert.Equal(t, 0, deferred, "deferred-requests counter must reset after replay")
+}
+
+// TestSetReindexAuditDeps_ReplayHonorsCallerCancellation pins that the
+// replay's leader query runs on the installer's context. Production
+// passes the server shutdown context, so a SIGTERM during the replay
+// releases a query the leader is not answering; on a background context
+// nothing would.
+func TestSetReindexAuditDeps_ReplayHonorsCallerCancellation(t *testing.T) {
+	db := &DB{}
+	outcome, err := db.AuditOrphanReindexTrackersIfReady(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, AuditStatusSkipped, outcome.Status, "deps are not installed yet")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var seen error
+	db.SetReindexAuditDeps(ctx, func(queryCtx context.Context) (KnownReindexTaskLookup, error) {
+		seen = queryCtx.Err()
+		return nil, queryCtx.Err()
+	}, logrus.New())
+
+	require.ErrorIs(t, seen, context.Canceled,
+		"the replay's leader query must run on the installer's context")
 }
 
 // TestSetReindexAuditDeps_NoReplayWhenCounterZero pins that a normal
@@ -412,7 +436,7 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 	knownNothing := func(string, uint64) bool { return false }
 	builder := func(context.Context) (KnownReindexTaskLookup, error) { return knownNothing, nil }
 	// Counter is 0 here — no prior AuditOrphanReindexTrackersIfReady call.
-	db.SetReindexAuditDeps(builder, logrus.New())
+	db.SetReindexAuditDeps(context.Background(), builder, logrus.New())
 	_, err := os.Stat(dir)
 	assert.NoError(t, err,
 		"with zero deferred requests SetReindexAuditDeps must NOT run a replay sweep")
