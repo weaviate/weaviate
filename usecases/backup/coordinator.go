@@ -640,10 +640,13 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
+				// Bounded: this is the participant's own refusal verbatim, one
+				// line per blocked collection, and the caller still gets all of
+				// it in the response.
 				c.log.WithField("action", req.Method).
 					WithField("backup_id", req.ID).
 					WithField("node", req.NodeName).
-					Errorf("canCommit refused by participant: %v", err)
+					Errorf("canCommit refused by participant: %v", backup.ErrorForLog(err))
 				if redactNode {
 					return err
 				}
