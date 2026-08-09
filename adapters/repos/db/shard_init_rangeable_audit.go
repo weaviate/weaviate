@@ -39,13 +39,24 @@ import (
 // ingest→canonical renames have just run, and the buckets are not yet
 // serving.
 func warnOnUnexplainedEmptyRangeableIndex(s *Shard, class *models.Class) {
-	for _, propName := range unexplainedEmptyRangeableProps(s.pathLSM(), class) {
-		s.index.logger.WithFields(map[string]any{
+	lsmPath := s.pathLSM()
+	for _, propName := range unexplainedEmptyRangeableProps(lsmPath, class) {
+		entry := s.index.logger.WithFields(map[string]any{
 			"action":     "rangeable_index_audit",
 			"collection": s.index.Config.ClassName.String(),
 			"shard":      s.name,
 			"property":   propName,
-		}).Warnf(
+		})
+		if rangeableMigrationState(lsmPath, propName) == rangeableMigrationPromotionFailed {
+			entry.Warnf(
+				"shard %q: the schema says property %q has a range index, but the migration that "+
+					"built it could not be promoted to its canonical directory, so range filters on "+
+					"this shard return no results. The promotion is retried at every startup — see "+
+					"the preceding finalize error for what blocks it.",
+				s.name, propName)
+			continue
+		}
+		entry.Warnf(
 			"shard %q: the schema says property %q has a range index, but this shard holds no "+
 				"range-index data and no migration is in progress to build it. Range filters on "+
 				"this shard will return no results. Rebuild it with "+
@@ -68,9 +79,10 @@ func warnOnUnexplainedEmptyRangeableIndex(s *Shard, class *models.Class) {
 //   - The shard holds objects but the rangeable bucket holds nothing. An
 //     empty shard legitimately has an empty index, so the objects check
 //     is what separates "damaged" from "new".
-//   - No migration tracker exists for the property. A migration that is
-//     mid-flight, or whose swap is waiting for the next startup, is the
-//     explanation — reporting those would fire on every healthy run.
+//   - No migration is still in flight for the property. One that is
+//     mid-flight is the explanation — reporting those would fire on every
+//     healthy run. A migration whose swap already finished is not an
+//     explanation: see [rangeableMigrationState].
 func unexplainedEmptyRangeableProps(lsmPath string, class *models.Class) []string {
 	if class == nil {
 		return nil
@@ -90,7 +102,7 @@ func unexplainedEmptyRangeableProps(lsmPath string, class *models.Class) []strin
 		if bucketDirHoldsData(bucketDir) {
 			continue
 		}
-		if hasAnyMigrationTracker(lsmPath, migrationDirFamiliesForIndexType("rangeable"), prop.Name) {
+		if rangeableMigrationState(lsmPath, prop.Name) == rangeableMigrationInFlight {
 			continue
 		}
 		out = append(out, prop.Name)
@@ -122,23 +134,47 @@ func bucketDirHoldsData(bucketDir string) bool {
 	return false
 }
 
-// hasAnyMigrationTracker reports whether any generation of a tracker in
-// one of the given migration families covers propName, at any stage.
-// Unlike [hasUntidiedTracker] this deliberately counts finished trackers
-// too: the question here is "is there a migration that explains the
-// state", and one whose rename is deferred to the next startup explains
-// it just as well as one still running.
+// rangeableMigrationExplanation says what the rangeable migration trackers
+// on disk have to say about a property whose range index is empty.
+type rangeableMigrationExplanation int
+
+const (
+	// noRangeableMigration: no tracker covers the property. Nothing on
+	// disk explains the empty index.
+	noRangeableMigration rangeableMigrationExplanation = iota
+	// rangeableMigrationInFlight: a tracker that has not tidied yet. The
+	// index is empty because the migration is still building it.
+	rangeableMigrationInFlight
+	// rangeableMigrationPromotionFailed: a tidied tracker. Its swap
+	// finished, so the finalize pass that runs just before this audit
+	// would have promoted its data and removed the tracker. The tracker
+	// still being here means that promotion failed.
+	rangeableMigrationPromotionFailed
+)
+
+// rangeableMigrationState classifies the trackers covering propName. An
+// in-flight tracker wins over a failed one: a newer generation still
+// running is a live explanation regardless of what an older one left
+// behind.
 //
-// An empty tracker dir explains nothing and is not counted. Several
-// paths create the dir before deciding there is nothing to do, and a
-// leftover would otherwise suppress this warning on every boot from
-// then on.
-func hasAnyMigrationTracker(lsmPath string, families []string, propName string) bool {
+// A tidied tracker is deliberately NOT an explanation. It would be one if
+// this ran at any other time, but the caller runs right after
+// [FinalizeCompletedMigrations], which promotes every tidied generation and
+// removes its tracker. Counting the survivors would let the artifact a
+// failed promotion keeps for its own retry silence the warning about the
+// empty index that same failure caused.
+//
+// An empty tracker dir explains nothing either. Several paths create the
+// dir before deciding there is nothing to do, and a leftover would
+// otherwise suppress this warning on every boot from then on.
+func rangeableMigrationState(lsmPath, propName string) rangeableMigrationExplanation {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		return false
+		return noRangeableMigration
 	}
+	families := migrationDirFamiliesForIndexType("rangeable")
+	state := noRangeableMigration
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -151,16 +187,21 @@ func hasAnyMigrationTracker(lsmPath string, families []string, propName string) 
 			if !trackerCoversProp(base, family, propName) {
 				continue
 			}
+			trackerDir := filepath.Join(migrationsDir, entry.Name())
 			// An unreadable tracker dir reads as empty and so explains
 			// nothing, which leaves the caller's damage warning in place.
 			// That is the safe direction here: one warning too many is
 			// better than one too few.
-			if holds, _ := dirHoldsAnyFile(filepath.Join(migrationsDir, entry.Name())); holds {
-				return true
+			if holds, _ := dirHoldsAnyFile(trackerDir); !holds {
+				continue
 			}
+			if !fileExists(filepath.Join(trackerDir, "tidied.mig")) {
+				return rangeableMigrationInFlight
+			}
+			state = rangeableMigrationPromotionFailed
 		}
 	}
-	return false
+	return state
 }
 
 // trackerCoversProp reports whether a tracker dir base name of the form

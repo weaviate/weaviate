@@ -897,13 +897,17 @@ func reindexSuffixForFinalize(namespace string) string {
 // finalizeMigrationDir promotes one generation's per-property ingest dirs
 // to their canonical names and drops the matching backup dirs.
 //
-// It returns nil only when every property in properties.mig was promoted.
-// Every other outcome, including the ones where there was nothing to
-// promote, is an error. The caller needs that distinction: it removes the
-// tracker dir and writes the finalized marker on success, and the marker
-// is what tells a still-running task that this shard's swap landed. A
-// marker written over a failed promotion makes the shard ack a swap it
-// never performed.
+// It returns nil only when no property in properties.mig was left
+// unpromoted by a failure. A property whose ingest and backup dirs are both
+// gone has nothing left to do and counts as promoted — that is what makes
+// the retry after a partial promotion converge. The generation-level
+// preconditions (both sentinels, a readable properties.mig naming at least
+// one property, a parseable dir name) are errors.
+//
+// The caller needs that distinction: it removes the tracker dir and writes
+// the finalized marker on success, and the marker is what tells a
+// still-running task that this shard's swap landed. A marker written over a
+// failed promotion makes the shard ack a swap it never performed.
 //
 // The result is all-or-nothing for the whole generation rather than
 // per-property because both artifacts the caller gates on — the tracker

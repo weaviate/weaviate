@@ -691,6 +691,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		// need OnMigrationComplete (e.g. analyzer overlay clears) —
 		// OnMigrationComplete is idempotent for the strategies we
 		// support. Trim is best-effort and also idempotent.
+		if err := t.assertTidiedGenerationServed(concreteShard, props); err != nil {
+			return err
+		}
 		logger.WithField("props", props).Info("RunSwapOnShard: already tidied on disk; running OnMigrationComplete only")
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
 
@@ -779,6 +782,60 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return fmt.Errorf("runtime swap: %w", err)
 	}
 
+	return nil
+}
+
+// assertTidiedGenerationServed refuses to complete the swap when a tidied
+// generation's migrated data is not reachable under the canonical bucket
+// name.
+//
+// tidied.mig means a previous run finished the swap, so returning nil from
+// the IsTidied branch acks this shard as migrated — and for enable-rangeable
+// that ack is what flips IndexRangeFilters cluster-wide. The data behind
+// that ack lives in exactly one of two places:
+//
+//   - promoted: [FinalizeCompletedMigrations] renamed the ingest dir to the
+//     canonical name at shard init, so the ingest dir is gone.
+//   - deferred: that rename has not run yet, and the in-memory swap
+//     ([lsmkv.Store.SwapBucketPointer]) is what makes the canonical name
+//     resolve to this generation's ingest dir.
+//
+// Anything else is a promotion that did not land — a finalize that failed
+// and kept its tracker for the retry — and acking it reports success over
+// an index that serves zero rows.
+//
+// This branch is reached both with and without a rehydrate, so the check
+// belongs here rather than only on the rehydrate-only path in
+// [ShardReindexTaskGeneric.OnAfterLsmInitAsync]. It also reads the dirs
+// rather than only the store: for repair-rangeable the schema flag is
+// already true, so shard init opens an empty canonical bucket over the
+// missing dir and a store-only check passes.
+//
+// The error is deliberately not a context.Canceled wrap, so the ack records
+// Success=false and the task goes FAILED without flipping the schema. The
+// in-process retry the transient path offers cannot help: only the next
+// shard init retries the promotion, and the tracker this error leaves in
+// place is what keeps that retry alive.
+func (t *ShardReindexTaskGeneric) assertTidiedGenerationServed(shard *Shard, props []string) error {
+	lsmPath := shard.pathLSM()
+	for _, propName := range props {
+		mainName := t.strategy.SourceBucketName(propName)
+		ingestDir := filepath.Join(lsmPath, t.ingestBucketName(propName))
+
+		if !dirExists(ingestDir) && dirExists(filepath.Join(lsmPath, mainName)) {
+			continue
+		}
+		if bucket := shard.Store().Bucket(mainName); bucket != nil &&
+			filepath.Clean(bucket.GetDir()) == filepath.Clean(ingestDir) {
+			continue
+		}
+		return fmt.Errorf(
+			"stale migration state on shard %q: the tidied sentinel claims property %q is migrated, "+
+				"but its data was never promoted to %q and no in-memory swap is serving it — the "+
+				"startup promotion failed and is retried at the next shard init; refusing to report "+
+				"success for a swap that did not land",
+			shard.Name(), propName, mainName)
+	}
 	return nil
 }
 
@@ -1518,6 +1575,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		// that previous run and this re-trigger), the on-disk sentinel lies
 		// — acking this shard would report success while the customer's
 		// index is in fact empty. Fail loudly instead.
+		//
+		// Kept alongside [ShardReindexTaskGeneric.assertTidiedGenerationServed]:
+		// this branch is where the inline (non-semantic) strategies complete,
+		// and they never reach RunSwapOnShard where that one runs.
 		for _, propName := range props {
 			bucketName := t.strategy.SourceBucketName(propName)
 			if shard.Store().Bucket(bucketName) == nil {
