@@ -112,11 +112,17 @@ func TestBackupRefusalLogIsBounded(t *testing.T) {
 	}
 }
 
-// TestCoordinatorFailureLogIsBounded pins the bound on the line the
-// coordinator writes when a participant fails: the participant's refusal
-// reaches it already flattened to a string, so nothing downstream can shrink
-// it again.
+// TestCoordinatorFailureLogIsBounded pins the bound on the lines the
+// coordinator writes when a participant refuses: the refusal reaches it
+// already flattened to a string, so nothing downstream can shrink it again.
+// Both phases are covered — admission (canCommit) and commit — because a
+// refusal that blocks every collection arrives at the earlier one first.
 func TestCoordinatorFailureLogIsBounded(t *testing.T) {
+	t.Run("commit phase", testCommitPhaseLogIsBounded)
+	t.Run("canCommit phase", testCanCommitPhaseLogIsBounded)
+}
+
+func testCommitPhaseLogIsBounded(t *testing.T) {
 	var (
 		ctx          = context.Background()
 		any          = mock.Anything
@@ -176,6 +182,88 @@ func TestCoordinatorFailureLogIsBounded(t *testing.T) {
 	for _, entry := range hook.AllEntries() {
 		require.LessOrEqual(t, len(entry.Message), logBoundBytes,
 			"log line must not grow with the size of the participant's refusal")
+	}
+}
+
+// genericRefusal is the same width as massRefusal but names no condition, so
+// canCommitErrFromResponse takes its errCannotCommit arm instead of a typed one.
+func genericRefusal(n int) []string {
+	lines := make([]string, n)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("collection %q: cannot be backed up right now", fmt.Sprintf("Cls-%d", i))
+	}
+	return lines
+}
+
+func testCanCommitPhaseLogIsBounded(t *testing.T) {
+	tests := []struct {
+		name string
+		// errKind picks the arm canCommitErrFromResponse takes.
+		errKind CanCommitErrorKind
+		refusal string
+	}{
+		{
+			name:    "reindex gate refusal",
+			errKind: CanCommitErrInFlightReindex,
+			refusal: strings.Join(massRefusal(20000), "\n"),
+		},
+		{
+			name:    "refusal of no particular kind",
+			errKind: CanCommitErrCannotCommit,
+			refusal: strings.Join(genericRefusal(20000), "\n"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				ctx          = context.Background()
+				any          = mock.Anything
+				backendName  = "s3"
+				backupID     = "1"
+				nodes        = []string{"N1", "N2"}
+				classes      = []string{"Class-A"}
+				nodeResolver = newFakeNodeResolver(nodes)
+				accepted     = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+				abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", ""}
+			)
+
+			// Timeout 0 is how a participant says no.
+			refused := &CanCommitResponse{
+				Method: OpCreate, ID: backupID, Timeout: 0,
+				Err: tt.refusal, ErrKind: tt.errKind,
+			}
+
+			logger, hook := test.NewNullLogger()
+			fc := newFakeCoordinator(nodeResolver)
+			fc.log = logger
+			coordinator := *fc.coordinator()
+			coordinator.timeoutNodeDown = 0
+
+			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+			fc.client.On("CanCommit", any, nodes[0], any).Return(refused, nil)
+			fc.client.On("CanCommit", any, nodes[1], any).Return(accepted, nil)
+			fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
+			fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+
+			req := newReq(classes, backendName, backupID)
+			store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
+			err := coordinator.Backup(ctx, store, &req)
+
+			require.ErrorContains(t, err, "Cls-19999",
+				"the response goes to a caller who asked for the list; it stays complete")
+
+			var sawRefusal bool
+			for _, entry := range hook.AllEntries() {
+				require.LessOrEqual(t, len(entry.Message), logBoundBytes,
+					"log line must not grow with the size of the participant's refusal")
+				if strings.Contains(entry.Message, "Cls-0") {
+					sawRefusal = true
+				}
+			}
+			require.True(t, sawRefusal, "the refusal has to be logged at all")
+		})
 	}
 }
 
