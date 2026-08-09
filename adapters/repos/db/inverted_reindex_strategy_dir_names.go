@@ -198,3 +198,28 @@ func migrationDirsForPropertyIndex(propName, indexType string) []string {
 	}
 	return nil
 }
+
+// migrationDirFamiliesForIndexType returns the tracker prefixes of every
+// migration that writes the given index type, without the property
+// segment. Callers that must match a tracker naming several properties
+// at once take this and compare against the property list themselves;
+// [migrationDirsForPropertyIndex] builds the single-property name and
+// only matches a migration submitted for exactly that one property.
+func migrationDirFamiliesForIndexType(indexType string) []string {
+	switch indexType {
+	case "filterable":
+		return []string{
+			MigrationDirPrefixEnableFilterable,
+			MigrationDirPrefixFilterableRetokenize,
+		}
+	case "searchable":
+		return []string{
+			MigrationDirPrefixEnableSearchable,
+			MigrationDirPrefixRebuildSearchable,
+			MigrationDirPrefixSearchableRetokenize,
+		}
+	case "rangeable":
+		return []string{MigrationDirPrefixFilterableToRangeable}
+	}
+	return nil
+}

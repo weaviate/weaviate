@@ -42,6 +42,12 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 	}
 	rangeableBucket := helpers.BucketRangeableFromPropNameLSM("score")
 	trackerDir := migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{"score"}) + "_1"
+	multiPropTrackerDir := migrationDirWithProps(
+		MigrationDirPrefixFilterableToRangeable, []string{"depth", "score", "weight"}) + "_1"
+	otherPropTrackerDir := migrationDirWithProps(
+		MigrationDirPrefixFilterableToRangeable, []string{"weight"}) + "_1"
+	filterableTrackerDir := migrationDirWithProps(
+		MigrationDirPrefixEnableFilterable, []string{"score"}) + "_1"
 
 	tests := []struct {
 		name string
@@ -99,6 +105,37 @@ func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 				".migrations/" + trackerDir + "/tidied.mig":  "x",
 			},
 			want: nil,
+		},
+		{
+			// A migration submitted for several properties at once writes
+			// ONE tracker naming all of them. Matching only the
+			// single-property dir name would miss it and report every
+			// shard the migration is still running on as damaged.
+			name: "mid-migration: tracker names several properties at once",
+			layout: map[string]string{
+				helpers.ObjectsBucketLSM + "/segment-001.db":          "objects",
+				rangeableBucket + "/":                                 "",
+				".migrations/" + multiPropTrackerDir + "/started.mig": "x",
+			},
+			want: nil,
+		},
+		{
+			name: "unrelated property's tracker does not explain this one",
+			layout: map[string]string{
+				helpers.ObjectsBucketLSM + "/segment-001.db":          "objects",
+				rangeableBucket + "/":                                 "",
+				".migrations/" + otherPropTrackerDir + "/started.mig": "x",
+			},
+			want: []string{"score"},
+		},
+		{
+			name: "a tracker from another migration family does not explain it",
+			layout: map[string]string{
+				helpers.ObjectsBucketLSM + "/segment-001.db":           "objects",
+				rangeableBucket + "/":                                  "",
+				".migrations/" + filterableTrackerDir + "/started.mig": "x",
+			},
+			want: []string{"score"},
 		},
 		{
 			name: "empty shard: no objects, so an empty index is correct",
