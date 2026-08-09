@@ -67,7 +67,10 @@ const reindexRefusalShardSample = 10
 // The one case that does short circuit is an unreachable cluster leader:
 // reindex state is then unknown for every shard, so the pass stops at the
 // first shard rather than logging every shard as held and collecting
-// findings it cannot trust.
+// findings it cannot trust. That return also skips the log, so anything
+// already accumulated for an earlier class is dropped from the log as well
+// as from the response; [reindexGate.resolve] warns about the unreachable
+// leader itself.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	// One gate for the whole admission pass; resolving it is a cluster-wide
