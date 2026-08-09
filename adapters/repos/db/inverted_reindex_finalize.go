@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -423,7 +424,17 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
 			migDir := filepath.Join(migrationsDir, g.dirName)
 			switch {
 			case g.gen == effective:
-				finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
+				if err := finalizeMigrationDir(lsmPath, migDir, g.dirName, logger); err != nil {
+					// Nothing, or only part, of this generation reached its
+					// canonical dirs. Keep the tracker and skip the marker:
+					// the next shard init retries the promotion, and until
+					// then a task still running for this generation reads
+					// real tracker state instead of an ack for a swap that
+					// did not land.
+					logger.WithField("migration", g.dirName).
+						Errorf("reindex finalize: promotion failed, keeping tracker dir for retry at next startup: %v", err)
+					continue
+				}
 				// finalizeMigrationDir performs the ingest→canonical
 				// rename + backup removal. We also remove the tracker
 				// dir itself: its sentinels have done their job. The
@@ -757,7 +768,13 @@ func discardRefusedMergedGen(lsmPath, namespace, migDir, dirName string, logger 
 //
 // Returns an error only when the generation's dirs cannot be enumerated,
 // in which case nothing was removed. Individual removal failures are
-// logged and skipped, since the orphan audit picks them up later.
+// logged and skipped. The orphan audit does not reclaim what they leave
+// behind — every audit path is keyed on a tracker dir, and callers remove
+// the tracker right after this returns. Those dirs are inert (nothing
+// opens a bucket on them) until the next migration submit on the same
+// property, whose [Shard.CleanStalePartialReindexState] removes every
+// sidecar that is not preserved for a completed migration, ahead of the
+// generation number being reused.
 func removeGenerationSidecars(
 	lsmPath, namespace, dirName string, guardBackup bool, logger logrus.FieldLogger,
 ) error {
@@ -877,19 +894,37 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
-func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) {
+// finalizeMigrationDir promotes one generation's per-property ingest dirs
+// to their canonical names and drops the matching backup dirs.
+//
+// It returns nil only when every property in properties.mig was promoted.
+// Every other outcome, including the ones where there was nothing to
+// promote, is an error. The caller needs that distinction: it removes the
+// tracker dir and writes the finalized marker on success, and the marker
+// is what tells a still-running task that this shard's swap landed. A
+// marker written over a failed promotion makes the shard ack a swap it
+// never performed.
+//
+// The result is all-or-nothing for the whole generation rather than
+// per-property because both artifacts the caller gates on — the tracker
+// dir and the marker — cover all of the generation's properties at once.
+// There is no per-property equivalent to report a partial promotion to.
+func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) error {
 	// Only finalize if both swapped and tidied sentinels exist.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
-		return
+		return errors.New("no swapped.mig sentinel")
 	}
 	if !fileExists(filepath.Join(migDir, "tidied.mig")) {
-		return
+		return errors.New("no tidied.mig sentinel")
 	}
 
 	// Read properties from the migration.
 	props, err := readMigrationProps(migDir)
-	if err != nil || len(props) == 0 {
-		return
+	if err != nil {
+		return fmt.Errorf("read properties.mig: %w", err)
+	}
+	if len(props) == 0 {
+		return errors.New("properties.mig lists no properties")
 	}
 
 	// Determine bucket naming from migration dir name. The migration dir
@@ -899,17 +934,18 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// to find the matching on-disk sidecar dirs.
 	suffixes := migrationSuffixes(migName)
 	if suffixes == nil {
-		return
+		return fmt.Errorf("no known bucket suffixes for migration dir %q", migName)
 	}
 	_, gen, ok := parseMigrationDirName(migName)
 	if !ok {
 		// Defensive — every dir on disk should carry the gen suffix.
-		return
+		return fmt.Errorf("cannot parse generation out of migration dir %q", migName)
 	}
 	genTail := "_" + strconv.Itoa(gen)
 
 	logger = logger.WithField("migration", migName)
 
+	var failures []error
 	for _, propName := range props {
 		mainName := suffixes.sourceBucketName(propName)
 		ingestDir := filepath.Join(lsmPath, mainName+suffixes.ingestSuffix+genTail)
@@ -921,6 +957,8 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			if err := os.RemoveAll(backupDir); err != nil {
 				logger.WithField("dir", backupDir).
 					Errorf("finalize: failed to remove backup dir: %v", err)
+				failures = append(failures,
+					fmt.Errorf("property %q: remove backup dir %s: %w", propName, backupDir, err))
 				continue
 			}
 			logger.WithField("dir", backupDir).Debug("finalize: removed backup dir")
@@ -929,18 +967,30 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 		// Rename ingest dir to canonical main dir.
 		if fileExists(ingestDir) {
 			// Remove stale main dir if it exists (shouldn't normally, but be safe).
+			// A stale dir left in place makes the rename below fail, so a
+			// removal failure ends this property here rather than being
+			// rediscovered as a rename failure.
 			if fileExists(mainDir) {
-				os.RemoveAll(mainDir)
+				if err := os.RemoveAll(mainDir); err != nil {
+					logger.WithField("dir", mainDir).
+						Errorf("finalize: failed to remove stale canonical dir: %v", err)
+					failures = append(failures,
+						fmt.Errorf("property %q: remove stale canonical dir %s: %w", propName, mainDir, err))
+					continue
+				}
 			}
 			if err := os.Rename(ingestDir, mainDir); err != nil {
 				logger.WithField("from", ingestDir).WithField("to", mainDir).
 					Errorf("finalize: failed to rename ingest dir: %v", err)
+				failures = append(failures,
+					fmt.Errorf("property %q: rename %s to %s: %w", propName, ingestDir, mainDir, err))
 				continue
 			}
 			logger.WithField("from", ingestDir).WithField("to", mainDir).
 				Debug("finalize: renamed ingest dir to main")
 		}
 	}
+	return errors.Join(failures...)
 }
 
 func readMigrationProps(migDir string) ([]string, error) {
