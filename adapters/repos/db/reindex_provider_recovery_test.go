@@ -12,6 +12,7 @@
 package db
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -292,4 +293,57 @@ func TestTasksOwningMigrationDir(t *testing.T) {
 	t.Run("unrecognized dir keeps every sub-task", func(t *testing.T) {
 		require.Equal(t, built, tasksOwningMigrationDir(built, "something_else_1", logger))
 	})
+}
+
+// TestDiscoverInFlightReindexTasks_ChangeTokenizationRevivesOnlyOwnSubTask
+// is the same rule seen from the startup entry point. Both sub-task
+// trackers of one change-tokenization migration are in flight, so
+// discovery finds two dirs; without the ownership filter each dir revives
+// both sub-tasks and startup registers four task instances for the two
+// that are actually on disk.
+func TestDiscoverInFlightReindexTasks_ChangeTokenizationRevivesOnlyOwnSubTask(t *testing.T) {
+	rec := reindexRecoveryRecord{
+		TaskID: "task-1", TaskVersion: 3, UnitID: "unit-0",
+		Payload: ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			Collection:         "Articles",
+			Properties:         []string{"text"},
+			TargetTokenization: models.PropertyTokenizationLowercase,
+			BucketStrategy:     lsmkv.StrategyMapCollection,
+		},
+	}
+	payload, err := json.Marshal(rec)
+	require.NoError(t, err)
+
+	dirNames := []string{
+		MigrationDirPrefixSearchableRetokenize + "_text_1",
+		MigrationDirPrefixFilterableRetokenize + "_text_1",
+	}
+
+	rootPath := t.TempDir()
+	migsDir := filepath.Join(rootPath, "articles", "shard-0", "lsm", ".migrations")
+	for _, dirName := range dirNames {
+		dir := filepath.Join(migsDir, dirName)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		// started + reindexed without tidied is the recovery window.
+		for _, s := range []string{"started.mig", "reindexed.mig"} {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
+		}
+		require.NoError(t, os.WriteFile(
+			filepath.Join(dir, reindexRecoveryPayloadFile), payload, 0o644))
+	}
+
+	logger, _ := test.NewNullLogger()
+	recovered, err := DiscoverInFlightReindexTasks(rootPath, logger, nil)
+	require.NoError(t, err)
+	require.Len(t, recovered, 2, "one entry per tracker dir on disk")
+
+	var revived []string
+	for _, rr := range recovered {
+		for _, task := range rr.Tasks {
+			revived = append(revived, task.MigrationDirName())
+		}
+	}
+	require.ElementsMatch(t, dirNames, revived,
+		"each tracker dir may revive only the sub-task that owns it")
 }
