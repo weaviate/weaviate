@@ -1352,19 +1352,31 @@ mid-cancel, the on-disk state survives; the next submit's pre-cleanup
 catches that gap.
 
 A cancel (or failure) between `markMerged` and `markTidied` leaves a
-merged-but-untidied generation that nothing will ever complete. Startup
-finalization (`mergedPromotionDecision` in
-[`inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go))
-decides its fate from the task identity in `payload.mig` plus the
-collection schema:
+generation that nothing will ever complete. What startup finalization
+may do with it depends on whether the swap already committed.
+
+Once `swapped.mig` is on disk the canonical dir has been renamed to
+`backup_<gen>` and the in-memory pointer has been flipped, so there is
+nothing left under the canonical name to fall back to. Promoting the
+ingest dir is then the deferred second half of an operation that already
+committed, and startup does it unconditionally. Declining would let
+shard init create an empty canonical bucket beside a populated ingest
+dir, and the property would serve zero rows until a later startup.
+
+Before `swapped.mig`, the canonical dir is untouched and every option is
+open. `mergedPromotionDecision` in
+[`inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go)
+decides from the task identity in `payload.mig` plus the collection
+schema:
 
 - **Promote** if the schema confirms the migration, or if the tracker
   has no readable `payload.mig` (nothing to verify against).
 - **Refuse** (`mergedPromotionRefuse`) if the task is proven dead AND
   the schema does not reflect the migration. The working dirs are
-  discarded. Refusal is lossless: the swap never renamed the old
-  canonical dir away, so the property keeps serving its complete
-  pre-migration data. The ingest dir stops being updated the moment the
+  discarded. Refusal is lossless because this arm only sees generations
+  without `swapped.mig`: the old canonical dir is still under its own
+  name, so the property keeps serving its complete pre-migration data.
+  The ingest dir stops being updated the moment the
   task dies, because the double-write mirror dies with it, so a later
   startup must not promote it either.
 - **Leave** everything in place if the task is still live, or if its
