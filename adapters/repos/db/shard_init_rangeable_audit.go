@@ -14,6 +14,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -89,7 +90,7 @@ func unexplainedEmptyRangeableProps(lsmPath string, class *models.Class) []strin
 		if bucketDirHoldsData(bucketDir) {
 			continue
 		}
-		if hasAnyMigrationTracker(lsmPath, migrationDirsForPropertyIndex(prop.Name, "rangeable")) {
+		if hasAnyMigrationTracker(lsmPath, migrationDirFamiliesForIndexType("rangeable"), prop.Name) {
 			continue
 		}
 		out = append(out, prop.Name)
@@ -121,29 +122,50 @@ func bucketDirHoldsData(bucketDir string) bool {
 	return false
 }
 
-// hasAnyMigrationTracker reports whether any generation of the named
-// tracker prefixes exists on disk, at any stage. Unlike
-// [hasUntidiedTracker] this deliberately counts finished trackers too:
-// the question here is "is there a migration that explains the state",
-// and one whose rename is deferred to the next startup explains it just
-// as well as one still running.
-func hasAnyMigrationTracker(lsmPath string, prefixes []string) bool {
+// hasAnyMigrationTracker reports whether any generation of a tracker in
+// one of the given migration families covers propName, at any stage.
+// Unlike [hasUntidiedTracker] this deliberately counts finished trackers
+// too: the question here is "is there a migration that explains the
+// state", and one whose rename is deferred to the next startup explains
+// it just as well as one still running.
+func hasAnyMigrationTracker(lsmPath string, families []string, propName string) bool {
 	entries, err := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {
 		return false
-	}
-	prefixSet := make(map[string]bool, len(prefixes))
-	for _, p := range prefixes {
-		prefixSet[p] = true
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		base, _, ok := parseMigrationDirName(entry.Name())
-		if ok && prefixSet[base] {
-			return true
+		if !ok {
+			continue
+		}
+		for _, family := range families {
+			if trackerCoversProp(base, family, propName) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// trackerCoversProp reports whether a tracker dir base name of the form
+// `<family>_<prop>[_<prop>…]` covers propName. A migration submitted for
+// several properties at once produces one tracker naming all of them, so
+// matching the single-property name exactly would miss it and report the
+// shard as damaged when a live migration explains it.
+//
+// Property names may themselves contain underscores, so a name that is
+// the concatenation of two other property names can still alias. That
+// costs a suppressed warning, never a wrong one.
+func trackerCoversProp(base, family, propName string) bool {
+	if !strings.HasPrefix(base, family+"_") {
+		return false
+	}
+	props := strings.TrimPrefix(base, family+"_")
+	return props == propName ||
+		strings.HasPrefix(props, propName+"_") ||
+		strings.HasSuffix(props, "_"+propName) ||
+		strings.Contains(props, "_"+propName+"_")
 }
