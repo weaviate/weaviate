@@ -960,7 +960,13 @@ func runParticipantBackupWithMetaWriteErr(t *testing.T, sourcer *fakeSourcer, ba
 			Backend: backendName, Duration: time.Hour,
 		}))
 	require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
-	m.backupper.waitForCompletion(50, 100)
+	// The slot release is the last thing the backup goroutine does, so waiting
+	// for it is what puts the descriptor write and the log line behind us. A
+	// terminal status is not: the failure paths this helper drives leave the
+	// status at Transferring, so waiting for one is just a sleep, and on a
+	// loaded runner the sleep ends first.
+	require.True(t, m.backupper.waitForSlotRelease(300, 100),
+		"the backup goroutine never finished, so nothing it wrote can be asserted on")
 
 	status, reason := backend.getMetaStatus()
 	return m, status, reason, hook
