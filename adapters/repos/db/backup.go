@@ -110,7 +110,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 		}
 	}
 	if len(gateErrs) > 0 {
-		db.logReindexRefusals(nodeName, blockedShards, errs)
+		db.logReindexRefusals("backup precheck", nodeName, blockedShards, errs)
 		return stderrors.Join(append(gateErrs, missingClassErrs...)...)
 	}
 	errs = append(errs, missingClassErrs...)
@@ -130,10 +130,12 @@ func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) 
 	return append(gateErrs, err)
 }
 
-// logReindexRefusals logs the gate refusals collected by [DB.Backupable].
-// blockedShards maps a collection to the shards the gate held; errs are the
-// other precheck errors, which are withheld from the response.
-func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]string, errs []error) {
+// logReindexRefusals logs the gate refusals collected over one pass — the
+// admission pass ([DB.Backupable]) or the capture pass, via
+// [reindexGate.logRefusals]. phase names that pass in the message,
+// blockedShards maps a collection to the shards the gate held, and errs are
+// other errors of the same pass, which are withheld from the response.
+func (db *DB) logReindexRefusals(phase, nodeName string, blockedShards map[string][]string, errs []error) {
 	if db.logger == nil {
 		return
 	}
@@ -157,14 +159,14 @@ func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]str
 			WithField("node", nodeName).
 			WithField("blocked_shards", sample).
 			WithField("blocked_shard_count", len(shardNames)).
-			Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
-				"blocked_shards lists the first %d", len(shardNames), c, len(sample))
+			Warnf("%s refused: %d shard(s) of %q are held by the reindex gate; "+
+				"blocked_shards lists the first %d", phase, len(shardNames), c, len(sample))
 	}
 	if len(errs) > 0 {
 		// Withheld from the response, not from the operator.
 		db.logger.WithField("action", "backup_reindex_gate").
-			Warnf("backup precheck refused by the reindex gate; also hit %d other error(s), "+
-				"reported here only: %v", len(errs), stderrors.Join(errs...))
+			Warnf("%s refused by the reindex gate; also hit %d other error(s), "+
+				"reported here only: %v", phase, len(errs), stderrors.Join(errs...))
 	}
 }
 
@@ -182,6 +184,9 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
+		// The refusals name the shards their bodies redact, so an operator
+		// can tell which shard held the backup up.
+		defer gate.logRefusals("backup capture")
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c, BackupID: bakid}
 			func() {
@@ -512,7 +517,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlightWithGate(gate, name); err != nil {
+	if err := i.refuseIfReindexInFlightInPass(gate, name); err != nil {
 		return err
 	}
 
@@ -685,7 +690,7 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlightWithGate(gate, name); err != nil {
+	if err := i.refuseIfReindexInFlightInPass(gate, name); err != nil {
 		return err
 	}
 

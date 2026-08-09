@@ -13,10 +13,12 @@ package db
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -251,4 +253,49 @@ func TestDescriptor_RefusesWithoutAGateInContext(t *testing.T) {
 	builds, probed := counter.stats()
 	require.Equal(t, 0, builds, "refusing must not query the leader")
 	require.Empty(t, probed)
+}
+
+// TestBackupDescriptors_RefusalNamesTheBlockedShardInTheLog pins the operator's
+// only route to the blocked shard on the capture path. The refusal body redacts
+// the shard on purpose (it reaches an API response), and the per-shard line in
+// reindexGate.blockReason is Debug, which is off in production — so if the pass
+// stops summarizing its refusals at Warn, the shard reaches no one.
+func TestBackupDescriptors_RefusalNamesTheBlockedShardInTheLog(t *testing.T) {
+	const (
+		className = "CaptureRefusalLogCls"
+		node      = "weaviate-0"
+	)
+	idx, names := coldTenantIndex(t, className, 6)
+	blocked := names[2]
+
+	logger, hook := logrustest.NewNullLogger()
+	// Production default: anything the gate says at Debug is invisible here.
+	logger.SetLevel(logrus.InfoLevel)
+	db := &DB{indices: map[string]*Index{}, localNodeName: node, logger: logger}
+	idx.db = db
+	db.indices[indexID(schema.ClassName(className))] = idx
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{className, blocked}: true,
+	}))
+
+	var passErr error
+	for desc := range db.BackupDescriptors(testCtx(), "gate-backup", []string{className}, nil) {
+		passErr = desc.Error
+	}
+	require.Error(t, passErr)
+	require.False(t, namesAnyShard(passErr, names),
+		"the refusal body names no shard; the log is what identifies it")
+
+	var logged *logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if entry.Level <= logrus.WarnLevel && strings.Contains(entry.Message, "are held by the reindex gate") {
+			logged = entry
+		}
+	}
+	require.NotNil(t, logged, "the operator needs a warn-level line naming the blocked shard")
+	assert.Equal(t, className, logged.Data["collection"])
+	assert.Equal(t, node, logged.Data["node"])
+	assert.Equal(t, []string{blocked}, logged.Data["blocked_shards"],
+		"only the shard with a live task may be named")
+	assert.Equal(t, 1, logged.Data["blocked_shard_count"])
 }

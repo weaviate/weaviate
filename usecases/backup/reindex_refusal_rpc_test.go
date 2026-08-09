@@ -22,14 +22,21 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
+// causeFirstRefusal is the shape of a refusal whose message states what
+// actually happened, keeping the sentinel reachable through Unwrap. The real
+// refusal in adapters/repos/db is held to the same shape, so the stand-in
+// below cannot drift into one the real one does not have.
+type causeFirstRefusal interface {
+	error
+	Unwrap() []error
+}
+
 // unknownStateRefusal stands in for adapters/repos/db's refusal for an
 // unreachable leader, which this package cannot construct: its text never
-// renders the sentinel, and the sentinel is reachable only through
-// Unwrap. Both are held to [backup.CauseFirstRefusal], so the stand-in
-// cannot drift into a shape the real one does not have.
+// renders the sentinel, and the sentinel is reachable only through Unwrap.
 type unknownStateRefusal struct{ cause error }
 
-var _ backup.CauseFirstRefusal = unknownStateRefusal{}
+var _ causeFirstRefusal = unknownStateRefusal{}
 
 func (e unknownStateRefusal) Error() string {
 	return fmt.Sprintf("backup blocked: the cluster leader could not be reached, "+

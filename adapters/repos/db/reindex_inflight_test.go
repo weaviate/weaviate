@@ -441,10 +441,17 @@ func TestReindexGate_UnreachableLeaderIsBlocked(t *testing.T) {
 		"unknown reindex state must block, not allow")
 }
 
-// The refusal for an unreachable leader must keep the shape the
-// canCommit boundary is tested against. Narrowing its Unwrap breaks here
-// first.
-var _ entitiesbackup.CauseFirstRefusal = reindexStateUnknown{}
+// causeFirstRefusal is the shape of a refusal whose message states what
+// actually happened, keeping the sentinel reachable through Unwrap so
+// errors.Is still matches across the canCommit RPC. The stand-in that drives
+// that boundary in usecases/backup is held to the same shape, so narrowing
+// either one's Unwrap breaks a build.
+type causeFirstRefusal interface {
+	error
+	Unwrap() []error
+}
+
+var _ causeFirstRefusal = reindexStateUnknown{}
 
 // TestReindexStateUnknownError_ReadsAsItsOwnCause pins that the refusal
 // for an unreachable leader states the leader failure from its first
