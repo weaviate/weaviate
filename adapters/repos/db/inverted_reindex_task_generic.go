@@ -2033,8 +2033,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
 		if !ok {
-			// IsSwappedProp(propName) was true on entry — the previous
-			// attempt's runtimeSwap call shut down + renamed already.
+			// Phase 2a skipped this prop because IsSwappedProp(propName)
+			// was true, which now only happens for a flip THIS process
+			// already made: a sentinel left by a dead process is cleared
+			// at startup by [clearStaleSwappedPropSentinels]. So the
+			// shutdown + rename below already ran.
 			continue
 		}
 		if err := oldMainBucket.Shutdown(ctx); err != nil {

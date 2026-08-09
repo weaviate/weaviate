@@ -136,6 +136,7 @@ func DiscoverInFlightReindexTasks(
 						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
 					continue
 				}
+				tasks = tasksOwningMigrationDir(tasks, migEntry.Name(), logger)
 				recovered = append(recovered, RecoveredReindex{
 					Descriptor: distributedtask.TaskDescriptor{
 						ID:      rec.TaskID,
@@ -296,6 +297,38 @@ func buildRecoveryTasks(
 		t.constrainToShard(payload.Collection, shardName)
 	}
 	return raw, nil
+}
+
+// tasksOwningMigrationDir narrows the sub-tasks [buildRecoveryTasks] built
+// for a migration type down to the one whose tracker dir was actually found
+// on disk.
+//
+// A change-tokenization unit has a searchable and a filterable sub-task,
+// each with its own tracker dir, and the migration type alone cannot tell
+// them apart. Without this filter the dir of one sub-task also revives the
+// other: its tracker dir is re-created by the revived task, which then
+// re-runs a full iteration over data that the startup finalizer already
+// promoted, and the re-created dir is what the orphan audit then keeps
+// deferring as "missing payload.mig". A sub-task with real in-flight state
+// of its own is discovered through its own dir.
+//
+// Falls back to the full set if nothing matches, so an unexpected dir name
+// degrades to the previous behavior rather than dropping recovery.
+func tasksOwningMigrationDir(tasks []*ShardReindexTaskGeneric, dirName string,
+	logger logrus.FieldLogger,
+) []*ShardReindexTaskGeneric {
+	owned := make([]*ShardReindexTaskGeneric, 0, 1)
+	for _, t := range tasks {
+		if t.MigrationDirName() == dirName {
+			owned = append(owned, t)
+		}
+	}
+	if len(owned) == 0 {
+		logger.WithField("migrationDir", dirName).
+			Warn("reindex recovery: no reconstructed task claims this tracker dir; registering all sub-tasks of the migration type")
+		return tasks
+	}
+	return owned
 }
 
 // NewShardReindexerV3FromRecovered wires the recovered tasks into a

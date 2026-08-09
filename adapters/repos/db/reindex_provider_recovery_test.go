@@ -16,7 +16,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TestHasUntidiedTracker pins the on-disk recovery-detection signal:
@@ -252,4 +255,41 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestTasksOwningMigrationDir pins that a change-tokenization tracker dir
+// found on disk only revives its own sub-task. Reviving the sibling
+// re-creates a tracker dir the startup finalizer just removed, which
+// re-runs a full iteration over already-migrated data and leaves a dir the
+// orphan audit can only keep deferring.
+func TestTasksOwningMigrationDir(t *testing.T) {
+	rec := reindexRecoveryRecord{
+		TaskID: "task-1", TaskVersion: 3, UnitID: "unit-0",
+		Payload: ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			Collection:         "Articles",
+			Properties:         []string{"text"},
+			TargetTokenization: models.PropertyTokenizationLowercase,
+			BucketStrategy:     lsmkv.StrategyMapCollection,
+		},
+	}
+	logger, _ := test.NewNullLogger()
+	built, err := buildRecoveryTasks(rec, "shard-0", 1, logger, nil)
+	require.NoError(t, err)
+	require.Len(t, built, 2, "change-tokenization has a searchable and a filterable sub-task")
+
+	for _, dirName := range []string{
+		MigrationDirPrefixFilterableRetokenize + "_text_1",
+		MigrationDirPrefixSearchableRetokenize + "_text_1",
+	} {
+		t.Run(dirName, func(t *testing.T) {
+			owned := tasksOwningMigrationDir(built, dirName, logger)
+			require.Len(t, owned, 1, "only the sub-task whose tracker dir this is may be revived")
+			require.Equal(t, dirName, owned[0].MigrationDirName())
+		})
+	}
+
+	t.Run("unrecognized dir keeps every sub-task", func(t *testing.T) {
+		require.Equal(t, built, tasksOwningMigrationDir(built, "something_else_1", logger))
+	})
 }

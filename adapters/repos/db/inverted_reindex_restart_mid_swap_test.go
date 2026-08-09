@@ -140,3 +140,69 @@ func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 		})
 	}
 }
+
+// Restart in the middle of a runtime swap, killed between the in-memory
+// bucket-pointer flip (Phase 2a) and the shutdown + rename that makes it
+// durable (Phase 2b).
+//
+// The flip died with the process, but its per-prop sentinel is on disk.
+// Trusting that sentinel makes the retry skip the flip while still setting
+// the tokenization overlay and marking the migration done, so the shard
+// serves the pre-migration bucket under a schema that says otherwise —
+// the shape of the per-replica divergence seen in CI.
+func TestRestartRecovery_StaleSwapSentinelDoesNotSkipTheFlip(t *testing.T) {
+	const numObjects = 25
+	propName := filterableToRangeablePropName
+
+	ctx := testCtx()
+	className := "RestartStaleSwapSentinel_" + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+	rt, err := task.newReindexTracker(shard.pathLSM())
+	require.NoError(t, err)
+	require.True(t, rt.IsMerged(), "setup must reach merged, the state the swap starts from")
+	require.False(t, rt.IsSwapped(), "the kill lands before the swap is durable")
+
+	// The rows the ingest bucket holds are what the swap owes the
+	// canonical name.
+	wantFingerprint := filterableToRangeableFingerprint(t,
+		shard.store.Bucket(task.ingestBucketName(propName)))
+	require.NotEmpty(t, wantFingerprint, "setup must leave real postings to serve")
+
+	// The dead process got as far as Phase 2a: pointer flipped in memory,
+	// per-prop sentinel written. Then it died, taking the flip with it.
+	require.NoError(t, rt.(*fileReindexTracker).markSwappedProp(propName))
+
+	shardName := shard.Name()
+	require.NoError(t, shard.Shutdown(ctx))
+
+	// Restart with the pre-migration schema, so startup declines to
+	// promote and the swap retry is what has to converge.
+	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	require.NoError(t, err, "shard re-init must succeed")
+	shard2 := shd2.(*Shard)
+	defer shard2.Shutdown(ctx)
+	idx.shards.Store(shardName, shd2)
+
+	// Recovery registers the task as a shard-init callback, so the ingest
+	// buckets are warm and the swap phase takes the in-memory path.
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard2))
+	require.NoError(t, task.RunSwapOnShard(ctx, shard2))
+
+	bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
+	require.Equal(t, wantFingerprint,
+		filterableToRangeableFingerprint(t, shard2.store.Bucket(bucketName)),
+		"the retry must flip the canonical bucket to the migrated rows — a per-prop "+
+			"sentinel left by the dead process must not make it skip the flip")
+}

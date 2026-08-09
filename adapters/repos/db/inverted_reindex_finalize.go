@@ -186,6 +186,45 @@ func fileExistsInDir(dirPath, fileName string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// swappedPropSentinelPrefix is what [fileReindexTracker.markSwappedProp]
+// prefixes each per-property sentinel with: `swapped.mig.<prop>`.
+const swappedPropSentinelPrefix = "swapped.mig."
+
+// clearStaleSwappedPropSentinels removes the `swapped.mig.<prop>` files of
+// a tracker that has no bare `swapped.mig`.
+//
+// The per-prop file records an in-memory bucket-pointer flip; the bare file
+// is the durable record that the flip was completed. Having the first
+// without the second proves the flip did not survive, so on the retry the
+// per-prop file would make [ShardReindexTaskGeneric.processOneSwapProp]
+// skip a flip that this process never performed — leaving the shard serving
+// old-tokenization rows while the migration reports success.
+//
+// Only for runtime swaps, which [swapIngestAndBackupBuckets] is not: that
+// path writes its per-prop file together with the directory rename, so
+// there the sentinel does describe disk state and must be kept. The caller
+// gates on `prepended.mig`, which only the runtime swap writes.
+func clearStaleSwappedPropSentinels(migDir string, logger logrus.FieldLogger) {
+	entries, err := os.ReadDir(migDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, swappedPropSentinelPrefix) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(migDir, name)); err != nil {
+			logger.WithField("path", filepath.Join(migDir, name)).
+				Warnf("reindex finalize: failed to remove stale per-prop swap sentinel; "+
+					"the swap retry may skip a bucket-pointer flip it still owes: %v", err)
+			continue
+		}
+		logger.WithField("migration", filepath.Base(migDir)).WithField("sentinel", name).
+			Info("reindex finalize: cleared per-prop swap sentinel left by a process that died before the swap was durable")
+	}
+}
+
 // FinalizeCompletedMigrations scans the shard's .migrations/ directory for
 // completed migrations that still need filesystem cleanup, and runs the
 // deferred ingest→canonical rename for each.
@@ -302,6 +341,12 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
 		tidied := fileExists(filepath.Join(migrationsDir, name, "tidied.mig"))
 		merged := fileExists(filepath.Join(migrationsDir, name, "merged.mig"))
 		swapped := fileExists(filepath.Join(migrationsDir, name, "swapped.mig"))
+		// Runs on every shard init, ahead of both reindexer hooks and of
+		// bucket loading, so it dominates every consumer of the per-prop
+		// sentinel — see [clearStaleSwappedPropSentinels].
+		if !swapped && fileExists(filepath.Join(migrationsDir, name, "prepended.mig")) {
+			clearStaleSwappedPropSentinels(filepath.Join(migrationsDir, name), logger)
+		}
 		groups[namespace] = append(groups[namespace], genInfo{
 			dirName: name,
 			gen:     gen,
