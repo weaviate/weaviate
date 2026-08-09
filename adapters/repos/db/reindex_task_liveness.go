@@ -23,7 +23,17 @@ import (
 // reachable but not answering would otherwise stall RAFT apply on this
 // node for as long as it stays that way. A timeout answers "unknown",
 // which is the non-destructive arm at every call site.
-const reindexLivenessQueryTimeout = 3 * time.Second
+//
+// 8s clears the cluster's own leader-discovery budget (≈5.55s at the
+// default 1s election timeout, see backoffConfig in cluster/backoff.go).
+// A shorter bound would expire inside leader discovery, so every lookup
+// taken during an election would answer unknown and the residue would
+// wait for the next shard load — and nothing re-runs this in between.
+// The cost of the higher bound is paid only when the leader is
+// unreachable, where it lengthens the per-apply stall described on
+// [DB.reindexTaskLivenessLookup]; a reachable leader answers in
+// milliseconds.
+const reindexLivenessQueryTimeout = 8 * time.Second
 
 // ReindexTaskLiveness is the three-way answer to "does the distributed
 // task that wrote this on-disk migration state still own it?".
@@ -91,7 +101,9 @@ func (s *Shard) reindexTaskLivenessLookup() ReindexTaskLivenessLookup {
 // than per-process. That is deliberate: a shard activated hours after
 // startup must not classify a task created since then as dead, which is
 // the destructive arm. The cost of not sharing is one bounded query per
-// shard that actually has such a migration to decide about.
+// shard that actually has such a migration to decide about: with an
+// unreachable leader, one apply loading N such shards stalls for roughly
+// ceil(N/(2·NCPU)) × [reindexLivenessQueryTimeout].
 //
 // The snapshot is unavailable while the audit deps are not installed
 // yet (early startup) or when the task list cannot be read; both answer
