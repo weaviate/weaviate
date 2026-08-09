@@ -421,6 +421,8 @@ func (e *backupRequestsTotal) logError(className string, err error) {
 	case errors.As(err, &backup.ErrUnprocessable{}) || errors.As(err, &backup.ErrNotFound{}):
 		e.logUserError(className)
 	default:
-		e.logServerError(className, err)
+		// Bounded: a refusal naming every blocked shard runs to
+		// megabytes, and the response body already carries the list.
+		e.logServerError(className, backup.ErrorForLog(err))
 	}
 }

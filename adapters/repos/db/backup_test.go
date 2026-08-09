@@ -290,7 +290,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	}
 
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db))
 	require.NoError(t, err)
 
 	// Helper to get inode number.
@@ -451,14 +451,14 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
 
 	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil)
+		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil, newReindexGate(idx.db))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
@@ -532,7 +532,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -579,7 +579,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 	require.Len(t, desc.Shards, 1)
 
@@ -631,7 +631,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -657,7 +657,7 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(context.Background(), newReindexGate(idx.db)), "backup-2", &desc, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -677,7 +677,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), backupID, &desc, nil)
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
@@ -741,7 +741,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(contextWithReindexGate(ctx, newReindexGate(idx.db)), "test-backup", &desc, nil)
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
@@ -822,7 +822,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db))
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -921,7 +921,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}}
 			}
 
-			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir())
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), newReindexGate(idx.db))
 			if tt.expectedErr != "" {
 				require.ErrorContains(t, err, tt.expectedErr)
 			} else {
@@ -954,7 +954,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 

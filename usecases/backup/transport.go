@@ -98,6 +98,15 @@ const (
 	// a restoring class has no shard to ask about yet.
 	CanCommitErrRestoreBlockedByReindex CanCommitErrorKind = "restore_blocked_by_reindex"
 
+	// CanCommitErrReindexStateUnknown indicates the participant refused
+	// because it could not read cluster-wide reindex state, so no shard's
+	// state is known. Distinct from [CanCommitErrInFlightReindex] because
+	// the refusal's own message says that, and the coordinator must not
+	// prepend a sentinel claiming a reindex nobody saw. An older
+	// coordinator that does not know this kind treats it as a generic
+	// refusal, which still refuses the backup.
+	CanCommitErrReindexStateUnknown CanCommitErrorKind = "reindex_state_unknown"
+
 	// CanCommitErrCannotCommit is the generic fallback used when the
 	// participant rejected canCommit for any reason other than the
 	// classified kinds above.

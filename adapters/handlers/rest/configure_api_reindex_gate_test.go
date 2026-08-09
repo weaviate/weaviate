@@ -61,10 +61,11 @@ func TestShardReindexActivityBuilderScopesByCollectionAndShard(t *testing.T) {
 		},
 	}
 
-	lookup := newShardReindexActivityBuilder(context.Background(),
+	lookup, err := newShardReindexActivityBuilder(context.Background(),
 		func(context.Context) (map[string][]*distributedtask.Task, error) {
 			return tasks, nil
 		}, logger)()
+	require.NoError(t, err)
 
 	tests := []struct {
 		name       string
@@ -106,19 +107,20 @@ func TestShardReindexActivityBuilderScopesByCollectionAndShard(t *testing.T) {
 
 // A DTM the builder cannot reach must not read as "no migration anywhere":
 // answering free from a question that was never asked admits a backup over a
-// live migration.
+// live migration. It is reported as an error rather than a lookup that refuses
+// every shard, so the gate can refuse the pass once instead of once per shard.
 func TestShardReindexActivityBuilderRefusesWhenDTMIsUnreachable(t *testing.T) {
-	logger, hook := test.NewNullLogger()
+	logger, _ := test.NewNullLogger()
 
-	lookup := newShardReindexActivityBuilder(context.Background(),
+	lookup, err := newShardReindexActivityBuilder(context.Background(),
 		func(context.Context) (map[string][]*distributedtask.Task, error) {
 			return nil, errors.New("raft: not leader")
 		}, logger)()
 
-	assert.True(t, lookup("MyClass", "shard1"),
-		"an unreachable DTM must refuse every backup, not clear them all")
-	require.NotEmpty(t, hook.AllEntries(),
-		"the operator has to be told why every backup is being refused")
+	require.Error(t, err, "an unreachable DTM must not read as an answer")
+	assert.Nil(t, lookup)
+	assert.Contains(t, err.Error(), "raft: not leader",
+		"the cause has to reach the operator-facing refusal")
 }
 
 // A live task whose payload will not decode names shards nobody can read, so
@@ -192,7 +194,7 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 			}
 
 			logger, hook := test.NewNullLogger()
-			lookup := newShardReindexActivityBuilder(context.Background(),
+			lookup, err := newShardReindexActivityBuilder(context.Background(),
 				func(context.Context) (map[string][]*distributedtask.Task, error) {
 					return map[string][]*distributedtask.Task{db.ReindexNamespace: {
 						brokenTask(t, "t1", "MyClass", tc.payload),
@@ -200,6 +202,7 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 							"SiblingLiveClass", map[string]string{"u1": "shardOK"}),
 					}}, nil
 				}, logger)()
+			require.NoError(t, err)
 
 			for probe, want := range tc.probes {
 				assert.Equalf(t, want, lookup(probe[0], probe[1]),
