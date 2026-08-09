@@ -463,6 +463,53 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		"highest gen with tidied must win when merged-only is at a lower gen")
 }
 
+// TestFinalizeCompletedMigrations_StaleSwappedPropSentinels covers which
+// per-prop swap sentinels startup is allowed to clear on a tracker it
+// leaves in place. Only the runtime swap writes its per-prop sentinel
+// ahead of the disk work, so only its sentinel can be stale; the
+// restart-based swap writes the file together with the rename, and
+// clearing that one would send the retry into renaming a dir that has
+// already moved. (A tracker that does carry swapped.mig is promoted and
+// removed outright, so its per-prop files never outlive it.)
+func TestFinalizeCompletedMigrations_StaleSwappedPropSentinels(t *testing.T) {
+	cases := []struct {
+		name        string
+		prepended   bool
+		wantCleared bool
+	}{
+		{name: "runtime swap died between the flip and swapped.mig", prepended: true, wantCleared: true},
+		{name: "restart-based swap writes the sentinel with the rename", prepended: false, wantCleared: false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			shape := tokenizationResidue()
+			// Live task + a schema that disagrees is the arm that leaves
+			// the tracker on disk, so the sentinel is still there to look at.
+			lsmPath := writeMergedResidue(t, shape, true)
+			migDir := filepath.Join(lsmPath, ".migrations", shape.dirName)
+			if c.prepended {
+				touchSentinel(t, filepath.Join(migDir, "prepended.mig"))
+			}
+			perProp := filepath.Join(migDir, "swapped.mig."+shape.payload.Properties[0])
+			touchSentinel(t, perProp)
+
+			logger, _ := test.NewNullLogger()
+			FinalizeCompletedMigrations(lsmPath, classWith(shape.disagreeing),
+				fixedLiveness(ReindexTaskLivenessLive), logger)
+
+			require.DirExists(t, migDir, "this arm must leave the tracker in place")
+			// A cleared sentinel is what makes processOneSwapProp run the
+			// flip rather than skip it.
+			if c.wantCleared {
+				require.NoFileExists(t, perProp)
+				return
+			}
+			require.FileExists(t, perProp)
+		})
+	}
+}
+
 // TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels
 // asserts the sentinel-writing side effect of the recovery path so a
 // later restart sees a self-consistent tracker (idempotent re-finalize).
