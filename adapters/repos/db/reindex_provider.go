@@ -406,6 +406,23 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
+// claimUnitIfDeferred takes the re-entry claim for a unit whose swap is
+// deferred to the group callbacks, and returns false when another worker
+// already holds it. Inline units need no claim: they finish the whole
+// lifecycle themselves and hand no cached task state to OnGroupCompleted,
+// so a second entry cannot clobber a generation the first one is still
+// using.
+func (p *ReindexProvider) claimUnitIfDeferred(
+	desc distributedtask.TaskDescriptor, unitID string, inline bool,
+) bool {
+	if inline {
+		return true
+	}
+	return p.claimActiveWorker(desc, unitID)
+}
+
+// releaseActiveWorker drops the claim. Safe to call for a unit that never
+// took one, which is what inline units do.
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -585,13 +602,11 @@ func (p *ReindexProvider) processOneUnit(
 	// forever after a leader restart (the QA c01-leader-postfix repro
 	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
 	// failure both surfaced this).
-	if !inline {
-		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
-			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
-			return
-		}
-		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
+	if !p.claimUnitIfDeferred(task.TaskDescriptor, unitID, inline) {
+		logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
+		return
 	}
+	defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 
 	// Use cached task instances when present. Two populating paths land
 	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
@@ -2099,6 +2114,10 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 			// rebuild — re-running enable is what clears the residue.
 			repairBody = `{"rangeable":{"enabled":true}}`
 		case ReindexTypeRepairRangeable:
+			// Unreachable: repair-rangeable is format-only, so the
+			// early return above already sent it away. Kept for the
+			// same reason as the repair-filterable arm, so a future
+			// reclassification does not land here silently.
 			repairBody = `{"rangeable":{"rebuild":true}}`
 		default:
 			// Fallback for any future migration type: rebuild everything.
