@@ -438,6 +438,64 @@ func TestRefuseIfReindexInFlight_UnreachableLeaderStatesTheCause(t *testing.T) {
 	assert.NotContains(t, err.Error(), "cancel")
 }
 
+// TestRefuseIfReindexInFlight_LogsOnlyWhatTheGateSaw pins the WARN the
+// single-shard caller writes next to its refusal. A live task names the shard;
+// an unreadable cluster state must not, since the gate learned nothing about
+// that shard. The fixture above cannot see this: its DB has no logger, so the
+// line returns at its first guard.
+func TestRefuseIfReindexInFlight_LogsOnlyWhatTheGateSaw(t *testing.T) {
+	tests := []struct {
+		name           string
+		lookup         ShardReindexActivityLookupBuilder
+		wantShardNamed bool
+	}{
+		{
+			name: "live task names the shard",
+			lookup: func() (ShardReindexActivityLookup, error) {
+				return func(string, string) bool { return true }, nil
+			},
+			wantShardNamed: true,
+		},
+		{
+			name: "unreachable leader names no shard",
+			lookup: func() (ShardReindexActivityLookup, error) {
+				return nil, errors.New("list DTM tasks: leader not found")
+			},
+			wantShardNamed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			db := &DB{logger: logger, localNodeName: "weaviate-0"}
+			db.SetShardReindexActivityLookup(tt.lookup)
+			idx := &Index{
+				db:     db,
+				Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
+			}
+
+			require.Error(t, idx.refuseIfReindexInFlight("ABC123"))
+
+			var claims int
+			for _, e := range hook.AllEntries() {
+				if !strings.Contains(e.Message, "a runtime-reindex is live on this shard") {
+					continue
+				}
+				claims++
+				require.Equal(t, "ABC123", e.Data["shard"],
+					"the log is the only place the shard reaches the operator")
+			}
+			if tt.wantShardNamed {
+				require.Equal(t, 1, claims, "a real refusal must still name the shard it held")
+				return
+			}
+			require.Zero(t, claims,
+				"the gate could not read cluster state, so it must not report a live reindex on a named shard")
+		})
+	}
+}
+
 // TestReindexGate_UnreachableLeaderIsBlocked pins that the gate stays
 // fail-closed when cluster state cannot be read.
 func TestReindexGate_UnreachableLeaderIsBlocked(t *testing.T) {

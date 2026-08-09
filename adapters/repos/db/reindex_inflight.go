@@ -362,8 +362,13 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexInFlightError(i.Config.ClassName.String(), reindexBlockedPreWire)
 	}
-	err := i.refuseIfReindexInFlightWithGate(newReindexGate(i.db), shardName)
-	if err != nil {
+	gate := newReindexGate(i.db)
+	err := i.refuseIfReindexInFlightWithGate(gate, shardName)
+	// Same guard as [Index.refuseIfReindexInFlightInPass]: an unknown cluster
+	// state refuses without the gate learning anything about this shard, so
+	// naming it as reindexing would claim something the gate never saw. That
+	// case warns from [reindexGate.resolve] instead.
+	if err != nil && !gate.stateUnknown() {
 		i.logReindexRefusal(shardName)
 	}
 	return err
