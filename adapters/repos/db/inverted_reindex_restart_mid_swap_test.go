@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -151,21 +152,30 @@ func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 // serves the pre-migration bucket under a schema that says otherwise —
 // the shape of the per-replica divergence seen in CI.
 func TestRestartRecovery_StaleSwapSentinelDoesNotSkipTheFlip(t *testing.T) {
-	const numObjects = 25
-	propName := filterableToRangeablePropName
+	const (
+		numObjects = 25
+		propName   = "title"
+		taskID     = "stale-swap-sentinel-task"
+		version    = uint64(7)
+	)
 
 	ctx := testCtx()
 	className := "RestartStaleSwapSentinel_" + uuid.NewString()[:8]
-	class := newFilterableToRangeableTestClass(className)
+	class := newTestClassWithProps(className, []string{propName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
 	shard := shd.(*Shard)
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	// Change-tokenization is the migration the CI divergence was in, and
+	// the only type here whose schema can disagree at restart: the
+	// content-equivalent ones are accepted unconditionally, so startup
+	// would promote and there would be no swap left to retry.
+	task, _ := newFilterableRetokenizeTask(t, idx, className, propName,
+		models.PropertyTokenizationField)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
@@ -173,10 +183,11 @@ func TestRestartRecovery_StaleSwapSentinelDoesNotSkipTheFlip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, rt.IsMerged(), "setup must reach merged, the state the swap starts from")
 	require.False(t, rt.IsSwapped(), "the kill lands before the swap is durable")
+	migrationPath := rt.(*fileReindexTracker).config.migrationPath
 
 	// The rows the ingest bucket holds are what the swap owes the
 	// canonical name.
-	wantFingerprint := filterableToRangeableFingerprint(t,
+	wantFingerprint := fingerprintRoaringSetBucket(t,
 		shard.store.Bucket(task.ingestBucketName(propName)))
 	require.NotEmpty(t, wantFingerprint, "setup must leave real postings to serve")
 
@@ -184,25 +195,39 @@ func TestRestartRecovery_StaleSwapSentinelDoesNotSkipTheFlip(t *testing.T) {
 	// per-prop sentinel written. Then it died, taking the flip with it.
 	require.NoError(t, rt.(*fileReindexTracker).markSwappedProp(propName))
 
+	// A real tracker carries its task identity, so the restart takes the
+	// promotion decision instead of defaulting to "promote unverified".
+	writeTrackerPayload(t, migrationPath, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         className,
+		Properties:         []string{propName},
+		TargetTokenization: models.PropertyTokenizationField,
+	}, taskID, version)
+
 	shardName := shard.Name()
 	require.NoError(t, shard.Shutdown(ctx))
 
-	// Restart with the pre-migration schema, so startup declines to
-	// promote and the swap retry is what has to converge.
+	// Restart with the pre-migration schema (still word tokenization), so
+	// startup declines to promote and the swap retry is what has to
+	// converge.
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err, "shard re-init must succeed")
 	shard2 := shd2.(*Shard)
 	defer shard2.Shutdown(ctx)
 	idx.shards.Store(shardName, shd2)
 
+	require.True(t, fileExists(migrationPath),
+		"startup must leave the tracker for the retry; if it promoted instead, "+
+			"the retry below never sees the stale sentinel and this test proves nothing")
+
 	// Recovery registers the task as a shard-init callback, so the ingest
 	// buckets are warm and the swap phase takes the in-memory path.
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard2))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard2))
 
-	bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
+	bucketName := helpers.BucketFromPropNameLSM(propName)
 	require.Equal(t, wantFingerprint,
-		filterableToRangeableFingerprint(t, shard2.store.Bucket(bucketName)),
+		fingerprintRoaringSetBucket(t, shard2.store.Bucket(bucketName)),
 		"the retry must flip the canonical bucket to the migrated rows — a per-prop "+
 			"sentinel left by the dead process must not make it skip the flip")
 }
