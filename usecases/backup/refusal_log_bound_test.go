@@ -17,8 +17,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -42,8 +44,8 @@ func massRefusal(n int) []string {
 }
 
 // TestBackupRefusalLogIsBounded pins that a refused backup writes a
-// bounded log line (not the 7 MB a 20,000-shard refusal used to produce),
-// while the caller still receives every line in the response.
+// bounded log line however many lines the refusal carries, while the
+// caller still receives every one of them in the response.
 func TestBackupRefusalLogIsBounded(t *testing.T) {
 	tests := []struct {
 		name string
@@ -106,4 +108,94 @@ func TestBackupRefusalLogIsBounded(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCoordinatorFailureLogIsBounded pins the bound on the line the
+// coordinator writes when a participant fails: the participant's refusal
+// reaches it already flattened to a string, so nothing downstream can shrink
+// it again.
+func TestCoordinatorFailureLogIsBounded(t *testing.T) {
+	var (
+		ctx          = context.Background()
+		any          = mock.Anything
+		backendName  = "s3"
+		backupID     = "1"
+		nodes        = []string{"N1", "N2"}
+		classes      = []string{"Class-A"}
+		nodeResolver = newFakeNodeResolver(nodes)
+		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
+		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", ""}
+	)
+
+	logger, hook := test.NewNullLogger()
+	fc := newFakeCoordinator(nodeResolver)
+	fc.log = logger
+	coordinator := *fc.coordinator()
+	coordinator.timeoutNodeDown = 0
+
+	wide := errors.New(strings.Join(massRefusal(20000), "\n"))
+	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+	fc.client.On("CanCommit", any, nodes[0], any).Return(cresp, nil)
+	fc.client.On("CanCommit", any, nodes[1], any).Return(cresp, nil)
+	fc.client.On("Commit", any, nodes[0], sReq).Return(wide)
+	fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
+	fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+	fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
+	fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+	fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+
+	req := newReq(classes, backendName, backupID)
+	store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
+	require.NoError(t, coordinator.Backup(ctx, store, &req))
+	<-fc.backend.doneChan
+
+	require.Contains(t, fc.backend.glMeta.Error, "shard-19999",
+		"the stored descriptor keeps the whole refusal for the status API")
+
+	// Two sites log this failure: the per-participant line inside commitAll and
+	// the summary the backup goroutine writes once it is done. The second lands
+	// after the meta write the wait above observes, so both are polled for.
+	require.Eventually(t, func() bool {
+		var sawParticipant, sawSummary bool
+		for _, entry := range hook.AllEntries() {
+			if strings.Contains(entry.Message, "shard-0") {
+				sawParticipant = true
+			}
+			if strings.Contains(entry.Message, "coordinator: ") {
+				sawSummary = true
+			}
+		}
+		return sawParticipant && sawSummary
+	}, 5*time.Second, 10*time.Millisecond, "both failure lines have to be logged at all")
+
+	for _, entry := range hook.AllEntries() {
+		require.LessOrEqual(t, len(entry.Message), logBoundBytes,
+			"log line must not grow with the size of the participant's refusal")
+	}
+}
+
+// TestParticipantFailureLogIsBounded pins the bound on the line a participant
+// writes when its own capture pass fails. The caller reads the full failure
+// from the status endpoint; the log keeps a summary.
+func TestParticipantFailureLogIsBounded(t *testing.T) {
+	const cls = "Cls"
+	wide := errors.New(strings.Join(massRefusal(20000), "\n"))
+
+	_, _, errMsg, hook := runParticipantBackupWithMetaWriteErr(t, &fakeSourcer{}, newFakeBackend(),
+		[]string{cls}, t.TempDir(), nil, backup.ClassDescriptor{Name: cls, Error: wide})
+
+	require.Contains(t, errMsg, "shard-19999",
+		"the stored failure meta keeps the whole refusal for the status API")
+	var sawFailure bool
+	for _, entry := range hook.AllEntries() {
+		require.LessOrEqual(t, len(entry.Message), logBoundBytes,
+			"log line must not grow with the size of the refusal")
+		if strings.Contains(entry.Message, "shard-0") {
+			sawFailure = true
+		}
+	}
+	require.True(t, sawFailure, "the failure has to be logged at all")
 }

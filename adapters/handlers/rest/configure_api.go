@@ -1093,7 +1093,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// Install the backup-gate activity lookup so refuseIfReindexInFlight
 		// consults DTM rather than per-shard filesystem markers. A list
 		// failure is returned as an error so the gate can refuse the whole
-		// pass with one message instead of naming shards individually.
+		// pass with one message instead of one per collection.
 		repo.SetShardReindexActivityLookup(newShardReindexActivityBuilder(
 			auditCtx, appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// Asks the cluster rather than this node: a class being restored has no

@@ -23,9 +23,10 @@ import (
 )
 
 // causeFirstRefusal is the shape of a refusal whose message states what
-// actually happened, keeping the sentinel reachable through Unwrap. The real
-// refusal in adapters/repos/db is held to the same shape, so the stand-in
-// below cannot drift into one the real one does not have.
+// actually happened, keeping the sentinel reachable through Unwrap. This pins
+// the stand-in below only. The real refusal in adapters/repos/db is pinned
+// against that package's own copy of this interface, so the two can still
+// drift apart; keep them in step by hand.
 type causeFirstRefusal interface {
 	error
 	Unwrap() []error
