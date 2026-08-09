@@ -243,10 +243,15 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // restored schema on a restore path) and `taskLiveness` resolves the
 // task identity in a tracker's payload.mig against the distributed task
 // list. Both are only consulted for a merged-without-tidied generation
-// that does not carry `swapped.mig`. A nil lookup answers Unknown and a
-// nil class confirms nothing, so nil does not mean "promote" — it means
-// the decision falls back to Leave, or to Refuse for a task known to be
-// dead. A swapped generation is promoted without consulting either.
+// that does not carry `swapped.mig`. A nil lookup answers Unknown, which
+// leaves every dir in place. A nil class confirms nothing on its own, but
+// combined with a lookup that returns a definite Dead answer it turns a
+// known-dead task into a refusal. Neither nil is an opt-out from
+// promotion: for the content-equivalent types (repair-rangeable,
+// repair-filterable, rebuild-searchable, change-algorithm) the decision
+// promotes regardless of class or lookup, because agreement with the
+// schema is decided before either is read. A swapped generation is
+// promoted without consulting either.
 //
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
@@ -429,8 +434,13 @@ const migrationFinalizedMarkerSuffix = ".finalized.mig"
 // [unexplainedEmptyRangeableProps] depends on that: a marker must not
 // suppress its damage warning.
 //
-// Markers for superseded generations are swept by
-// [removeStaleFinalizedMarkers], so at most one survives per namespace.
+// [removeStaleFinalizedMarkers] drops the markers below the generation
+// just promoted, so they do not pile up within a rising sequence of
+// generations. A marker for a higher generation can outlive a later
+// promotion at a reused lower one, so more than one marker per namespace
+// is possible. Never rely on a marker's existence alone — the
+// live-tracker-wins guard below is what neutralizes a stale marker, not
+// the sweep.
 //
 // A marker carrying my dirName does NOT prove that my generation was
 // promoted, for two reasons:
