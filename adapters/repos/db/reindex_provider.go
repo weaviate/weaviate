@@ -211,7 +211,7 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 	return envelope
 }
 
-// reindexTimings holds the three bounds the cancel and cleanup paths wait out.
+// reindexTimings holds the four bounds the cancel and cleanup paths wait out.
 // [NewReindexProvider] fills it from [defaultReindexTimings]; a provider built
 // by struct literal has to supply its own.
 type reindexTimings struct {
@@ -224,6 +224,11 @@ type reindexTimings struct {
 	// terminalCleanupDrainTimeout bounds the drain in
 	// [ReindexProvider.autoCleanupAfterTerminal].
 	terminalCleanupDrainTimeout time.Duration
+	// cancelApplyGateCap bounds the gate parked by
+	// [ReindexProvider.holdCleanupGateUntilTeardown], and doubles as the
+	// retention window of the settled set in
+	// [ReindexProvider.adoptCancelApplyGate].
+	cancelApplyGateCap time.Duration
 }
 
 // defaultReindexTimings is what every production provider runs with. Each
@@ -233,6 +238,7 @@ func defaultReindexTimings() reindexTimings {
 		workerExitGateCap:           reindexWorkerExitGateCap,
 		cancelConfirmWindow:         reindexCancelConfirmWindow,
 		terminalCleanupDrainTimeout: reindexTerminalCleanupDrainTimeout,
+		cancelApplyGateCap:          reindexCancelApplyGateCap,
 	}
 }
 
@@ -2631,10 +2637,11 @@ func (p *ReindexProvider) holdCleanupGateUntilTeardown(
 // means a gate was about to leak.
 func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescriptor) {
 	logger := p.goroutineLogger()
+	gateCap := p.timings.cancelApplyGateCap
 	enterrors.GoWrapper(func() {
 		shuttingDown := false
 		select {
-		case <-time.After(reindexCancelApplyGateCap):
+		case <-time.After(gateCap):
 		case <-p.shutdownCtx().Done():
 			shuttingDown = true
 		}
@@ -2650,7 +2657,7 @@ func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescr
 		} else {
 			logger.WithField("taskID", desc.ID).Errorf(
 				"reindex provider: no teardown claimed the cancel-apply cleanup gate within %s; releasing it",
-				reindexCancelApplyGateCap)
+				gateCap)
 		}
 		adopted()
 	}, logger)
@@ -2668,7 +2675,7 @@ func (p *ReindexProvider) adoptCancelApplyGate(desc distributedtask.TaskDescript
 	now := time.Now()
 	p.cancelTeardownSettled[desc] = now
 	for other, at := range p.cancelTeardownSettled {
-		if now.Sub(at) > reindexCancelApplyGateCap {
+		if now.Sub(at) > p.timings.cancelApplyGateCap {
 			delete(p.cancelTeardownSettled, other)
 		}
 	}

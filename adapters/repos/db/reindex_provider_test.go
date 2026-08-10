@@ -13,10 +13,12 @@ package db
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
@@ -533,6 +535,84 @@ func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 		return !p.AnyCleanupInProgressForCollection("Movies")
 	}, 5*time.Second, 5*time.Millisecond,
 		"the gate must reopen at the cap rather than wait for a process restart")
+}
+
+// The gate the cancel apply parks is claimed by the teardown that follows it.
+// When no teardown ever runs on this node the cap is the only thing that
+// reopens it, and reaching the cap means the gate was about to leak, so it is
+// reported at Error. The teardown arm is here to show that message is not
+// logged on the ordinary path.
+func TestCancelApplyGateCap(t *testing.T) {
+	const gateCap = 50 * time.Millisecond
+	const leakMessage = "no teardown claimed the cancel-apply cleanup gate"
+
+	tests := []struct {
+		name           string
+		teardownAdopts bool
+		wantLeakLogged bool
+	}{
+		{
+			name:           "no teardown on this node",
+			teardownAdopts: false,
+			wantLeakLogged: true,
+		},
+		{
+			name:           "the teardown claims the gate first",
+			teardownAdopts: true,
+			wantLeakLogged: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			desc := distributedtask.TaskDescriptor{ID: "task-parked", Version: 1}
+			logger, hook := logrustest.NewNullLogger()
+			p := &ReindexProvider{
+				cleanupInProgress: make(map[reindexCleanupKey]int),
+				// Never cancelled, so the cap is the only way out.
+				serverCtx: context.Background(),
+				timings:   defaultReindexTimings(),
+				logger:    logger,
+			}
+			p.timings.cancelApplyGateCap = gateCap
+
+			p.holdCleanupGateUntilTeardown(desc, &ReindexTaskPayload{
+				Collection:  "Movies",
+				UnitToShard: map[string]string{"u1": "shard1"},
+			})
+			require.True(t, p.AnyCleanupInProgress(),
+				"the gate must be shut from the apply until the teardown runs")
+
+			if tc.teardownAdopts {
+				adopted := p.adoptCancelApplyGate(desc)
+				require.NotNil(t, adopted, "the teardown must receive the parked gate")
+				adopted()
+			}
+
+			require.Eventually(t, func() bool {
+				return !p.AnyCleanupInProgress()
+			}, 5*time.Second, 5*time.Millisecond,
+				"the gate must reopen rather than refuse every restore until a restart")
+
+			leakLogged := func() bool {
+				for _, entry := range hook.AllEntries() {
+					if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, leakMessage) {
+						return true
+					}
+				}
+				return false
+			}
+			if tc.wantLeakLogged {
+				require.Eventually(t, leakLogged, 5*time.Second, 5*time.Millisecond,
+					"a gate nobody claimed must be reported as the leak it is")
+				assert.Contains(t, hook.LastEntry().Message, gateCap.String(),
+					"the message must name the bound that fired")
+			} else {
+				assert.Never(t, leakLogged, 10*gateCap, gateCap,
+					"the ordinary teardown path must not report a leak")
+			}
+		})
+	}
 }
 
 // Pins the two things that decide whether the gate is held: what the payload
