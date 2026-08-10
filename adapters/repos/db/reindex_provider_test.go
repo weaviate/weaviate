@@ -12,6 +12,8 @@
 package db
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -271,45 +273,127 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 	assert.ElementsMatch(t, []string{"shardA"}, out)
 }
 
-// A dropped collection is not a failed sweep. Nothing was swept either way, so
-// the difference is only visible in what the operator is told.
+// A dropped collection is not a failed sweep, and a sweep that did not reach
+// every shard is neither. Nothing was swept in either case, so the difference
+// is only visible in what the operator is told.
 func TestTerminalCleanupOutcome(t *testing.T) {
 	tests := []struct {
 		name     string
-		swept    bool
-		dropped  bool
+		outcome  terminalSweepOutcome
 		wantWarn bool
 		wantMsg  string
 	}{
 		{
 			name:    "every shard swept",
-			swept:   true,
+			outcome: terminalSweepClean,
 			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node",
 		},
 		{
 			name:    "the collection is being deleted",
-			swept:   true,
-			dropped: true,
+			outcome: terminalSweepDropped,
 			wantMsg: "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it",
 		},
 		{
 			name:     "state is left on disk",
+			outcome:  terminalSweepFailed,
 			wantWarn: true,
 			wantMsg:  "auto-cleanup after terminal status: some partial sidecar state is still on this node",
 		},
 		{
-			name:     "a failure on one property and a delete on another still warns",
-			dropped:  true,
+			name:     "shards were never reached",
+			outcome:  terminalSweepUnknown,
 			wantWarn: true,
-			wantMsg:  "auto-cleanup after terminal status: some partial sidecar state is still on this node",
+			wantMsg:  "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			msg, warn := terminalCleanupOutcome(tc.swept, tc.dropped)
+			msg, warn := terminalCleanupOutcome(tc.outcome)
 			require.Equal(t, tc.wantMsg, msg)
 			require.Equal(t, tc.wantWarn, warn)
+		})
+	}
+}
+
+// A post-terminal cleanup runs one sweep per (property, index type) and reports
+// the worst of them, so the ordering decides which one speaks for the run.
+func TestTerminalSweepOutcomeOrdering(t *testing.T) {
+	require.Greater(t, terminalSweepFailed, terminalSweepUnknown,
+		"knowing state is on disk outranks not knowing")
+	require.Greater(t, terminalSweepUnknown, terminalSweepDropped,
+		"a shard nobody looked at outranks a collection that is going away")
+	require.Greater(t, terminalSweepDropped, terminalSweepClean)
+}
+
+// A sweep reports one error for the whole walk, and a collection deleted
+// mid-walk can share it with a shard the sweep already failed on. What the
+// operator is told about that shard has to survive the delete.
+func TestClassifyTerminalSweep(t *testing.T) {
+	shardFailed := func(inner error) error {
+		return fmt.Errorf("%w: %w", ErrCleanupShardFailed,
+			fmt.Errorf("shard %q: %w", "tenant-1", inner))
+	}
+	diskFull := errors.New("disk is full")
+
+	tests := []struct {
+		name        string
+		err         error
+		wantOutcome terminalSweepOutcome
+		wantFailure error
+	}{
+		{
+			name:        "every shard swept",
+			wantOutcome: terminalSweepClean,
+		},
+		{
+			name:        "the collection is being deleted",
+			err:         classifyCloseCause(errIndexDropped),
+			wantOutcome: terminalSweepDropped,
+		},
+		{
+			name:        "a shard could not be swept",
+			err:         shardFailed(diskFull),
+			wantOutcome: terminalSweepFailed,
+			wantFailure: diskFull,
+		},
+		{
+			name:        "the walk stopped before it reached every shard",
+			err:         classifyCloseCause(errIndexShutdown),
+			wantOutcome: terminalSweepUnknown,
+			wantFailure: errIndexShutdown,
+		},
+		{
+			name:        "the walk skipped a shard nothing explained",
+			err:         classifyCloseCause(fmt.Errorf("%w: shard-b", errShardsSkipped)),
+			wantOutcome: terminalSweepUnknown,
+			wantFailure: errShardsSkipped,
+		},
+		{
+			name:        "a shard failed and then the collection was deleted",
+			err:         errors.Join(shardFailed(diskFull), classifyCloseCause(errIndexDropped)),
+			wantOutcome: terminalSweepFailed,
+			wantFailure: diskFull,
+		},
+		{
+			name:        "a shard failed and the walk was cut short",
+			err:         errors.Join(shardFailed(diskFull), classifyCloseCause(errIndexShutdown)),
+			wantOutcome: terminalSweepFailed,
+			wantFailure: diskFull,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome, failure := classifyTerminalSweep(tc.err)
+			require.Equal(t, tc.wantOutcome, outcome)
+			if tc.wantFailure == nil {
+				require.NoError(t, failure)
+				return
+			}
+			require.ErrorIs(t, failure, tc.wantFailure,
+				"a failure the operator has to act on must reach the log, whatever else "+
+					"the same sweep reported")
 		})
 	}
 }

@@ -29,6 +29,17 @@ func droppedDuringSweep() error {
 		errors.New("collection is being deleted"))
 }
 
+// droppedAfterAShardFailed is the same delete landing mid-walk, after the sweep
+// had already failed on a shard. The one error carries both, and the shard's
+// state is still on disk.
+func droppedAfterAShardFailed() error {
+	return errors.Join(
+		fmt.Errorf("%w: %w", db.ErrCleanupShardFailed,
+			errors.New("shard \"s1\": disk is full")),
+		droppedDuringSweep(),
+	)
+}
+
 // The submit handler logs one operator-facing Error per returned failure,
 // telling the operator the new task may short-circuit on state left behind. A
 // collection being deleted left nothing behind and has no new task, so it must
@@ -66,6 +77,11 @@ func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 			sweepErr: []error{realFailure, realFailure},
 			wantLogs: 2,
 		},
+		{
+			name:     "the delete landed after a shard had already failed",
+			sweepErr: []error{droppedAfterAShardFailed(), nil},
+			wantLogs: 1,
+		},
 	}
 
 	for _, tc := range tests {
@@ -82,8 +98,8 @@ func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 				"a failure on one index type must not stop the sweep of the other")
 			require.Len(t, errs, tc.wantLogs,
 				"submit logs one operator-facing failure per returned error")
-			for _, err := range errs {
-				require.NotErrorIs(t, err, db.ErrCleanupCollectionDropped,
+			for _, failure := range errs {
+				require.False(t, db.IsCleanupCollectionDropped(failure),
 					"a deleted collection has no state left for the next task to short-circuit on")
 			}
 		})
@@ -117,6 +133,18 @@ func TestCancelCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 				"filterable": errors.New("shard \"s1\": disk is full"),
 			},
 			wantErrs: []string{`indexType="filterable": shard "s1": disk is full`},
+		},
+		{
+			name:       "the delete landed after a shard had already failed",
+			indexTypes: []string{"filterable"},
+			sweepErr:   map[string]error{"filterable": droppedAfterAShardFailed()},
+			wantErrs: []string{
+				"indexType=\"filterable\": " +
+					"partial-reindex cleanup could not sweep every shard it reached: " +
+					"shard \"s1\": disk is full\n" +
+					"partial-reindex cleanup skipped: the collection is being deleted: " +
+					"collection is being deleted",
+			},
 		},
 	}
 

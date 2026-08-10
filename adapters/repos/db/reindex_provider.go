@@ -1680,22 +1680,19 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	swept, dropped := true, false
+	worst := terminalSweepClean
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {
-			err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType)
-			switch {
-			case err == nil:
-			case errors.Is(err, ErrCleanupCollectionDropped):
-				dropped = true
-			default:
-				swept = false
+			outcome, failure := classifyTerminalSweep(
+				p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType))
+			worst = max(worst, outcome)
+			if failure != nil {
 				logger.WithField("property", propName).WithField("index_type", indexType).
-					Warnf("auto-cleanup after terminal status failed: %v", err)
+					Warnf("auto-cleanup after terminal status failed: %v", failure)
 			}
 		}
 	}
-	msg, warn := terminalCleanupOutcome(swept, dropped)
+	msg, warn := terminalCleanupOutcome(worst)
 	if warn {
 		logger.Warn(msg)
 	} else {
@@ -1703,15 +1700,61 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}
 }
 
-// terminalCleanupOutcome is what the operator is told after the post-terminal
-// sweep. State left on disk is the only outcome worth a warning: a collection
-// being deleted takes its partial state with it, so there is nothing to act on
-// even though no shard was swept.
-func terminalCleanupOutcome(swept, dropped bool) (msg string, warn bool) {
+// terminalSweepOutcome is what one sweep left for the operator, ordered by how
+// much of the collection is unaccounted for. A post-terminal cleanup runs one
+// sweep per (property, index type) and reports the worst of them, so the
+// ordering is what decides which one speaks for the whole run.
+type terminalSweepOutcome int
+
+const (
+	// terminalSweepClean: every shard was swept.
+	terminalSweepClean terminalSweepOutcome = iota
+	// terminalSweepDropped: no shard was swept and none had to be — the
+	// collection is being deleted and takes its partial state with it.
+	terminalSweepDropped
+	// terminalSweepUnknown: shards were left unvisited. What is on them is
+	// unknown, which is not the same as knowing state is there.
+	terminalSweepUnknown
+	// terminalSweepFailed: a shard was reached and its state could not be
+	// removed, so state IS still on disk.
+	terminalSweepFailed
+)
+
+// classifyTerminalSweep splits one sweep's error into what it left behind and
+// the failure the operator has to act on.
+//
+// A sweep can report several at once: a shard fails, then the collection is
+// deleted before the walk ends. The worst of them is what the sweep left — a
+// deleted collection takes its own state with it, but not the state of a shard
+// the sweep already failed on.
+func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure error) {
 	switch {
-	case !swept:
+	case err == nil:
+		return terminalSweepClean, nil
+	case IsCleanupCollectionDropped(err):
+		return terminalSweepDropped, nil
+	case errors.Is(err, ErrCleanupShardFailed):
+		return terminalSweepFailed, err
+	case errors.Is(err, ErrCleanupSweepTruncated):
+		return terminalSweepUnknown, err
+	default:
+		return terminalSweepFailed, err
+	}
+}
+
+// terminalCleanupOutcome is what the operator is told after the post-terminal
+// sweep. A collection being deleted takes its partial state with it, so there
+// is nothing to act on even though no shard was swept. The other two both
+// warrant a warning, and are told apart because only one of them knows state is
+// there: a sweep that never reached a shard cannot say what is on it, and
+// saying it anyway sends the operator looking for something that may not exist.
+func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
+	switch outcome {
+	case terminalSweepFailed:
 		return "auto-cleanup after terminal status: some partial sidecar state is still on this node", true
-	case dropped:
+	case terminalSweepUnknown:
+		return "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there", true
+	case terminalSweepDropped:
 		return "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it", false
 	default:
 		return "auto-cleanup after terminal status: partial sidecar state cleared on this node", false
