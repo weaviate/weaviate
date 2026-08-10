@@ -28,13 +28,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Restart-recovery half of the promotion scoping. Drives a real
-// migration to the merged-but-untidied state through the production
-// task methods, then restarts the shard through idx.initShard — the
-// same entry point production uses — with the distributed task list
-// answering "this task is gone".
-//
-// See https://github.com/weaviate/0-weaviate-issues/issues/464.
+// Restart-recovery half of the promotion scoping: drives a real migration
+// to merged-but-untidied, then restarts through idx.initShard with the
+// task list answering "this task is gone" (weaviate/0-weaviate-issues#464).
 
 // installTaskLiveness makes the shard-init liveness lookup answer for
 // exactly one task identity, the way a restarted node's distributed
@@ -92,12 +88,8 @@ func dirHasSegments(t *testing.T, dir string) bool {
 	return false
 }
 
-// TestRestartRecovery_MergedResidueOfDeadTask drives an enable-rangeable
-// migration to merged-but-untidied, then restarts the shard with the
-// task gone from the task list. With the schema disagreeing (the state a
-// cancel leaves), the residue must be discarded and nothing promoted.
-// With the schema agreeing (a task that finished cluster-wide before
-// this node died), the residue must still promote.
+// With the task gone from the task list: a disagreeing schema (cancel's
+// state) must discard the residue; an agreeing schema must still promote it.
 func TestRestartRecovery_MergedResidueOfDeadTask(t *testing.T) {
 	const (
 		numObjects = 25

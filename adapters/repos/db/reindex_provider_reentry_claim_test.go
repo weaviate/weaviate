@@ -52,16 +52,9 @@ func (r *reentryRecorder) UpdateDistributedTaskUnitProgress(
 	return nil
 }
 
-// TestProcessOneUnit_ReEntryClaimAppliesToDeferredUnitsOnly is the
-// consumer-side receipt for which units take the re-entry claim. The
-// predicate and the map bookkeeping have their own tests; this one
-// drives processOneUnit itself, because the branch changed the guard
-// from "semantic" to "not inline" and nothing downstream of
-// claimUnitIfDeferred was exercised.
-//
-// A deferred unit whose slot another worker already holds must return
-// before it can create the next generation and clobber the cached tasks
-// OnGroupCompleted swaps. An inline unit takes no claim, so the same
+// A deferred unit whose re-entry slot another worker already holds must
+// return before creating the next generation and clobbering the cached
+// tasks OnGroupCompleted swaps. An inline unit takes no claim, so the same
 // pre-held slot must not stop it.
 func TestProcessOneUnit_ReEntryClaimAppliesToDeferredUnitsOnly(t *testing.T) {
 	tests := []struct {

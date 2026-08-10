@@ -387,11 +387,8 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	assert.Equal(t, 0, deferred, "deferred-requests counter must reset after replay")
 }
 
-// TestSetReindexAuditDeps_ReplayHonorsCallerCancellation pins that the
-// replay's leader query runs on the installer's context. Production
-// passes the server shutdown context, so a SIGTERM during the replay
-// releases a query the leader is not answering; on a background context
-// nothing would.
+// The replay's leader query must run on the installer's context, so a
+// SIGTERM during replay can release it.
 func TestSetReindexAuditDeps_ReplayHonorsCallerCancellation(t *testing.T) {
 	db := &DB{}
 	outcome, err := db.AuditOrphanReindexTrackersIfReady(context.Background())
@@ -411,11 +408,9 @@ func TestSetReindexAuditDeps_ReplayHonorsCallerCancellation(t *testing.T) {
 		"the replay's leader query must run on the installer's context")
 }
 
-// TestSetReindexAuditDeps_ReplayRunsBothHalvesOnCallerContext pins the
-// other half of the replay. The sweep is the longer of the two — it walks
-// every shard and pauses compaction per shard — so it is the half where
-// cancellation matters most, but the behavioral test above can only reach
-// the leader query. Source-level check for the sweep.
+// Pins that the sweep half of the replay also runs on the caller's context
+// (the behavioral test above only reaches the leader query). Source-level
+// check.
 func TestSetReindexAuditDeps_ReplayRunsBothHalvesOnCallerContext(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "reindex_orphan_audit.go", nil, 0)

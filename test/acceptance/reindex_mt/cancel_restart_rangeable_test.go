@@ -29,25 +29,15 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestMultiTenant_EnableRangeable_CancelRestartJourney is the acceptance
-// reproducer for weaviate/0-weaviate-issues#464: cancel an enable-rangeable
-// migration, restart the node, and range filters silently returned zero rows
-// on every tenant that had not finished migrating.
-//
-// The mechanism was a durable lie outliving a non-durable truth. The
-// cluster-wide `indexRangeFilters` flag flipped as soon as the FIRST shard
-// swapped, and the in-memory per-shard readiness gate that compensated for
-// it was rebuilt at startup only from migration tracker dirs — which cancel
-// deletes. Post-restart, the schema claimed an index that most shards held
-// only as an empty pre-created bucket.
-//
-// enable-rangeable is now a semantic migration, so the flag flips once, at
-// task completion. A cancelled task never gets there.
-//
-// The on-disk assertions are the point, not decoration (QA's requirement on
-// 464): moving the flip alone would stop the wrong answers being *visible*
-// without repairing what the cancel left behind. Each phase therefore
-// asserts per-tenant-shard directory state, not just query results.
+// Acceptance reproducer for weaviate/0-weaviate-issues#464: cancelling an
+// enable-rangeable migration then restarting used to leave the schema
+// claiming an index that most tenant shards held only as an empty bucket,
+// because the cluster-wide flag flipped on the first shard's swap while the
+// startup readiness gate rebuilt only from tracker dirs, which cancel
+// deletes. enable-rangeable is now semantic (flag flips once, at task
+// completion), so a cancelled task never reaches the flip. Assertions cover
+// both query results and per-tenant-shard disk state, since fixing only the
+// visible symptom would leave the cancel's residue behind.
 func TestMultiTenant_EnableRangeable_CancelRestartJourney(t *testing.T) {
 	ctx := context.Background()
 
@@ -203,17 +193,12 @@ type rangeableFixture struct {
 }
 
 const (
-	// Enough tenants that a partially completed migration is guaranteed to
-	// leave some shards never-started and some in-flight — the two groups
-	// 464 measured — while staying inside the CI wall-clock budget.
-	// Progress is reported per unit, so the tenant count is also the
-	// resolution of the dose: at 16 tenants it moved in 6.25% steps and a
-	// 70% dose could be skipped entirely between two polls. 32 keeps the
-	// same total corpus at twice the resolution.
+	// Enough tenants that a cancel mid-migration is guaranteed to catch some
+	// shards never-started and some in-flight, at a fine enough progress
+	// resolution that a 70% dose can't be skipped between polls.
 	rangeableFixtureTenants = 32
 	// Large enough that the migration outlives the poll-then-cancel round
-	// trip. At 150/tenant it finished inside 2s on the pre-fix build and
-	// the cancel came back "task is no longer running".
+	// trip; too few and the cancel races a task that already finished.
 	rangeableFixtureObjects = 250
 )
 

@@ -197,11 +197,8 @@ func TestFinalize_MergedResiduePromotionScoping(t *testing.T) {
 	}
 }
 
-// TestFinalize_MergedResidueWithoutPayloadIsPromoted pins that a
-// tracker written by a build that predates payload.mig keeps the old
-// promote-unconditionally behavior: without a task identity there is no
-// proof of death, and refusing would strand data no later startup can
-// promote.
+// A tracker with no readable payload.mig (predates it, or hand-edited) has
+// no task identity to prove death with, so it keeps promoting unconditionally.
 func TestFinalize_MergedResidueWithoutPayloadIsPromoted(t *testing.T) {
 	shape := tokenizationResidue()
 	lsmPath := writeMergedResidue(t, shape, false)
@@ -215,10 +212,8 @@ func TestFinalize_MergedResidueWithoutPayloadIsPromoted(t *testing.T) {
 	require.Equal(t, "migrated", string(got))
 }
 
-// TestFinalize_RefusalKeepsABackupWithNoCanonical pins the one dir a
-// refusal must never remove: a backup dir whose canonical name is
-// absent is the only copy of that property's data (the swap renamed
-// old-main away and died before renaming the ingest dir in).
+// A refusal must never remove a backup dir with no canonical dir beside it:
+// that's the only copy of the property's data.
 func TestFinalize_RefusalKeepsABackupWithNoCanonical(t *testing.T) {
 	shape := tokenizationResidue()
 	lsmPath := writeMergedResidue(t, shape, true)
@@ -386,10 +381,8 @@ func TestMergedPromotionAgreesWithSchema(t *testing.T) {
 	}
 }
 
-// TestReindexTaskLivenessLookup_UnknownWithoutDeps pins that the
-// liveness lookup answers "unknown" rather than "dead" before the
-// distributed task list is reachable — the answer that keeps startup
-// from deleting on a guess.
+// Before the task list is reachable, liveness must answer "unknown", never
+// "dead" — startup must not delete on a guess.
 func TestReindexTaskLivenessLookup_UnknownWithoutDeps(t *testing.T) {
 	var nilShard *Shard
 	require.Equal(t, ReindexTaskLivenessUnknown,

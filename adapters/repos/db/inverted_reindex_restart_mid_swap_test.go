@@ -24,23 +24,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Restart in the middle of a swap, for a repair-rangeable migration on a
-// shard whose range index was healthy to begin with.
-//
-// The swap renames the canonical dir to backup_<gen> and only then writes
-// swapped.mig, so a node killed between those two points and markTidied
-// comes back with no dir under the canonical name. Nothing else in shard
-// init restores it: createPropertyValueIndex creates an empty bucket
-// because the schema says the property has a range index, and the
-// recovery-only reindexer's RunBeforeLsmInit is a no-op. If startup
-// declines to promote the ingest dir, the property serves zero rows.
-//
-// This is the reachable half of a repair-rangeable restart: the shards
-// that reach it are the ones whose liveness lookup answers Live, which
-// after this PR means lazily-loaded and multi-tenant ones. Only the
-// "task still running" arm is a receipt for that; the "task already
-// gone" arm restarts with a schema that agrees, which the old code
-// promoted anyway, so it is a control.
+// Restart mid-swap on a repair-rangeable migration: the canonical dir is
+// already renamed to backup_<gen> but swapped.mig/markTidied never ran,
+// so nothing restores the canonical dir unless startup promotes the
+// ingest dir. Covers both a still-running task (must leave the ingest dir
+// alone) and an already-finished one (must promote it).
 
 func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 	const (
@@ -125,11 +113,8 @@ func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 			require.True(t, fileExists(migrationFinalizedMarkerPath(lsmPath, task.MigrationDirName())),
 				"the promotion must record itself, or the task below cannot tell done from never-ran")
 
-			// The task the cluster is still waiting on now runs its swap
-			// phase against a shard whose migration startup already
-			// finished. It must ack success: failing here would report
-			// the migration as failed cluster-wide on a shard whose data
-			// is correct.
+			// The task must ack success against work startup already did,
+			// not fail the migration cluster-wide on correct data.
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard2),
 				"the prepare phase must ack work startup already did")
 			require.NoError(t, task.RunSwapOnShard(ctx, shard2),
@@ -142,15 +127,10 @@ func TestRestartRecovery_MidSwapRepairRangeableKeepsServing(t *testing.T) {
 	}
 }
 
-// Restart in the middle of a runtime swap, killed between the in-memory
-// bucket-pointer flip (Phase 2a) and the shutdown + rename that makes it
-// durable (Phase 2b).
-//
-// The flip died with the process, but its per-prop sentinel is on disk.
-// Trusting that sentinel makes the retry skip the flip while still setting
-// the tokenization overlay and marking the migration done, so the shard
-// serves the pre-migration bucket under a schema that says otherwise —
-// the shape of the per-replica divergence seen in CI.
+// Restart mid runtime-swap, killed between the in-memory bucket-pointer
+// flip (Phase 2a) and the durable rename (Phase 2b): the per-prop sentinel
+// is on disk but the flip died with the process, so trusting the sentinel
+// would skip the flip while marking the migration done.
 func TestRestartRecovery_StaleSwapSentinelDoesNotSkipTheFlip(t *testing.T) {
 	const (
 		numObjects = 25
@@ -170,10 +150,9 @@ func TestRestartRecovery_StaleSwapSentinelDoesNotSkipTheFlip(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	// Change-tokenization is the migration the CI divergence was in, and
-	// the only type here whose schema can disagree at restart: the
-	// content-equivalent ones are accepted unconditionally, so startup
-	// would promote and there would be no swap left to retry.
+	// change-tokenization is the only type here whose schema can disagree
+	// at restart; content-equivalent types are accepted unconditionally,
+	// so startup would promote and there'd be no swap left to retry.
 	task, _ := newFilterableRetokenizeTask(t, idx, className, propName,
 		models.PropertyTokenizationField)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))

@@ -79,17 +79,10 @@ func TestCleanupLookupsAreInstalledBeforeTheBootstrapWait(t *testing.T) {
 	}
 }
 
-// Pins the opposite half of the same wiring: the reindex audit deps must
-// land only AFTER the metastore is ready, because opening the metastore is
-// what replays RAFT and loads the existing indices. Every shard that
-// initializes in that window resolves task liveness as Unknown, which
-// decides Leave rather than Refuse — the contract documented on
-// [db.mergedPromotionDecision] and in docs/runtime-reindex.md.
-//
-// Moving the install above the wait would silently flip eager shards onto
-// the refusal arm, so the order is what this asserts, not merely that both
-// calls exist. Source-level check since MakeAppState needs a real cluster
-// to run.
+// Pins that SetReindexAuditDeps is wired after waitForMetaStore: installing
+// it earlier races eager shard init, which would then resolve task liveness
+// as Unknown instead of Refuse (see [db.mergedPromotionDecision]).
+// Source-level check since MakeAppState needs a real cluster to run.
 func TestReindexAuditDepsAreInstalledAfterTheMetaStoreWait(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "configure_api.go", nil, 0)
@@ -146,14 +139,11 @@ func TestReindexAuditDepsAreInstalledAfterTheMetaStoreWait(t *testing.T) {
 			"RAFT replay start resolving task liveness as Dead instead of Unknown")
 }
 
-// Pins the context both post-startup audit entry points run on. Each one
-// starts with a query to the leader, and both are reached from the RAFT
-// FSM apply path — the class-dir restore hook directly, the deferred
-// replay through the audits that hook requested before the deps landed.
-// A background context there leaves a leader that is reachable but not
-// answering holding up RAFT apply with nothing, not even SIGTERM, to
-// release it. Source-level check since MakeAppState needs a real cluster
-// to run.
+// Pins that both post-startup audit entry points run on a cancellable
+// context: both are reached from the RAFT FSM apply path, and a background
+// context would let an unreachable leader hold up RAFT apply with nothing,
+// not even SIGTERM, to release it. Source-level check since MakeAppState
+// needs a real cluster to run.
 func TestReindexAuditCallsAreCancellableOnShutdown(t *testing.T) {
 	calls := []string{"AuditOrphanReindexTrackersIfReady", "SetReindexAuditDeps"}
 
@@ -188,10 +178,8 @@ func TestReindexAuditCallsAreCancellableOnShutdown(t *testing.T) {
 		return true
 	})
 
-	// The property is "not a fresh root context", not any particular
-	// variable name: `context.WithTimeout(serverShutdownCtx, …)` stored in
-	// a local is a better call than passing serverShutdownCtx straight
-	// through, and must pass too.
+	// Checks "not a fresh root context", not a variable name, so a local
+	// derived via context.WithTimeout(serverShutdownCtx, …) passes too.
 	for _, name := range calls {
 		require.NotNilf(t, ctxArg[name], "%s must be called in MakeAppState", name)
 		require.Falsef(t, isFreshRootContext(ctxArg[name]),

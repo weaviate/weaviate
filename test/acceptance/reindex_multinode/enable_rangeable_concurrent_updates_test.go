@@ -63,17 +63,12 @@ import (
 // pre-check confirms the movers' new values are durably present in the objects
 // store, so any index shortfall is a silent index loss, not a failed write.
 //
-// KNOWN RED while enable-rangeable is a semantic migration and
-// weaviate/weaviate#12211 is not in the base — the same window its
-// single-node sibling TestEnableRangeable_ConcurrentWrites measures.
-// Between a shard's own swap and the cluster-wide flip the double-write
-// callbacks are gone and the write path still reads
-// indexRangeFilters=false, so writes arriving in that window miss the
-// range index. Measured here at 1490/1500.
+// KNOWN RED until weaviate/weaviate#12211 lands — the multi-node instance
+// of the same window TestEnableRangeable_ConcurrentWrites measures.
 //
-// Reading the failure: assertRangeCountAllNodes stops at the first node
-// that disagrees, so a reported [1490 0 0] means node 1 was short and
-// nodes 2 and 3 were not measured — not that two replicas served zero.
+// assertRangeCountAllNodes stops at the first node that disagrees, so a
+// reported [1490 0 0] means node 1 was short and nodes 2/3 were not
+// measured, not that two replicas served zero.
 func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) {
 	ctx := context.Background()
 

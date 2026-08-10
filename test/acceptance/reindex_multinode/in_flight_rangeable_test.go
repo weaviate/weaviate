@@ -44,18 +44,15 @@ import (
 // query path is serving from a half-built rangeable bucket instead of
 // the still-intact filterable bucket.
 //
-// Original root cause, observed on `1.38.0-dev-e1dfae0`:
-// FilterableToRangeableStrategy.OnMigrationComplete RAFTed the
-// `IndexRangeFilters=true` schema flip from inside per-shard runtimeSwap,
-// so the flag flipped cluster-wide as soon as ANY replica finished its
-// swap. Replicas still holding the empty PreReindexHook bucket then had
-// `pv.hasRangeableIndex=true` and served range queries from it.
+// Root cause: FilterableToRangeableStrategy.OnMigrationComplete RAFTed the
+// `IndexRangeFilters=true` flip from inside per-shard runtimeSwap, so the
+// flag flipped cluster-wide as soon as any single replica finished its
+// swap, routing range queries to replicas still holding an empty bucket.
 //
 // enable-rangeable is now a semantic migration
-// (weaviate/0-weaviate-issues#465): the flip happens once, from
-// `flipSemanticMigrationSchema` in `OnTaskCompleted`, after every
-// replica has swapped. This test stays as the pin that no in-flight
-// window can produce a partial count.
+// (weaviate/0-weaviate-issues#465): the flip happens once, after every
+// replica has swapped. This test pins that no in-flight window can
+// produce a partial count.
 func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
