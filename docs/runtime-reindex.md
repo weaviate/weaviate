@@ -29,10 +29,13 @@ typical journeys it unlocks:
 - Add a missing inverted index after the fact: `enable-filterable`,
   `enable-searchable`, `enable-rangeable`.
 - Repair a bucket suspected of corruption: `repair-filterable`,
-  `repair-searchable` (which is also the Map → Blockmax format
-  upgrade), `repair-rangeable`.
+  `rebuild-searchable`, `repair-rangeable`.
+- Upgrade a searchable index from Map (WAND) to Blockmax:
+  `change-algorithm`.
 - Cancel an in-flight migration; the cluster cleans up the partial
-  state and the property is back to its pre-submit on-disk shape.
+  state. Cancelling before the migration's merge point returns the
+  property to its pre-submit on-disk shape; after it, some state is
+  deliberately preserved (see §12).
 
 The whole feature is built on top of three substrates:
 
@@ -83,10 +86,11 @@ Submit a migration. Body shape selects which one:
 | `{"rangeable":{"enabled":true}}` | `enable-rangeable` | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). |
 | `{"searchable":{"tokenization":"trigram"}}` | `change-tokenization` | Rewrites BOTH searchable and filterable buckets when both exist. |
 | `{"filterable":{"tokenization":"word"}}` | `change-tokenization-filterable` | Filterable-only retokenize variant. Use when the property has no searchable index. |
-| `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
+| `{"searchable":{"rebuild":true}}` | `rebuild-searchable` | Rebuild an existing Blockmax searchable bucket, preserving tokenization and algorithm. Rejected on WAND properties. |
+| `{"searchable":{"algorithm":"blockmax"}}` | `change-algorithm` | Map → Blockmax upgrade. `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property is on Blockmax. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
-| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a STARTED task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled). |
+| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a task in any non-terminal status (STARTED, PREPARING, SWAPPING) is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled). |
 
 Query parameters:
 
@@ -100,7 +104,7 @@ Response shapes:
 
 - `202 Accepted` — for submit, body contains the new task ID. For the
   cancel verb, body is an `IndexUpdateResponse` with `Status: CANCELLED`
-  + `taskId` when a STARTED task was cancelled, or `Status: NO_OP` (no
+  + `taskId` when a non-terminal task was cancelled, or `Status: NO_OP` (no
   `taskId`) when nothing matched. The cancel verb is idempotent and
   never returns 404 for "no task to cancel".
 - `400 Bad Request` — validation failure with a structured next-step
@@ -401,6 +405,12 @@ Two reasons it can't move earlier into the STARTED phase:
   locally then acking", SWAPPING = "everyone running atomic SWAP
   locally then acking".
 
+That phase reading only holds for semantic migrations. Format-only
+migrations (`NeedsPreparationBarrier=false`) never enter PREPARING:
+`OnGroupCompleted` fires per group while the task is still STARTED and
+runs the inline PREP+SWAP body, so a STARTED format-only task can
+already have shards that committed their swap.
+
 The role `PREPARING` plays is twofold: (a) signaling that every unit
 is terminal, so every node has the right on-disk state to start its
 local PREP; and (b) gating the cross-replica SWAP barrier — only
@@ -596,11 +606,11 @@ the Add/Delete double-write callbacks, the optional `AnalyzerOverlay`
 
 **`reindex_conflict.go`** — `CheckConflict` (FSM-deterministic),
 `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`,
-plus the predicates `ReindexPropsOverlap`, `TouchesSearchable`,
-`TouchesFilterable`, `TypesConflictReason`. The exhaustive switches in
-the `Touches*` predicates intentionally panic on unknown migration
-types so a new `ReindexMigrationType` cannot silently be treated as
-"doesn't touch X" — it surfaces on the first request.
+plus the predicates `ReindexPropsOverlap`, `TypesConflictReason`, and
+`ReindexTargetIndexes`. `ReindexTargetIndexes` is the single source of
+truth for which inverted-index buckets a migration type writes to; it
+returns nil for a type this build does not recognize, and callers on
+the RAFT apply path fail closed on that nil instead of panicking.
 
 **`reindex_recovery.go`** — `DiscoverInFlightReindexTasks`,
 `buildRecoveryTasks`, `NewShardReindexerV3FromRecovered`,
@@ -625,11 +635,12 @@ tidied / lower-gen sidecars / in-flight gens left alone for
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
-Seven strategy implementations, one file each:
+Eight strategy implementations, one file each:
 
 | Strategy | Type | Source bucket | Target bucket | OnMigrationComplete |
 |---|---|---|---|---|
-| `MapToBlockmaxStrategy` | `repair-searchable` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) | No-op; tokenization and algorithm are preserved. |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
 | `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
@@ -711,21 +722,27 @@ disk-I/O or compaction-wait op inside Phase 2 (`testHookPostPropSwap`
 
 ## 5. Migration strategies — quick map
 
-```
-                               semantic?     analyzer overlay?
-change-tokenization              ✓                ✓ (tokenization)
-change-tokenization-filterable   ✓                ✓ (tokenization)
-enable-filterable                ✓                ✓ (ForceFilterable)
-enable-searchable                ✓                ✓ (ForceSearchable + tokenization)
-enable-rangeable                                  
-repair-filterable                                 
-repair-searchable                                 
-repair-rangeable                                  
-```
+There are nine migration types: `change-algorithm`,
+`change-tokenization`, `change-tokenization-filterable`,
+`enable-searchable`, `enable-filterable`, `enable-rangeable`,
+`repair-filterable`, `repair-rangeable`, `rebuild-searchable`.
 
-The four semantic migrations need both the cluster-wide barrier and
-the per-shard analyzer overlay; the four format-only migrations need
-neither.
+Which inverted-index buckets each one writes to is not restated here.
+`db.ReindexTargetIndexes`
+([`reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go)) is
+the single source of truth, and every conflict, cancel and cleanup path
+reads it.
+
+The one split that matters for the phase machine is semantic vs
+format-only, decided by `db.IsSemanticMigration`:
+
+- **Semantic** (`change-algorithm`, `change-tokenization`,
+  `change-tokenization-filterable`, `enable-searchable`,
+  `enable-filterable`) need the cluster-wide PREPARING barrier and the
+  per-shard analyzer overlay (§8).
+- **Format-only** (`enable-rangeable`, `repair-filterable`,
+  `repair-rangeable`, `rebuild-searchable`) need neither and skip
+  PREPARING entirely.
 
 ## 6. Crash safety
 
@@ -1170,7 +1187,9 @@ phases of different concerns and don't share state.
 
 **Cancel** (`{"<type>":{"cancel":true}}`):
 
-1. Find the STARTED task targeting `(collection, prop, indexType)`.
+1. Find the non-terminal task targeting `(collection, prop, indexType)`.
+   `findCancelTarget` skips only tasks whose status `IsTerminal()`, so
+   STARTED, PREPARING and SWAPPING are all cancel targets.
    If none matches (already finished, never submitted, or already
    cancelled), return 202 with `Status: NO_OP` and no `taskId`. The
    verb is idempotent: caller's `(collection, property)` was already
@@ -1181,8 +1200,31 @@ phases of different concerns and don't share state.
 3. Wait for the local reindex goroutine to drain
    (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
-4. `CleanStalePartialReindexState` — wipe sidecars + migration dir
-   so the next submit starts from a clean slate.
+4. `CleanStalePartialReindexState` — per shard, shut down the
+   `__reindex`/`__ingest`/`__backup` sidecar buckets of this
+   `(prop, indexType)`, remove their directories, and remove the
+   `.migrations/<dir>/` tracker (`started.mig`, `progress.mig`,
+   `payload.mig`, ...).
+
+   **It is not a full wipe.** Sidecar dirs and tracker dirs belonging
+   to a generation that already carries `tidied.mig` or `merged.mig`
+   are deliberately PRESERVED (`completedMigrationGens` /
+   `completedMigrationSidecarSuffixes`): those sidecars back the live
+   in-memory bucket pointer, and removing them is the same data loss
+   as [#10675](https://github.com/weaviate/weaviate/issues/10675).
+   Everything before the merge point is removed, so only a cancel
+   before the merge really returns the property to its pre-submit
+   on-disk shape.
+
+   Consequence: a cancel at or after the merge point leaves
+   promotion-eligible state behind. `FinalizeCompletedMigrations`
+   promotes a sidecar to canonical on `merged.mig` alone, so the next
+   restart promotes it even though the cluster-wide schema flip never
+   committed, inverting bucket content and schema. For a semantic
+   migration `merged.mig` is written by `runtimePrepare` during
+   PREPARING, so the window opens before any shard has swapped. Known
+   and accepted, tracked at
+   [#12575](https://github.com/weaviate/weaviate/issues/12575).
 5. 202 with `Status: CANCELLED` + the cancelled task ID.
 
 If the drain times out, return 202 anyway — the next submit's
@@ -1226,7 +1268,7 @@ while running v1.38 Preview.
 
 - [`adapters/repos/db/reindex_provider.go`](../adapters/repos/db/reindex_provider.go) — DTM provider, three-phase swap, `flipSemanticMigrationSchema`.
 - [`adapters/repos/db/reindex_provider_payload.go`](../adapters/repos/db/reindex_provider_payload.go) — `ReindexTaskPayload`, migration type constants.
-- [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `Touches*` predicates.
+- [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `ReindexTargetIndexes`.
 - [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `CleanStalePartialReindexState`.
 
@@ -1342,7 +1384,7 @@ test packages.
 - `mergeReindexStatus` — `handlers_indexes_edge_test.go` /
   `handlers_indexes_gaps_test.go`.
 - `checkReindexConflict` / `ReindexPropsOverlap` /
-  `TypesConflictReason` / `Touches*` — `reindex_conflict_test.go`.
+  `TypesConflictReason` / `ReindexTargetIndexes` — `reindex_conflict_test.go`.
 - `failUnit` and recovery — `reindex_provider_failunit_test.go`,
   `reindex_provider_recovery_test.go`,
   `reindex_provider_repair_guidance_test.go`.
