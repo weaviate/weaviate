@@ -69,11 +69,7 @@ func (db *DB) cleanStalePartialReindexState(
 ) error {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
-		// The collection is not on this node, so there is nothing to sweep and
-		// nothing that needs sweeping: the state lives under the collection's
-		// own directory. Reported the same way as a delete landing mid-walk,
-		// rather than as a clean sweep — the two are the same situation a
-		// moment apart, and "cleared on this node" would claim work nobody did.
+		// Reported as dropped rather than clean; see the doc comment above.
 		return fmt.Errorf("%w: no local index for collection %q",
 			ErrCleanupCollectionDropped, collection)
 	}
@@ -309,7 +305,7 @@ const maxCachedDirNames = 100_000
 // only the bucket dirs and tracker dirs of its own tuple, and no two tuples
 // share either name.
 //
-// Not safe for concurrent use. The sweeps sharing one run in sequence.
+// Not safe for concurrent use; the sweeps sharing one run do so in sequence.
 type dirNamesCache struct {
 	listings map[string]dirNamesListing
 	names    int

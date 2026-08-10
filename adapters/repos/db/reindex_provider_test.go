@@ -371,8 +371,7 @@ func TestClassifyTerminalSweep(t *testing.T) {
 			wantFailure: errShardsSkipped,
 		},
 		{
-			// Nothing produces this today. If something ever does, the
-			// operator must not be sent looking for state that may not exist.
+			// No known producer; defaults to unknown rather than failed.
 			name:        "an error carrying none of the markers",
 			err:         unmarked,
 			wantOutcome: terminalSweepUnknown,

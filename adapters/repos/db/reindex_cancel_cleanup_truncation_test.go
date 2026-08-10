@@ -110,8 +110,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantTruncated: false,
 		},
 		{
-			// A full disk fails every tenant of the node at once, and the
-			// result is rendered into an operator-facing log line.
+			// A full disk fails every tenant at once; the message caps how many it names.
 			name:            "more failing shards than a message can carry",
 			shards:          tenantShardNames(15),
 			indexType:       "an-index-type-this-build-does-not-know",
@@ -162,10 +161,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantDropped: true,
 		},
 		{
-			// The delete removes the state of every shard the sweep never
-			// reached, but not of the one it already failed on: that shard's
-			// files are gone only once the delete gets to them, and a caller
-			// that reads this as a plain delete stops looking.
+			// A shard fails, then the collection is deleted before the walk ends.
 			name:         "a shard fails and the collection is deleted before the walk ends",
 			shards:       []string{"shard-a", "shard-b"},
 			dropOnCall:   1,
@@ -488,10 +484,7 @@ func TestUnvisitedShards(t *testing.T) {
 	}
 }
 
-// A collection that is already gone and one that goes away mid-sweep are the
-// same situation a moment apart, so they have to answer the same way. Reporting
-// the first as a clean sweep claims the state was cleared, which [Index.drop]
-// does not do while a backup holds the files.
+// Pins that a collection already gone is reported as dropped, not clean.
 func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}}
 

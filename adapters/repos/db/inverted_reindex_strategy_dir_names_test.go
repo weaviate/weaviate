@@ -146,10 +146,8 @@ func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T
 	}
 }
 
-// Property names may contain underscores, so the tracker prefix of one
-// property can be a prefix of another property's tracker dir. Matching on that
-// makes a sweep of the first property hydrate and then delete the second one's
-// state.
+// Pins isMigrationDirOf against cross-property prefix collisions (a property
+// name may itself be a prefix of another property's tracker dir).
 func TestIsMigrationDirOf(t *testing.T) {
 	catPrefixes := migrationDirsForPropertyIndex("cat", "filterable")
 	require.Contains(t, catPrefixes, "enable_filterable_cat")

@@ -211,11 +211,8 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			trackers:  map[string][]string{"enable_filterable_other_1": {"started.mig"}},
 			sidecars:  []string{"property_other__enable_filterable_ingest_1"},
 		},
-		// Property names may contain underscores, so "category"'s tracker
-		// prefix is a prefix of "category_x"'s tracker dir. The gate would
-		// hydrate every tenant of the collection for state that is not this
-		// property's, and the sweep it gates would then delete that property's
-		// live deferred-finalize tracker.
+		// Pins that "category"'s prefix matching "category_x"'s tracker does
+		// not falsely hydrate/delete the latter's state.
 		{
 			name:      "a property whose name extends this one, awaiting finalize",
 			indexType: "filterable",
@@ -339,16 +336,14 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 	}
 }
 
-// A sweep of one property must leave a property whose name extends it alone.
-// The tidied.mig it would delete is what promotes that property's ingest dir to
-// canonical on the next restart, and losing it empties the canonical bucket.
+// Pins that a sweep of "category" leaves "category_x"'s completed migration
+// tracker alone.
 func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *testing.T) {
 	const (
 		mine   = "enable_filterable_category_1"
 		theirs = "enable_filterable_category_x_1"
-		// Their sidecar is out of reach of this sweep's bucket prefix
-		// already ("property_category__" is not a prefix of it), and stays
-		// here so the whole of their state is in the fixture.
+		// Out of reach of this sweep's bucket prefix already; included so the
+		// whole of their state is in the fixture.
 		theirSidecar = "property_category_x__enable_filterable_ingest_1"
 	)
 	ctx := testCtx()
@@ -373,8 +368,6 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 		"the bucket that tracker still points at")
 }
 
-// The sweeps after a terminal task ask the same unhydrated shards the same
-// question about a different tuple, so they share one listing per directory.
 func TestDirNamesCache(t *testing.T) {
 	newDir := func(t *testing.T, entries ...string) string {
 		t.Helper()
@@ -438,12 +431,8 @@ func TestDirNamesCache(t *testing.T) {
 	})
 }
 
-// Pins a known collision in the on-disk bucket names, so it is executable
-// rather than folklore: a property whose name ends in an index-type suffix
-// derives the same bucket name as another property's bucket of that index type,
-// and both the cold-shard gate and the sweep match on it. Closing it means
-// renaming buckets on disk, which is why this test asserts the collision
-// instead of its absence — invert it when the naming is fixed.
+// Pins the known bucket-name collision as passing; invert this assertion
+// once the on-disk naming is fixed.
 func TestMainBucketForPropertyIndexHasAKnownNameCollision(t *testing.T) {
 	searchableOfCat, ok := mainBucketForPropertyIndex("cat", "searchable")
 	require.True(t, ok)
