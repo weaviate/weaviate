@@ -402,7 +402,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.setIfOwned(desc.ID, c.descriptor.Status)
+		c.publishStatus(desc.ID)
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -488,7 +488,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// check if backup is still active
 	st := c.lastOp.get()
 	if st.ID == req.ID {
-		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status}, nil
+		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status, Err: st.Err}, nil
 	}
 	filename := GlobalBackupFile
 	if req.Method == OpRestore {
@@ -791,9 +791,22 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.setIfOwned(req.ID, c.descriptor.Status)
 	c.descriptor.Error = reason
+	c.publishStatus(req.ID)
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+}
+
+// publishStatus mirrors the descriptor's outcome on the slot, which is what a
+// poll reads until the descriptor is written to object storage. A failure goes
+// through setFailedIfOwned so it is never published without the reason next to
+// it. Ownership-checked like every other slot write here: the operation may
+// have been cancelled and the slot handed on since.
+func (c *coordinator) publishStatus(id string) {
+	if c.descriptor.Status == backup.Failed {
+		c.lastOp.setFailedIfOwned(id, c.descriptor.Error)
+		return
+	}
+	c.lastOp.setIfOwned(id, c.descriptor.Status)
 }
 
 // queryAll queries all participant and store their statuses internally

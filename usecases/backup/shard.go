@@ -133,6 +133,27 @@ func (s *backupStat) resetIfCancelled(id string) bool {
 func (s *backupStat) setFailed(reason string) {
 	s.Lock()
 	defer s.Unlock()
+	s.setFailedLocked(reason)
+}
+
+// setFailedIfOwned is [backupStat.setFailed] under the ownership rule of
+// [backupStat.setIfOwned], for the callers that publish a failure they may no
+// longer own the slot for. Reports whether it wrote.
+func (s *backupStat) setFailedIfOwned(id string, reason string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	if s.reqState.Status == backup.Cancelled {
+		return false
+	}
+	s.setFailedLocked(reason)
+	return true
+}
+
+// setFailedLocked must be called with the lock held.
+func (s *backupStat) setFailedLocked(reason string) {
 	if s.reqState.Status == backup.Cancelled {
 		return
 	}
