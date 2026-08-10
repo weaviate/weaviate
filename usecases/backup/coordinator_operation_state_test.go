@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -95,7 +96,11 @@ func (b *restoreMetaBackend) PutObject(_ context.Context, _, key, _, _ string, d
 func (b *restoreMetaBackend) setStored(t *testing.T, desc backup.DistributedBackupDescriptor) {
 	t.Helper()
 	data, err := json.Marshal(desc)
-	require.NoError(t, err)
+	// assert, not require: callers run this from a mock callback on the
+	// restore goroutine, where Goexit surfaces as a hang.
+	if !assert.NoError(t, err) {
+		return
+	}
 	b.Lock()
 	defer b.Unlock()
 	b.stored = data
@@ -130,7 +135,9 @@ func (b *restoreMetaBackend) storedStatus(t *testing.T) backup.Status {
 		return ""
 	}
 	var desc backup.DistributedBackupDescriptor
-	require.NoError(t, json.Unmarshal(b.stored, &desc))
+	// assert, not require: this also runs inside require.Never/Eventually
+	// condition closures, which testify runs off the test goroutine.
+	assert.NoError(t, json.Unmarshal(b.stored, &desc))
 	return desc.Status
 }
 
@@ -209,9 +216,17 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 		freed  = make(chan struct{})
 		unfini = func(*StatusRequest) bool { return !o.finished.Load() }
 		fini   = func(*StatusRequest) bool { return o.finished.Load() }
+		// Each restore polls with its own request value, so counting the
+		// distinct ones seen is how the test knows both goroutines are running
+		// at the same time rather than one after the other.
+		mu      sync.Mutex
+		pollers = map[*StatusRequest]struct{}{}
 	)
 	o.client.On("Status", mock.Anything, node, mock.MatchedBy(unfini)).Return(staging, nil).
-		Run(func(mock.Arguments) {
+		Run(func(args mock.Arguments) {
+			mu.Lock()
+			pollers[args.Get(2).(*StatusRequest)] = struct{}{}
+			mu.Unlock()
 			once.Do(func() {
 				cancelAndFreeSlot(t, &o.c.lastOp, backupID)
 				close(freed)
@@ -230,8 +245,12 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 	// goroutine is still polling participants.
 	o.restore(t, backendName, backupID, node)
 
-	// Give the two goroutines a stretch of overlap before letting them wrap up.
-	time.Sleep(200 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(pollers) == 2
+	}, 20*time.Second, time.Millisecond,
+		"the two restores never polled at the same time, so they never overlapped")
 	o.finish(t)
 }
 

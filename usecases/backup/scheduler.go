@@ -495,7 +495,7 @@ func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status
 	case held.ID == backupID:
 		entry.Warn("restore slot not stamped: the restore is applying its schema and can no longer be cancelled")
 	case held.ID == "":
-		entry.Info("restore slot not stamped: the restore has already finished and given it back")
+		entry.Info("restore slot not stamped: no restore holds the slot on this node")
 	default:
 		entry.Warnf("restore slot not stamped: it is held by restore %q", held.ID)
 	}
@@ -541,7 +541,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 
 	// The stored descriptor can still read TRANSFERRING during schema apply
 	// (the FINALIZING put is logged, not acted on), so the slot is checked
-	// here rather than trusting storage.
+	// here rather than trusting storage. The slot is node-local: this closes
+	// the window only for a cancel sent to the coordinating node, a cancel
+	// sent elsewhere still falls through to the storage switch below.
 	if held := s.restorer.lastOp.get(); held.ID == backupID && held.Status == backup.Finalizing {
 		return backup.NewErrUnprocessable(
 			fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
@@ -562,7 +564,11 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// the only way to clear a descriptor stuck on CANCELLING.
 		default:
 			// Transferring, Started - attempt to claim cancellation
-			if !s.claimCancellation(ctx, store, meta, backupID, overrideBucket, overridePath) {
+			won, err := s.claimCancellation(ctx, store, meta, backupID, overrideBucket, overridePath)
+			if err != nil {
+				return fmt.Errorf("claim the cancellation of restore %q: %w", backupID, err)
+			}
+			if !won {
 				return nil
 			}
 		}
@@ -599,7 +605,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// CANCELLING, which refuses every later restore of this id. The
 			// caller has to know that, because repeating the cancel is what
 			// clears it.
-			return fmt.Errorf("restore %q was cancelled on all nodes but the cancellation could not be recorded, "+
+			return fmt.Errorf("the cancellation of restore %q was sent to every node but could not be recorded, "+
 				"restores of this id are refused until the cancel is repeated: %w", backupID, err)
 		}
 	}
@@ -610,29 +616,27 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 // claimCancellation takes ownership of cancelling this restore by writing
 // CANCELLING to the descriptor, which is the lock the coordinators race for:
 // the first to write it is the one that carries the cancellation out. Reports
-// whether this call won; when it did not, there is nothing left for the caller
-// to do.
+// whether this call won; losing (false, nil) means another coordinator is
+// carrying the cancellation out and there is nothing left to do. A write that
+// fails outright is reported as an error instead: nothing was aborted and
+// nothing recorded, so answering the caller with "cancelled" would be a lie.
 func (s *Scheduler) claimCancellation(ctx context.Context, store coordStore,
 	meta *backup.DistributedBackupDescriptor, backupID, overrideBucket, overridePath string,
-) bool {
+) (bool, error) {
 	meta.Status = backup.Cancelling
 	if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
-		s.logger.WithField("action", "cancel_restore").
-			WithField("backup_id", backupID).
-			Warnf("failed to write cancelling status, another coordinator may be handling: %v", err)
-		// Another coordinator may have won, let them handle it
-		return false
+		return false, err
 	}
 
 	// Re-read to verify we won the race (another coordinator may have written simultaneously)
 	verifyMeta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
 	if verifyMeta != nil && verifyMeta.Status == backup.Cancelled {
 		// Another coordinator already completed cancellation
-		return false
+		return false, nil
 	}
 	stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
 	logCancelStamp(s.logger, backupID, backup.Cancelling, stamped, held)
-	return true
+	return true, nil
 }
 
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string, includeBaseBackupID bool) (*models.BackupListResponse, error) {
