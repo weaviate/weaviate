@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,26 +60,15 @@ func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 
 			var (
 				once    sync.Once
-				commits int
-				polls   int
-				mu      sync.Mutex
+				commits atomic.Int64
 			)
 			fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil).
-				Run(func(mock.Arguments) {
-					mu.Lock()
-					commits++
-					mu.Unlock()
-				})
-			// Ends after a handful of polls so a commit that fails to abort
-			// still finishes instead of timing out.
-			staging := func(*StatusRequest) bool {
-				mu.Lock()
-				defer mu.Unlock()
-				polls++
-				return polls < 5
-			}
-			fc.client.On("Status", mock.Anything, node, mock.MatchedBy(staging)).
+				Run(func(mock.Arguments) { commits.Add(1) })
+			// Staging ends after a handful of polls so a commit that fails to
+			// abort still finishes instead of timing out.
+			fc.client.On("Status", mock.Anything, node, mock.Anything).
 				Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}, nil).
+				Times(4).
 				Run(func(mock.Arguments) {
 					// assert, not require: Goexit inside a mock callback surfaces
 					// as a hang instead of this failure.
@@ -108,10 +98,7 @@ func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 			require.Equal(t, backup.Cancelled, op.descriptor.Status,
 				"a cancel in flight is a cancel: commit must not carry on to Transferred")
 			require.Equal(t, errCancelled.Error(), op.descriptor.Error)
-
-			mu.Lock()
-			defer mu.Unlock()
-			require.Equal(t, tc.wantCommits, commits)
+			require.Equal(t, int64(tc.wantCommits), commits.Load())
 		})
 	}
 }
@@ -193,24 +180,14 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 	s.restorer.schema = schemaManager
 
 	// ListClasses runs between the cancel's two slot stamps, so it is where the
-	// first one can be observed before the second overwrites it.
+	// first one can be observed. Which of the two it reads is a race with the
+	// restore goroutine, so only the cancellation itself is asserted.
 	var (
-		once       sync.Once
-		stamped    backup.Status
-		gaveItBack bool
+		once    sync.Once
+		stamped backup.Status
 	)
 	fs.selector.On("ListClasses", ctx).Return([]string{class}).Run(func(mock.Arguments) {
-		once.Do(func() {
-			stamped = s.restorer.lastOp.get().Status
-			deadline := time.Now().Add(10 * time.Second)
-			for time.Now().Before(deadline) {
-				if s.restorer.lastOp.get().ID == "" {
-					gaveItBack = true
-					return
-				}
-				time.Sleep(time.Millisecond)
-			}
-		})
+		once.Do(func() { stamped = s.restorer.lastOp.get().Status })
 	})
 
 	store := coordStore{objectStore{fs.backend, backupID, "", "", ""}}
@@ -222,9 +199,10 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 
 	require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
 
-	require.Equal(t, backup.Cancelling, stamped,
+	require.True(t, stamped.IsCancellation(),
 		"the cancel must stamp the slot before aborting the participants, or the restore never learns of it")
-	require.True(t, gaveItBack, "the cancelled restore never stopped")
+	require.Eventually(t, func() bool { return s.restorer.lastOp.get().ID == "" },
+		20*time.Second, time.Millisecond, "the cancelled restore never stopped")
 	require.Zero(t, schemaManager.applies.Load(),
 		"a restore cancelled while staging must not go on to apply the schema")
 }
@@ -313,7 +291,9 @@ func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
 			require.True(t, slot.set(backup.Transferring))
 
 			meta := &backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Transferring}
-			require.Equal(t, tc.wantWon, s.claimCancellation(context.Background(), store, meta, backupID, "", ""))
+			won, err := s.claimCancellation(context.Background(), store, meta, backupID, "", "")
+			require.NoError(t, err)
+			require.Equal(t, tc.wantWon, won)
 			require.Equal(t, tc.wantSlot, s.restorer.lastOp.get().Status,
 				"a coordinator that did not win the claim must not stamp the slot")
 		})
@@ -355,39 +335,65 @@ func TestLogCancelStampSeparatesTheAnomalyFromTheOrdinaryOutcomes(t *testing.T) 
 	const backupID = "restore-1"
 
 	tests := []struct {
-		name      string
+		name string
+		// st is the status the cancel tried to stamp: CANCELLING when the
+		// claim is taken, CANCELLED once the nodes have been aborted.
+		st        backup.Status
 		stamped   bool
 		held      reqState
 		wantLevel logrus.Level
 		wantMsg   string
 	}{
 		{
-			name:      "the stamp landed",
+			name:      "the claim landed",
+			st:        backup.Cancelling,
 			stamped:   true,
 			held:      reqState{ID: backupID, Status: backup.Transferring},
 			wantLevel: logrus.InfoLevel,
 			wantMsg:   "restore slot stamped with the cancellation",
 		},
 		{
+			name:      "the final stamp landed",
+			st:        backup.Cancelled,
+			stamped:   true,
+			held:      reqState{ID: backupID, Status: backup.Cancelling},
+			wantLevel: logrus.InfoLevel,
+			wantMsg:   "restore slot stamped with the cancellation",
+		},
+		{
+			// A cancel in flight is a cancellation too, which is the whole
+			// reason Status.IsCancellation exists: this must not read as the
+			// anomaly the next row down is.
+			name:      "the restore is already cancelling",
+			st:        backup.Cancelling,
+			held:      reqState{ID: backupID, Status: backup.Cancelling},
+			wantLevel: logrus.InfoLevel,
+			wantMsg:   "restore slot already carries the cancellation",
+		},
+		{
 			name:      "the restore already finished cancelling",
+			st:        backup.Cancelled,
 			held:      reqState{ID: backupID, Status: backup.Cancelled},
 			wantLevel: logrus.InfoLevel,
 			wantMsg:   "restore slot already carries the cancellation",
 		},
 		{
 			name:      "the restore is applying its schema",
+			st:        backup.Cancelling,
 			held:      reqState{ID: backupID, Status: backup.Finalizing},
 			wantLevel: logrus.WarnLevel,
 			wantMsg:   "can no longer be cancelled",
 		},
 		{
-			name:      "the restore already finished and gave the slot back",
+			name:      "no restore holds the slot",
+			st:        backup.Cancelled,
 			held:      reqState{},
 			wantLevel: logrus.InfoLevel,
-			wantMsg:   "the restore has already finished and given it back",
+			wantMsg:   "no restore holds the slot on this node",
 		},
 		{
 			name:      "another restore holds the slot",
+			st:        backup.Cancelled,
 			held:      reqState{ID: "other-restore", Status: backup.Transferring},
 			wantLevel: logrus.WarnLevel,
 			wantMsg:   `it is held by restore "other-restore"`,
@@ -398,12 +404,13 @@ func TestLogCancelStampSeparatesTheAnomalyFromTheOrdinaryOutcomes(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			logger, hook := test.NewNullLogger()
-			logCancelStamp(logger, backupID, backup.Cancelled, tc.stamped, tc.held)
+			logCancelStamp(logger, backupID, tc.st, tc.stamped, tc.held)
 
 			entry := hook.LastEntry()
 			require.NotNil(t, entry)
 			require.Equal(t, tc.wantLevel, entry.Level)
 			require.Contains(t, entry.Message, tc.wantMsg)
+			require.Equal(t, tc.st, entry.Data["cancel_status"])
 			require.Equal(t, tc.held.ID, entry.Data["slot_holder"])
 			require.Equal(t, tc.held.Status, entry.Data["slot_status"])
 		})

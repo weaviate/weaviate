@@ -1621,6 +1621,32 @@ func TestCancellingRestore(t *testing.T) {
 		assert.ErrorContains(t, err, "refused until the cancel is repeated")
 	})
 
+	t.Run("CancellingReportsAClaimWriteThatFailed", func(t *testing.T) {
+		// A failed claim write cancelled nothing and recorded nothing, so
+		// answering the caller with 204 would tell them the restore stopped.
+		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Transferring,
+			ID:     backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"node1": {Classes: []string{"Class1"}},
+			},
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).
+			Return(fmt.Errorf("storage write failed"))
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.ErrorContains(t, err, "storage write failed")
+		assert.ErrorContains(t, err, "claim the cancellation")
+		// Nothing was aborted, so nothing may report as cancelled.
+		fakeScheduler.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+	})
+
 	t.Run("CancellingWritesCANCELLINGFirst", func(t *testing.T) {
 		// Verify that CancelRestore writes CANCELLING status before proceeding
 		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
@@ -1653,30 +1679,6 @@ func TestCancellingRestore(t *testing.T) {
 		assert.Len(t, putObjectCalls, 2)
 		assert.Equal(t, backup.Cancelling, putObjectCalls[0], "First write should be CANCELLING")
 		assert.Equal(t, backup.Cancelled, putObjectCalls[1], "Second write should be CANCELLED")
-	})
-
-	t.Run("CancellingPutMetaFailsExitsEarly", func(t *testing.T) {
-		// When PutMeta fails to write CANCELLING (e.g., storage contention),
-		// we should exit early without calling Abort - another coordinator may be handling it
-		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
-		ds := backup.DistributedBackupDescriptor{
-			Status: backup.Transferring,
-			ID:     backupID,
-			Nodes: map[string]*backup.NodeDescriptor{
-				"node1": {Classes: []string{"Class1"}},
-			},
-		}
-		b, _ := json.Marshal(ds)
-
-		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
-		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
-		// PutObject fails - simulating storage contention or another coordinator winning
-		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(fmt.Errorf("storage write failed")).Once()
-
-		err := fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
-		assert.Nil(t, err) // Should return nil - let another coordinator handle it
-		// Should NOT call Abort since we couldn't claim cancellation
-		fakeScheduler.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("PartialMetaRetriesAndScopesAuthz", func(t *testing.T) {

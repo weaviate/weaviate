@@ -49,8 +49,9 @@ type backupStat struct {
 	// is the generation and not the (reusable) backup id.
 	generation uint64
 
-	// log records the writes the slot refuses. Optional: a zero backupStat is
-	// usable, it just says nothing.
+	// log records the status writes the slot refuses, i.e. the ones made
+	// through [slotOwner.set] and [slotOwner.setFailed]. Optional: a zero
+	// backupStat is usable, it just says nothing.
 	log logrus.FieldLogger
 
 	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
@@ -213,7 +214,11 @@ func (o slotOwner) logDroppedWrite(st backup.Status) {
 		return
 	}
 	msg := "slot write dropped: this operation no longer holds the slot"
-	if o.owns() {
+	switch {
+	case !o.owns():
+	case o.stat.reqState.Status == backup.Finalizing:
+		msg = "slot write dropped: the restore is applying its schema and can no longer be cancelled"
+	default:
 		msg = "slot write dropped: the slot already reads a cancellation, which is its last word"
 	}
 	o.stat.log.WithFields(logrus.Fields{
@@ -257,8 +262,8 @@ func (o slotOwner) setFailed(reason string) bool {
 	return true
 }
 
-// holds reports whether this claim still owns the slot, i.e. whether the
-// operation's remaining work still belongs to anyone.
+// holds reports whether this claim still owns the slot, i.e. whether the slot
+// still belongs to this operation.
 func (o slotOwner) holds() bool {
 	if o.stat == nil {
 		return false

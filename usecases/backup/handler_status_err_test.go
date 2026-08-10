@@ -78,7 +78,7 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 	const reason = "object storage unreachable"
 
-	t.Run("reset drops it", func(t *testing.T) {
+	t.Run("release drops it", func(t *testing.T) {
 		var s backupStat
 		prevID, slot := s.renew("1", "bucket/backups/1", "", "")
 		require.Empty(t, prevID)

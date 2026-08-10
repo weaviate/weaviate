@@ -247,8 +247,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
-	if err := cstore.PutMeta(ctx, GlobalBackupFile, op.descriptor, overrideBucket, overridePath); err != nil {
-		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
+	if putErr := cstore.PutMeta(ctx, GlobalBackupFile, op.descriptor, overrideBucket, overridePath); putErr != nil {
+		return fmt.Errorf("coordinator: cannot init meta file: %w", putErr)
 	}
 
 	statusReq := StatusRequest{
@@ -394,7 +394,7 @@ func (c *coordinator) Restore(
 				"action":       OpRestore,
 				"backup_id":    desc.ID,
 				"final_status": op.descriptor.Status,
-			}).Info("restore was cancelled and the slot has since been claimed, stopping without publishing")
+			}).Info("restore no longer holds the slot, stopping without publishing")
 			return
 		}
 
