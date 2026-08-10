@@ -377,11 +377,9 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 	tests := []struct {
 		name string
 		// wire sets up the participant mocks and fires hook from the call the
-		// takeover is staged in. Every hook runs on the goroutine (or the
-		// Restore call) whose writes must stop at the claim boundary. polled
-		// fires from every participant poll, which is how the test knows the
-		// stale goroutine got far enough for its writes to be worth asserting
-		// absent.
+		// takeover is staged in. polled fires on every participant poll, so
+		// the test can wait for the stale goroutine to get far enough for its
+		// writes to be worth asserting absent.
 		wire func(fc *fakeCoordinator, hook, polled func())
 	}{
 		{
@@ -484,10 +482,8 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 	}
 }
 
-// Pins that a restore which loses its slot to the very read that hands it a
+// Pins that a restore losing its slot to the read that also hands it a
 // cancellation does not stamp that cancellation on the claim that replaced it.
-// It is the one path on which the stale goroutine gets past the slot check and
-// still has a status to write.
 func TestCoordinatorRestoreStaleGoroutineDoesNotStampACancellationItReadFromStorage(t *testing.T) {
 	t.Parallel()
 	const (

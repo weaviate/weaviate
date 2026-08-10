@@ -539,11 +539,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		return fmt.Errorf("init uploader: %w", err)
 	}
 
-	// The stored descriptor can still read TRANSFERRING during schema apply
-	// (the FINALIZING put is logged, not acted on), so the slot is checked
-	// here rather than trusting storage. The slot is node-local: this closes
-	// the window only for a cancel sent to the coordinating node, a cancel
-	// sent elsewhere still falls through to the storage switch below.
+	// The stored descriptor can still read TRANSFERRING during schema apply,
+	// so the node-local slot is checked here too. This only closes the window
+	// for a cancel sent to the coordinating node.
 	if held := s.restorer.lastOp.get(); held.ID == backupID && held.Status == backup.Finalizing {
 		return backup.NewErrUnprocessable(
 			fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
@@ -613,13 +611,10 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	return nil
 }
 
-// claimCancellation takes ownership of cancelling this restore by writing
-// CANCELLING to the descriptor, which is the lock the coordinators race for:
-// the first to write it is the one that carries the cancellation out. Reports
-// whether this call won; losing (false, nil) means another coordinator is
-// carrying the cancellation out and there is nothing left to do. A write that
-// fails outright is reported as an error instead: nothing was aborted and
-// nothing recorded, so answering the caller with "cancelled" would be a lie.
+// claimCancellation writes CANCELLING to the descriptor, the lock coordinators
+// race for. Returns (false, nil) if another coordinator won, and (false, err)
+// if the write itself failed, since a failed write must not be reported to
+// the caller as a completed cancellation.
 func (s *Scheduler) claimCancellation(ctx context.Context, store coordStore,
 	meta *backup.DistributedBackupDescriptor, backupID, overrideBucket, overridePath string,
 ) (bool, error) {
