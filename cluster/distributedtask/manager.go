@@ -427,21 +427,16 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	u.Progress = 1.0
 	u.FinishedAt = finishedAt
 
+	// Every unit here is COMPLETED: the failure path above is the only way a
+	// unit reaches FAILED, and it returns having already put the task in
+	// FAILED, which findStartedUnitWithLock then refuses further reports
+	// against. So this transition never has to consider a failed unit.
 	if task.AllUnitsTerminal() {
-		if task.AnyUnitFailed() {
-			// Failures are terminal immediately — there are no
-			// post-task callbacks to wait for on the failure path
-			// (the schema flip is intentionally skipped when any
-			// unit failed; see OnTaskCompleted's early-return for
-			// FAILED tasks).
-			task.Status = TaskStatusFailed
+		// Barrier tasks go through PREPARING; others jump to SWAPPING.
+		if task.NeedsPreparationBarrier {
+			task.Status = TaskStatusPreparing
 		} else {
-			// Barrier tasks go through PREPARING; others jump to SWAPPING.
-			if task.NeedsPreparationBarrier {
-				task.Status = TaskStatusPreparing
-			} else {
-				task.Status = TaskStatusSwapping
-			}
+			task.Status = TaskStatusSwapping
 		}
 		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
 		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
