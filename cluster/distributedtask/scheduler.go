@@ -336,9 +336,7 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 	for namespace, tasks := range tasksByNamespace {
 		provider := s.providers[namespace]
 		for desc, task := range tasks {
-			if task.Status != TaskStatusFinished &&
-				task.Status != TaskStatusFailed &&
-				task.Status != TaskStatusCancelled {
+			if !task.Status.IsTerminal() {
 				continue
 			}
 			// Recovery hook: if the provider implements

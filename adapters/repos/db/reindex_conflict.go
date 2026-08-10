@@ -44,15 +44,16 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	}
 
 	for _, task := range existingTasks {
-		// PREPARING and SWAPPING both count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]): every unit has reached
-		// terminal state, but the post-completion callbacks (per-node
-		// PREP, cluster-wide PrepCompleteAck barrier, per-node swap,
-		// cluster-wide schema flip) have not yet committed. Submitting
-		// a new migration on the same property during either window
-		// could land before MarkDistributedTaskFinalized commits the
-		// schema flip, leaving the new task and the unfinished swap of
-		// the prior one racing on the same bucket pointers.
+		// Every non-terminal status counts as in-flight (via
+		// [distributedtask.TaskStatus.IsActive]). PREPARING and SWAPPING
+		// are the subtle ones: every unit has reached terminal state, but
+		// the post-completion callbacks (per-node PREP, cluster-wide
+		// PrepCompleteAck barrier, per-node swap, cluster-wide schema
+		// flip) have not yet committed. Submitting a new migration on the
+		// same property during either window could land before
+		// MarkDistributedTaskFinalized commits the schema flip, leaving
+		// the new task and the unfinished swap of the prior one racing on
+		// the same bucket pointers.
 		if !task.Status.IsActive() {
 			continue
 		}
@@ -207,20 +208,84 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	}
 }
 
-// ReindexGateRemedy is the shared closing sentence for every reindex schema
-// gate, exported so the REST pre-check and the RAFT apply-path gates agree.
-//
-// Status-aware: DTM only cancels a STARTED task (409 past that point), and
-// past STARTED nothing is promised beyond waiting — a node that owned part
-// of the task leaving the cluster can wedge it there for good.
-func ReindexGateRemedy(status distributedtask.TaskStatus) string {
-	if status == distributedtask.TaskStatusStarted {
-		return `cancel it via PUT /v1/schema/<class>/indexes/<prop> ` +
-			`{"<indexType>":{"cancel":true}}, or wait for it to finish`
+// ReindexTargetIndexes lists the index keys the cancel endpoint accepts for
+// a migration type, or nil for a type this build does not know. Same mapping
+// as migrationTypeTargetsIndex in the REST handlers, which decides whether a
+// cancel request matches a task; a test in that package pins the two together.
+func ReindexTargetIndexes(t ReindexMigrationType) []string {
+	switch t {
+	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
+		ReindexTypeRebuildSearchable:
+		return []string{"searchable"}
+	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable,
+		ReindexTypeChangeTokenizationFilterable:
+		return []string{"filterable"}
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		return []string{"rangeable"}
+	case ReindexTypeChangeTokenization:
+		return []string{"searchable", "filterable"}
 	}
-	return "it is past the point where cancel works, so it can only be " +
-		"waited out; it normally finishes on its own, but a node that " +
-		"owned part of it leaving the cluster wedges it here for good"
+	return nil
+}
+
+// ReindexCancelCall renders the request that cancels the task described by
+// p, or "" when this build cannot name one: the index key comes from the
+// migration type, and the URL needs exactly one target property.
+//
+// A caller that gets "" must print no URL at all. The cancel endpoint only
+// matches a task when collection, property and index key all line up, and
+// answers 202 with Status NO_OP otherwise — so a placeholder an operator has
+// to guess buys them a success-shaped response for a task that is still
+// running.
+func ReindexCancelCall(p ReindexTaskPayload) string {
+	indexes := ReindexTargetIndexes(p.MigrationType)
+	if p.Collection == "" || len(p.Properties) != 1 || len(indexes) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(`PUT /v1/schema/%s/indexes/%s {"%s":{"cancel":true}}`,
+		p.Collection, p.Properties[0], indexes[0])
+}
+
+// ReindexGateRemedy is the closing sentence every reindex schema gate ends
+// with, in one place so the refusals cannot drift apart. Exported because the
+// REST property-mutation pre-check answers the same question one hop before
+// the RAFT apply path reaches the gates below, and the two must agree.
+//
+// Status-aware because cancel is not always on offer: DTM only cancels a task
+// while it is STARTED. Past that point the cancel endpoint does not say so —
+// it finds no STARTED task to match and answers 202 with Status NO_OP, which
+// reads like the cancellation went through. Naming cancel for a PREPARING or
+// SWAPPING task therefore hands the operator a way to believe they stopped a
+// migration that is still running.
+//
+// Past STARTED there is nothing better to offer than waiting, and even that
+// is not promised: a node that owned part of the task leaving the cluster
+// wedges it there for good.
+//
+// A status this build does not know reaches here too: the gates admit
+// anything [distributedtask.TaskStatus.IsActive] accepts, which is every
+// status that is not terminal, so a newer node's status during a rolling
+// upgrade lands in the default arm. It gets a sentence that claims nothing
+// about cancel either way.
+//
+// cancelCall is [ReindexCancelCall] for the offending task, or "" when the
+// caller cannot name one.
+func ReindexGateRemedy(status distributedtask.TaskStatus, cancelCall string) string {
+	switch status {
+	case distributedtask.TaskStatusStarted:
+		if cancelCall == "" {
+			return "cancel it while it is still STARTED, or wait for it to finish"
+		}
+		return "cancel it via " + cancelCall + ", or wait for it to finish"
+	case distributedtask.TaskStatusPreparing, distributedtask.TaskStatusSwapping:
+		return "it is past the point where cancel works, so it can only be " +
+			"waited out; it normally finishes on its own, but a node that " +
+			"owned part of it leaving the cluster wedges it here for good"
+	default:
+		return "this build does not know that status, most likely because a " +
+			"newer node reported it, so it cannot tell you whether cancel " +
+			"still applies; read the task on a node that knows the status"
+	}
 }
 
 // CheckPropertyUpdate implements
@@ -291,7 +356,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"reindex reaches a terminal state — %s",
 			task.ID, existP.MigrationType,
 			existP.Collection, propertyName, task.Status,
-			ReindexGateRemedy(task.Status))
+			ReindexGateRemedy(task.Status, ReindexCancelCall(existP)))
 	}
 	return nil
 }
@@ -343,7 +408,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 				"working state and produce a bucket↔schema inversion "+
 				"on every replica — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
-			ReindexGateRemedy(task.Status))
+			ReindexGateRemedy(task.Status, ReindexCancelCall(existP)))
 	}
 	return nil
 }
@@ -396,7 +461,8 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 				"mutating tenants %v would make their shards locally "+
 				"unavailable and produce a bucket↔schema inversion — %s",
 			task.ID, existP.MigrationType, existP.Collection,
-			task.Status, tenants, ReindexGateRemedy(task.Status))
+			task.Status, tenants,
+			ReindexGateRemedy(task.Status, ReindexCancelCall(existP)))
 	}
 	return nil
 }

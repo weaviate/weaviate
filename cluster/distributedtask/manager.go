@@ -1104,7 +1104,7 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 // SliceStable documents the intent.
 func sortTasksForDisplay(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		// "In flight" = STARTED, PREPARING, or SWAPPING (via
+		// "In flight" = every non-terminal status (via
 		// [TaskStatus.IsActive]): units still running, OR units done
 		// but per-node PREP / cluster-wide barrier / per-node SWAP /
 		// schema flip not yet committed. All display ahead of terminal

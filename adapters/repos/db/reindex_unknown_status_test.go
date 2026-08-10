@@ -22,8 +22,9 @@ import (
 
 // unknownFutureStatus stands in for a status a newer release introduced
 // and this build has never heard of — what a mixed-version cluster sees
-// during a rolling upgrade.
-const unknownFutureStatus distributedtask.TaskStatus = "VALIDATING"
+// during a rolling upgrade. Keep it a string no release will ever declare,
+// or these tests silently start asserting facts about a real status.
+const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // TestIsLiveReindexTaskStatus_AgreesWithIsActive pins the two liveness
 // predicates to a single answer. When they disagreed, an unrecognized
