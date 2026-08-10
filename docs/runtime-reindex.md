@@ -825,10 +825,11 @@ This window does not exist for `enable-filterable` / `enable-searchable`
 in practice only because their acceptance coverage does not probe it; it
 is a property of the whole `enable-*` family under the barrier.
 `test/acceptance/reindex_rangeable/concurrent_writes_test.go` measures
-it directly (494 of 500 concurrent updates indexed).
-[weaviate/weaviate#12211](https://github.com/weaviate/weaviate/pull/12211)'s
-durable pending-flip marker plus force-index overlay closes it
-generically; until it is in the base, that test is red.
+it directly (494 of 500 concurrent updates indexed). That test and its
+multi-node counterpart live on
+[weaviate/weaviate#12211](https://github.com/weaviate/weaviate/pull/12211),
+whose durable pending-flip marker plus force-index overlay closes the
+window generically. They are red until that PR's fix lands.
 
 ### 4.6 LSM primitives — `adapters/repos/db/lsmkv/store.go`
 
