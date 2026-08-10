@@ -47,6 +47,11 @@ import (
 // cleanup races against the in-flight worker which is still writing to the
 // __reindex / __ingest buckets — the shutdown would tear those buckets out
 // from under the writer.
+//
+// A collection this node does not have is reported with
+// [ErrCleanupCollectionDropped], which callers skip via
+// [IsCleanupCollectionDropped]. There is nothing to sweep and nothing that
+// needs it, but reporting a clean sweep would claim state was cleared.
 func (db *DB) CleanStalePartialReindexState(
 	ctx context.Context,
 	collection, propName, indexType string,
@@ -54,6 +59,9 @@ func (db *DB) CleanStalePartialReindexState(
 	return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, nil)
 }
 
+// cleanStalePartialReindexState is [DB.CleanStalePartialReindexState] with the
+// directory listings the cold-shard gate reads shareable across a run of
+// sweeps. A nil cache reads the filesystem every time.
 func (db *DB) cleanStalePartialReindexState(
 	ctx context.Context,
 	collection, propName, indexType string,
