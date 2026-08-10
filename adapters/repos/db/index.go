@@ -3752,7 +3752,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 // of its replicas report READY. Otherwise, the status is either any other status
 // that all replicas can agree on or [storagestate.StatusIndexing] if their statuses
 // diverge or a replica is not reachable.
-func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
+func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]map[string]string, error) {
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
@@ -3761,7 +3761,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 	}
 
 	var mu sync.Mutex // guards shardsStatus
-	shardsStatus := make(map[string]string, len(shardNames))
+	shardsStatus := make(map[string]map[string]string, len(shardNames))
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
@@ -3777,9 +3777,8 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				return err
 			}
 
-			var shardStatus atomic.Value
+			perNodeStatus := make(map[string]string, len(replicas))
 			for _, nodeName := range replicas {
-				var nodeStatus storagestate.Status
 				if nodeName == thisNode {
 					shard, release, err := i.getShardForDirectLocalOperation(
 						ctx,
@@ -3789,33 +3788,18 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						0,
 					)
 					if err == nil && shard != nil {
-						nodeStatus = shard.GetStatus()
+						perNodeStatus[nodeName] = shard.GetStatus().String()
 					}
 					release()
 				} else {
-					nodeStatus = storagestate.StatusIndexing
-					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil && ss != "" {
-						nodeStatus = storagestate.Status(ss)
+					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
+						perNodeStatus[nodeName] = ss
 					}
 				}
-
-				// Assume all replicas are READY and search for any which are not.
-				// Fall back to StatusIndexing if we find two different non-ready statuses.
-				if nodeStatus != "" && nodeStatus != storagestate.StatusReady {
-					if old := shardStatus.Swap(nodeStatus); old != nil && old.(storagestate.Status) != nodeStatus {
-						shardStatus.Store(storagestate.StatusIndexing)
-						break
-					}
-				}
-			}
-
-			reconciled := storagestate.StatusReady
-			if ss := shardStatus.Load(); ss != nil {
-				reconciled = ss.(storagestate.Status)
 			}
 
 			mu.Lock()
-			shardsStatus[shardName] = reconciled.String()
+			shardsStatus[shardName] = perNodeStatus
 			mu.Unlock()
 			return nil
 		}, shardName)

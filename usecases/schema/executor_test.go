@@ -223,7 +223,7 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("GetShardsStatus", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]string{"A": "B"}
+		status := map[string]map[string]string{"A": {"B": "C"}}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, nil)
 		x := newMockExecutor(migrator, store)
 		_, err := x.GetShardsStatus("A", "")
@@ -231,7 +231,7 @@ func TestExecutor(t *testing.T) {
 	})
 	t.Run("GetShardsStatusError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]string{"A": "B"}
+		status := map[string]map[string]string{"A": {"B": "C"}}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, ErrAny)
 		x := newMockExecutor(migrator, store)
 		_, err := x.GetShardsStatus("A", "")

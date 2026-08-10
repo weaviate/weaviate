@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -393,13 +394,21 @@ func (f *FakeRemoteClient) GetShardQueueSize(ctx context.Context,
 	return 0, nil
 }
 
+// NodeUnresponsive is a sentinel status that causes
+// [FakeRemoteClient.GetShardStatus] to return an error.
+const NodeUnresponsive = "[node unresponsive]"
+
 func (f *FakeRemoteClient) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
 	if f.shardStatus == nil || f.shardStatus[shardName] == nil {
 		return "", nil
 	}
-	return f.shardStatus[shardName][hostName], nil
+	status := f.shardStatus[shardName][hostName]
+	if status == NodeUnresponsive {
+		return "", errors.New(NodeUnresponsive)
+	}
+	return status, nil
 }
 
 func (f *FakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,

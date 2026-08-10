@@ -370,12 +370,11 @@ func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList
 		return nil, err
 	}
 
-	resp := models.ShardStatusList{}
-
+	resp := make(models.ShardStatusList, len(shardsStatus))
 	for name, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
+			Name:          name,
+			PerNodeStatus: status,
 		})
 	}
 

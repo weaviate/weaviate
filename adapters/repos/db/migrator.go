@@ -570,7 +570,7 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 	return idx.getShardsQueueSize(ctx, tenant)
 }
 
-func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, error) {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
