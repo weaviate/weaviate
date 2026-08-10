@@ -40,6 +40,9 @@ import (
 //     CancelDistributedTask and the cleanup, leaving stale state on disk.
 //     Submit-time cleanup catches that case.
 //
+//  3. Background cleanup on every node once a task reaches FAILED or
+//     CANCELLED ([autoCleanupAfterTerminal]).
+//
 // Safe to call when no stale state exists — the per-shard helper is
 // idempotent: missing directories and unloaded buckets are silently skipped.
 //
@@ -265,8 +268,9 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 
 // maxCachedDirNames bounds what one [dirNamesCache] holds, so a node with tens
 // of thousands of tenants doesn't keep every listing alive for a whole
-// cleanup. Each listing costs 1 plus 1 per name kept; past the bound the
-// cache stops admitting entries and later sweeps just read the filesystem.
+// cleanup. Each listing costs 1 plus 1 per name kept; a listing that would
+// overflow the bound is not admitted, and the sweeps that ask for it read the
+// filesystem instead.
 const maxCachedDirNames = 100_000
 
 // dirNamesCache remembers directory listings across a run of sweeps over the
