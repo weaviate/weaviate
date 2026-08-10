@@ -1724,11 +1724,9 @@ func sweepTerminalTuples(
 // how much of the collection is unaccounted for; the max across a run's
 // sweeps is what's reported.
 //
-// "Every shard" throughout means every shard in the index's shard map. A
-// deactivated (COLD) tenant is not in that map at all — HOT→COLD removes the
-// entry before this walk ever sees it — so its on-disk partial state is
-// neither swept nor reported. It is swept when the tenant is activated again
-// (the OnAfterLsmInitAsync stale-sentinel check).
+// "Every shard" means every shard in the index's shard map — a deactivated
+// (COLD) tenant isn't in it, so its on-disk state is neither swept nor
+// reported until reactivation (the OnAfterLsmInitAsync stale-sentinel check).
 type terminalSweepOutcome int
 
 const (

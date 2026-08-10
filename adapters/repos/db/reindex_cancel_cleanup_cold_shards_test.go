@@ -676,9 +676,8 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		{name: "a blockmax backup sidecar", dir: main + "__blockmax_map_3", want: true},
 		{name: "a property whose name extends a role word", dir: main + "__ingest_x", want: false},
 		{name: "a sidecar whose suffix carries a strategy word", dir: main + "__blockmax_ingest", want: true},
-		// Known collision (weaviate/weaviate#12574): a property named
-		// "category__ingest" is indistinguishable from a sidecar of
-		// "category", so the sweep would remove its live bucket.
+		// Known collision (weaviate/weaviate#12574): sweeping "category"
+		// also removes "category__ingest"'s own bucket.
 		{name: "a property whose name ends in a role word", dir: main + "__ingest", want: true},
 	}
 

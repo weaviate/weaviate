@@ -434,14 +434,11 @@ var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 // sidecar of "a" — the trailing role word decides instead. Shared with
 // [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 //
-// The role word narrows the collision family described at
-// [mainBucketForPropertyIndex] (weaviate/weaviate#12574) but does not close
-// it: property names may themselves end in a role word, so a property "a"
-// and a property "a__ingest" still share the sidecar rule — a sweep of "a"
-// reads "property_a__ingest" as its own sidecar and removes another
-// property's live bucket. Closing that needs the on-disk rename #12574 asks
-// for; [TestIsSidecarDirOfRejectsOtherPropertiesBuckets] pins the current
-// answer.
+// The role word narrows the collision family in [mainBucketForPropertyIndex]
+// (weaviate/weaviate#12574) but does not close it: a property named
+// "a__ingest" still reads as a sidecar of "a", so sweeping "a" removes its
+// live bucket. Needs the on-disk rename #12574 asks for;
+// [TestIsSidecarDirOfRejectsOtherPropertiesBuckets] pins the current answer.
 func isSidecarDirOf(name, mainBucketName string) bool {
 	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
 	if !ok {
@@ -453,13 +450,11 @@ func isSidecarDirOf(name, mainBucketName string) bool {
 // sidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
 // "_<gen>" tail [genSuffix] appends.
 //
-// Only an all-digit tail is dropped, and that restriction is what keeps the
-// sweep off other properties' data: a non-numeric tail means the whole thing
-// is somebody's property name, so "property_a__ingest_x" is property
-// "a__ingest_x"'s main bucket and must not read as a sidecar of "a".
-// Secondary: dropping any all-digit tail, not just the generations >= 1
-// [parseMigrationDirName] accepts, means a dir left by a bug that wrote
-// generation 0 still gets swept.
+// Only an all-digit tail is dropped — a non-numeric tail is part of the
+// property's own name, not a generation, so "property_a__ingest_x" stays
+// "a__ingest_x"'s main bucket. That also covers generation 0, which a buggy
+// writer could have left even though [parseMigrationDirName] only accepts
+// generations >= 1.
 func sidecarRoleWord(suffix string) string {
 	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
 		suffix = suffix[:i]
