@@ -366,3 +366,18 @@ func TestLayersDeleteOnlyFlush(t *testing.T) {
 	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("k"), nil, []uint64{7})))
 	require.Equal(t, []uint64{}, resolveSorted(idx, "k"), "delete-only flush removes the doc")
 }
+
+// TestReAddedDocumentIsRetiredOnce pins the same through the layers: a flush
+// that re-adds a document its key already holds must not make that document
+// survive the flush that later retires it. Re-adding happens whenever a write
+// repeats a value the index already records for that document.
+func TestReAddedDocumentIsRetiredOnce(t *testing.T) {
+	base := segFromPairs([][]byte{[]byte("a"), []byte("b")}, []uint64{1, 2})
+	idx := newTestIndex(base)
+
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), []uint64{7, 9}, nil)))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), []uint64{9}, nil)))
+	require.NoError(t, idx.MergeMemtableByCursor(newMockCursor().add([]byte("b"), nil, []uint64{9})))
+
+	require.Equal(t, []uint64{2, 7}, resolveSorted(idx, "b"))
+}

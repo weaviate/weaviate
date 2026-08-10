@@ -148,3 +148,19 @@ func slicesSortUint64(s []uint64) {
 		}
 	}
 }
+
+// TestResolutionRepeatedExtraIsRetiredOnce pins that a document is held once
+// however many times it is added, and that retiring it retires it — the extras
+// have to express holding as the slots do, since which of the two a document
+// lands in depends only on how many others share its key.
+func TestResolutionRepeatedExtraIsRetiredOnce(t *testing.T) {
+	res := newResolution(1, 1_000)
+	res.insert(0, 5) // takes the slot
+	res.insert(0, 9) // goes to the extras
+	res.insert(0, 9) // same document again
+
+	res.delete(0, 9)
+
+	assert.Equal(t, []uint64{5}, res.SortedDocs(),
+		"a document added twice and retired once must be gone")
+}

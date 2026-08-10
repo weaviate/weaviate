@@ -155,6 +155,14 @@ func (r *Resolution) normalize() {
 // delete retires doc from the key at qi, wherever that key holds it. Naming a
 // document the key does not hold is a no-op, which is what makes a deletion
 // left behind by an already-superseded document harmless.
+//
+// Every copy goes, not the first one found. A key holds a document once however
+// many times it was added, and a slot enforces that by construction — it holds
+// one document, so adding the same one twice changes nothing. The extras are a
+// list and cannot, so a document added twice is listed twice, and retiring one
+// entry would leave the other behind: a document the caller retired, still
+// answered. Which of the two a document lands in depends only on how many others
+// share its key, so they have to agree.
 func (r *Resolution) delete(qi int, doc uint64) {
 	if r.docs32 != nil {
 		if doc < noDoc32 && r.docs32[qi] == uint32(doc) {
@@ -165,12 +173,13 @@ func (r *Resolution) delete(qi int, doc uint64) {
 		r.docs[qi] = noDoc
 		return
 	}
-	for i := range r.extras {
+	for i := 0; i < len(r.extras); {
 		if int(r.extras[i].qi) == qi && r.extras[i].doc == doc {
 			r.extras[i] = r.extras[len(r.extras)-1]
 			r.extras = r.extras[:len(r.extras)-1]
-			return
+			continue // the entry swapped in has not been looked at yet
 		}
+		i++
 	}
 }
 
