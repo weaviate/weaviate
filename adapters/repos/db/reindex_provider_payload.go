@@ -139,6 +139,35 @@ const (
 	ReindexTypeChangeTokenizationFilterable ReindexMigrationType = "change-tokenization-filterable"
 )
 
+// AllReindexMigrationTypes is the registry of every declared
+// [ReindexMigrationType], in declaration order. Tests walk it against
+// [TouchesSearchable], [TouchesFilterable], and createReindexTasks, so a
+// constant added here without an arm in those three fails the tests instead of
+// hitting a switch default at runtime.
+//
+// Other functions branch on the type without such a test: most degrade quietly
+// on a missed arm (zero value instead of panic), but buildRecoveryTasks
+// (reindex_recovery.go) has no arm for [ReindexTypeRebuildSearchable], so a
+// crash mid-swap on that migration is logged and skipped rather than
+// recovered — a pre-existing gap.
+//
+// TestReindexMigrationTypeRegistryMatchesTheConstants scans non-test files for
+// `ReindexType<Name> ReindexMigrationType = "value"` and checks this list
+// against them; it's a tripwire, not a proof — declarations via conversion
+// syntax, `var`, or an off-pattern name aren't caught. Declare new types in
+// that shape.
+var AllReindexMigrationTypes = []ReindexMigrationType{
+	ReindexTypeChangeAlgorithm,
+	ReindexTypeRebuildSearchable,
+	ReindexTypeRepairFilterable,
+	ReindexTypeEnableRangeable,
+	ReindexTypeRepairRangeable,
+	ReindexTypeEnableFilterable,
+	ReindexTypeEnableSearchable,
+	ReindexTypeChangeTokenization,
+	ReindexTypeChangeTokenizationFilterable,
+}
+
 // ReindexTaskPayload is the JSON-serialized payload stored in the DTM task.
 type ReindexTaskPayload struct {
 	MigrationType      ReindexMigrationType `json:"migrationType"`

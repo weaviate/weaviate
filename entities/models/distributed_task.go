@@ -34,9 +34,9 @@ type DistributedTask struct {
 	// The high level reason why the task failed.
 	Error string `json:"error,omitempty"`
 
-	// The time when the task was finished.
+	// The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Absent until the task is terminal, including while it is finalizing.
 	// Format: date-time
-	FinishedAt strfmt.DateTime `json:"finishedAt,omitempty"`
+	FinishedAt *strfmt.DateTime `json:"finishedAt,omitempty"`
 
 	// The nodes that finished the task.
 	FinishedNodes []string `json:"finishedNodes"`

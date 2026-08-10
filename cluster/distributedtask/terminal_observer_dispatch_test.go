@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -161,7 +160,6 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 func newTerminalDispatchManager() *Manager {
 	logger, _ := logrustest.NewNullLogger()
 	return NewManager(ManagerParameters{
-		Clock:  clockwork.NewFakeClock(),
 		Logger: logger,
 	})
 }
@@ -171,7 +169,7 @@ func terminalDispatchTask(m *Manager) *Task {
 		TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
 		Namespace:      observerNamespace,
 		Status:         TaskStatusCancelled,
-		FinishedAt:     m.clock.Now(),
+		FinishedAt:     time.Now(),
 	}
 }
 

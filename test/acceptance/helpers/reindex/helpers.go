@@ -337,9 +337,17 @@ func AwaitTokenizationVisible(t *testing.T, restURI, className, propName, wantTo
 }
 
 // AwaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
-// the named (property, indexType) reports `ready`. Unlike
-// AwaitReindexFinished, this polls the index-status surface — useful for
-// verifying the index is queryable end-to-end. Default timeout 120s.
+// the named (property, indexType) reports `ready` — the surface an operator
+// polls, rather than the task status AwaitReindexFinished reads. Default
+// timeout 120s.
+//
+// `ready` is necessary but not sufficient for the migration having landed:
+// it can be satisfied immediately if the flag was already on pre-migration,
+// the handler answers from whichever node it's asked and that node's apply
+// can lag, and for change-algorithm the class-level flip defers until every
+// searchable bucket is blockmax, so `ready` can still mean `wand`. Pair with
+// AwaitReindexFinished, or assert the migrated data, when the test needs to
+// know the migration actually ran.
 func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)

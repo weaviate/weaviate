@@ -176,6 +176,7 @@ func (f *fanoutNotifier) add(s *Scheduler) {
 type fanoutRecorder struct {
 	t       *testing.T
 	manager *Manager
+	clock   clockwork.Clock
 }
 
 func (r *fanoutRecorder) RecordDistributedTaskUnitCompletion(_ context.Context, ns, id string, version uint64, node, unit string) error {
@@ -185,7 +186,7 @@ func (r *fanoutRecorder) RecordDistributedTaskUnitCompletion(_ context.Context, 
 		Version:              version,
 		NodeId:               node,
 		UnitId:               unit,
-		FinishedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+		FinishedAtUnixMillis: r.clock.Now().UnixMilli(),
 	}), false)
 }
 
@@ -197,7 +198,7 @@ func (r *fanoutRecorder) RecordDistributedTaskUnitFailure(_ context.Context, ns,
 		NodeId:               node,
 		UnitId:               unit,
 		Error:                errMsg,
-		FinishedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+		FinishedAtUnixMillis: r.clock.Now().UnixMilli(),
 	}), false)
 }
 
@@ -209,7 +210,7 @@ func (r *fanoutRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, ns
 		NodeId:              node,
 		UnitId:              unit,
 		Progress:            progress,
-		UpdatedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+		UpdatedAtUnixMillis: r.clock.Now().UnixMilli(),
 	}))
 }
 
@@ -223,6 +224,7 @@ func (r *fanoutRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, ns
 type fanoutAckRecorder struct {
 	t       *testing.T
 	manager *Manager
+	clock   clockwork.Clock
 }
 
 func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
@@ -240,7 +242,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
 		NodeId:            nodeID,
 		Success:           success,
 		Error:             errMsg,
-		AckedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+		AckedAtUnixMillis: r.clock.Now().UnixMilli(),
 	}), false)
 }
 
@@ -259,7 +261,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPreparationCompleteAck(
 		NodeId:            nodeID,
 		Success:           success,
 		Error:             errMsg,
-		AckedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+		AckedAtUnixMillis: r.clock.Now().UnixMilli(),
 	}), false)
 }
 
@@ -270,9 +272,14 @@ type directCleaner struct {
 	manager *Manager
 }
 
-func (c *directCleaner) CleanUpDistributedTask(_ context.Context, ns, id string, version uint64) error {
+func (c *directCleaner) CleanUpDistributedTask(_ context.Context, ns, id string, version uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error {
 	return c.manager.CleanUpTask(toCmd(c.t, &cmd.CleanUpDistributedTaskRequest{
-		Namespace: ns, Id: id, Version: version,
+		Namespace:            ns,
+		Id:                   id,
+		Version:              version,
+		FinishedAtUnixMillis: finishedAt.UnixMilli(),
+		ProposedAtUnixMillis: proposedAt.UnixMilli(),
+		TtlMillis:            ttl.Milliseconds(),
 	}))
 }
 
@@ -293,7 +300,7 @@ func newMultiSchedulerHarnessWithAckBarrier(t *testing.T, nodeIDs []string) *mul
 func newMultiSchedulerHarnessWithOptions(t *testing.T, nodeIDs []string, withAckBarrier bool) *multiSchedulerHarness {
 	logger, _ := logrustest.NewNullLogger()
 	clock := clockwork.NewFakeClock()
-	mgr := NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: 24 * time.Hour, Logger: logger})
+	mgr := NewManager(ManagerParameters{Logger: logger})
 
 	h := &multiSchedulerHarness{
 		t:             t,
@@ -303,13 +310,13 @@ func newMultiSchedulerHarnessWithOptions(t *testing.T, nodeIDs []string, withAck
 		manager:       mgr,
 		taskTTL:       24 * time.Hour,
 		tickInterval:  30 * time.Second,
-		completionRec: &fanoutRecorder{t: t, manager: mgr},
+		completionRec: &fanoutRecorder{t: t, manager: mgr, clock: clock},
 		cleaner:       &directCleaner{t: t, manager: mgr},
-		finalizer:     newDirectFinalizer(t, mgr),
+		finalizer:     newDirectFinalizer(t, mgr, clock),
 		notifier:      &fanoutNotifier{},
 	}
 	if withAckBarrier {
-		h.ackRecorder = &fanoutAckRecorder{t: t, manager: mgr}
+		h.ackRecorder = &fanoutAckRecorder{t: t, manager: mgr, clock: clock}
 	}
 
 	for _, id := range nodeIDs {

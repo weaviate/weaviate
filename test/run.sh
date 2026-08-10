@@ -987,7 +987,7 @@ function run_acceptance_reindex_singlenode_a() {
   # totals 265s, dominated by /PropertyStateMigrationMatrix at 128s
   # (~half the suite). Isolating PSMM to -singlenode-b gives this
   # sub-shard ~137s of suite work + the 4 standalone Test* funcs
-  # (TestCancelThenRetry, TestRestartDuringSwap,
+  # (TestCancelThenRetry, TestRestartAfterSwapCompletes,
   # TestSingleNode_FinishedStatusRaceWithSchemaFlag,
   # TestTornResume_StandaloneSmoke), totalling ~3 min local → ~7-8 min CI.
   #

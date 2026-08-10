@@ -1598,12 +1598,27 @@ func (x *CancelDistributedTaskRequest) GetCancelledAtUnixMillis() int64 {
 }
 
 type CleanUpDistributedTaskRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Version       uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id        string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version   uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	// The three operands of the TTL comparison, all measured by the proposing
+	// sweep: the moment it looked, the TTL it looked against, and the finish
+	// time it read off the task. The apply compares these alone, reading no
+	// local state, so one log entry deletes the task on every node or none.
+	//
+	// finished_at_unix_millis travels on the wire because the applying node's
+	// own copy isn't guaranteed to match (e.g. a restored snapshot predating
+	// finalize-time stamping). The TTL that governs is the proposer's, since
+	// DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is per-node. A zero
+	// finished_at_unix_millis means the request predates these fields; the
+	// apply defers rather than substitute its own operand, and the task is
+	// removed once an upgraded proposer re-sweeps it.
+	ProposedAtUnixMillis int64 `protobuf:"varint,4,opt,name=proposed_at_unix_millis,json=proposedAtUnixMillis,proto3" json:"proposed_at_unix_millis,omitempty"`
+	TtlMillis            int64 `protobuf:"varint,5,opt,name=ttl_millis,json=ttlMillis,proto3" json:"ttl_millis,omitempty"`
+	FinishedAtUnixMillis int64 `protobuf:"varint,6,opt,name=finished_at_unix_millis,json=finishedAtUnixMillis,proto3" json:"finished_at_unix_millis,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *CleanUpDistributedTaskRequest) Reset() {
@@ -1653,6 +1668,27 @@ func (x *CleanUpDistributedTaskRequest) GetId() string {
 func (x *CleanUpDistributedTaskRequest) GetVersion() uint64 {
 	if x != nil {
 		return x.Version
+	}
+	return 0
+}
+
+func (x *CleanUpDistributedTaskRequest) GetProposedAtUnixMillis() int64 {
+	if x != nil {
+		return x.ProposedAtUnixMillis
+	}
+	return 0
+}
+
+func (x *CleanUpDistributedTaskRequest) GetTtlMillis() int64 {
+	if x != nil {
+		return x.TtlMillis
+	}
+	return 0
+}
+
+func (x *CleanUpDistributedTaskRequest) GetFinishedAtUnixMillis() int64 {
+	if x != nil {
+		return x.FinishedAtUnixMillis
 	}
 	return 0
 }
@@ -2637,11 +2673,15 @@ const file_api_message_proto_rawDesc = "" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x127\n" +
-	"\x18cancelled_at_unix_millis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"g\n" +
+	"\x18cancelled_at_unix_millis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"\xf4\x01\n" +
 	"\x1dCleanUpDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\x04R\aversion\"a\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x125\n" +
+	"\x17proposed_at_unix_millis\x18\x04 \x01(\x03R\x14proposedAtUnixMillis\x12\x1d\n" +
+	"\n" +
+	"ttl_millis\x18\x05 \x01(\x03R\tttlMillis\x125\n" +
+	"\x17finished_at_unix_millis\x18\x06 \x01(\x03R\x14finishedAtUnixMillis\"a\n" +
 	"\x10SyncShardRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +

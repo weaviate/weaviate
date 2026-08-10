@@ -89,7 +89,9 @@ type indexesHandlers struct {
 	// nil in fixtures without a cluster; treated the same as an unwired probe.
 	cluster clusterMembership
 
-	// nil until wired; both reindex routes answer 503 then.
+	// nil until wired. The two reindex routes answer 503 then; getIndexes
+	// renders every index ready and warns, since a status read is better
+	// answered than refused.
 	tasks reindexTaskService
 
 	// nil in fixtures without a cluster HTTP client; the cancel handler then
@@ -97,23 +99,32 @@ type indexesHandlers struct {
 	reindexCleanup reindexCleanupProber
 
 	// Per-handler, not per-process: a package-level budget would leave every
-	// test after the first exhausted.
-	gateWarnOnce    sync.Once
-	gateWarnSampler *logrusext.Sampler
+	// test after the first exhausted. Keyed per site so one gate cannot spend
+	// another's hourly slot.
+	gateWarnMu       sync.Mutex
+	gateWarnSamplers map[string]*logrusext.Sampler
 }
 
-// backupActivityGateWarn rate-limits the fail-open WARN to one line per hour,
-// since the condition it reports is a persistent misconfiguration, not a
-// one-off. Built lazily since fixtures construct the handler directly.
-func (h *indexesHandlers) backupActivityGateWarn() *logrusext.Sampler {
-	h.gateWarnOnce.Do(func() {
-		logger := logrus.FieldLogger(logrus.StandardLogger())
-		if h.appState != nil && h.appState.Logger != nil {
-			logger = h.appState.Logger
-		}
-		h.gateWarnSampler = logrusext.NewSampler(logger, 1, time.Hour)
-	})
-	return h.gateWarnSampler
+// gateWarn rate-limits one fail-open site's WARN to a line per hour, since what
+// each reports is a persistent misconfiguration, not a one-off. Built lazily
+// since fixtures construct the handler directly and set the logger after.
+func (h *indexesHandlers) gateWarn(site string) *logrusext.Sampler {
+	h.gateWarnMu.Lock()
+	defer h.gateWarnMu.Unlock()
+
+	if sampler, ok := h.gateWarnSamplers[site]; ok {
+		return sampler
+	}
+	logger := logrus.FieldLogger(logrus.StandardLogger())
+	if h.appState != nil && h.appState.Logger != nil {
+		logger = h.appState.Logger
+	}
+	if h.gateWarnSamplers == nil {
+		h.gateWarnSamplers = map[string]*logrusext.Sampler{}
+	}
+	sampler := logrusext.NewSampler(logger, 1, time.Hour)
+	h.gateWarnSamplers[site] = sampler
+	return sampler
 }
 
 // clusterMembership is the slice of the cluster state the backup gate needs.
@@ -139,6 +150,9 @@ type reindexCleanupProber interface {
 // without a live RAFT node.
 type reindexTaskService interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	// Reads this node's own FSM; only the status endpoint wants it. See
+	// [cluster.Raft.ListDistributedTasksAtLocalConsistency].
+	ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error)
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 	AddDistributedTaskWithBarrier(ctx context.Context, namespace, taskID string,
 		taskPayload any, unitIDs []string, needsPreparationBarrier bool) error
@@ -165,6 +179,19 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
+//
+// Answers at LOCAL consistency: schema flags and task list both come from this
+// node's own FSM, so the skew between them is the gap between two adjacent
+// in-process reads, not the leader's apply lag — not one snapshot, since the
+// schema is read first. See [cluster.Raft.ListDistributedTasksAtLocalConsistency].
+// The submit path and the backup gate answer at the leader instead, so a
+// lagging node can report an index `ready` here and then refuse the follow-up
+// write.
+//
+// A node still replaying the log renders every index `ready` with no error —
+// there's no readiness precondition to check the partial task list against.
+// The same happens if the task service is unwired, since a status read is
+// better answered than refused; a warn tells the two apart.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
@@ -188,38 +215,31 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
 
-	// Fetch active reindex tasks.
+	// The LOCAL FSM, not the leader: a leader read can report a task FINISHED
+	// before this node has applied the schema flip that task committed first,
+	// and the flags below are read from this node.
 	var activeTasks map[string][]*distributedtask.Task
-	if h.tasks != nil {
+	if h.tasks == nil {
+		h.gateWarn("index_status").WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("action", "reindex_index_status").
+				WithField("collection", collection).
+				Warn("distributed task service is not wired; answering with no tasks, which renders " +
+					"every index ready even if a migration is running. " +
+					"Expected in test fixtures; if this appears in production, check the ListTasks wiring in configure_api.go.")
+		})
+	} else {
 		var err error
-		activeTasks, err = h.tasks.ListDistributedTasks(context.Background())
+		activeTasks, err = h.tasks.ListDistributedTasksAtLocalConsistency(params.HTTPRequest.Context())
 		if err != nil {
-			activeTasks = nil // degrade gracefully
+			return schema.NewSchemaObjectsIndexesGetInternalServerError().
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	// Pre-parse the reindex task payloads once per request so the per-property
-	// merge below doesn't re-unmarshal each task N times.
-	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
-
-	// finalizeWindow bounds the "FINISHED but flag-off → indexing@100%"
-	// override in mergeReindexStatus. The legitimate window is at most
-	// one DTM scheduler tick (the gap between task FINISHED and the
-	// scheduler calling OnGroupCompleted) plus the per-shard swap
-	// duration (typically <1s). We use 2× the tick interval as a
-	// generous coverage. The clamp at finalizeWindowMin/Max keeps the
-	// window reasonable in both pathological sub-second tick configs
-	// (clamp up to 3s) and production 60s+ tick configs (clamp down to
-	// 10s) — a longer-lived bleed in production was the user-visible
-	// face of https://github.com/weaviate/weaviate/issues/10675, and capping the override here
-	// keeps the worst-case stale "indexing(1)" pill bounded.
-	finalizeWindow := 2 * h.appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval
-	if finalizeWindow < finalizeWindowMin {
-		finalizeWindow = finalizeWindowMin
-	}
-	if finalizeWindow > finalizeWindowMax {
-		finalizeWindow = finalizeWindowMax
-	}
+	// merge below doesn't re-unmarshal each task N times, and drop the ones
+	// naming another collection so the merge doesn't rescan them per property.
+	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace], collection)
 
 	// UsingBlockMaxWAND flips cluster-wide only after every searchable
 	// bucket on every shard is blockmax; mid-flight, targetAlgorithm
@@ -270,7 +290,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = searchableAlgorithm
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
 			// Flag on → always emit. Flag off → emit only when a reindex
 			// task carries actionable signal (in-flight or terminal
 			// failure/cancellation).
@@ -705,7 +725,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		if provider := h.appState.ReindexProvider.Load(); provider != nil {
 			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
 		} else {
-			h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+			h.gateWarn("submit_gate").WithSampling(func(l logrus.FieldLogger) {
 				l.WithField("action", "reindex_backup_gate").
 					WithField("collection", collection).
 					Warn("reindex provider is not wired; submitting without the submit gate, so a backup can " +
@@ -1219,7 +1239,7 @@ func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *mo
 	}
 
 	if h.backupActivity == nil || len(nodes) == 0 {
-		h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+		h.gateWarn("cancel_gate").WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("action", "reindex_backup_gate").
 				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
 					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")
@@ -1925,38 +1945,6 @@ const reindexCancelStatusNoOp = "NO_OP"
 // shorter in practice — empirically <1s on test corpora).
 const reindexCancelDrainTimeout = 10 * time.Second
 
-// finalizeWindowMin / finalizeWindowMax bound the "FINISHED but
-// flag-off → indexing@100%" override in [mergeReindexStatus]. The
-// window is normally computed as 2× the DTM scheduler tick interval,
-// but is clamped at both ends:
-//
-//   - finalizeWindowMin (3s) protects against pathological sub-second
-//     tick configs where 2× would shrink the legitimate window faster
-//     than realistic swap-phase jitter. 3s comfortably covers the
-//     in-test 1s tick + swap + jitter.
-//
-//   - finalizeWindowMax (10s) caps how long a stale FINISHED task can
-//     bleed an "indexing(1)" pill after a DELETE — production tick is
-//     60s, so a naive 2× would let the bleed live for 2 minutes,
-//     which was the user-visible face of https://github.com/weaviate/weaviate/issues/10675.
-//
-// Outside the window, flagOn==false cannot legitimately mean "swap
-// pending" — either the swap failed silently (logged as "swap
-// INCOMPLETE" elsewhere) or the swap completed and DELETE flipped the
-// flag back to false (the frontend repro on 2026-05-14 in
-// https://github.com/weaviate/weaviate/issues/10675 — "indexing(1) bleed"). In both cases
-// surfacing the override would be a status lie. The trade-off in
-// production: between task FINISHED and the schema flag flip, a
-// caller polling the GET endpoint will see "indexing@100%" for up to
-// 10s, then briefly see an empty searchable entry, then see "ready"
-// once the flag flips. The brief empty entry is the original UX gap
-// that the override was added to bridge (fd4bfab7cb); we accept it
-// here as the lesser evil compared to the unbounded bleed.
-const (
-	finalizeWindowMin = 3 * time.Second
-	finalizeWindowMax = 10 * time.Second
-)
-
 // indexTypesFromMigrationType returns the canonical inverted-index types
 // ("filterable", "searchable", "rangeable") that a migration type targets,
 // for use by submit-time pre-cleanup. Returns (nil, false) only for unknown
@@ -2039,22 +2027,25 @@ type parsedReindexTask struct {
 	unreadable bool
 }
 
-// parseReindexTasks unmarshals every reindex task's payload once.
+// parseReindexTasks unmarshals every reindex task's payload once. A non-empty
+// `wanted` filters to that collection so the per-property merge doesn't rescan
+// the rest; empty string keeps everything.
 //
 // A live task whose payload [db.DecodeReindexTaskPayload] cannot read is kept,
 // flagged unreadable, with just the collection recovered — the backup gate
 // refuses that whole collection on the same unreadable payload, so dropping
 // the task here would answer "ready" for a collection backups keep refusing.
-// Terminal tasks with an unreadable payload are still dropped: they block
-// nothing.
-//
-// FINISHED tasks are kept too, so mergeReindexStatus can surface a brief
-// "indexing@100%" entry while OnGroupCompleted's swap propagates to the
-// schema (otherwise the GET response renders "None" for a few ms).
-func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
+// Terminal tasks with an unreadable payload are dropped here even though the
+// backup gate refuses on them too, for the full completed-task TTL. Rendering
+// them would need a status this endpoint has no vocabulary for; the refusal
+// carries its own explanation.
+func parseReindexTasks(tasks []*distributedtask.Task, wanted string) []parsedReindexTask {
 	parsed := make([]parsedReindexTask, 0, len(tasks))
 	for _, task := range tasks {
 		payload, collection, err := db.DecodeReindexTaskPayload(task.Payload)
+		if wanted != "" && !strings.EqualFold(collection, wanted) {
+			continue
+		}
 		if err != nil {
 			if collection == "" || !db.IsLiveReindexTaskStatus(task.Status) {
 				continue
@@ -2071,7 +2062,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 	return parsed
 }
 
-// mergeReindexStatus checks if there's an active or recently-terminated
+// mergeReindexStatus checks if there's an active or terminal
 // reindex task that targets the given property+indexType and updates the
 // IndexStatus accordingly.
 //
@@ -2079,20 +2070,10 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // "ready"):
 //
 //   - "pending":    STARTED task, no unit progress yet.
-//   - "indexing":   STARTED task with some progress, OR a FINISHED task
-//     whose swap hasn't propagated to the schema flag yet
-//     (the brief OnGroupCompleted finalize window). The
-//     `flagOn` parameter distinguishes the two: when the
-//     schema flag is already on, a stale FINISHED task is
-//     ignored — the base "ready" wins.
+//   - "indexing":   STARTED task with some progress, or a task in a
+//     coordination phase (PREPARING / SWAPPING), at 100%.
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
-//
-// `flagOn` is the caller's view of whether the corresponding schema flag
-// (IndexFilterable / IndexSearchable / IndexRangeFilters, depending on
-// indexType) is currently true. It lets this function decide whether a
-// FINISHED task is "still finalizing" (flag-off) or "fully done"
-// (flag-on, so the base "ready" entry takes over).
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -2107,14 +2088,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-// finalizeWindow caps the "FINISHED-but-flag-off → indexing@100%"
-// override (see the TaskStatusFinished branch below). Callers pass in
-// 2× the DTM scheduler tick interval (clamped to finalizeWindowMin);
-// the test harness passes a wider value because the test container
-// always uses 1s ticks. Pass 0 to disable the override entirely (rare;
-// kept for tests that want to assert the post-DELETE bleed never
-// surfaces regardless of FinishedAt freshness).
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, finalizeWindow time.Duration, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -2122,9 +2096,6 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than first-in-map-order:
 	//   STARTED  > FINISHED ≈ FAILED ≈ CANCELLED  (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
-	// FINISHED tasks are in the slice too: parseReindexTasks keeps them so
-	// the finalize window below can surface the swap that has not yet
-	// reached the schema flag.
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
@@ -2222,41 +2193,20 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusPreparing, distributedtask.TaskStatusSwapping:
 		// Units done; cross-replica PREP barrier or per-node swap still in
-		// flight. Surface as "indexing at 100%" until FINISHED + flagOn.
+		// flight. Surface as "indexing at 100%" until FINISHED.
 		idx.Status = "indexing"
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// The DTM declares a task FINISHED once every unit is terminal, but
-		// for semantic migrations (enable-*, change-tokenization) the actual
-		// schema flag flip happens later, inside OnGroupCompleted's swap
-		// phase. Without a synthetic entry, that window — from "task
-		// FINISHED" to "schema flag flipped on this node" — would leave the
-		// GET response with no synthetic entry at all and no base "ready"
-		// entry (because the flag is still off), so the UI would see an
-		// empty `indexes` array and render "None".
-		// Treat it as "indexing@100%" until the schema catches up; once
-		// flagOn flips true, the base case "ready" override takes precedence
-		// and this branch is effectively ignored.
-		//
-		// Bound the window by task.FinishedAt: outside it, flagOn==false
-		// cannot mean "swap pending" — the swap window is at most one
-		// scheduler tick plus per-shard swap time, comfortably under
-		// reindexFinalizeWindow. If flagOn is still false past this
-		// window, the only realistic causes are:
-		//   - the swap completed (flag flipped true) and a subsequent
-		//     DELETE flipped it back to false (the frontend repro on
-		//     2026-05-14 #10675 — "indexing(1) bleed");
-		//   - the swap failed silently (logged loudly by
-		//     OnGroupCompleted's "swap INCOMPLETE" branch).
-		// In neither case do we want a synthetic "indexing@100%" entry —
-		// the first case is a stale-task false signal, the second is an
-		// error condition the swap-incomplete logs already surface.
-		if !flagOn && finalizeWindow > 0 && time.Since(best.FinishedAt) < finalizeWindow {
-			idx.Status = "indexing"
-			idx.Progress = 1.0
-			surfaceSyntheticFields = true
-		}
+		// No synthetic entry: FINISHED means every post-completion callback
+		// committed, and any schema flip the task made commits to the RAFT log
+		// before it — so on this handler's local FSM read, base "ready" is the
+		// truth. For enable-*/change-tokenization types, FINISHED with the
+		// per-property flag still off means it was turned back off since (a
+		// stale task after an index DELETE). change-algorithm doesn't touch that
+		// flag and can finish before UsingBlockMaxWAND flips class-wide (see
+		// shouldDeferBlockmaxFlip / testMapToBlockmaxMultiPropertyDefersFlip);
+		// "ready" with the current algorithm is still the honest answer there.
 	default:
 		// A status a newer node introduced is still live to the backup gate;
 		// leaving it "ready" would make the operator's advised poll a loop.
@@ -2274,11 +2224,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 
 	// Only paint the per-migration-type "in-flight" side-effect fields when
-	// the status switch actually surfaced an in-flight or finalizing signal.
-	// If the entry stayed "ready" (FINISHED + flag-on, or FINISHED outside
-	// the finalize window), the migration has either completed and propagated
-	// to the schema (the schema-derived fields above are authoritative) or
-	// the task is stale and shouldn't pollute the response.
+	// the status switch actually surfaced an in-flight signal. If the entry
+	// stayed "ready", the migration has either completed and propagated to
+	// the schema (the schema-derived fields above are authoritative) or the
+	// task is stale and shouldn't pollute the response.
 	if !surfaceSyntheticFields {
 		return
 	}
@@ -2327,9 +2276,8 @@ func markUnreadablePayload(idx *models.IndexStatus, collection string, parsedTas
 // failed migration wants to see the new attempt's progress, not the old
 // failure. FINISHED ranks alongside FAILED / CANCELLED so a recently-
 // completed FINISHED task wins the StartedAt tiebreak over an older
-// FAILED on the same property (and mergeReindexStatus uses it to keep
-// the synthetic "indexing@100%" entry visible until the schema flip
-// propagates — see the FINISHED case there).
+// FAILED on the same property, which keeps the entry at "ready" instead
+// of painting the old failure.
 func taskStatusPriority(task *distributedtask.Task) int {
 	switch task.Status {
 	case distributedtask.TaskStatusStarted,

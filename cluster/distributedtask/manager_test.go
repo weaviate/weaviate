@@ -507,14 +507,14 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 				},
 				Payload: []byte("test2"),
 				// Manager.RecordUnitCompletion alone takes a successful
-				// task to FINALIZING; the FINISHED transition is committed
+				// task to SWAPPING; the FINISHED transition is committed
 				// by [Manager.MarkTaskFinalized] which the [Scheduler]
 				// issues after every node's [Provider.OnTaskCompleted]
 				// returns. This helper exercises RecordUnitCompletion in
-				// isolation, so FINALIZING is the expected end state.
-				Status:     TaskStatusSwapping,
-				StartedAt:  now,
-				FinishedAt: now.Add(time.Minute),
+				// isolation, so SWAPPING is the expected end state — and a
+				// SWAPPING task has no FinishedAt yet.
+				Status:    TaskStatusSwapping,
+				StartedAt: now,
 				Units: map[string]*Unit{
 					"su-1": {ID: "su-1", Status: UnitStatusCompleted, Progress: 1.0},
 				},
@@ -1382,16 +1382,19 @@ func TestManager_MarkTaskFailed(t *testing.T) {
 
 		tasks, _ := h.manager.ListDistributedTasks(context.Background())
 		require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
-		finishedAt := tasks["ns"][0].FinishedAt
+		require.True(t, tasks["ns"][0].FinishedAt.IsZero(),
+			"a SWAPPING task has not finished")
 
+		h.clock.Advance(time.Minute)
+		failedAt := h.clock.Now()
 		require.NoError(t, markFailed(t, h, "ns", "task1", version, "schema flip failed at finalize"))
 
 		tasks, _ = h.manager.ListDistributedTasks(context.Background())
 		task := tasks["ns"][0]
 		require.Equal(t, TaskStatusFailed, task.Status)
 		require.Contains(t, task.Error, "schema flip failed at finalize")
-		require.Equal(t, finishedAt, task.FinishedAt,
-			"FinishedAt must stay at the AllUnitsTerminal moment, matching other FAILED paths")
+		require.Equal(t, failedAt.UnixMilli(), task.FinishedAt.UnixMilli(),
+			"FinishedAt is the moment the task failed, off the request")
 	})
 
 	t.Run("is idempotent: second call on FAILED is a no-op", func(t *testing.T) {
@@ -1791,6 +1794,47 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		addRawTask(t, h, "", "task-in-empty-ns", []byte("anything"), "u-2")
 		removed := h.manager.DeleteTasksForCollection("Foo")
 		assert.Empty(t, removed, "empty-namespace registration must be ignored")
+	})
+
+	// The scheduler holds a handle for every task removed here, so it has to be
+	// woken to terminate them. A DELETE_CLASS that matched no task leaves it
+	// nothing to converge on, and every such class drop is one on a cluster that
+	// has never run a reindex.
+	t.Run("wakes the scheduler only when something was removed", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			collection string
+			wantWake   bool
+		}{
+			{"a task matched", "Foo", true},
+			{"no task matched", "Bar", false},
+			{"the collection name is refused", "", false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newTestHarness(t).init(t)
+				h.manager.RegisterCollectionExtractor("scoped", collectionExtractor)
+
+				payload, err := json.Marshal(map[string]string{"collection": "Foo"})
+				require.NoError(t, err)
+				addRawTask(t, h, "scoped", "foo-1", payload, "u-1")
+
+				// Wired after the add, so only the delete's wake is counted.
+				var woke wakeCounter
+				h.manager.SetSchedulerNotifier(&woke)
+
+				removed := h.manager.DeleteTasksForCollection(tc.collection)
+				require.Equal(t, tc.wantWake, len(removed) > 0, "sanity: the fixture must exercise the intended arm")
+
+				if tc.wantWake {
+					require.Positive(t, woke.n.Load(),
+						"the scheduler is still running the removed task's units; without the wake it "+
+							"keeps them alive until the next tick")
+					return
+				}
+				require.Zero(t, woke.n.Load(),
+					"nothing was removed, so the scheduling cycle has nothing to converge on")
+			})
+		}
 	})
 }
 
