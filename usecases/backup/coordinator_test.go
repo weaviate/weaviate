@@ -740,9 +740,8 @@ func newReq(classes []string, backendName, backupID string) Request {
 	}
 }
 
-// newStagingOperation builds the state commit() picks up: one participant per
-// node, each already staging. The empty NodeMapping makes ToOriginalNodeName
-// return the node names the participants are keyed by.
+// newStagingOperation builds the state commit() picks up: one participant
+// per node, already staging.
 func newStagingOperation(backupID string, nodes ...string) *operation {
 	op := newOperation(&backup.DistributedBackupDescriptor{
 		ID:          backupID,
@@ -882,10 +881,8 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		assert.Contains(t, op.participants["N1"].Reason, context.Canceled.Error())
 	})
 
-	// A cancel landing after the last in-loop check still has to reach the
-	// stored descriptor: every participant reports success, so nothing but the
-	// slot says the operation was cancelled. CANCELLING is enough — a cancel
-	// that has only been claimed is still a cancel.
+	// A cancel landing after the last in-loop check must still reach the
+	// stored descriptor, even though every participant reported success.
 	for _, claimed := range []backup.Status{backup.Cancelling, backup.Cancelled} {
 		t.Run("CancelledOnTheSlotAfterTheLastPoll/"+string(claimed), func(t *testing.T) {
 			fc := newFakeCoordinator(nodeResolver)
@@ -1250,10 +1247,9 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 				"a refused restore must not be reported to the caller as started")
 			require.ErrorContains(t, err, "repeat the cancel",
 				"a descriptor stuck on CANCELLING is never cleared by waiting, only by repeating the cancel")
-			// The slot is the subsystem's mutual exclusion, so clearing one we
-			// do not own lets a second restore claim it and run alongside the
-			// live one. renew reports the holder it refused, which is also how
-			// the test reads the slot.
+			// The slot is the subsystem's mutual exclusion: clearing one we do not
+			// own lets a second restore claim it and run alongside the live one.
+			// renew returns the holder it refused, which doubles as the read here.
 			prevID, _ := c.lastOp.renew("intruder", "path", "", "")
 			require.Equal(t, tc.wantSlotID, prevID,
 				"a live restore must still refuse a second claim")

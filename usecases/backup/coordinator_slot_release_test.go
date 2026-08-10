@@ -565,10 +565,8 @@ type countingSchemaManager struct {
 	applies atomic.Int32
 }
 
-// newStagingRestore wires a coordinator whose single participant accepts the
-// commit, which is where every cancellation race in this file starts. The
-// caller adds the "Status" expectation, since what the participant reports
-// during staging is the seam these tests interfere from.
+// newStagingRestore wires a coordinator with one participant that has
+// accepted the commit and is staging.
 func newStagingRestore(node, backupID string, schema schemaManger) (*coordinator, *fakeCoordinator) {
 	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
 	c := newCoordinator(&fc.selector, &fc.client, schema, fc.log, fc.nodeResolver, nil)
@@ -588,8 +586,7 @@ func startRestore(t *testing.T, c *coordinator, backend modulecapabilities.Backu
 		restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: "C1"}}))
 }
 
-// awaitInterference waits for the step a test stages on the restore goroutine,
-// so the assertions that follow do not race the goroutine that stages it.
+// awaitInterference waits for the staged interference before assertions run.
 func awaitInterference(t *testing.T, done <-chan struct{}, missed string) {
 	t.Helper()
 	select {
