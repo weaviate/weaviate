@@ -29,7 +29,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -285,9 +287,52 @@ func discardSegmentFile(f *os.File, path string, err error) error {
 	return err
 }
 
-// compactOnce performs one compaction iteration. Cancelling ctx aborts
-// the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
-func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
+// abortPollInterval bounds how often the poller reads shouldAbort.
+const abortPollInterval = 50 * time.Millisecond
+
+// compactOnce performs one compaction iteration.
+func (sg *SegmentGroup) compactOnce(ctx context.Context) (bool, error) {
+	return sg.compactOnceAbortable(ctx, nil)
+}
+
+// watchAbort returns a context cancelled once shouldAbort turns true. The poller
+// lives until the returned cancel runs, so callers must always call it.
+func (sg *SegmentGroup) watchAbort(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (context.Context, context.CancelFunc) {
+	// read before deriving, so a panicking callback leaves no context behind
+	aborting := shouldAbort()
+	ctx, cancel := context.WithCancel(ctx)
+	if aborting {
+		cancel()
+		return ctx, cancel
+	}
+
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(abortPollInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if shouldAbort() {
+					cancel()
+					return
+				}
+			}
+		}
+	}, sg.logger)
+	return ctx, cancel
+}
+
+// compactOnceAbortable performs one compaction iteration. Cancelling ctx, or
+// shouldAbort turning true, aborts the in-flight merge (sampled every
+// compactor.AbortCheckEveryN keys). Its shouldAbort bridge is built only once
+// there is a pair to merge, so an idle cycle needs no context, goroutine or ticker.
+func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -345,6 +390,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	// skips above are not real runs
 	backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessCompaction)
 	defer backgroundDone()
+
+	if shouldAbort != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = sg.watchAbort(ctx, shouldAbort)
+		defer cancel()
+	}
 
 	var left, right Segment
 	func() {

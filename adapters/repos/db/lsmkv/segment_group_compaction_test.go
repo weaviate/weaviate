@@ -14,10 +14,14 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 var (
@@ -1296,6 +1300,111 @@ func TestSegmentGroup_CompactionPairToFixLevelsOrder(t *testing.T) {
 				assert.Equal(t, tc.expPair, []string{lPath, rPath})
 			}
 			assert.Equal(t, tc.expLvl, lvl)
+		})
+	}
+}
+
+// watchAbort turns a cycle's stop request into the cancellation the compactors
+// poll: immediate abort, delayed abort, and the poller's lifetime.
+func TestSegmentGroup_WatchAbort(t *testing.T) {
+	sg := &SegmentGroup{logger: nullLogger()}
+
+	t.Run("already aborting", func(t *testing.T) {
+		ctx, cancel := sg.watchAbort(context.Background(), func() bool { return true })
+		defer cancel()
+
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+	})
+
+	t.Run("aborts once shouldAbort turns true", func(t *testing.T) {
+		var abort atomic.Bool
+		ctx, cancel := sg.watchAbort(context.Background(), abort.Load)
+		defer cancel()
+		require.NoError(t, ctx.Err())
+
+		abort.Store(true)
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
+			t.Fatal("context still live after shouldAbort turned true")
+		}
+	})
+
+	t.Run("poller stops with the context", func(t *testing.T) {
+		var polls atomic.Int64
+		_, cancel := sg.watchAbort(context.Background(), func() bool {
+			polls.Add(1)
+			return false
+		})
+		cancel()
+
+		// cancel races at most one tick; a poller left running reaches ~7
+		time.Sleep(7 * abortPollInterval)
+		require.LessOrEqual(t, polls.Load(), int64(2), "the poller must not outlive the context")
+	})
+}
+
+// With no pair to compact, the compaction half of the cycle must not read
+// shouldAbort at all, since reading it costs a context, a goroutine and a ticker.
+// The cleaner is a no-op here, so any read seen comes from compaction.
+func TestSegmentGroup_CompactOrCleanupIdleSkipsAbortPoller(t *testing.T) {
+	testCases := []struct {
+		name           string
+		segments       []Segment
+		maxSegmentSize int64
+		status         storagestate.Status
+	}{
+		{
+			name: "no segments",
+		},
+		{
+			name:     "single segment",
+			segments: []Segment{&segment{path: "seg_01", level: 0, size: 100}},
+		},
+		{
+			name: "no pair of matching levels",
+			segments: []Segment{
+				&segment{path: "seg_01", level: 3, size: 100},
+				&segment{path: "seg_02", level: 2, size: 100},
+			},
+		},
+		{
+			name: "pair exceeds max segment size",
+			segments: []Segment{
+				&segment{path: "seg_01", level: 3, size: 8000},
+				&segment{path: "seg_02", level: 3, size: 8000},
+			},
+			maxSegmentSize: 10000,
+		},
+		{
+			name: "shard is read only",
+			segments: []Segment{
+				&segment{path: "seg_01", level: 3, size: 100},
+				&segment{path: "seg_02", level: 3, size: 100},
+			},
+			status: storagestate.StatusReadOnly,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sg := &SegmentGroup{
+				segments:       tc.segments,
+				maxSegmentSize: tc.maxSegmentSize,
+				status:         tc.status,
+				dir:            t.TempDir(),
+				logger:         nullLogger(),
+				segmentCleaner: &segmentCleanerNoop{},
+			}
+
+			calls := 0
+			didWork := sg.compactOrCleanup(func() bool {
+				calls++
+				return false
+			})
+
+			assert.False(t, didWork)
+			assert.Zero(t, calls, "shouldAbort must not be read when there is nothing to compact")
 		})
 	}
 }
