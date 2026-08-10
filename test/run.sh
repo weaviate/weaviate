@@ -62,6 +62,7 @@ function main() {
   run_acceptance_reindex_backup_a=false
   run_acceptance_reindex_backup_b=false
   run_acceptance_reindex_backup_cluster=false
+  run_acceptance_backups=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -123,6 +124,7 @@ function main() {
           --acceptance-reindex-backup-a|-arba) run_all_tests=false; run_acceptance_reindex_backup_a=true;;
           --acceptance-reindex-backup-b|-arbb) run_all_tests=false; run_acceptance_reindex_backup_b=true;;
           --acceptance-reindex-backup-cluster|-arbc) run_all_tests=false; run_acceptance_reindex_backup_cluster=true;;
+          --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -174,6 +176,7 @@ function main() {
               "--acceptance-reindex-backup-a | -arba"\
               "--acceptance-reindex-backup-b | -arbb"\
               "--acceptance-reindex-backup-cluster | -arbc"\
+              "--acceptance-backups | -ab"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -434,6 +437,11 @@ function main() {
   if $run_acceptance_reindex_backup_cluster; then
     echo "running backup × runtime-reindex acceptance tests (multi-node)"
     run_acceptance_reindex_backup_cluster
+  fi
+
+  if $run_acceptance_backups; then
+    echo "running backup/restore acceptance tests"
+    run_acceptance_backups
   fi
   echo "Done!"
 }

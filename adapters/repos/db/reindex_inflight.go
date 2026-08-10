@@ -149,7 +149,6 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
 	db.reindexAuditMu.RUnlock()
 
-	var snap reindexGateSnapshot
 	if activityBuilder == nil {
 		db.warnUnwiredReindexGate()
 	} else {
