@@ -501,6 +501,14 @@ func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status
 	}
 }
 
+// errRestoreFinalizing is the refusal a cancel gets once schema apply has
+// begun. It is one message because a caller must not be able to tell the
+// three moments it can be raised at apart, they all mean the same thing.
+func errRestoreFinalizing(backupID string) error {
+	return backup.NewErrUnprocessable(
+		fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
+}
+
 func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
 ) (err error) {
 	defer func(begin time.Time) {
@@ -543,8 +551,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// so the node-local slot is checked here too. This only closes the window
 	// for a cancel sent to the coordinating node.
 	if held := s.restorer.lastOp.get(); held.ID == backupID && held.Status == backup.Finalizing {
-		return backup.NewErrUnprocessable(
-			fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
+		return errRestoreFinalizing(backupID)
 	}
 
 	if metaErr == nil {
@@ -555,7 +562,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		case backup.Success:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
 		case backup.Finalizing:
-			return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
+			return errRestoreFinalizing(backupID)
 		case backup.Cancelling:
 			// Claimed already, by another coordinator or an earlier call that
 			// never wrote CANCELLED. Falling through repeats the abort below,
@@ -589,6 +596,13 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// is still held by the restore being cancelled.
 	stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
 	logCancelStamp(s.logger, backupID, backup.Cancelled, stamped, held)
+	// The restore reached schema apply after the pre-check above, the race that
+	// check exists for. Stamping CANCELLED on the descriptor now would be
+	// overwritten by the outcome the restore actually has, so the caller is
+	// told the cancel did not land instead of being answered 204.
+	if !stamped && held.ID == backupID && held.Status == backup.Finalizing {
+		return errRestoreFinalizing(backupID)
+	}
 
 	// Write final CANCELED status to restore_config.json
 	if meta != nil {

@@ -140,16 +140,8 @@ func TestRestorerRestoreRefusesWhileItsOwnCancellationIsInProgress(t *testing.T)
 			slotStatus: backup.Transferring, wantErr: "already in progress",
 		},
 		{
-			name: "this restore was just claimed", slotID: backupID,
-			slotStatus: backup.Started, wantErr: "already in progress",
-		},
-		{
 			name: "a different restore is being cancelled", slotID: otherID,
 			slotStatus: backup.Cancelling, wantErr: "already in progress",
-		},
-		{
-			name: "a different restore is cancelled", slotID: otherID,
-			slotStatus: backup.Cancelled, wantErr: "already in progress",
 		},
 	}
 

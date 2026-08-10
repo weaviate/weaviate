@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -110,11 +111,7 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			if tc.steal {
 				// The takeover runs on the restore goroutine, so wait for it
 				// rather than racing the assertion against it.
-				select {
-				case <-stolen:
-				case <-time.After(20 * time.Second):
-					t.Fatal("the newer restore never got to claim the slot")
-				}
+				awaitInterference(t, stolen, "the newer restore never got to claim the slot")
 				require.Never(t, func() bool {
 					return c.lastOp.get().ID != tc.wantSlotID
 				}, 200*time.Millisecond, 10*time.Millisecond,
@@ -458,11 +455,7 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 			require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
 
-			select {
-			case <-stolen:
-			case <-time.After(20 * time.Second):
-				t.Fatal("the newer restore never got to claim the slot")
-			}
+			awaitInterference(t, stolen, "the newer restore never got to claim the slot")
 			// Without this the window below can close before the stale
 			// goroutine ever reaches a write, which would make its absence
 			// prove nothing.
@@ -493,13 +486,8 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampACancellationItReadFromStor
 		node        = "N1"
 	)
 
-	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
 	schemaManager := &countingSchemaManager{}
-	c := newCoordinator(&fc.selector, &fc.client, schemaManager, fc.log, fc.nodeResolver, nil)
-	c.timeoutNextRound = time.Millisecond
-	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
-	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+	c, fc := newStagingRestore(node, backupID, schemaManager)
 	fc.client.On("Status", mock.Anything, node, mock.Anything).
 		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
 
@@ -517,17 +505,10 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampACancellationItReadFromStor
 		takeOverSlot(t, &c.lastOp, backupID, newID)
 		close(stolen)
 	}
-	store := coordStore{objectStore{backend, backupID, "", "", ""}}
 
-	req := newReq(nil, backendName, backupID)
-	require.NoError(t, c.Restore(context.Background(), store, &req,
-		restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: "C1"}}))
+	startRestore(t, c, backend, backendName, backupID, node)
 
-	select {
-	case <-stolen:
-	case <-time.After(20 * time.Second):
-		t.Fatal("the newer restore never got to claim the slot")
-	}
+	awaitInterference(t, stolen, "the newer restore never got to claim the slot")
 	require.Never(t, func() bool {
 		st := c.lastOp.get()
 		return st.ID != newID || st.Status != backup.Started || schemaManager.applies.Load() != 0
@@ -547,13 +528,8 @@ func TestCoordinatorRestoreStaleGoroutineStopsBeforeRereadingTheStoredMeta(t *te
 		node        = "N1"
 	)
 
-	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
 	schemaManager := &countingSchemaManager{}
-	c := newCoordinator(&fc.selector, &fc.client, schemaManager, fc.log, fc.nodeResolver, nil)
-	c.timeoutNextRound = time.Millisecond
-	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
-	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+	c, fc := newStagingRestore(node, backupID, schemaManager)
 
 	backend := &restoreMetaBackend{}
 	var (
@@ -571,17 +547,10 @@ func TestCoordinatorRestoreStaleGoroutineStopsBeforeRereadingTheStoredMeta(t *te
 				close(stolen)
 			})
 		})
-	store := coordStore{objectStore{backend, backupID, "", "", ""}}
 
-	req := newReq(nil, backendName, backupID)
-	require.NoError(t, c.Restore(context.Background(), store, &req,
-		restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: "C1"}}))
+	startRestore(t, c, backend, backendName, backupID, node)
 
-	select {
-	case <-stolen:
-	case <-time.After(20 * time.Second):
-		t.Fatal("the newer restore never got to claim the slot")
-	}
+	awaitInterference(t, stolen, "the newer restore never got to claim the slot")
 	// Read one is the one Restore itself does before claiming the slot.
 	require.Never(t, func() bool {
 		return backend.readCount() > 1 || schemaManager.applies.Load() != 0
@@ -594,6 +563,40 @@ func TestCoordinatorRestoreStaleGoroutineStopsBeforeRereadingTheStoredMeta(t *te
 type countingSchemaManager struct {
 	fakeSchemaManger
 	applies atomic.Int32
+}
+
+// newStagingRestore wires a coordinator whose single participant accepts the
+// commit, which is where every cancellation race in this file starts. The
+// caller adds the "Status" expectation, since what the participant reports
+// during staging is the seam these tests interfere from.
+func newStagingRestore(node, backupID string, schema schemaManger) (*coordinator, *fakeCoordinator) {
+	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
+	c := newCoordinator(&fc.selector, &fc.client, schema, fc.log, fc.nodeResolver, nil)
+	c.timeoutNextRound = time.Millisecond
+	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
+		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+	return c, fc
+}
+
+// startRestore runs the synchronous half of a restore of one class on one node.
+func startRestore(t *testing.T, c *coordinator, backend modulecapabilities.BackupBackend, backendName, backupID, node string) {
+	t.Helper()
+	req := newReq(nil, backendName, backupID)
+	store := coordStore{objectStore{backend, backupID, "", "", ""}}
+	require.NoError(t, c.Restore(context.Background(), store, &req,
+		restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: "C1"}}))
+}
+
+// awaitInterference waits for the step a test stages on the restore goroutine,
+// so the assertions that follow do not race the goroutine that stages it.
+func awaitInterference(t *testing.T, done <-chan struct{}, missed string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal(missed)
+	}
 }
 
 func (c *countingSchemaManager) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string, bool, bool) error {
@@ -644,13 +647,8 @@ func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
 			schemaManager := &countingSchemaManager{}
-			c := newCoordinator(&fc.selector, &fc.client, schemaManager, fc.log, fc.nodeResolver, nil)
-			c.timeoutNextRound = time.Millisecond
-			fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
-				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
-			fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+			c, fc := newStagingRestore(node, backupID, schemaManager)
 			fc.client.On("Status", mock.Anything, node, mock.Anything).
 				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
 
@@ -667,17 +665,10 @@ func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 				tc.interfere(t, &c.lastOp)
 				close(interfered)
 			}}
-			store := coordStore{objectStore{backend, backupID, "", "", ""}}
 
-			req := newReq(nil, backendName, backupID)
-			require.NoError(t, c.Restore(context.Background(), store, &req,
-				restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: "C1"}}))
+			startRestore(t, c, backend, backendName, backupID, node)
 
-			select {
-			case <-interfered:
-			case <-time.After(20 * time.Second):
-				t.Fatal("the restore never reached the finalizing decision")
-			}
+			awaitInterference(t, interfered, "the restore never reached the finalizing decision")
 			require.Eventually(t, func() bool { return c.lastOp.get().ID == tc.wantSlotID },
 				10*time.Second, 10*time.Millisecond, "the restore goroutine never stopped")
 
@@ -762,13 +753,8 @@ func TestCoordinatorRestoreStopsOnACancellationInStorage(t *testing.T) {
 	for _, stored := range []backup.Status{backup.Cancelling, backup.Cancelled} {
 		t.Run(string(stored), func(t *testing.T) {
 			t.Parallel()
-			fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
 			schemaManager := &countingSchemaManager{}
-			c := newCoordinator(&fc.selector, &fc.client, schemaManager, fc.log, fc.nodeResolver, nil)
-			c.timeoutNextRound = time.Millisecond
-			fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
-				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
-			fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+			c, fc := newStagingRestore(node, backupID, schemaManager)
 			// The cancel lands in storage while the participants are still
 			// staging, which is where another coordinator's does, and the
 			// restore reads it once staging is done.
@@ -781,11 +767,8 @@ func TestCoordinatorRestoreStopsOnACancellationInStorage(t *testing.T) {
 						backend.setStored(t, backup.DistributedBackupDescriptor{ID: backupID, Status: stored})
 					})
 				})
-			store := coordStore{objectStore{backend, backupID, "", "", ""}}
 
-			req := newReq(nil, backendName, backupID)
-			require.NoError(t, c.Restore(context.Background(), store, &req,
-				restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: "C1"}}))
+			startRestore(t, c, backend, backendName, backupID, node)
 
 			require.Eventually(t, func() bool { return c.lastOp.get().ID == "" },
 				10*time.Second, 10*time.Millisecond, "the restore goroutine never released its slot")

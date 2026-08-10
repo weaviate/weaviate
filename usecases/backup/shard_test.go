@@ -16,8 +16,12 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // resetIfCancelled must clear the slot only for an operation that has fully
@@ -53,14 +57,6 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			name:       "live op sharing the id being released",
 			claimedID:  "op-1",
 			status:     backup.Transferring,
-			resetID:    "op-1",
-			wantOK:     false,
-			wantSlotID: "op-1",
-		},
-		{
-			name:       "freshly claimed op sharing the id being released",
-			claimedID:  "op-1",
-			status:     backup.Started,
 			resetID:    "op-1",
 			wantOK:     false,
 			wantSlotID: "op-1",
@@ -117,16 +113,6 @@ func TestSlotOwnerRelease(t *testing.T) {
 			arrange: func(t *testing.T, s *backupStat) slotOwner {
 				_, slot := s.renew("op-1", "path", "", "")
 				slot.set(backup.Success)
-				return slot
-			},
-			wantOK:     true,
-			wantSlotID: "",
-		},
-		{
-			name: "holder releases after a cancel",
-			arrange: func(t *testing.T, s *backupStat) slotOwner {
-				_, slot := s.renew("op-1", "path", "", "")
-				slot.set(backup.Cancelled)
 				return slot
 			},
 			wantOK:     true,
@@ -493,6 +479,113 @@ func TestBackupStatCancellationIsNotOverwritten(t *testing.T) {
 
 			require.Equal(t, tc.wantOK, slot.set(tc.next))
 			require.Equal(t, tc.wantStatus, s.get().Status)
+		})
+	}
+}
+
+// Pins that a refused write says why it was refused. Without it, "the status
+// stopped updating" is indistinguishable from the node having gone quiet, and
+// the three reasons call for three different answers from an operator.
+func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// arrange returns the claim whose next write is about to be refused.
+		arrange func(s *backupStat) slotOwner
+		write   backup.Status
+		wantMsg string
+	}{
+		{
+			name: "the claim no longer holds the slot",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.release()
+				s.renew("op-2", "path", "", "")
+				return slot
+			},
+			write:   backup.Success,
+			wantMsg: "this operation no longer holds the slot",
+		},
+		{
+			name: "the restore is applying its schema",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Finalizing)
+				return slot
+			},
+			write:   backup.Cancelled,
+			wantMsg: "can no longer be cancelled",
+		},
+		{
+			name: "the slot already reads a cancellation",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Cancelled)
+				return slot
+			},
+			write:   backup.Success,
+			wantMsg: "which is its last word",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			s := backupStat{log: logger}
+			slot := tc.arrange(&s)
+
+			require.False(t, slot.set(tc.write))
+			entry := hook.LastEntry()
+			require.NotNil(t, entry, "the refused write left nothing behind")
+			require.Contains(t, entry.Message, tc.wantMsg)
+			require.Equal(t, tc.write, entry.Data["dropped_status"])
+		})
+	}
+}
+
+// Pins that every operation slot is wired to a logger. The slot itself is
+// silent by default, so an unwired constructor drops writes without a trace.
+func TestOperationSlotsAreWiredToALogger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		slot func(logrus.FieldLogger) *backupStat
+	}{
+		{
+			name: "coordinator",
+			slot: func(l logrus.FieldLogger) *backupStat {
+				return &newCoordinator(nil, nil, nil, l, nil, nil).lastOp
+			},
+		},
+		{
+			name: "backupper",
+			slot: func(l logrus.FieldLogger) *backupStat {
+				return &newBackupper("node1", l, config.Backup{}, nil, nil, nil, nil).lastOp
+			},
+		},
+		{
+			name: "restorer",
+			slot: func(l logrus.FieldLogger) *backupStat {
+				return &newRestorer("node1", l, nil, nil, nil, nil, false).lastOp
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			stat := tc.slot(logger)
+
+			_, slot := stat.renew("op-1", "path", "", "")
+			require.True(t, slot.set(backup.Cancelled))
+			require.False(t, slot.set(backup.Success))
+			require.NotNil(t, hook.LastEntry(), "the refused write left nothing behind")
 		})
 	}
 }

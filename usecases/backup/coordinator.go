@@ -443,8 +443,8 @@ func (c *coordinator) Restore(
 		// cancellation this restore is reporting itself is neither, so let it
 		// through regardless of what the slot says.
 		published := op.publishStatus(slot)
-		agreesWithTheCancellation := op.descriptor.Status.IsCancellation() && slot.holds()
-		if !published && !agreesWithTheCancellation {
+		restoreIsItselfCancelled := op.descriptor.Status.IsCancellation() && slot.holds()
+		if !published && !restoreIsItselfCancelled {
 			c.log.WithFields(logrus.Fields{
 				"action":       OpRestore,
 				"backup_id":    desc.ID,
