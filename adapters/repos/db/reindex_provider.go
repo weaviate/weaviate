@@ -1842,21 +1842,13 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 // logOperatorRepairGuidanceOnTerminalSemanticMigration logs the exact REST
 // command an operator should issue to recover from a semantic migration
 // that reached `outcome` (FAILED or CANCELLED) without the cluster-wide
-// schema flip. The failure mode it targets: sub-tasks that swapped BEFORE
-// the task terminalized left their bucket NEW-tokenized while the schema
-// flip was correctly skipped — every query against the affected inverted
-// index returns 0 until the index is rebuilt against the current schema.
+// schema flip: sub-tasks that swapped before terminalizing leave their
+// bucket NEW-tokenized against an unflipped schema, so affected queries
+// return 0 until rebuilt. CANCELLED needs this guidance as much as FAILED —
+// see [ReindexGateRemedy] for why.
 //
-// CANCELLED reaches the same end state as FAILED, and on a node whose swap
-// committed it is worse: the in-memory tokenization overlay masks the
-// mismatch until the process restarts, at which point
-// FinalizeCompletedMigrations promotes the swapped sidecar to canonical
-// and nothing rebuilds the overlay. So cancel needs this guidance at least
-// as much as failure does.
-//
-// The repair command names the SHORT collection: payload.Collection is
-// namespace-qualified, and a qualified name in the path is rejected by
-// namespacing.ValidateNamespacePrefix for namespace-confined callers. Same
+// Names the SHORT collection: payload.Collection is namespace-qualified,
+// and the qualified form is rejected for namespace-confined callers. Same
 // rendering rule as [ReindexCancelCall].
 func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome string) {
 	if !IsSemanticMigration(payload.MigrationType) {

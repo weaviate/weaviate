@@ -222,19 +222,15 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // ReindexTargetIndexes lists the inverted-index keys a migration type writes
 // to, or nil for an unknown type.
 //
-// Single source of truth for that mapping. It backs the cancel URL's index
-// key ([ReindexCancelCall]), the known-type check on the RAFT apply path
-// ([firstUnknownMigrationType]), the cancel matcher
-// (migrationTypeTargetsIndex) and submit-time disk cleanup
-// (indexTypesFromMigrationType, both in the REST handlers package), and the
-// two paths that delete from disk after the fact:
-// autoCleanupAfterTerminal's per-node sidecar teardown and the restart
-// orphan audit's CleanStalePartialReindexState fan-out. A mismatch between
-// them risks silent data loss, so new migration types are added only here.
+// Single source of truth for that mapping: [ReindexCancelCall],
+// [firstUnknownMigrationType], the REST cancel matcher and submit-time
+// cleanup, and the two disk-deleting cleanup paths (autoCleanupAfterTerminal,
+// the restart orphan audit) all read it. A mismatch between them risks
+// silent data loss, so new migration types are added only here.
 //
-// Not to be confused with semanticMigrationIndexTypes in reindex_provider.go,
-// which answers a different question — which types go through the swap
-// barrier — and deliberately returns nil for the format-only ones.
+// Not semanticMigrationIndexTypes (reindex_provider.go), which answers a
+// different question — which types cross the swap barrier — and returns
+// nil for format-only types.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
