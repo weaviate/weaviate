@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
 
@@ -280,6 +281,45 @@ func TestAsyncCheckpoint_StatusMapping(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			res, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			assert.Equal(t, tc.wantStatus, res.StatusCode, "body: %s", readBodyOnce(t, res))
+		})
+	}
+}
+
+func TestHashTreeLevel_StatusMapping(t *testing.T) {
+	cases := []struct {
+		name       string
+		repErr     error
+		wantStatus int
+	}{
+		{
+			name:       "async_rep_inactive_returns_412",
+			repErr:     fmt.Errorf("%w: hashtree not initialized on shard %q", replica.ErrAsyncReplicationNotActive, "s1"),
+			wantStatus: http.StatusPreconditionFailed,
+		},
+		{
+			name:       "other_error_returns_500",
+			repErr:     fmt.Errorf("some unexpected backend failure"),
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := replicaTypes.NewMockReplicator(t)
+			rep.On("HashTreeLevel", mock.Anything, "MyClass", "s1", 0, mock.Anything).
+				Return(nil, tc.repErr).Once()
+
+			server, cleanup := asyncCheckpointHandlerTestServer(t, rep)
+			defer cleanup()
+
+			discriminant, err := hashtree.NewBitset(1).Set(0).Marshal()
+			require.NoError(t, err)
+
+			url := fmt.Sprintf("%s/replicas/indices/MyClass/shards/s1/objects/hashtree/level/0", server.URL)
+			res, err := http.Post(url, "application/octet-stream", bytes.NewReader(discriminant))
 			require.NoError(t, err)
 			defer res.Body.Close()
 

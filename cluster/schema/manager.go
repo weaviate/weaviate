@@ -730,14 +730,19 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		}
 	}
 
+	// apply() runs updateSchema before updateStore, so this is complete when the DB reads it
+	preFreezeStatuses := make(map[string]string)
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema:          func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
-			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
+			updateSchema: func() error {
+				return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM, preFreezeStatuses)
+			},
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req, preFreezeStatuses) },
 			schemaOnly:            schemaOnly,
 			allowPartialSchemaErr: true,
 		},

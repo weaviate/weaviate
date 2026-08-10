@@ -33,9 +33,9 @@ type DistributedTaskUnit struct {
 	// The error message if the unit failed.
 	Error string `json:"error,omitempty"`
 
-	// The time when the unit finished.
+	// The time when the unit finished. Absent until it has.
 	// Format: date-time
-	FinishedAt strfmt.DateTime `json:"finishedAt,omitempty"`
+	FinishedAt *strfmt.DateTime `json:"finishedAt,omitempty"`
 
 	// The ID of the unit.
 	ID string `json:"id,omitempty"`

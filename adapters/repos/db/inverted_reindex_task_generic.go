@@ -64,23 +64,14 @@
 // trimOlderGenerationsLocked. These run OUTSIDE the mixed-state
 // subwindow.
 //
-//   - OnMigrationComplete is a per-strategy hook with significant
-//     drift between implementations. Some are no-ops (semantic
-//     change-tokenization, enable-filterable, enable-searchable —
-//     their cluster-wide schema flip is in OnTaskCompleted).
-//     Others mutate in-memory local state that the query path
-//     consults (e.g. FilterableToRangeableStrategy.OnMigrationComplete
-//     calls Shard.setRangeableLocallyReady so this shard's queries
-//     match the new schema before the RAFT flip propagates).
-//     Others issue RAFT calls inline
-//     (FilterableToRangeableStrategy.applyPerPropertySchemaUpdate,
-//     MapToBlockmaxStrategy.updateToBlockMaxInvertedIndexConfig).
-//     RAFT calls in this position are slow (100s of ms) but
-//     correctness-safe — the overlay covers the entire RunSwapOnShard
-//     for change-tokenization, and BlockMax has no analyzer overlay
-//     because the format change is internal. See the godoc on
-//     [MigrationStrategy.OnMigrationComplete] for the per-strategy
-//     contract.
+//   - OnMigrationComplete is a per-strategy hook. It is a no-op for
+//     every semantic migration — their cluster-wide schema flip is in
+//     OnTaskCompleted. MapToBlockmaxStrategy is the one implementation
+//     that still issues a RAFT call inline
+//     (updateToBlockMaxInvertedIndexConfig). RAFT calls in this
+//     position are slow (100s of ms) but correctness-safe. See the
+//     godoc on [MigrationStrategy.OnMigrationComplete] for the
+//     per-strategy contract.
 //
 // Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup, BEFORE
 // LSM init reloads any buckets)
@@ -144,10 +135,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// ShardReindexTaskGeneric is a strategy-parameterized implementation of
-// ShardReindexTaskV3. All lifecycle logic (state machine, merge/swap/tidy,
-// object iteration, progress tracking) lives here, with strategy-specific
-// behavior delegated to a MigrationStrategy.
+// ShardReindexTaskGeneric is a strategy-parameterized reindex task. All
+// lifecycle logic (state machine, merge/swap/tidy, object iteration,
+// progress tracking) lives here, with strategy-specific behavior
+// delegated to a MigrationStrategy.
 //
 // See the file-level phase-contract godoc above for the prep / atomic
 // swap / deferred-rename invariants that every code path in this file
@@ -335,6 +326,48 @@ func (t *ShardReindexTaskGeneric) migrationPath(lsmPath string) string {
 	return filepath.Join(lsmPath, ".migrations", t.strategy.MigrationDirName())
 }
 
+// migrationAlreadyFinalized reports whether this task's generation was
+// promoted by [FinalizeCompletedMigrations], which removes the tracker
+// dir and leaves a marker in its place.
+//
+// A tracker dir that still holds files wins over the marker: those files
+// describe live state, the marker only records that an earlier
+// generation of state is gone. This is the whole safety argument for
+// reading the marker, because the marker alone can belong to an earlier
+// migration that reused the same generation number (see
+// [migrationFinalizedMarkerPath]).
+//
+// The ordering invariant it rests on: every phase of a live migration is
+// preceded by a write into the tracker dir. [ReindexProvider] writes
+// payload.mig before the reindex iteration, and the iteration adds
+// started.mig, both of which come before prepare and swap. So a
+// generation that is actually running always has a file here, and only a
+// generation that is not can be acked off the marker.
+//
+// An empty tracker dir is removed on the way through — it carries no
+// state, and while it exists it suppresses the startup damage warning in
+// [unexplainedEmptyRangeableProps], which matches tracker dirs by name
+// alone.
+func (t *ShardReindexTaskGeneric) migrationAlreadyFinalized(lsmPath string) bool {
+	if !fileExists(migrationFinalizedMarkerPath(lsmPath, t.strategy.MigrationDirName())) {
+		return false
+	}
+	migDir := t.migrationPath(lsmPath)
+	holdsFiles, err := dirHoldsAnyFile(migDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.logger.WithField("path", migDir).
+			Warnf("reading migration tracker dir; treating it as carrying no state: %v", err)
+	}
+	if holdsFiles {
+		return false
+	}
+	if err := os.Remove(migDir); err != nil && !os.IsNotExist(err) {
+		t.logger.WithField("path", migDir).
+			Warnf("removing empty migration tracker dir: %v", err)
+	}
+	return true
+}
+
 // reindexRecoveryPayloadFile is the filename of the on-disk JSON record
 // describing the in-flight reindex task. Written by [ReindexProvider]
 // before the reindex iteration starts; read at startup by
@@ -465,6 +498,9 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	if err != nil {
 		return err
 	}
+	if entry.alreadyFinalized {
+		return nil
+	}
 	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	// Idempotent fast-path: already merged means prep was already
@@ -496,12 +532,23 @@ type dtmPhaseEntry struct {
 	shard  *Shard
 	logger logrus.FieldLogger
 	rt     reindexTracker
+
+	// alreadyFinalized means the startup finalizer promoted this
+	// generation and removed its tracker while this task was still
+	// running. There is no on-disk state left to act on and rt is nil;
+	// both callers return success. See [migrationFinalizedMarkerPath].
+	alreadyFinalized bool
 }
 
 // enterDTMPhase unwraps the shard, opens the guarded tracker (DTM callbacks
 // run under no closeLock; see newReindexTrackerGuarded), and — if on-disk
 // state trails RAFT ("started but not reindexed" after a rolling restart) —
 // resumes the iteration before returning.
+//
+// A generation the startup finalizer already promoted returns an entry
+// with alreadyFinalized set and no tracker: the work is done, and the
+// caller must ack success rather than report a shard with no migration
+// on disk.
 func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -513,6 +560,14 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 		"shard":      concreteShard.Name(),
 		"method":     method,
 	})
+
+	// MUST come before the tracker is opened: opening it re-creates the
+	// dir the finalizer removed, and an empty tracker dir is itself a
+	// problem (see [ShardReindexTaskGeneric.migrationAlreadyFinalized]).
+	if t.migrationAlreadyFinalized(concreteShard.pathLSM()) {
+		logger.Info(method + ": generation was already promoted at startup; nothing left to do on disk")
+		return &dtmPhaseEntry{shard: concreteShard, logger: logger, alreadyFinalized: true}, nil
+	}
 
 	rt, err := t.newReindexTrackerGuarded(concreteShard)
 	if err != nil {
@@ -600,6 +655,19 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	if err != nil {
 		return err
 	}
+	if entry.alreadyFinalized {
+		// The data work is done on disk, only the in-process strategy
+		// state may still need aligning, and OnMigrationComplete is
+		// idempotent. Unlike the IsTidied branch below this needs no
+		// in-memory rebuild — the promotion ran before bucket loading,
+		// so shard init opened the canonical bucket itself and it
+		// already carries its in-memory rep — and no generation trim,
+		// because finalize trimmed the older generations already.
+		if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+			return fmt.Errorf("on migration complete: %w", err)
+		}
+		return nil
+	}
 	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	props, err := t.readPropsToReindex(rt)
@@ -623,6 +691,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		// need OnMigrationComplete (e.g. analyzer overlay clears) —
 		// OnMigrationComplete is idempotent for the strategies we
 		// support. Trim is best-effort and also idempotent.
+		if err := t.assertTidiedGenerationServed(ctx, concreteShard, props); err != nil {
+			return err
+		}
 		logger.WithField("props", props).Info("RunSwapOnShard: already tidied on disk; running OnMigrationComplete only")
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
 
@@ -711,6 +782,72 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return fmt.Errorf("runtime swap: %w", err)
 	}
 
+	return nil
+}
+
+// assertTidiedGenerationServed refuses to complete the swap when a tidied
+// generation's migrated data is not reachable under the canonical bucket
+// name.
+//
+// tidied.mig means a previous run finished the swap, so returning nil from
+// the IsTidied branch acks this shard as migrated — and for enable-rangeable
+// that ack is what flips IndexRangeFilters cluster-wide. The data behind
+// that ack lives in exactly one of two places:
+//
+//   - promoted: [FinalizeCompletedMigrations] renamed the ingest dir to the
+//     canonical name at shard init, so the ingest dir is gone.
+//   - deferred: that rename has not run yet, and the in-memory swap
+//     ([lsmkv.Store.SwapBucketPointer]) is what makes the canonical name
+//     resolve to this generation's ingest dir.
+//
+// Anything else is a promotion that did not land — a finalize that failed
+// and kept its tracker for the retry — and acking it reports success over
+// an index that serves zero rows.
+//
+// This branch is reached both with and without a rehydrate, so the check
+// belongs here rather than only on the rehydrate-only path in
+// [ShardReindexTaskGeneric.OnAfterLsmInitAsync]. It also reads the dirs
+// rather than only the store: for repair-rangeable the schema flag is
+// already true, so shard init opens an empty canonical bucket over the
+// missing dir and a store-only check passes.
+//
+// A shutdown drain presents as the same shape: [lsmkv.Store.Shutdown]
+// clears the bucket lookup before draining, so the store answers nil for
+// the canonical name while the deferred dir is still there. That one is
+// transient, so the context is checked first — the same discriminator
+// [ShardReindexTaskGeneric.rebuildRangeableInMemoryReps] uses for the same
+// signal, and the wrap keeps runPerUnitPhase routing to the transient ack
+// path so SWAP re-fires after the restart.
+//
+// With a live context the error is deliberately not a context.Canceled
+// wrap, so the ack records Success=false and the task goes FAILED without
+// flipping the schema. The in-process retry the transient path offers
+// cannot help: only the next shard init retries the promotion, and the
+// tracker this error leaves in place is what keeps that retry alive.
+func (t *ShardReindexTaskGeneric) assertTidiedGenerationServed(ctx context.Context, shard *Shard, props []string) error {
+	lsmPath := shard.pathLSM()
+	for _, propName := range props {
+		mainName := t.strategy.SourceBucketName(propName)
+		ingestDir := filepath.Join(lsmPath, t.ingestBucketName(propName))
+
+		if !dirExists(ingestDir) && dirExists(filepath.Join(lsmPath, mainName)) {
+			continue
+		}
+		if bucket := shard.Store().Bucket(mainName); bucket != nil &&
+			filepath.Clean(bucket.GetDir()) == filepath.Clean(ingestDir) {
+			continue
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("swap check aborted for property %q: %w", propName, ctxErr)
+		}
+		return fmt.Errorf(
+			"stale migration state on shard %q: the tidied sentinel claims property %q is migrated, "+
+				"but its data was never promoted to %q and no in-memory swap is serving it — usually "+
+				"caused by a startup promotion that failed and is retried at the next shard init, or "+
+				"by a DELETE that removed the property mid-migration; refusing to report success for "+
+				"a swap that did not land",
+			shard.Name(), propName, mainName)
+	}
 	return nil
 }
 
@@ -1459,9 +1596,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		// state is the strategy's target bucket existing and populated. If
 		// the bucket is missing now (e.g. a DELETE removed the index between
 		// that previous run and this re-trigger), the on-disk sentinel lies
-		// — calling OnMigrationComplete here would re-flip the schema flag
-		// to true and report success, while the customer's index is in fact
-		// empty. Fail loudly instead.
+		// — acking this shard would report success while the customer's
+		// index is in fact empty. Fail loudly instead.
+		//
+		// Kept alongside [ShardReindexTaskGeneric.assertTidiedGenerationServed]:
+		// this branch is where the inline (non-semantic) strategies complete,
+		// and they never reach RunSwapOnShard where that one runs.
 		for _, propName := range props {
 			bucketName := t.strategy.SourceBucketName(propName)
 			if shard.Store().Bucket(bucketName) == nil {
@@ -1473,7 +1613,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 		// Same ordering contract as runtimeSwap (see there for reasoning):
 		// this re-entry branch must recheck the rebuild too, or a retry
-		// could flip the schema without it ever succeeding.
+		// could ack the shard without the rebuild ever succeeding.
 		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 			return zerotime, false, err
 		}
@@ -1699,7 +1839,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			return zerotime, false, nil
 		}
 		// Inline runtime swap path (non-semantic migrations: MapToBlockmax,
-		// RoaringSetRefresh, EnableRangeable / Repair-*). Semantic
+		// RoaringSetRefresh, repair-filterable). Semantic
 		// migrations have skipSwapOnFinish=true and go through
 		// OnGroupCompleted's three-phase flow (prep → overlay → atomic
 		// swap). Here we run prep + atomic-swap inline: no overlay
@@ -1977,8 +2117,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
 		if !ok {
-			// IsSwappedProp(propName) was true on entry — the previous
-			// attempt's runtimeSwap call shut down + renamed already.
+			// Phase 2a skipped this prop because IsSwappedProp(propName)
+			// was true. Startup clears the sentinels a dead process left
+			// ([clearStaleSwappedPropSentinels]), so the flip claimed
+			// here is one this process made. Same-process retry of
+			// runtimeSwap is unsupported either way (see its godoc).
 			continue
 		}
 		if err := oldMainBucket.Shutdown(ctx); err != nil {
@@ -2007,22 +2150,20 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
 
-	// Ordering contract: rebuild must be checked before OnMigrationComplete.
-	//
-	// Unlike the semantic-migration family ([IsSemanticMigration]),
-	// FilterableToRangeableStrategy.OnMigrationComplete is not gated by
-	// task-terminal status - it RAFT-commits IndexRangeFilters=true
-	// unconditionally the first time any shard's swap reaches this line.
-	// Skipping the check would advertise range-query support while this
-	// shard still falls back to disk (or a corrupt segment parsed as empty
-	// - see [rebuildRangeableInMemoryReps]).
+	// Ordering contract: the rebuild must succeed before this shard
+	// reports its swap complete. Its ack is what lets the task reach
+	// completion and flip IndexRangeFilters cluster-wide; acking a shard
+	// whose in-memory range representation is missing would advertise
+	// range-query support while this shard still falls back to disk (or
+	// to a corrupt segment parsed as empty - see
+	// [rebuildRangeableInMemoryReps]).
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 		return err
 	}
 
 	// OnMigrationComplete: no-op for semantic migrations (the cluster-
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
-	// Per-shard schema-flag flip for blockmax / repair-* strategies.
+	// Per-shard schema-flag flip for the blockmax strategy.
 	// Either way, runs OUTSIDE the per-shard atomic window because it
 	// doesn't touch bucket pointers.
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {

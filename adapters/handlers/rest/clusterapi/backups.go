@@ -29,16 +29,49 @@ type backupManager interface {
 }
 
 type backups struct {
-	manager backupManager
-	auth    auth
+	manager  backupManager
+	activity *backup.NodeActivityProbe
+	auth     auth
 }
 
-func NewBackups(manager backupManager, auth auth) *backups {
-	return &backups{manager: manager, auth: auth}
+func NewBackups(manager backupManager, activity *backup.NodeActivityProbe, auth auth) *backups {
+	return &backups{manager: manager, activity: activity, auth: auth}
 }
 
 func (b *backups) CanCommit() http.Handler {
 	return b.auth.handleFunc(b.canCommitHandler())
+}
+
+// NodeActivity handles GET /backups/node-activity: is this node part of a backup or restore?
+func (b *backups) NodeActivity() http.Handler {
+	return b.auth.handleFunc(b.nodeActivityHandler())
+}
+
+func (b *backups) nodeActivityHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		if r.Method != http.MethodGet {
+			http.Error(w, "/backups/node-activity only serves GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Never silently report "not busy": reindex depends on this answer.
+		if b.activity == nil {
+			http.Error(w, "backup activity probe is not wired on this node", http.StatusServiceUnavailable)
+			return
+		}
+
+		data, err := json.Marshal(backup.NewNodeActivityResponse(b.activity.Activity()))
+		if err != nil {
+			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+	}
 }
 
 func (b *backups) canCommitHandler() http.HandlerFunc {

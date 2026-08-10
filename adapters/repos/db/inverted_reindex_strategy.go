@@ -125,30 +125,17 @@ type MigrationStrategy interface {
 	// later by the cluster-wide schema flip in
 	// [ReindexProvider.OnTaskCompleted].
 	//
-	// Allowed work in this position:
+	// Allowed work in this position: local effects only. Every semantic
+	// strategy is a no-op here — their schema change is committed once,
+	// cluster-wide, from
+	// [ReindexProvider.flipSemanticMigrationSchema].
 	//
-	//   - In-memory mutation of shard-local query-path state that MUST
-	//     match the cluster-wide schema flip before that flip
-	//     propagates. The canonical example is
-	//     [Shard.setRangeableLocallyReady] in
-	//     [FilterableToRangeableStrategy.OnMigrationComplete] — it
-	//     ensures THIS shard's queries observe ready=true at the same
-	//     moment they could observe the new schema flag. The overlay
-	//     is the equivalent mechanism for tokenization changes; this
-	//     hook is the equivalent for per-shard ready flags.
-	//
-	//   - RAFT calls (per-property schema updates) for non-semantic
-	//     strategies whose schema flip is NOT batched in
-	//     OnTaskCompleted: e.g. [MapToBlockmaxStrategy]'s
-	//     updateToBlockMaxInvertedIndexConfig (class-level
-	//     UsingBlockMaxWAND), [FilterableToRangeableStrategy]'s
-	//     applyPerPropertySchemaUpdate (per-property IndexRangeFilters).
-	//     These are slow (hundreds of ms) — correctness is preserved by
-	//     the overlay covering the per-shard window — but they widen
-	//     the FINALIZING duration beyond what the per-shard atomic
-	//     contract intends. The long-term fix is to split this hook
-	//     into "local-in-memory (atomic-safe)" and "cluster-wide-RAFT
-	//     (outside-atomic)" callbacks.
+	// The one exception is [MapToBlockmaxStrategy], a non-semantic
+	// strategy whose class-level UsingBlockMaxWAND flip
+	// (updateToBlockMaxInvertedIndexConfig) still RAFTs from here. It is
+	// slow (hundreds of ms) and widens the FINALIZING duration beyond
+	// what the per-shard atomic contract intends; moving it is the
+	// remaining cleanup.
 	//
 	// Forbidden work in this position:
 	//

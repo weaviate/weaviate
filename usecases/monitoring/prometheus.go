@@ -189,6 +189,8 @@ type PrometheusMetrics struct {
 	ModuleCallError                  *prometheus.CounterVec
 	ModuleBatchError                 *prometheus.CounterVec
 
+	ModuleExternalRequestResends prometheus.Counter
+
 	// Checksum metrics
 	ChecksumValidationDuration prometheus.Summary
 	ChecksumBytesRead          prometheus.Summary
@@ -960,6 +962,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_module_batch_error_total",
 			Help: "Number of batch errors",
 		}, []string{"operation", "class_name"}),
+		ModuleExternalRequestResends: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_module_request_resends_total",
+			Help: "Number of module requests to external APIs sent again after their connection broke",
+		}),
 
 		// Checksum metrics
 		ChecksumValidationDuration: promauto.NewSummary(prometheus.SummaryOpts{

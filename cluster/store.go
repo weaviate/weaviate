@@ -24,7 +24,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -33,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	"github.com/weaviate/weaviate/cluster/namespaces"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
@@ -187,9 +185,6 @@ type Config struct {
 	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
 	ReplicationEngineMaxWorkers int
 
-	// DistributedTasks is the configuration for the distributed task manager.
-	DistributedTasks config.DistributedTasksConfig
-
 	// DistributedTaskCollectionExtractors are registered on the
 	// distributed-task Manager at FSM construction time, BEFORE RAFT
 	// replay runs, so the DELETE_CLASS cascade fires on catchup-replay
@@ -281,9 +276,6 @@ type Store struct {
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
 	tenantAddLocks *entsync.KeyLocker
 
-	// snapshotter is the snapshotter for the store
-	snapshotter fsm.Snapshotter
-
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
 
@@ -345,7 +337,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	}
 }
 
-func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
@@ -360,9 +352,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
-		Clock:            clockwork.NewRealClock(),
-		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		Logger:           cfg.Logger,
+		Logger: cfg.Logger,
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)
@@ -402,9 +392,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
-		snapshotter:             snapshotter,
 		authZController:         authZController,
-		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
 		replicationManager:      replicationManager,
@@ -448,6 +437,13 @@ func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]
 // weaviate/0-weaviate-issues#231.
 func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
 	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+}
+
+// RegisterDistributedTaskTerminalObserver installs a namespace's
+// [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
+// see that type for the apply-path contract.
+func (st *Store) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
+	st.distributedTasksManager.RegisterTerminalObserver(namespace, observer)
 }
 
 // lastIndex returns the last index in stable storage,
@@ -633,6 +629,10 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 
 func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
+		// The Manager is built in New, before Open, so a Store that never
+		// opened still owns a drainer goroutine. Nothing can have applied
+		// here, so there is no shutdown ordering left to respect.
+		st.distributedTasksManager.Close()
 		return nil
 	}
 
@@ -666,6 +666,9 @@ func (st *Store) Close(ctx context.Context) error {
 	}
 
 	st.open.Store(false)
+
+	// Stop the terminal-observer drainer once no further apply can enqueue.
+	st.distributedTasksManager.Close()
 
 	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
@@ -1057,7 +1060,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.DB = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
-	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
+	tempFSM := NewFSM(recoveryConfig, st.authZController, prometheus.NewPedanticRegistry())
 	if err := raft.RecoverCluster(st.raftConfig(),
 		&tempFSM,
 		st.logCache,

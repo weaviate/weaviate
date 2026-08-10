@@ -41,9 +41,27 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// TaskCleaner is an interface for issuing a request to clean up a distributed task.
+// TerminalObserver is called on every node shortly after a task goes terminal
+// (CANCELLED or FAILED), usually before the scheduler has looked at it.
+// Register via [Manager.RegisterTerminalObserver]. It exists so a namespace
+// can make "this node has seen the task end" observable to peers without
+// waiting for the scheduler tick; see the reindex namespace's OnTerminalApplied.
+//
+// Runs on the Manager's drainer goroutine, not the RAFT-apply path, so it may
+// take locks and do work; it gets a clone of the task and must not mutate
+// RAFT-replicated state. Guarantees it does NOT have: it may run after the
+// scheduler has already acted, two events may run concurrently under queue
+// overflow, and past [terminalDispatchOverflowLimit] an event is dropped
+// rather than delivered — see [Manager.dispatchTerminalWithLock]. Endings
+// replayed from the RAFT log at startup are skipped.
+type TerminalObserver func(task *Task)
+
+// TaskCleaner issues a request to clean up a distributed task. finishedAt,
+// proposedAt, and ttl are the caller's measurements; the apply decides from
+// those three numbers alone, never local state, so every node reaches the same
+// verdict on one log entry.
 type TaskCleaner interface {
-	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64, finishedAt, proposedAt time.Time, ttl time.Duration) error
 }
 
 // TaskFinalizer is how the [Scheduler] transitions a task out of
@@ -421,13 +439,13 @@ func (t TaskStatus) IsTerminal() bool {
 
 // IsActive is true for non-terminal in-flight states (STARTED, PREPARING,
 // SWAPPING) — used by conflict detection and the schema MutationGuard.
+//
+// The exact negation of [TaskStatus.IsTerminal], so a status this build
+// doesn't recognize (from a rolling upgrade) counts as in-flight rather than
+// admitting a second migration onto a property the newer node is still
+// migrating.
 func (t TaskStatus) IsActive() bool {
-	switch t {
-	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
-		return true
-	default:
-		return false
-	}
+	return !t.IsTerminal()
 }
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases
@@ -479,8 +497,17 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time that task reached a terminal status.
-	// Additionally, it is used to schedule task clean up.
+	// FinishedAt is the time the task reached a terminal status, stamped exactly
+	// once at that transition and zero before it: FinishedAt.IsZero() ⟺
+	// !Status.IsTerminal(). Always taken off the RAFT request that caused the
+	// transition, never the applying node's clock, so every node agrees.
+	//
+	// This is not when the task's units stopped ([Unit.FinishedAt], per unit) —
+	// on the success path the PREP barrier and bucket swap sit between the two.
+	// A task that fails on a unit report ends right there, so its FinishedAt is
+	// that unit's.
+	//
+	// Also used to schedule task cleanup.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
@@ -525,14 +552,88 @@ type PostCompletionAck struct {
 	// Error captures the aggregated error message when Success==false.
 	// Empty when Success==true.
 	Error string `json:"error,omitempty"`
-	// AckedAt is the wall-clock time the ack was applied on the FSM
-	// (set on the apply path, not from the scheduler). Useful for
-	// forensics — the gap between AllUnitsTerminal's FinishedAt and the
-	// last AckedAt is the SWAPPING window's wall-clock duration on this
-	// cluster.
+	// AckedAt is the wall-clock time the acking node stamped on its RAFT
+	// request, not a clock read on the applying node. The gap between the last
+	// unit's FinishedAt and the last AckedAt is the SWAPPING window's
+	// wall-clock duration. On a failing PREP/SWAP barrier ack it also becomes
+	// the task's own [Task.FinishedAt].
 	AckedAt time.Time `json:"ackedAt"`
 }
 
+// markTerminal ends the task, setting the status and matching FinishedAt in one
+// step — the only place in this package that assigns a terminal status, so the
+// two can't drift apart. at must come from the RAFT request that caused the
+// transition, never the applying node's clock. A task already terminal is left
+// untouched, so the stamp records the first terminal transition only.
+func (t *Task) markTerminal(status TaskStatus, at time.Time) {
+	if t.Status.IsTerminal() {
+		return
+	}
+	t.Status = status
+	t.FinishedAt = at
+}
+
+// repairTerminalStamp moves a terminal task's finish time forward to the latest
+// moment the task itself records, and reports whether it changed anything. Runs
+// only on snapshots below [snapshot.Version] 1 (deletable once that field is);
+// until then, any new [Task] field recording a moment must join the max below,
+// or the stamp lands early and the backup overlap backstop waives a capture
+// that spanned it.
+//
+// The value is a function of the task bytes alone — no node clock, no map
+// order — so every node restoring the same snapshot computes the same stamp.
+// The repair normally lives only in the restoring node's memory until it next
+// snapshots; raft.RecoverCluster is the exception, writing it straight to disk.
+//
+// It can err in both directions, safely. An acker's clock running ahead of the
+// finalizer's moves the stamp later than the real finish — safe, since the
+// backup backstop waives less the later FinishedAt is. It can also land early,
+// up to one scheduler tick short of the real unstamped finalize (the gap being
+// waived is the last post-completion ack to finalize, which contains no shard
+// writes once every task records an ack — a namespace whose tasks record none
+// falls back to the units-stopped moment, which does precede the swap).
+func (t *Task) repairTerminalStamp() bool {
+	if !t.Status.IsTerminal() {
+		return false
+	}
+
+	at := t.StartedAt
+	for _, unit := range t.Units {
+		if unit != nil && unit.FinishedAt.After(at) {
+			at = unit.FinishedAt
+		}
+	}
+	for _, acks := range []map[string]PostCompletionAck{t.PreparationCompletionAcks, t.PostCompletionAcks} {
+		for _, ack := range acks {
+			if ack.AckedAt.After(at) {
+				at = ack.AckedAt
+			}
+		}
+	}
+
+	if !at.After(t.FinishedAt) {
+		return false
+	}
+	t.FinishedAt = at
+	return true
+}
+
+// clearNonTerminalStamp is the other half of the restore normalization: an older
+// binary stamped FinishedAt when a task's units stopped, so a snapshot can carry
+// a PREPARING or SWAPPING task with a finish time already set. Every decision
+// reads the status first, so nothing acts on it, but GET /v1/tasks renders it as
+// a finish time on a task that is still running.
+func (t *Task) clearNonTerminalStamp() bool {
+	if t.Status.IsTerminal() || t.FinishedAt.IsZero() {
+		return false
+	}
+	t.FinishedAt = time.Time{}
+	return true
+}
+
+// Clone deep-copies the maps a caller could otherwise mutate under the
+// Manager's lock. [Task.Payload] is shared, not copied: callers outside the
+// FSM read it and must not write to it.
 func (t *Task) Clone() *Task {
 	clone := *t
 	if t.Units != nil {
@@ -565,16 +666,6 @@ func (t *Task) AllUnitsTerminal() bool {
 		}
 	}
 	return true
-}
-
-// AnyUnitFailed returns true if any unit has FAILED status.
-func (t *Task) AnyUnitFailed() bool {
-	for _, u := range t.Units {
-		if u.Status == UnitStatusFailed {
-			return true
-		}
-	}
-	return false
 }
 
 // LocalUnitIDs returns the IDs of units assigned to the given node.

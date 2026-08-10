@@ -75,6 +75,27 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFi
 		entry.Data["repair_command"])
 }
 
+func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_EnableRangeableRerunsEnable(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+
+	payload := &ReindexTaskPayload{
+		Collection:    "Products",
+		MigrationType: ReindexTypeEnableRangeable,
+		Properties:    []string{"price"},
+	}
+	logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T5"), payload)
+
+	require.Len(t, hook.Entries, 1)
+	entry := hook.Entries[0]
+	// A failed enable-rangeable never flipped indexRangeFilters, so there
+	// is no rangeable index to rebuild. `rebuild` would be rejected with
+	// 400; re-running `enable` is the command that clears the residue.
+	require.Equal(t,
+		`PUT /v1/schema/Products/indexes/price {"rangeable":{"enabled":true}}`,
+		entry.Data["repair_command"])
+	require.Equal(t, ReindexTypeEnableRangeable, entry.Data["migration_type"])
+}
+
 func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
@@ -100,6 +121,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationI
 	// Format-only migrations must not emit operator guidance.
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeRepairFilterable,
+		ReindexTypeRebuildSearchable,
 		ReindexTypeRepairRangeable,
 	} {
 		t.Run(string(mt), func(t *testing.T) {

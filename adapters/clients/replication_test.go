@@ -12,6 +12,7 @@
 package clients
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -796,6 +797,49 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest in range record")
 	})
+}
+
+func TestBinaryStreamReadersClampNonPositiveMaxRecords(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		recordLen int
+		read      func(r io.Reader, contentLength int64, maxRecords int) (int, error)
+	}{
+		{
+			"digests in range", replica.DigestObjectsInRangeRecordLength,
+			func(r io.Reader, contentLength int64, maxRecords int) (int, error) {
+				results, err := readDigestsInRangeBinaryStream(r, contentLength, maxRecords)
+				return len(results), err
+			},
+		},
+		{
+			"compare digests", replica.CompareDigestsRecordLength,
+			func(r io.Reader, contentLength int64, maxRecords int) (int, error) {
+				results, err := readCompareDigestsBinaryStream(r, contentLength, maxRecords)
+				return len(results), err
+			},
+		},
+		{
+			"hashtree level digests", hashtree.DigestLength,
+			func(r io.Reader, contentLength int64, maxRecords int) (int, error) {
+				digests, err := readDigestsBinaryStream(r, contentLength, maxRecords)
+				return len(digests), err
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := make([]byte, 2*tc.recordLen)
+			for _, maxRecords := range []int{-1, 0} {
+				n, err := tc.read(bytes.NewReader(body), int64(len(body)), maxRecords)
+				require.NoError(t, err)
+				require.Equal(t, 2, n)
+			}
+		})
+	}
 }
 
 func TestReplicationOverwriteObjectsCompression(t *testing.T) {

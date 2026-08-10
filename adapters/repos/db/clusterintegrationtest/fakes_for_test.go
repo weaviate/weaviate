@@ -172,7 +172,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, nil, backendProvider, nodeResolver, n.schemaManager, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -181,7 +181,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
-	backups := clusterapi.NewBackups(n.backupManager, clusterapi.NewNoopAuthHandler())
+	backups := clusterapi.NewBackups(n.backupManager, nil, clusterapi.NewNoopAuthHandler())
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
@@ -208,11 +208,11 @@ func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]by
 	return nil
 }
 
-func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+func (r fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) Restore([]byte) error {
+func (r fakeRbacBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
@@ -449,12 +449,6 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overri
 
 	b, _ := json.Marshal(resp)
 	return b, nil
-}
-
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	f.Lock()
-	defer f.Unlock()
-	return nil
 }
 
 func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {

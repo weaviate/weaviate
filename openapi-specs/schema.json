@@ -1184,12 +1184,14 @@
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "format": "float",
-          "type": "number"
+          "type": "number",
+          "x-omitempty": false
         },
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "format": "float",
-          "type": "number"
+          "type": "number",
+          "x-omitempty": false
         }
       },
       "type": "object"
@@ -2281,6 +2283,13 @@
             "type": "string"
           }
         },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "incremental_base_backup_id": {
           "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
@@ -2767,9 +2776,10 @@
           "format": "date-time"
         },
         "finishedAt": {
-          "description": "The time when the task was finished.",
+          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Absent until the task is terminal, including while it is finalizing.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -2829,9 +2839,10 @@
           "format": "date-time"
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit finished. Absent until it has.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         }
       }
     },
@@ -4079,7 +4090,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.38.7"
+    "version": "1.38.9"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -8929,7 +8940,7 @@
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Conflicting reindex task already running, or a backup or restore is in progress on some node.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8941,7 +8952,7 @@
             }
           },
           "503": {
-            "description": "Distributed tasks not enabled.",
+            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

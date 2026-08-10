@@ -97,12 +97,13 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backendName = "gcs"
 		rawbytes    = []byte("hello")
 		timept      = time.Now().UTC()
-		cls         = "Class-A"
-		backupID    = "2"
-		ctx         = context.Background()
-		nodeHome    = backupID + "/" + nodeName
-		path        = "bucket/backups/" + nodeHome
-		req         = Request{
+		// Article matches the chunk fixture registered in fakes_test.go.
+		cls      = "Article"
+		backupID = "2"
+		ctx      = context.Background()
+		nodeHome = backupID + "/" + nodeName
+		path     = "bucket/backups/" + nodeHome
+		req      = Request{
 			Method:   OpRestore,
 			ID:       backupID,
 			Classes:  []string{cls},
@@ -124,13 +125,14 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	metadata := backup.BackupDescriptor{
 		ID:            backupID,
 		StartedAt:     timept,
-		Version:       "1",
-		ServerVersion: "1",
+		Version:       Version,
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
 			ShardingState: rawShardingStateBytes,
+			Chunks:        map[int32][]string{1: {"dir1/file1", "dir2/file2"}},
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",
@@ -155,6 +157,44 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, errMetaNotFound.Error())
 		assert.Equal(t, resp.Timeout, time.Duration(0))
+	})
+
+	t.Run("RejectSingleNodeBackup", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(marshalMeta(metadata), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, errLegacySingleNode.Error())
+		assert.Equal(t, time.Duration(0), resp.Timeout)
+	})
+
+	t.Run("RejectLegacyBackup", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			version       string
+			serverVersion string
+			wantErr       error
+		}{
+			{name: "uncompressed 1.0", version: "1.0", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "uncompressed 1", version: "1", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "flat file structure", version: metadata.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				legacy := metadata
+				legacy.Version = tc.version
+				legacy.ServerVersion = tc.serverVersion
+				backend := newFakeBackend()
+				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(legacy), nil)
+				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				bm := createManager(nil, nil, backend, nil)
+				resp := bm.OnCanCommit(ctx, &req)
+				assert.Contains(t, resp.Err, tc.wantErr.Error())
+				assert.Equal(t, time.Duration(0), resp.Timeout)
+			})
+		}
 	})
 
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
@@ -182,7 +222,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("Read", any, nodeHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
@@ -207,7 +247,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("Read", any, nodeHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
@@ -292,7 +332,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 		desc := &backup.BackupDescriptor{
 			ID:            backupID,
-			ServerVersion: "1.23", // Use version >= 1.23 to skip migration
+			ServerVersion: "1.23",
 			Version:       "1",
 			StartedAt:     time.Now().UTC(),
 			Classes: []backup.ClassDescriptor{
@@ -312,6 +352,53 @@ func TestRestoreAllCancellation(t *testing.T) {
 		assert.Contains(t, err.Error(), "restore cancelled")
 		assert.Equal(t, backup.Cancelled, restorer.lastOp.get().Status)
 	})
+}
+
+// recordingRbacRestorer captures the stripNamespaces flag restoreAll forwards.
+type recordingRbacRestorer struct {
+	called bool
+	strip  bool
+}
+
+func (r *recordingRbacRestorer) Snapshot(roles ...string) ([]byte, error) { return nil, nil }
+
+func (r *recordingRbacRestorer) Restore(_ []byte, stripNamespaces bool) error {
+	r.called = true
+	r.strip = stripNamespaces
+	return nil
+}
+
+// TestRestoreThreadsRbacStripFlag covers restoreAll passing its stripNamespaces
+// argument, which each node derives as !namespacesEnabled, through to the RBAC
+// sourcer. Dropping it would skip the strip entirely and no other test would
+// notice.
+func TestRestoreThreadsRbacStripFlag(t *testing.T) {
+	t.Parallel()
+	for _, strip := range []bool{true, false} {
+		t.Run(map[bool]string{true: "strip", false: "no-strip"}[strip], func(t *testing.T) {
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			rec := &recordingRbacRestorer{}
+			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
+			restorer.lastOp.set(backup.Transferring)
+
+			desc := &backup.BackupDescriptor{
+				ID:            "rbac-strip",
+				ServerVersion: "1.23",
+				Version:       "1",
+				StartedAt:     time.Now().UTC(),
+				RbacBackups:   []byte(`{"version":1}`),
+			}
+
+			err := restorer.restoreAll(context.Background(), desc, 50, nodeStore{
+				objectStore: objectStore{backend: backend, backupId: desc.ID},
+			}, "", "", "", "", strip)
+
+			assert.NoError(t, err)
+			assert.True(t, rec.called, "rbac restore must be invoked")
+			assert.Equal(t, strip, rec.strip)
+		})
+	}
 }
 
 func TestWithCancellation(t *testing.T) {

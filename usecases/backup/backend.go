@@ -29,7 +29,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -76,10 +75,6 @@ type objectStore struct {
 
 func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
 	return s.backend.HomeDir(s.backupId, overrideBucket, overridePath)
-}
-
-func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
-	return s.backend.WriteToFile(ctx, s.backupId, key, destPath, overrideBucket, overridePath)
 }
 
 // SourceDataPath is data path of all source files
@@ -129,23 +124,25 @@ func (s *objectStore) meta(ctx context.Context, key, overrideBucket, overridePat
 	return nil
 }
 
+// hasMeta reports whether a parseable metadata file exists at key.
+func (s *objectStore) hasMeta(ctx context.Context, key, overrideBucket, overridePath string) bool {
+	var desc backup.BackupDescriptor
+	return s.meta(ctx, key, overrideBucket, overridePath, &desc) == nil
+}
+
 type nodeStore struct {
 	objectStore
 }
 
-// Meta gets meta data using standard path or deprecated old path
-//
-// adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
-func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+// Meta gets the node's metadata. A backup carrying metadata only at the top-level base path
+// is refused as errLegacySingleNode.
+func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""} // for backward compatibility
-		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
-			if adjustBasePath {
-				s.objectStore.backupId = backupID
-			}
-			return &result, nil
+		base := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""}
+		if base.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+			return &result, errLegacySingleNode
 		}
 	}
 
@@ -179,15 +176,14 @@ func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.
 	return s.putMeta(ctx, filename, overrideBucket, overridePath, desc)
 }
 
-// Meta gets coordinator's global metadata from object store
+// Meta gets coordinator's global metadata from object store. A backup carrying only the
+// top-level per-node metadata is refused as errLegacySingleNode.
 func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overridePath string) (*backup.DistributedBackupDescriptor, error) {
 	var result backup.DistributedBackupDescriptor
 	err := s.meta(ctx, filename, overrideBucket, overridePath, &result)
-	if err != nil && filename == GlobalBackupFile {
-		var oldBackup backup.BackupDescriptor
-		if err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &oldBackup); err == nil {
-			return oldBackup.ToDistributed(), nil
-		}
+	if err != nil && filename == GlobalBackupFile &&
+		s.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+		return &result, errLegacySingleNode
 	}
 	return &result, err
 }
@@ -209,19 +205,31 @@ func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBuck
 type uploader struct {
 	cfg            config.Backup
 	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
+	rbacSourcer    RBACSnapshotter
 	dynUserSourcer dynUserSnapshotter
 	// Resolved includeUsers ids; empty → whole-cluster snapshot.
-	users    []string
+	users []string
+	// Resolved includeRoles names; empty → whole-cluster RBAC snapshot.
+	roles    []string
 	backend  nodeStore
 	backupID string
 	zipConfig
-	setStatus func(st backup.Status)
-	log       logrus.FieldLogger
+	// slot is the node's own operation slot, which is what a status poll reads
+	// until the descriptor is written to the backend.
+	slot statusPublisher
+	log  logrus.FieldLogger
 }
 
-func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
-	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
+// statusPublisher is the observable half of a node's operation slot. Failing
+// goes through its own method so a failure can never be published without the
+// reason that belongs to it; see [backupStat.setFailed].
+type statusPublisher interface {
+	set(st backup.Status)
+	setFailed(reason string)
+}
+
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,
+	backupID string, slot statusPublisher, l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
 		cfg:            cfg,
@@ -229,14 +237,15 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
 		users:          users,
+		roles:          roles,
 		backend:        backend,
 		backupID:       backupID,
 		zipConfig: newZipConfig(Compression{
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setStatus: setstatus,
-		log:       l,
+		slot: slot,
+		log:  l,
 	}
 }
 
@@ -247,10 +256,15 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
-	u.setStatus(backup.Transferring)
+	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
+
+	// The commit-time overlap backstop is the only failure that makes FAILED
+	// observable while the operation is still running, so its flip waits for the
+	// deferred meta write below: a poll that sees FAILED must be able to read why.
+	var overlapRefused bool
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
@@ -267,16 +281,19 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
 				desc.Status = backup.Transferred
 			}
-			u.setStatus(backup.Success)
+			u.slot.set(backup.Success)
 			u.log.Info("finish uploading metadata")
 			return
 		}
 
-		desc.Error = err.Error()
+		// The caller has already logged the full chain, shard id and all.
+		desc.Error = publishableErrMsg(err)
 
-		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			u.setStatus(backup.Cancelled)
+		// overlapRefused wins over the cancellation classification: the refusal's
+		// own cause may itself wrap a cancellation from an unrelated context,
+		// which would otherwise get published as an operator abort.
+		if !overlapRefused && errors.Is(err, context.Canceled) {
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
 			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
@@ -288,13 +305,18 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
+		// After the meta write either way, since it's the operation that may
+		// have just failed and the reason must survive it.
+		if overlapRefused {
+			u.slot.setFailed(desc.Error)
+		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
 
 	contextChecker := func(ctx context.Context) error {
 		ctxerr := ctx.Err()
 		if ctxerr != nil {
-			u.setStatus(backup.Cancelled)
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 			u.releaseIndexes(classes, desc.ID)
 		}
@@ -331,11 +353,13 @@ Loop:
 		return contextChecker(ctx)
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
-		descrp, err := u.rbacSourcer.Snapshot()
+		descrp, err := u.rbacSourcer.Snapshot(u.roles...)
 		if err != nil {
 			return err
 		}
 		desc.RbacBackups = descrp
+	} else if len(u.roles) > 0 {
+		return fmt.Errorf("includeRoles requested but RBAC is not enabled")
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -351,11 +375,50 @@ Loop:
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
-	u.setStatus(backup.Transferred)
+	// Commit-time backstop: per-shard checks ran before capture, so a reindex
+	// admitted during capture was invisible to them. Failing the backup beats a
+	// SUCCESS that silently spans a migration.
+	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
+		// If this context itself is cancelled, that's an operator abort, not
+		// an overlap — reporting it as one would flip the status to FAILED
+		// behind the operator's back for a migration that never ran.
+		if ctx.Err() != nil {
+			return contextChecker(ctx)
+		}
+		overlapRefused = true
+		desc.Status = backup.Failed
+		if errors.Is(err, backup.ErrReindexOverlapUndetermined) {
+			// The check's own text already states it couldn't answer and
+			// carries the remedy; prefixing "overlapped" here would assert a
+			// migration that may never have existed.
+			return err
+		}
+		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)
+	}
+
+	u.slot.set(backup.Transferred)
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
+}
+
+// publishableErrMsg is the failure text safe to serve from the status API. A
+// gate refusal arrives wrapped in the shard it came from; backing up a
+// collection grants nothing on shard ids, so the refusal's own message is
+// published rather than the traversal that found it.
+func publishableErrMsg(err error) string {
+	msg := err.Error()
+	var blocked backup.ReindexBlockedError
+	if errors.As(err, &blocked) {
+		msg = blocked.Error()
+	}
+	if msg == "" {
+		// A failure published with no text at all reads as no failure; say at
+		// least that there was one.
+		return "backup failed without a reported reason"
+	}
+	return msg
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
@@ -739,14 +802,13 @@ type fileWriter struct {
 	tempDir    string
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
-	compressed bool
 	GoPoolSize int
 	migrator   func(classPath string) error
 	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	compressed bool, logger logrus.FieldLogger,
+	logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -755,7 +817,6 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		destDir:    destDir,
 		tempDir:    path.Join(destDir, TempDirectory),
 		movedFiles: make([]string, 0, 64),
-		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
 		logger:     logger,
 	}
@@ -815,22 +876,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// no compression processed as before
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
-	if !fw.compressed {
-		eg.SetLimit(2 * numCPU())
-		for _, shard := range desc.Shards {
-			// Check for cancellation before processing each shard
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
-		}
-		return eg.Wait()
-	}
-
-	// source files are compressed
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
 		// Check for cancellation before processing each chunk
@@ -864,36 +910,6 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		}
 	}
 	return eg.Wait()
-}
-
-func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
-	for _, key := range sd.Files {
-		// Check for cancellation before processing each file
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		destPath := path.Join(classTempDir, key)
-		destDir := path.Dir(destPath)
-		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
-			return fmt.Errorf("create folder %s: %w", destDir, err)
-		}
-		if err := fw.backend.WriteToFile(ctx, key, destPath, overrideBucket, overridePath); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
-		}
-	}
-	destPath := path.Join(classTempDir, sd.DocIDCounterPath)
-	if err := os.WriteFile(destPath, sd.DocIDCounter, os.ModePerm); err != nil {
-		return fmt.Errorf("write counter file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.PropLengthTrackerPath)
-	if err := os.WriteFile(destPath, sd.PropLengthTracker, os.ModePerm); err != nil {
-		return fmt.Errorf("write prop file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.ShardVersionPath)
-	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
-		return fmt.Errorf("write version file %s: %w", destPath, err)
-	}
-	return nil
 }
 
 // readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.

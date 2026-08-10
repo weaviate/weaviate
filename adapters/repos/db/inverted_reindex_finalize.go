@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,9 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // nextMigrationGeneration returns the per-node generation `N` a new
@@ -183,6 +187,45 @@ func fileExistsInDir(dirPath, fileName string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// swappedPropSentinelPrefix is what [fileReindexTracker.markSwappedProp]
+// prefixes each per-property sentinel with: `swapped.mig.<prop>`.
+const swappedPropSentinelPrefix = "swapped.mig."
+
+// clearStaleSwappedPropSentinels removes the `swapped.mig.<prop>` files of
+// a tracker that has no bare `swapped.mig`.
+//
+// The per-prop file records an in-memory bucket-pointer flip; the bare file
+// is the durable record that the flip was completed. Having the first
+// without the second proves the flip did not survive, so on the retry the
+// per-prop file would make [ShardReindexTaskGeneric.processOneSwapProp]
+// skip a flip that this process never performed — leaving the shard serving
+// old-tokenization rows while the migration reports success.
+//
+// Only for runtime swaps, which [swapIngestAndBackupBuckets] is not: that
+// path writes its per-prop file together with the directory rename, so
+// there the sentinel does describe disk state and must be kept. The caller
+// gates on `prepended.mig`, which only the runtime swap writes.
+func clearStaleSwappedPropSentinels(migDir string, logger logrus.FieldLogger) {
+	entries, err := os.ReadDir(migDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, swappedPropSentinelPrefix) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(migDir, name)); err != nil {
+			logger.WithField("path", filepath.Join(migDir, name)).
+				Warnf("reindex finalize: failed to remove stale per-prop swap sentinel; "+
+					"the swap retry may skip a bucket-pointer flip it still owes: %v", err)
+			continue
+		}
+		logger.WithField("migration", filepath.Base(migDir)).WithField("sentinel", name).
+			Info("reindex finalize: cleared per-prop swap sentinel left by a process that died before the swap was durable")
+	}
+}
+
 // FinalizeCompletedMigrations scans the shard's .migrations/ directory for
 // completed migrations that still need filesystem cleanup, and runs the
 // deferred ingest→canonical rename for each.
@@ -213,27 +256,43 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //     `property_<prop>_<index>/`, remove `…_<backupSuffix-base>_<T>/`.
 //   - If `effective == M > T`: recovery path. The in-process runtime
 //     swap on this node crashed AFTER `markMerged` but BEFORE
-//     `markTidied`, so the ingest dir at gen M holds the
-//     target-tokenization data the schema expects and is safe to
-//     promote even though the canonical-name rename never ran. Write
-//     `swapped.mig` + `tidied.mig` sentinels into gen-M's tracker dir
-//     (so the namespace becomes self-consistent on disk and the same
-//     finalize path runs) and then promote gen M the same way.
-//     CRITICAL: this means the cluster-wide schema flip
-//     [ReindexProvider.flipSemanticMigrationSchema] has likely already
-//     committed via RAFT (the DTM task was FINISHED before this node
-//     died, otherwise the unit would not have transitioned terminal),
-//     so the canonical bucket MUST have target-tokenization data on
-//     restart — otherwise this node serves the old data under the new
-//     schema → divergence vs other replicas → #10675-shape bug.
+//     `markTidied`, so the ingest dir at gen M holds a complete dataset
+//     under the target encoding while the canonical-name rename never
+//     ran. What happens to that dataset — see
+//     [swappedOrMergedPromotionDecision]. A generation carrying
+//     `swapped.mig` is promoted unconditionally: the swap already
+//     committed and there is no other complete copy left. Only a
+//     generation without `swapped.mig` is weighed against the task that
+//     produced it. When a generation is promoted, `swapped.mig` +
+//     `tidied.mig` sentinels are written into gen-M's tracker dir (so
+//     the namespace becomes self-consistent on disk and the same
+//     finalize path runs) and gen M is promoted the same way.
 //   - Remove every dir on disk (sidecars + tracker) with gen < effective
 //     — these are pre-`effective` data, no longer referenced.
-//   - Remove the tracker dir for `effective` itself.
+//   - Remove the tracker dir for `effective` itself, leaving a
+//     `<dirName>.finalized.mig` marker in its place so a task callback
+//     that arrives afterwards can tell "already done" from "never ran"
+//     (see [migrationFinalizedMarkerPath]).
 //   - If neither `T` nor `M` exists, do nothing — any earlier-stage
 //     in-flight migration on disk is the recovery path's
 //     responsibility ([DiscoverInFlightReindexTasks]).
 //   - Generations with `gen > effective` are in-flight (next migration)
 //     and left alone — recovery picks them up via their `payload.mig`.
+//
+// `class` is the collection schema this shard is being loaded with (the
+// restored schema on a restore path) and `taskLiveness` resolves the
+// task identity in a tracker's payload.mig against the distributed task
+// list. Both are only consulted for a merged-without-tidied generation
+// that does not carry `swapped.mig`. A nil lookup answers Unknown, which
+// leaves every dir in place. A nil class confirms nothing on its own, but
+// combined with a lookup that returns a definite Dead answer it turns a
+// known-dead task into a refusal. Neither nil is an opt-out from
+// promotion: for the content-equivalent types (repair-rangeable,
+// repair-filterable, rebuild-searchable, change-algorithm) any non-Live
+// answer promotes regardless of class, because agreement with the schema
+// is decided before the class is read — but the lookup is read first, and
+// a Live answer leaves the dirs to the running task. A swapped generation
+// is promoted without consulting either.
 //
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
@@ -241,7 +300,9 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // (via DTM) marking tidied while the directory renames are deferred to
 // the next startup when no buckets are loaded. See
 // `docs/runtime-reindex.md` for the rationale.
-func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) FinalizeResult {
+func FinalizeCompletedMigrations(lsmPath string, class *models.Class,
+	taskLiveness ReindexTaskLivenessLookup, logger logrus.FieldLogger,
+) FinalizeResult {
 	var result FinalizeResult
 
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
@@ -266,6 +327,7 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) Fina
 		gen     int
 		tidied  bool
 		merged  bool
+		swapped bool
 	}
 	groups := map[string][]genInfo{}
 	for _, entry := range entries {
@@ -281,11 +343,19 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) Fina
 		}
 		tidied := fileExists(filepath.Join(migrationsDir, name, "tidied.mig"))
 		merged := fileExists(filepath.Join(migrationsDir, name, "merged.mig"))
+		swapped := fileExists(filepath.Join(migrationsDir, name, "swapped.mig"))
+		// Runs on every shard init, ahead of both reindexer hooks and of
+		// bucket loading, so it dominates every consumer of the per-prop
+		// sentinel — see [clearStaleSwappedPropSentinels].
+		if !swapped && fileExists(filepath.Join(migrationsDir, name, "prepended.mig")) {
+			clearStaleSwappedPropSentinels(filepath.Join(migrationsDir, name), logger)
+		}
 		groups[namespace] = append(groups[namespace], genInfo{
 			dirName: name,
 			gen:     gen,
 			tidied:  tidied,
 			merged:  merged,
+			swapped: swapped,
 		})
 	}
 
@@ -316,27 +386,31 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) Fina
 
 		// If the effective promotion gen lacks tidied.mig, this is the
 		// recovery path: the in-process runtime swap on this node died
-		// after markMerged but before markTidied. Write the missing
-		// sentinels so the rest of the finalize logic sees a consistent
-		// tracker and the same ingest→canonical rename runs. The schema
-		// flip has likely already committed cluster-wide via the DTM
-		// task's FINISHED state; promoting gen-effective here is what
-		// makes this node's bucket data consistent with that schema.
+		// after markMerged but before markTidied. Whether its data may
+		// be promoted depends on the task that produced it.
 		if effective > highestTidied {
 			for _, g := range gens {
 				if g.gen != effective {
 					continue
 				}
 				migDir := filepath.Join(migrationsDir, g.dirName)
-				if err := writeRecoveryTidiedSentinels(migDir); err != nil {
-					logger.WithField("migration", g.dirName).
-						Errorf("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart: %v", err)
-					// Skip the recovery path; fall back to the tidied
-					// gen if any (existing behavior).
+				switch swappedOrMergedPromotionDecision(g.swapped, migDir, g.dirName, class, taskLiveness, logger) {
+				case mergedPromotionPromote:
+					if err := writeRecoveryTidiedSentinels(migDir); err != nil {
+						logger.WithField("migration", g.dirName).
+							Errorf("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart: %v", err)
+						// Skip the recovery path; fall back to the tidied
+						// gen if any (existing behavior).
+						effective = highestTidied
+					} else {
+						logger.WithField("migration", g.dirName).WithField("gen", effective).
+							Info("reindex finalize: recovered untidied gen — runtime swap died post-merge, completing finalize from disk state")
+					}
+				case mergedPromotionLeave:
 					effective = highestTidied
-				} else {
-					logger.WithField("migration", g.dirName).WithField("gen", effective).
-						Info("reindex finalize: recovered untidied gen — runtime swap died post-merge, completing finalize from disk state")
+				case mergedPromotionRefuse:
+					discardRefusedMergedGen(lsmPath, namespace, migDir, g.dirName, logger)
+					effective = highestTidied
 				}
 				break
 			}
@@ -352,17 +426,31 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) Fina
 			migDir := filepath.Join(migrationsDir, g.dirName)
 			switch {
 			case g.gen == effective:
-				promoted := finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
+				promoted, err := finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
+				if err != nil {
+					// Nothing, or only part, of this generation reached its
+					// canonical dirs. Keep the tracker and skip the marker:
+					// the next shard init retries the promotion, and until
+					// then a task still running for this generation reads
+					// real tracker state instead of an ack for a swap that
+					// did not land.
+					logger.WithField("migration", g.dirName).
+						Errorf("reindex finalize: promotion failed, keeping tracker dir for retry at next startup: %v", err)
+					continue
+				}
 				// The tracker is the last place the swap-vs-flip window is
 				// recorded, so read it out before the RemoveAll below.
 				result.addPromotions(namespace, migDir, promoted)
 				// finalizeMigrationDir performs the ingest→canonical
 				// rename + backup removal. We also remove the tracker
-				// dir itself: its sentinels have done their job.
+				// dir itself: its sentinels have done their job. The
+				// marker takes its place so a task still running for
+				// this generation can recognize its work as done.
 				if err := os.RemoveAll(migDir); err != nil {
 					logger.WithField("path", migDir).
 						Warnf("reindex finalize: failed to remove finalized tracker dir: %v", err)
 				}
+				writeMigrationFinalizedMarker(lsmPath, g.dirName, logger)
 			case g.gen < effective:
 				// Stale older gen: remove tracker dir AND its sidecar
 				// dirs (their backup/ingest/reindex dirs on disk are
@@ -382,9 +470,367 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) Fina
 				// payload.mig read.
 			}
 		}
+
+		removeStaleFinalizedMarkers(migrationsDir, entries, namespace, effective, logger)
 	}
 
 	return result
+}
+
+// migrationFinalizedMarkerSuffix names the file [FinalizeCompletedMigrations]
+// leaves behind when it removes a tracker dir it just promoted.
+const migrationFinalizedMarkerSuffix = ".finalized.mig"
+
+// migrationFinalizedMarkerPath is the marker recording that the given
+// migration generation was promoted and its tracker removed.
+//
+// Removing the tracker is what makes the deferred rename visible to the
+// next boot, but it also erases the only on-disk evidence that this
+// generation ever existed. A task that is still running when startup
+// promotes its generation calls back into the shard afterwards and finds
+// nothing — indistinguishable from a shard that never ran the migration,
+// which is a hard error ([ShardReindexTaskGeneric.enterDTMPhase]). The
+// marker keeps those two apart so the task acks success instead of
+// failing the whole cluster's migration on a shard whose data is correct.
+//
+// It is a file, not a directory, so the scans that enumerate migration
+// state (all of which skip non-directories) do not see a finished
+// migration as an in-flight one. The startup audit in
+// [unexplainedEmptyRangeableProps] depends on that: a marker must not
+// suppress its damage warning.
+//
+// [removeStaleFinalizedMarkers] drops the markers below the generation
+// just promoted, so they do not pile up within a rising sequence of
+// generations. A marker for a higher generation can outlive a later
+// promotion at a reused lower one, so more than one marker per namespace
+// is possible. Never rely on a marker's existence alone — the
+// live-tracker-wins guard below is what neutralizes a stale marker, not
+// the sweep.
+//
+// A marker carrying my dirName does NOT prove that my generation was
+// promoted, for two reasons:
+//
+//   - Generation numbers are reused. [nextMigrationGeneration] counts
+//     directories, and a promoted generation leaves none behind, so the
+//     next migration on the same namespace is handed the same number and
+//     with it the same marker name.
+//   - A marker whose namespace has no tracker dir never expires. The
+//     sweep runs inside the per-namespace loop, and that loop is built
+//     from tracker dirs only, so a lone marker survives every later boot.
+//
+// What makes reading the marker safe is that a tracker dir holding files
+// overrides it — see [ShardReindexTaskGeneric.migrationAlreadyFinalized].
+func migrationFinalizedMarkerPath(lsmPath, dirName string) string {
+	return filepath.Join(lsmPath, ".migrations", dirName+migrationFinalizedMarkerSuffix)
+}
+
+// writeMigrationFinalizedMarker records that dirName's generation was
+// promoted. Best-effort: a missing marker only costs the pre-existing
+// failure mode it exists to prevent, so it must not abort finalize.
+func writeMigrationFinalizedMarker(lsmPath, dirName string, logger logrus.FieldLogger) {
+	path := migrationFinalizedMarkerPath(lsmPath, dirName)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		logger.WithField("path", path).
+			Warnf("reindex finalize: failed to write finalized marker; a task still running for this generation may fail its swap callback: %v", err)
+	}
+}
+
+// dirHoldsAnyFile reports whether a directory holds at least one regular
+// file. Used to tell a migration tracker that carries state from an empty
+// leftover dir, which some code paths create before finding there is
+// nothing to do.
+//
+// A directory that cannot be read reports as empty. The error is returned
+// alongside so callers for which "empty" is the unsafe answer can say so;
+// a missing directory is empty and reports [os.ErrNotExist].
+func dirHoldsAnyFile(dirPath string) (bool, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// removeStaleFinalizedMarkers drops the markers of generations older than
+// effective in one namespace. Their tasks cannot still be running: a
+// newer generation of the same namespace has completed since.
+func removeStaleFinalizedMarkers(migrationsDir string, entries []os.DirEntry,
+	namespace string, effective int, logger logrus.FieldLogger,
+) {
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), migrationFinalizedMarkerSuffix) {
+			continue
+		}
+		base := strings.TrimSuffix(entry.Name(), migrationFinalizedMarkerSuffix)
+		ns, gen, ok := parseMigrationDirName(base)
+		if !ok || ns != namespace || gen >= effective {
+			continue
+		}
+		path := filepath.Join(migrationsDir, entry.Name())
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logger.WithField("path", path).
+				Warnf("reindex finalize: failed to remove stale finalized marker: %v", err)
+		}
+	}
+}
+
+// mergedPromotion is what [FinalizeCompletedMigrations] does with a
+// generation that reached merged.mig but never reached tidied.mig.
+type mergedPromotion int
+
+const (
+	// mergedPromotionPromote renames the ingest dir to canonical, the
+	// deferred second half of a swap that did commit.
+	mergedPromotionPromote mergedPromotion = iota
+	// mergedPromotionLeave keeps every dir where it is. Either the task
+	// is still running and owns them, or nothing on disk proves it is
+	// not.
+	mergedPromotionLeave
+	// mergedPromotionRefuse discards the ingest dir and its tracker.
+	mergedPromotionRefuse
+)
+
+// swappedOrMergedPromotionDecision decides what may happen to a
+// generation that never reached tidied.mig.
+//
+// Everything [mergedPromotionDecision] weighs assumes the swap has not
+// happened yet, so the canonical dir still holds the pre-migration data
+// and declining to promote costs nothing. Once swapped.mig is on disk
+// that assumption is gone: the swap renamed the canonical dir to
+// backup_<gen> and flipped the in-memory pointer, so declining leaves no
+// dir under the canonical name at all. Shard init then creates an empty
+// one ([Shard.createPropertyValueIndex] does that for any property the
+// schema says has an index), and the property serves zero rows until
+// some later startup promotes the ingest dir.
+//
+// So swapped.mig makes the promotion the deferred second half of an
+// operation that already committed, not a decision. The task's liveness
+// and the schema only get a say before that point.
+func swappedOrMergedPromotionDecision(swapped bool, migDir, dirName string, class *models.Class,
+	taskLiveness ReindexTaskLivenessLookup, logger logrus.FieldLogger,
+) mergedPromotion {
+	if swapped {
+		return mergedPromotionPromote
+	}
+	return mergedPromotionDecision(migDir, dirName, class, taskLiveness, logger)
+}
+
+// mergedPromotionDecision decides what may happen to a
+// merged-but-unswapped, untidied generation, from the task identity in
+// its payload.mig plus the collection schema.
+//
+// The dangerous case this exists for: a task that was cancelled or
+// failed between markMerged and markTidied leaves an ingest dir that
+// nothing will ever complete. Promoting it moves data the cluster
+// decided not to migrate into the bucket queries read, and the schema
+// disagrees with it — for change-tokenization that is live-wrong data
+// on this replica only.
+//
+// Refusal is lossless, and that rests on the caller only asking about
+// generations without swapped.mig: the swap has not renamed the old
+// canonical dir away yet, so the property keeps serving its complete
+// pre-migration data.
+// The ingest dir stops being updated the moment the task dies, because
+// the double-write mirror dies with it, so a later startup must never
+// promote it either.
+//
+// Refusal is deliberately narrow. It fires only for a task that is known
+// to be dead: a live task keeps its state, and so does a task whose
+// liveness cannot be established. A tracker with no readable payload.mig
+// keeps the historical behavior of promoting, since without the task
+// identity nothing about it is known.
+//
+// When liveness is unknown the outcome is Leave, and the working dirs
+// wait for a later startup or the orphan audit. Shards loaded eagerly
+// during startup are in exactly that position: they initialize before
+// [SetReindexAuditDeps] installs the task-list lookup, so refusal is
+// reached only by shards loaded later, which in practice means
+// lazily-loaded and multi-tenant ones.
+func mergedPromotionDecision(migDir, dirName string, class *models.Class,
+	taskLiveness ReindexTaskLivenessLookup, logger logrus.FieldLogger,
+) mergedPromotion {
+	logger = logger.WithField("migration", dirName)
+
+	rec, ok := loadAuditRecord(migDir)
+	if !ok {
+		logger.Warn("reindex finalize: merged-but-untidied tracker has no readable payload.mig; " +
+			"promoting it unverified. A tracker written by an older version, or one edited by hand, " +
+			"has this shape")
+		return mergedPromotionPromote
+	}
+
+	liveness := taskLiveness.Answer(rec.TaskID, rec.TaskVersion)
+	agrees := mergedPromotionAgreesWithSchema(rec.Payload, class)
+
+	logger = logger.WithField("task", rec.TaskID).
+		WithField("task_liveness", liveness.String()).
+		WithField("schema_agrees", agrees)
+
+	switch {
+	case liveness == ReindexTaskLivenessLive:
+		logger.Info("reindex finalize: merged-but-untidied tracker belongs to a running task; " +
+			"leaving its state to the reindex machinery")
+		return mergedPromotionLeave
+	case agrees:
+		return mergedPromotionPromote
+	case liveness == ReindexTaskLivenessDead:
+		logger.Warnf("reindex finalize: refusing to promote merged-but-untidied migration — the %q task is "+
+			"no longer running and the schema does not reflect it. The property keeps its pre-migration data "+
+			"and the abandoned working dirs are discarded", rec.Payload.MigrationType)
+		return mergedPromotionRefuse
+	default:
+		logger.Warnf("reindex finalize: the schema does not reflect the %q migration and its task's status is "+
+			"unknown at this point in startup; leaving every dir in place for the next startup or the orphan audit",
+			rec.Payload.MigrationType)
+		return mergedPromotionLeave
+	}
+}
+
+// mergedPromotionAgreesWithSchema reports whether `class` confirms the
+// migration described by `payload` already completed for every property
+// it targets. Content-equivalent rewrites (repair / rebuild / algorithm
+// change) leave no schema trace and are always accepted, since their
+// ingest bucket holds the same information as the canonical one it
+// replaces; every other type needs its schema flag already flipped as
+// proof. An unknown migration type is not confirmed, so a new strategy
+// opts in here deliberately.
+func mergedPromotionAgreesWithSchema(payload ReindexTaskPayload, class *models.Class) bool {
+	var reflected func(prop *models.Property) bool
+	switch payload.MigrationType {
+	case ReindexTypeRepairFilterable, ReindexTypeRepairRangeable,
+		ReindexTypeRebuildSearchable, ReindexTypeChangeAlgorithm:
+		return true
+	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
+		reflected = func(prop *models.Property) bool {
+			return payload.TargetTokenization != "" && prop.Tokenization == payload.TargetTokenization
+		}
+	case ReindexTypeEnableFilterable:
+		reflected = inverted.HasFilterableIndex
+	case ReindexTypeEnableSearchable:
+		reflected = inverted.HasSearchableIndex
+	case ReindexTypeEnableRangeable:
+		reflected = inverted.HasRangeableIndex
+	default:
+		return false
+	}
+
+	if len(payload.Properties) == 0 {
+		return false
+	}
+	for _, propName := range payload.Properties {
+		prop := propertyByName(class, propName)
+		if prop == nil || !reflected(prop) {
+			return false
+		}
+	}
+	return true
+}
+
+func propertyByName(class *models.Class, propName string) *models.Property {
+	if class == nil {
+		return nil
+	}
+	for _, p := range class.Properties {
+		if p != nil && p.Name == propName {
+			return p
+		}
+	}
+	return nil
+}
+
+// discardRefusedMergedGen removes the working dirs a refused generation
+// built (ingest and reindex) and then its tracker dir. Tracker last: a
+// crash in between re-enters the same refusal on the next startup, and
+// both steps are idempotent.
+//
+// Takes the backup guard, since a refused generation may be the one that
+// left the property with no canonical dir at all. See
+// [removeGenerationSidecars].
+func discardRefusedMergedGen(lsmPath, namespace, migDir, dirName string, logger logrus.FieldLogger) {
+	if err := removeGenerationSidecars(lsmPath, namespace, dirName, true, logger); err != nil {
+		logger.WithField("path", migDir).
+			Warnf("reindex finalize: cannot enumerate the refused migration's dirs; leaving them on disk for the orphan audit: %v", err)
+		return
+	}
+
+	if err := os.RemoveAll(migDir); err != nil {
+		logger.WithField("path", migDir).
+			Warnf("reindex finalize: failed to remove refused merged tracker dir: %v", err)
+	}
+}
+
+// removeGenerationSidecars removes the ingest, reindex and backup dirs
+// of one generation of a migration. The generation is the `_<N>` tail of
+// dirName; the suffix bases come from the strategy behind namespace.
+//
+// guardBackup keeps a backup dir that has no canonical dir beside it.
+// That shape means a swap renamed the old main dir away and died before
+// renaming ingest in, so the backup is the last copy of the property's
+// data. Callers trimming a generation that finalized successfully pass
+// false: their canonical dir is already in place.
+//
+// Returns an error only when the generation's dirs cannot be enumerated,
+// in which case nothing was removed. Individual removal failures are
+// logged and skipped. The orphan audit does not reclaim what they leave
+// behind — every audit path is keyed on a tracker dir, and callers remove
+// the tracker right after this returns. Those dirs are inert (nothing
+// opens a bucket on them) until the next migration submit on the same
+// property, whose [Shard.CleanStalePartialReindexState] removes every
+// sidecar that is not preserved for a completed migration, ahead of the
+// generation number being reused.
+func removeGenerationSidecars(
+	lsmPath, namespace, dirName string, guardBackup bool, logger logrus.FieldLogger,
+) error {
+	migDir := filepath.Join(lsmPath, ".migrations", dirName)
+	suffixes := migrationSuffixes(dirName)
+	if suffixes == nil {
+		return fmt.Errorf("no known suffixes for migration dir %q", dirName)
+	}
+	_, gen, ok := parseMigrationDirName(dirName)
+	if !ok {
+		return fmt.Errorf("cannot parse generation out of migration dir %q", dirName)
+	}
+	props, err := readMigrationProps(migDir)
+	if err != nil {
+		return fmt.Errorf("read properties.mig: %w", err)
+	}
+
+	genTail := "_" + strconv.Itoa(gen)
+	for _, propName := range props {
+		main := suffixes.sourceBucketName(propName)
+		for _, suff := range []string{suffixes.ingestSuffix, reindexSuffixForFinalize(namespace)} {
+			if suff == "" {
+				// An empty suffix would name the canonical dir itself.
+				continue
+			}
+			removeDirIfPresent(filepath.Join(lsmPath, main+suff+genTail), logger)
+		}
+
+		backupDir := filepath.Join(lsmPath, main+suffixes.backupSuffix+genTail)
+		if guardBackup && fileExists(backupDir) && !fileExists(filepath.Join(lsmPath, main)) {
+			logger.WithField("property", propName).WithField("backup_dir", backupDir).
+				Warn("reindex finalize: migration left a backup dir with no canonical dir beside it; " +
+					"keeping it, it may be the only copy of this property's data")
+			continue
+		}
+		removeDirIfPresent(backupDir, logger)
+	}
+	return nil
+}
+
+func removeDirIfPresent(path string, logger logrus.FieldLogger) {
+	if !fileExists(path) {
+		return
+	}
+	if err := os.RemoveAll(path); err != nil {
+		logger.WithField("path", path).
+			Warnf("reindex finalize: failed to remove refused migration dir: %v", err)
+	}
 }
 
 // FinalizeResult reports the enable-* promotions of a finalize pass.
@@ -451,47 +897,13 @@ func writeRecoveryTidiedSentinels(migDir string) error {
 	return nil
 }
 
-// removeStaleSidecarsForGen removes the `__<...>_<gen>` sidecar dirs
-// (reindex/ingest/backup) belonging to an older, superseded generation
-// of a finalized migration. Looks up the per-strategy suffix bases via
-// `migrationSuffixes` (which now returns the suffix bases without the
-// `_<N>` part) and removes any matching dir for the specific `_<gen>`.
-//
-// Props are read from the older gen's `properties.mig` (or recovered
-// from the on-disk dirs themselves if properties.mig is missing — the
-// latter is defensive against partial pre-migration state).
+// removeStaleSidecarsForGen removes the sidecar dirs belonging to an
+// older, superseded generation of a finalized migration. That generation
+// has a canonical dir already in place, so its backup dir needs no guard.
 func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus.FieldLogger) {
-	migDir := filepath.Join(lsmPath, ".migrations", dirName)
-	suffixes := migrationSuffixes(dirName)
-	if suffixes == nil {
-		return
-	}
-	props, err := readMigrationProps(migDir)
-	if err != nil {
-		logger.WithField("path", migDir).
-			Debugf("reindex finalize: stale-gen cleanup: properties.mig missing/unreadable; sidecars (if any) will be left as orphans: %v", err)
-		return
-	}
-	// The gen suffix is implicit in `dirName`'s trailing `_<N>`; the
-	// strategy's suffix methods compute IngestSuffix/etc. as
-	// `<base>_<N>`. We don't have the strategy instance here, so emulate
-	// by appending the same gen to each suffix base.
-	_, gen, ok := parseMigrationDirName(dirName)
-	if !ok {
-		return
-	}
-	genTail := "_" + strconv.Itoa(gen)
-	for _, propName := range props {
-		main := suffixes.sourceBucketName(propName)
-		for _, suff := range []string{suffixes.ingestSuffix, suffixes.backupSuffix, reindexSuffixForFinalize(namespace)} {
-			path := filepath.Join(lsmPath, main+suff+genTail)
-			if fileExists(path) {
-				if err := os.RemoveAll(path); err != nil {
-					logger.WithField("path", path).
-						Warnf("reindex finalize: failed to remove stale older-gen sidecar dir: %v", err)
-				}
-			}
-		}
+	if err := removeGenerationSidecars(lsmPath, namespace, dirName, false, logger); err != nil {
+		logger.WithField("path", filepath.Join(lsmPath, ".migrations", dirName)).
+			Debugf("reindex finalize: stale-gen cleanup: cannot enumerate the generation's dirs; sidecars (if any) will be left as orphans: %v", err)
 	}
 }
 
@@ -522,23 +934,45 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
-// finalizeMigrationDir returns the properties whose canonical bucket now
-// holds the migrated data — either this call renamed the ingest dir onto it,
-// or an earlier pass did and died before clearing the tracker. Callers use
-// this list to react to the promotion (see [FinalizeResult]).
-func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) []string {
+// finalizeMigrationDir promotes one generation's per-property ingest dirs
+// to their canonical names and drops the matching backup dirs.
+//
+// It returns nil only when no property in properties.mig was left
+// unpromoted by a failure. A property whose ingest and backup dirs are both
+// gone has nothing left to do and counts as promoted — that is what makes
+// the retry after a partial promotion converge. The generation-level
+// preconditions (both sentinels, a readable properties.mig naming at least
+// one property, a parseable dir name) are errors.
+//
+// The caller needs that distinction: it removes the tracker dir and writes
+// the finalized marker on success, and the marker is what tells a
+// still-running task that this shard's swap landed. A marker written over a
+// failed promotion makes the shard ack a swap it never performed.
+//
+// The result is all-or-nothing for the whole generation rather than
+// per-property because both artifacts the caller gates on — the tracker
+// dir and the marker — cover all of the generation's properties at once.
+// There is no per-property equivalent to report a partial promotion to.
+// The properties it returns are the ones whose canonical bucket now holds
+// the migrated data — either this call renamed the ingest dir onto it, or an
+// earlier pass did and died before clearing the tracker. Callers use that
+// list to react to the promotion (see [FinalizeResult]).
+func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) ([]string, error) {
 	// Only finalize if both swapped and tidied sentinels exist.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
-		return nil
+		return nil, errors.New("no swapped.mig sentinel")
 	}
 	if !fileExists(filepath.Join(migDir, "tidied.mig")) {
-		return nil
+		return nil, errors.New("no tidied.mig sentinel")
 	}
 
 	// Read properties from the migration.
 	props, err := readMigrationProps(migDir)
-	if err != nil || len(props) == 0 {
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("read properties.mig: %w", err)
+	}
+	if len(props) == 0 {
+		return nil, errors.New("properties.mig lists no properties")
 	}
 
 	// Determine bucket naming from migration dir name. The migration dir
@@ -548,18 +982,19 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// to find the matching on-disk sidecar dirs.
 	suffixes := migrationSuffixes(migName)
 	if suffixes == nil {
-		return nil
+		return nil, fmt.Errorf("no known bucket suffixes for migration dir %q", migName)
 	}
 	_, gen, ok := parseMigrationDirName(migName)
 	if !ok {
 		// Defensive — every dir on disk should carry the gen suffix.
-		return nil
+		return nil, fmt.Errorf("cannot parse generation out of migration dir %q", migName)
 	}
 	genTail := "_" + strconv.Itoa(gen)
 
 	logger = logger.WithField("migration", migName)
 
 	promoted := make([]string, 0, len(props))
+	var failures []error
 	for _, propName := range props {
 		mainName := suffixes.sourceBucketName(propName)
 		ingestDir := filepath.Join(lsmPath, mainName+suffixes.ingestSuffix+genTail)
@@ -571,6 +1006,8 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			if err := os.RemoveAll(backupDir); err != nil {
 				logger.WithField("dir", backupDir).
 					Errorf("finalize: failed to remove backup dir: %v", err)
+				failures = append(failures,
+					fmt.Errorf("property %q: remove backup dir %s: %w", propName, backupDir, err))
 				continue
 			}
 			logger.WithField("dir", backupDir).Debug("finalize: removed backup dir")
@@ -579,12 +1016,23 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 		// Rename ingest dir to canonical main dir.
 		if fileExists(ingestDir) {
 			// Remove stale main dir if it exists (shouldn't normally, but be safe).
+			// A stale dir left in place makes the rename below fail, so a
+			// removal failure ends this property here rather than being
+			// rediscovered as a rename failure.
 			if fileExists(mainDir) {
-				os.RemoveAll(mainDir)
+				if err := os.RemoveAll(mainDir); err != nil {
+					logger.WithField("dir", mainDir).
+						Errorf("finalize: failed to remove stale canonical dir: %v", err)
+					failures = append(failures,
+						fmt.Errorf("property %q: remove stale canonical dir %s: %w", propName, mainDir, err))
+					continue
+				}
 			}
 			if err := os.Rename(ingestDir, mainDir); err != nil {
 				logger.WithField("from", ingestDir).WithField("to", mainDir).
 					Errorf("finalize: failed to rename ingest dir: %v", err)
+				failures = append(failures,
+					fmt.Errorf("property %q: rename %s to %s: %w", propName, ingestDir, mainDir, err))
 				continue
 			}
 			logger.WithField("from", ingestDir).WithField("to", mainDir).
@@ -598,7 +1046,7 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			promoted = append(promoted, propName)
 		}
 	}
-	return promoted
+	return promoted, errors.Join(failures...)
 }
 
 func readMigrationProps(migDir string) ([]string, error) {

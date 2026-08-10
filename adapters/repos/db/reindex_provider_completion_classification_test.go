@@ -111,6 +111,53 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("enable-rangeable tolerates a missing property", func(t *testing.T) {
+		// Without the rangeable arm this returns "unexpected semantic
+		// migration type" and every converted task dies at completion.
+		p := newClassificationProvider(&models.Class{Class: "Docs"})
+		payload := &ReindexTaskPayload{
+			MigrationType: ReindexTypeEnableRangeable,
+			Collection:    "Docs",
+			Properties:    []string{"price"},
+		}
+		require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger))
+	})
+
+	t.Run("enable-rangeable flip is a no-op when the flag is already true", func(t *testing.T) {
+		// The mutator returns apply=false, so no RAFT command is built. A
+		// commit attempt would panic on the stub's nil Handler.
+		trueVal := true
+		cls := &models.Class{
+			Class: "Docs",
+			Properties: []*models.Property{
+				{Name: "price", IndexRangeFilters: &trueVal},
+			},
+		}
+		p := newClassificationProvider(cls)
+		payload := &ReindexTaskPayload{
+			MigrationType: ReindexTypeEnableRangeable,
+			Collection:    "Docs",
+			Properties:    []string{"price"},
+		}
+		require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger))
+	})
+
+	t.Run("repair-rangeable never reaches the flip", func(t *testing.T) {
+		// repair-rangeable changes no schema, so it is format-only and
+		// OnTaskCompleted returns before the flip. Reaching the flip with
+		// it would be a classification bug, and the default arm says so.
+		require.False(t, IsSemanticMigration(ReindexTypeRepairRangeable))
+
+		p := newClassificationProvider(&models.Class{Class: "Docs"})
+		payload := &ReindexTaskPayload{
+			MigrationType: ReindexTypeRepairRangeable,
+			Collection:    "Docs",
+			Properties:    []string{"price"},
+		}
+		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		require.ErrorContains(t, err, "unexpected semantic migration type")
+	})
+
 	t.Run("enable-searchable tolerates a missing property", func(t *testing.T) {
 		p := newClassificationProvider(&models.Class{Class: "Docs"})
 		payload := &ReindexTaskPayload{

@@ -48,7 +48,17 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// leave the counter incremented; the error path would not run a
 	// matching resume.
 	if !offloading {
-		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
+		// A backup pass installs its gate in ctx so all its shards share
+		// one snapshot. Replica movement is not a pass: it installs none
+		// and keeps resolving fresh per call. Offload skips this branch
+		// entirely, so it never reaches the gate.
+		var blockedErr error
+		if gate := reindexGateFromContext(ctx); gate != nil {
+			blockedErr = s.index.refuseIfReindexInFlightInPass(gate, s.name)
+		} else {
+			blockedErr = s.index.refuseIfReindexInFlight(s.name)
+		}
+		if blockedErr != nil {
 			return blockedErr
 		}
 		if busy, reason := s.structuralVectorOpInFlight(); busy {
@@ -60,10 +70,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	s.haltForTransferCount++
 
 	defer func() {
-		if err == nil && inactivityTimeout > 0 {
+		if err != nil {
+			return
+		}
+		if inactivityTimeout > 0 {
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
 			s.mayInitInactivityMonitoring()
 		}
+		s.mayResetInactivityDeadline()
 	}()
 
 	if offloading {

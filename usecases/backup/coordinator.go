@@ -74,6 +74,15 @@ type Selector interface {
 
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
+
+	// RefuseIfAnyReindexInFlight refuses when a runtime-reindex task is live
+	// anywhere in the cluster on any of collections. Used for restore
+	// admission, since Backupable can't answer for a class absent from this
+	// node. collections must be resolved class names, never wildcard
+	// patterns; empty asks about every collection. Fails closed: a task whose
+	// payload cannot be read refuses the collection the payload still names,
+	// and one naming no collection at all refuses every restore.
+	RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error
 }
 
 // UserLister resolves includeUsers selectors. ListAllUsers returns qualified
@@ -81,6 +90,13 @@ type Selector interface {
 // against. Nil when dynamic DB users are disabled.
 type UserLister interface {
 	ListAllUsers() []string
+}
+
+// RoleLister resolves includeRoles selectors. ListAllRoles returns every role
+// name, custom and built-in, which is the list selectors match against. Nil when
+// RBAC is disabled.
+type RoleLister interface {
+	ListAllRoles() ([]string, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -167,7 +183,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
+func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) (err error) {
 	req.Method = OpCreate
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
@@ -181,6 +197,14 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
+	// From here the slot is ours until the goroutine below takes it over, so
+	// every error return must give it back, or it stays leaked until restart.
+	defer func() {
+		if err != nil {
+			c.lastOp.reset()
+		}
+	}()
+
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
 		return backup.NewErrUnprocessable(err)
@@ -197,6 +221,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		CompressionType: compressionType,
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
+		Roles:           req.Roles,
 	}
 
 	for key := range c.Participants {
@@ -205,14 +230,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 
 	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
-		c.lastOp.reset()
 		return err
 	}
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
 	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.reset()
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
 
@@ -226,7 +249,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	f := func() {
-		defer c.lastOp.reset()
+		defer c.lastOp.resetIfOwned(req.ID)
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
@@ -236,7 +259,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
 		} else {
-			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+			c.log.WithFields(logFields).Errorf("coordinator: %s", backup.TextForLog(c.descriptor.Error))
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -257,8 +280,14 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			c.lastOp.reset()
-			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
+			// Only clear the slot if it still holds this cancelled restore; a
+			// newer restore may have claimed it since, and must keep it. The
+			// outcome decides whether the node is idle after this line, which
+			// is what an operator chasing a stuck slot needs to know.
+			cleared := c.lastOp.resetIfCancelled(desc.ID)
+			c.log.WithField("backup_id", desc.ID).
+				WithField("slot_cleared", cleared).
+				Info("restore cancellation already in progress")
 			return nil
 		}
 	}
@@ -278,20 +307,20 @@ func (c *coordinator) Restore(
 	nodes, err := c.canCommit(ctx, req)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
-		c.lastOp.reset()
+		c.lastOp.resetIfOwned(desc.ID)
 		return err
 	}
 
 	// Set status to Transferring now that staging has begun
 	c.descriptor.Status = backup.Transferring
-	c.lastOp.set(backup.Transferring)
+	c.lastOp.setIfOwned(desc.ID, backup.Transferring)
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
 
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.reset()
+		c.lastOp.resetIfOwned(desc.ID)
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
@@ -299,7 +328,7 @@ func (c *coordinator) Restore(
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
 	g := func() {
-		defer c.lastOp.reset()
+		defer c.lastOp.resetIfOwned(desc.ID)
 		ctx := context.Background()
 
 		// checkStorageCancelled reads from storage to check if restore was cancelled.
@@ -318,7 +347,7 @@ func (c *coordinator) Restore(
 				if c.descriptor.Error == "" {
 					c.descriptor.Error = errCancelled.Error()
 				}
-				c.lastOp.set(backup.Cancelled)
+				c.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 				return true
 			}
 			return false
@@ -347,7 +376,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Error = errCancelled.Error()
 			} else {
 				c.descriptor.Status = backup.Finalizing
-				c.lastOp.set(backup.Finalizing)
+				c.lastOp.setIfOwned(desc.ID, backup.Finalizing)
 				if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 					c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
 				}
@@ -367,7 +396,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.set(c.descriptor.Status)
+		c.lastOp.setIfOwned(desc.ID, c.descriptor.Status)
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -482,22 +511,66 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	return status, nil
 }
 
-// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
-// typed error. When the response has [CanCommitErrInFlightReindex] kind, we
-// wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
-// upstream `errors.Is` checks succeed across the RPC boundary. Empty or
-// [CanCommitErrCannotCommit] kinds (including responses from older nodes
-// that don't set the field) keep the legacy [errCannotCommit] wrapping so
-// existing callers and tests continue to match.
+// remoteReindexInFlightErr carries [backup.ErrReindexInFlight] for errors.Is
+// without restating it; plain %w wrapping would print the sentinel twice.
+type remoteReindexInFlightErr struct{ msg string }
+
+func (e remoteReindexInFlightErr) Error() string { return e.msg }
+
+func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFlight }
+
+// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a typed
+// error, one arm per [CanCommitErrorKind], so upstream `errors.Is` checks
+// survive the RPC boundary:
+//
+//   - [CanCommitErrInFlightReindex] carries [backup.ErrBackupBlockedByInFlightReindex].
+//   - [CanCommitErrReindexStateUnknown] carries the same sentinel, but the
+//     participant's message is republished verbatim: it denies that a reindex
+//     was seen, so a sentinel prefix would contradict it.
+//   - [CanCommitErrRestoreBlockedByReindex] carries [backup.ErrReindexInFlight],
+//     not [errCannotCommit] — mapping it to that would answer 500 for what the
+//     scheduler answers 422.
+//   - everything else, including the empty kind older nodes send, stays wrapped
+//     in [errCannotCommit] (none of it is retryable).
 func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	if resp == nil {
 		return errCannotCommit
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
+		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()) {
+			// The participant's message already opens with the sentinel; %w
+			// would print the whole condition twice.
+			return backup.ReindexBlockedError{Msg: resp.Err}
+		}
+		// An older participant sends a message that names no condition, so
+		// the coordinator names it.
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	case CanCommitErrReindexStateUnknown:
+		// This message already says what happened, and what happened is not
+		// a reindex. Prefixing the sentinel would contradict its own text.
+		return backup.ReindexBlockedError{Msg: resp.Err}
+	case CanCommitErrRestoreBlockedByReindex:
+		return remoteReindexInFlightErr{msg: resp.Err}
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
+	}
+}
+
+// isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
+// node and no shard, and so can be served to a backup caller as-is. Every
+// reindex refusal is written that way on purpose, because a backup or
+// restore caller is granted nothing on cluster internals. Everything else is
+// an operator-facing failure whose first question is "which node?", so
+// [coordinator.canCommit] keeps the node prefix on those.
+func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
+	switch kind {
+	case CanCommitErrInFlightReindex,
+		CanCommitErrReindexStateUnknown,
+		CanCommitErrRestoreBlockedByReindex:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -542,6 +615,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Backend:           req.Backend,
 				Classes:           gr.Classes,
 				Users:             req.Users,
+				Roles:             req.Roles,
 				Duration:          _BookingPeriod,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
@@ -560,10 +634,22 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	for req := range reqChan {
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
+			redactNode := false
 			if err == nil && resp.Timeout == 0 {
+				redactNode = isNodeFreeCanCommitErrKind(resp.ErrKind)
 				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
+				// Bounded: this is the participant's own refusal verbatim, one
+				// line per blocked collection, and the caller still gets all of
+				// it in the response.
+				c.log.WithField("action", req.Method).
+					WithField("backup_id", req.ID).
+					WithField("node", req.NodeName).
+					Errorf("canCommit refused by participant: %v", backup.ErrorForLog(err))
+				if redactNode {
+					return err
+				}
 				return fmt.Errorf("node %q: %w", req.NodeName, err)
 			}
 			mutex.Lock()
@@ -686,7 +772,7 @@ func (c *coordinator) commit(ctx context.Context,
 						},
 					}
 
-					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
+					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path); err == nil {
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{
@@ -714,7 +800,7 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.set(c.descriptor.Status)
+	c.lastOp.setIfOwned(req.ID, c.descriptor.Status)
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
@@ -815,9 +901,11 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 			st.Status = backup.Failed
 		}
 		c.Participants[x.node] = st
+		// Bounded: this is the participant's own refusal verbatim, and the
+		// caller still gets all of it through the status endpoint.
 		c.log.WithField("action", req.Method).
 			WithField("backup_id", req.ID).
-			WithField("node", x.node).Error(x.err)
+			WithField("node", x.node).Error(backup.ErrorForLog(x.err))
 		delete(nodes, x.node)
 		nFailures++
 		continue

@@ -61,6 +61,7 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviate().
 		// 1s scheduler tick keeps the submit→migration-start latency low so
 		// the PATCH storm reliably overlaps the migration window.
@@ -107,6 +108,13 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 			"control: all %d updated objects must be served at >= %d", numUpdates, mark)
 	})
 
+	// KNOWN RED until weaviate/weaviate#12211 lands: between a shard's own
+	// swap and the cluster-wide schema flip, the double-write callbacks
+	// are gone but the write path still reads indexRangeFilters=false, so
+	// writes in that window miss the range index (data itself is not
+	// lost; repair-rangeable recovers it). Pins the guarantee from
+	// weaviate/weaviate#11688; this test going green is #12211's
+	// acceptance criterion.
 	t.Run("enable-rangeable migration with concurrent writes", func(t *testing.T) {
 		className := "F10RangeableMig"
 		ids := setupClassWithObjects(t, className, false)

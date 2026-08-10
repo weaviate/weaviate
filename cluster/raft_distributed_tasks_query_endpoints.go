@@ -36,3 +36,21 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 
 	return response.Tasks, nil
 }
+
+// ListDistributedTasksAtLocalConsistency answers from this node's own FSM instead
+// of the leader. Use it when rendering against other state also read from this
+// node: reading from the leader instead, a follower could report a task FINISHED
+// before applying the schema change that task committed first. Two local reads
+// are still two reads, not a shared snapshot, but this shrinks the window from
+// the leader's apply lag to the gap between the calls.
+//
+// Use [Raft.ListDistributedTasks] instead for anything gating whether an
+// operation may proceed — a lagging follower's view can admit work the leader
+// already knows conflicts.
+//
+// A FINISHED task does not imply the schema flipped: change-algorithm defers
+// its class-level flip until every searchable property has migrated. The
+// ordering guarantee here only covers a flip this node already made.
+func (s *Raft) ListDistributedTasksAtLocalConsistency(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return s.store.distributedTasksManager.ListDistributedTasks(ctx)
+}

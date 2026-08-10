@@ -1128,7 +1128,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 
 		var discriminant hashtree.Bitset
 		if err := discriminant.Unmarshal(reqPayload); err != nil {
-			http.Error(w, "unmarshal hashtree level params from json: "+err.Error(),
+			http.Error(w, "unmarshal hashtree level discriminant: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
@@ -1136,7 +1136,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
 		if err != nil {
 			http.Error(w, "hashtree level: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 

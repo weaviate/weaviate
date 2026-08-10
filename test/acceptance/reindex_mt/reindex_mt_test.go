@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -35,11 +34,7 @@ import (
 func TestMultiTenant_ReindexSuite(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		Start(ctx)
+	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -152,8 +147,9 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 // =============================================================================
 
 func testRepairSpecificTenants(t *testing.T, restURI string) {
-	// Per-tenant filter dispatch via enable-rangeable (format-only).
-	// ChangeAlgorithm + tenant subset is rejected post weaviate/0-weaviate-issues#254.
+	// Per-tenant filter dispatch via repair-filterable, since enable-rangeable
+	// joined the semantic (no tenant subset) migrations in
+	// weaviate/0-weaviate-issues#465.
 	className := "MTRepairSpecific"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5"}
 
@@ -177,10 +173,10 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 		}
 	}
 
-	// Repair only t1 and t2 via enable-rangeable on the int property.
+	// Repair only t1 and t2 via repair-filterable on the text property.
 	targetTenants := []string{"t1", "t2"}
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants(targetTenants))
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
+		`{"filterable":{"rebuild":true}}`, reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -442,6 +438,23 @@ func testValidation(t *testing.T, restURI string) {
 			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
+	})
+
+	// enable-rangeable is now semantic (weaviate/0-weaviate-issues#465),
+	// so it joins the "all tenants must be targeted" rule.
+	t.Run("EnableRangeable_with_tenants", func(t *testing.T) {
+		rangeableClass := "MTValidateRangeable"
+		createMTClass(t, rangeableClass, []*models.Property{
+			{Name: "score", DataType: []string{"int"}},
+		})
+		addTenants(t, rangeableClass, []string{"rv1", "rv2"})
+
+		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, rangeableClass, "score",
+			`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants([]string{"rv1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on enable-rangeable should reject as 400: %s", got.Body)
+		require.Contains(t, got.Body, "enable-rangeable",
+			"the rejection must name the migration type, not hard-code change-tokenization: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {

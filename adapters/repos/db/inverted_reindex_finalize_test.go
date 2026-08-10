@@ -24,6 +24,22 @@ import (
 // https://github.com/weaviate/weaviate/issues/10675. The functions under test live in
 // inverted_reindex_finalize.go and inverted_reindex_strategy_dir_names.go.
 
+// remainingTrackerDirs lists the tracker directories left under a
+// shard's .migrations. Files there (the finalized markers) are not
+// trackers and are deliberately not counted.
+func remainingTrackerDirs(t *testing.T, migsDir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(migsDir)
+	require.NoError(t, err)
+	var out []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			out = append(out, entry.Name())
+		}
+	}
+	return out
+}
+
 func TestParseMigrationDirName(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -183,7 +199,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 		winnerMarker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// Canonical main dir should exist and contain gen-3's marker.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -201,9 +217,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 
 	// All tracker dirs should be gone — gen 3's was promoted, older
 	// gens were cleaned as stale.
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "tracker dirs should all be removed")
+	require.Empty(t, remainingTrackerDirs(t, migsDir), "tracker dirs should all be removed")
 }
 
 // TestFinalizeCompletedMigrations_TidiedPlusInFlight verifies that a
@@ -232,7 +246,7 @@ func TestFinalizeCompletedMigrations_TidiedPlusInFlight(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// Gen 1 finalized → canonical dir exists.
 	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
@@ -268,7 +282,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// Tracker dir still there.
 	_, err := os.Stat(gen1)
@@ -353,7 +367,7 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 		gen2Marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// Canonical dir must contain gen-2's marker, NOT gen-1's stale data.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -370,9 +384,8 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 	}
 
 	// Tracker dirs gone.
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "both tracker dirs must be removed after recovery finalize")
+	require.Empty(t, remainingTrackerDirs(t, migsDir),
+		"both tracker dirs must be removed after recovery finalize")
 }
 
 // TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers
@@ -398,7 +411,7 @@ func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testin
 		marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
 	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
@@ -442,12 +455,54 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		winner, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "segment.db"))
 	require.NoError(t, err)
 	require.Equal(t, winner, got,
 		"highest gen with tidied must win when merged-only is at a lower gen")
+}
+
+// Only the runtime swap's per-prop sentinel can go stale (written ahead of
+// disk work); the restart-based swap's is written with the rename, so
+// clearing it would retry a rename that already happened.
+func TestFinalizeCompletedMigrations_StaleSwappedPropSentinels(t *testing.T) {
+	cases := []struct {
+		name        string
+		prepended   bool
+		wantCleared bool
+	}{
+		{name: "runtime swap died between the flip and swapped.mig", prepended: true, wantCleared: true},
+		{name: "restart-based swap writes the sentinel with the rename", prepended: false, wantCleared: false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			shape := tokenizationResidue()
+			// Live task + a schema that disagrees is the arm that leaves
+			// the tracker on disk, so the sentinel is still there to look at.
+			lsmPath := writeMergedResidue(t, shape, true)
+			migDir := filepath.Join(lsmPath, ".migrations", shape.dirName)
+			if c.prepended {
+				touchSentinel(t, filepath.Join(migDir, "prepended.mig"))
+			}
+			perProp := filepath.Join(migDir, "swapped.mig."+shape.payload.Properties[0])
+			touchSentinel(t, perProp)
+
+			logger, _ := test.NewNullLogger()
+			FinalizeCompletedMigrations(lsmPath, classWith(shape.disagreeing),
+				fixedLiveness(ReindexTaskLivenessLive), logger)
+
+			require.DirExists(t, migDir, "this arm must leave the tracker in place")
+			// A cleared sentinel is what makes processOneSwapProp run the
+			// flip rather than skip it.
+			if c.wantCleared {
+				require.NoFileExists(t, perProp)
+				return
+			}
+			require.FileExists(t, perProp)
+		})
+	}
 }
 
 // TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels
@@ -475,7 +530,7 @@ func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// If sentinels weren't written before finalizeMigrationDir ran, the
 	// canonical dir would not be created (finalizeMigrationDir returns
@@ -509,7 +564,7 @@ func TestFinalizeCompletedMigrations_StartedOnlyNotPromoted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// Tracker untouched.
 	_, err := os.Stat(gen1)
@@ -559,7 +614,7 @@ func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
 		[]byte("filterable-data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// Both canonical dirs should now exist with their respective data.
 	sBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "s.db"))
@@ -591,18 +646,17 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// Second call should be a complete no-op now that nothing remains in .migrations.
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("data"), got)
 
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "no trackers should remain after a successful recovery")
+	require.Empty(t, remainingTrackerDirs(t, migsDir),
+		"no trackers should remain after a successful recovery")
 }
 
 // TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge
@@ -683,7 +737,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 		[]byte("gamma-range-NEW"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 
 	// All three property migrations must promote to their canonical
 	// names with the correct data. A bug that processed only the first
@@ -704,10 +758,9 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 
 	// All four .migrations/ tracker dirs must be removed (recovery completes
 	// the full promotion and trims their entries).
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries,
-		"every tracker must be cleared after multi-prop recovery — got %v", migEntries)
+	remaining := remainingTrackerDirs(t, migsDir)
+	require.Empty(t, remaining,
+		"every tracker must be cleared after multi-prop recovery — got %v", remaining)
 }
 
 // TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge
@@ -782,7 +835,7 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		case "no_migrations":
 			// Intentionally empty — finalize must be a no-op here.
 		}
-		FinalizeCompletedMigrations(lsmPath, logger)
+		FinalizeCompletedMigrations(lsmPath, nil, nil, logger)
 	}
 
 	for _, sh := range shards {
@@ -799,8 +852,8 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		}
 		// The migrations dir, if it existed, must be empty after finalize.
 		if sh.stage != "no_migrations" {
-			migEntries, _ := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
-			require.Emptyf(t, migEntries, "%s: tracker dirs must be cleared after finalize", sh.name)
+			require.Emptyf(t, remainingTrackerDirs(t, filepath.Join(lsmPath, ".migrations")),
+				"%s: tracker dirs must be cleared after finalize", sh.name)
 		}
 	}
 }

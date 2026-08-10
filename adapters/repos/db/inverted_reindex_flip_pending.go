@@ -431,12 +431,3 @@ func dropPendingFlipRecords(lsmPath string, props []string, indexType string, lo
 			Errorf("reindex: failed to retire flip-pending records after the schema flip: %v", err)
 	}
 }
-
-func propertyByName(class *models.Class, propName string) *models.Property {
-	for _, prop := range class.Properties {
-		if prop != nil && prop.Name == propName {
-			return prop
-		}
-	}
-	return nil
-}

@@ -19,7 +19,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -30,14 +29,14 @@ type backupper struct {
 	logger         logrus.FieldLogger
 	cfg            config.Backup
 	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
+	rbacSourcer    RBACSnapshotter
 	dynUserSourcer dynUserSnapshotter
 	backends       BackupBackendProvider
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		node:           node,
@@ -58,13 +57,19 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
+	// Before the backend, because the backend has nothing to say about the
+	// failure remembered here.
+	if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
+		return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
+	}
+
 	// The backup might have been already created.
 	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		return reqState{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
-	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, false)
+	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %w", errMetaNotFound, path, err)
@@ -114,7 +119,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, &b.lastOp, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
@@ -160,7 +165,9 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 
 		b.logger.WithFields(logFields).Info("starting backup")
 		if err := provider.all(ctx, req.Classes, &result, baseDescrs, req.Bucket, req.Path); err != nil {
-			b.logger.WithFields(logFields).Error(err)
+			// Bounded: the caller reads the full error from the backup
+			// status endpoint; the log keeps a summary.
+			b.logger.WithFields(logFields).Error(backup.ErrorForLog(err))
 			b.lastAsyncError = err
 		} else {
 			b.logger.WithFields(logFields).Info("backup completed successfully")
@@ -177,6 +184,8 @@ type ChainDescriptor interface {
 	GetCompressionType() backup.CompressionType
 	GetStatus() backup.Status
 	GetStartedAt() time.Time
+	GetVersion() string
+	GetServerVersion() string
 }
 
 // resolveBaseBackupChain follows the chain of base backups and validates them.
@@ -188,6 +197,7 @@ type ChainDescriptor interface {
 //   - All backups in the chain exist
 //   - All backups have compression type set
 //   - All backups have the same compression type as requested
+//   - All backups are in a format this build can restore
 //   - Each base started strictly before the backup that depends on it. A base whose
 //     StartedAt is not older was re-created after its dependent (backup ids reuse the
 //     same object paths), so the dependent no longer points at the bytes it was built
@@ -233,6 +243,10 @@ func resolveBaseBackupChain[T ChainDescriptor](
 		if !startedAt.Before(childStartedAt) {
 			return nil, fmt.Errorf("base backup %q started at %s is not older than the backup that depends on it (started at %s): the base was re-created and the chain is no longer valid",
 				nextID, startedAt.UTC().Format(time.RFC3339), childStartedAt.UTC().Format(time.RFC3339))
+		}
+		// An unrestorable base makes the whole chain unrestorable, so refuse it at creation.
+		if err := checkRestorableVersion(baseDescr.GetVersion(), baseDescr.GetServerVersion()); err != nil {
+			return nil, fmt.Errorf("base backup %q: %w", nextID, err)
 		}
 
 		baseDescrs = append(baseDescrs, baseDescr)

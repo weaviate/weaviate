@@ -15,6 +15,7 @@ package reindexhelpers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -335,9 +337,17 @@ func AwaitTokenizationVisible(t *testing.T, restURI, className, propName, wantTo
 }
 
 // AwaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
-// the named (property, indexType) reports `ready`. Unlike
-// AwaitReindexFinished, this polls the index-status surface — useful for
-// verifying the index is queryable end-to-end. Default timeout 120s.
+// the named (property, indexType) reports `ready` — the surface an operator
+// polls, rather than the task status AwaitReindexFinished reads. Default
+// timeout 120s.
+//
+// `ready` is necessary but not sufficient for the migration having landed:
+// it can be satisfied immediately if the flag was already on pre-migration,
+// the handler answers from whichever node it's asked and that node's apply
+// can lag, and for change-algorithm the class-level flip defers until every
+// searchable bucket is blockmax, so `ready` can still mean `wand`. Pair with
+// AwaitReindexFinished, or assert the migrated data, when the test needs to
+// know the migration actually ran.
 func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
@@ -483,4 +493,30 @@ func WithEnv(
 	SetupClass(t, class, props)
 	ImportObjects(t, class, objects)
 	body()
+}
+
+// WithReindexEnv applies the env every runtime-reindex suite needs, whatever
+// topology or backend it builds on: the feature flag on (the server default is
+// off, so a suite that bypasses this silently tests nothing), the legacy
+// searchable path off, and a 1s scheduler tick so task transitions land inside
+// test timeouts.
+//
+// Take this rather than repeating the three lines: a suite that composes its own
+// cluster and pastes only two of them still starts, and then tests nothing while
+// looking green. Callers keep chaining their own env before Start.
+func WithReindexEnv(c *docker.Compose) *docker.Compose {
+	return c.
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
+		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
+}
+
+// SingleNodeCompose is [WithReindexEnv] on a single-node cluster.
+func SingleNodeCompose() *docker.Compose {
+	return WithReindexEnv(docker.New().WithWeaviate())
+}
+
+// StartSingleNode starts [SingleNodeCompose] with no further tuning.
+func StartSingleNode(ctx context.Context) (*docker.DockerCompose, error) {
+	return SingleNodeCompose().Start(ctx)
 }

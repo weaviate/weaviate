@@ -1,0 +1,307 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package distributedtask
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+)
+
+const (
+	finishedAtNS      = "ns"
+	finishedAtTaskID  = "task1"
+	finishedAtVersion = uint64(10)
+)
+
+// taskRef names the task under test so the apply helpers below don't repeat
+// namespace/id/version at every call site. Each helper applies exactly one
+// RAFT command at a caller-chosen timestamp and returns the FSM's answer, so
+// a caller can pin the refusal as readily as the success.
+type taskRef struct {
+	ns      string
+	id      string
+	version uint64
+}
+
+func finishedAtRef() taskRef {
+	return taskRef{ns: finishedAtNS, id: finishedAtTaskID, version: finishedAtVersion}
+}
+
+func (r taskRef) finalize(t *testing.T, h *testHarness, at time.Time) error {
+	t.Helper()
+	return h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+		Namespace: r.ns, Id: r.id, Version: r.version,
+		FinalizedAtUnixMillis: at.UnixMilli(),
+	}))
+}
+
+func (r taskRef) markFailed(t *testing.T, h *testHarness, at time.Time) error {
+	t.Helper()
+	return h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
+		Namespace: r.ns, Id: r.id, Version: r.version, Error: "synthetic cutover failure",
+		FailedAtUnixMillis: at.UnixMilli(),
+	}), false)
+}
+
+func (r taskRef) cancel(t *testing.T, h *testHarness, at time.Time) error {
+	t.Helper()
+	return h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: r.ns, Id: r.id, Version: r.version,
+		CancelledAtUnixMillis: at.UnixMilli(),
+	}), false)
+}
+
+func (r taskRef) prepAck(t *testing.T, h *testHarness, node string, success bool, at time.Time) error {
+	t.Helper()
+	return h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace: r.ns, Id: r.id, Version: r.version, NodeId: node,
+		Success: success, Error: prepAckError(success),
+		AckedAtUnixMillis: at.UnixMilli(),
+	}), false)
+}
+
+func (r taskRef) swapAck(t *testing.T, h *testHarness, node string, success bool, at time.Time) error {
+	t.Helper()
+	return h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace: r.ns, Id: r.id, Version: r.version, NodeId: node,
+		Success: success, Error: swapAckError(success),
+		AckedAtUnixMillis: at.UnixMilli(),
+	}), false)
+}
+
+func (r taskRef) failUnitAt(t *testing.T, h *testHarness, node, unitID string, at time.Time) error {
+	t.Helper()
+	return h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace: r.ns, Id: r.id, Version: r.version, NodeId: node, UnitId: unitID,
+		Error:                "synthetic unit failure",
+		FinishedAtUnixMillis: at.UnixMilli(),
+	}), false)
+}
+
+func prepAckError(success bool) string {
+	if success {
+		return ""
+	}
+	return "synthetic prep failure"
+}
+
+func swapAckError(success bool) string {
+	if success {
+		return ""
+	}
+	return "synthetic swap failure"
+}
+
+// terminalApply is one RAFT command that can end the task, applied at a
+// caller-chosen timestamp. Named values rather than inline closures so the
+// tables below read as a matrix of (how it ends) x (what happens next).
+type terminalApply func(t *testing.T, h *testHarness, at time.Time) error
+
+func applyFinalize(t *testing.T, h *testHarness, at time.Time) error {
+	return finishedAtRef().finalize(t, h, at)
+}
+
+func applyMarkFailed(t *testing.T, h *testHarness, at time.Time) error {
+	return finishedAtRef().markFailed(t, h, at)
+}
+
+func applyCancel(t *testing.T, h *testHarness, at time.Time) error {
+	return finishedAtRef().cancel(t, h, at)
+}
+
+func applyFailUnit(t *testing.T, h *testHarness, at time.Time) error {
+	return finishedAtRef().failUnitAt(t, h, "node-1", "u", at)
+}
+
+func applyFailingSwapAckFrom(node string) terminalApply {
+	return func(t *testing.T, h *testHarness, at time.Time) error {
+		return finishedAtRef().swapAck(t, h, node, false, at)
+	}
+}
+
+func applyFailingPrepAckFrom(node string) terminalApply {
+	return func(t *testing.T, h *testHarness, at time.Time) error {
+		return finishedAtRef().prepAck(t, h, node, false, at)
+	}
+}
+
+// Task.FinishedAt must come off the RAFT request that caused the terminal
+// transition, never the applying node's clock. weaviate/0-weaviate-issues#501.
+// One case per way a task can end.
+func TestManager_FinishedAt_StampedAtTheTerminalTransition(t *testing.T) {
+	tests := []struct {
+		name string
+		// stage leaves the task one apply short of terminal.
+		stage func(t *testing.T, h *testHarness)
+		// terminate applies that last one, stamped at terminateAt.
+		terminate      terminalApply
+		expectedStatus TaskStatus
+	}{
+		{"unit failure", stageStartedWithClaimedUnit, applyFailUnit, TaskStatusFailed},
+		{"prep-ack failure", stagePreparing, applyFailingPrepAckFrom("node-1"), TaskStatusFailed},
+		{"swap-ack failure", stageSwapping, applyFailingSwapAckFrom("node-1"), TaskStatusFailed},
+		{"cutover failure", stageSwapping, applyMarkFailed, TaskStatusFailed},
+		{"finalize", stageSwapping, applyFinalize, TaskStatusFinished},
+		{"cancel", stageStartedWithClaimedUnit, applyCancel, TaskStatusCancelled},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			defer h.manager.Close()
+
+			tc.stage(t, h)
+
+			staged := onlyTask(t, h, finishedAtNS)
+			require.False(t, staged.Status.IsTerminal(), "sanity: stage must stop short of terminal")
+			require.True(t, staged.FinishedAt.IsZero(),
+				"a task that has not ended carries no end time")
+
+			// Far enough apart that a stamp from any earlier moment in the
+			// lifecycle, or from the applying node's own clock, is visible.
+			h.clock.Advance(2 * time.Minute)
+			terminateAt := h.clock.Now().Add(time.Hour)
+
+			require.NoError(t, tc.terminate(t, h, terminateAt))
+
+			ended := onlyTask(t, h, finishedAtNS)
+			require.Equal(t, tc.expectedStatus, ended.Status)
+			require.Equal(t, terminateAt.UnixMilli(), ended.FinishedAt.UnixMilli(),
+				"FinishedAt must come off the request, not the applying node's clock")
+		})
+	}
+}
+
+// markTerminal itself refuses to re-end an ended task, so exactly-once is a
+// property of the task and not of the six callers all remembering to guard
+// first. Asserted directly because every caller does guard: with the callers
+// in the way, dropping this guard leaves the FSM-level tests green.
+func TestTask_MarkTerminal_LeavesAnEndedTaskAlone(t *testing.T) {
+	first := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	later := first.Add(24 * time.Hour)
+
+	for _, terminal := range []TaskStatus{TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled} {
+		t.Run(string(terminal), func(t *testing.T) {
+			task := &Task{Status: TaskStatusSwapping}
+
+			task.markTerminal(terminal, first)
+			require.Equal(t, terminal, task.Status)
+			require.Equal(t, first, task.FinishedAt)
+
+			for _, second := range []TaskStatus{TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled} {
+				task.markTerminal(second, later)
+				require.Equal(t, terminal, task.Status,
+					"a second terminal transition changed the status")
+				require.Equal(t, first, task.FinishedAt,
+					"a second terminal transition moved the stamp")
+			}
+		})
+	}
+}
+
+// A second terminal command against an already-ended task must leave the stamp
+// alone, whether treated as a no-op or refused: RAFT redelivers entries and
+// duplicates are routine.
+func TestManager_FinishedAt_NotRestampedByASecondTerminalApply(t *testing.T) {
+	tests := []struct {
+		name     string
+		stage    func(t *testing.T, h *testHarness)
+		first    terminalApply
+		second   terminalApply
+		wantErr  bool
+		endState TaskStatus
+	}{
+		{"finalize twice", stageSwapping, applyFinalize, applyFinalize, false, TaskStatusFinished},
+		{"mark failed twice", stageSwapping, applyMarkFailed, applyMarkFailed, false, TaskStatusFailed},
+		{"cancel twice", stageStartedWithClaimedUnit, applyCancel, applyCancel, true, TaskStatusCancelled},
+		{
+			"finalize after a peer already failed the task",
+			stageSwapping, applyMarkFailed, applyFinalize, true, TaskStatusFailed,
+		},
+		{
+			"mark failed after a peer already finalized the task",
+			stageSwapping, applyFinalize, applyMarkFailed, true, TaskStatusFinished,
+		},
+		{
+			"a second node's failing swap-ack after the first already failed the task",
+			stageSwapping,
+			applyFailingSwapAckFrom("node-1"), applyFailingSwapAckFrom("node-2"),
+			false, TaskStatusFailed,
+		},
+		{
+			"a second node's failing prep-ack after the first already failed the task",
+			stagePreparing,
+			applyFailingPrepAckFrom("node-1"), applyFailingPrepAckFrom("node-2"),
+			false, TaskStatusFailed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			defer h.manager.Close()
+
+			tc.stage(t, h)
+
+			endedAt := h.clock.Now().Add(time.Hour)
+			require.NoError(t, tc.first(t, h, endedAt))
+			require.Equal(t, endedAt.UnixMilli(), onlyTask(t, h, finishedAtNS).FinishedAt.UnixMilli())
+
+			// A full day later, so a restamp cannot be mistaken for rounding.
+			err := tc.second(t, h, endedAt.Add(24*time.Hour))
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			ended := onlyTask(t, h, finishedAtNS)
+			require.Equal(t, tc.endState, ended.Status)
+			require.Equal(t, endedAt.UnixMilli(), ended.FinishedAt.UnixMilli(),
+				"the second terminal apply moved the stamp")
+		})
+	}
+}
+
+// stageStartedWithClaimedUnit leaves the task STARTED with one unit claimed.
+func stageStartedWithClaimedUnit(t *testing.T, h *testHarness) {
+	t.Helper()
+	addTaskWithUnits(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, []string{"u"})
+	updateProgress(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, "node-1", "u", 0.1)
+}
+
+// stageSwapping leaves the task in SWAPPING, its units done and the bucket
+// swap outstanding.
+func stageSwapping(t *testing.T, h *testHarness) {
+	t.Helper()
+	addTaskWithUnits(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, []string{"u"})
+	completeUnit(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, "node-1", "u")
+}
+
+// stagePreparing leaves a barrier task in PREPARING, waiting on prep acks.
+func stagePreparing(t *testing.T, h *testHarness) {
+	t.Helper()
+	addBarrierTaskWithUnits(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, []string{"u-node-1"})
+	drivePreparing(t, h, finishedAtNS, finishedAtTaskID, finishedAtVersion, []string{"node-1"})
+}
+
+func onlyTask(t *testing.T, h *testHarness, ns string) *Task {
+	t.Helper()
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tasks[ns], 1)
+	return tasks[ns][0]
+}

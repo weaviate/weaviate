@@ -47,6 +47,10 @@ type Request struct {
 	// means the participant keeps its whole-cluster user-snapshot default.
 	Users []string
 
+	// Resolved from BackupRequest.IncludeRoles by the scheduler. Empty
+	// means the participant keeps its whole-cluster RBAC-snapshot default.
+	Roles []string
+
 	// Duration
 	Duration time.Duration
 
@@ -87,6 +91,21 @@ const (
 	// The coordinator translates this to a typed
 	// ErrBackupBlockedByInFlightReindex on receipt.
 	CanCommitErrInFlightReindex CanCommitErrorKind = "in_flight_reindex"
+
+	// CanCommitErrRestoreBlockedByReindex indicates the participant refused a restore
+	// because a runtime-reindex is live anywhere in the cluster. Distinct from
+	// [CanCommitErrInFlightReindex], which is the backup side's per-shard answer;
+	// a restoring class has no shard to ask about yet.
+	CanCommitErrRestoreBlockedByReindex CanCommitErrorKind = "restore_blocked_by_reindex"
+
+	// CanCommitErrReindexStateUnknown indicates the participant refused
+	// because it could not read cluster-wide reindex state, so no shard's
+	// state is known. Distinct from [CanCommitErrInFlightReindex] because
+	// the refusal's own message says that, and the coordinator must not
+	// prepend a sentinel claiming a reindex nobody saw. An older
+	// coordinator that does not know this kind treats it as a generic
+	// refusal, which still refuses the backup.
+	CanCommitErrReindexStateUnknown CanCommitErrorKind = "reindex_state_unknown"
 
 	// CanCommitErrCannotCommit is the generic fallback used when the
 	// participant rejected canCommit for any reason other than the

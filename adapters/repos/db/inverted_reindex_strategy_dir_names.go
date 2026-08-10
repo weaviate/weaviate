@@ -171,13 +171,19 @@ func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
 // Wholesale-deleting them on a single property's DELETE would corrupt
 // the class-level migration; their per-property entries are pruned by
 // the strategy's own bookkeeping.
+//
+// The rangeable tracker belongs to the "rangeable" arm only. Listing it
+// under "filterable" too would let an orphaned rangeable tracker wedge an
+// unrelated filterable-family task's LocalCallbacksDone forever, and let
+// DELETE /indexes/filterable sweep a live rangeable tracker. There is no
+// data dependency between the two: the rangeable backfill reads the
+// objects bucket, not the filterable one.
 func migrationDirsForPropertyIndex(propName, indexType string) []string {
 	switch indexType {
 	case "filterable":
 		return []string{
 			migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}),
 			MigrationDirPrefixFilterableRetokenize + "_" + propName,
-			migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName}),
 		}
 	case "searchable":
 		return []string{
@@ -189,6 +195,31 @@ func migrationDirsForPropertyIndex(propName, indexType string) []string {
 		return []string{
 			migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName}),
 		}
+	}
+	return nil
+}
+
+// migrationDirFamiliesForIndexType returns the tracker prefixes of every
+// migration that writes the given index type, without the property
+// segment. Callers that must match a tracker naming several properties
+// at once take this and compare against the property list themselves;
+// [migrationDirsForPropertyIndex] builds the single-property name and
+// only matches a migration submitted for exactly that one property.
+func migrationDirFamiliesForIndexType(indexType string) []string {
+	switch indexType {
+	case "filterable":
+		return []string{
+			MigrationDirPrefixEnableFilterable,
+			MigrationDirPrefixFilterableRetokenize,
+		}
+	case "searchable":
+		return []string{
+			MigrationDirPrefixEnableSearchable,
+			MigrationDirPrefixRebuildSearchable,
+			MigrationDirPrefixSearchableRetokenize,
+		}
+	case "rangeable":
+		return []string{MigrationDirPrefixFilterableToRangeable}
 	}
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -67,7 +68,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				Status:     task.Status.String(),
 				Error:      task.Error,
 				StartedAt:  strfmt.DateTime(task.StartedAt),
-				FinishedAt: strfmt.DateTime(task.FinishedAt),
+				FinishedAt: finishedAtOrNil(task.FinishedAt),
 				Payload:    payload,
 			}
 
@@ -80,6 +81,18 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 	return resp, nil
 }
 
+// finishedAtOrNil renders a finish time only once there is one. strfmt.DateTime
+// is a struct, so a value field serializes even when it is the zero time, and
+// an in-flight task would report year 1 as its finish time — which a client
+// sorting on the field reads as the earliest finish in the list.
+func finishedAtOrNil(at time.Time) *strfmt.DateTime {
+	if at.IsZero() {
+		return nil
+	}
+	d := strfmt.DateTime(at)
+	return &d
+}
+
 func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {
 	units := make([]*models.DistributedTaskUnit, 0, len(task.Units))
 	for _, u := range task.Units {
@@ -90,7 +103,7 @@ func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {
 			Progress:   u.Progress,
 			Error:      u.Error,
 			UpdatedAt:  strfmt.DateTime(u.UpdatedAt),
-			FinishedAt: strfmt.DateTime(u.FinishedAt),
+			FinishedAt: finishedAtOrNil(u.FinishedAt),
 		})
 	}
 	sort.Slice(units, func(i, j int) bool {

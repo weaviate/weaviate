@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/cron"
@@ -26,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -54,15 +54,14 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC             *oidc.Client
-	AnonymousAccess  *anonymous.Client
-	APIKey           *apikey.ApiKey
-	APIKeyRemote     *apikey.RemoteApiKey
-	Authorizer       authorization.Authorizer
-	AuthzController  authorization.Controller
-	AuthzSnapshotter fsm.Snapshotter
-	RBAC             *rbac.Manager
-	Crons            *cron.Crons
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.ApiKey
+	APIKeyRemote    *apikey.RemoteApiKey
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+	RBAC            *rbac.Manager
+	Crons           *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
 	LDIntegration *configRuntime.LDIntegration
@@ -83,6 +82,7 @@ type State struct {
 	HTTPServerMetrics  *monitoring.HTTPServerMetrics
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
+	BackupActivity     *backup.NodeActivityProbe
 	ExportParticipant  *exportUsecase.Participant
 	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB
@@ -108,7 +108,12 @@ type State struct {
 	// can wait for a cancelled task's local goroutine to drain before
 	// triggering the on-disk state cleanup — see
 	// [db.ReindexProvider.WaitForLocalTaskDrain].
-	ReindexProvider *db.ReindexProvider
+	//
+	// Atomic because it is assigned well after the cluster API server starts
+	// serving, and the /reindex/cleanup-activity route reads it per request:
+	// the two run on different goroutines with no other edge between them.
+	// Nil until bootstrap assigns it, which that route reports as "not wired".
+	ReindexProvider atomic.Pointer[db.ReindexProvider]
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.7"
+    "version": "1.38.9"
   },
   "basePath": "/v1",
   "paths": {
@@ -5843,7 +5843,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Conflicting reindex task already running, or a backup or restore is in progress on some node.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5855,7 +5855,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Distributed tasks not enabled.",
+            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7333,12 +7333,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
@@ -7410,6 +7412,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8313,9 +8322,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task was finished.",
+          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Absent until the task is terminal, including while it is finalizing.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -8365,9 +8375,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit finished. Absent until it has.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",
@@ -11497,7 +11508,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.7"
+    "version": "1.38.9"
   },
   "basePath": "/v1",
   "paths": {
@@ -17390,7 +17401,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Conflicting reindex task already running, or a backup or restore is in progress on some node.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17402,7 +17413,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Distributed tasks not enabled.",
+            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18880,12 +18891,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
@@ -18957,6 +18970,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20009,9 +20029,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task was finished.",
+          "description": "The time when the task reached a terminal status (FINISHED, FAILED or CANCELLED). Absent until the task is terminal, including while it is finalizing.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -20061,9 +20082,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit finished. Absent until it has.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",

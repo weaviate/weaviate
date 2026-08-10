@@ -64,6 +64,10 @@ type hnsw struct {
 	// indicates the index is shutting down
 	shutdownCtx       context.Context
 	shutdownCtxCancel context.CancelFunc
+	// prefillWg tracks the background cache prefill so Shutdown can wait for it.
+	// The prefiller reads the shard's objects bucket, and the shard tears that
+	// bucket down as soon as the vector indexes report they are shut.
+	prefillWg sync.WaitGroup
 
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
@@ -786,6 +790,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
+	h.prefillWg.Wait()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")

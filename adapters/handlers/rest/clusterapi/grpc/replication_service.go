@@ -435,5 +435,8 @@ func replicationErrorToGRPC(err error) error {
 	if errors.As(err, &enterrors.ErrUnprocessable{}) {
 		return status.Errorf(codes.FailedPrecondition, "%v", err)
 	}
+	if errors.Is(err, replica.ErrAsyncReplicationNotActive) {
+		return status.Errorf(codes.FailedPrecondition, "%v", err)
+	}
 	return status.Errorf(codes.Internal, "%v", err)
 }

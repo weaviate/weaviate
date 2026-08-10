@@ -132,6 +132,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Include:      params.Body.Include,
 		Exclude:      params.Body.Exclude,
 		IncludeUsers: params.Body.IncludeUsers,
+		IncludeRoles: params.Body.IncludeRoles,
 		Compression:  compressionFromBCfg(params.Body.Config),
 		BaseBackupID: baseBackupID,
 	})
@@ -420,6 +421,10 @@ func (e *backupRequestsTotal) logError(className string, err error) {
 	case errors.As(err, &backup.ErrUnprocessable{}) || errors.As(err, &backup.ErrNotFound{}):
 		e.logUserError(className)
 	default:
-		e.logServerError(className, err)
+		// Bounded: a backup error joins one line per failing unit, so a wide
+		// failure has no fixed size. The full body still reaches the caller in
+		// the response. Gate refusals never arrive here — Scheduler.Backup
+		// wraps them in ErrUnprocessable, which the arm above takes.
+		e.logServerError(className, backup.ErrorForLog(err))
 	}
 }

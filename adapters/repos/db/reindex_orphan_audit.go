@@ -34,7 +34,11 @@ type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
 // during a network partition). Callers MUST propagate the error rather
 // than substitute a soft default — an unobservable "all known" fallback
 // would silently misclassify orphans as in-flight migrations.
-type KnownReindexTaskLookupBuilder func() (KnownReindexTaskLookup, error)
+//
+// On a follower the snapshot is a query against the leader, so ctx is
+// the only thing that bounds it. Callers on a latency-sensitive path
+// must pass a ctx with a deadline.
+type KnownReindexTaskLookupBuilder func(ctx context.Context) (KnownReindexTaskLookup, error)
 
 // AuditOutcomeStatus distinguishes the three operationally distinct
 // reasons an [DB.AuditOrphanReindexTrackers] invocation can return
@@ -104,17 +108,20 @@ type AuditOutcome struct {
 // counter is non-zero and a single replay sweep runs synchronously so
 // the deferred audit work is not silently lost. Closes B2.
 //
-// The deferred-replay path runs with [context.Background]; it does not
-// inherit the caller's context. A caller-side cancellation that needs to
-// abort an in-flight replay must wait for [PauseCompaction]'s internal
-// timeout. Switching to a caller-supplied context would let SIGTERM /
-// shutdown abort the replay cleanly, but the current shape — fire-and-
-// forget background — matches the post-bootstrap goroutine that calls
-// us in production.
-func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
+// The replay runs on ctx: it makes a leader query and then a full
+// sweep, and a SIGTERM must be able to release both. Whatever the
+// cancellation cuts short is retried by the next process restart.
+//
+// ctx is also kept as the parent of the bounded leader query in
+// [DB.reindexTaskLivenessLookup], which shard init reaches from the same
+// apply path. Storing a context is normally wrong; here the stored value
+// is the process-lifetime shutdown context, and its only use is to let a
+// SIGTERM shorten that query.
+func (db *DB) SetReindexAuditDeps(ctx context.Context, builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
 	db.reindexAuditLookupBuilder = builder
 	db.reindexAuditLogger = logger
+	db.reindexAuditCtx = ctx
 	deferred := db.reindexAuditDeferredRequests
 	db.reindexAuditDeferredRequests = 0
 	db.reindexAuditMu.Unlock()
@@ -129,13 +136,13 @@ func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger 
 	replayLogger.WithField("action", "reindex_orphan_audit").
 		WithField("deferred_requests", deferred).
 		Info("reindex orphan audit: replaying audits requested before deps were installed (B2 race window)")
-	lookup, buildErr := builder()
+	lookup, buildErr := builder(ctx)
 	if buildErr != nil {
 		replayLogger.WithField("action", "reindex_orphan_audit").
 			Errorf("reindex orphan audit: deferred-replay builder failed; the next process restart will retry: %v", buildErr)
 		return
 	}
-	if _, err := db.AuditOrphanReindexTrackers(context.Background(), lookup, logger); err != nil {
+	if _, err := db.AuditOrphanReindexTrackers(ctx, lookup, logger); err != nil {
 		replayLogger.WithField("action", "reindex_orphan_audit").
 			Warnf("reindex orphan audit: deferred-replay sweep returned an error; the next process restart will retry: %v", err)
 	}
@@ -171,7 +178,7 @@ func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) (AuditOutco
 		}, nil
 	}
 	db.reindexAuditMu.Unlock()
-	lookup, buildErr := builder()
+	lookup, buildErr := builder(ctx)
 	if buildErr != nil {
 		warnLogger := logger
 		if warnLogger == nil {

@@ -19,9 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // FilterableToRangeableStrategy implements MigrationStrategy for building
@@ -37,8 +34,13 @@ import (
 // "FilterableToRangeable" name is historical; treat it as "build rangeable
 // from objects".
 //
-// Schema-flag gating. During the backfill scan, IndexRangeFilters is still
-// false on the target property until OnMigrationComplete flips it. Without
+// Schema-flag gating. The two migration types differ here. Under
+// enable-rangeable IndexRangeFilters stays false for the whole run: the
+// property is not yet enabled and the cluster-wide flip happens once, at
+// task completion, in ReindexProvider.flipSemanticMigrationSchema. Under
+// repair-rangeable the flag is already true at submit and never changes —
+// repair alters no schema at all. The overlay below is written for the
+// enable case and is a harmless no-op for repair. Without
 // an AnalyzerOverlay forcing the rangeable flag on, the analyzer would
 // either drop the property entirely (HasAnyInvertedIndex=false when the
 // property is also IndexFilterable=false) or emit it with
@@ -47,9 +49,8 @@ import (
 // data-loss bug pinned by the int__filt=false_range=nil/false matrix
 // cells.
 type FilterableToRangeableStrategy struct {
-	schemaManager *schema.Manager
-	propNames     []string
-	generation    int // see genSuffix godoc
+	propNames  []string
+	generation int // see genSuffix godoc
 }
 
 func (s *FilterableToRangeableStrategy) MigrationDirName() string {
@@ -157,17 +158,19 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 // PreReindexHook creates empty rangeable buckets so the swap phase has a
 // "source" bucket to replace with the populated ingest bucket.
 //
-// It also pessimistically marks each migrated property as
-// "not locally ready" on this shard. The query path consults this via
-// [*Shard.IsRangeableLocallyReady] and falls back to the filterable
-// bucket walk while the rangeable bucket is empty. See
-// `Shard.rangeableLocalReady` for the full GH https://github.com/weaviate/0-weaviate-issues/issues/212
-// Issue C rationale. The post-runtimeSwap finalize flips the prop back
-// to "ready" after `markTidied()`.
+// Under enable-rangeable the empty bucket is unreachable by queries while
+// the migration runs: IndexRangeFilters stays false until the task
+// completes cluster-wide, so the query planner takes the filterable walk.
+// Under repair-rangeable the skip-if-exists below keeps whatever bucket
+// is already there, which on the shards repair exists for is the empty
+// one that is the damage. Those shards return zero rows for range
+// filters until the atomic swap lands, exactly as they did before the
+// repair started. On a shard whose bucket is populated the existing data
+// keeps serving until the swap, and if the swap never lands the backup
+// dir is what holds it — nothing in this hook protects it.
 func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
-		shard.setRangeableLocallyReady(propName, false)
 		bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
 		if shard.store.Bucket(bucketName) != nil {
 			continue
@@ -182,8 +185,8 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 
 // AnalyzerOverlay forces IndexRangeFilters=true on the targeted properties
 // while the backfill iterator scans the objects bucket. Until
-// OnMigrationComplete flips the RAFT-stored schema flag, the analyzer would
-// otherwise emit the property with HasRangeableIndex=false (and skip it
+// flipSemanticMigrationSchema flips the RAFT-stored schema flag, the analyzer
+// would otherwise emit the property with HasRangeableIndex=false (and skip it
 // entirely via HasAnyInvertedIndex when IndexFilterable is also false),
 // leaving the new rangeable bucket empty — the silent-FINISHED data-loss
 // failure mode pinned by the property-state matrix.
@@ -198,62 +201,12 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 	return out
 }
 
-// OnMigrationComplete updates the schema to set IndexRangeFilters=true on
-// the migrated properties. It uses per-property UpdateProperty RAFT commands
-// instead of UpdateClass, because UpdateClass rejects property field changes
-// via validatePropertiesForUpdate on RAFT replay.
-//
-// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
-// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
-// and Tokenization when non-empty) from the incoming message, not just the
-// one this strategy intends to change. If two strategies run concurrently on
-// the same property (e.g. enable-rangeable + enable-filterable), each could
-// read a stale view of the schema and clobber the other's flag on RAFT
-// apply.
-//
-// We cannot simply nil out the flags we don't want to change: the schema
-// handler's setPropertyDefaults fills nil flags with defaults (true for
-// IndexFilterable / IndexSearchable on text properties) before the RAFT
-// message is built, which would clobber a previously committed `false`
-// value. So we re-read the class right before each per-property update to
-// minimize the staleness window, and carry the freshly observed values for
-// the other three fields through unchanged.
-//
-// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
-// so only named fields are merged, but that requires changes across
-// cluster/schema/manager.go and meta_class.go.
-func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	// Mark each prop as "locally ready" so the query path stops falling
-	// back to the filterable bucket for this shard. This MUST happen
-	// before the schema-flag flip below — once the schema flip RAFTs
-	// cluster-wide, other replicas may also be at this same point or
-	// just-about-to-swap, but the per-shard ready flag controls THIS
-	// shard's behavior in isolation. Set it before the schema update so
-	// THIS shard's queries that observe the new schema flag also see
-	// ready=true. See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issue C +
-	// Shard.rangeableLocalReady.
-	//
-	// Unwrap before the assertion: a *LazyLoadShard wraps the concrete
-	// *Shard we need to flip the flag on. unwrapShard returns the
-	// concrete pointer for both *Shard and *LazyLoadShard.
-	if concrete, err := unwrapShard(ctx, shard); err == nil && concrete != nil {
-		for _, propName := range s.propNames {
-			concrete.setRangeableLocallyReady(propName, true)
-		}
-	}
-
-	className := shard.Index().Config.ClassName.String()
-	trueVal := true
-	// Missing properties are tolerated: a property dropped between
-	// scheduling and completion is the same outcome we'd want anyway.
-	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
-		[]string{api.PropertyFieldIndexRangeFilters},
-		func(prop *models.Property) bool {
-			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
-				return false // already enabled
-			}
-			prop.IndexRangeFilters = &trueVal
-			return true
-		})
-	return err
+// OnMigrationComplete is a no-op for both migration types this strategy
+// serves. enable-rangeable is semantic: its IndexRangeFilters=true flip
+// happens once cluster-wide at task completion, in
+// [ReindexProvider.flipSemanticMigrationSchema], after every node's local
+// swap has committed. repair-rangeable has no schema change to make at
+// all.
+func (s *FilterableToRangeableStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	return nil
 }

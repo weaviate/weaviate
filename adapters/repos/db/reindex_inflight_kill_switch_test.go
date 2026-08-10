@@ -1,0 +1,208 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package db
+
+import (
+	"context"
+	"errors"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+)
+
+// Pins: with RUNTIME_REINDEX_ENABLED off, the backup gate must consult
+// nothing (the stub lookup reports every shard as reindexing, so a gate
+// that still ran would refuse and bump the counter).
+func TestReindexGate_RuntimeReindexDisabled(t *testing.T) {
+	tests := []struct {
+		name       string
+		disabled   bool
+		wantBlock  bool
+		wantLookup bool
+	}{
+		{name: "disabled skips the check", disabled: true},
+		{name: "enabled keeps the check", wantBlock: true, wantLookup: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lookups atomic.Int64
+			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+				lookups.Add(1)
+				return func(string, string) bool { return true }, nil
+			})
+
+			gate := newReindexGate(db)
+			require.Equal(t, tt.wantBlock, gateRefuses(gate, "MyClass", "shard1"))
+			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
+				"the backup path must make no reindex lookup while the feature is off")
+		})
+	}
+}
+
+// Pins: with the flag off, the restore path must consult neither of the
+// gate's two inputs (cluster-wide lookup AND node-local cleanup probe) — both
+// are installed in every case so a kill switch covering only one still fails.
+func TestRefuseIfAnyReindexInFlight_RuntimeReindexDisabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		disabled bool
+		// cleanupBlocks makes the node-local probe report a hold, which is what
+		// short-circuits the cluster-wide lookup.
+		cleanupBlocks   bool
+		wantErr         bool
+		wantCleanupCall bool
+		wantLookup      bool
+	}{
+		{name: "disabled consults neither input", disabled: true, cleanupBlocks: true},
+		{
+			name: "enabled keeps the cluster-wide check", wantErr: true,
+			wantCleanupCall: true, wantLookup: true,
+		},
+		{
+			name: "enabled keeps the node-local cleanup check", cleanupBlocks: true,
+			wantErr: true, wantCleanupCall: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lookups, cleanups atomic.Int64
+			logger, _ := logrustest.NewNullLogger()
+			db := &DB{logger: logger, config: Config{RuntimeReindexDisabled: tt.disabled}}
+			db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) {
+				lookups.Add(1)
+				return true, nil
+			})
+			db.SetAnyCleanupInProgressLookup(func([]string) bool {
+				cleanups.Add(1)
+				return tt.cleanupBlocks
+			})
+
+			err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"MyClass"})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err, "no restore gate applies while the feature is off")
+			}
+			require.Equal(t, tt.wantCleanupCall, cleanups.Load() > 0,
+				"the flag check must precede the node-local cleanup lookup, or a node holding a "+
+					"teardown refuses restores with the feature off and the gate is only half disabled")
+			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
+				"the restore path must make no reindex lookup while the feature is off")
+		})
+	}
+}
+
+// The commit-time overlap backstop is the third place the kill switch has to
+// hold. It runs just before a backup is written SUCCESS and its lookup is a
+// leader-forwarded RAFT query, so with the feature off an ungated check could
+// fail a backup for reasons that need no reindex to exist.
+//
+// The call counter is the oracle, not the return value: a version that returns
+// nil but still queries the leader keeps exactly the operator-visible cost this
+// pins down.
+func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
+	overlapErr := errors.New("cannot rule out a runtime-reindex during this backup")
+
+	tests := []struct {
+		name       string
+		disabled   bool
+		wantErr    error
+		wantLookup bool
+	}{
+		{name: "disabled skips the backstop", disabled: true},
+		{name: "enabled keeps the backstop", wantErr: overlapErr, wantLookup: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lookups atomic.Int64
+			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
+			db.SetReindexOverlapLookup(func(context.Context, []string, time.Time) error {
+				lookups.Add(1)
+				return overlapErr
+			})
+
+			err := db.RefuseIfReindexOverlapped(context.Background(), []string{"MyClass"}, time.Now())
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr,
+					"with the feature on the refusal must reach the caller unchanged")
+				require.Equal(t, tt.wantErr.Error(), err.Error(),
+					"with the feature on the refusal text must be unchanged")
+			} else {
+				require.NoError(t, err, "no overlap backstop applies while the feature is off")
+			}
+			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
+				"the backup commit path must make no reindex lookup while the feature is off")
+		})
+	}
+}
+
+// The kill switch does not stop a cancel: an operator who turns the feature off
+// still has to be able to stop a migration that was already running. That cancel
+// closes this node's cleanup gate, which is the second input of the per-shard
+// backup gate. So the flag check has to cover that input too. Covering only the
+// activity lookup would mean every flag-off cancel refuses this node's backups
+// for the length of its teardown, through a gate the flag is meant to have
+// turned off. Sibling of the restore-side pin in the table above.
+func TestReindexGate_DisabledIgnoresACleanupHold(t *testing.T) {
+	var activityBuilds, cleanupBuilds atomic.Int64
+	db := &DB{config: Config{RuntimeReindexDisabled: true}}
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		activityBuilds.Add(1)
+		return func(string, string) bool { return false }, nil
+	})
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		cleanupBuilds.Add(1)
+		// What a cancel's teardown leaves behind on this shard.
+		return func(string, string) ReindexHold { return ReindexHoldCleanup }
+	})
+
+	require.False(t, gateRefuses(newReindexGate(db), "Movies", "shard1"),
+		"with the feature off a cancel's cleanup hold must not refuse this node's backup")
+	require.Zero(t, cleanupBuilds.Load(),
+		"the flag check must precede the cleanup lookup, or the gate is only half disabled")
+	require.Zero(t, activityBuilds.Load(),
+		"the backup path must make no reindex lookup while the feature is off")
+}
+
+// The submit hold is a map read on this node's own provider: it needs nothing
+// from DTM. Installing it behind the activity builder meant that during the
+// post-bootstrap wait — which can run 60s while HTTP already serves — a
+// submission that had taken MarkSubmitInProgress and was deleting
+// .migrations/ dirs was invisible to a concurrent backup of the same shard.
+func TestReindexGateReadsTheSubmitHoldBeforeTheActivityLookupIsWired(t *testing.T) {
+	db := &DB{}
+	provider := &ReindexProvider{}
+	provider.MarkSubmitInProgress("Movies")
+
+	// Only the cleanup builder is installed — exactly the post-bootstrap
+	// window, where the DTM-backed activity builder is not yet available.
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		return provider.HoldForShard
+	})
+
+	gate := newReindexGate(db)
+	gate.resolve()
+	require.NotNil(t, gate.cleanup,
+		"the cleanup lookup must install even when the activity builder is not yet wired; "+
+			"it is a local map read and needs nothing from DTM")
+
+	require.Equal(t, reindexBlockedBySubmit, gate.blockReason("Movies", "shard1"),
+		"a submission that is already deleting sidecars must block a backup of the same shard "+
+			"during the post-bootstrap wait, not only after the activity lookup lands")
+}

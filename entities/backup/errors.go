@@ -27,7 +27,50 @@ import (
 // boundaries with errors.Is, not substring comparison. The operator-visible
 // error text wrapping this sentinel is owned by the storage layer in
 // adapters/repos/db/reindex_inflight.go.
-var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
+//
+// Names no shard: the text reaches API response bodies, and backing up a
+// collection grants nothing on shard ids.
+var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
+
+// ErrBackupSpannedReindex marks a backup whose capture overlapped a
+// runtime-reindex. Separate from [ErrBackupBlockedByInFlightReindex] because
+// the migration has usually finished by the time this is raised, and calling it
+// in-flight sends the operator after a task that is gone.
+var ErrBackupSpannedReindex = errors.New("backup spanned a runtime-reindex")
+
+// ErrReindexOverlapUndetermined accompanies [ErrBackupSpannedReindex] on the
+// refusals that never observed an overlap and only failed to rule one out: a
+// task list that could not be fetched, a payload that would not decode, a
+// backup that outlived the window finished tasks are kept for.
+//
+// Both refusals fail the backup, so the sentinel is not about the outcome. It
+// is about what the operator is told: "a migration ran during your backup"
+// sends them looking for a task, and for three of the four ways this refusal is
+// raised there is none to find.
+var ErrReindexOverlapUndetermined = errors.New("runtime-reindex overlap could not be determined")
+
+// ReindexBlockedError is the API-safe form of a backup refused by the reindex
+// gate. Wrappers on the way out add the shard and node an operator wants and a
+// backup caller is not granted, so the publishable message travels alongside
+// them and the boundary recovers it with errors.As.
+type ReindexBlockedError struct{ Msg string }
+
+func (e ReindexBlockedError) Error() string { return e.Msg }
+
+func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
+
+// ErrReindexInFlight is the cluster-wide counterpart of
+// [ErrBackupBlockedByInFlightReindex]. It names neither shard nor operation,
+// so callers can frame it themselves (e.g. "restore blocked: ...").
+var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
+
+// ErrReindexStateUnknown marks the refusal a node returns when it could
+// not read cluster-wide reindex state at all: not "a reindex is running",
+// but "no shard's state is known". It is never printed — the refusal's own
+// message says what happened — and exists so the canCommit boundary can
+// tell that message apart from a genuine per-shard refusal, and from an
+// older node's message that carries no sentinel at all.
+var ErrReindexStateUnknown = errors.New("runtime-reindex state unknown")
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.
 // CloseWithError closes the reader and signals the given error to the writer,

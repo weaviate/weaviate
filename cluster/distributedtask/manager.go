@@ -17,11 +17,13 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -64,11 +66,30 @@ type Manager struct {
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
 
-	completedTaskTTL time.Duration
-
-	clock clockwork.Clock
+	// Per-namespace terminal-apply observers; see [TerminalObserver].
+	terminalObservers map[string]TerminalObserver
+	// terminalDispatch carries terminal tasks from the apply path to the single
+	// drainer goroutine that calls the observers. See
+	// [Manager.dispatchTerminalWithLock] for why they do not run inline.
+	terminalDispatch chan *Task
+	// terminalDispatchDone is closed by [Manager.Close] to stop the drainer.
+	terminalDispatchDone chan struct{}
+	// terminalOverflowInFlight counts the goroutines the apply path spawned
+	// because the queue was full; bounded by [terminalDispatchOverflowLimit].
+	// Read and incremented under mu (every dispatcher holds it), decremented
+	// from the goroutine itself, hence atomic.
+	terminalOverflowInFlight atomic.Int64
+	// terminalDrainerRunning keeps the drainer to exactly one goroutine across
+	// repeated registrations. Guarded by mu.
+	terminalDrainerRunning bool
+	// terminalDispatchClosed makes Close idempotent. Guarded by mu.
+	terminalDispatchClosed bool
 
 	logger logrus.FieldLogger
+
+	// stampMismatchLogger rate-limits the warn in [Manager.ttlHasElapsed]; a
+	// rolling upgrade can produce one mismatch per task in the backlog.
+	stampMismatchLogger *logrusext.Sampler
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
@@ -203,28 +224,29 @@ func (m *Manager) notifySchedulerWithLock() {
 	m.notifier.Wake()
 }
 
+// ManagerParameters carries no clock and no TTL: the FSM decides cleanup only from
+// the numbers on the log entry, never from local state. Both live on the Scheduler,
+// which measures and proposes.
 type ManagerParameters struct {
-	Clock clockwork.Clock
-
-	CompletedTaskTTL time.Duration
-
 	Logger logrus.FieldLogger
 }
 
-func NewManager(params ManagerParameters) *Manager {
-	if params.Clock == nil {
-		params.Clock = clockwork.NewRealClock()
-	}
+// stampMismatchWarnBudget is how many stamp-mismatch warns an hour carries — enough
+// to alert an operator without flooding on a large backlog.
+const stampMismatchWarnBudget = 5
 
-	return &Manager{
+func NewManager(params ManagerParameters) *Manager {
+	m := &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
+		terminalObservers:    make(map[string]TerminalObserver),
+		terminalDispatch:     make(chan *Task, terminalDispatchQueueDepth),
+		terminalDispatchDone: make(chan struct{}),
 
-		completedTaskTTL: params.CompletedTaskTTL,
-
-		clock:  params.Clock,
 		logger: params.Logger,
 	}
+	m.stampMismatchLogger = logrusext.NewSampler(m.dispatchLogger(), stampMismatchWarnBudget, time.Hour)
+	return m
 }
 
 // RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
@@ -237,6 +259,185 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+}
+
+// RegisterTerminalObserver installs the namespace's [TerminalObserver], which
+// fires on CANCELLED and on FAILED. Last write wins per namespace; nil / empty
+// arguments are silently dropped. Starts the drainer that runs the observers,
+// so registering is what opens the queue.
+func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalObserver) {
+	if namespace == "" || observer == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.terminalObservers[namespace] = observer
+	m.startTerminalDrainerWithLock()
+}
+
+// Close stops the terminal-observer drainer. Idempotent. Anything still queued is
+// dropped: the signal observers raise is only ever read by another node in the
+// same cluster, and on the way down there is no longer anyone to read it.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.terminalDispatchClosed {
+		return
+	}
+	m.terminalDispatchClosed = true
+	close(m.terminalDispatchDone)
+}
+
+// terminalDispatchQueueDepth is how many cancel events the apply path may hand to
+// the drainer before it has to fan one out on its own goroutine. Cancels are
+// operator-driven and the drainer only forwards, so a queue this deep can only
+// fill if an observer has wedged.
+const terminalDispatchQueueDepth = 256
+
+// terminalDispatchOverflowLimit bounds the goroutines spawned for events the
+// queue could not take. A queue this deep only fills when an observer has
+// wedged, and a wedged observer means every one of these goroutines parks
+// forever, so the fan-out has to stop somewhere.
+const terminalDispatchOverflowLimit = 32
+
+// startTerminalDrainerWithLock brings up the single goroutine that runs cancel
+// observers. Caller holds m.mu.
+func (m *Manager) startTerminalDrainerWithLock() {
+	if m.terminalDrainerRunning {
+		return
+	}
+	m.terminalDrainerRunning = true
+
+	queue, done := m.terminalDispatch, m.terminalDispatchDone
+	enterrors.GoWrapper(func() {
+		for {
+			select {
+			case <-done:
+				return
+			case task := <-queue:
+				// A select with two ready cases picks randomly, so without this
+				// re-check a closed done plus a queued event could still deliver
+				// to a torn-down observer after Close.
+				select {
+				case <-done:
+					return
+				default:
+				}
+				m.runTerminalObserverSafely(task)
+			}
+		}
+	}, m.dispatchLogger())
+}
+
+// runTerminalObserverSafely keeps one namespace's panicking observer from taking
+// the drainer down for all of them. GoWrapper's recover sits outside the loop,
+// so a panic there ends the goroutine for good — and terminalDrainerRunning stays
+// true, so nothing restarts it and re-registering an observer does not help.
+func (m *Manager) runTerminalObserverSafely(task *Task) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.dispatchLogger().
+				WithField("namespace", task.Namespace).
+				WithField("task_id", task.ID).
+				Errorf("distributedtask: terminal observer panicked; dropping this event and keeping the drainer alive: %v", r)
+		}
+	}()
+	m.runTerminalObserver(task)
+}
+
+// dispatchLogger keeps the drainer usable from fixtures that build a Manager
+// without one.
+func (m *Manager) dispatchLogger() logrus.FieldLogger {
+	if m.logger == nil {
+		return logrus.New()
+	}
+	return m.logger
+}
+
+// runTerminalObserver reads the observer under its own lock rather than
+// carrying one over from the apply path, which would hold the apply lock
+// across observer code. Also picks up the latest registration if the
+// namespace was re-registered between queueing and running.
+func (m *Manager) runTerminalObserver(task *Task) {
+	m.mu.RLock()
+	observer := m.terminalObservers[task.Namespace]
+	m.mu.RUnlock()
+	if observer == nil {
+		return
+	}
+	observer(task)
+}
+
+// dispatchTerminalWithLock hands a task that has just gone terminal to the
+// drainer. Caller holds m.mu.
+//
+// catchingUp is the FSM's own replay flag: a node replaying its RAFT log at
+// startup applies endings that finished long ago, and signalling those would
+// raise a cleanup gate nothing can release except its own timeout. Keyed on
+// the flag rather than transition age, so it's immune to clock skew between
+// nodes. The flag is node-local and only ever decides this side effect, never
+// FSM state, so it cannot make two nodes diverge.
+//
+// Observers run off the apply path, never inline: they take their own locks
+// (also taken by the admission path and HTTP handlers), and a RAFT apply
+// blocking on any of those stalls every FSM behind it. The task is cloned
+// because it stays in m.tasks and later applies mutate it.
+func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
+	if m.terminalDispatchClosed {
+		// The drainer is gone; without this, applies still arriving on the
+		// way down would fill the queue with nothing left to empty it.
+		return
+	}
+	observer := m.terminalObservers[task.Namespace]
+	if observer == nil {
+		return
+	}
+	if catchingUp {
+		m.dispatchLogger().WithFields(logrus.Fields{
+			"namespace": task.Namespace,
+			"task_id":   task.ID,
+		}).Debug("distributedtask: skipping the terminal observer for an ending replayed from the RAFT log")
+		return
+	}
+
+	clone := task.Clone()
+	select {
+	case m.terminalDispatch <- clone:
+	default:
+		// A missing event does not fail the cancel open: the node handling it
+		// polls this node's gate and answers "unconfirmed" once its budget
+		// runs out, which is worth a few extra goroutines to avoid.
+		logger := m.dispatchLogger()
+		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
+		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {
+			// Past the bound the observer is wedged rather than merely behind,
+			// and every further goroutine parks on the same wedge for the
+			// lifetime of the process.
+			logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full and the overflow bound is reached; dropping this terminal event")
+			return
+		}
+		logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full, the observer is not keeping up; dispatching this one separately")
+		m.terminalOverflowInFlight.Add(1)
+		done := m.terminalDispatchDone
+		enterrors.GoWrapper(func() {
+			defer m.terminalOverflowInFlight.Add(-1)
+			// Not joined by Close: the observer may block for as long as it
+			// likes and Close runs under the same lock the observer takes to
+			// look itself up. Checking here is the whole stop signal, so a
+			// shutdown between the dispatch and the start skips the observer
+			// instead of calling into torn-down dependencies.
+			select {
+			case <-done:
+				return
+			default:
+			}
+			// Same containment as the drainer. GoWrapper's recover is
+			// conditional on DISABLE_RECOVERY_ON_PANIC, which the test image
+			// sets to "true", so relying on it here means a panicking observer
+			// takes the node down under queue overflow and nowhere else.
+			m.runTerminalObserverSafely(clone)
+		}, logger)
+	}
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
@@ -266,6 +467,12 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 			delete(tasksByID, taskID)
 			removed = append(removed, task.TaskDescriptor)
 		}
+	}
+
+	// Wake the scheduler so it terminates the removed tasks' handles now
+	// instead of at the next tick.
+	if len(removed) > 0 {
+		m.notifySchedulerWithLock()
 	}
 	return removed
 }
@@ -384,7 +591,7 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 // in-flight units are NOT waited for, and their subsequent completion reports will be
 // rejected with "task is no longer running". This fail-fast behavior is intentional: it avoids
 // wasting cluster resources on a task that is already doomed.
-func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
+func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskUnitCompletionRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record unit completion request: %w", err)
@@ -416,9 +623,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		u.Status = UnitStatusFailed
 		u.Error = r.Error
 		u.FinishedAt = finishedAt
-		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
-		task.FinishedAt = finishedAt
+		task.markTerminal(TaskStatusFailed, finishedAt)
+		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -427,25 +634,17 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	u.Progress = 1.0
 	u.FinishedAt = finishedAt
 
+	// Every unit here is COMPLETED: the failure path above is the only way a
+	// unit reaches FAILED, and it returns having already put the task in
+	// FAILED, which findStartedUnitWithLock then refuses further reports
+	// against. So this transition never has to consider a failed unit.
 	if task.AllUnitsTerminal() {
-		if task.AnyUnitFailed() {
-			// Failures are terminal immediately — there are no
-			// post-task callbacks to wait for on the failure path
-			// (the schema flip is intentionally skipped when any
-			// unit failed; see OnTaskCompleted's early-return for
-			// FAILED tasks).
-			task.Status = TaskStatusFailed
+		// Barrier tasks go through PREPARING; others jump to SWAPPING.
+		if task.NeedsPreparationBarrier {
+			task.Status = TaskStatusPreparing
 		} else {
-			// Barrier tasks go through PREPARING; others jump to SWAPPING.
-			if task.NeedsPreparationBarrier {
-				task.Status = TaskStatusPreparing
-			} else {
-				task.Status = TaskStatusSwapping
-			}
+			task.Status = TaskStatusSwapping
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
-		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
-		task.FinishedAt = finishedAt
 	}
 
 	// Notify on every unit completion — even when not the last one — so
@@ -462,7 +661,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
 // late acks against terminal states are silently dropped.
-func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
+func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record post-completion ack request: %w", err)
@@ -498,23 +697,24 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PostCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
-	// Any failure flips the task to FAILED immediately; later acks are
-	// still recorded for forensic value. FinishedAt is not updated —
-	// "when did the work end" should remain the AllUnitsTerminal moment.
+	// Any failure flips the task to FAILED immediately. Acks arriving after
+	// that are dropped by the terminal arm of the switch above.
 	if !r.Success && task.Status == TaskStatusSwapping {
-		task.Status = TaskStatusFailed
+		task.markTerminal(TaskStatusFailed, ackedAt)
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
+		m.dispatchTerminalWithLock(task, catchingUp)
 	}
 
 	m.notifySchedulerWithLock()
@@ -551,7 +751,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 // purely from the task's Units → NodeID map (which is RAFT-replicated
 // and identical on every node) plus the PreparationCompletionAcks state — so
 // every node's Manager arrives at the transition on the same apply.
-func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
+func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record prep-complete ack request: %w", err)
@@ -589,23 +789,24 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PreparationCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
 	// Failure path: the task fails immediately. No node proceeds to the
 	// atomic swap.
 	if !r.Success && task.Status == TaskStatusPreparing {
-		task.Status = TaskStatusFailed
 		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
-		// FinishedAt was set when AllUnitsTerminal landed; keep it.
+		task.markTerminal(TaskStatusFailed, ackedAt)
+		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -680,13 +881,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	// FinishedAt is intentionally NOT overwritten here. It was already set
-	// in [Manager.RecordUnitCompletion] when all units reached terminal
-	// state — that is the user-meaningful "when did the work finish"
-	// timestamp, and the completed-task TTL counts from there. The
-	// FinalizedAtUnixMillis on the request is left in place for forensic
-	// purposes (visible in RAFT logs) but not stored on the Task.
-	task.Status = TaskStatusFinished
+	task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FinalizedAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -698,8 +893,8 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
-// is refused. FinishedAt stays at the AllUnitsTerminal moment.
-func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
+// is refused.
+func (m *Manager) MarkTaskFailed(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.MarkTaskFailedRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal mark task failed request: %w", err)
@@ -726,7 +921,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	task.Status = TaskStatusFailed
+	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.FailedAtUnixMillis))
 	if r.Error != "" {
 		if task.Error != "" {
 			task.Error = task.Error + "; " + r.Error
@@ -734,6 +929,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			task.Error = r.Error
 		}
 	}
+	m.dispatchTerminalWithLock(task, catchingUp)
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -804,7 +1000,7 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 
 // CancelTask transitions a running task to CANCELLED. In-flight units are not waited
 // for — the [Scheduler] will terminate their local handles on the next tick.
-func (m *Manager) CancelTask(a *api.ApplyRequest) error {
+func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal cancel task request: %w", err)
@@ -822,15 +1018,16 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
-	task.Status = TaskStatusCancelled
-	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
+	task.markTerminal(TaskStatusCancelled, time.UnixMilli(r.CancelledAtUnixMillis))
+	m.dispatchTerminalWithLock(task, catchingUp)
 	m.notifySchedulerWithLock()
 	return nil
 }
 
-// CleanUpTask removes a terminal task from the Manager's state. It refuses to clean up tasks
-// that are still running or whose completedTaskTTL has not yet elapsed, preventing premature
-// removal of status information that other nodes may still need to observe.
+// CleanUpTask removes a terminal task from the Manager's state. It refuses tasks that are
+// still running, carry no finish time, or (per the proposer's measurements) haven't
+// cleared the completed-task TTL — preventing premature removal of status other nodes may
+// still need to observe. See [Manager.ttlHasElapsed] for the TTL determinism contract.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -845,16 +1042,92 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	if task.Status == TaskStatusStarted {
+	// Every non-terminal status, not just STARTED: a non-terminal task has a
+	// zero FinishedAt, which the TTL check below reads as long expired.
+	if task.Status.IsActive() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
-	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
+	// A terminal task with no stamp has infinite age under the TTL check below;
+	// refuse instead, since every node must reach the same answer regardless of
+	// its own clock. Only a rolling upgrade past the build that added stamping
+	// produces this state, and it self-heals on the next restore (see
+	// [Task.repairTerminalStamp]).
+	if task.FinishedAt.IsZero() {
+		m.dispatchLogger().WithField("namespace", r.Namespace).WithField("task_id", r.Id).
+			Warnf("refusing to clean up task %s/%s/%d: it is %s but carries no finish time",
+				r.Namespace, r.Id, task.Version, task.Status)
+		return fmt.Errorf("task %s/%s/%d is %s but carries no finish time",
+			r.Namespace, r.Id, task.Version, task.Status)
+	}
+
+	if !m.ttlHasElapsed(&r, task.FinishedAt) {
 		return fmt.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
 	}
 
 	delete(m.tasks[task.Namespace], task.ID)
 	return nil
+}
+
+// ttlHasElapsed reports whether the proposing sweep's measurements say the task is
+// old enough to delete. All three operands — the sweep's moment, the TTL it used, and
+// the finish time it read — travel on the log entry, so every node computes the same
+// answer from the entry alone.
+//
+// localFinishedAt is not an operand, only the basis for the mismatch warning below: a
+// node's own stamp can differ from the proposer's under clock skew or a repaired
+// snapshot stamp (see [Task.repairTerminalStamp]), and GET /v1/schema/{class}/indexes
+// reads locally, so a fork there would be visible to the caller.
+//
+// The TTL applied is the proposer's: DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is a
+// per-node setting, so the effective cluster retention is whatever the proposing node
+// had configured.
+//
+// finished_at <= 0 means the proposer had nothing to send — a build predating these
+// fields, since a same-build sweep filters unstamped tasks out before proposing. There
+// is no other operand to decide from (a node's own stamp/clock are exactly what must
+// stay out of this), so the entry is deferred and the task stays here; the old proposer
+// still deletes it under its own local check. [Scheduler.tick] is not leader-gated, so
+// the cluster converges on the next tick from an upgraded node — unless the old
+// proposer's entry already dropped the task from the leader's list, in which case the
+// deferred copies wait for an upgraded node to take leadership. This converges the FSM
+// but not the backup overlap backstop's evidence, which reads that same leader list.
+// The defer is silent: it's the expected shape of an upgrade window, and the mismatch
+// warn covers the case worth flagging.
+//
+// A non-positive TTL defers for the same reason (no fallback operand). Two other
+// nonsense inputs fail closed for free: a non-positive proposal moment, or a finish
+// time after it, both make the age negative, which no positive TTL clears.
+//
+// A proposal moment far in the future is trusted rather than guarded: it makes the age
+// enormous and positive, clearing every task's TTL cluster-wide, and there's no sound
+// bound to guard it with since a legitimately long-deferred task reports the same
+// enormous age. The jump must exceed the TTL to flip any verdict — an hour of skew
+// against a 24h TTL is harmless — so uniform clocks across nodes are a requirement here,
+// same as a uniform TTL; the backup overlap backstop documents both.
+func (m *Manager) ttlHasElapsed(r *api.CleanUpDistributedTaskRequest, localFinishedAt time.Time) bool {
+	if r.FinishedAtUnixMillis <= 0 {
+		return false
+	}
+
+	// Defers for the same no-fallback-operand reason as the zero stamp above.
+	if r.TtlMillis <= 0 {
+		return false
+	}
+
+	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
+	if !finishedAt.Equal(localFinishedAt) {
+		m.stampMismatchLogger.WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("namespace", r.Namespace).WithField("task_id", r.Id).
+				Warnf("task %s/%s/%d carries finish time %s here but the cleanup proposer read %s; "+
+					"deciding from the proposer's so every node reaches the same verdict. Expected "+
+					"during a rolling upgrade past a build that stamped the terminal transition differently",
+					r.Namespace, r.Id, r.Version, localFinishedAt, finishedAt)
+		})
+	}
+
+	elapsed := time.UnixMilli(r.ProposedAtUnixMillis).Sub(finishedAt)
+	return time.Duration(r.TtlMillis)*time.Millisecond <= elapsed
 }
 
 // ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is
@@ -908,20 +1181,24 @@ func sortTasksForDisplay(tasks []*Task) {
 			return iStarted
 		}
 
-		iWhen := tasks[i].FinishedAt
-		if iWhen.IsZero() {
-			iWhen = tasks[i].StartedAt
-		}
-		jWhen := tasks[j].FinishedAt
-		if jWhen.IsZero() {
-			jWhen = tasks[j].StartedAt
-		}
+		iWhen := displayTime(tasks[i])
+		jWhen := displayTime(tasks[j])
 		if !iWhen.Equal(jWhen) {
 			return iWhen.After(jWhen)
 		}
 
 		return tasks[i].ID < tasks[j].ID
 	})
+}
+
+// displayTime is the moment the sort ranks a task by: when it ended, or when
+// it started if it has not. Reads the status rather than testing FinishedAt for
+// zero, so the two halves of the sort split on the same predicate.
+func displayTime(task *Task) time.Time {
+	if task.Status.IsTerminal() {
+		return task.FinishedAt
+	}
+	return task.StartedAt
 }
 
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {
@@ -968,8 +1245,30 @@ func (m *Manager) setTaskWithLock(task *Task) {
 }
 
 type snapshot struct {
-	Tasks map[string][]*Task `json:"tasks,omitempty"`
+	// Version is the payload format, telling [Manager.Restore] whether the
+	// finish times in it still need normalizing.
+	//
+	//	0 — no version field: written by an older build. May carry a terminal
+	//	    task with a missing/early FinishedAt or a running task with one
+	//	    set; Restore repairs both (see [Task.repairTerminalStamp],
+	//	    [Task.clearNonTerminalStamp]).
+	//	1 — written by this build. FinishedAt already holds the invariant, so
+	//	    Restore leaves it alone.
+	//
+	// A version above [currentSnapshotVersion] is refused rather than read under
+	// the current meaning — a future format could redefine FinishedAt, and
+	// misreading it would feed the wrong age to the cleanup TTL and the backup
+	// overlap backstop.
+	//
+	// This field (and the repair) can go once no supported upgrade path can
+	// still produce a version-0 snapshot.
+	Version int                `json:"version,omitempty"`
+	Tasks   map[string][]*Task `json:"tasks,omitempty"`
 }
+
+// currentSnapshotVersion is the format [Manager.Snapshot] writes and the
+// highest [Manager.Restore] will read.
+const currentSnapshotVersion = 1
 
 // Snapshot serialises the full task state to JSON for Raft snapshotting. The inverse
 // operation is [Manager.Restore].
@@ -980,7 +1279,8 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	}
 
 	bytes, err := json.Marshal(&snapshot{
-		Tasks: tasks,
+		Version: currentSnapshotVersion,
+		Tasks:   tasks,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot: %w", err)
@@ -992,14 +1292,44 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // Restore replaces the Manager's in-memory state from a Raft snapshot produced by
 // [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
 // a snapshot from the leader.
+//
+// A payload from a newer format is refused (propagated by cluster/store_snapshot.go) —
+// only a downgrade produces one, and refusing keeps this build from reading a future
+// FinishedAt convention under the old meaning. No writer produces one today, so the
+// refusal is currently dormant; it's added now rather than alongside the first
+// incompatible format, since by then the build that has to refuse is already in the
+// field.
+//
+// The refusal costs the node its startup: hashicorp/raft walks retained snapshots
+// newest-first at boot, so if an older, readable one exists it's used instead; if every
+// retained snapshot is the newer format, NewRaft/Store.Open fail and
+// adapters/handlers/rest/configure_api.go calls Fatalf, exiting the process (a
+// supervisor restart hits the same failure). On an already-running node the refusal
+// arrives via InstallSnapshot instead: the node stays up but never catches up, since the
+// leader keeps retrying the same payload. Recovery is a build at or above the one that
+// wrote the snapshot; deleting snapshots is a last resort, since raft only retains
+// TrailingLogs past the newest one (10240 default vs. SnapshotThreshold 8192), so a log
+// that no longer reaches the restored snapshot panics in NewRaft — deleting all three
+// (cluster/store.go retains 3) hits the same panic via a GetLog on a compacted log.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
 
+	if s.Version > currentSnapshotVersion {
+		return fmt.Errorf("restore distributed task snapshot: format version %d is newer than the %d this build understands; "+
+			"run a build at or above the one that wrote it", s.Version, currentSnapshotVersion)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Drop the pre-restore state instead of merging into it. A snapshot is the
+	// whole FSM state, so a task or namespace it does not carry no longer
+	// exists; keeping one would resurrect a task the cluster has already
+	// cleaned up.
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
 
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
@@ -1007,9 +1337,36 @@ func (m *Manager) Restore(bytes []byte) error {
 				m.tasks[namespace] = make(map[string]*Task)
 			}
 
+			// The unversioned payload is the one door a terminal task with a
+			// missing or stale finish time enters through; repairing it here is
+			// what lets it age out again and keeps the backup overlap backstop
+			// honest. Every versioned payload already holds both halves of the
+			// invariant, or owns a format this build does not know how to
+			// normalize. See [snapshot.Version].
+			if s.Version == 0 {
+				if task.repairTerminalStamp() {
+					m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
+						Warnf("task %s/%s/%d was restored %s carrying a finish time older than the task's own "+
+							"last recorded moment; stamping it %s. Expected after a rolling upgrade past a "+
+							"build that stamped the terminal transition differently or not at all",
+							namespace, task.ID, task.Version, task.Status, task.FinishedAt)
+				}
+				if task.clearNonTerminalStamp() {
+					m.dispatchLogger().WithField("namespace", namespace).WithField("task_id", task.ID).
+						Warnf("task %s/%s/%d was restored %s carrying a finish time; clearing it, since the "+
+							"task is still running. Expected after a rolling upgrade past a build that "+
+							"stamped the moment the task's units stopped",
+							namespace, task.ID, task.Version, task.Status)
+				}
+			}
+
 			m.tasks[namespace][task.ID] = task
 		}
 	}
 
+	// The snapshot replaced the task map, so the scheduler may be holding
+	// handles for tasks that no longer exist. Wake it to terminate them now
+	// rather than at the next tick.
+	m.notifySchedulerWithLock()
 	return nil
 }

@@ -62,6 +62,13 @@ import (
 // over the sentinel band that equals the mover count (no lost update). A
 // pre-check confirms the movers' new values are durably present in the objects
 // store, so any index shortfall is a silent index loss, not a failed write.
+//
+// KNOWN RED until weaviate/weaviate#12211 lands — the multi-node instance
+// of the same window TestEnableRangeable_ConcurrentWrites measures.
+//
+// assertRangeCountAllNodes stops at the first node that disagrees, so a
+// reported [1490 0 0] means node 1 was short and nodes 2/3 were not
+// measured, not that two replicas served zero.
 func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) {
 	ctx := context.Background()
 

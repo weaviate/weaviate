@@ -29,8 +29,8 @@ typical journeys it unlocks:
 - Add a missing inverted index after the fact: `enable-filterable`,
   `enable-searchable`, `enable-rangeable`.
 - Repair a bucket suspected of corruption: `repair-filterable`,
-  `repair-searchable` (which is also the Map → Blockmax format
-  upgrade), `repair-rangeable`.
+  `rebuild-searchable`, `repair-rangeable`. The Map → Blockmax format
+  upgrade is a separate type, `change-algorithm`.
 - Cancel an in-flight migration; the cluster cleans up the partial
   state and the property is back to its pre-submit on-disk shape.
 
@@ -54,6 +54,24 @@ together into one user-visible verb on `PUT
 
 ## 2. REST surface
 
+> **Runtime reindex is off by default.** Set
+> `RUNTIME_REINDEX_ENABLED=true` to enable it. While it is off, submitting
+> a migration returns `400 Bad Request` with
+> `runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true`.
+> The cancel verb and `GET .../indexes` keep working, so a task that was
+> already running stays observable and stoppable. Everything below
+> describes behavior with the flag on.
+>
+> **With the flag off, a replica move can kill a running migration.** The
+> backup path's reindex check is skipped, so a replica move — or any other
+> operation that closes the shard — is admitted even while a migration is
+> still writing to that shard. Closing the shard takes the storage away from
+> the migration, and the migration fails loudly: the task ends in `FAILED`,
+> the schema stays at its pre-migration value, and the copy itself completes
+> normally. Nothing is corrupted, but the migration is lost and has to be
+> resubmitted once the flag is back on. With the flag on, the move is refused
+> and the replication engine retries it until the migration finishes.
+
 ### `PUT /v1/schema/{class}/indexes/{property}`
 
 Submit a migration. Body shape selects which one:
@@ -65,7 +83,8 @@ Submit a migration. Body shape selects which one:
 | `{"rangeable":{"enabled":true}}` | `enable-rangeable` | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). |
 | `{"searchable":{"tokenization":"trigram"}}` | `change-tokenization` | Rewrites BOTH searchable and filterable buckets when both exist. |
 | `{"filterable":{"tokenization":"word"}}` | `change-tokenization-filterable` | Filterable-only retokenize variant. Use when the property has no searchable index. |
-| `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
+| `{"searchable":{"rebuild":true}}` | `rebuild-searchable` | Rebuild the searchable bucket in place. Blockmax only; preserves the current algorithm and tokenization. |
+| `{"searchable":{"algorithm":"blockmax"}}` | `change-algorithm` | Map → Blockmax upgrade. `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property is on Blockmax. Semantic: `?tenants` is rejected. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
 | `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a STARTED task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled). |
@@ -74,9 +93,11 @@ Query parameters:
 
 - `?tenants=t1,t2` — scope to named tenants on a multi-tenant class.
   Required only when the operator wants a subset. Rejected on
-  single-tenant classes. Rejected on semantic migrations
-  (`change-tokenization*`) because the cluster-wide schema flip cannot
-  be sub-scoped — all tenants must migrate together.
+  single-tenant classes. Rejected on every semantic migration
+  (`change-tokenization*`, `enable-*`) because the cluster-wide schema
+  flip cannot be sub-scoped — all tenants must migrate together. The
+  format-only migrations, `repair-*` included, accept a subset: they flip
+  nothing, so there is nothing that has to move for everyone at once.
 
 Response shapes:
 
@@ -125,15 +146,120 @@ Per-property, per-index-type snapshot:
 
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
 The status is synthesized in `mergeReindexStatus` from a snapshot of
-the active DTM task list crossed with the live schema flags. A short
-**finalize-window override** lets a FINISHED-but-schema-not-yet-flipped
-entry render as `indexing@100%` for up to 10s (the bound, see
-`finalizeWindowMax`); without that override the UI would briefly show
-"None" between task FINISHED and the schema-flag flip, which was the
-user-visible face of weaviate/weaviate#10675.
+the DTM task list crossed with the live schema flags. Both are read
+from the **local FSM**: any schema flip a task makes commits to the
+RAFT log before the task is marked FINISHED, so a locally FINISHED task
+never renders against a flip this node has yet to apply. The two are
+still two sequential reads, not one snapshot, so what this buys is a
+window of two adjacent in-process reads instead of the leader's apply
+lag. The window between the units stopping
+and the flip is reported by the `PREPARING` and `SWAPPING` statuses,
+which render as `indexing@100%`.
+
+Whether an entry is emitted at all is decided by the **per-property**
+flag (`indexSearchable`, `indexFilterable`, `indexRangeFilters`). For
+the migrations that turn it on — the `enable-*` types and
+`change-tokenization` — FINISHED with it still off means it was turned
+back off since (an index DELETE), i.e. a stale task, and produces no
+entry; this is weaviate/weaviate#10675.
+
+`change-algorithm` is different: it never touches the per-property
+flag, and the class-level `usingBlockMaxWAND` it does flip is deferred
+until every searchable property on the class has migrated. So a class
+can sit FINISHED with `"algorithm": "wand"` reported on a property
+whose buckets are already blockmax, until the last sibling property
+migrates. The entry is still `ready`, and `wand` is the honest answer
+while queries remain class-wide WAND. There is currently no way to
+tell that state apart from "no migration has run" at this endpoint.
+
+This endpoint answers at **local** consistency while `POST`/`PUT`
+submits and the backup commit-time gate answer at the leader, so the
+advised "poll until ready, then act" loop can read `ready` on a node
+whose apply loop is behind and then have the follow-up write refused
+with a 409 or `ErrBackupSpannedReindex`. Normally tens to hundreds of
+milliseconds; unbounded on a node with a stalled apply loop. It is
+still an improvement over the leader query it replaced, which degraded
+to "no active tasks" whenever the query failed and so rendered every
+index `ready` — a worse answer than a stale one.
 
 Read-access is gated on `READ` of `CollectionsMetadata`; `PUT`/`DELETE`
 require the stronger `UPDATE` on `Collections`.
+
+### `GET /v1/tasks`
+
+The cluster-wide task list, grouped by namespace. Gated on `READ` of
+the cluster resource.
+
+Two things about it changed with the `finishedAt` work:
+
+- **Ordering is now defined.** Within a namespace, in-flight tasks come
+  first, then terminal ones, each group newest-first, ties broken by
+  task ID. "In flight" is every non-terminal status, so a task whose
+  units are done but whose barrier or bucket swap is still outstanding
+  ranks with the running ones, not with the finished ones. A client
+  that relied on Go's randomized map order will see a different (and
+  now stable) sequence.
+- **`finishedAt` is the terminal transition, not the moment the units
+  stopped.** Between the two sit the PREP barrier and the bucket swap,
+  so the value moved later by however long those took — seconds to
+  minutes on a large collection. The completed-task TTL measures from
+  it, so at an unchanged `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
+  tasks now linger by that same amount. A task that has not ended omits
+  `finishedAt` entirely, so a client sorting on the field no longer sees
+  every running migration dated year 1. The same applies to each unit's
+  `finishedAt`.
+- **The completed-task TTL is now decided by the node that proposes the
+  deletion.** The cleanup request carries the moment that node's sweep
+  measured the task's age at, the TTL it measured against, and the finish
+  time it read off the task, and every node applies those three numbers
+  rather than any state of its own. Two nodes on this version therefore
+  agree on whether a task is still listed, which they did not before —
+  including two nodes that hold different finish times for it, which
+  happens when one restored a snapshot written before `finishedAt` was
+  the terminal transition. The consequence for operators:
+  `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` is a per-node setting, and
+  each node's sweep proposes with its own value, so **the effective
+  cluster retention is the shortest value configured on any node**. Raise
+  it on every node; raising it on one changes only what that node
+  proposes, and during the rolling restart that applies the new value the
+  old shorter one still wins on the nodes that have not restarted yet.
+  A node old enough not to send the measurements sends nothing, and a
+  proposal carrying none is deferred rather than decided: the old node
+  still drops the task from its own list on its local check, and every
+  node on this version keeps it. The cleanup sweep runs on every node,
+  not only the leader, so the backlog normally ages out on the next tick
+  of any upgraded node — the one case that has to wait for an upgraded
+  node to take leadership is a task the old proposer's own entry already
+  removed from the leader's list, which is the list every node sweeps.
+  Cleanup therefore lags for the length of the upgrade window. That lag
+  converges the cluster's own state, but it does **not** preserve the
+  backup overlap backstop's evidence: that backstop queries the leader,
+  so an old leader that already deleted the task has emptied the list it
+  reads, and the copies the upgraded nodes deferred sit where nothing
+  consults them. Prefer moving leadership to an upgraded node before
+  running a backup during the window.
+  The defer is not logged: it is the expected state during an upgrade,
+  and on one that stalls with an old node still holding leadership the
+  retained tasks are bounded only by how many reindexes are submitted.
+
+  A uniform TTL is a correctness requirement for the backup overlap
+  backstop, not just a retention preference. That backstop refuses a
+  backup that ran longer than the completed-task TTL, because past it a
+  finished reindex task is gone from the list and its absence stops being
+  evidence. The threshold it checks is the local node's TTL, but the
+  retention that actually governs is the cluster minimum: with 24h on the
+  node taking the backup and 1h somewhere else, a 3-hour backup passes the
+  check and then reads an empty task list as all-clear. Set the same value
+  everywhere, and treat a rolling restart that changes it as a window in
+  which backups can be taken on stale evidence.
+
+  Gating the sweep on leadership would enforce both requirements instead
+  of documenting them, since one node's TTL and clock would then govern.
+  It is deliberately not done here. It does nothing for the mixed-version
+  window this section is about — an old follower keeps sweeping with its
+  own clock either way — so it is a steady-state simplification that
+  costs another change to the cleanup wire format, and it is worth
+  deciding on its own rather than as part of this one.
 
 ## 3. End-to-end lifecycle
 
@@ -149,15 +275,17 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   (`NeedsPreparationBarrier`, set automatically for semantic migrations by
   the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
-    `enable-searchable`, `enable-filterable`):
+    `enable-searchable`, `enable-filterable`, `enable-rangeable`,
+    `change-algorithm`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
     `PREPARING` and `SWAPPING` are both reached only after every
     unit across the cluster is at terminal status. The FSM gates
     `PREPARING → SWAPPING` on every node's `PreparationCompleteAck`
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
-  - **Format-only migrations** (`enable-rangeable`, `repair-*`,
-    `roaring-set refresh`): `STARTED → SWAPPING → FINISHED`.
+  - **Format-only migrations** (`repair-filterable`,
+    `rebuild-searchable`, `repair-rangeable`, `roaring-set refresh`):
+    `STARTED → SWAPPING → FINISHED`.
     `PREPARING` is skipped because there is no cross-replica
     state alignment to bound — each shard's `RunOnShard`
     completes the full lifecycle locally and there is no
@@ -267,10 +395,11 @@ preceding a transition on the per-task field. Annotations
         └────────────────────────────────────────────────────────────────┘
 ```
 
-Format-only migrations (`enable-rangeable`, `repair-*`,
-`roaring-set refresh`) skip the OnGroupCompleted barrier — each shard
-runs the full lifecycle inside its own `RunOnShard` and there is no
-cluster-wide schema flip. The flow is otherwise identical.
+Format-only migrations (`repair-filterable`, `rebuild-searchable`,
+`repair-rangeable`, `roaring-set refresh`) skip the OnGroupCompleted
+barrier — each shard runs the full lifecycle inside its own
+`RunOnShard` and there is no cluster-wide schema flip. The flow is
+otherwise identical.
 
 ### What goes through RAFT vs. what is local-only
 
@@ -607,13 +736,14 @@ tidied / lower-gen sidecars / in-flight gens left alone for
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
-Seven strategy implementations, one file each:
+Eight strategy implementations, one file each:
 
 | Strategy | Type | Source bucket | Target bucket | OnMigrationComplete |
 |---|---|---|---|---|
-| `MapToBlockmaxStrategy` | `repair-searchable` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `MapToBlockmaxStrategy` | `change-algorithm` (semantic) | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Blockmax) | `searchable` (Blockmax) | No-op (format unchanged). |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
-| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |
+| `FilterableToRangeableStrategy` | `enable-rangeable` (semantic) / `repair-rangeable` (format-only) | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | No-op. For enable, the cluster-wide `IndexRangeFilters=true` flip happens in `OnTaskCompleted`; repair flips nothing. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
 | `EnableSearchableStrategy` | `enable-searchable` | objects → builds Blockmax | `searchable` (Blockmax) | No-op; cluster-wide flip from `OnTaskCompleted`. |
 | `SearchableRetokenizeStrategy` | `change-tokenization` (searchable half) | `searchable` | `searchable` (new tokenization) | No-op; `Tokenization` flip from `OnTaskCompleted`. |
@@ -643,18 +773,62 @@ a new strategy.
 
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
-`enable-filterable`, `enable-searchable` are semantic — every shard
-must reindex before any shard swaps (Journey 3 barrier), and the
-schema flip happens cluster-wide from `OnTaskCompleted`. The rest are
-format-only — each shard runs the full lifecycle independently
-(Journey 2), with no cluster-wide schema dependency.
+`enable-filterable`, `enable-searchable`, `change-algorithm`,
+and `enable-rangeable` are semantic — every shard must reindex before any
+shard swaps (Journey 3 barrier), and the schema flip happens cluster-wide
+from `OnTaskCompleted`. The rest are format-only — each shard runs the
+full lifecycle independently (Journey 2), with no cluster-wide schema
+dependency.
 
-**`enable-rangeable` is intentionally format-only.** Range queries'
-correctness during the migration is gated by the per-shard
-`rangeableLocalReady` flag — falling back to the filterable bucket
-walk on shards that haven't completed locally is slow but correct.
-The barrier dance would be over-engineering for a journey that has a
-correct (if slow) per-shard fallback.
+**The rule is the schema flip, not the index type.** A migration is
+semantic if and only if it requires a global schema flip. That is why
+`enable-rangeable` and `repair-rangeable` are classified differently
+despite sharing a strategy: enable flips `IndexRangeFilters`, repair
+rebuilds an already-enabled index and writes no schema at all. The
+practical consequence is per-tenant targeting — `repair-rangeable`
+accepts a `tenants` subset, `enable-rangeable` does not.
+
+**Rangeable joined the semantic family in
+[weaviate/0-weaviate-issues#465](https://github.com/weaviate/0-weaviate-issues/issues/465).**
+It used to flip `IndexRangeFilters` from the first shard's swap and
+compensate with an in-memory per-shard readiness gate. The gate did not
+survive a restart, so cancelling a migration and restarting left the
+schema claiming an index most shards did not have
+([weaviate/0-weaviate-issues#464](https://github.com/weaviate/0-weaviate-issues/issues/464)).
+Under the barrier the flag flips once, at task completion, and a
+cancelled task never flips it. `repair-rangeable` did NOT convert: it
+writes no schema, so it has nothing to coordinate and keeps both its
+inline execution shape and its per-tenant targeting.
+
+**Startup audit for already-damaged clusters.** The conversion stops new
+clusters reaching 464's state; it does not repair the ones already in it,
+where `indexRangeFilters` is true while shards that never finished
+migrating hold an empty bucket. `warnOnUnexplainedEmptyRangeableIndex`
+(adapters/repos/db/shard_init_rangeable_audit.go) logs one WARN per
+affected property at shard init, naming collection, shard and property,
+with the `repair-rangeable` command to fix it. Detection only, nothing is
+mutated. It fires only when all three hold — the schema claims the index,
+the shard has objects while the rangeable bucket has none, and no
+migration tracker explains the absence — so a migration in flight, or one
+whose swap is waiting for that same startup, stays quiet.
+
+**Open constraint — the post-swap write window.** Between a shard's own
+swap and the task's completion flip, `IndexRangeFilters` is still false.
+The double-write callbacks are gone by then and the normal write path
+reads the flag, so writes arriving on that shard in that window do not
+reach the range index. They are present in the objects bucket and in the
+filterable index, and `repair-rangeable` recovers them — per tenant, if
+that is all that is affected — but a range filter does not see them
+until it runs.
+
+This window does not exist for `enable-filterable` / `enable-searchable`
+in practice only because their acceptance coverage does not probe it; it
+is a property of the whole `enable-*` family under the barrier.
+`test/acceptance/reindex_rangeable/concurrent_writes_test.go` measures
+it directly (494 of 500 concurrent updates indexed).
+[weaviate/weaviate#12211](https://github.com/weaviate/weaviate/pull/12211)'s
+durable pending-flip marker plus force-index overlay closes it
+generically; until it is in the base, that test is red.
 
 ### 4.6 LSM primitives — `adapters/repos/db/lsmkv/store.go`
 
@@ -699,15 +873,20 @@ change-tokenization              ✓                ✓ (tokenization)
 change-tokenization-filterable   ✓                ✓ (tokenization)
 enable-filterable                ✓                ✓ (ForceFilterable)
 enable-searchable                ✓                ✓ (ForceSearchable + tokenization)
-enable-rangeable                                  
+enable-rangeable                 ✓                ✓ (ForceRangeable)
+change-algorithm                 ✓
+repair-rangeable                                  ✓ (ForceRangeable)
 repair-filterable                                 
-repair-searchable                                 
-repair-rangeable                                  
+rebuild-searchable                                
 ```
 
-The four semantic migrations need both the cluster-wide barrier and
-the per-shard analyzer overlay; the four format-only migrations need
-neither.
+The semantic migrations all need the cluster-wide barrier. All of them
+except `change-algorithm` also need the per-shard analyzer overlay;
+`change-algorithm` does not, because its properties are already indexed
+under the old algorithm. The format-only ones need neither.
+`repair-rangeable` is format-only but still carries the overlay it
+inherits from the shared strategy; with its flag already true the
+overlay is a harmless no-op.
 
 ## 6. Crash safety
 
@@ -856,9 +1035,9 @@ in short:
   process-wide.
 - **Phase 2c — POST-ATOMIC INLINE FINALIZE:**
   `OnMigrationComplete` + `trimOlderGenerationsLocked`. Outside the
-  mixed-state subwindow. Strategy-specific hook for in-memory
-  shard-local query-path state mutations (e.g. `setRangeableLocallyReady`)
-  or for non-semantic RAFT calls.
+  mixed-state subwindow. `OnMigrationComplete` is a no-op for every
+  semantic strategy; `MapToBlockmaxStrategy` is the one implementation
+  that still issues a RAFT call from here.
 - **Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup):**
   `FinalizeCompletedMigrations` runs the ingest → canonical dir
   rename before LSM init reloads any bucket. See §9.
@@ -1057,10 +1236,42 @@ Per namespace (strategy-prefix + props-suffix):
      `swapped.mig` + `tidied.mig` sentinels and promote the same way.
      **CRITICAL:** otherwise this node serves the old data under the
      new schema → divergence vs other replicas → #10675-shape bug.
+
+     Whether gen M may be promoted is a decision only while it carries
+     no `swapped.mig`: then the canonical dir still holds the
+     pre-migration data, and a task known to be dead gets its ingest
+     dir discarded instead (`mergedPromotionDecision`). A gen carrying
+     `swapped.mig` is promoted unconditionally — the swap committed,
+     the canonical dir is gone, and the ingest dir is the only complete
+     copy left.
 5. Remove every dir on disk with gen < effective.
-6. Remove the tracker dir for `effective`.
+6. Remove the tracker dir for `effective`, leaving a
+   `<dirName>.finalized.mig` marker file in its place.
 7. Leave gens > effective alone (in-flight; `DiscoverInFlightReindexTasks`
    handles them).
+
+Step 6 can land while the task that produced the generation is still
+running — that is the normal case for the swapped-gen promotion, whose
+whole point is that the task did not get to finish. The task's next
+call into the shard then finds no tracker at all, which is otherwise a
+hard error ("not in reindexed state and has no started sentinel") that
+fails the migration cluster-wide on a shard whose data is correct. The
+marker is what keeps "startup already did this" apart from "this shard
+never ran the migration": `enterDTMPhase` sees it and the phase acks
+success. It is a file, not a directory, so nothing that scans for
+in-flight migrations — including the startup damage audit — mistakes a
+finished migration for a live one.
+
+The marker on its own is not proof, for two reasons. Generation numbers
+are reused (`nextMigrationGeneration` counts directories, and a promoted
+generation leaves none behind), and a marker whose namespace has no
+tracker dir is never swept, so it survives every later boot. A migration
+submitted months later can therefore find a marker carrying its exact
+name. What makes reading it safe is that `migrationAlreadyFinalized`
+lets a tracker dir holding files override the marker, and every phase of
+a live migration is preceded by a write into that dir: `payload.mig`
+before the reindex iteration, `started.mig` during it, both before
+prepare and swap.
 
 ### 9.6 Hard rules
 
@@ -1134,6 +1345,8 @@ Applied by the inverted analyzer during the backfill scan. Used by
 "from-scratch" strategies (`enable-filterable` / `enable-searchable` /
 `enable-rangeable`) that build a brand-new inverted bucket while the
 corresponding schema flag is still false in the RAFT-stored schema.
+`repair-rangeable` uses one too: the flag it would read is true, but
+the ingest bucket is built from the objects bucket the same way.
 Without this override the analyzer would skip the targeted property
 (see `HasAnyInvertedIndex` in `inverted/objects.go`) and the new
 bucket would come out empty.
@@ -1172,6 +1385,45 @@ defense-in-depth cleanup will pick up the work. If the node crashes
 mid-cancel, the on-disk state survives; the next submit's pre-cleanup
 catches that gap.
 
+A cancel (or failure) between `markMerged` and `markTidied` leaves a
+generation that nothing will ever complete. What startup finalization
+may do with it depends on whether the swap already committed.
+
+Once `swapped.mig` is on disk the canonical dir has been renamed to
+`backup_<gen>` and the in-memory pointer has been flipped, so there is
+nothing left under the canonical name to fall back to. Promoting the
+ingest dir is then the deferred second half of an operation that already
+committed, and startup does it unconditionally. Declining would let
+shard init create an empty canonical bucket beside a populated ingest
+dir, and the property would serve zero rows until a later startup.
+
+Before `swapped.mig`, the canonical dir is untouched and every option is
+open. `mergedPromotionDecision` in
+[`inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go)
+decides from the task identity in `payload.mig` plus the collection
+schema:
+
+- **Promote** if the schema confirms the migration, or if the tracker
+  has no readable `payload.mig` (nothing to verify against).
+- **Refuse** (`mergedPromotionRefuse`) if the task is proven dead AND
+  the schema does not reflect the migration. The working dirs are
+  discarded. Refusal is lossless because this arm only sees generations
+  without `swapped.mig`: the old canonical dir is still under its own
+  name, so the property keeps serving its complete pre-migration data.
+  The ingest dir stops being updated the moment the
+  task dies, because the double-write mirror dies with it, so a later
+  startup must not promote it either.
+- **Leave** everything in place if the task is still live, or if its
+  liveness cannot be established yet (unreadable task list, or a shard
+  that started before the task-list lookup was installed). The next
+  startup or the orphan audit revisits it.
+
+Shards loaded eagerly during startup are always in that last case:
+they initialize before `configure_api` calls `SetReindexAuditDeps`, so
+their liveness answer is unknown and they take the Leave arm. Refusal
+is reached by shards that load afterwards, in practice lazily-loaded
+and multi-tenant ones.
+
 **DELETE `/properties/{p}/index/{name}`:**
 
 1. Acquire the same `ReindexSubmitLocks` entry as PUT (closes the
@@ -1183,16 +1435,156 @@ catches that gap.
    sidecar dirs for the dropped index type, plus the tracker dir.
 4. Subsequent re-enable starts from clean state.
 
-## 13. Out of scope (broken; tracked follow-up)
+## 13. Backup, restore, and the reindex guard
 
-Backups and migrations across runtime-reindex state are intentionally
-left broken on this branch and will not be fixed in the v1.38 Preview
-merge. The fixes live on `backup-runtime-reindex-fixes` and will
-land as a follow-up PR. Tracking: weaviate/0-weaviate-issues#215.
+Backup, restore and reindex all rewrite the same on-disk buckets, so
+each refuses to start while another is running:
 
-Operators should not rely on backup/restore or schema migration
-interacting cleanly with an in-flight or recently-completed reindex
-while running v1.38 Preview.
+| Submitted | Refused when | Where |
+| --- | --- | --- |
+| Backup | A live DTM reindex task targets the shard, a cancelled task is still removing its sidecars, or cluster-wide reindex state cannot be read at all | `Index.refuseIfReindexInFlightWithGate` (admission, via `DB.Backupable`) and `Index.refuseIfReindexInFlightInPass` (capture, via `DB.BackupDescriptors`). `Index.refuseIfReindexInFlight` is the single-shard fallback for callers outside a pass, today only `Shard.HaltForTransfer` |
+| Restore | A reindex task is live on one of the collections being restored, or a cancelled one is still removing that collection's sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the three `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and in each participant's `OnCanCommit` |
+| Reindex | Any node reports a backup or restore slot held | `indexesHandlers.probeBackupActivity`, over `GET /backups/node-activity` |
+
+These rows describe behavior with `RUNTIME_REINDEX_ENABLED=true`. The flag is
+off by default, and with it off these gates return before checking anything —
+see "Where each gate fails open" below, whose third window is that default.
+
+**Where each gate fails closed.** Once its lookup is installed, every
+gate treats an uncertain answer as a blocking one. The backup gate
+refuses every backup while the cluster task manager cannot be listed.
+A live task whose payload cannot be read is the same uncertainty in a
+smaller shape, and the refusal is scoped to how much of the payload
+survives (`db.DecodeReindexTaskPayload`, consulted by
+`newShardReindexActivityBuilder` in `configure_api.go`):
+
+| What survives | What is refused |
+| --- | --- |
+| The collection, but not the shards (a field a newer node retyped) | Every backup of that one collection, and every restore that includes it |
+| Nothing — no collection either (unparseable, or a collection field a newer node renamed) | Every backup and every restore in the cluster |
+
+A payload that names no collection is unreadable even when it decodes
+without error: a renamed field leaves an empty collection behind, and
+nothing then says which shards the task holds. The cancel endpoint
+accepts such a task from any collection, which is the operator's remedy
+for the cluster-wide case. Because that cancel reaches a migration on a
+collection the URL does not name, it requires `UPDATE` on every
+collection, not just the one in the URL; a caller without that gets the
+same `NO_OP` it would get if no such task existed.
+
+The commit-time overlap check draws the same two lines through the same
+decoder, so admission and commit cannot disagree about what unreadable
+means. It also does not waive an unreadable task that already finished:
+the teardown is addressed by the shards the payload names, so nothing
+tore it down, and the refusal stands until the completed-task TTL drops
+the task. The restore gate refuses the restore on the same failure. The
+reindex gate answers 503 for a node that does not respond to the probe.
+An `Index` built without a back-reference to `DB` refuses the backup
+outright.
+
+**Where each gate fails open.** Three windows are deliberately left
+open. Two are logged; the third is silent by design and is the default
+configuration:
+
+- *Lookup not yet installed.* The lookups are wired from a
+  post-bootstrap goroutine in `configure_api.go`. Until it runs, the
+  backup gate, the restore gate, the commit-time overlap check
+  (`DB.RefuseIfReindexOverlapped`) and the reindex gate each allow the
+  operation and emit a WARN, rate-limited to one line per hour so a
+  persistent misconfiguration stays visible to whoever reads the log
+  next. This window is reachable from outside: a request that arrives
+  early enough in startup is answered before the goroutine installs the
+  lookups, and has been observed doing so. So a WARN here is a real
+  signal — it names an operation that ran without its gate — and not
+  evidence that the wiring is broken.
+  The cleanup half of both gates is narrower than this: it reads only
+  this node's own provider, so `configure_api.go` installs it
+  synchronously before that goroutine is even started, and it is never
+  nil while the goroutine waits. A submission that is sweeping sidecars
+  right now therefore refuses a concurrent backup and restore for the
+  whole of that window. It is skipped without a WARN when only the
+  activity lookup is installed, which is the shape module-test fixtures
+  use.
+- *Old node during a rolling upgrade.* A node that predates
+  `GET /backups/node-activity` answers 404. The reindex gate counts that
+  node as free of backups and admits the submission, with a WARN naming
+  the node. So a backup running only on not-yet-upgraded nodes is
+  invisible to the reindex gate. The commit-time overlap check is the
+  backstop on the backup side: a backup whose capture window overlapped
+  a reindex fails at commit rather than being stored as good.
+- *Old node stamping a task during a rolling upgrade.* A leader that
+  predates this feature stamps `FinishedAt` when the task's units stop,
+  not at the terminal transition — so the stamp predates the bucket swap
+  that ran after it. It is non-zero, so the zero-stamp guard lets it
+  through, and `FinishedAt.Before(backupStart)` then clears a capture
+  whose window contained that swap. Restoring the RAFT snapshot repairs
+  the stamp on the restoring node, but the gate reads the leader's list,
+  so the window lasts as long as an old node holds leadership.
+- *Old node ending a task without stamping it at all during a rolling
+  upgrade.* It takes both versions to produce this, and in this order:
+  a node on this version leaves a task unstamped while it swaps, that
+  state reaches an older node through a snapshot install or a rollback,
+  and the older node's finalize writes the terminal status without a
+  stamp. No version on its own does it — every older one stamps when the
+  units stop. A terminal task carrying no `finishedAt` has no age, so both
+  the sweep and the cleanup apply refuse it rather than delete it — the
+  alternative is treating a zero stamp as ~2000 years old and hiding the
+  task from the backup overlap check. The task stays listed and the
+  scheduler logs `... carry no finish time` once an hour. There is no
+  config change and no API call that clears it: the state goes away when
+  leadership moves to an upgraded node, because the sweep reads the
+  leader's list and only that node's list is repaired on restore.
+- *`RUNTIME_REINDEX_ENABLED=false`, the default.* Every gate returns
+  before it looks at anything, so no gate refuses and none of them logs:
+  this window is silent by design, and it is the shipped default. It is
+  wider than "no reindex can start" implies — a task already running when
+  the flag went off keeps running, a node that BOOTS with the flag off
+  resumes a `STARTED` task from DTM, and cancel stays allowed so a
+  teardown can still be in flight. With the gates off a backup can span
+  any of the three, and no commit-time backstop catches it either, since
+  that check is off too. What the flag lifts is exactly the backup and
+  restore refusals (and the commit-time backstop with them), so it cannot
+  itself fail backups. It is not an escape hatch for the whole feature:
+  the schema gates that block `DeleteClass`, property updates and tenant
+  mutations while a task is in flight sit on the RAFT apply path and never
+  read this flag, so they keep refusing until the task reaches a terminal
+  state.
+
+**The commit-time backstop compares two clocks.** `RefuseIfReindexOverlapped`
+clears a task when its `FinishedAt` is before the backup's start time.
+`FinishedAt` is stamped at the terminal transition, so it post-dates the bucket
+swap and a migration that swapped inside the capture window is not cleared. But
+the two stamps still come from different machines: the start time from the node
+capturing the backup, `FinishedAt` from whichever node proposed the terminal
+transition to RAFT. If the proposer's clock runs far enough behind, a migration
+that really did end inside the backup window reads as having ended before it,
+and the backup is published as clean while it is torn.
+
+This is accepted, not a bug to be worked around here. Backup state is not
+tracked in RAFT, so there is no cluster-wide consistent answer to "when did this
+backup start" to order task state against — every timestamp comparison
+downstream of that inherits the same window. Two attempts to close it locally
+(a fixed skew allowance, then a task-set snapshot taken at backup start and
+re-read at commit) were reverted for that reason: both were workarounds for a
+limitation in the backup subsystem, placed in the reindex code. Closing it means
+putting backup state in RAFT.
+
+Refusals are retryable, never terminal:
+
+- A reindex refused because of a backup gets 409; if a node cannot be
+  reached it gets 503, since an unanswered node cannot be assumed idle.
+- A backup refused because of a reindex gets 422, both when the gate saw
+  a live task and when it could not read cluster state at all.
+- A restore refused because of a reindex gets 422.
+- Nothing needs operator action to clear. A backup or restore slot is
+  held in process memory only, so it dies with the process. Participant
+  slots expire on their own within 20s of an abandoned operation; a
+  coordinator slot can be held until its node-down timeout
+  (`_TimeoutNodeDown`, 7 minutes), which delays reindex submissions but
+  never blocks a backup.
+
+Schema migration against an in-flight reindex is still unguarded.
+Tracking: weaviate/0-weaviate-issues#215.
 
 ## 14. Files of interest
 
@@ -1260,13 +1652,12 @@ with the modern testcontainer style.
   `roaring_set_test`).
 - `delete_then_reenable_test` / `delete_reenable_multicycle_test` /
   `delete_reenable_indexing_bleed_test` / `delete_reenable_shortcircuit_test`
-  — the #10675 family + the `mergeReindexStatus` finalize-window
-  override bound test.
+  — the #10675 family.
 - `change_tok_delete_journeys_test` — the cross-strategy clobber +
   `cleanStaleMigrationDirs` family.
 - `cancel_test` / `cancel_then_retry_test` — cancel + the
   defense-in-depth cleanup.
-- `torn_resume_test` / `restart_during_swap_test` — crash recovery in
+- `torn_resume_test` / `restart_after_swap_test` — crash recovery in
   every phase boundary.
 - `property_state_migration_matrix_test` — exhaustive matrix
   (~510 cells × 6 data types × 15 body shapes).
@@ -1288,7 +1679,7 @@ with the modern testcontainer style.
   different tokenizations, filterable-only, searchable-only,
   enable-then-change, MT, concurrent-different-props).
 - `in_flight_rangeable_test` — query correctness during enable-
-  rangeable mid-flight (relies on `rangeableLocalReady`).
+  rangeable mid-flight.
 - `migration_journeys_test` — full lifecycle coverage of every
   semantic migration.
 - `concurrent_migrations_test` — parallel non-conflicting submits.

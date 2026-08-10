@@ -46,7 +46,8 @@ import (
 //
 //   - "Semantic" migrations are the ones that change query
 //     semantics for the migrated property — change-tokenization,
-//     change-tokenization-filterable, enable-filterable, enable-searchable.
+//     change-tokenization-filterable, enable-filterable,
+//     enable-searchable, change-algorithm, enable-rangeable.
 //     These get the full barrier dance: every shard reindexes first
 //     (RunReindexOnlyOnShard), and only after every unit is terminal does
 //     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
@@ -54,18 +55,12 @@ import (
 //     No shard serves new data until ALL shards are ready. This is where
 //     the SWAPPING-window tokenization overlay lives.
 //
-//   - "Format-only" migrations don't change query semantics — they only
-//     change the on-disk bucket format. enable-rangeable, repair-rangeable,
+//   - "Format-only" migrations require no schema change — they rebuild or
+//     re-format an index that is already enabled. repair-rangeable,
 //     repair-filterable, repair-searchable (Map→Blockmax), and the
-//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
-//     full lifecycle independently via RunOnShard; there is no cluster-wide
-//     schema flip to coordinate.
-//
-// Note on enable-rangeable: it is intentionally NOT classified as
-// semantic. Range queries' correctness during the migration is gated
-// by the per-shard rangeableLocalReady flag (see [Shard.rangeableLocalReady]),
-// not by the barrier dance — falling back to the filterable bucket walk
-// on shards that haven't completed locally is slow but correct.
+//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the full lifecycle
+//     independently via RunOnShard; there is no cluster-wide schema flip
+//     to coordinate.
 type ReindexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
@@ -123,6 +118,30 @@ type ReindexProvider struct {
 	// indexType) tuples sharing the same shard — don't lose each
 	// other's registration.
 	cleanupInProgress map[reindexCleanupKey]int
+
+	// cancelAppliedMu guards both maps below.
+	cancelAppliedMu sync.RWMutex
+	// cancelSeen is the per-collection refcount of recently applied cancels.
+	// It answers the cluster probe only and blocks nothing; see
+	// [ReindexProvider.OnTerminalApplied] for why confirmation and blocking
+	// cannot be the same signal.
+	cancelSeen map[string]int
+	// cancelApplyGates holds the cleanup-gate release taken at cancel-apply
+	// time, until the teardown for that task takes over.
+	cancelApplyGates map[distributedtask.TaskDescriptor]func()
+	// timings holds the bounds the cancel and cleanup paths wait out; see
+	// [reindexTimings].
+	timings reindexTimings
+
+	// cancelTeardownSettled records tasks whose teardown already ran here, so
+	// a later-arriving apply releases at once instead of waiting out the cap.
+	cancelTeardownSettled map[distributedtask.TaskDescriptor]time.Time
+
+	// submitInProgress mirrors [cleanupInProgress] for the sweep a NEW
+	// submission runs over stale sidecars before its task is committed. It is a
+	// separate registry only so the refusal can say which of the two is holding
+	// the shard; see [ReindexProvider.MarkSubmitInProgress].
+	submitInProgress map[reindexCleanupKey]int
 }
 
 // reindexCleanupKey identifies a per-(collection, shard) slot in the
@@ -132,6 +151,15 @@ type ReindexProvider struct {
 type reindexCleanupKey struct {
 	collection string
 	shard      string
+}
+
+// cleanupWholeCollection marks a collection-wide registration; no real shard is named "".
+const cleanupWholeCollection = ""
+
+// newReindexCleanupKey lowercases the collection so a registration and a probe
+// that spell the class differently still match; shard names stay exact.
+func newReindexCleanupKey(collection, shard string) reindexCleanupKey {
+	return reindexCleanupKey{collection: strings.ToLower(collection), shard: shard}
 }
 
 // phaseUnitResolution holds the per-unit setup work that every per-shard
@@ -179,6 +207,31 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 	return envelope
 }
 
+// reindexTimings holds the three bounds the cancel and cleanup paths wait out.
+// [NewReindexProvider] fills it from [defaultReindexTimings]; a provider built
+// by struct literal has to supply its own.
+type reindexTimings struct {
+	// workerExitGateCap bounds the wait in
+	// [ReindexProvider.ReleaseCleanupGateOnWorkerExit].
+	workerExitGateCap time.Duration
+	// cancelConfirmWindow is how long [ReindexProvider.holdCancelSeen] keeps
+	// answering the cluster cleanup probe.
+	cancelConfirmWindow time.Duration
+	// terminalCleanupDrainTimeout bounds the drain in
+	// [ReindexProvider.autoCleanupAfterTerminal].
+	terminalCleanupDrainTimeout time.Duration
+}
+
+// defaultReindexTimings is what every production provider runs with. Each
+// constant carries the reasoning for its value.
+func defaultReindexTimings() reindexTimings {
+	return reindexTimings{
+		workerExitGateCap:           reindexWorkerExitGateCap,
+		cancelConfirmWindow:         reindexCancelConfirmWindow,
+		terminalCleanupDrainTimeout: reindexTerminalCleanupDrainTimeout,
+	}
+}
+
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
@@ -197,11 +250,52 @@ func NewReindexProvider(
 		localNode:         localNode,
 		concurrency:       concurrency,
 		serverCtx:         serverCtx,
+		timings:           defaultReindexTimings(),
 		runningHandles:    make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
 		cleanupInProgress: make(map[reindexCleanupKey]int),
+		cancelSeen:        make(map[string]int),
+		cancelApplyGates:  make(map[distributedtask.TaskDescriptor]func()),
+
+		cancelTeardownSettled: make(map[distributedtask.TaskDescriptor]time.Time),
+		submitInProgress:      make(map[reindexCleanupKey]int),
+	}
+}
+
+// shutdownCtx is the read side of [ReindexProvider.serverCtx].
+//
+// It and the two helpers below tolerate a provider built by a fixture rather
+// than [NewReindexProvider]. That matters because their consumers run on
+// goroutines, where a nil deref takes the whole process down instead of just
+// failing one operation.
+func (p *ReindexProvider) shutdownCtx() context.Context {
+	if p.serverCtx == nil {
+		return context.Background()
+	}
+	return p.serverCtx
+}
+
+// goroutineLogger is the logger the cancel-apply goroutines use.
+func (p *ReindexProvider) goroutineLogger() logrus.FieldLogger {
+	if p.logger == nil {
+		return logrus.New()
+	}
+	return p.logger
+}
+
+// ensureCancelMaps builds any of the [ReindexProvider.cancelAppliedMu] registries
+// a fixture-built provider left nil. Caller must hold cancelAppliedMu for writing.
+func (p *ReindexProvider) ensureCancelMaps() {
+	if p.cancelSeen == nil {
+		p.cancelSeen = make(map[string]int, 1)
+	}
+	if p.cancelApplyGates == nil {
+		p.cancelApplyGates = make(map[distributedtask.TaskDescriptor]func(), 1)
+	}
+	if p.cancelTeardownSettled == nil {
+		p.cancelTeardownSettled = make(map[distributedtask.TaskDescriptor]time.Time, 1)
 	}
 }
 
@@ -313,6 +407,23 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
+// claimUnitIfDeferred takes the re-entry claim for a unit whose swap is
+// deferred to the group callbacks, and returns false when another worker
+// already holds it. Inline units need no claim: they finish the whole
+// lifecycle themselves and hand no cached task state to OnGroupCompleted,
+// so a second entry cannot clobber a generation the first one is still
+// using.
+func (p *ReindexProvider) claimUnitIfDeferred(
+	desc distributedtask.TaskDescriptor, unitID string, inline bool,
+) bool {
+	if inline {
+		return true
+	}
+	return p.claimActiveWorker(desc, unitID)
+}
+
+// releaseActiveWorker drops the claim. Safe to call for a unit that never
+// took one, which is what inline units do.
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -456,10 +567,11 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// For semantic migrations (change-tokenization, enable-rangeable), use
-	// two-phase execution: reindex only, then swap after all units complete.
-	// For format-only migrations, run the full lifecycle per shard.
-	semantic := IsSemanticMigration(payload.MigrationType)
+	// Semantic migrations use two-phase execution: reindex only, then swap
+	// after all units complete. Format-only migrations — and rangeable
+	// tasks submitted before rangeable became semantic — run the full
+	// lifecycle per shard.
+	inline := runsUnitsInline(task, payload.MigrationType)
 
 	// Re-entry guard. The DTM scheduler can relaunch our task handle a
 	// few tens of ms after the previous handle's per-unit goroutines
@@ -491,13 +603,11 @@ func (p *ReindexProvider) processOneUnit(
 	// forever after a leader restart (the QA c01-leader-postfix repro
 	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
 	// failure both surfaced this).
-	if semantic {
-		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
-			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
-			return
-		}
-		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
+	if !p.claimUnitIfDeferred(task.TaskDescriptor, unitID, inline) {
+		logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
+		return
 	}
+	defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 
 	// Use cached task instances when present. Two populating paths land
 	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
@@ -508,7 +618,7 @@ func (p *ReindexProvider) processOneUnit(
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
 	)
-	if semantic {
+	if !inline {
 		tasks = p.cachedReindexTasks(task.TaskDescriptor, unitID)
 		cached = len(tasks) > 0
 	}
@@ -547,7 +657,7 @@ func (p *ReindexProvider) processOneUnit(
 	// On the cached-tasks path (post-restart recovery or FSM-lag re-entry)
 	// we already have these instances in the map; only write on the
 	// fresh-tasks path.
-	if semantic && !cached {
+	if !inline && !cached {
 		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 	}
 
@@ -580,7 +690,7 @@ func (p *ReindexProvider) processOneUnit(
 
 	for _, reindexTask := range tasks {
 		var runErr error
-		if semantic {
+		if !inline {
 			runErr = reindexTask.RunReindexOnlyOnShard(ctx, shard)
 		} else {
 			runErr = reindexTask.RunOnShard(ctx, shard)
@@ -708,7 +818,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
@@ -860,8 +970,11 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 		return cached, nil
 	}
 
-	var pl ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &pl); err != nil {
+	// Through the shared reader, so a payload that decodes but names no
+	// collection is the same "cannot act on this" answer here as it is at the
+	// backup gates; see [DecodeReindexTaskPayload].
+	pl, _, err := DecodeReindexTaskPayload(task.Payload)
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
 	return &pl, nil
@@ -1272,7 +1385,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	parallel bool,
 	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	var agg phaseResult
 	var aggMu sync.Mutex
 
@@ -1377,8 +1490,8 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return fmt.Errorf("load payload: %w", err)
 	}
 
-	if !IsSemanticMigration(payload.MigrationType) {
-		logger.Info("reindex provider: group-completion (format-only, no-op)")
+	if runsUnitsInline(task, payload.MigrationType) {
+		logger.Info("reindex provider: group-completion (units ran their full lifecycle inline, no-op)")
 		return nil
 	}
 
@@ -1417,7 +1530,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// SWAPPING. The split bounds the cross-replica stagger window at
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	// PREP path runs heavy IO per shard (FlushAndSwitch, ShutdownBucket,
 	// PrependSegmentsFromBucket). Sequential to avoid compounding IO
 	// contention; query consistency is not at stake here because queries
@@ -1491,9 +1604,9 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("load payload: %w", err)
 	}
 
-	if !IsSemanticMigration(payload.MigrationType) {
-		// Defensive: format-only migrations shouldn't carry NeedsPreparationBarrier.
-		logger.Warn("reindex provider: swap-requested for non-semantic migration (NeedsPreparationBarrier inconsistency); no-op")
+	if runsUnitsInline(task, payload.MigrationType) {
+		// Defensive: inline-shape tasks shouldn't carry NeedsPreparationBarrier.
+		logger.Warn("reindex provider: swap-requested for an inline-shape migration (NeedsPreparationBarrier inconsistency); no-op")
 		return nil
 	}
 
@@ -1506,7 +1619,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	// SWAP path runs the in-memory pointer flip first (the user-observable
 	// event) and then per-shard post-flip work (Shutdown drain, dir
 	// rename, sentinel writes, trim). Parallel across this node's units
@@ -1593,6 +1706,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// SWAPPING handled below; STARTED/PREPARING never reach
 				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
 			}
+		} else {
+			// Payload names no shards to tear down; log so this is the only
+			// trace of possibly-orphaned sidecar dirs before the restart audit.
+			logger.Warnf("reindex provider: task-completion: payload is unreadable, so no sidecar teardown can run for it; "+
+				"stale __reindex / __ingest dirs may remain until the next restart's orphan audit, and backups stay refused "+
+				"until this task ages out: %v", payloadErr)
 		}
 		return nil
 	}
@@ -1608,7 +1727,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
 	// scheduler tick fires OnTaskCompleted).
-	ctx := p.serverCtx
+	ctx := p.shutdownCtx()
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the
@@ -1685,50 +1804,64 @@ func enableMigrationIndexTypeOf(mt ReindexMigrationType) (string, bool) {
 // Errors are logged and swallowed; the next-restart audit catches anything
 // missed.
 //
-// Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
-// to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
-// teardown sees [IsLiveReindexTaskStatus]==false but the on-disk
-// __reindex / __ingest sidecars are still being torn out. Registering
-// every shard the task touched in [cleanupInProgress] before
-// CleanStalePartialReindexState fires (and unregistering after) makes
-// "cleanup is still happening on this shard" an explicit state the
-// gate consults — closing the cleanup-vs-status-visibility gap the
-// DTM-only lookup leaves open.
+// It closes the cleanup gate because [IsLiveReindexTaskStatus] flips to false
+// the moment the task goes terminal, while the sidecars are still being torn
+// out — a backup landing in that gap would otherwise capture half-removed
+// dirs. The gate closes before the drain (which can itself time out and
+// leave the shards unguarded), same ordering as DrainWithCleanupGate on the
+// REST cancel path.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
-	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
-	defer drainCancel()
-	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
-		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
-		return
+	// Claim the gate the cancel-apply parked; this teardown is what it was
+	// waiting for. See [ReindexProvider.OnTerminalApplied].
+	if applyGate := p.adoptCancelApplyGate(task.TaskDescriptor); applyGate != nil {
+		defer applyGate()
 	}
+
+	if cancelledWithoutClaimedUnits(task) {
+		return // see [cancelledWithoutClaimedUnits]
+	}
+
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
 	}
-	// Register every shard the task touched as "cleanup in progress"
-	// for the duration of the per-(property, indexType) teardown loop.
-	// The unregister fires from the defer so any return path — including
-	// a panic inside CleanStalePartialReindexState — releases the slot.
-	shards := uniqueShardsFromPayload(payload)
-	for _, shardName := range shards {
-		p.registerCleanup(payload.Collection, shardName)
+
+	release := p.MarkCleanupInProgress(payload)
+
+	drainTimeout := p.timings.terminalCleanupDrainTimeout
+	drainCtx, drainCancel := context.WithTimeout(p.shutdownCtx(), drainTimeout)
+	defer drainCancel()
+	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
+		logger.Errorf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", drainTimeout, err)
+		p.ReleaseCleanupGateOnWorkerExit(task.TaskDescriptor, release, logger)
+		return
 	}
-	defer func() {
-		for _, shardName := range shards {
-			p.unregisterCleanup(payload.Collection, shardName)
-		}
-	}()
-	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
+	defer release()
+	cleanupCtx, cancel := context.WithTimeout(p.shutdownCtx(), reindexTerminalCleanupTimeout)
 	defer cancel()
+	swept, dropped := true, false
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {
-			if err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType); err != nil {
+			err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType)
+			switch {
+			case err == nil:
+			case errors.Is(err, ErrCleanupCollectionDropped):
+				dropped = true
+			default:
+				swept = false
 				logger.WithField("property", propName).WithField("index_type", indexType).
 					Warnf("auto-cleanup after terminal status failed: %v", err)
 			}
 		}
 	}
-	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+	switch {
+	case !swept:
+		logger.Warn("auto-cleanup after terminal status: some partial sidecar state is still on this node")
+	case dropped:
+		logger.Info("auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it")
+	default:
+		logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+	}
 }
 
 // uniqueShardsFromPayload returns the distinct shard names referenced
@@ -1754,6 +1887,70 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 	return out
 }
 
+// MarkCleanupInProgress holds the backup and restore gates closed on every shard
+// the task touched, and returns the release; caller must defer it. This is the
+// only thing stopping a backup from capturing half-removed __reindex/__ingest dirs.
+func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
+	shards := uniqueShardsFromPayload(payload)
+	if len(shards) == 0 {
+		// No named shard: close the gate on the whole collection instead.
+		shards = []string{cleanupWholeCollection}
+	}
+	for _, shardName := range shards {
+		p.registerCleanup(payload.Collection, shardName)
+	}
+	return func() {
+		for _, shardName := range shards {
+			p.unregisterCleanup(payload.Collection, shardName)
+		}
+	}
+}
+
+// AnyCleanupInProgress is the collection-blind form of [ReindexProvider.IsCleanupInProgress]
+// for the restore gate: a class being restored has no (collection, shard) tuple to ask about.
+func (p *ReindexProvider) AnyCleanupInProgress() bool {
+	p.cleanupInProgressMu.RLock()
+	defer p.cleanupInProgressMu.RUnlock()
+	return len(p.cleanupInProgress) > 0 || len(p.submitInProgress) > 0
+}
+
+// AnyCleanupInProgressForCollection reports whether this node has seen a cancel
+// for the collection or is tearing down its sidecars. Asked over the cluster by
+// a node handling a cancel (see awaitOwnerCleanupGates in the REST handlers).
+// This is the confirmation signal, so it stays true for a fixed window after
+// an apply even once teardown has finished — see [ReindexProvider.OnTerminalApplied].
+// It gates nothing itself.
+func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) bool {
+	folded := strings.ToLower(collection)
+
+	p.cancelAppliedMu.RLock()
+	seen := p.cancelSeen[folded] > 0
+	p.cancelAppliedMu.RUnlock()
+	if seen {
+		return true
+	}
+	return p.BlockingHoldForCollection(collection)
+}
+
+// BlockingHoldForCollection reports whether a teardown or submission sweep is
+// actually holding any shard of the collection — tracks the work, clears when
+// it does. Distinct from [ReindexProvider.AnyCleanupInProgressForCollection],
+// which stays true through the fixed confirmation window after teardown ends.
+func (p *ReindexProvider) BlockingHoldForCollection(collection string) bool {
+	folded := strings.ToLower(collection)
+
+	p.cleanupInProgressMu.RLock()
+	defer p.cleanupInProgressMu.RUnlock()
+	for _, registry := range []map[reindexCleanupKey]int{p.cleanupInProgress, p.submitInProgress} {
+		for key, count := range registry {
+			if count > 0 && key.collection == folded {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // registerCleanup marks (collection, shard) as having an in-flight
 // terminal-task cleanup. Refcounted: paired calls to
 // [unregisterCleanup] release the slot, with the entry dropping out of
@@ -1763,7 +1960,7 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 func (p *ReindexProvider) registerCleanup(collection, shard string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
-	p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}]++
+	p.cleanupInProgress[newReindexCleanupKey(collection, shard)]++
 }
 
 // unregisterCleanup releases one outstanding "cleanup-in-progress"
@@ -1779,7 +1976,7 @@ func (p *ReindexProvider) registerCleanup(collection, shard string) {
 func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
-	k := reindexCleanupKey{collection: collection, shard: shard}
+	k := newReindexCleanupKey(collection, shard)
 	p.cleanupInProgress[k]--
 	if p.cleanupInProgress[k] <= 0 {
 		delete(p.cleanupInProgress, k)
@@ -1789,7 +1986,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 // IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
 // currently tearing partial sidecar state on (collection, shard).
 //
-// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
+// Backup gate consumer: the cluster-wide activity lookup
 // answer must include this signal — the DTM activity lookup it wraps
 // flips a task to terminal as soon as the FSM lands, but the
 // node-local sidecar buckets are still being shut down for tens of
@@ -1798,7 +1995,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 //
 // Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
 // over this method) on the DB alongside [DB.SetShardReindexActivity
-// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
+// Lookup] so the backup gate consults both. Returns false
 // if the registry is nil (test fixtures that construct the provider
 // without going through [NewReindexProvider]).
 func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
@@ -1807,21 +2004,81 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 	if p.cleanupInProgress == nil {
 		return false
 	}
-	return p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}] > 0
+	if p.cleanupInProgress[newReindexCleanupKey(collection, cleanupWholeCollection)] > 0 {
+		return true
+	}
+	return p.cleanupInProgress[newReindexCleanupKey(collection, shard)] > 0
 }
 
-// CleanupInProgressLookup is the per-(collection, shard) "is the
-// terminal-task cleanup goroutine still inside its
-// CleanStalePartialReindexState loop?" probe. Sibling type to
+// ReindexHold says which node-local operation is holding a shard, so the
+// refusal can name it accurately. A submission preparing a shard and a cancelled
+// migration tearing one down both block a backup, but telling an operator their
+// ordinary submission is "a cancelled migration" sends them hunting for
+// something that does not exist.
+type ReindexHold int
+
+const (
+	ReindexHoldNone ReindexHold = iota
+	ReindexHoldCleanup
+	ReindexHoldSubmit
+)
+
+// MarkSubmitInProgress holds the backup and restore gates closed while a new
+// submission sweeps stale sidecars off a collection, and returns the release.
+//
+// The sweep deletes files before the task is committed, so the reindex is not
+// yet visible to any gate; without this a backup claiming its slot in that
+// window captures shards whose files the sweep is removing, and the
+// post-commit rollback cannot put them back.
+func (p *ReindexProvider) MarkSubmitInProgress(collection string) func() {
+	key := newReindexCleanupKey(collection, cleanupWholeCollection)
+
+	p.cleanupInProgressMu.Lock()
+	if p.submitInProgress == nil {
+		// Fixture tolerance, for the reason given on [ReindexProvider.ensureCancelMaps];
+		// this registry lives under a different mutex, so it is built here.
+		p.submitInProgress = make(map[reindexCleanupKey]int, 1)
+	}
+	p.submitInProgress[key]++
+	p.cleanupInProgressMu.Unlock()
+
+	return func() {
+		p.cleanupInProgressMu.Lock()
+		defer p.cleanupInProgressMu.Unlock()
+		p.submitInProgress[key]--
+		if p.submitInProgress[key] <= 0 {
+			delete(p.submitInProgress, key)
+		}
+	}
+}
+
+// HoldForShard reports which hold, if any, covers (collection, shard). A
+// teardown outranks a submission: it is the more urgent thing to tell an
+// operator about.
+func (p *ReindexProvider) HoldForShard(collection, shard string) ReindexHold {
+	if p.IsCleanupInProgress(collection, shard) {
+		return ReindexHoldCleanup
+	}
+	p.cleanupInProgressMu.RLock()
+	defer p.cleanupInProgressMu.RUnlock()
+	// The sweep is collection-wide by construction, so this is the only key
+	// [ReindexProvider.MarkSubmitInProgress] ever writes; shard is unused here.
+	if p.submitInProgress[newReindexCleanupKey(collection, cleanupWholeCollection)] > 0 {
+		return ReindexHoldSubmit
+	}
+	return ReindexHoldNone
+}
+
+// CleanupInProgressLookup is the per-(collection, shard) "is a node-local
+// reindex operation holding this shard?" probe. Sibling type to
 // [ShardReindexActivityLookup] (which is the cluster-wide DTM-backed
 // "is there a LIVE reindex task on this shard?" probe). The backup
-// gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
-// terminal-cleanup is still running.
-type CleanupInProgressLookup func(collection, shard string) bool
+// gate OR-s them.
+type CleanupInProgressLookup func(collection, shard string) ReindexHold
 
 // CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
-// builder pattern used by [ShardReindexActivityLookupBuilder] so the
-// wiring in configure_api.go can install both lookups identically.
+// builder pattern used by [ShardReindexActivityLookupBuilder], minus its
+// error return: this one reads a local registry and cannot fail.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures
@@ -1835,7 +2092,7 @@ type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 // underlying state.
 func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
 	return func() CleanupInProgressLookup {
-		return p.IsCleanupInProgress
+		return p.HoldForShard
 	}
 }
 
@@ -1850,27 +2107,21 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
 // still owns its on-disk tracker dirs.
+//
+// Deliberately delegates rather than re-enumerating the statuses: when
+// the two predicates each owned a switch they disagreed on the
+// unrecognized case, so a task from a newer node was live to the backup
+// gate but invisible to conflict detection.
 func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
-	switch status {
-	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping:
-		return true
-	case distributedtask.TaskStatusFinished,
-		distributedtask.TaskStatusCancelled,
-		distributedtask.TaskStatusFailed:
-		return false
-	}
-	return false
+	return status.IsActive()
 }
 
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST
 // command an operator should issue to recover from a FAILED semantic
 // migration. The failure mode it targets: sub-tasks that swapped BEFORE
-// the failed sibling left their bucket NEW-tokenized while the cluster-
-// wide schema flip was correctly skipped — every query against the
-// affected inverted index returns 0 until the index is rebuilt against
-// the current schema.
+// the failed sibling left their bucket holding the migration's output
+// while the cluster-wide schema flip was correctly skipped, so the two
+// disagree until the index is rebuilt against the current schema.
 func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -1898,7 +2149,15 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 			ReindexTypeEnableFilterable,
 			ReindexTypeRepairFilterable:
 			repairBody = `{"filterable":{"rebuild":true}}`
-		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		case ReindexTypeEnableRangeable:
+			// The flag never flipped, so there is no rangeable index to
+			// rebuild — re-running enable is what clears the residue.
+			repairBody = `{"rangeable":{"enabled":true}}`
+		case ReindexTypeRepairRangeable:
+			// Unreachable: repair-rangeable is format-only, so the
+			// early return above already sent it away. Kept for the
+			// same reason as the repair-filterable arm, so a future
+			// reclassification does not land here silently.
 			repairBody = `{"rangeable":{"rebuild":true}}`
 		default:
 			// Fallback for any future migration type: rebuild everything.
@@ -1913,11 +2172,11 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		}).Errorf(
 			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
 				"that committed their swap BEFORE the failure left the "+
-				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema reverted to pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
-				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+				"canonical inverted bucket holding the migration's "+
+				"output while the schema stayed at its pre-migration "+
+				"state — issue the repair_command above to bring the "+
+				"affected inverted index(es) back in line with the "+
+				"current schema",
 			payload.MigrationType, payload.Collection, propName)
 	}
 }
@@ -1934,7 +2193,9 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
 		return true
 	}
-	if !IsSemanticMigration(payload.MigrationType) {
+	if runsUnitsInline(task, payload.MigrationType) {
+		// No deferred group callback exists for these — reporting "not
+		// done" would re-fire a callback that no-ops.
 		return true
 	}
 	if p.db == nil {
@@ -1997,9 +2258,11 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"filterable"}
 	case ReindexTypeChangeAlgorithm:
 		return []string{"searchable"}
+	case ReindexTypeEnableRangeable:
+		return []string{"rangeable"}
 	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
 		// LocalCallbacksDone's recovery check — they don't go through
 		// the swap barrier so there's nothing to recover at this layer.
@@ -2132,6 +2395,23 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			Info("reindex provider: enable-searchable cutover committed")
 		return nil
 
+	case ReindexTypeEnableRangeable:
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexRangeFilters},
+			func(prop *models.Property) bool {
+				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+					return false
+				}
+				prop.IndexRangeFilters = &trueVal
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexRangeFilters: %w", err)
+		}
+		logger.Info("reindex provider: enable-rangeable cutover committed")
+		return nil
+
 	case ReindexTypeChangeAlgorithm:
 		// Defer until every local searchable bucket is blockmax — submit is
 		// per-property, so the class may still have map buckets.
@@ -2190,16 +2470,42 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	return false, nil
 }
 
-// IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier + cluster-
-// wide schema flip after every node has acknowledged. enable-rangeable is
-// intentionally NOT semantic — predates the barrier family.
+// IsSemanticMigration returns true for migration types that require a
+// global schema flip, and therefore the cross-replica swap barrier that
+// makes the flip safe: no shard may serve the new state until every shard
+// can.
+//
+// repair-rangeable is deliberately absent. It changes no schema — it
+// rebuilds an index that is already enabled, into a parallel bucket that
+// is atomically swapped in per shard. With nothing to flip there is
+// nothing to coordinate, so it keeps the format-only shape and, with it,
+// per-tenant targeting: repairing 20 tenants out of 50,000 must not
+// require touching all of them.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable ||
-		mt == ReindexTypeChangeAlgorithm
+		mt == ReindexTypeChangeAlgorithm ||
+		mt == ReindexTypeEnableRangeable
+}
+
+// runsUnitsInline reports whether a task's units run the full
+// reindex+prep+swap lifecycle inside processOneUnit, leaving the group
+// callbacks nothing to do.
+//
+// enable-rangeable tasks submitted before it joined the semantic family
+// carry NeedsPreparationBarrier=false and must keep running with the
+// shape they were submitted with: their units already swapped inline, so
+// re-running the swap from OnGroupCompleted would fail on trackers that
+// are already tidied. Every other semantic task defers the swap to the
+// group callbacks regardless of the barrier flag — that has always been
+// their shape.
+func runsUnitsInline(task *distributedtask.Task, mt ReindexMigrationType) bool {
+	if mt == ReindexTypeEnableRangeable {
+		return !task.NeedsPreparationBarrier
+	}
+	return !IsSemanticMigration(mt)
 }
 
 // IsTokenizationChangingMigration is true for migrations that flip a
@@ -2358,6 +2664,246 @@ func (p *ReindexProvider) WaitForLocalTaskDrain(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// reindexCancelConfirmWindow is how long a node reports "I have seen this
+// cancel" to the cluster probe. It must exceed the REST handler's per-owner
+// confirmation budget (reindexOwnerGateTimeout) plus RAFT replication lag: that
+// budget is the window in which the signal has to be observable.
+const reindexCancelConfirmWindow = 15 * time.Second
+
+// reindexCancelApplyGateCap bounds the cleanup gate taken at cancel-apply time
+// in case the teardown that should adopt it never runs on this node. Reaching it
+// means a gate was leaking, so it is logged at Error.
+const reindexCancelApplyGateCap = time.Minute
+
+// OnTerminalApplied runs on every node shortly after a task goes terminal
+// (CANCELLED or FAILED) off the apply path, and raises two separate signals:
+//
+//   - The cleanup gate, closed to cover the gap between the task going
+//     terminal in DTM and teardown starting (sidecar dirs still on disk, a
+//     backup could capture them). Handed to the teardown as soon as it
+//     starts; not held for a fixed window since teardown is usually
+//     sub-second.
+//   - Confirmation ([ReindexProvider.cancelSeen]), a level-triggered latch
+//     held for a fixed observable window so the cluster cancel probe can
+//     poll it — teardown itself can close and reopen the gate in
+//     microseconds, too fast for polling to reliably observe.
+//
+// This and the teardown can arrive in either order (raft apply vs.
+// leader-forwarded scheduler query); whichever is second releases the gate
+// via the settled set below. reindexCancelApplyGateCap only covers a
+// teardown that never runs here at all.
+//
+// The only exemption from holding the cleanup gate is
+// [cancelledWithoutClaimedUnits].
+//
+// Registered via [distributedtask.Manager.RegisterTerminalObserver].
+func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
+	payload, err := p.loadPayload(task)
+
+	// Confirmation reads the collection alone, so a payload this node cannot
+	// fully decode still gets a latch; without one the node handling the cancel
+	// burns its whole per-owner budget before answering unconfirmed. The
+	// blocking gate below genuinely needs the whole payload.
+	_, collection, _ := DecodeReindexTaskPayload(task.Payload)
+	if collection != "" {
+		p.holdCancelSeen(collection)
+	}
+
+	if err != nil {
+		// Nothing identifies the shards to gate. The teardown path logs the
+		// same unparseable payload; do not duplicate it on the apply path.
+		return
+	}
+	if cancelledWithoutClaimedUnits(task) {
+		// See [cancelledWithoutClaimedUnits]: the confirmation latch above
+		// still fires, only the blocking gate is skipped.
+		return
+	}
+	p.holdCleanupGateUntilTeardown(task.TaskDescriptor, payload)
+}
+
+// cancelledWithoutClaimedUnits reports whether the task is a cancelled one no
+// worker ever claimed a unit of. Same waiver the backup's commit-time
+// backstop applies in reindexTaskOverlaps — the two must agree, since the
+// submit path manufactures exactly this task when a backup wins the race and
+// it rolls itself back. Cancelled only; a FAILED task keeps the gate.
+func cancelledWithoutClaimedUnits(task *distributedtask.Task) bool {
+	return task != nil &&
+		task.Status == distributedtask.TaskStatusCancelled &&
+		!reindexTaskTouchedShards(task)
+}
+
+// holdCancelSeen makes this node answer the cluster cleanup probe for
+// reindexCancelConfirmWindow. Refcounted so overlapping cancels on one
+// collection cannot cut each other's window short.
+func (p *ReindexProvider) holdCancelSeen(collection string) {
+	folded := strings.ToLower(collection)
+
+	window := p.timings.cancelConfirmWindow
+
+	p.cancelAppliedMu.Lock()
+	p.ensureCancelMaps()
+	p.cancelSeen[folded]++
+	p.cancelAppliedMu.Unlock()
+
+	enterrors.GoWrapper(func() {
+		select {
+		case <-time.After(window):
+		case <-p.shutdownCtx().Done():
+		}
+		p.cancelAppliedMu.Lock()
+		defer p.cancelAppliedMu.Unlock()
+		if p.cancelSeen[folded] <= 1 {
+			delete(p.cancelSeen, folded)
+			return
+		}
+		p.cancelSeen[folded]--
+	}, p.goroutineLogger())
+}
+
+// holdCleanupGateUntilTeardown closes the cleanup gate now and parks its release
+// for [ReindexProvider.adoptCancelApplyGate] to collect when the teardown starts.
+// The cap only fires when no teardown ever runs for this task on this node.
+func (p *ReindexProvider) holdCleanupGateUntilTeardown(
+	desc distributedtask.TaskDescriptor, payload *ReindexTaskPayload,
+) {
+	release := p.MarkCleanupInProgress(payload)
+
+	p.cancelAppliedMu.Lock()
+	p.ensureCancelMaps()
+	_, alreadyParked := p.cancelApplyGates[desc]
+	_, teardownRan := p.cancelTeardownSettled[desc]
+	if !alreadyParked && !teardownRan {
+		p.cancelApplyGates[desc] = release
+		p.cancelAppliedMu.Unlock()
+		p.startCancelApplyGateCap(desc)
+		return
+	}
+	p.cancelAppliedMu.Unlock()
+	// Either a second apply for the same task, or an apply that lost the race
+	// with its own teardown. Both mean this release has no gap left to cover.
+	release()
+}
+
+// startCancelApplyGateCap is the backstop for a task whose teardown never runs
+// on this node at all. The ordinary races are handled by
+// [ReindexProvider.adoptCancelApplyGate] and the settled set, so reaching this
+// means a gate was about to leak.
+func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescriptor) {
+	logger := p.goroutineLogger()
+	enterrors.GoWrapper(func() {
+		shuttingDown := false
+		select {
+		case <-time.After(reindexCancelApplyGateCap):
+		case <-p.shutdownCtx().Done():
+			shuttingDown = true
+		}
+		adopted := p.adoptCancelApplyGate(desc)
+		if adopted == nil {
+			return
+		}
+		if shuttingDown {
+			// The gate is a node-local hold and the node is going down, so
+			// nothing is left for the teardown to claim it from.
+			logger.WithField("taskID", desc.ID).Debug(
+				"reindex provider: releasing the cancel-apply cleanup gate on shutdown")
+		} else {
+			logger.WithField("taskID", desc.ID).Errorf(
+				"reindex provider: no teardown claimed the cancel-apply cleanup gate within %s; releasing it",
+				reindexCancelApplyGateCap)
+		}
+		adopted()
+	}, logger)
+}
+
+// adoptCancelApplyGate takes ownership of the gate parked by
+// [ReindexProvider.holdCleanupGateUntilTeardown], or returns nil if it is
+// already gone. Exactly one caller ever receives it.
+func (p *ReindexProvider) adoptCancelApplyGate(desc distributedtask.TaskDescriptor) func() {
+	p.cancelAppliedMu.Lock()
+	defer p.cancelAppliedMu.Unlock()
+
+	p.ensureCancelMaps()
+
+	now := time.Now()
+	p.cancelTeardownSettled[desc] = now
+	for other, at := range p.cancelTeardownSettled {
+		if now.Sub(at) > reindexCancelApplyGateCap {
+			delete(p.cancelTeardownSettled, other)
+		}
+	}
+
+	release, ok := p.cancelApplyGates[desc]
+	if !ok {
+		return nil
+	}
+	delete(p.cancelApplyGates, desc)
+	return release
+}
+
+// reindexWorkerExitGateCap bounds the wait in
+// [ReindexProvider.ReleaseCleanupGateOnWorkerExit]. A worker that never exits
+// would otherwise hold the gate until the process restarts, and the restore
+// gate this feeds is node-wide: one wedged worker on one collection would
+// refuse every restore on the node indefinitely. Longer than the cancel-apply
+// cap because the worker here is doing real work and the drain it already lost
+// was only ten seconds. Reaching it opens the gate over a possibly still-writing
+// worker, so it is logged at Error, same posture as reindexCancelApplyGateCap.
+const reindexWorkerExitGateCap = 5 * time.Minute
+
+// ReleaseCleanupGateOnWorkerExit keeps the cleanup gate closed past the caller's
+// return and drops it once the local worker exits, or at
+// [reindexWorkerExitGateCap], whichever comes first.
+//
+// A drain that times out is the case the gate exists for: the worker is still
+// writing, and the commit-time overlap check can miss exactly this task. It
+// skips a cancelled task only when no unit ever left PENDING, and a cancel that
+// lands before the workers claim their units leaves that state behind while a
+// worker writes on. Releasing on return would open the gate over a live writer
+// with nothing behind it.
+func (p *ReindexProvider) ReleaseCleanupGateOnWorkerExit(
+	desc distributedtask.TaskDescriptor,
+	release func(),
+	logger logrus.FieldLogger,
+) {
+	gateCap := p.timings.workerExitGateCap
+	enterrors.GoWrapper(func() {
+		defer release()
+		ctx, cancel := context.WithTimeout(p.shutdownCtx(), gateCap)
+		defer cancel()
+		if err := p.WaitForLocalTaskDrain(ctx, desc); err != nil {
+			if p.shutdownCtx().Err() != nil {
+				// The wait ended because the node is going down, not at the cap.
+				// No backup can start here afterwards, so the warning below would
+				// be false, and it would print on every graceful shutdown that
+				// caught a worker mid-flight.
+				logger.Debugf("reindex provider: releasing the cleanup gate on shutdown "+
+					"without having observed the worker exit: %v", err)
+				return
+			}
+			logger.Errorf("reindex provider: releasing the cleanup gate without having observed the worker exit; "+
+				"a backup starting now could catch a half-removed sidecar: %v", err)
+		}
+	}, logger)
+}
+
+// DrainWithCleanupGate waits for the local worker to exit with the backup and
+// restore gates already closed, and returns the release for the caller to defer.
+// The gate must be taken before the wait: the task leaves DTM the moment the
+// cancel applies, so a timed-out wait means the worker is still writing while
+// the gates already report the shard free. The release is always usable,
+// regardless of the returned error — but on a non-nil error the caller should
+// hand it to [ReindexProvider.ReleaseCleanupGateOnWorkerExit] rather than
+// defer it, for the reason documented there.
+func (p *ReindexProvider) DrainWithCleanupGate(
+	ctx context.Context,
+	payload *ReindexTaskPayload,
+	desc distributedtask.TaskDescriptor,
+) (func(), error) {
+	release := p.MarkCleanupInProgress(payload)
+	return release, p.WaitForLocalTaskDrain(ctx, desc)
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.

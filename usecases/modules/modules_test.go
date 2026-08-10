@@ -519,10 +519,6 @@ func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID,
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	return nil
-}
-
 func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	return 0, nil
 }

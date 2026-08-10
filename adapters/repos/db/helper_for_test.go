@@ -245,8 +245,8 @@ func getRandomSeed() *rand.Rand {
 // exercise the gate. Tests that exercise the gate overwrite this
 // with their own lookup.
 func installNoLiveReindexLookup(db *DB) {
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return false }
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return func(string, string) bool { return false }, nil
 	})
 }
 
@@ -603,4 +603,28 @@ func invertedConfig() *models.InvertedIndexConfig {
 		IndexPropertyLength: true,
 		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 	}
+}
+
+// newTestIndex builds an index holding the given shards, ready to be scanned or
+// shut down. The live closingCtx keeps ForEachShard from short-circuiting.
+func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
+	reader schemaUC.SchemaReader, shards map[string]ShardLike,
+) *Index {
+	t.Helper()
+
+	closingCtx, closingCancel := context.WithCancel(context.Background())
+	t.Cleanup(closingCancel)
+
+	idx := &Index{
+		Config:        IndexConfig{ClassName: schema.ClassName(className)},
+		logger:        logger,
+		schemaReader:  reader,
+		closingCtx:    closingCtx,
+		closingCancel: closingCancel,
+	}
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+	for name, shard := range shards {
+		idx.shards.Store(name, shard)
+	}
+	return idx
 }

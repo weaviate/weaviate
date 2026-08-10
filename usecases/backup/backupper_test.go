@@ -14,14 +14,17 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -216,6 +219,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		)
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		// The commit-time re-resolve runs on the uploader's own cancellable ctx.
+		sourcer.On("Backupable", any, any).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
@@ -242,6 +247,54 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		assert.Equal(t, "", errMsg)
 	})
 
+	t.Run("RoleSelectionReachesTheSnapshotter", func(t *testing.T) {
+		var (
+			sourcePath = t.TempDir()
+			sourcer    = &fakeSourcer{}
+			backend    = newFakeBackend()
+			roles      = []string{"ns1:reader", "ns1:writer"}
+			users      = []string{"ns1:alice"}
+		)
+
+		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(sourcePath)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+		m, rbacSnapshotter, dynUserSnapshotter := createManagerWithSnapshotters(sourcer, nil, backend, nil)
+
+		req := req
+		req.Duration = time.Hour
+		req.Roles = roles
+		req.Users = users
+		got := m.OnCanCommit(ctx, &req)
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		require.Equal(t, want, got)
+
+		require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""}))
+		m.backupper.waitForCompletion(20, 50)
+		status, errMsg := backend.getMetaStatus()
+		require.Equal(t, backup.Success, status)
+		require.Equal(t, "", errMsg)
+
+		// The node must snapshot the requested roles and nothing else. An empty
+		// selection here means this node dumped the whole RBAC store while the
+		// descriptor still advertised the subset the caller asked for.
+		gotRoles, calledRbac := rbacSnapshotter.snapshotted()
+		require.True(t, calledRbac, "the participant never took an RBAC snapshot")
+		assert.Equal(t, roles, gotRoles)
+
+		gotUsers, calledDynUser := dynUserSnapshotter.snapshotted()
+		require.True(t, calledDynUser, "the participant never took a dynamic user snapshot")
+		assert.Equal(t, users, gotUsers)
+	})
+
 	t.Run("NodeMissingFromBaseBackupUploadsFull", func(t *testing.T) {
 		var (
 			sourcePath = t.TempDir()
@@ -255,6 +308,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		// node deduplicates against nothing (full upload)
 		var gotBaseDescrs []*backup.BackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		// The commit-time re-resolve runs on the uploader's own cancellable ctx.
+		sourcer.On("Backupable", any, any).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
 			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
@@ -441,6 +496,13 @@ func fakeBackupDescriptor(descs ...backup.ClassDescriptor) <-chan backup.ClassDe
 }
 
 func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilities.BackupBackend, backendErr error) *Handler {
+	m, _, _ := createManagerWithSnapshotters(sourcer, schema, backend, backendErr)
+	return m
+}
+
+// createManagerWithSnapshotters also returns the two snapshot fakes the handler was
+// built with, so a test can assert on the selection that reached them.
+func createManagerWithSnapshotters(sourcer Sourcer, schema schemaManger, backend modulecapabilities.BackupBackend, backendErr error) (*Handler, *fakeRbacBackupWrapper, *fakeDynUserBackupWrapper) {
 	backends := &fakeBackupBackendProvider{backend, backendErr}
 	if sourcer == nil {
 		sourcer = &fakeSourcer{}
@@ -450,28 +512,65 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{})
+	rbac := &fakeRbacBackupWrapper{}
+	dynUser := &fakeDynUserBackupWrapper{}
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, rbac, dynUser), rbac, dynUser
 }
 
-type fakeRbacBackupWrapper struct{}
+// fakeRbacBackupWrapper satisfies RBACSnapshotter (variadic Snapshot). It records the
+// selection it was called with. Discarding that argument would leave every hop between
+// the participant request and this call unpinned, so a dropped selection would still
+// produce a green suite while each node snapshotted the whole RBAC store.
+type fakeRbacBackupWrapper struct {
+	mu       sync.Mutex
+	gotRoles []string
+	called   bool
+}
 
-func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+func (r *fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.called = true
+	r.gotRoles = roles
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) Restore([]byte) error {
+func (r *fakeRbacBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
-// fakeDynUserBackupWrapper satisfies dynUserSnapshotter (variadic Snapshot).
-type fakeDynUserBackupWrapper struct{}
+// snapshotted returns the recorded selection and whether Snapshot ran at all. The
+// backup runs on its own goroutine, so the lock is required even after waiting.
+func (r *fakeRbacBackupWrapper) snapshotted() ([]string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.gotRoles, r.called
+}
 
-func (fakeDynUserBackupWrapper) Snapshot(userIDs ...string) ([]byte, error) {
+// fakeDynUserBackupWrapper satisfies dynUserSnapshotter (variadic Snapshot). It records
+// its selection for the same reason fakeRbacBackupWrapper does.
+type fakeDynUserBackupWrapper struct {
+	mu       sync.Mutex
+	gotUsers []string
+	called   bool
+}
+
+func (d *fakeDynUserBackupWrapper) Snapshot(userIDs ...string) ([]byte, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.called = true
+	d.gotUsers = userIDs
 	return nil, nil
 }
 
-func (fakeDynUserBackupWrapper) Restore([]byte, bool) error {
+func (d *fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 	return nil
+}
+
+func (d *fakeDynUserBackupWrapper) snapshotted() ([]string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gotUsers, d.called
 }
 
 func TestResolveBaseBackupChain(t *testing.T) {
@@ -717,6 +816,56 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			errorContains: []string{"backup \"backup-1\" has compression type", "expected"},
 		},
 		{
+			name:            "LegacyBaseByStructureVersion",
+			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						Version:         "1.0",
+						ServerVersion:   "1.23",
+						Status:          backup.Success,
+						StartedAt:       t0,
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.21"},
+		},
+		{
+			name:            "LegacyBaseDeeperInChain",
+			baseBackupID:    "backup-2",
+			childStartedAt:  t2,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.22",
+						Status:          backup.Success,
+						StartedAt:       t0,
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.23",
+						BaseBackupID:    "backup-1",
+						Status:          backup.Success,
+						StartedAt:       t1,
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.23"},
+		},
+		{
 			name:            "FailedBackupStatus",
 			baseBackupID:    "backup-1",
 			childStartedAt:  t1,
@@ -761,4 +910,199 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// runParticipantBackup drives a participant backup whose descriptor write
+// succeeds.
+func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
+	classes []string, sourcePath string, descs ...backup.ClassDescriptor,
+) (*Handler, backup.Status, string) {
+	h, status, reason, _ := runParticipantBackupWithMetaWriteErr(t, sourcer, backend, classes, sourcePath, nil, descs...)
+	return h, status, reason
+}
+
+// runParticipantBackupWithMetaWriteErr wires the participant mocks, drives a
+// backup to completion, and returns the handler alongside the stored meta and
+// what the handler logged. metaWriteErr fails the descriptor write. Duration is
+// an hour so the pre-commit window can't expire under CI load.
+func runParticipantBackupWithMetaWriteErr(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
+	classes []string, sourcePath string, metaWriteErr error, descs ...backup.ClassDescriptor,
+) (*Handler, backup.Status, string, *test.Hook) {
+	t.Helper()
+	var (
+		ctx         = context.Background()
+		any         = mock.Anything
+		backendName = "gcs"
+		backupID    = "1"
+		nodeHome    = backupID + "/" + nodeName
+	)
+
+	// Admission passes; only the commit-time checks may object.
+	sourcer.On("Backupable", ctx, classes).Return(nil)
+	// The commit-time re-resolve runs on the uploader's own cancellable ctx.
+	sourcer.On("Backupable", any, any).Return(nil)
+	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor(descs...))
+	sourcer.On("ReleaseBackup", any, backupID, any).Return(nil)
+
+	backend.On("HomeDir", any, any, any).Return("bucket/backups/" + nodeHome)
+	backend.On("SourceDataPath").Return(sourcePath)
+	backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+	backend.On("Initialize", ctx, nodeHome).Return(nil)
+	backend.On("PutObject", any, nodeHome, BackupFile, any).Return(metaWriteErr)
+	backend.On("Write", any, nodeHome, any, any).Return(any, nil)
+
+	m := createManager(sourcer, nil, backend, nil)
+	logger, hook := test.NewNullLogger()
+	m.backupper.logger = logger
+	require.Equal(t, &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: _TimeoutShardCommit},
+		m.OnCanCommit(ctx, &Request{
+			Method: OpCreate, ID: backupID, Classes: classes,
+			Backend: backendName, Duration: time.Hour,
+		}))
+	require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
+	// The slot release is the last thing the backup goroutine does, so waiting
+	// for it is what puts the descriptor write and the log line behind us. A
+	// terminal status is not: the failure paths this helper drives leave the
+	// status at Transferring, so waiting for one is just a sleep, and on a
+	// loaded runner the sleep ends first.
+	require.True(t, m.backupper.waitForSlotRelease(300, 100),
+		"the backup goroutine never finished, so nothing it wrote can be asserted on")
+
+	status, reason := backend.getMetaStatus()
+	return m, status, reason, hook
+}
+
+// waitForSlotRelease waits for backupper.backup's deferred reset, which is what
+// hands the node back to the next operation. Reports whether it happened.
+func (r *backupper) waitForSlotRelease(n, ms int) bool {
+	for i := 0; i < n; i++ {
+		if r.lastOp.get().ID == "" {
+			return true
+		}
+		time.Sleep(time.Millisecond * time.Duration(ms))
+	}
+	return false
+}
+
+// A poll that arrives after the operation released the slot is the realistic
+// one: the release is a deferred call a millisecond behind the failure. When
+// writing the descriptor is itself what failed there is no descriptor for that
+// poll to fall back on, so the reason has to outlive the slot or the coordinator
+// latches "metadata not found" as why the backup failed.
+func TestRememberedFailureSurvivesTheProductionSlotRelease(t *testing.T) {
+	t.Parallel()
+	const cls = "Movies"
+
+	sourcer := &fakeSourcer{}
+	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrBackupSpannedReindex, cls)
+
+	// The descriptor the poll would otherwise fall back on. It is not there,
+	// because writing it is what failed.
+	backend := newFakeBackend()
+	backend.On("GetObject", context.Background(), "1", BackupFile).Return(nil, errNotFound)
+
+	sourcePath := t.TempDir()
+	m, _, _, _ := runParticipantBackupWithMetaWriteErr(t, sourcer, backend, []string{cls}, sourcePath,
+		errors.New("object storage unreachable"), genClassDescriptions(t, sourcePath, cls)...)
+
+	require.True(t, m.backupper.waitForSlotRelease(50, 100),
+		"backupper.backup's deferred reset never ran, so this test would prove nothing about polls after it")
+
+	res := m.OnStatus(context.Background(), &StatusRequest{Method: OpCreate, ID: "1", Backend: "gcs"})
+	require.Equal(t, backup.Failed, res.Status,
+		"a poll after the slot is released must not report a finished backup as one that might be running")
+	require.Contains(t, res.Err, "a runtime-reindex overlapped this backup",
+		"the reason has to survive the release; the descriptor that would otherwise carry it was never written")
+	require.NotContains(t, res.Err, "metadata not found",
+		"the missing descriptor is the symptom of the failure, not its reason")
+}
+
+// Pins: a reindex admitted after the pre-capture check still fails the
+// backup at commit time.
+func TestBackupFailsWhenAReindexIsLiveAtCommitTime(t *testing.T) {
+	t.Parallel()
+	const (
+		cls  = "Class-A"
+		cls2 = "Class-B"
+	)
+
+	tests := []struct {
+		name        string
+		liveAtEnd   bool
+		wantStatus  backup.Status
+		wantErrPart string
+	}{
+		{
+			name:       "no migration appears; the backup stands",
+			liveAtEnd:  false,
+			wantStatus: backup.Success,
+		},
+		{
+			name:        "a migration overlapped the capture",
+			liveAtEnd:   true,
+			wantStatus:  backup.Failed,
+			wantErrPart: "a runtime-reindex overlapped this backup",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sourcePath := t.TempDir()
+			sourcer := &fakeSourcer{}
+			if tc.liveAtEnd {
+				sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+					backup.ErrBackupSpannedReindex, cls)
+			}
+
+			_, status, errMsg := runParticipantBackup(t, sourcer, newFakeBackend(),
+				[]string{cls, cls2}, sourcePath, genClassDescriptions(t, sourcePath, cls, cls2)...)
+			require.Equal(t, tc.wantStatus, status)
+			if tc.wantErrPart == "" {
+				require.Empty(t, errMsg)
+				return
+			}
+			require.Contains(t, errMsg, tc.wantErrPart)
+			require.Contains(t, errMsg, backup.ErrBackupSpannedReindex.Error(),
+				"the operator needs to know which condition failed the backup")
+			require.NotContains(t, errMsg, "in flight",
+				"the migration has usually finished by the time this fires")
+		})
+	}
+}
+
+// A backup that fails on the per-shard reindex check stores its reason in the
+// node's failure meta, which GET /v1/backups/{backend}/{id} serves back. The
+// wrappers between the shard and here name that shard; a backup caller is
+// granted nothing on shard ids, so the stored copy must carry the refusal only.
+func TestBackupFailureMetaOmitsTheShardThatRefused(t *testing.T) {
+	t.Parallel()
+	const (
+		cls   = "R2Race"
+		shard = "henhWXAbABqk"
+	)
+
+	// The shape the real chain produces: the gate's publishable refusal under
+	// the snapshot wrappers that name the shard.
+	refusal := backup.ReindexBlockedError{Msg: fmt.Sprintf(
+		"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes",
+		backup.ErrBackupBlockedByInFlightReindex, cls)}
+	wrapped := fmt.Errorf("backup class %s descriptor: backup shards with hardlinks: snapshot shard %s: halt for snapshot: %w",
+		cls, shard, refusal)
+
+	_, _, errMsg := runParticipantBackup(t, &fakeSourcer{}, newFakeBackend(), []string{cls}, t.TempDir(),
+		backup.ClassDescriptor{Name: cls, Error: wrapped})
+
+	// OnStatus keys the participant's failure off meta.Error, not meta.Status:
+	// the per-shard path leaves Status at TRANSFERRING, unlike the commit-time
+	// backstop which sets FAILED.
+	require.NotEmpty(t, errMsg, "the failure has to be recorded for OnStatus to report it")
+	require.Contains(t, errMsg, backup.ErrBackupBlockedByInFlightReindex.Error(),
+		"the operator needs to know which condition failed the backup")
+	require.Contains(t, errMsg, cls, "the caller named this collection itself")
+	require.NotContains(t, errMsg, shard,
+		"the stored failure meta is served from the status API; it must not name the shard")
+	require.NotContains(t, errMsg, "snapshot shard",
+		"nor the traversal that found it")
 }

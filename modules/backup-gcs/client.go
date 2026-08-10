@@ -48,7 +48,7 @@ type gcsClient struct {
 	counter   atomic.Uint64 // monotonic counter for unique access-check paths within a node
 }
 
-func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
+func storageOptions(ctx context.Context, logger logrus.FieldLogger) ([]option.ClientOption, error) {
 	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
 	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
@@ -63,6 +63,7 @@ func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
 		}
 		opts = append(opts, option.WithCredentials(creds))
 	} else if backupGCSAuthProxyEndpoint != "" {
+		logger.Info("backup-gcs: using auth broker for GCS credentials")
 		opts = append(
 			opts,
 			option.WithTokenSource(
@@ -89,7 +90,7 @@ func projectID() string {
 }
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
-	opts, err := storageOptions(ctx)
+	opts, err := storageOptions(ctx, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +100,12 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 		return nil, errors.Wrap(err, "create client")
 	}
 
-	client.SetRetry(storage.WithBackoff(gax.Backoff{
-		Initial:    2 * time.Second, // Note: the client uses a jitter internally
-		Max:        60 * time.Second,
-		Multiplier: 3,
-	}),
+	client.SetRetry(
+		storage.WithBackoff(gax.Backoff{
+			Initial:    2 * time.Second, // Note: the client uses a jitter internally
+			Max:        60 * time.Second,
+			Multiplier: 3,
+		}),
 		storage.WithPolicy(storage.RetryAlways),
 		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)
@@ -319,62 +321,6 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 	return nil
 }
 
-// WriteToFile downloads an object and store its content in destPath
-// The file destPath will be created if it doesn't exit
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) (err error) {
-	bucket, err := g.findBucket(ctx, overrideBucket)
-	if err != nil {
-		return fmt.Errorf("writetofile: find bucket: %w ", err)
-	}
-
-	// validate destination path
-	if st, err := os.Stat(destPath); err == nil {
-		if st.IsDir() {
-			return fmt.Errorf("file is a directory")
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	// create empty file
-	dir := path.Dir(destPath)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return fmt.Errorf("os.mkdir for writetofile %q: %w", dir, err)
-	}
-	file, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("os.create for writetofile %q: %w", destPath, err)
-	}
-
-	// make sure to close and delete in case we return early
-	closeAndRemove := true
-	defer func() {
-		if closeAndRemove {
-			file.Close()
-			os.Remove(destPath)
-		}
-	}()
-
-	// create reader
-	object := g.makeObjectName(overridePath, []string{backupID, key})
-	rc, err := bucket.Object(object).NewReader(ctx)
-	if err != nil {
-		return fmt.Errorf("create reader for writetofile %q: %w", object, err)
-	}
-	defer rc.Close()
-
-	// transfer content to the file
-	if _, err := io.Copy(file, rc); err != nil {
-		return fmt.Errorf("io.Copy for writetofile:%q %q: %w", destPath, object, err)
-	}
-	closeAndRemove = false
-	if err = file.Close(); err != nil {
-		return fmt.Errorf("f.Close for writetofile %q: %w", destPath, err)
-	}
-
-	return nil
-}
-
 func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
 	// Close the reader when done. Use CloseWithError to signal any error to the
 	// producer so it sees the actual error instead of "closed pipe".
@@ -389,14 +335,21 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 
 	// create a new writer
 	objectPath := g.makeObjectName(overridePath, []string{backupID, key})
-	writer := bucket.Object(objectPath).NewWriter(ctx)
+	writeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	writer := bucket.Object(objectPath).NewWriter(writeCtx)
 	writer.ContentType = "application/octet-stream"
 	writer.Metadata = map[string]string{"backup-id": backupID}
 
 	// copy
 	written, err = io.Copy(writer, r)
 	if err != nil {
-		writer.Close() // ignore error here as copy already failed
+		// Cancelling abandons the upload. Closing the writer instead would finalize it,
+		// storing the bytes copied so far as a complete object. Closing afterwards is
+		// what ends the writer's trace span, and cannot revive the upload: the request
+		// it would take needs the context that was just cancelled.
+		cancel()
+		writer.Close()
 		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 

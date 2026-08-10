@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -112,6 +113,7 @@ import (
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
+	modmulti2vectwelvelabs "github.com/weaviate/weaviate/modules/multi2vec-twelvelabs"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
@@ -154,6 +156,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -207,8 +210,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Error("failed to initialize OpenTelemetry")
+			WithField("action", "startup").
+			Errorf("failed to initialize OpenTelemetry: %v", err)
 	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -240,7 +243,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		sink, err := armonprometheus.NewPrometheusSinkFrom(opts)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
+			appState.Logger.WithField("action", "startup").Fatalf("failed to create prometheus sink for raft metrics: %v", err)
 		}
 
 		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal/dependency packages.
@@ -253,7 +256,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		_, err = armonmetrics.NewGlobal(cfg, sink)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create metric registry raft metrics")
+			appState.Logger.WithField("action", "startup").Fatalf("failed to create metric registry raft metrics: %v", err)
 		}
 
 		// only monitoring tool supported at the moment is prometheus
@@ -315,8 +318,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		})
 		if err != nil {
 			appState.Logger.
-				WithField("action", "startup").WithError(err).
-				Fatal("sentry initialization failed")
+				WithField("action", "startup").
+				Fatalf("sentry initialization failed: %v", err)
 		}
 
 		sentry.ConfigureScope(func(scope *sentry.Scope) {
@@ -402,8 +405,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		metricsRegisterer, appState.Logger, grpcDialOpts...)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create gRPC connection manager")
+			Fatalf("failed to create gRPC connection manager: %v", err)
 	}
 	appState.GRPCConnManager = grpcConnManager
 
@@ -426,8 +428,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		replMetricsReg, appState.Logger, replDialOpts...)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create replication gRPC connection manager")
+			Fatalf("failed to create replication gRPC connection manager: %v", err)
 	}
 
 	appState.ReplGRPCConnManager = replConnManager
@@ -481,6 +482,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		LSMSkipWriteClassNameEnabled:        appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 		NamespacesEnabled:                   appState.ServerConfig.Config.Namespaces.Enabled,
+		RuntimeReindexDisabled:              !appState.ServerConfig.Config.RuntimeReindexEnabled,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -525,6 +527,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryBatchedContainsEnabled:                  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
 		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
@@ -534,8 +537,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid new DB")
+			WithField("action", "startup").
+			Fatalf("invalid new DB: %v", err)
 	}
 
 	appState.DB = repo
@@ -571,8 +574,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize schema repo")
+			WithField("action", "startup").
+			Fatalf("could not initialize schema repo: %v", err)
 		os.Exit(1)
 	}
 
@@ -580,8 +583,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize classifications repo")
+			WithField("action", "startup").
+			Fatalf("could not initialize classifications repo: %v", err)
 		os.Exit(1)
 	}
 
@@ -596,8 +599,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("raft-join", appState.ServerConfig.Config.Raft.Join).
-			WithError(err).
-			Fatal("parsing raft-join")
+			Fatalf("parsing raft-join %q: %v", appState.ServerConfig.Config.Raft.Join, err)
 		os.Exit(1)
 	}
 
@@ -659,7 +661,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicaCopier:               replicaCopier,
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
-		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace: db.ExtractReindexTaskCollection,
 		},
@@ -676,7 +677,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}
 
-	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
+	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
 
@@ -692,9 +693,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := classDirMover(class); err != nil {
 			return err
 		}
-		// Background ctx: invoked from the RAFT FSM apply path,
-		// which does not propagate an audit-scoped ctx.
-		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
+		// serverShutdownCtx, not Background: this runs on the RAFT FSM
+		// apply path, and the audit's first step is a leader query that
+		// only a cancellable ctx releases on SIGTERM.
+		outcome, err := repo.AuditOrphanReindexTrackersIfReady(serverShutdownCtx)
 		if err != nil {
 			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
 				WithField("class", class).
@@ -739,8 +741,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize schema manager")
+			WithField("action", "startup").
+			Fatalf("could not initialize schema manager: %v", err)
 		os.Exit(1)
 	}
 
@@ -757,9 +759,17 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
+	// Assign only when RBAC is on. A nil *rbac.Manager put into this interface
+	// leaves rbacSourcer non-nil, so the backupper's nil check misses it and an
+	// includeRoles request produces an empty RBAC blob instead of being rejected.
+	var rbacSourcer backup.RBACSnapshotter
+	if appState.RBAC != nil {
+		rbacSourcer = appState.RBAC
+	}
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
-		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
+		schemaManager, repo, appState.Modules, rbacSourcer, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
+	appState.BackupActivity = backup.NewNodeActivityProbe(backupManager)
 
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
@@ -817,8 +827,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
-				WithError(err).
-				Fatal("could not open cloud meta store")
+				Fatalf("could not open cloud meta store: %v", err)
 			metaStoreReady.failure(err)
 		} else {
 			metaStoreReady.success()
@@ -839,9 +848,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
 		appState.Logger.
-			WithError(err).
 			WithField("action", "adjustFilterablePropSettings").
-			Fatal("migration failed")
+			Fatalf("migration failed: %v", err)
 		os.Exit(1)
 	}
 
@@ -865,7 +873,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")
 			if err := metaStoreReady.waitForMetaStore(); err != nil {
-				l.WithError(err).Error("Reindexing inverted indexes skipped")
+				l.Errorf("Reindexing inverted indexes skipped: %v", err)
 				return
 			}
 			l.Info("Reindexing inverted indexes")
@@ -895,12 +903,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
-			l.WithError(err).Error("Configuring crons skipped")
+			l.Errorf("Configuring crons skipped: %v", err)
 			return
 		}
 		l.Info("Configuring crons")
 		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator); err != nil {
-			l.WithError(err).Fatal("Configuring crons failed")
+			l.Fatalf("Configuring crons failed: %v", err)
 		}
 	}, appState.Logger)
 
@@ -984,6 +992,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+
+	// Installed here, not in the goroutine below: both read this node's own
+	// provider (already stored above), so neither has anything to wait for,
+	// unlike the goroutine which waits on RAFT replay and DTM. Without this,
+	// a submission deleting sidecars right now would be invisible to a
+	// concurrent backup for that whole window.
+	reindexProvider := appState.ReindexProvider.Load()
+	repo.SetReindexCleanupInProgressLookup(reindexProvider.CleanupInProgressLookupBuilder())
+	// Same race, restore side: the cluster lookup installed below sees only
+	// DTM, which has already forgotten the task by the time sidecars come down.
+	repo.SetAnyCleanupInProgressLookup(anyCleanupInProgressLookup(reindexProvider))
+
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -992,8 +1012,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-			appState.Logger.WithError(err).WithField("action", "startup").
-				Error("failed to start distributed task scheduler")
+			appState.Logger.WithField("action", "startup").
+				Errorf("failed to start distributed task scheduler: %v", err)
 			return
 		}
 
@@ -1017,8 +1037,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// "treat every tracker as known" closure, which silently
 		// misclassified orphans during a DTM partition. Explicit
 		// error makes the failure path operator-observable.
-		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
+		//
+		// The query runs on the caller's ctx: on a follower it leaves
+		// the node, and shard init consults it from the RAFT apply
+		// goroutine, so the caller is the only one that knows how long
+		// it may block.
+		buildKnownTask := func(ctx context.Context) (db.KnownReindexTaskLookup, error) {
+			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
@@ -1058,7 +1083,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
 		}
-		startupLookup, startupBuildErr := buildKnownTask()
+		startupLookup, startupBuildErr := buildKnownTask(auditCtx)
 		if startupBuildErr != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("reindex orphan audit: builder failed; skipping startup audit. The next process restart will retry: %v", startupBuildErr)
@@ -1069,56 +1094,134 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		// Install the audit deps so the post-restore-class-dir hook
 		// (wired into RestoreClassDir above) can run the audit.
-		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
+		repo.SetReindexAuditDeps(auditCtx, buildKnownTask, appState.Logger)
 
 		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built per
-		// backup precheck so the snapshot is fresh; on list failure we
-		// fall back to refusing every backup until DTM is reachable, to
-		// avoid races against in-flight reindexes that the local node
-		// cannot see.
-		type shardKey struct {
-			collection string
-			shardName  string
-		}
-		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if err != nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-				return func(string, string) bool { return true }
-			}
-			live := make(map[shardKey]bool)
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				if !db.IsLiveReindexTaskStatus(task.Status) {
-					continue
-				}
-				var payload db.ReindexTaskPayload
-				if err := json.Unmarshal(task.Payload, &payload); err != nil {
-					appState.Logger.WithField("action", "backup_reindex_gate").
-						WithField("task_id", task.ID).
-						Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-					continue
-				}
-				for _, shardName := range payload.UnitToShard {
-					live[shardKey{payload.Collection, shardName}] = true
-				}
-			}
-			return func(collection, shardName string) bool {
-				return live[shardKey{collection, shardName}]
-			}
-		}
-		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
-		// S1: the DTM-activity lookup flips a shard "free" the moment a
-		// task lands in a terminal status; autoCleanupAfterTerminal then
-		// tears the sidecar __reindex / __ingest dirs over the next
-		// tens of seconds. The cleanup-in-progress lookup keeps the gate
-		// closed for that window so a backup landing in the gap doesn't
-		// snapshot half-removed sidecars.
-		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
+		// consults DTM rather than per-shard filesystem markers. A list
+		// failure is returned as an error so the gate can refuse the whole
+		// pass with one message instead of one per collection.
+		repo.SetShardReindexActivityLookup(newShardReindexActivityBuilder(
+			auditCtx, appState.ClusterService.ListDistributedTasks, appState.Logger))
+		// Asks the cluster rather than this node: a class being restored has no
+		// local index yet, so a per-shard lookup would always say "free".
+		repo.SetAnyReindexActivityLookup(newAnyReindexActivityLookup(
+			appState.ClusterService.ListDistributedTasks, appState.Logger))
+		// Commit-time overlap check; see db.ReindexOverlapLookup.
+		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
+			appState.ClusterService.ListDistributedTasks,
+			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		))
 	}, appState.Logger)
 
 	return appState
+}
+
+// newShardReindexActivityBuilder builds the backup gate's per-shard lookup.
+// One DTM snapshot per backup pass — the admission pass and the capture pass
+// each take their own — scoped to the (collection, shard) tuples the live
+// tasks name.
+//
+// A DTM it cannot reach returns an error, since the gate must not read
+// "free" from a question it could not ask; the gate turns that into one
+// refusal that stops the whole pass, so no shard is separately named as
+// held. A live task whose
+// payload will not decode is the same uncertainty, but scoped by
+// [db.DecodeReindexTaskPayload], which recovers the collection from an
+// otherwise-unreadable payload (what a rolling upgrade produces); only a
+// payload naming no collection refuses every backup in the cluster. The
+// commit-time backstop ([db.ReindexOverlapLookup]) must agree on this same
+// scoping, so both read the payload through the same decoder.
+func newShardReindexActivityBuilder(
+	ctx context.Context,
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
+	logger logrus.FieldLogger,
+) db.ShardReindexActivityLookupBuilder {
+	type shardKey struct {
+		collection string
+		shardName  string
+	}
+	return func() (db.ShardReindexActivityLookup, error) {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list DTM tasks: %w", err)
+		}
+		live := make(map[shardKey]bool)
+		// Collections held whole because a live task names them but its payload
+		// does not say which of their shards it took.
+		blocked := make(map[string]bool)
+		for _, task := range tasksByNamespace[db.ReindexNamespace] {
+			if !db.IsLiveReindexTaskStatus(task.Status) {
+				continue
+			}
+			payload, collection, err := db.DecodeReindexTaskPayload(task.Payload)
+			if err != nil {
+				if collection == "" {
+					logger.WithField("action", "backup_reindex_gate").
+						WithField("task_id", task.ID).
+						Warnf("backup-reindex gate: cannot read task payload and it names no collection; refusing all backups until it is readable or evicted: %v", err)
+					return func(string, string) bool { return true }, nil
+				}
+				logger.WithField("action", "backup_reindex_gate").
+					WithField("task_id", task.ID).
+					WithField("collection", collection).
+					Warnf("backup-reindex gate: cannot read task payload; refusing backups of this collection until it is readable or evicted: %v", err)
+				blocked[strings.ToLower(collection)] = true
+				continue
+			}
+			for _, shardName := range payload.UnitToShard {
+				live[shardKey{collection, shardName}] = true
+			}
+		}
+		return func(collection, shardName string) bool {
+			return blocked[strings.ToLower(collection)] || live[shardKey{collection, shardName}]
+		}, nil
+	}
+}
+
+// newAnyReindexActivityLookup builds the restore gate's cluster-wide lookup.
+// Answers only for the collections being restored: a migration can run for
+// days, and a blind answer would refuse every restore for its whole
+// duration. Same scoping rule as [newShardReindexActivityBuilder]: a DTM
+// error or fully-unreadable payload refuses everything, but a payload
+// [db.DecodeReindexTaskPayload] can partially recover holds the refusal to
+// that collection.
+func newAnyReindexActivityLookup(
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
+	logger logrus.FieldLogger,
+) db.AnyReindexActivityLookup {
+	return func(ctx context.Context, collections []string) (bool, error) {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			return false, fmt.Errorf("ListDistributedTasks: %w", err)
+		}
+		wanted := make(map[string]bool, len(collections))
+		for _, c := range collections {
+			wanted[strings.ToLower(c)] = true
+		}
+		for _, task := range tasksByNamespace[db.ReindexNamespace] {
+			if !db.IsLiveReindexTaskStatus(task.Status) {
+				continue
+			}
+			_, collection, decodeErr := db.DecodeReindexTaskPayload(task.Payload)
+			if collection == "" {
+				logger.WithField("action", "restore_reindex_gate").
+					WithField("task_id", task.ID).
+					Warnf("restore-reindex gate: cannot read task payload and it names no collection; refusing all restores until it is readable or evicted: %v", decodeErr)
+				return true, nil
+			}
+			if len(wanted) > 0 && !wanted[strings.ToLower(collection)] {
+				continue
+			}
+			if decodeErr != nil {
+				logger.WithField("action", "restore_reindex_gate").
+					WithField("task_id", task.ID).
+					WithField("collection", collection).
+					Warnf("restore-reindex gate: cannot read task payload; refusing restores of this collection until it is readable or evicted: %v", decodeErr)
+			}
+			return true, nil
+		}
+		return false, nil
+	}
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
@@ -1152,7 +1255,14 @@ func initReindexAndDistributedTasks(
 	// to load already-loaded ingest buckets.
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
-	appState.ReindexProvider = reindexProvider
+	appState.ReindexProvider.Store(reindexProvider)
+
+	// Closes this node's cleanup gate as the terminal status applies rather than
+	// when the scheduler next ticks, which is what lets a cancel be confirmed
+	// cluster-wide inside a request's budget. Fires on FAILED as well, which
+	// needs the same gate. See [db.ReindexProvider.OnTerminalApplied].
+	appState.ClusterService.RegisterDistributedTaskTerminalObserver(
+		db.ReindexNamespace, reindexProvider.OnTerminalApplied)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1423,6 +1533,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
+	appState.BackupActivity.AttachScheduler(backupScheduler)
 	setupBackupHandlers(api, backupScheduler, appState.ServerConfig.Config.Authorization.Rbac, appState.Metrics, appState.Logger)
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
@@ -1611,12 +1722,21 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
 		userLister = appState.APIKey.Dynamic
 	}
+	// roleLister lets the scheduler resolve includeRoles selectors. Assign it only
+	// when RBAC is on: putting a nil *rbac.Manager into the interface would leave
+	// roleLister non-nil, so the scheduler's nil check would miss it and an
+	// includeRoles request would panic instead of being rejected with a clear error.
+	var roleLister backup.RoleLister
+	if appState.RBAC != nil {
+		roleLister = appState.RBAC
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, userLister, appState.Modules,
+		appState.DB, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
+		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
 		appState.Logger)
 	return backupScheduler
 }
@@ -1657,7 +1777,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	appState.ServerConfig = serverConfig
 	err = serverConfig.LoadConfig(options, logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithError(err).Error("could not load config")
+		logger.WithField("action", "startup").Errorf("could not load config: %v", err)
 		logger.Exit(1)
 	}
 	// Initialize runtime config and load overridden config
@@ -1665,7 +1785,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
-			WithField("path", dataPath).Error("cannot create data directory")
+			WithField("path", dataPath).
+			Errorf("cannot create data directory %q: %v", dataPath, err)
 		logger.Exit(1)
 	}
 
@@ -1704,7 +1825,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	if err = configureAuthorizer(appState); err != nil {
-		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
+		logger.WithField("action", "startup").Errorf("cannot configure authorizer: %v", err)
 		logger.Exit(1)
 	}
 	appState.Crons = configureCrons(appState, serverShutdownCtx)
@@ -1724,8 +1845,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithError(err).
-			Error("could not init cluster state")
+		logger.WithField("action", "startup").
+			Errorf("could not init cluster state: %v", err)
 		logger.Exit(1)
 	}
 
@@ -1737,8 +1858,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	// Register enabled modules
 	if err := registerModules(appState); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
+			WithField("action", "startup").
+			Fatalf("modules didn't load: %v", err)
 	}
 	// while we accept an overall longer startup, e.g. due to a recovery, we
 	// still want to limit the module startup context, as that's mostly service
@@ -1748,15 +1869,15 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	if err := initModules(moduleCtx, appState); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
+			WithField("action", "startup").
+			Fatalf("modules didn't initialize: %v", err)
 	}
 	// now that modules are loaded we can run the remaining config validation
 	// which is module dependent
 	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid config")
+			WithField("action", "startup").
+			Fatalf("invalid config: %v", err)
 	}
 
 	// Initialize runtime config hooks and start runtime config background process
@@ -1819,6 +1940,7 @@ func registerModules(appState *state.State) error {
 		modtext2multivecjinaai.Name,
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
+		modmulti2vectwelvelabs.Name,
 		modmulti2multivecjinaai.Name,
 		modmulti2multivecweaviate.Name,
 		modmulti2vecaws.Name,
@@ -2072,6 +2194,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecvoyageai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vectwelvelabs.Name]; ok {
+		appState.Modules.Register(modmulti2vectwelvelabs.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vectwelvelabs.Name).
 			Debug("enabled module")
 	}
 
@@ -2483,8 +2613,65 @@ func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
-	t := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+	return clusterHttpClient(authConfig, minimumInternalTimeout, http.ProxyFromEnvironment)
+}
+
+// reindexGateProbeHttpClient serves the backup-vs-reindex gate's two probes
+// and nothing else. Identical to [reasonableHttpClient] except it never
+// consults HTTP_PROXY/HTTPS_PROXY: a proxy answering in the peer's stead
+// would 404 everything, and the probes read a 404 as "this build predates
+// the route" — a proxy would make the gate read "no backups anywhere".
+// Scoped to just these probes; whether cluster-internal traffic in general
+// should honor a proxy is a separate, deployment-visible question.
+func reindexGateProbeHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
+	return clusterHttpClient(authConfig, minimumInternalTimeout, nil)
+}
+
+func clusterHttpClient(
+	authConfig cluster.AuthConfig,
+	minimumInternalTimeout time.Duration,
+	proxy func(*http.Request) (*url.URL, error),
+) *http.Client {
+	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
+	transport := monitoring.NewTracingTransport(clusterHttpTransport(minimumInternalTimeout, proxy))
+
+	if authConfig.BasicAuth.Enabled() {
+		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
+	}
+	return &http.Client{Transport: transport}
+}
+
+// cleanupProber is the half of [db.ReindexProvider] the restore gate needs.
+type cleanupProber interface {
+	AnyCleanupInProgress() bool
+	BlockingHoldForCollection(collection string) bool
+}
+
+// anyCleanupInProgressLookup answers the restore gate's node-local half.
+//
+// Blind only when the caller has no class list yet; otherwise a teardown stuck
+// on one collection must not refuse restores of the rest. See
+// [db.AnyCleanupInProgressLookup].
+func anyCleanupInProgressLookup(prober cleanupProber) db.AnyCleanupInProgressLookup {
+	return func(collections []string) bool {
+		if len(collections) == 0 {
+			return prober.AnyCleanupInProgress()
+		}
+		for _, c := range collections {
+			if prober.BlockingHoldForCollection(c) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func clusterHttpTransport(
+	minimumInternalTimeout time.Duration,
+	proxy func(*http.Request) (*url.URL, error),
+) *http.Transport {
+	return &http.Transport{
+		Proxy: proxy,
 		DialContext: (&net.Dialer{
 			Timeout:   minimumInternalTimeout,
 			KeepAlive: 120 * time.Second,
@@ -2495,14 +2682,6 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-
-	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
-	transport := monitoring.NewTracingTransport(t)
-
-	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
-	}
-	return &http.Client{Transport: transport}
 }
 
 func setupGoProfiling(appState *state.State) {
@@ -2669,6 +2848,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.QueryBatchedContainsEnabled = appState.ServerConfig.Config.QueryBatchedContainsEnabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization

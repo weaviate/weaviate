@@ -104,6 +104,13 @@ func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extr
 	s.store.RegisterDistributedTaskCollectionExtractor(namespace, extractor)
 }
 
+// RegisterDistributedTaskTerminalObserver installs a namespace's
+// [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
+// see that type for the apply-path contract.
+func (s *Raft) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
+	s.store.RegisterDistributedTaskTerminalObserver(namespace, observer)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }

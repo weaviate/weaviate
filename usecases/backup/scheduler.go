@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -60,7 +61,14 @@ type Scheduler struct {
 	backends   BackupBackendProvider
 	// nil when dynamic DB users are not enabled.
 	userLister UserLister
+	// nil when RBAC is not enabled.
+	roleLister RoleLister
 	schema     schemaManger
+	// The cluster's configured static API key users, empty when API keys are off.
+	// The namespace-strip dry run needs them to tell a global static user from a
+	// namespaced dynamic one. Build it with rbac.StaticAPIKeyUsers, so this list
+	// is the same one the nodes strip with.
+	staticAPIKeyUsers []string
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -69,17 +77,21 @@ func NewScheduler(
 	client client,
 	sourcer Selector,
 	userLister UserLister,
+	roleLister RoleLister,
 	backends BackupBackendProvider,
 	nodeResolver NodeResolver,
 	schema schemaManger,
+	staticAPIKeyUsers []string,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{
-		logger:     logger,
-		authorizer: authorizer,
-		backends:   backends,
-		userLister: userLister,
-		schema:     schema,
+		logger:            logger,
+		authorizer:        authorizer,
+		backends:          backends,
+		userLister:        userLister,
+		roleLister:        roleLister,
+		schema:            schema,
+		staticAPIKeyUsers: staticAPIKeyUsers,
 		backupper: newCoordinator(
 			sourcer,
 			client,
@@ -156,13 +168,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	classes, users, err := s.validateBackupRequest(ctx, store, req)
+	sel, err := s.validateBackupRequest(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	if !explicitInclude {
-		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
+		sel.classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, sel.classes)
 		if err != nil {
 			return nil, err
 		}
@@ -175,20 +187,26 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Method:       OpCreate,
 		ID:           req.ID,
 		Backend:      req.Backend,
-		Classes:      classes,
-		Users:        users,
+		Classes:      sel.classes,
+		Users:        sel.users,
+		Roles:        sel.roles,
 		Compression:  req.Compression,
 		Bucket:       req.Bucket,
 		Path:         req.Path,
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
+		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
+			errors.Is(err, backup.ErrReindexInFlight) {
+			// Retryable, so 422: a 500 would page the on-call.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	} else {
 		st := s.backupper.lastOp.get()
 		status := string(st.Status)
 		return &models.BackupCreateResponse{
-			Classes: classes,
+			Classes: sel.classes,
 			ID:      req.ID,
 			Backend: req.Backend,
 			Status:  &status,
@@ -225,6 +243,20 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
+			// The gate answers before existence does: a caller who cannot
+			// restore right now should be told that, not sent to fix an id
+			// that was never the problem.
+			if !explicitInclude {
+				// This path has no classes to authorize against, so a broad
+				// grant stands in — the gate's cluster-wide answer must not
+				// reach a principal with no backup permission at all.
+				if authErr := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...); authErr != nil {
+					return nil, authErr
+				}
+			}
+			if gateErr := s.refuseRestoreDuringReindex(ctx, nil); gateErr != nil {
+				return nil, gateErr
+			}
 			return nil, backup.NewErrNotFound(err)
 		}
 		return nil, backup.NewErrUnprocessable(err)
@@ -238,12 +270,19 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		meta.Include(allowed)
 	}
 
-	schema, userBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
+	// Gated here, after validateRestoreRequest expands any wildcard include
+	// against the backup's classes — gating earlier would ask the lookup
+	// about the pattern itself, which matches no collection.
+	if err := s.refuseRestoreDuringReindex(ctx, meta.Classes()); err != nil {
+		return nil, err
+	}
+
+	schema, userBlobs, rbacBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.validateNamespaceStripping(ctx, schema, userBlobs, meta.Classes(), req.UserRestoreOption); err != nil {
+	if err := s.validateNamespaceStripping(ctx, schema, userBlobs, rbacBlobs, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 	status := string(backup.Started)
@@ -271,6 +310,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
+		if errors.Is(err, backup.ErrReindexInFlight) {
+			// The participant saw a migration the cluster-wide check above missed.
+			// Retryable, so 422: a 500 would page the on-call.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	}
 
@@ -296,6 +340,21 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 		return nil, authzerrors.NewForbidden(pr, verb, authorization.Backups(classes...)...)
 	}
 	return allowed, nil
+}
+
+// refuseRestoreDuringReindex refuses a restore while a runtime-reindex task is
+// live on any of collections, anywhere in the cluster. Refuses rather than
+// waits, since waiting would hold the restore slot the reverse guard reads,
+// deadlocking both sides. Every caller must authorize first: the refusal
+// discloses cluster-wide reindex state. collections must be resolved class
+// names, never wildcards; nil asks about every collection. Fails closed: a
+// task whose payload cannot be read refuses the collection the payload still
+// names, and one naming no collection at all refuses every restore.
+func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
+	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx, collections); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("restore blocked: %w", err))
+	}
+	return nil
 }
 
 // authorizeBackupByID authorizes the caller against the classes recorded in the
@@ -527,7 +586,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// Another coordinator already completed cancellation
 			return nil
 		}
-		s.restorer.lastOp.set(backup.Cancelling)
+		s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -543,8 +602,11 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	s.restorer.abortAll(ctx,
 		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
-	// Update coordinator's lastOp status to prevent stale reads from OnStatus()
-	s.restorer.lastOp.set(backup.Cancelled)
+	// Update coordinator's lastOp status to prevent stale reads from OnStatus().
+	// Only when this node's restore slot is still held by the restore being
+	// cancelled: the slot is one per node and shared by every restore this node
+	// coordinates, and OnStatus reads it only for a matching id anyway.
+	s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
 
 	// Write final CANCELED status to restore_config.json
 	if meta != nil {
@@ -636,36 +698,42 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	return cs, nil
 }
 
-// validateBackupRequest resolves the request into concrete classes and
-// users. users is empty unless includeUsers was supplied.
-func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (classes, users []string, err error) {
+// backupSelections is what a backup request resolves to. Nil users and roles
+// mean an ordinary class-only backup.
+type backupSelections struct {
+	classes, users, roles []string
+}
+
+// validateBackupRequest resolves the request into concrete classes, users, and
+// roles. Users and roles stay empty unless includeUsers/includeRoles were given.
+func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (selections backupSelections, err error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
-		return nil, nil, errLocalBackendDBRO
+		return selections, errLocalBackendDBRO
 	}
 
-	if err := validateID(req.ID); err != nil {
-		return nil, nil, err
+	if err = validateID(req.ID); err != nil {
+		return selections, err
 	}
 	if req.BaseBackupID != "" {
-		if err := validateID(req.BaseBackupID); err != nil {
-			return nil, nil, fmt.Errorf("base backup id: %w", err)
+		if err = validateID(req.BaseBackupID); err != nil {
+			return selections, fmt.Errorf("base backup id: %w", err)
 		}
 		if req.ID == req.BaseBackupID {
-			return nil, nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
+			return selections, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
 		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, nil, errIncludeExclude
+		return selections, errIncludeExclude
 	}
 
 	if dup := findDuplicate(req.Include); dup != "" {
-		return nil, nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+		return selections, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 
 	// Get all available classes first for wildcard expansion
 	allClasses := s.backupper.selector.ListClasses(ctx)
 	if len(allClasses) == 0 {
-		return nil, nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
+		return selections, fmt.Errorf("no available classes to backup, there's nothing to do here")
 	}
 
 	// Expand wildcards in Include list
@@ -674,37 +742,46 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	// Expand wildcards in Exclude list
 	exclude := expandWildcards(req.Exclude, allClasses)
 
-	classes = include
+	classes := include
 	if len(classes) == 0 {
 		classes = allClasses
 	}
 	if classes = filterClasses(classes, exclude); len(classes) == 0 {
-		return nil, nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
+		return selections, fmt.Errorf("empty class list: please choose from : %v", allClasses)
 	}
 
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
-		return nil, nil, err
+		return selections, err
 	}
 
-	users, err = s.resolveUsers(req.IncludeUsers)
+	users, err := s.resolveUsers(req.IncludeUsers)
 	if err != nil {
-		return nil, nil, err
+		return selections, err
 	}
 
-	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
-		return nil, nil, err
+	roles, err := s.resolveRoles(req.IncludeRoles)
+	if err != nil {
+		return selections, err
+	}
+
+	if err = s.checkIfBackupExists(ctx, store, req); err != nil {
+		return selections, err
 	}
 
 	// validate base backup chain
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get compression type: %w", err)
+		return selections, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
-		return nil, nil, fmt.Errorf("resolve base backup chain: %w", err)
+	if _, err = resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+		return selections, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
-	return classes, users, nil
+	selections.classes = classes
+	selections.users = users
+	selections.roles = roles
+
+	return
 }
 
 // resolveUsers expands includeUsers selectors. Empty input → nil (ordinary
@@ -742,6 +819,64 @@ func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
 		return nil, fmt.Errorf("no dynamic users match 'includeUsers' %v", includeUsers)
 	}
 	return users, nil
+}
+
+// resolveRoles expands includeRoles selectors. Empty input returns nil, leaving
+// the participant on its default of a full RBAC snapshot.
+func (s *Scheduler) resolveRoles(includeRoles []string) ([]string, error) {
+	if len(includeRoles) == 0 {
+		return nil, nil
+	}
+	if s.roleLister == nil {
+		return nil, errors.New("'includeRoles' was set but RBAC is not enabled")
+	}
+	allRoles, err := s.roleLister.ListAllRoles()
+	if err != nil {
+		return nil, fmt.Errorf("list all roles: %w", err)
+	}
+	return resolveRoleSelectors(includeRoles, allRoles)
+}
+
+// resolveRoleSelectors follows resolveUserSelectors: '*'/'?' wildcards, dedup,
+// exact selectors must exist, and a non-empty list matching nothing is an error.
+//
+// Built-in roles are the exception. Naming one explicitly is rejected, and
+// wildcards expand over custom roles only, so '*' never picks up a built-in.
+// Restore re-applies the built-ins from env and code either way.
+func resolveRoleSelectors(includeRoles, allRoles []string) ([]string, error) {
+	if dup := findDuplicate(includeRoles); dup != "" {
+		return nil, fmt.Errorf("role list 'includeRoles' contains duplicate: %s", dup)
+	}
+
+	for _, r := range includeRoles {
+		if slices.Contains(authorization.BuiltInRoles, r) {
+			return nil, fmt.Errorf("role %q in 'includeRoles' is a built-in role and cannot be backed up", r)
+		}
+	}
+
+	candidates := make([]string, 0, len(allRoles))
+	for _, r := range allRoles {
+		if slices.Contains(authorization.BuiltInRoles, r) {
+			continue
+		}
+		candidates = append(candidates, r)
+	}
+
+	roles := expandWildcards(includeRoles, candidates)
+
+	known := make(map[string]struct{}, len(candidates))
+	for _, r := range candidates {
+		known[r] = struct{}{}
+	}
+	for _, r := range roles {
+		if _, ok := known[r]; !ok {
+			return nil, fmt.Errorf("role %q in 'includeRoles' does not exist", r)
+		}
+	}
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("no roles match 'includeRoles' %v", includeRoles)
+	}
+	return roles, nil
 }
 
 func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, req *BackupRequest) error {
@@ -784,6 +919,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 	if meta.Status != backup.Success {
 		return nil, fmt.Errorf("invalid backup in scheduler %s status: %s", destPath, meta.Status)
+	}
+	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
+		return nil, err
 	}
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
@@ -833,7 +971,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 //
 // Everything is validated from the per-node descriptors (the payload nodes
 // actually restore) filtered down to the selected classes.
-func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors []backup.ClassDescriptor, userBlobs [][]byte, selectedClasses []string, userRestoreOption string) error {
+func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors []backup.ClassDescriptor, userBlobs, rbacBlobs [][]byte, selectedClasses []string, userRestoreOption, rbacRestoreOption string) error {
 	if s.schema.NamespacesEnabled() {
 		return nil // restore does not strip namespaces
 	}
@@ -951,6 +1089,18 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 		}
 	}
 
+	// casbin merges colliding rows on restore without reporting anything, so run
+	// the RBAC blobs through the same strip-and-collide logic the nodes apply.
+	// This is the only check that runs before any node stages data. The same
+	// strip runs again per node at apply time and refuses the blob there too.
+	if s.roleLister != nil && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+		for _, blob := range rbacBlobs {
+			if err := rbac.ValidateNamespaceStrip(blob, s.staticAPIKeyUsers); err != nil {
+				errs = append(errs, fmt.Sprintf("roles: %v", err))
+			}
+		}
+	}
+
 	if len(errs) == 0 {
 		return nil
 	}
@@ -960,21 +1110,21 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 
 // fetchSchema retrieves and returns the latest schema for all classes
 // In pre-raft scenarios where schema may diverge, some guesswork is necessary.
-// It also returns the per-node dynamic-user snapshot blobs (deduped; empty
-// when the backup carries no users).
+// It also returns the per-node dynamic-user and RBAC snapshot blobs, deduped,
+// and empty when the backup carries no users or no roles.
 func (s *Scheduler) fetchSchema(
 	ctx context.Context,
 	backend string,
 	overrideBucket string,
 	overridePath string,
 	req *backup.DistributedBackupDescriptor,
-) ([]backup.ClassDescriptor, [][]byte, error) {
+) ([]backup.ClassDescriptor, [][]byte, [][]byte, error) {
 	f := func(node string) (*backup.BackupDescriptor, error) {
 		store, err := nodeBackend(node, s.backends, backend, req.ID, overrideBucket, overridePath)
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, true)
+		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path)
 		if err != nil {
 			return nil, err
 		}
@@ -984,25 +1134,31 @@ func (s *Scheduler) fetchSchema(
 	if req.Leader != "" {
 		meta, err := f(req.Leader) // raft version of the backup
 		if err != nil {
-			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", req.Leader, err)
+			return nil, nil, nil, fmt.Errorf("fetch meta of node %q: %w", req.Leader, err)
 		}
 		var userBlobs [][]byte
 		if len(meta.UserBackups) > 0 {
 			userBlobs = [][]byte{meta.UserBackups}
 		}
-		return meta.Classes, userBlobs, nil
+		var rbacBlobs [][]byte
+		if len(meta.RbacBackups) > 0 {
+			rbacBlobs = [][]byte{meta.RbacBackups}
+		}
+		return meta.Classes, userBlobs, rbacBlobs, nil
 	}
 
 	// union
 	m := make(map[string]backup.ClassDescriptor, 64)
 	var userBlobs [][]byte
-	seenBlobs := make(map[string]struct{}, 1)
+	seenUserBlobs := make(map[string]struct{}, 1)
+	var rbacBlobs [][]byte
+	seenRbacBlobs := make(map[string]struct{}, 1)
 	for k := range req.Nodes {
 		meta, err := f(k)
 		if err != nil {
 			// Fail closed: a partial union would silently skip the missing
 			// node's classes at restore time and blind the strip validation.
-			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", k, err)
+			return nil, nil, nil, fmt.Errorf("fetch meta of node %q: %w", k, err)
 		}
 		// guess the most up to date version
 		for _, x := range meta.Classes {
@@ -1012,9 +1168,13 @@ func (s *Scheduler) fetchSchema(
 				continue
 			}
 		}
-		if _, ok := seenBlobs[string(meta.UserBackups)]; len(meta.UserBackups) > 0 && !ok {
-			seenBlobs[string(meta.UserBackups)] = struct{}{}
+		if _, ok := seenUserBlobs[string(meta.UserBackups)]; len(meta.UserBackups) > 0 && !ok {
+			seenUserBlobs[string(meta.UserBackups)] = struct{}{}
 			userBlobs = append(userBlobs, meta.UserBackups)
+		}
+		if _, ok := seenRbacBlobs[string(meta.RbacBackups)]; len(meta.RbacBackups) > 0 && !ok {
+			seenRbacBlobs[string(meta.RbacBackups)] = struct{}{}
+			rbacBlobs = append(rbacBlobs, meta.RbacBackups)
 		}
 	}
 	xs := make([]backup.ClassDescriptor, len(m))
@@ -1023,7 +1183,7 @@ func (s *Scheduler) fetchSchema(
 		xs[i] = v
 		i++
 	}
-	return xs, userBlobs, nil
+	return xs, userBlobs, rbacBlobs, nil
 }
 
 func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {
@@ -1031,7 +1191,9 @@ func logOperation(logger logrus.FieldLogger, name, id, backend string, begin tim
 		WithField("backup_id", id).WithField("backend", backend).
 		WithField("took", time.Since(begin))
 	if err != nil {
-		le.Error(err)
+		// Bounded: an admission refusal carries one line per blocked
+		// collection, and the caller still gets all of them in the response.
+		le.Error(backup.ErrorForLog(err))
 	} else {
 		le.Info()
 	}
